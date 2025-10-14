@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'services/signalk_service.dart';
 import 'services/storage_service.dart';
+import 'services/dashboard_service.dart';
 import 'services/tool_registry.dart';
 import 'services/template_service.dart';
 import 'screens/connection_screen.dart';
@@ -14,6 +15,10 @@ void main() async {
   final storageService = StorageService();
   await storageService.initialize();
 
+  // Initialize dashboard service
+  final dashboardService = DashboardService(storageService);
+  await dashboardService.initialize();
+
   // Initialize template service
   final templateService = TemplateService(storageService);
   await templateService.initialize();
@@ -24,17 +29,20 @@ void main() async {
 
   runApp(ZedDisplayApp(
     storageService: storageService,
+    dashboardService: dashboardService,
     templateService: templateService,
   ));
 }
 
 class ZedDisplayApp extends StatelessWidget {
   final StorageService storageService;
+  final DashboardService dashboardService;
   final TemplateService templateService;
 
   const ZedDisplayApp({
     super.key,
     required this.storageService,
+    required this.dashboardService,
     required this.templateService,
   });
 
@@ -43,6 +51,7 @@ class ZedDisplayApp extends StatelessWidget {
     return MultiProvider(
       providers: [
         ChangeNotifierProvider.value(value: storageService),
+        ChangeNotifierProvider.value(value: dashboardService),
         ChangeNotifierProvider.value(value: templateService),
         ChangeNotifierProvider(create: (_) => SignalKService()),
       ],

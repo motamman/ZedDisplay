@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../services/signalk_service.dart';
-import 'dashboard_screen.dart';
+import 'dashboard_manager_screen.dart';
 
 class ConnectionScreen extends StatefulWidget {
   const ConnectionScreen({super.key});
@@ -48,7 +48,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
       if (mounted) {
         Navigator.of(context).pushReplacement(
           MaterialPageRoute(
-            builder: (context) => const DashboardScreen(),
+            builder: (context) => const DashboardManagerScreen(),
           ),
         );
       }
