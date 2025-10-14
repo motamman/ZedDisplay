@@ -19,10 +19,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Updated code to eliminate all Flutter analyzer warnings (now passing with 0 issues)
 
-## [0.1.0-beta.1] - 2025-10-14
+## [0.1.0] - 2025-10-14
 
 ### Added
-- Initial beta release
+- Initial release
 - Real-time SignalK WebSocket connection with endpoint discovery
 - Custom radial gauges for displaying numeric marine data
 - Compass gauge for heading display

@@ -7,6 +7,91 @@ import '../widgets/compass_gauge.dart';
 class DashboardScreen extends StatelessWidget {
   const DashboardScreen({super.key});
 
+  // Test method for vessel ID
+  void _testGetVesselId(BuildContext context, SignalKService service) async {
+    final vesselId = await service.getVesselSelfId();
+    if (context.mounted) {
+      showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Vessel ID'),
+          content: Text(vesselId ?? 'No vessel ID found'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('OK'),
+            ),
+          ],
+        ),
+      );
+    }
+  }
+
+  // Test method for available paths
+  void _testGetPaths(BuildContext context, SignalKService service) async {
+    final tree = await service.getAvailablePaths();
+    if (tree != null) {
+      final paths = service.extractPathsFromTree(tree);
+      if (context.mounted) {
+        showDialog(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: Text('Available Paths (${paths.length})'),
+            content: SizedBox(
+              width: double.maxFinite,
+              child: ListView.builder(
+                shrinkWrap: true,
+                itemCount: paths.length,
+                itemBuilder: (context, index) {
+                  return ListTile(
+                    dense: true,
+                    title: Text(
+                      paths[index],
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                  );
+                },
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Close'),
+              ),
+            ],
+          ),
+        );
+      }
+    } else if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Failed to fetch paths')),
+      );
+    }
+  }
+
+  // Test method for sources
+  void _testGetSources(BuildContext context, SignalKService service) async {
+    const testPath = 'navigation.speedOverGround';
+    final sources = await service.getSourcesForPath(testPath);
+    if (context.mounted) {
+      showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Sources for SOG'),
+          content: sources != null
+              ? Text(sources.keys.join('\n'))
+              : const Text('No sources found or path has no \$source'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('OK'),
+            ),
+          ],
+        ),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -236,6 +321,28 @@ class DashboardScreen extends StatelessWidget {
                             'Sample paths: ${service.latestData.keys.take(5).join(", ")}',
                             style: const TextStyle(fontSize: 10, color: Colors.grey),
                           ),
+                        const SizedBox(height: 12),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [
+                            ElevatedButton.icon(
+                              onPressed: () => _testGetVesselId(context, service),
+                              icon: const Icon(Icons.directions_boat, size: 16),
+                              label: const Text('Get Vessel ID', style: TextStyle(fontSize: 12)),
+                            ),
+                            ElevatedButton.icon(
+                              onPressed: () => _testGetPaths(context, service),
+                              icon: const Icon(Icons.list, size: 16),
+                              label: const Text('Get All Paths', style: TextStyle(fontSize: 12)),
+                            ),
+                            ElevatedButton.icon(
+                              onPressed: () => _testGetSources(context, service),
+                              icon: const Icon(Icons.sensors, size: 16),
+                              label: const Text('Get Sources', style: TextStyle(fontSize: 12)),
+                            ),
+                          ],
+                        ),
                       ],
                     ),
                   ),

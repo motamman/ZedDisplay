@@ -12,8 +12,8 @@ class ConnectionScreen extends StatefulWidget {
 
 class _ConnectionScreenState extends State<ConnectionScreen> {
   final _formKey = GlobalKey<FormState>();
-  final _serverController = TextEditingController(text: 'demo.signalk.org');
-  bool _useSecure = true;
+  final _serverController = TextEditingController(text: '192.168.1.88:3000');
+  bool _useSecure = false;
   bool _isConnecting = false;
 
   @override
