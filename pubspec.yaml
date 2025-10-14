@@ -4,7 +4,7 @@ publish_to: 'none'
 version: 0.1.0+1
 
 environment:
-  sdk: '>=3.0.0 <4.0.0'
+  sdk: '>=3.8.0 <4.0.0'
 
 dependencies:
   flutter:
@@ -20,6 +20,11 @@ dependencies:
   # JSON serialization
   json_annotation: ^4.8.1
 
+  # Storage
+  hive: ^2.2.3
+  hive_flutter: ^1.1.0
+  path_provider: ^2.1.1
+
   # Charts and Visualizations
   fl_chart: ^0.66.0
 
@@ -32,6 +37,7 @@ dev_dependencies:
   flutter_lints: ^3.0.0
   build_runner: ^2.4.7
   json_serializable: ^6.7.1
+  hive_generator: ^2.0.1
 
 flutter:
   uses-material-design: true

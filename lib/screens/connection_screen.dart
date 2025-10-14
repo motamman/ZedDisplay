@@ -13,12 +13,17 @@ class ConnectionScreen extends StatefulWidget {
 class _ConnectionScreenState extends State<ConnectionScreen> {
   final _formKey = GlobalKey<FormState>();
   final _serverController = TextEditingController(text: '192.168.1.88:3000');
+  final _usernameController = TextEditingController();
+  final _passwordController = TextEditingController();
   bool _useSecure = false;
   bool _isConnecting = false;
+  bool _requiresAuth = false;
 
   @override
   void dispose() {
     _serverController.dispose();
+    _usernameController.dispose();
+    _passwordController.dispose();
     super.dispose();
   }
 
@@ -33,7 +38,12 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
 
     try {
       final service = context.read<SignalKService>();
-      await service.connect(_serverController.text, secure: _useSecure);
+      await service.connect(
+        _serverController.text,
+        secure: _useSecure,
+        username: _requiresAuth ? _usernameController.text : null,
+        password: _requiresAuth ? _passwordController.text : null,
+      );
 
       if (mounted) {
         Navigator.of(context).pushReplacement(
@@ -123,6 +133,49 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
                   });
                 },
               ),
+              const SizedBox(height: 8),
+              SwitchListTile(
+                title: const Text('Requires Authentication'),
+                value: _requiresAuth,
+                onChanged: (value) {
+                  setState(() {
+                    _requiresAuth = value;
+                  });
+                },
+              ),
+              if (_requiresAuth) ...[
+                const SizedBox(height: 16),
+                TextFormField(
+                  controller: _usernameController,
+                  decoration: const InputDecoration(
+                    labelText: 'Username',
+                    prefixIcon: Icon(Icons.person),
+                    border: OutlineInputBorder(),
+                  ),
+                  validator: (value) {
+                    if (_requiresAuth && (value == null || value.isEmpty)) {
+                      return 'Please enter username';
+                    }
+                    return null;
+                  },
+                ),
+                const SizedBox(height: 16),
+                TextFormField(
+                  controller: _passwordController,
+                  decoration: const InputDecoration(
+                    labelText: 'Password',
+                    prefixIcon: Icon(Icons.lock),
+                    border: OutlineInputBorder(),
+                  ),
+                  obscureText: true,
+                  validator: (value) {
+                    if (_requiresAuth && (value == null || value.isEmpty)) {
+                      return 'Please enter password';
+                    }
+                    return null;
+                  },
+                ),
+              ],
               const SizedBox(height: 24),
               ElevatedButton(
                 onPressed: _isConnecting ? null : _connect,

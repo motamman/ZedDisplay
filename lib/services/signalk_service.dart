@@ -20,26 +20,71 @@ class SignalKService extends ChangeNotifier {
   // Configuration
   String _serverUrl = 'localhost:3000';
   bool _useSecureConnection = false;
+  String? _authToken;
+  String? _username;
+  String? _password;
 
   // Getters
   bool get isConnected => _isConnected;
   String? get errorMessage => _errorMessage;
   Map<String, SignalKDataPoint> get latestData => Map.unmodifiable(_latestData);
 
-  /// Connect to SignalK server
-  Future<void> connect(String serverUrl, {bool secure = false}) async {
+  /// Login to SignalK server and get JWT token
+  Future<void> login(String serverUrl, String username, String password, {bool secure = false}) async {
     _serverUrl = serverUrl;
     _useSecureConnection = secure;
 
+    final protocol = secure ? 'https' : 'http';
+
     try {
+      final response = await http.post(
+        Uri.parse('$protocol://$serverUrl/signalk/v1/auth/login'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'username': username,
+          'password': password,
+        }),
+      ).timeout(const Duration(seconds: 10));
+
+      if (kDebugMode) {
+        print('Login request to: $protocol://$serverUrl/signalk/v1/auth/login');
+        print('Login response status: ${response.statusCode}');
+        print('Login response body: ${response.body}');
+      }
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        _authToken = data['token'];
+
+        if (kDebugMode) {
+          print('Login successful, token obtained');
+        }
+      } else {
+        throw Exception('Login failed: ${response.statusCode} - ${response.body}');
+      }
+    } catch (e) {
+      throw Exception('Login failed: $e');
+    }
+  }
+
+  /// Connect to SignalK server (optionally with authentication)
+  Future<void> connect(String serverUrl, {bool secure = false, String? username, String? password}) async {
+    _serverUrl = serverUrl;
+    _useSecureConnection = secure;
+    _username = username;
+    _password = password;
+
+    try {
+      // Login first if credentials provided (to get token for HTTP requests)
+      if (username != null && password != null && username.isNotEmpty && password.isNotEmpty) {
+        await login(serverUrl, username, password, secure: secure);
+      }
+
       // First, discover the WebSocket endpoint
       final wsUrl = await _discoverWebSocketEndpoint();
 
       // Connect to WebSocket
       _channel = WebSocketChannel.connect(Uri.parse(wsUrl));
-
-      // Subscribe to all updates with wildcard
-      _sendSubscription();
 
       // Listen to incoming messages
       _subscription = _channel!.stream.listen(
@@ -55,6 +100,16 @@ class SignalKService extends ChangeNotifier {
       if (kDebugMode) {
         print('Connected to SignalK server: $wsUrl');
       }
+
+      // Send WebSocket login if credentials provided
+      if (_username != null && _password != null) {
+        _sendWebSocketLogin();
+        // Wait a moment for authentication to complete
+        await Future.delayed(const Duration(milliseconds: 500));
+      }
+
+      // Subscribe to all available paths (must be done after connection and auth)
+      await _sendSubscription();
     } catch (e) {
       _errorMessage = 'Connection failed: $e';
       _isConnected = false;
@@ -63,41 +118,148 @@ class SignalKService extends ChangeNotifier {
     }
   }
 
+  /// Get HTTP headers with authentication if available
+  Map<String, String> _getHeaders() {
+    final headers = <String, String>{
+      'Content-Type': 'application/json',
+    };
+    if (_authToken != null) {
+      headers['Authorization'] = 'Bearer $_authToken';
+    }
+    return headers;
+  }
+
   /// Discover WebSocket endpoint from SignalK server
   Future<String> _discoverWebSocketEndpoint() async {
     final wsProtocol = _useSecureConnection ? 'wss' : 'ws';
+
+    // If authentication is not configured, use standard SignalK endpoint
+    // The units-preference plugin endpoint requires authentication
+    if (_username == null || _password == null) {
+      final standardEndpoint = '$wsProtocol://$_serverUrl/signalk/v1/stream?subscribe=self';
+      if (kDebugMode) {
+        print('Using standard SignalK endpoint (no auth): $standardEndpoint');
+      }
+      return standardEndpoint;
+    }
 
     // Use signalk-units-preference plugin endpoint for pre-converted values
     final unitsPreferenceEndpoint = '$wsProtocol://$_serverUrl/plugins/signalk-units-preference/stream';
 
     if (kDebugMode) {
-      print('Using units-preference endpoint: $unitsPreferenceEndpoint');
+      print('Using units-preference endpoint (with auth): $unitsPreferenceEndpoint');
     }
 
     return unitsPreferenceEndpoint;
   }
 
+  /// Send WebSocket login message (SignalK authentication protocol)
+  void _sendWebSocketLogin() {
+    if (_username != null && _password != null) {
+      final loginMessage = {
+        'requestId': '${DateTime.now().millisecondsSinceEpoch}',
+        'login': {
+          'username': _username,
+          'password': _password,
+        },
+      };
+
+      _channel?.sink.add(jsonEncode(loginMessage));
+
+      if (kDebugMode) {
+        print('Sent WebSocket login message');
+      }
+    }
+  }
+
   /// Send subscription request to receive all data
-  void _sendSubscription() {
-    final subscription = {
-      'context': 'vessels.self',
-      'subscribe': [
-        {
-          'path': '*', // Subscribe to all paths
-          'period': 1000, // Update every second
+  Future<void> _sendSubscription() async {
+    try {
+      // Standard SignalK endpoint supports wildcard subscriptions
+      if (_username == null || _password == null) {
+        final subscription = {
+          'context': 'vessels.self',
+          'subscribe': [
+            {
+              'path': '*',
+              'period': 1000,
+              'format': 'delta',
+              'policy': 'instant',
+            }
+          ]
+        };
+
+        _channel?.sink.add(jsonEncode(subscription));
+
+        if (kDebugMode) {
+          print('Subscribed to all paths with wildcard (*)');
+        }
+        return;
+      }
+
+      // The units-preference plugin doesn't support wildcard subscriptions
+      // Get all paths from SignalK API, then subscribe to each one
+      final tree = await getAvailablePaths();
+
+      if (tree == null) {
+        if (kDebugMode) {
+          print('No paths available - tree is null');
+        }
+        return;
+      }
+
+      final paths = extractPathsFromTree(tree);
+
+      if (paths.isEmpty) {
+        if (kDebugMode) {
+          print('No paths extracted from tree');
+        }
+        return;
+      }
+
+      final subscription = {
+        'context': 'vessels.self',
+        'subscribe': paths.map((path) => {
+          'path': path,
+          'period': 1000,
           'format': 'delta',
           'policy': 'instant',
-        }
-      ]
-    };
+        }).toList(),
+      };
 
-    _channel?.sink.add(jsonEncode(subscription));
+      _channel?.sink.add(jsonEncode(subscription));
+
+      if (kDebugMode) {
+        print('Subscribed to ${paths.length} paths explicitly');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error subscribing to paths: $e');
+      }
+    }
   }
 
   /// Handle incoming WebSocket messages
   void _handleMessage(dynamic message) {
     try {
       final data = jsonDecode(message);
+
+      // Check if it's an authentication response
+      if (data['requestId'] != null && data['state'] != null) {
+        if (kDebugMode) {
+          print('Auth response: ${data['state']} - ${data['statusCode']}');
+        }
+        if (data['state'] == 'COMPLETED' && data['statusCode'] == 200) {
+          if (kDebugMode) {
+            print('WebSocket authentication successful');
+          }
+        } else {
+          if (kDebugMode) {
+            print('WebSocket authentication failed: ${data['message']}');
+          }
+        }
+        return;
+      }
 
       // Check if it's a delta update
       if (data['updates'] != null) {
@@ -167,7 +329,7 @@ class SignalKService extends ChangeNotifier {
     try {
       final response = await http.put(
         Uri.parse('$protocol://$_serverUrl/signalk/v1/api/vessels/self/$path'),
-        headers: {'Content-Type': 'application/json'},
+        headers: _getHeaders(),
         body: jsonEncode({'value': value}),
       );
 
@@ -237,6 +399,7 @@ class SignalKService extends ChangeNotifier {
     try {
       final response = await http.get(
         Uri.parse('$protocol://$_serverUrl/signalk/v1/api/vessels'),
+        headers: _getHeaders(),
       ).timeout(const Duration(seconds: 5));
 
       if (response.statusCode == 200) {
@@ -268,6 +431,7 @@ class SignalKService extends ChangeNotifier {
     try {
       final response = await http.get(
         Uri.parse('$protocol://$_serverUrl/signalk/v1/api/vessels/self'),
+        headers: _getHeaders(),
       ).timeout(const Duration(seconds: 10));
 
       if (response.statusCode == 200) {
@@ -326,6 +490,7 @@ class SignalKService extends ChangeNotifier {
     try {
       final response = await http.get(
         Uri.parse('$protocol://$_serverUrl/signalk/v1/api/vessels/self/$apiPath'),
+        headers: _getHeaders(),
       ).timeout(const Duration(seconds: 5));
 
       if (kDebugMode) {

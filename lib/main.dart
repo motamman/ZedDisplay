@@ -1,19 +1,40 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'services/signalk_service.dart';
+import 'services/storage_service.dart';
+import 'services/tool_registry.dart';
 import 'screens/connection_screen.dart';
 
-void main() {
-  runApp(const ZedDisplayApp());
+void main() async {
+  // Ensure Flutter bindings are initialized
+  WidgetsFlutterBinding.ensureInitialized();
+
+  // Initialize storage service
+  final storageService = StorageService();
+  await storageService.initialize();
+
+  // Register all built-in tool types
+  final toolRegistry = ToolRegistry();
+  toolRegistry.registerDefaults();
+
+  runApp(ZedDisplayApp(storageService: storageService));
 }
 
 class ZedDisplayApp extends StatelessWidget {
-  const ZedDisplayApp({super.key});
+  final StorageService storageService;
+
+  const ZedDisplayApp({
+    super.key,
+    required this.storageService,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return ChangeNotifierProvider(
-      create: (_) => SignalKService(),
+    return MultiProvider(
+      providers: [
+        ChangeNotifierProvider.value(value: storageService),
+        ChangeNotifierProvider(create: (_) => SignalKService()),
+      ],
       child: MaterialApp(
         title: 'Zed Display',
         theme: ThemeData(

@@ -1,11 +1,41 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../services/signalk_service.dart';
+import '../services/tool_registry.dart';
+import '../models/tool_instance.dart';
 import '../widgets/radial_gauge.dart';
 import '../widgets/compass_gauge.dart';
+import 'tool_config_screen.dart';
 
-class DashboardScreen extends StatelessWidget {
+class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
+
+  @override
+  State<DashboardScreen> createState() => _DashboardScreenState();
+}
+
+class _DashboardScreenState extends State<DashboardScreen> {
+  final List<ToolInstance> _customTools = [];
+
+  Future<void> _addTool() async {
+    final result = await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => const ToolConfigScreen(screenId: 'main'),
+      ),
+    );
+
+    if (result is ToolInstance) {
+      setState(() {
+        _customTools.add(result);
+      });
+    }
+  }
+
+  void _removeTool(String toolId) {
+    setState(() {
+      _customTools.removeWhere((tool) => tool.id == toolId);
+    });
+  }
 
   // Test method for vessel ID
   void _testGetVesselId(BuildContext context, SignalKService service) async {
@@ -156,20 +186,93 @@ class DashboardScreen extends StatelessWidget {
           // Extract common marine data paths (already converted by units-preference plugin)
           final speedOverGround = service.getConvertedValue('navigation.speedOverGround') ?? 0.0;
           final speedThroughWater = service.getConvertedValue('navigation.speedThroughWater') ?? 0.0;
-          final heading = service.getConvertedValue('navigation.headingTrue') ?? 0.0;
+          final heading = service.getConvertedValue('navigation.headingMagnetic') ?? 0.0;
           final windSpeed = service.getConvertedValue('environment.wind.speedApparent') ?? 0.0;
           final depth = service.getConvertedValue('environment.depth.belowTransducer') ?? 0.0;
-          final batteryVoltage = service.getConvertedValue('electrical.batteries.house.voltage') ?? 0.0;
+          final batteryVoltage = service.getConvertedValue('electrical.batteries.512.voltage') ?? 0.0;
 
           // Get unit symbols from server configuration
           final speedUnit = service.getUnitSymbol('navigation.speedOverGround') ?? 'kts';
           final depthUnit = service.getUnitSymbol('environment.depth.belowTransducer') ?? 'm';
-          final voltageUnit = service.getUnitSymbol('electrical.batteries.house.voltage') ?? 'V';
+          final voltageUnit = service.getUnitSymbol('electrical.batteries.512.voltage') ?? 'V';
 
           return SingleChildScrollView(
             padding: const EdgeInsets.all(16.0),
             child: Column(
               children: [
+                // Custom Tools Section
+                if (_customTools.isNotEmpty) ...[
+                  Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(16.0),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              const Text(
+                                'Custom Tools',
+                                style: TextStyle(
+                                  fontSize: 20,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              const Spacer(),
+                              Text(
+                                '${_customTools.length} tools',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.grey[600],
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 16),
+                          GridView.builder(
+                            shrinkWrap: true,
+                            physics: const NeverScrollableScrollPhysics(),
+                            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                              crossAxisCount: 2,
+                              mainAxisSpacing: 16,
+                              crossAxisSpacing: 16,
+                            ),
+                            itemCount: _customTools.length,
+                            itemBuilder: (context, index) {
+                              final tool = _customTools[index];
+                              final registry = ToolRegistry();
+
+                              return Stack(
+                                children: [
+                                  registry.buildTool(
+                                    tool.toolTypeId,
+                                    tool.config,
+                                    service,
+                                  ),
+                                  Positioned(
+                                    top: 4,
+                                    right: 4,
+                                    child: IconButton(
+                                      icon: const Icon(Icons.close, size: 16),
+                                      onPressed: () => _removeTool(tool.id),
+                                      style: IconButton.styleFrom(
+                                        backgroundColor: Colors.red.withValues(alpha: 0.7),
+                                        foregroundColor: Colors.white,
+                                        padding: const EdgeInsets.all(4),
+                                        minimumSize: const Size(24, 24),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              );
+                            },
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                ],
+
                 // Navigation Section
                 Card(
                   child: Padding(
@@ -356,6 +459,11 @@ class DashboardScreen extends StatelessWidget {
             ),
           );
         },
+      ),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: _addTool,
+        icon: const Icon(Icons.add),
+        label: const Text('Add Tool'),
       ),
     );
   }
