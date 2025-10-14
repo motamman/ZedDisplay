@@ -2,10 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../services/signalk_service.dart';
 import '../services/tool_registry.dart';
+import '../services/template_service.dart';
 import '../models/tool_instance.dart';
+import '../models/template.dart';
 import '../widgets/radial_gauge.dart';
 import '../widgets/compass_gauge.dart';
+import '../widgets/save_template_dialog.dart';
 import 'tool_config_screen.dart';
+import 'template_library_screen.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -31,10 +35,105 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
+  Future<void> _browseTemplates() async {
+    final result = await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => const TemplateLibraryScreen(),
+      ),
+    );
+
+    if (result is ToolInstance) {
+      setState(() {
+        _customTools.add(result);
+      });
+    }
+  }
+
+  void _showAddMenu() {
+    showModalBottomSheet(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.add_circle_outline),
+              title: const Text('Create Custom Tool'),
+              subtitle: const Text('Configure a tool from scratch'),
+              onTap: () {
+                Navigator.pop(context);
+                _addTool();
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.collections_bookmark),
+              title: const Text('Browse Templates'),
+              subtitle: const Text('Use pre-configured tool templates'),
+              onTap: () {
+                Navigator.pop(context);
+                _browseTemplates();
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   void _removeTool(String toolId) {
     setState(() {
       _customTools.removeWhere((tool) => tool.id == toolId);
     });
+  }
+
+  Future<void> _saveAsTemplate(ToolInstance toolInstance) async {
+    final templateService = Provider.of<TemplateService>(context, listen: false);
+
+    // Show dialog to get template metadata
+    final templateData = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (context) => SaveTemplateDialog(toolInstance: toolInstance),
+    );
+
+    if (templateData == null) return; // User cancelled
+
+    try {
+      // Create template from tool instance
+      final template = templateService.createTemplateFromTool(
+        toolInstance: toolInstance,
+        name: templateData['name'] as String,
+        description: templateData['description'] as String,
+        author: templateData['author'] as String,
+        category: templateData['category'] as TemplateCategory,
+        tags: templateData['tags'] as List<String>,
+      );
+
+      // Save template
+      await templateService.saveTemplate(template);
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Template "${template.name}" saved successfully'),
+            backgroundColor: Colors.green,
+            action: SnackBarAction(
+              label: 'Browse',
+              textColor: Colors.white,
+              onPressed: _browseTemplates,
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to save template: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
   }
 
   // Test method for vessel ID
@@ -248,6 +347,23 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                     tool.config,
                                     service,
                                   ),
+                                  // Save as Template button
+                                  Positioned(
+                                    top: 4,
+                                    left: 4,
+                                    child: IconButton(
+                                      icon: const Icon(Icons.bookmark_add, size: 16),
+                                      onPressed: () => _saveAsTemplate(tool),
+                                      style: IconButton.styleFrom(
+                                        backgroundColor: Colors.blue.withValues(alpha: 0.7),
+                                        foregroundColor: Colors.white,
+                                        padding: const EdgeInsets.all(4),
+                                        minimumSize: const Size(24, 24),
+                                      ),
+                                      tooltip: 'Save as Template',
+                                    ),
+                                  ),
+                                  // Delete button
                                   Positioned(
                                     top: 4,
                                     right: 4,
@@ -260,6 +376,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                         padding: const EdgeInsets.all(4),
                                         minimumSize: const Size(24, 24),
                                       ),
+                                      tooltip: 'Remove',
                                     ),
                                   ),
                                 ],
@@ -461,7 +578,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         },
       ),
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: _addTool,
+        onPressed: _showAddMenu,
         icon: const Icon(Icons.add),
         label: const Text('Add Tool'),
       ),

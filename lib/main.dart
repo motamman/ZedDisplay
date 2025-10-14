@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'services/signalk_service.dart';
 import 'services/storage_service.dart';
 import 'services/tool_registry.dart';
+import 'services/template_service.dart';
 import 'screens/connection_screen.dart';
 
 void main() async {
@@ -13,19 +14,28 @@ void main() async {
   final storageService = StorageService();
   await storageService.initialize();
 
+  // Initialize template service
+  final templateService = TemplateService(storageService);
+  await templateService.initialize();
+
   // Register all built-in tool types
   final toolRegistry = ToolRegistry();
   toolRegistry.registerDefaults();
 
-  runApp(ZedDisplayApp(storageService: storageService));
+  runApp(ZedDisplayApp(
+    storageService: storageService,
+    templateService: templateService,
+  ));
 }
 
 class ZedDisplayApp extends StatelessWidget {
   final StorageService storageService;
+  final TemplateService templateService;
 
   const ZedDisplayApp({
     super.key,
     required this.storageService,
+    required this.templateService,
   });
 
   @override
@@ -33,6 +43,7 @@ class ZedDisplayApp extends StatelessWidget {
     return MultiProvider(
       providers: [
         ChangeNotifierProvider.value(value: storageService),
+        ChangeNotifierProvider.value(value: templateService),
         ChangeNotifierProvider(create: (_) => SignalKService()),
       ],
       child: MaterialApp(
