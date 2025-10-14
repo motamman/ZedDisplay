@@ -1,0 +1,37 @@
+name: zed_display
+description: A SignalK data display app with gauges and charts
+publish_to: 'none'
+version: 0.1.0-beta.1+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # State Management
+  provider: ^6.1.1
+
+  # HTTP & WebSocket
+  web_socket_channel: ^2.4.0
+  http: ^1.1.0
+
+  # JSON serialization
+  json_annotation: ^4.8.1
+
+  # Charts and Visualizations
+  fl_chart: ^0.66.0
+
+  # UI Components
+  cupertino_icons: ^1.0.6
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+  build_runner: ^2.4.7
+  json_serializable: ^6.7.1
+
+flutter:
+  uses-material-design: true
