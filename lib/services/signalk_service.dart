@@ -65,38 +65,16 @@ class SignalKService extends ChangeNotifier {
 
   /// Discover WebSocket endpoint from SignalK server
   Future<String> _discoverWebSocketEndpoint() async {
-    final protocol = _useSecureConnection ? 'https' : 'http';
     final wsProtocol = _useSecureConnection ? 'wss' : 'ws';
 
-    try {
-      final response = await http.get(
-        Uri.parse('$protocol://$_serverUrl/signalk'),
-      ).timeout(const Duration(seconds: 5));
+    // Use signalk-units-preference plugin endpoint for pre-converted values
+    final unitsPreferenceEndpoint = '$wsProtocol://$_serverUrl/plugins/signalk-units-preference/stream';
 
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        final endpoints = data['endpoints']?['v1'];
-
-        if (endpoints != null) {
-          // Try to find WebSocket endpoint
-          if (endpoints['signalk-ws'] != null) {
-            return endpoints['signalk-ws'].toString();
-          }
-          if (endpoints['signalk-http'] != null) {
-            // Fallback to converting HTTP to WS
-            final httpUrl = endpoints['signalk-http'].toString();
-            return httpUrl.replaceFirst('http://', 'ws://').replaceFirst('https://', 'wss://');
-          }
-        }
-      }
-    } catch (e) {
-      if (kDebugMode) {
-        print('Discovery failed, using default: $e');
-      }
+    if (kDebugMode) {
+      print('Using units-preference endpoint: $unitsPreferenceEndpoint');
     }
 
-    // Default WebSocket path
-    return '$wsProtocol://$_serverUrl/signalk/v1/stream';
+    return unitsPreferenceEndpoint;
   }
 
   /// Send subscription request to receive all data
@@ -128,11 +106,27 @@ class SignalKService extends ChangeNotifier {
         // Process each value update
         for (final updateValue in update.updates) {
           for (final value in updateValue.values) {
-            _latestData[value.path] = SignalKDataPoint(
-              path: value.path,
-              value: value.value,
-              timestamp: updateValue.timestamp,
-            );
+            // Check if value is from units-preference plugin (has converted format)
+            if (value.value is Map<String, dynamic>) {
+              final valueMap = value.value as Map<String, dynamic>;
+
+              _latestData[value.path] = SignalKDataPoint(
+                path: value.path,
+                value: valueMap['converted'] ?? valueMap['value'],
+                timestamp: updateValue.timestamp,
+                converted: valueMap['converted'] as double?,
+                formatted: valueMap['formatted'] as String?,
+                symbol: valueMap['symbol'] as String?,
+                original: valueMap['original'],
+              );
+            } else {
+              // Standard SignalK format (fallback)
+              _latestData[value.path] = SignalKDataPoint(
+                path: value.path,
+                value: value.value,
+                timestamp: updateValue.timestamp,
+              );
+            }
           }
         }
 
@@ -200,6 +194,40 @@ class SignalKService extends ChangeNotifier {
       return (dataPoint!.value as num).toDouble();
     }
     return null;
+  }
+
+  /// Get formatted value string from units-preference plugin
+  /// Returns pre-formatted string like "10.0 kn" or falls back to raw value
+  String getFormattedValue(String path) {
+    final dataPoint = _latestData[path];
+
+    if (dataPoint == null) {
+      return '---';
+    }
+
+    // Use formatted value from units-preference plugin if available
+    if (dataPoint.formatted != null) {
+      return dataPoint.formatted!;
+    }
+
+    // Fallback to raw value
+    if (dataPoint.value is num) {
+      return dataPoint.value.toStringAsFixed(1);
+    }
+
+    return dataPoint.value.toString();
+  }
+
+  /// Get converted numeric value (already in user's preferred units)
+  double? getConvertedValue(String path) {
+    final dataPoint = _latestData[path];
+    return dataPoint?.converted ?? (dataPoint?.value is num ? (dataPoint!.value as num).toDouble() : null);
+  }
+
+  /// Get unit symbol for a path (e.g., "kn", "°C")
+  String? getUnitSymbol(String path) {
+    final dataPoint = _latestData[path];
+    return dataPoint?.symbol;
   }
 
   /// Fetch vessel self ID from SignalK server

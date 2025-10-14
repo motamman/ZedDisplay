@@ -62,14 +62,27 @@ class SignalKValue {
 /// Simple data holder for display
 class SignalKDataPoint {
   final String path;
-  final dynamic value;
+  final dynamic value;          // Raw value (for compatibility)
   final DateTime timestamp;
   final String? unit;
+
+  // Units-preference plugin fields
+  final double? converted;      // Converted numeric value
+  final String? formatted;      // Display-ready string (e.g., "10.0 kn")
+  final String? symbol;         // Unit symbol (e.g., "kn", "°C")
+  final dynamic original;       // Original SI value
 
   SignalKDataPoint({
     required this.path,
     required this.value,
     required this.timestamp,
     this.unit,
+    this.converted,
+    this.formatted,
+    this.symbol,
+    this.original,
   });
+
+  /// Check if this data point has converted values from units-preference plugin
+  bool get hasConvertedValue => formatted != null;
 }

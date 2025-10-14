@@ -153,13 +153,18 @@ class DashboardScreen extends StatelessWidget {
             );
           }
 
-          // Extract common marine data paths
-          final speedOverGround = service.getNumericValue('navigation.speedOverGround') ?? 0.0;
-          final speedThroughWater = service.getNumericValue('navigation.speedThroughWater') ?? 0.0;
-          final heading = service.getNumericValue('navigation.headingTrue') ?? 0.0;
-          final windSpeed = service.getNumericValue('environment.wind.speedApparent') ?? 0.0;
-          final depth = service.getNumericValue('environment.depth.belowTransducer') ?? 0.0;
-          final batteryVoltage = service.getNumericValue('electrical.batteries.house.voltage') ?? 0.0;
+          // Extract common marine data paths (already converted by units-preference plugin)
+          final speedOverGround = service.getConvertedValue('navigation.speedOverGround') ?? 0.0;
+          final speedThroughWater = service.getConvertedValue('navigation.speedThroughWater') ?? 0.0;
+          final heading = service.getConvertedValue('navigation.headingTrue') ?? 0.0;
+          final windSpeed = service.getConvertedValue('environment.wind.speedApparent') ?? 0.0;
+          final depth = service.getConvertedValue('environment.depth.belowTransducer') ?? 0.0;
+          final batteryVoltage = service.getConvertedValue('electrical.batteries.house.voltage') ?? 0.0;
+
+          // Get unit symbols from server configuration
+          final speedUnit = service.getUnitSymbol('navigation.speedOverGround') ?? 'kts';
+          final depthUnit = service.getUnitSymbol('environment.depth.belowTransducer') ?? 'm';
+          final voltageUnit = service.getUnitSymbol('electrical.batteries.house.voltage') ?? 'V';
 
           return SingleChildScrollView(
             padding: const EdgeInsets.all(16.0),
@@ -188,19 +193,19 @@ class DashboardScreen extends StatelessWidget {
                           crossAxisSpacing: 16,
                           children: [
                             RadialGauge(
-                              value: speedOverGround * 1.94384, // Convert m/s to knots
+                              value: speedOverGround, // Already converted
                               minValue: 0,
                               maxValue: 15,
                               label: 'SOG',
-                              unit: 'kts',
+                              unit: speedUnit,
                               primaryColor: Colors.blue,
                             ),
                             RadialGauge(
-                              value: speedThroughWater * 1.94384,
+                              value: speedThroughWater, // Already converted
                               minValue: 0,
                               maxValue: 15,
                               label: 'STW',
-                              unit: 'kts',
+                              unit: speedUnit,
                               primaryColor: Colors.teal,
                             ),
                           ],
@@ -209,7 +214,7 @@ class DashboardScreen extends StatelessWidget {
                         SizedBox(
                           height: 250,
                           child: CompassGauge(
-                            heading: heading * 180 / 3.14159, // Convert radians to degrees
+                            heading: heading, // Already converted to degrees
                             label: 'Heading',
                           ),
                         ),
@@ -242,19 +247,19 @@ class DashboardScreen extends StatelessWidget {
                           crossAxisSpacing: 16,
                           children: [
                             RadialGauge(
-                              value: windSpeed * 1.94384, // Convert m/s to knots
+                              value: windSpeed, // Already converted
                               minValue: 0,
                               maxValue: 40,
                               label: 'Wind',
-                              unit: 'kts',
+                              unit: speedUnit,
                               primaryColor: Colors.green,
                             ),
                             RadialGauge(
-                              value: depth,
+                              value: depth, // Already converted
                               minValue: 0,
                               maxValue: 50,
                               label: 'Depth',
-                              unit: 'm',
+                              unit: depthUnit,
                               primaryColor: Colors.purple,
                             ),
                           ],
@@ -283,11 +288,11 @@ class DashboardScreen extends StatelessWidget {
                         SizedBox(
                           height: 200,
                           child: RadialGauge(
-                            value: batteryVoltage,
+                            value: batteryVoltage, // Already converted
                             minValue: 10,
                             maxValue: 15,
                             label: 'Battery',
-                            unit: 'V',
+                            unit: voltageUnit,
                             primaryColor: Colors.orange,
                           ),
                         ),
