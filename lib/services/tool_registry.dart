@@ -8,6 +8,8 @@ import '../widgets/tools/text_display_tool.dart';
 import '../widgets/tools/linear_gauge_tool.dart';
 import '../widgets/tools/historical_chart_tool.dart';
 import '../widgets/tools/switch_tool.dart';
+import '../widgets/tools/windsteer_tool.dart';
+import '../widgets/tools/windsteer_demo_tool.dart';
 
 /// Abstract builder for tool widgets
 abstract class ToolBuilder {
@@ -78,5 +80,7 @@ class ToolRegistry {
     register('linear_gauge', LinearGaugeBuilder());
     register('historical_chart', HistoricalChartBuilder());
     register('switch', SwitchToolBuilder());
+    register('windsteer_demo', WindsteerDemoToolBuilder());
+    register('windsteer', WindsteerToolBuilder());
   }
 }

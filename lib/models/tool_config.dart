@@ -37,6 +37,14 @@ class StyleConfig {
   final bool? showValue;
   final bool? showUnit;
 
+  // Windsteer-specific options
+  final double? laylineAngle;    // Close-hauled layline angle (degrees)
+  final bool? showLaylines;      // Show laylines
+  final bool? showTrueWind;      // Show true wind indicator
+  final bool? showCOG;           // Show course over ground
+  final bool? showAWS;           // Show apparent wind speed
+  final bool? showTWS;           // Show true wind speed
+
   // Additional style properties for specific tools
   final Map<String, dynamic>? customProperties;
 
@@ -51,6 +59,12 @@ class StyleConfig {
     this.showLabel = true,
     this.showValue = true,
     this.showUnit = true,
+    this.laylineAngle,
+    this.showLaylines,
+    this.showTrueWind,
+    this.showCOG,
+    this.showAWS,
+    this.showTWS,
     this.customProperties,
   });
 

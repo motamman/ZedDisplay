@@ -32,6 +32,12 @@ StyleConfig _$StyleConfigFromJson(Map<String, dynamic> json) => StyleConfig(
       showLabel: json['showLabel'] as bool? ?? true,
       showValue: json['showValue'] as bool? ?? true,
       showUnit: json['showUnit'] as bool? ?? true,
+      laylineAngle: (json['laylineAngle'] as num?)?.toDouble(),
+      showLaylines: json['showLaylines'] as bool?,
+      showTrueWind: json['showTrueWind'] as bool?,
+      showCOG: json['showCOG'] as bool?,
+      showAWS: json['showAWS'] as bool?,
+      showTWS: json['showTWS'] as bool?,
       customProperties: json['customProperties'] as Map<String, dynamic>?,
     );
 
@@ -47,6 +53,12 @@ Map<String, dynamic> _$StyleConfigToJson(StyleConfig instance) =>
       'showLabel': instance.showLabel,
       'showValue': instance.showValue,
       'showUnit': instance.showUnit,
+      'laylineAngle': instance.laylineAngle,
+      'showLaylines': instance.showLaylines,
+      'showTrueWind': instance.showTrueWind,
+      'showCOG': instance.showCOG,
+      'showAWS': instance.showAWS,
+      'showTWS': instance.showTWS,
       'customProperties': instance.customProperties,
     };
 
