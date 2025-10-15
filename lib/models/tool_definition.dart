@@ -8,6 +8,7 @@ enum ToolCategory {
   chart,    // Time-series charts
   display,  // Text/numeric displays
   compass,  // Compass/directional displays
+  control,  // Interactive controls (switches, buttons)
   other,
 }
 

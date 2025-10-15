@@ -53,5 +53,6 @@ const _$ToolCategoryEnumMap = {
   ToolCategory.chart: 'chart',
   ToolCategory.display: 'display',
   ToolCategory.compass: 'compass',
+  ToolCategory.control: 'control',
   ToolCategory.other: 'other',
 };
