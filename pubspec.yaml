@@ -31,6 +31,9 @@ dependencies:
   # UI Components
   cupertino_icons: ^1.0.6
 
+  # UUID generation for device IDs
+  uuid: ^4.0.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

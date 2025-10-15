@@ -411,68 +411,106 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen> {
       );
     }
 
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
-      child: GridView.builder(
-        shrinkWrap: true,
-        physics: const NeverScrollableScrollPhysics(),
-        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: 2,
-          mainAxisSpacing: 16,
-          crossAxisSpacing: 16,
-        ),
-        itemCount: screen.tools.length,
-        itemBuilder: (context, index) {
-          final tool = screen.tools[index];
-          final registry = ToolRegistry();
+    return OrientationBuilder(
+      builder: (context, orientation) {
+        return LayoutBuilder(
+          builder: (context, constraints) {
+            // Calculate responsive columns based on screen width AND orientation
+            final screenWidth = constraints.maxWidth;
+            final screenHeight = constraints.maxHeight;
+            final int columns;
 
-          return Stack(
-            children: [
-              registry.buildTool(
-                tool.toolTypeId,
-                tool.config,
-                signalKService,
+            // Use width as primary factor for column count
+            if (screenWidth >= 1200) {
+              columns = 4; // Desktop/large tablets
+            } else if (screenWidth >= 900) {
+              columns = 3; // Tablets landscape or large tablets
+            } else if (screenWidth >= 600) {
+              columns = 2; // Large phones landscape or tablets portrait
+            } else {
+              columns = 1; // Phones in portrait
+            }
+
+            // Calculate cell size based on available width
+            final cellWidth = (screenWidth - 32 - (columns - 1) * 16) / columns;
+
+            // Adjust cell height based on orientation to prevent oversized cells
+            final cellHeight = orientation == Orientation.landscape
+                ? (screenHeight - 100) / 2.5  // Landscape: limit height to fit screen better
+                : cellWidth;  // Portrait: square cells
+
+            return SingleChildScrollView(
+              padding: const EdgeInsets.all(16),
+              child: Wrap(
+                spacing: 16,
+                runSpacing: 16,
+                alignment: WrapAlignment.start,
+                children: screen.tools.map((tool) {
+                  final registry = ToolRegistry();
+
+                  // Get tool's size preferences, clamped to available columns
+                  final toolWidth = tool.position.width.clamp(1, columns);
+                  final toolHeight = tool.position.height.clamp(1, 4);
+
+                  // Calculate actual dimensions
+                  final width = (cellWidth * toolWidth) + ((toolWidth - 1) * 16);
+                  final height = cellHeight * toolHeight + ((toolHeight - 1) * 16);
+
+                  return SizedBox(
+                    width: width,
+                    height: height,
+                    child: Stack(
+                      children: [
+                        registry.buildTool(
+                          tool.toolTypeId,
+                          tool.config,
+                          signalKService,
+                        ),
+
+                        // Edit mode buttons
+                        if (_isEditMode) ...[
+                          // Save as Template button
+                          Positioned(
+                            top: 4,
+                            left: 4,
+                            child: IconButton(
+                              icon: const Icon(Icons.bookmark_add, size: 16),
+                              onPressed: () => _saveAsTemplate(tool),
+                              style: IconButton.styleFrom(
+                                backgroundColor: Colors.blue.withValues(alpha: 0.7),
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.all(4),
+                                minimumSize: const Size(24, 24),
+                              ),
+                              tooltip: 'Save as Template',
+                            ),
+                          ),
+                          // Delete button
+                          Positioned(
+                            top: 4,
+                            right: 4,
+                            child: IconButton(
+                              icon: const Icon(Icons.close, size: 16),
+                              onPressed: () => _removeTool(screen.id, tool.id),
+                              style: IconButton.styleFrom(
+                                backgroundColor: Colors.red.withValues(alpha: 0.7),
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.all(4),
+                                minimumSize: const Size(24, 24),
+                              ),
+                              tooltip: 'Remove',
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  );
+                }).toList(),
               ),
-
-              // Edit mode buttons
-              if (_isEditMode) ...[
-                // Save as Template button
-                Positioned(
-                  top: 4,
-                  left: 4,
-                  child: IconButton(
-                    icon: const Icon(Icons.bookmark_add, size: 16),
-                    onPressed: () => _saveAsTemplate(tool),
-                    style: IconButton.styleFrom(
-                      backgroundColor: Colors.blue.withValues(alpha: 0.7),
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.all(4),
-                      minimumSize: const Size(24, 24),
-                    ),
-                    tooltip: 'Save as Template',
-                  ),
-                ),
-                // Delete button
-                Positioned(
-                  top: 4,
-                  right: 4,
-                  child: IconButton(
-                    icon: const Icon(Icons.close, size: 16),
-                    onPressed: () => _removeTool(screen.id, tool.id),
-                    style: IconButton.styleFrom(
-                      backgroundColor: Colors.red.withValues(alpha: 0.7),
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.all(4),
-                      minimumSize: const Size(24, 24),
-                    ),
-                    tooltip: 'Remove',
-                  ),
-                ),
-              ],
-            ],
-          );
-        },
-      ),
+            );
+          },
+        );
+      },
     );
   }
 }

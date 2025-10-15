@@ -23,15 +23,27 @@ class TextDisplayTool extends StatelessWidget {
     }
 
     final dataSource = config.dataSources.first;
-    final value = signalKService.getConvertedValue(dataSource.path) ?? 0.0;
+    final dataPoint = signalKService.getValue(dataSource.path);
 
     // Get label from data source or derive from path
     final label = dataSource.label ?? _getDefaultLabel(dataSource.path);
 
-    // Get unit (prefer style override, fallback to server's unit)
-    final unit = config.style.unit ??
-                 signalKService.getUnitSymbol(dataSource.path) ??
-                 '';
+    // Use formatted string from plugin if available, otherwise format manually
+    String displayValue;
+    String displayUnit;
+
+    if (dataPoint?.formatted != null) {
+      // Plugin provides pre-formatted value like "12.6 kn"
+      displayValue = dataPoint!.formatted!;
+      displayUnit = ''; // Unit is already in formatted string
+    } else {
+      // Fallback: format manually
+      final numValue = signalKService.getConvertedValue(dataSource.path) ?? 0.0;
+      displayValue = numValue.toStringAsFixed(1);
+      displayUnit = config.style.unit ??
+                    signalKService.getUnitSymbol(dataSource.path) ??
+                    '';
+    }
 
     // Parse color from hex string
     Color textColor = Theme.of(context).colorScheme.onSurface;
@@ -67,18 +79,18 @@ class TextDisplayTool extends StatelessWidget {
             SizedBox(height: fontSize * 0.15),
           if (config.style.showValue == true)
             Text(
-              value.toStringAsFixed(1),
+              displayValue,
               style: TextStyle(
                 fontSize: fontSize,
                 fontWeight: FontWeight.bold,
                 color: textColor,
               ),
             ),
-          if (config.style.showUnit == true && unit.isNotEmpty)
+          if (config.style.showUnit == true && displayUnit.isNotEmpty)
             SizedBox(height: fontSize * 0.1),
-          if (config.style.showUnit == true && unit.isNotEmpty)
+          if (config.style.showUnit == true && displayUnit.isNotEmpty)
             Text(
-              unit,
+              displayUnit,
               style: TextStyle(
                 fontSize: fontSize * 0.35,
                 fontWeight: FontWeight.w300,

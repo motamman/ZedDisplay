@@ -2,16 +2,19 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import '../models/dashboard_layout.dart';
+import '../models/auth_token.dart';
 
 /// Service for local storage of dashboards, templates, and configurations
 class StorageService extends ChangeNotifier {
   static const String _dashboardsBoxName = 'dashboards';
   static const String _templatesBoxName = 'templates';
   static const String _settingsBoxName = 'settings';
+  static const String _authTokenBoxName = 'authTokens';
 
   late Box<String> _dashboardsBox;
   late Box<String> _templatesBox;
   late Box<String> _settingsBox;
+  late Box<String> _authTokenBox;
 
   bool _initialized = false;
   bool get initialized => _initialized;
@@ -26,6 +29,7 @@ class StorageService extends ChangeNotifier {
       _dashboardsBox = await Hive.openBox<String>(_dashboardsBoxName);
       _templatesBox = await Hive.openBox<String>(_templatesBoxName);
       _settingsBox = await Hive.openBox<String>(_settingsBoxName);
+      _authTokenBox = await Hive.openBox<String>(_authTokenBoxName);
 
       _initialized = true;
       notifyListeners();
@@ -47,6 +51,7 @@ class StorageService extends ChangeNotifier {
     await _dashboardsBox.close();
     await _templatesBox.close();
     await _settingsBox.close();
+    await _authTokenBox.close();
     super.dispose();
   }
 
@@ -261,6 +266,82 @@ class StorageService extends ChangeNotifier {
       'dashboards': _dashboardsBox.length,
       'templates': _templatesBox.length,
       'settings': _settingsBox.length,
+      'authTokens': _authTokenBox.length,
     };
+  }
+
+  // ===== Authentication Token Management =====
+
+  /// Save auth token for a server
+  Future<void> saveAuthToken(AuthToken token) async {
+    if (!_initialized) throw Exception('StorageService not initialized');
+
+    try {
+      final json = jsonEncode(token.toJson());
+      await _authTokenBox.put(token.serverUrl, json);
+      notifyListeners();
+
+      if (kDebugMode) {
+        print('Auth token saved for ${token.serverUrl}');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error saving auth token: $e');
+      }
+      rethrow;
+    }
+  }
+
+  /// Get auth token for a server
+  AuthToken? getAuthToken(String serverUrl) {
+    if (!_initialized) throw Exception('StorageService not initialized');
+
+    try {
+      final json = _authTokenBox.get(serverUrl);
+      if (json == null) return null;
+
+      final tokenData = jsonDecode(json) as Map<String, dynamic>;
+      final token = AuthToken.fromJson(tokenData);
+
+      // Check if expired
+      if (token.isExpired) {
+        if (kDebugMode) {
+          print('Token for $serverUrl is expired, removing...');
+        }
+        _authTokenBox.delete(serverUrl);
+        return null;
+      }
+
+      return token;
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error loading auth token for $serverUrl: $e');
+      }
+      return null;
+    }
+  }
+
+  /// Delete auth token for a server
+  Future<void> deleteAuthToken(String serverUrl) async {
+    if (!_initialized) throw Exception('StorageService not initialized');
+
+    await _authTokenBox.delete(serverUrl);
+    notifyListeners();
+
+    if (kDebugMode) {
+      print('Auth token deleted for $serverUrl');
+    }
+  }
+
+  /// Clear all auth tokens
+  Future<void> clearAllAuthTokens() async {
+    if (!_initialized) throw Exception('StorageService not initialized');
+
+    await _authTokenBox.clear();
+    notifyListeners();
+
+    if (kDebugMode) {
+      print('All auth tokens cleared');
+    }
   }
 }

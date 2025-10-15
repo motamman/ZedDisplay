@@ -8,6 +8,7 @@ class RadialGauge extends StatelessWidget {
   final double maxValue;
   final String label;
   final String unit;
+  final String? formattedValue; // Pre-formatted value like "12.6 kn"
   final Color primaryColor;
   final Color backgroundColor;
   final int divisions;
@@ -19,6 +20,7 @@ class RadialGauge extends StatelessWidget {
     this.maxValue = 100,
     this.label = '',
     this.unit = '',
+    this.formattedValue,
     this.primaryColor = Colors.blue,
     this.backgroundColor = Colors.grey,
     this.divisions = 10,
@@ -53,13 +55,14 @@ class RadialGauge extends StatelessWidget {
                 ),
               const SizedBox(height: 4),
               Text(
-                value.toStringAsFixed(1),
+                formattedValue ?? value.toStringAsFixed(1),
                 style: const TextStyle(
                   fontSize: 32,
                   fontWeight: FontWeight.bold,
                 ),
               ),
-              if (unit.isNotEmpty)
+              // Only show unit if not using formatted value (which includes unit)
+              if (unit.isNotEmpty && formattedValue == null)
                 Text(
                   unit,
                   style: const TextStyle(

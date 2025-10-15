@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../services/signalk_service.dart';
+import '../services/auth_service.dart';
+import '../services/dashboard_service.dart';
 import 'dashboard_manager_screen.dart';
+import 'device_registration_screen.dart';
 
 class ConnectionScreen extends StatefulWidget {
   const ConnectionScreen({super.key});
@@ -13,17 +16,21 @@ class ConnectionScreen extends StatefulWidget {
 class _ConnectionScreenState extends State<ConnectionScreen> {
   final _formKey = GlobalKey<FormState>();
   final _serverController = TextEditingController(text: '192.168.1.88:3000');
-  final _usernameController = TextEditingController();
-  final _passwordController = TextEditingController();
   bool _useSecure = false;
   bool _isConnecting = false;
-  bool _requiresAuth = false;
+  String _clientId = '';
+
+  @override
+  void initState() {
+    super.initState();
+    // Generate or load client ID
+    final authService = Provider.of<AuthService>(context, listen: false);
+    _clientId = authService.generateClientId();
+  }
 
   @override
   void dispose() {
     _serverController.dispose();
-    _usernameController.dispose();
-    _passwordController.dispose();
     super.dispose();
   }
 
@@ -37,20 +44,48 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     });
 
     try {
-      final service = context.read<SignalKService>();
-      await service.connect(
-        _serverController.text,
-        secure: _useSecure,
-        username: _requiresAuth ? _usernameController.text : null,
-        password: _requiresAuth ? _passwordController.text : null,
-      );
+      final authService = context.read<AuthService>();
+      final signalKService = context.read<SignalKService>();
+      final dashboardService = context.read<DashboardService>();
 
-      if (mounted) {
-        Navigator.of(context).pushReplacement(
-          MaterialPageRoute(
-            builder: (context) => const DashboardManagerScreen(),
-          ),
+      // Check if we have a saved token
+      final savedToken = authService.getSavedToken(_serverController.text);
+
+      if (savedToken != null && savedToken.isValid) {
+        // Use saved token
+        await signalKService.connect(
+          _serverController.text,
+          secure: _useSecure,
+          authToken: savedToken,
         );
+
+        // After successful connection, subscribe to dashboard paths
+        final paths = dashboardService.currentLayout?.getAllRequiredPaths() ?? [];
+        if (paths.isNotEmpty) {
+          await signalKService.setActiveTemplatePaths(paths);
+        }
+
+        if (mounted) {
+          Navigator.of(context).pushReplacement(
+            MaterialPageRoute(
+              builder: (context) => const DashboardManagerScreen(),
+            ),
+          );
+        }
+      } else {
+        // No saved token, start device registration
+        if (mounted) {
+          Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (context) => DeviceRegistrationScreen(
+                serverUrl: _serverController.text,
+                secure: _useSecure,
+                clientId: _clientId,
+                description: 'ZedDisplay Marine Dashboard',
+              ),
+            ),
+          );
+        }
       }
     } catch (e) {
       if (mounted) {
@@ -133,49 +168,6 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
                   });
                 },
               ),
-              const SizedBox(height: 8),
-              SwitchListTile(
-                title: const Text('Requires Authentication'),
-                value: _requiresAuth,
-                onChanged: (value) {
-                  setState(() {
-                    _requiresAuth = value;
-                  });
-                },
-              ),
-              if (_requiresAuth) ...[
-                const SizedBox(height: 16),
-                TextFormField(
-                  controller: _usernameController,
-                  decoration: const InputDecoration(
-                    labelText: 'Username',
-                    prefixIcon: Icon(Icons.person),
-                    border: OutlineInputBorder(),
-                  ),
-                  validator: (value) {
-                    if (_requiresAuth && (value == null || value.isEmpty)) {
-                      return 'Please enter username';
-                    }
-                    return null;
-                  },
-                ),
-                const SizedBox(height: 16),
-                TextFormField(
-                  controller: _passwordController,
-                  decoration: const InputDecoration(
-                    labelText: 'Password',
-                    prefixIcon: Icon(Icons.lock),
-                    border: OutlineInputBorder(),
-                  ),
-                  obscureText: true,
-                  validator: (value) {
-                    if (_requiresAuth && (value == null || value.isEmpty)) {
-                      return 'Please enter password';
-                    }
-                    return null;
-                  },
-                ),
-              ],
               const SizedBox(height: 24),
               ElevatedButton(
                 onPressed: _isConnecting ? null : _connect,
@@ -194,6 +186,16 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
                       ),
               ),
               const SizedBox(height: 16),
+              const Text(
+                'The app will request access to the SignalK server.\nApprove the request in the server Admin UI.',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: Colors.grey,
+                  fontStyle: FontStyle.italic,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 8),
               const Text(
                 'Tip: Use demo.signalk.org to try with sample data',
                 style: TextStyle(

@@ -38,6 +38,10 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
   String? _primaryColor;
   double? _fontSize;
 
+  // Size configuration
+  int _toolWidth = 1;
+  int _toolHeight = 1;
+
   @override
   void initState() {
     super.initState();
@@ -63,6 +67,10 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
     _unit = style.unit;
     _primaryColor = style.primaryColor;
     _fontSize = style.fontSize;
+
+    // Load size
+    _toolWidth = tool.position.width;
+    _toolHeight = tool.position.height;
   }
 
   Future<void> _selectPath() async {
@@ -108,7 +116,12 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
       id: widget.existingTool?.id ?? DateTime.now().millisecondsSinceEpoch.toString(),
       toolTypeId: _selectedToolTypeId!,
       screenId: widget.screenId,
-      position: widget.existingTool?.position ?? GridPosition(row: 0, col: 0),
+      position: GridPosition(
+        row: widget.existingTool?.position.row ?? 0,
+        col: widget.existingTool?.position.col ?? 0,
+        width: _toolWidth,
+        height: _toolHeight,
+      ),
       config: ToolConfig(
         dataSources: [
           DataSource(
@@ -227,6 +240,77 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
             ),
             const SizedBox(height: 16),
 
+            // Size Configuration
+            if (_selectedToolTypeId != null)
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '3. Configure Size',
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                      const SizedBox(height: 16),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text('Width (columns)'),
+                                const SizedBox(height: 8),
+                                Wrap(
+                                  spacing: 8,
+                                  children: [1, 2, 3, 4].map((width) {
+                                    return ChoiceChip(
+                                      label: Text('$width'),
+                                      selected: _toolWidth == width,
+                                      onSelected: (_) {
+                                        setState(() => _toolWidth = width);
+                                      },
+                                    );
+                                  }).toList(),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 16),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text('Height (rows)'),
+                                const SizedBox(height: 8),
+                                Wrap(
+                                  spacing: 8,
+                                  children: [1, 2, 3, 4].map((height) {
+                                    return ChoiceChip(
+                                      label: Text('$height'),
+                                      selected: _toolHeight == height,
+                                      onSelected: (_) {
+                                        setState(() => _toolHeight = height);
+                                      },
+                                    );
+                                  }).toList(),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Size: $_toolWidth × $_toolHeight cells',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            const SizedBox(height: 16),
+
             // Style Configuration
             if (_selectedToolTypeId != null)
               Card(
@@ -236,7 +320,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        '3. Configure Style',
+                        '4. Configure Style',
                         style: Theme.of(context).textTheme.titleMedium,
                       ),
                       const SizedBox(height: 16),
@@ -256,7 +340,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        '4. Preview',
+                        '5. Preview',
                         style: Theme.of(context).textTheme.titleMedium,
                       ),
                       const SizedBox(height: 16),

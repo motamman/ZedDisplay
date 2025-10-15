@@ -203,25 +203,106 @@ class _TemplateCard extends StatelessWidget {
             ),
           ],
         ),
-        trailing: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            if (template.isLocal)
-              const Icon(Icons.computer, size: 16, color: Colors.blue)
-            else
-              const Icon(Icons.cloud_download, size: 16, color: Colors.green),
-            const SizedBox(height: 4),
-            if (template.ratingCount > 0)
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Icon(Icons.star, size: 12, color: Colors.amber),
-                  Text(
-                    template.rating.toStringAsFixed(1),
-                    style: const TextStyle(fontSize: 10),
+            Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                if (template.isLocal)
+                  const Icon(Icons.computer, size: 16, color: Colors.blue)
+                else
+                  const Icon(Icons.cloud_download, size: 16, color: Colors.green),
+                const SizedBox(height: 4),
+                if (template.ratingCount > 0)
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.star, size: 12, color: Colors.amber),
+                      Text(
+                        template.rating.toStringAsFixed(1),
+                        style: const TextStyle(fontSize: 10),
+                      ),
+                    ],
+                  ),
+              ],
+            ),
+            // Context menu for local templates
+            if (template.isLocal) ...[
+              const SizedBox(width: 8),
+              PopupMenuButton<String>(
+                icon: const Icon(Icons.more_vert),
+                itemBuilder: (context) => [
+                  const PopupMenuItem(
+                    value: 'edit',
+                    child: Row(
+                      children: [
+                        Icon(Icons.edit, size: 18),
+                        SizedBox(width: 8),
+                        Text('Edit'),
+                      ],
+                    ),
+                  ),
+                  const PopupMenuItem(
+                    value: 'delete',
+                    child: Row(
+                      children: [
+                        Icon(Icons.delete, size: 18, color: Colors.red),
+                        SizedBox(width: 8),
+                        Text('Delete', style: TextStyle(color: Colors.red)),
+                      ],
+                    ),
                   ),
                 ],
+                onSelected: (value) async {
+                  if (value == 'edit') {
+                    await Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (context) => _EditTemplateScreen(template: template),
+                      ),
+                    );
+                  } else if (value == 'delete') {
+                    final confirmed = await showDialog<bool>(
+                      context: context,
+                      builder: (context) => AlertDialog(
+                        title: const Text('Delete Template'),
+                        content: Text(
+                          'Are you sure you want to delete "${template.name}"? This action cannot be undone.',
+                        ),
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.of(context).pop(false),
+                            child: const Text('Cancel'),
+                          ),
+                          TextButton(
+                            onPressed: () => Navigator.of(context).pop(true),
+                            style: TextButton.styleFrom(
+                              foregroundColor: Colors.red,
+                            ),
+                            child: const Text('Delete'),
+                          ),
+                        ],
+                      ),
+                    );
+
+                    if (confirmed == true && context.mounted) {
+                      final templateService = Provider.of<TemplateService>(
+                        context,
+                        listen: false,
+                      );
+                      await templateService.deleteTemplate(template.id);
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('Template "${template.name}" deleted'),
+                          ),
+                        );
+                      }
+                    }
+                  }
+                },
               ),
+            ],
           ],
         ),
         isThreeLine: true,
@@ -416,22 +497,61 @@ class _TemplateDetailsDialog extends StatelessWidget {
                 ),
               ),
               child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  if (!template.isLocal)
+                  // Edit and Delete buttons for local templates only
+                  if (template.isLocal) ...[
                     OutlinedButton.icon(
                       onPressed: () async {
-                        // TODO: Delete template
-                        await templateService.deleteTemplate(template.id);
-                        if (context.mounted) {
-                          Navigator.of(context).pop();
+                        final confirmed = await showDialog<bool>(
+                          context: context,
+                          builder: (context) => AlertDialog(
+                            title: const Text('Delete Template'),
+                            content: Text(
+                              'Are you sure you want to delete "${template.name}"? This action cannot be undone.',
+                            ),
+                            actions: [
+                              TextButton(
+                                onPressed: () => Navigator.of(context).pop(false),
+                                child: const Text('Cancel'),
+                              ),
+                              TextButton(
+                                onPressed: () => Navigator.of(context).pop(true),
+                                style: TextButton.styleFrom(
+                                  foregroundColor: Colors.red,
+                                ),
+                                child: const Text('Delete'),
+                              ),
+                            ],
+                          ),
+                        );
+
+                        if (confirmed == true && context.mounted) {
+                          await templateService.deleteTemplate(template.id);
+                          if (context.mounted) {
+                            Navigator.of(context).pop();
+                          }
                         }
                       },
                       icon: const Icon(Icons.delete),
                       label: const Text('Delete'),
-                    )
-                  else
-                    const SizedBox.shrink(),
+                    ),
+                    const SizedBox(width: 8),
+                    OutlinedButton.icon(
+                      onPressed: () async {
+                        final result = await Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (context) => _EditTemplateScreen(template: template),
+                          ),
+                        );
+                        if (result == true && context.mounted) {
+                          Navigator.of(context).pop();
+                        }
+                      },
+                      icon: const Icon(Icons.edit),
+                      label: const Text('Edit'),
+                    ),
+                  ],
+                  const Spacer(),
                   ElevatedButton.icon(
                     onPressed: isCompatible
                         ? () {
@@ -483,5 +603,290 @@ class _InfoRow extends StatelessWidget {
         ],
       ),
     );
+  }
+}
+
+/// Screen for editing an existing template
+class _EditTemplateScreen extends StatefulWidget {
+  final Template template;
+
+  const _EditTemplateScreen({required this.template});
+
+  @override
+  State<_EditTemplateScreen> createState() => _EditTemplateScreenState();
+}
+
+class _EditTemplateScreenState extends State<_EditTemplateScreen> {
+  final _formKey = GlobalKey<FormState>();
+  late TextEditingController _nameController;
+  late TextEditingController _descriptionController;
+  late TextEditingController _authorController;
+  late TextEditingController _tagsController;
+  late TemplateCategory _selectedCategory;
+
+  @override
+  void initState() {
+    super.initState();
+    _nameController = TextEditingController(text: widget.template.name);
+    _descriptionController = TextEditingController(text: widget.template.description);
+    _authorController = TextEditingController(text: widget.template.author);
+    _tagsController = TextEditingController(text: widget.template.tags.join(', '));
+    _selectedCategory = widget.template.category;
+  }
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _descriptionController.dispose();
+    _authorController.dispose();
+    _tagsController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _saveChanges() async {
+    if (!_formKey.currentState!.validate()) return;
+
+    final templateService = Provider.of<TemplateService>(context, listen: false);
+
+    // Parse tags
+    final tags = _tagsController.text
+        .split(',')
+        .map((t) => t.trim())
+        .where((t) => t.isNotEmpty)
+        .toList();
+
+    // Create updated template
+    final updatedTemplate = widget.template.copyWith(
+      name: _nameController.text.trim(),
+      description: _descriptionController.text.trim(),
+      author: _authorController.text.trim(),
+      category: _selectedCategory,
+      tags: tags,
+      updatedAt: DateTime.now(),
+    );
+
+    try {
+      await templateService.saveTemplate(updatedTemplate);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Template updated successfully'),
+            backgroundColor: Colors.green,
+          ),
+        );
+        Navigator.of(context).pop(true);
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to update template: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Edit Template'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.check),
+            onPressed: _saveChanges,
+            tooltip: 'Save changes',
+          ),
+        ],
+      ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(16),
+        child: Form(
+          key: _formKey,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // Info message
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.blue.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.blue),
+                ),
+                child: const Row(
+                  children: [
+                    Icon(Icons.info, color: Colors.blue, size: 20),
+                    SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Edit template metadata. Tool configuration cannot be modified.',
+                        style: TextStyle(fontSize: 12),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+
+              // Name
+              TextFormField(
+                controller: _nameController,
+                decoration: const InputDecoration(
+                  labelText: 'Template Name *',
+                  border: OutlineInputBorder(),
+                ),
+                validator: (value) {
+                  if (value == null || value.trim().isEmpty) {
+                    return 'Please enter a template name';
+                  }
+                  return null;
+                },
+              ),
+              const SizedBox(height: 16),
+
+              // Description
+              TextFormField(
+                controller: _descriptionController,
+                decoration: const InputDecoration(
+                  labelText: 'Description *',
+                  border: OutlineInputBorder(),
+                ),
+                maxLines: 3,
+                validator: (value) {
+                  if (value == null || value.trim().isEmpty) {
+                    return 'Please enter a description';
+                  }
+                  return null;
+                },
+              ),
+              const SizedBox(height: 16),
+
+              // Author
+              TextFormField(
+                controller: _authorController,
+                decoration: const InputDecoration(
+                  labelText: 'Author',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 16),
+
+              // Category
+              DropdownButtonFormField<TemplateCategory>(
+                value: _selectedCategory,
+                decoration: const InputDecoration(
+                  labelText: 'Category',
+                  border: OutlineInputBorder(),
+                ),
+                items: TemplateCategory.values.map((category) {
+                  return DropdownMenuItem(
+                    value: category,
+                    child: Text(_categoryLabel(category)),
+                  );
+                }).toList(),
+                onChanged: (value) {
+                  if (value != null) {
+                    setState(() => _selectedCategory = value);
+                  }
+                },
+              ),
+              const SizedBox(height: 16),
+
+              // Tags
+              TextFormField(
+                controller: _tagsController,
+                decoration: const InputDecoration(
+                  labelText: 'Tags (comma-separated)',
+                  hintText: 'e.g., speed, navigation, gauge',
+                  border: OutlineInputBorder(),
+                  helperText: 'Separate tags with commas',
+                ),
+              ),
+              const SizedBox(height: 24),
+
+              // Preview section
+              const Divider(),
+              const SizedBox(height: 16),
+              Text(
+                'Tool Configuration (Read-only)',
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+              const SizedBox(height: 8),
+              _buildConfigPreview(),
+              const SizedBox(height: 24),
+
+              // Save button
+              ElevatedButton.icon(
+                onPressed: _saveChanges,
+                icon: const Icon(Icons.save),
+                label: const Text('Save Changes'),
+                style: ElevatedButton.styleFrom(
+                  padding: const EdgeInsets.all(16),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildConfigPreview() {
+    final config = widget.template.config;
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.grey.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.grey.withValues(alpha: 0.3)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Tool Type: ${widget.template.toolTypeId}',
+            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Data Paths:',
+            style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 12),
+          ),
+          ...config.dataSources.map((ds) {
+            return Padding(
+              padding: const EdgeInsets.only(left: 8, top: 4),
+              child: Text(
+                '• ${ds.path}${ds.label != null ? " (${ds.label})" : ""}',
+                style: const TextStyle(
+                  fontSize: 11,
+                  fontFamily: 'monospace',
+                ),
+              ),
+            );
+          }),
+          if (config.style.minValue != null || config.style.maxValue != null) ...[
+            const SizedBox(height: 8),
+            Text(
+              'Range: ${config.style.minValue ?? "auto"} - ${config.style.maxValue ?? "auto"}',
+              style: const TextStyle(fontSize: 11),
+            ),
+          ],
+          if (config.style.primaryColor != null) ...[
+            const SizedBox(height: 4),
+            Text(
+              'Color: ${config.style.primaryColor}',
+              style: const TextStyle(fontSize: 11),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  String _categoryLabel(TemplateCategory category) {
+    return category.name[0].toUpperCase() + category.name.substring(1);
   }
 }

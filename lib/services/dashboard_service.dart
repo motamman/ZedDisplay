@@ -3,15 +3,17 @@ import '../models/dashboard_layout.dart';
 import '../models/dashboard_screen.dart';
 import '../models/tool_instance.dart';
 import 'storage_service.dart';
+import 'signalk_service.dart';
 
 /// Service for managing dashboard layouts and screens
 class DashboardService extends ChangeNotifier {
   final StorageService _storageService;
+  final SignalKService? _signalKService;
 
   DashboardLayout? _currentLayout;
   bool _initialized = false;
 
-  DashboardService(this._storageService);
+  DashboardService(this._storageService, [this._signalKService]);
 
   DashboardLayout? get currentLayout => _currentLayout;
   bool get initialized => _initialized;
@@ -54,6 +56,9 @@ class DashboardService extends ChangeNotifier {
       _initialized = true;
       notifyListeners();
 
+      // Don't subscribe yet - SignalK isn't connected at this point
+      // Subscription will happen after connection in ConnectionScreen
+
       if (kDebugMode) {
         print('DashboardService initialized with ${_currentLayout!.screens.length} screens');
       }
@@ -62,6 +67,21 @@ class DashboardService extends ChangeNotifier {
         print('Error initializing DashboardService: $e');
       }
       rethrow;
+    }
+  }
+
+  /// Update SignalK subscriptions based on current dashboard
+  Future<void> _updateSignalKSubscriptions() async {
+    if (_currentLayout == null || _signalKService == null) return;
+
+    final requiredPaths = _currentLayout!.getAllRequiredPaths();
+
+    if (requiredPaths.isNotEmpty) {
+      await _signalKService!.setActiveTemplatePaths(requiredPaths);
+
+      if (kDebugMode) {
+        print('Updated SignalK subscriptions: ${requiredPaths.length} paths from dashboard');
+      }
     }
   }
 
@@ -85,10 +105,11 @@ class DashboardService extends ChangeNotifier {
   }
 
   /// Update the current layout
-  void updateLayout(DashboardLayout layout) {
+  Future<void> updateLayout(DashboardLayout layout) async {
     _currentLayout = layout;
     notifyListeners();
-    saveDashboard();
+    await _updateSignalKSubscriptions();
+    await saveDashboard();
   }
 
   /// Add a screen to the current layout
@@ -152,6 +173,7 @@ class DashboardService extends ChangeNotifier {
     final updatedScreen = activeScreen.addTool(tool);
     _currentLayout = _currentLayout!.updateScreen(updatedScreen);
     notifyListeners();
+    await _updateSignalKSubscriptions();
     await saveDashboard();
   }
 
@@ -167,6 +189,7 @@ class DashboardService extends ChangeNotifier {
     final updatedScreen = screen.removeTool(toolId);
     _currentLayout = _currentLayout!.updateScreen(updatedScreen);
     notifyListeners();
+    await _updateSignalKSubscriptions();
     await saveDashboard();
   }
 
@@ -182,6 +205,7 @@ class DashboardService extends ChangeNotifier {
     final updatedScreen = screen.updateTool(tool);
     _currentLayout = _currentLayout!.updateScreen(updatedScreen);
     notifyListeners();
+    await _updateSignalKSubscriptions();
     await saveDashboard();
   }
 

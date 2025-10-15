@@ -24,6 +24,7 @@ class RadialGaugeTool extends StatelessWidget {
     }
 
     final dataSource = config.dataSources.first;
+    final dataPoint = signalKService.getValue(dataSource.path);
     final value = signalKService.getConvertedValue(dataSource.path) ?? 0.0;
 
     // Get style configuration
@@ -34,7 +35,11 @@ class RadialGaugeTool extends StatelessWidget {
     // Get label from data source or style
     final label = dataSource.label ?? _getDefaultLabel(dataSource.path);
 
+    // Get formatted value from plugin if available
+    final formattedValue = dataPoint?.formatted;
+
     // Get unit (prefer style override, fallback to server's unit)
+    // Only used if no formatted value
     final unit = style.unit ??
                  signalKService.getUnitSymbol(dataSource.path) ??
                  '';
@@ -56,6 +61,7 @@ class RadialGaugeTool extends StatelessWidget {
       maxValue: maxValue,
       label: style.showLabel == true ? label : '',
       unit: style.showUnit == true ? unit : '',
+      formattedValue: formattedValue,
       primaryColor: primaryColor,
     );
   }
