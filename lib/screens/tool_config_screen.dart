@@ -39,6 +39,14 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
   String? _primaryColor;
   double? _fontSize;
 
+  // Chart-specific configuration
+  String _chartDuration = '1h';
+  int? _chartResolution; // null means auto
+  bool _chartShowLegend = true;
+  bool _chartShowGrid = true;
+  bool _chartAutoRefresh = false;
+  int _chartRefreshInterval = 60;
+
   // Size configuration
   int _toolWidth = 1;
   int _toolHeight = 1;
@@ -68,6 +76,16 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
     _unit = style.unit;
     _primaryColor = style.primaryColor;
     _fontSize = style.fontSize;
+
+    // Load chart-specific settings from customProperties
+    if (style.customProperties != null) {
+      _chartDuration = style.customProperties!['duration'] as String? ?? '1h';
+      _chartResolution = style.customProperties!['resolution'] as int?; // null = auto
+      _chartShowLegend = style.customProperties!['showLegend'] as bool? ?? true;
+      _chartShowGrid = style.customProperties!['showGrid'] as bool? ?? true;
+      _chartAutoRefresh = style.customProperties!['autoRefresh'] as bool? ?? false;
+      _chartRefreshInterval = style.customProperties!['refreshInterval'] as int? ?? 60;
+    }
 
     // Size is managed in placements, not tools
     _toolWidth = 1;
@@ -115,7 +133,18 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
 
     final toolService = Provider.of<ToolService>(context, listen: false);
 
-    // Create tool config
+    // Create tool config with chart-specific properties if applicable
+    final customProperties = _selectedToolTypeId == 'historical_chart'
+        ? {
+            'duration': _chartDuration,
+            'resolution': _chartResolution,
+            'showLegend': _chartShowLegend,
+            'showGrid': _chartShowGrid,
+            'autoRefresh': _chartAutoRefresh,
+            'refreshInterval': _chartRefreshInterval,
+          }
+        : null;
+
     final config = ToolConfig(
       dataSources: [
         DataSource(
@@ -133,6 +162,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
         showLabel: true,
         showValue: true,
         showUnit: true,
+        customProperties: customProperties,
       ),
     );
 
@@ -323,6 +353,113 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
               ),
             const SizedBox(height: 16),
 
+            // Chart-specific Configuration
+            if (_selectedToolTypeId == 'historical_chart')
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '4. Chart Settings',
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                      const SizedBox(height: 16),
+                      DropdownButtonFormField<String>(
+                        decoration: const InputDecoration(
+                          labelText: 'Time Duration',
+                          border: OutlineInputBorder(),
+                        ),
+                        value: _chartDuration,
+                        items: const [
+                          DropdownMenuItem(value: '15m', child: Text('15 minutes')),
+                          DropdownMenuItem(value: '30m', child: Text('30 minutes')),
+                          DropdownMenuItem(value: '1h', child: Text('1 hour')),
+                          DropdownMenuItem(value: '2h', child: Text('2 hours')),
+                          DropdownMenuItem(value: '6h', child: Text('6 hours')),
+                          DropdownMenuItem(value: '12h', child: Text('12 hours')),
+                          DropdownMenuItem(value: '1d', child: Text('1 day')),
+                          DropdownMenuItem(value: '2d', child: Text('2 days')),
+                        ],
+                        onChanged: (value) {
+                          if (value != null) {
+                            setState(() => _chartDuration = value);
+                          }
+                        },
+                      ),
+                      const SizedBox(height: 16),
+                      DropdownButtonFormField<int?>(
+                        decoration: const InputDecoration(
+                          labelText: 'Data Resolution',
+                          border: OutlineInputBorder(),
+                          helperText: 'Auto lets the server optimize for the timeframe',
+                        ),
+                        value: _chartResolution,
+                        items: const [
+                          DropdownMenuItem(value: null, child: Text('Auto (Recommended)')),
+                          DropdownMenuItem(value: 30000, child: Text('30 seconds')),
+                          DropdownMenuItem(value: 60000, child: Text('1 minute')),
+                          DropdownMenuItem(value: 300000, child: Text('5 minutes')),
+                          DropdownMenuItem(value: 600000, child: Text('10 minutes')),
+                        ],
+                        onChanged: (value) {
+                          setState(() => _chartResolution = value);
+                        },
+                      ),
+                      const SizedBox(height: 16),
+                      SwitchListTile(
+                        title: const Text('Show Legend'),
+                        value: _chartShowLegend,
+                        onChanged: (value) {
+                          setState(() => _chartShowLegend = value);
+                        },
+                      ),
+                      SwitchListTile(
+                        title: const Text('Show Grid'),
+                        value: _chartShowGrid,
+                        onChanged: (value) {
+                          setState(() => _chartShowGrid = value);
+                        },
+                      ),
+                      const Divider(),
+                      SwitchListTile(
+                        title: const Text('Auto Refresh'),
+                        subtitle: const Text('Automatically reload data'),
+                        value: _chartAutoRefresh,
+                        onChanged: (value) {
+                          setState(() => _chartAutoRefresh = value);
+                        },
+                      ),
+                      if (_chartAutoRefresh)
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          child: DropdownButtonFormField<int>(
+                            decoration: const InputDecoration(
+                              labelText: 'Refresh Interval',
+                              border: OutlineInputBorder(),
+                            ),
+                            value: _chartRefreshInterval,
+                            items: const [
+                              DropdownMenuItem(value: 30, child: Text('30 seconds')),
+                              DropdownMenuItem(value: 60, child: Text('1 minute')),
+                              DropdownMenuItem(value: 120, child: Text('2 minutes')),
+                              DropdownMenuItem(value: 300, child: Text('5 minutes')),
+                              DropdownMenuItem(value: 600, child: Text('10 minutes')),
+                            ],
+                            onChanged: (value) {
+                              if (value != null) {
+                                setState(() => _chartRefreshInterval = value);
+                              }
+                            },
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+            const SizedBox(height: 16),
+
             // Style Configuration
             if (_selectedToolTypeId != null)
               Card(
@@ -332,7 +469,9 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        '4. Configure Style',
+                        _selectedToolTypeId == 'historical_chart'
+                            ? '5. Configure Style'
+                            : '4. Configure Style',
                         style: Theme.of(context).textTheme.titleMedium,
                       ),
                       const SizedBox(height: 16),
@@ -352,7 +491,9 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        '5. Preview',
+                        _selectedToolTypeId == 'historical_chart'
+                            ? '6. Preview'
+                            : '5. Preview',
                         style: Theme.of(context).textTheme.titleMedium,
                       ),
                       const SizedBox(height: 16),

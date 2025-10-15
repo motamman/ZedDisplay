@@ -33,6 +33,8 @@ class SignalKService extends ChangeNotifier {
   bool get isConnected => _isConnected;
   String? get errorMessage => _errorMessage;
   Map<String, SignalKDataPoint> get latestData => Map.unmodifiable(_latestData);
+  String get serverUrl => _serverUrl;
+  bool get useSecureConnection => _useSecureConnection;
 
   /// Connect to SignalK server (optionally with authentication)
   Future<void> connect(
