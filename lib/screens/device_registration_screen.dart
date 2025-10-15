@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../services/auth_service.dart';
 import '../services/signalk_service.dart';
 import '../services/dashboard_service.dart';
+import '../services/storage_service.dart';
 import '../models/access_request.dart';
 import 'dashboard_manager_screen.dart';
 
@@ -70,6 +71,7 @@ class _DeviceRegistrationScreenState extends State<DeviceRegistrationScreen> {
     final authService = Provider.of<AuthService>(context, listen: false);
     final signalKService = Provider.of<SignalKService>(context, listen: false);
     final dashboardService = Provider.of<DashboardService>(context, listen: false);
+    final storageService = Provider.of<StorageService>(context, listen: false);
 
     // Get the saved token
     final token = authService.getSavedToken(widget.serverUrl);
@@ -81,6 +83,12 @@ class _DeviceRegistrationScreenState extends State<DeviceRegistrationScreen> {
           widget.serverUrl,
           secure: widget.secure,
           authToken: token,
+        );
+
+        // Save this as the last successful connection
+        await storageService.saveLastConnection(
+          widget.serverUrl,
+          widget.secure,
         );
 
         // Trigger dashboard subscription update (happens automatically in DashboardService)

@@ -242,6 +242,42 @@ class StorageService extends ChangeNotifier {
     await _settingsBox.delete(key);
   }
 
+  // ===== Connection Settings =====
+
+  /// Save the last successful connection details
+  Future<void> saveLastConnection(String serverUrl, bool useSecure) async {
+    if (!_initialized) throw Exception('StorageService not initialized');
+    await _settingsBox.put('last_server_url', serverUrl);
+    await _settingsBox.put('last_use_secure', useSecure ? 'true' : 'false');
+
+    if (kDebugMode) {
+      print('Saved last connection: $serverUrl (secure: $useSecure)');
+    }
+  }
+
+  /// Get the last connection server URL
+  String? getLastServerUrl() {
+    if (!_initialized) return null;
+    return _settingsBox.get('last_server_url');
+  }
+
+  /// Get the last connection secure flag
+  bool getLastUseSecure() {
+    if (!_initialized) return false;
+    return _settingsBox.get('last_use_secure') == 'true';
+  }
+
+  /// Clear last connection settings
+  Future<void> clearLastConnection() async {
+    if (!_initialized) throw Exception('StorageService not initialized');
+    await _settingsBox.delete('last_server_url');
+    await _settingsBox.delete('last_use_secure');
+
+    if (kDebugMode) {
+      print('Cleared last connection settings');
+    }
+  }
+
   // ===== Utility Methods =====
 
   /// Clear all data (dangerous!)

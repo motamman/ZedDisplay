@@ -212,6 +212,7 @@ class _HistoricalChartToolState extends State<HistoricalChartTool> {
           title: title,
           showLegend: widget.config.style.customProperties?['showLegend'] as bool? ?? true,
           showGrid: widget.config.style.customProperties?['showGrid'] as bool? ?? true,
+          signalKService: widget.signalKService,
         ),
         // Refresh button in top-right corner
         Positioned(

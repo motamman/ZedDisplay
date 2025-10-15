@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
 import '../models/historical_data.dart';
+import '../services/signalk_service.dart';
 import 'package:intl/intl.dart';
 
 /// A line chart widget that displays up to 3 historical data series
@@ -9,6 +10,7 @@ class HistoricalLineChart extends StatelessWidget {
   final String title;
   final bool showLegend;
   final bool showGrid;
+  final SignalKService? signalKService;
 
   const HistoricalLineChart({
     Key? key,
@@ -16,6 +18,7 @@ class HistoricalLineChart extends StatelessWidget {
     this.title = 'Historical Data',
     this.showLegend = true,
     this.showGrid = true,
+    this.signalKService,
   }) : super(key: key);
 
   @override
@@ -169,10 +172,19 @@ class HistoricalLineChart extends StatelessWidget {
             sideTitles: SideTitles(
               showTitles: true,
               interval: (maxY - minY) / 5,
-              reservedSize: 42,
+              reservedSize: 50,
               getTitlesWidget: (value, meta) {
+                // Get unit symbol from first series (all series should have same unit)
+                String? unit;
+                if (signalKService != null && series.isNotEmpty) {
+                  unit = signalKService!.getUnitSymbol(series.first.path);
+                }
+
+                final valueText = value.toStringAsFixed(1);
+                final displayText = unit != null ? '$valueText $unit' : valueText;
+
                 return Text(
-                  value.toStringAsFixed(1),
+                  displayText,
                   style: const TextStyle(fontSize: 10),
                   textAlign: TextAlign.left,
                 );
@@ -207,8 +219,18 @@ class HistoricalLineChart extends StatelessWidget {
                   spot.x.toInt(),
                 );
                 final formatter = DateFormat('HH:mm:ss');
+
+                // Get unit symbol for this series
+                String? unit;
+                if (signalKService != null) {
+                  unit = signalKService!.getUnitSymbol(series[spot.barIndex].path);
+                }
+
+                final valueText = spot.y.toStringAsFixed(2);
+                final displayValue = unit != null ? '$valueText $unit' : valueText;
+
                 return LineTooltipItem(
-                  '${_getSeriesLabel(series[spot.barIndex])}\n${formatter.format(date)}\n${spot.y.toStringAsFixed(2)}',
+                  '${_getSeriesLabel(series[spot.barIndex])}\n${formatter.format(date)}\n$displayValue',
                   TextStyle(
                     color: colors[spot.barIndex],
                     fontWeight: FontWeight.bold,

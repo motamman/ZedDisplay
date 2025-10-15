@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../services/signalk_service.dart';
 import '../services/auth_service.dart';
 import '../services/dashboard_service.dart';
+import '../services/storage_service.dart';
 import 'dashboard_manager_screen.dart';
 import 'device_registration_screen.dart';
 
@@ -19,6 +20,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
   bool _useSecure = false;
   bool _isConnecting = false;
   String _clientId = '';
+  bool _autoConnecting = false;
 
   @override
   void initState() {
@@ -26,6 +28,35 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     // Generate or load client ID
     final authService = Provider.of<AuthService>(context, listen: false);
     _clientId = authService.generateClientId();
+
+    // Try auto-connect if we have saved connection
+    _tryAutoConnect();
+  }
+
+  Future<void> _tryAutoConnect() async {
+    final storageService = Provider.of<StorageService>(context, listen: false);
+    final lastServerUrl = storageService.getLastServerUrl();
+
+    if (lastServerUrl != null) {
+      setState(() {
+        _autoConnecting = true;
+        _serverController.text = lastServerUrl;
+        _useSecure = storageService.getLastUseSecure();
+      });
+
+      // Wait a moment for UI to settle
+      await Future.delayed(const Duration(milliseconds: 500));
+
+      if (mounted) {
+        await _connect(silent: true);
+      }
+
+      if (mounted) {
+        setState(() {
+          _autoConnecting = false;
+        });
+      }
+    }
   }
 
   @override
@@ -34,7 +65,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     super.dispose();
   }
 
-  Future<void> _connect() async {
+  Future<void> _connect({bool silent = false}) async {
     if (!_formKey.currentState!.validate()) {
       return;
     }
@@ -47,6 +78,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
       final authService = context.read<AuthService>();
       final signalKService = context.read<SignalKService>();
       final dashboardService = context.read<DashboardService>();
+      final storageService = context.read<StorageService>();
 
       // Check if we have a saved token
       final savedToken = authService.getSavedToken(_serverController.text);
@@ -57,6 +89,12 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
           _serverController.text,
           secure: _useSecure,
           authToken: savedToken,
+        );
+
+        // Save this as the last successful connection
+        await storageService.saveLastConnection(
+          _serverController.text,
+          _useSecure,
         );
 
         // Trigger dashboard subscription update (happens automatically in DashboardService)
@@ -86,7 +124,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
         }
       }
     } catch (e) {
-      if (mounted) {
+      if (mounted && !silent) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Connection failed: $e'),
@@ -167,22 +205,37 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
                 },
               ),
               const SizedBox(height: 24),
-              ElevatedButton(
-                onPressed: _isConnecting ? null : _connect,
-                style: ElevatedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                ),
-                child: _isConnecting
-                    ? const SizedBox(
-                        height: 20,
-                        width: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Text(
-                        'Connect',
-                        style: TextStyle(fontSize: 18),
+              if (_autoConnecting)
+                const Column(
+                  children: [
+                    CircularProgressIndicator(),
+                    SizedBox(height: 16),
+                    Text(
+                      'Auto-connecting to saved server...',
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: Colors.grey,
                       ),
-              ),
+                    ),
+                  ],
+                )
+              else
+                ElevatedButton(
+                  onPressed: _isConnecting ? null : () => _connect(),
+                  style: ElevatedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                  ),
+                  child: _isConnecting
+                      ? const SizedBox(
+                          height: 20,
+                          width: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Text(
+                          'Connect',
+                          style: TextStyle(fontSize: 18),
+                        ),
+                ),
               const SizedBox(height: 16),
               const Text(
                 'The app will request access to the SignalK server.\nApprove the request in the server Admin UI.',

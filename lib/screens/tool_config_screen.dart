@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:flutter_colorpicker/flutter_colorpicker.dart';
 import '../models/tool_config.dart';
 import '../models/tool.dart';
 import '../services/signalk_service.dart';
@@ -123,6 +124,57 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
         onSelect: (source) {
           setState(() => _selectedSource = source);
         },
+      ),
+    );
+  }
+
+  Future<void> _selectColor() async {
+    // Parse current color or use default
+    Color currentColor = Colors.blue;
+    if (_primaryColor != null && _primaryColor!.isNotEmpty) {
+      try {
+        final hexColor = _primaryColor!.replaceAll('#', '');
+        currentColor = Color(int.parse('FF$hexColor', radix: 16));
+      } catch (e) {
+        // Invalid color, use default
+      }
+    }
+
+    Color? pickedColor;
+
+    await showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Pick a color'),
+        content: SingleChildScrollView(
+          child: ColorPicker(
+            pickerColor: currentColor,
+            onColorChanged: (color) {
+              pickedColor = color;
+            },
+            pickerAreaHeightPercent: 0.8,
+            enableAlpha: false,
+            displayThumbColor: true,
+            labelTypes: const [],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () {
+              if (pickedColor != null) {
+                setState(() {
+                  _primaryColor = '#${pickedColor!.value.toRadixString(16).substring(2).toUpperCase()}';
+                });
+              }
+              Navigator.of(context).pop();
+            },
+            child: const Text('Select'),
+          ),
+        ],
       ),
     );
   }
@@ -587,13 +639,33 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
         onChanged: (value) => _unit = value,
       ),
       const SizedBox(height: 16),
-      TextFormField(
-        decoration: const InputDecoration(
-          labelText: 'Color (hex, e.g. #0000FF)',
-          border: OutlineInputBorder(),
+      ListTile(
+        leading: Container(
+          width: 40,
+          height: 40,
+          decoration: BoxDecoration(
+            color: _primaryColor != null && _primaryColor!.isNotEmpty
+                ? () {
+                    try {
+                      final hexColor = _primaryColor!.replaceAll('#', '');
+                      return Color(int.parse('FF$hexColor', radix: 16));
+                    } catch (e) {
+                      return Colors.blue;
+                    }
+                  }()
+                : Colors.blue,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: Colors.grey.shade400, width: 2),
+          ),
         ),
-        initialValue: _primaryColor,
-        onChanged: (value) => _primaryColor = value,
+        title: const Text('Primary Color'),
+        subtitle: Text(_primaryColor ?? 'Default (Blue)'),
+        trailing: const Icon(Icons.edit),
+        onTap: _selectColor,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(8),
+          side: BorderSide(color: Colors.grey.shade300),
+        ),
       ),
     ]);
 
