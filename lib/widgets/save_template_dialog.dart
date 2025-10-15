@@ -1,14 +1,13 @@
 import 'package:flutter/material.dart';
-import '../models/template.dart';
-import '../models/tool_instance.dart';
+import '../models/tool.dart';
 
-/// Dialog for saving a tool as a template
+/// Dialog for editing tool metadata
 class SaveTemplateDialog extends StatefulWidget {
-  final ToolInstance toolInstance;
+  final Tool tool;
 
   const SaveTemplateDialog({
     super.key,
-    required this.toolInstance,
+    required this.tool,
   });
 
   @override
@@ -17,12 +16,22 @@ class SaveTemplateDialog extends StatefulWidget {
 
 class _SaveTemplateDialogState extends State<SaveTemplateDialog> {
   final _formKey = GlobalKey<FormState>();
-  final _nameController = TextEditingController();
-  final _descriptionController = TextEditingController();
-  final _authorController = TextEditingController(text: 'Local User');
-  final _tagsController = TextEditingController();
+  late TextEditingController _nameController;
+  late TextEditingController _descriptionController;
+  late TextEditingController _authorController;
+  late TextEditingController _tagsController;
 
-  TemplateCategory _selectedCategory = TemplateCategory.other;
+  late ToolCategory _selectedCategory;
+
+  @override
+  void initState() {
+    super.initState();
+    _nameController = TextEditingController(text: widget.tool.name);
+    _descriptionController = TextEditingController(text: widget.tool.description);
+    _authorController = TextEditingController(text: widget.tool.author);
+    _tagsController = TextEditingController(text: widget.tool.tags.join(', '));
+    _selectedCategory = widget.tool.category;
+  }
 
   @override
   void dispose() {
@@ -80,7 +89,7 @@ class _SaveTemplateDialogState extends State<SaveTemplateDialog> {
                   ),
                   const SizedBox(width: 12),
                   Text(
-                    'Save as Template',
+                    'Edit Tool',
                     style: Theme.of(context).textTheme.titleLarge?.copyWith(
                           color:
                               Theme.of(context).colorScheme.onPrimaryContainer,
@@ -173,13 +182,13 @@ class _SaveTemplateDialogState extends State<SaveTemplateDialog> {
                       const SizedBox(height: 16),
 
                       // Category
-                      DropdownButtonFormField<TemplateCategory>(
-                        initialValue: _selectedCategory,
+                      DropdownButtonFormField<ToolCategory>(
+                        value: _selectedCategory,
                         decoration: const InputDecoration(
                           labelText: 'Category',
                           border: OutlineInputBorder(),
                         ),
-                        items: TemplateCategory.values.map((category) {
+                        items: ToolCategory.values.map((category) {
                           return DropdownMenuItem(
                             value: category,
                             child: Text(_categoryLabel(category)),
@@ -239,7 +248,7 @@ class _SaveTemplateDialogState extends State<SaveTemplateDialog> {
                   ElevatedButton.icon(
                     onPressed: _saveTemplate,
                     icon: const Icon(Icons.save),
-                    label: const Text('Save Template'),
+                    label: const Text('Save Changes'),
                   ),
                 ],
               ),
@@ -251,7 +260,7 @@ class _SaveTemplateDialogState extends State<SaveTemplateDialog> {
   }
 
   Widget _buildConfigPreview() {
-    final config = widget.toolInstance.config;
+    final config = widget.tool.config;
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
@@ -263,7 +272,7 @@ class _SaveTemplateDialogState extends State<SaveTemplateDialog> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Tool Type: ${widget.toolInstance.toolTypeId}',
+            'Tool Type: ${widget.tool.toolTypeId}',
             style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
           ),
           const SizedBox(height: 8),
@@ -303,7 +312,7 @@ class _SaveTemplateDialogState extends State<SaveTemplateDialog> {
   }
 
   String _getSuggestedName() {
-    final dataSources = widget.toolInstance.config.dataSources;
+    final dataSources = widget.tool.config.dataSources;
     if (dataSources.isEmpty) return '';
 
     final firstPath = dataSources.first.path;
@@ -320,7 +329,7 @@ class _SaveTemplateDialogState extends State<SaveTemplateDialog> {
     return result.isEmpty ? lastPart : result;
   }
 
-  String _categoryLabel(TemplateCategory category) {
+  String _categoryLabel(ToolCategory category) {
     return category.name[0].toUpperCase() + category.name.substring(1);
   }
 }

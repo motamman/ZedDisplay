@@ -10,8 +10,8 @@ DashboardScreen _$DashboardScreenFromJson(Map<String, dynamic> json) =>
     DashboardScreen(
       id: json['id'] as String,
       name: json['name'] as String,
-      tools: (json['tools'] as List<dynamic>)
-          .map((e) => ToolInstance.fromJson(e as Map<String, dynamic>))
+      placements: (json['placements'] as List<dynamic>)
+          .map((e) => ToolPlacement.fromJson(e as Map<String, dynamic>))
           .toList(),
       order: (json['order'] as num?)?.toInt() ?? 0,
     );
@@ -20,6 +20,6 @@ Map<String, dynamic> _$DashboardScreenToJson(DashboardScreen instance) =>
     <String, dynamic>{
       'id': instance.id,
       'name': instance.name,
-      'tools': instance.tools,
+      'placements': instance.placements,
       'order': instance.order,
     };

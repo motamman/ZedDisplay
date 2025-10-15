@@ -1,19 +1,25 @@
 import 'package:flutter/foundation.dart';
 import '../models/dashboard_layout.dart';
 import '../models/dashboard_screen.dart';
-import '../models/tool_instance.dart';
+import '../models/tool_placement.dart';
 import 'storage_service.dart';
 import 'signalk_service.dart';
+import 'tool_service.dart';
 
 /// Service for managing dashboard layouts and screens
 class DashboardService extends ChangeNotifier {
   final StorageService _storageService;
   final SignalKService? _signalKService;
+  final ToolService? _toolService;
 
   DashboardLayout? _currentLayout;
   bool _initialized = false;
 
-  DashboardService(this._storageService, [this._signalKService]);
+  DashboardService(
+    this._storageService, [
+    this._signalKService,
+    this._toolService,
+  ]);
 
   DashboardLayout? get currentLayout => _currentLayout;
   bool get initialized => _initialized;
@@ -43,7 +49,7 @@ class DashboardService extends ChangeNotifier {
             DashboardScreen(
               id: 'screen_main',
               name: 'Main',
-              tools: [],
+              placements: [],
               order: 0,
             ),
           ],
@@ -72,15 +78,19 @@ class DashboardService extends ChangeNotifier {
 
   /// Update SignalK subscriptions based on current dashboard
   Future<void> _updateSignalKSubscriptions() async {
-    if (_currentLayout == null || _signalKService == null) return;
+    if (_currentLayout == null || _signalKService == null || _toolService == null) return;
 
-    final requiredPaths = _currentLayout!.getAllRequiredPaths();
+    // Get all tool IDs from the dashboard
+    final toolIds = _currentLayout!.getAllToolIds();
+
+    // Resolve tool IDs to required paths
+    final requiredPaths = _toolService!.getRequiredPathsForTools(toolIds);
 
     if (requiredPaths.isNotEmpty) {
       await _signalKService!.setActiveTemplatePaths(requiredPaths);
 
       if (kDebugMode) {
-        print('Updated SignalK subscriptions: ${requiredPaths.length} paths from dashboard');
+        print('Updated SignalK subscriptions: ${requiredPaths.length} paths from ${toolIds.length} tools');
       }
     }
   }
@@ -120,7 +130,7 @@ class DashboardService extends ChangeNotifier {
     final newScreen = DashboardScreen(
       id: 'screen_${DateTime.now().millisecondsSinceEpoch}',
       name: screenName,
-      tools: [],
+      placements: [],
       order: _currentLayout!.screens.length,
     );
 
@@ -165,20 +175,25 @@ class DashboardService extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Add a tool to the current active screen
-  Future<void> addToolToActiveScreen(ToolInstance tool) async {
+  /// Add a tool placement to the current active screen
+  Future<void> addPlacementToActiveScreen(ToolPlacement placement) async {
     if (_currentLayout == null || _currentLayout!.activeScreen == null) return;
 
     final activeScreen = _currentLayout!.activeScreen!;
-    final updatedScreen = activeScreen.addTool(tool);
+    final updatedScreen = activeScreen.addPlacement(placement);
     _currentLayout = _currentLayout!.updateScreen(updatedScreen);
     notifyListeners();
     await _updateSignalKSubscriptions();
     await saveDashboard();
+
+    // Increment tool usage count
+    if (_toolService != null) {
+      await _toolService!.incrementUsage(placement.toolId);
+    }
   }
 
-  /// Remove a tool from a screen
-  Future<void> removeTool(String screenId, String toolId) async {
+  /// Remove a tool placement from a screen
+  Future<void> removePlacement(String screenId, String toolId) async {
     if (_currentLayout == null) return;
 
     final screen = _currentLayout!.screens.firstWhere(
@@ -186,15 +201,15 @@ class DashboardService extends ChangeNotifier {
       orElse: () => throw Exception('Screen not found'),
     );
 
-    final updatedScreen = screen.removeTool(toolId);
+    final updatedScreen = screen.removePlacement(toolId);
     _currentLayout = _currentLayout!.updateScreen(updatedScreen);
     notifyListeners();
     await _updateSignalKSubscriptions();
     await saveDashboard();
   }
 
-  /// Update a tool on a screen
-  Future<void> updateTool(String screenId, ToolInstance tool) async {
+  /// Update a tool placement on a screen
+  Future<void> updatePlacement(String screenId, ToolPlacement placement) async {
     if (_currentLayout == null) return;
 
     final screen = _currentLayout!.screens.firstWhere(
@@ -202,24 +217,24 @@ class DashboardService extends ChangeNotifier {
       orElse: () => throw Exception('Screen not found'),
     );
 
-    final updatedScreen = screen.updateTool(tool);
+    final updatedScreen = screen.updatePlacement(placement);
     _currentLayout = _currentLayout!.updateScreen(updatedScreen);
     notifyListeners();
     await _updateSignalKSubscriptions();
     await saveDashboard();
   }
 
-  /// Get all tools from all screens
-  List<ToolInstance> getAllTools() {
+  /// Get all placements from all screens
+  List<ToolPlacement> getAllPlacements() {
     if (_currentLayout == null) return [];
 
     return _currentLayout!.screens
-        .expand((screen) => screen.tools)
+        .expand((screen) => screen.placements)
         .toList();
   }
 
-  /// Get tools for a specific screen
-  List<ToolInstance> getToolsForScreen(String screenId) {
+  /// Get placements for a specific screen
+  List<ToolPlacement> getPlacementsForScreen(String screenId) {
     if (_currentLayout == null) return [];
 
     final screen = _currentLayout!.screens.firstWhere(
@@ -227,6 +242,6 @@ class DashboardService extends ChangeNotifier {
       orElse: () => throw Exception('Screen not found'),
     );
 
-    return screen.tools;
+    return screen.placements;
   }
 }

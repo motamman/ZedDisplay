@@ -3,9 +3,10 @@ import 'package:provider/provider.dart';
 import '../services/dashboard_service.dart';
 import '../services/signalk_service.dart';
 import '../services/tool_registry.dart';
-import '../services/template_service.dart';
+import '../services/tool_service.dart';
 import '../models/dashboard_screen.dart';
-import '../models/tool_instance.dart';
+import '../models/tool.dart';
+import '../models/tool_placement.dart';
 import '../widgets/save_template_dialog.dart';
 import 'tool_config_screen.dart';
 import 'template_library_screen.dart';
@@ -39,6 +40,7 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen> {
 
   Future<void> _addTool() async {
     final dashboardService = Provider.of<DashboardService>(context, listen: false);
+    final toolService = Provider.of<ToolService>(context, listen: false);
     final activeScreen = dashboardService.currentLayout?.activeScreen;
 
     if (activeScreen == null) return;
@@ -49,13 +51,22 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen> {
       ),
     );
 
-    if (result is ToolInstance) {
-      await dashboardService.addToolToActiveScreen(result);
+    if (result is Tool) {
+      // Create a placement for this tool
+      final placement = toolService.createPlacement(
+        toolId: result.id,
+        screenId: activeScreen.id,
+      );
+      await dashboardService.addPlacementToActiveScreen(placement);
     }
   }
 
   Future<void> _browseTemplates() async {
     final dashboardService = Provider.of<DashboardService>(context, listen: false);
+    final toolService = Provider.of<ToolService>(context, listen: false);
+    final activeScreen = dashboardService.currentLayout?.activeScreen;
+
+    if (activeScreen == null) return;
 
     final result = await Navigator.of(context).push(
       MaterialPageRoute(
@@ -63,8 +74,13 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen> {
       ),
     );
 
-    if (result is ToolInstance) {
-      await dashboardService.addToolToActiveScreen(result);
+    if (result is Tool) {
+      // Create a placement for this tool
+      final placement = toolService.createPlacement(
+        toolId: result.id,
+        screenId: activeScreen.id,
+      );
+      await dashboardService.addPlacementToActiveScreen(placement);
     }
   }
 
@@ -86,8 +102,8 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen> {
             ),
             ListTile(
               leading: const Icon(Icons.collections_bookmark),
-              title: const Text('Browse Templates'),
-              subtitle: const Text('Use pre-configured tool templates'),
+              title: const Text('Browse Tools'),
+              subtitle: const Text('Use saved tools'),
               onTap: () {
                 Navigator.pop(context);
                 _browseTemplates();
@@ -99,32 +115,32 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen> {
     );
   }
 
-  Future<void> _saveAsTemplate(ToolInstance toolInstance) async {
-    final templateService = Provider.of<TemplateService>(context, listen: false);
+  Future<void> _editTool(Tool tool) async {
+    final toolService = Provider.of<ToolService>(context, listen: false);
 
     final templateData = await showDialog<Map<String, dynamic>>(
       context: context,
-      builder: (context) => SaveTemplateDialog(toolInstance: toolInstance),
+      builder: (context) => SaveTemplateDialog(tool: tool),
     );
 
     if (templateData == null) return;
 
     try {
-      final template = templateService.createTemplateFromTool(
-        toolInstance: toolInstance,
+      final updatedTool = tool.copyWith(
         name: templateData['name'] as String,
         description: templateData['description'] as String,
         author: templateData['author'] as String,
         category: templateData['category'],
         tags: templateData['tags'] as List<String>,
+        updatedAt: DateTime.now(),
       );
 
-      await templateService.saveTemplate(template);
+      await toolService.saveTool(updatedTool);
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Template "${template.name}" saved successfully'),
+            content: Text('Tool "${updatedTool.name}" updated successfully'),
             backgroundColor: Colors.green,
           ),
         );
@@ -133,7 +149,7 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Failed to save template: $e'),
+            content: Text('Failed to update tool: $e'),
             backgroundColor: Colors.red,
           ),
         );
@@ -141,9 +157,9 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen> {
     }
   }
 
-  void _removeTool(String screenId, String toolId) async {
+  void _removePlacement(String screenId, String toolId) async {
     final dashboardService = Provider.of<DashboardService>(context, listen: false);
-    await dashboardService.removeTool(screenId, toolId);
+    await dashboardService.removePlacement(screenId, toolId);
   }
 
   void _showScreenManagementMenu() {
@@ -389,7 +405,9 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen> {
   }
 
   Widget _buildScreenContent(DashboardScreen screen, SignalKService signalKService) {
-    if (screen.tools.isEmpty) {
+    final toolService = Provider.of<ToolService>(context, listen: false);
+
+    if (screen.placements.isEmpty) {
       return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -445,12 +463,20 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen> {
                 spacing: 16,
                 runSpacing: 16,
                 alignment: WrapAlignment.start,
-                children: screen.tools.map((tool) {
+                children: screen.placements.map((placement) {
                   final registry = ToolRegistry();
 
+                  // Resolve the tool from the placement
+                  final tool = toolService.getTool(placement.toolId);
+
+                  // Skip if tool not found
+                  if (tool == null) {
+                    return const SizedBox.shrink();
+                  }
+
                   // Get tool's size preferences, clamped to available columns
-                  final toolWidth = tool.position.width.clamp(1, columns);
-                  final toolHeight = tool.position.height.clamp(1, 4);
+                  final toolWidth = placement.position.width.clamp(1, columns);
+                  final toolHeight = placement.position.height.clamp(1, 4);
 
                   // Calculate actual dimensions
                   final width = (cellWidth * toolWidth) + ((toolWidth - 1) * 16);
@@ -469,20 +495,20 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen> {
 
                         // Edit mode buttons
                         if (_isEditMode) ...[
-                          // Save as Template button
+                          // Edit Tool button
                           Positioned(
                             top: 4,
                             left: 4,
                             child: IconButton(
-                              icon: const Icon(Icons.bookmark_add, size: 16),
-                              onPressed: () => _saveAsTemplate(tool),
+                              icon: const Icon(Icons.edit, size: 16),
+                              onPressed: () => _editTool(tool),
                               style: IconButton.styleFrom(
                                 backgroundColor: Colors.blue.withValues(alpha: 0.7),
                                 foregroundColor: Colors.white,
                                 padding: const EdgeInsets.all(4),
                                 minimumSize: const Size(24, 24),
                               ),
-                              tooltip: 'Save as Template',
+                              tooltip: 'Edit Tool',
                             ),
                           ),
                           // Delete button
@@ -491,7 +517,7 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen> {
                             right: 4,
                             child: IconButton(
                               icon: const Icon(Icons.close, size: 16),
-                              onPressed: () => _removeTool(screen.id, tool.id),
+                              onPressed: () => _removePlacement(screen.id, placement.toolId),
                               style: IconButton.styleFrom(
                                 backgroundColor: Colors.red.withValues(alpha: 0.7),
                                 foregroundColor: Colors.white,

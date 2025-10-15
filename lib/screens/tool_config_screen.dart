@@ -1,15 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/tool_config.dart';
-import '../models/tool_instance.dart';
+import '../models/tool.dart';
 import '../services/signalk_service.dart';
 import '../services/tool_registry.dart';
+import '../services/tool_service.dart';
 import '../widgets/config/path_selector.dart';
 import '../widgets/config/source_selector.dart';
 
-/// Screen for configuring a tool instance
+/// Screen for configuring a tool
 class ToolConfigScreen extends StatefulWidget {
-  final ToolInstance? existingTool; // null for new tool
+  final Tool? existingTool; // null for new tool
   final String screenId;
 
   const ToolConfigScreen({
@@ -68,9 +69,9 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
     _primaryColor = style.primaryColor;
     _fontSize = style.fontSize;
 
-    // Load size
-    _toolWidth = tool.position.width;
-    _toolHeight = tool.position.height;
+    // Size is managed in placements, not tools
+    _toolWidth = 1;
+    _toolHeight = 1;
   }
 
   Future<void> _selectPath() async {
@@ -108,39 +109,50 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
     );
   }
 
-  void _saveTool() {
+  Future<void> _saveTool() async {
     if (!_formKey.currentState!.validate()) return;
     if (_selectedToolTypeId == null || _selectedPath == null) return;
 
-    final toolInstance = ToolInstance(
-      id: widget.existingTool?.id ?? DateTime.now().millisecondsSinceEpoch.toString(),
-      toolTypeId: _selectedToolTypeId!,
-      screenId: widget.screenId,
-      position: GridPosition(
-        row: widget.existingTool?.position.row ?? 0,
-        col: widget.existingTool?.position.col ?? 0,
-        width: _toolWidth,
-        height: _toolHeight,
-      ),
-      config: ToolConfig(
-        dataSources: [
-          DataSource(
-            path: _selectedPath!,
-            source: _selectedSource,
-            label: _customLabel?.trim().isEmpty == true ? null : _customLabel,
-          ),
-        ],
-        style: StyleConfig(
-          minValue: _minValue,
-          maxValue: _maxValue,
-          unit: _unit?.trim().isEmpty == true ? null : _unit,
-          primaryColor: _primaryColor,
-          fontSize: _fontSize,
+    final toolService = Provider.of<ToolService>(context, listen: false);
+
+    // Create tool config
+    final config = ToolConfig(
+      dataSources: [
+        DataSource(
+          path: _selectedPath!,
+          source: _selectedSource,
+          label: _customLabel?.trim().isEmpty == true ? null : _customLabel,
         ),
+      ],
+      style: StyleConfig(
+        minValue: _minValue,
+        maxValue: _maxValue,
+        unit: _unit?.trim().isEmpty == true ? null : _unit,
+        primaryColor: _primaryColor,
+        fontSize: _fontSize,
+        showLabel: true,
+        showValue: true,
+        showUnit: true,
       ),
     );
 
-    Navigator.of(context).pop(toolInstance);
+    // Create the tool with metadata
+    final tool = toolService.createTool(
+      toolTypeId: _selectedToolTypeId!,
+      config: config,
+      name: _customLabel ?? _selectedPath!.split('.').last,
+      description: 'Custom tool for $_selectedPath',
+      author: 'Local User',
+      category: ToolCategory.other,
+      tags: [_selectedToolTypeId!],
+    );
+
+    // Save the tool
+    await toolService.saveTool(tool);
+
+    if (mounted) {
+      Navigator.of(context).pop(tool);
+    }
   }
 
   @override

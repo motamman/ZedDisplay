@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../models/template.dart';
-import '../services/template_service.dart';
+import '../models/tool.dart';
+import '../services/tool_service.dart';
 import '../services/signalk_service.dart';
 
-/// Screen for browsing and applying tool templates
+/// Screen for browsing and using tools
 class TemplateLibraryScreen extends StatefulWidget {
   const TemplateLibraryScreen({super.key});
 
@@ -14,20 +14,20 @@ class TemplateLibraryScreen extends StatefulWidget {
 
 class _TemplateLibraryScreenState extends State<TemplateLibraryScreen> {
   String _searchQuery = '';
-  TemplateCategory? _selectedCategory;
+  ToolCategory? _selectedCategory;
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Template Library'),
+        title: const Text('Tool Library'),
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(60),
           child: Padding(
             padding: const EdgeInsets.all(8.0),
             child: TextField(
               decoration: const InputDecoration(
-                hintText: 'Search templates...',
+                hintText: 'Search tools...',
                 prefixIcon: Icon(Icons.search),
                 border: OutlineInputBorder(),
                 filled: true,
@@ -39,19 +39,19 @@ class _TemplateLibraryScreenState extends State<TemplateLibraryScreen> {
           ),
         ),
       ),
-      body: Consumer<TemplateService>(
-        builder: (context, templateService, child) {
-          if (!templateService.initialized) {
+      body: Consumer<ToolService>(
+        builder: (context, toolService, child) {
+          if (!toolService.initialized) {
             return const Center(child: CircularProgressIndicator());
           }
 
-          // Get filtered templates
-          var templates = _searchQuery.isEmpty
-              ? templateService.templates
-              : templateService.searchTemplates(_searchQuery);
+          // Get filtered tools
+          var tools = _searchQuery.isEmpty
+              ? toolService.tools
+              : toolService.searchTools(_searchQuery);
 
           if (_selectedCategory != null) {
-            templates = templates
+            tools = tools
                 .where((t) => t.category == _selectedCategory)
                 .toList();
           }
@@ -73,9 +73,9 @@ class _TemplateLibraryScreenState extends State<TemplateLibraryScreen> {
                       },
                     ),
                     const SizedBox(width: 8),
-                    ...TemplateCategory.values.map((category) {
-                      final count = templateService
-                          .getTemplatesByCategory(category)
+                    ...ToolCategory.values.map((category) {
+                      final count = toolService
+                          .getToolsByCategory(category)
                           .length;
                       if (count == 0) return const SizedBox.shrink();
 
@@ -96,9 +96,9 @@ class _TemplateLibraryScreenState extends State<TemplateLibraryScreen> {
 
               const Divider(height: 1),
 
-              // Template list
+              // Tool list
               Expanded(
-                child: templates.isEmpty
+                child: tools.isEmpty
                     ? Center(
                         child: Column(
                           mainAxisAlignment: MainAxisAlignment.center,
@@ -108,8 +108,8 @@ class _TemplateLibraryScreenState extends State<TemplateLibraryScreen> {
                             const SizedBox(height: 16),
                             Text(
                               _searchQuery.isEmpty
-                                  ? 'No templates available'
-                                  : 'No templates found',
+                                  ? 'No tools available'
+                                  : 'No tools found',
                               style: TextStyle(
                                 fontSize: 16,
                                 color: Colors.grey[600],
@@ -118,21 +118,21 @@ class _TemplateLibraryScreenState extends State<TemplateLibraryScreen> {
                             const SizedBox(height: 8),
                             TextButton.icon(
                               onPressed: () {
-                                // TODO: Navigate to template creation or import
+                                Navigator.of(context).pop();
                               },
                               icon: const Icon(Icons.add),
-                              label: const Text('Create your first template'),
+                              label: const Text('Create a tool'),
                             ),
                           ],
                         ),
                       )
                     : ListView.builder(
-                        itemCount: templates.length,
+                        itemCount: tools.length,
                         itemBuilder: (context, index) {
-                          final template = templates[index];
+                          final tool = tools[index];
                           return _TemplateCard(
-                            template: template,
-                            onTap: () => _showTemplateDetails(template),
+                            tool: tool,
+                            onTap: () => _showTemplateDetails(tool),
                           );
                         },
                       ),
@@ -144,10 +144,10 @@ class _TemplateLibraryScreenState extends State<TemplateLibraryScreen> {
     );
   }
 
-  Future<void> _showTemplateDetails(Template template) async {
+  Future<void> _showTemplateDetails(Tool tool) async {
     final result = await showDialog(
       context: context,
-      builder: (context) => _TemplateDetailsDialog(template: template),
+      builder: (context) => _TemplateDetailsDialog(tool: tool),
     );
 
     // If a tool instance was returned, pop the entire screen with it
@@ -159,11 +159,11 @@ class _TemplateLibraryScreenState extends State<TemplateLibraryScreen> {
 
 /// Card widget for displaying a template in the list
 class _TemplateCard extends StatelessWidget {
-  final Template template;
+  final Tool tool;
   final VoidCallback onTap;
 
   const _TemplateCard({
-    required this.template,
+    required this.tool,
     required this.onTap,
   });
 
@@ -172,28 +172,28 @@ class _TemplateCard extends StatelessWidget {
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       child: ListTile(
-        leading: template.thumbnailUrl != null
+        leading: tool.thumbnailUrl != null
             ? Image.network(
-                template.thumbnailUrl!,
+                tool.thumbnailUrl!,
                 width: 56,
                 height: 56,
                 fit: BoxFit.cover,
                 errorBuilder: (_, __, ___) => _defaultIcon(),
               )
             : _defaultIcon(),
-        title: Text(template.name),
+        title: Text(tool.name),
         subtitle: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              template.description,
+              tool.description,
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
             ),
             const SizedBox(height: 4),
             Wrap(
               spacing: 4,
-              children: template.tags.take(3).map((tag) {
+              children: tool.tags.take(3).map((tag) {
                 return Chip(
                   label: Text(tag, style: const TextStyle(fontSize: 10)),
                   visualDensity: VisualDensity.compact,
@@ -209,18 +209,18 @@ class _TemplateCard extends StatelessWidget {
             Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                if (template.isLocal)
+                if (tool.isLocal)
                   const Icon(Icons.computer, size: 16, color: Colors.blue)
                 else
                   const Icon(Icons.cloud_download, size: 16, color: Colors.green),
                 const SizedBox(height: 4),
-                if (template.ratingCount > 0)
+                if (tool.ratingCount > 0)
                   Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       const Icon(Icons.star, size: 12, color: Colors.amber),
                       Text(
-                        template.rating.toStringAsFixed(1),
+                        tool.rating.toStringAsFixed(1),
                         style: const TextStyle(fontSize: 10),
                       ),
                     ],
@@ -228,7 +228,7 @@ class _TemplateCard extends StatelessWidget {
               ],
             ),
             // Context menu for local templates
-            if (template.isLocal) ...[
+            if (tool.isLocal) ...[
               const SizedBox(width: 8),
               PopupMenuButton<String>(
                 icon: const Icon(Icons.more_vert),
@@ -258,16 +258,16 @@ class _TemplateCard extends StatelessWidget {
                   if (value == 'edit') {
                     await Navigator.of(context).push(
                       MaterialPageRoute(
-                        builder: (context) => _EditTemplateScreen(template: template),
+                        builder: (context) => _EditToolScreen(tool: tool),
                       ),
                     );
                   } else if (value == 'delete') {
                     final confirmed = await showDialog<bool>(
                       context: context,
                       builder: (context) => AlertDialog(
-                        title: const Text('Delete Template'),
+                        title: const Text('Delete Tool'),
                         content: Text(
-                          'Are you sure you want to delete "${template.name}"? This action cannot be undone.',
+                          'Are you sure you want to delete "${tool.name}"? This action cannot be undone.',
                         ),
                         actions: [
                           TextButton(
@@ -286,15 +286,15 @@ class _TemplateCard extends StatelessWidget {
                     );
 
                     if (confirmed == true && context.mounted) {
-                      final templateService = Provider.of<TemplateService>(
+                      final toolService = Provider.of<ToolService>(
                         context,
                         listen: false,
                       );
-                      await templateService.deleteTemplate(template.id);
+                      await toolService.deleteTool(tool.id);
                       if (context.mounted) {
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
-                            content: Text('Template "${template.name}" deleted'),
+                            content: Text('Tool "${tool.name}" deleted'),
                           ),
                         );
                       }
@@ -326,19 +326,19 @@ class _TemplateCard extends StatelessWidget {
 
 /// Dialog showing template details and apply button
 class _TemplateDetailsDialog extends StatelessWidget {
-  final Template template;
+  final Tool tool;
 
-  const _TemplateDetailsDialog({required this.template});
+  const _TemplateDetailsDialog({required this.tool});
 
   @override
   Widget build(BuildContext context) {
     final signalKService = Provider.of<SignalKService>(context, listen: false);
-    final templateService = Provider.of<TemplateService>(context, listen: false);
+    final toolService = Provider.of<ToolService>(context, listen: false);
 
     // Check compatibility
     final availablePaths = signalKService.latestData.keys.toList();
-    final isCompatible = template.isCompatible(availablePaths);
-    final missingPaths = template.getMissingPaths(availablePaths);
+    final isCompatible = tool.isCompatible(availablePaths);
+    final missingPaths = tool.getMissingPaths(availablePaths);
 
     return Dialog(
       child: Container(
@@ -358,7 +358,7 @@ class _TemplateDetailsDialog extends StatelessWidget {
                   const SizedBox(width: 12),
                   Expanded(
                     child: Text(
-                      template.name,
+                      tool.name,
                       style: Theme.of(context).textTheme.titleLarge?.copyWith(
                             color: Theme.of(context)
                                 .colorScheme
@@ -383,7 +383,7 @@ class _TemplateDetailsDialog extends StatelessWidget {
                   children: [
                     // Description
                     Text(
-                      template.description,
+                      tool.description,
                       style: const TextStyle(fontSize: 14),
                     ),
                     const SizedBox(height: 16),
@@ -392,22 +392,22 @@ class _TemplateDetailsDialog extends StatelessWidget {
                     _InfoRow(
                       icon: Icons.person,
                       label: 'Author',
-                      value: template.author,
+                      value: tool.author,
                     ),
                     _InfoRow(
                       icon: Icons.category,
                       label: 'Category',
-                      value: template.category.name,
+                      value: tool.category.name,
                     ),
                     _InfoRow(
                       icon: Icons.update,
                       label: 'Version',
-                      value: template.version,
+                      value: tool.version,
                     ),
                     const SizedBox(height: 16),
 
                     // Tags
-                    if (template.tags.isNotEmpty) ...[
+                    if (tool.tags.isNotEmpty) ...[
                       const Text(
                         'Tags',
                         style: TextStyle(fontWeight: FontWeight.bold),
@@ -416,7 +416,7 @@ class _TemplateDetailsDialog extends StatelessWidget {
                       Wrap(
                         spacing: 8,
                         runSpacing: 8,
-                        children: template.tags.map((tag) {
+                        children: tool.tags.map((tag) {
                           return Chip(label: Text(tag));
                         }).toList(),
                       ),
@@ -424,13 +424,13 @@ class _TemplateDetailsDialog extends StatelessWidget {
                     ],
 
                     // Required paths
-                    if (template.requiredPaths.isNotEmpty) ...[
+                    if (tool.requiredPaths.isNotEmpty) ...[
                       const Text(
                         'Required SignalK Paths',
                         style: TextStyle(fontWeight: FontWeight.bold),
                       ),
                       const SizedBox(height: 8),
-                      ...template.requiredPaths.map((path) {
+                      ...tool.requiredPaths.map((path) {
                         final available = availablePaths.contains(path);
                         return ListTile(
                           dense: true,
@@ -499,15 +499,15 @@ class _TemplateDetailsDialog extends StatelessWidget {
               child: Row(
                 children: [
                   // Edit and Delete buttons for local templates only
-                  if (template.isLocal) ...[
+                  if (tool.isLocal) ...[
                     OutlinedButton.icon(
                       onPressed: () async {
                         final confirmed = await showDialog<bool>(
                           context: context,
                           builder: (context) => AlertDialog(
-                            title: const Text('Delete Template'),
+                            title: const Text('Delete Tool'),
                             content: Text(
-                              'Are you sure you want to delete "${template.name}"? This action cannot be undone.',
+                              'Are you sure you want to delete "${tool.name}"? This action cannot be undone.',
                             ),
                             actions: [
                               TextButton(
@@ -526,7 +526,7 @@ class _TemplateDetailsDialog extends StatelessWidget {
                         );
 
                         if (confirmed == true && context.mounted) {
-                          await templateService.deleteTemplate(template.id);
+                          await toolService.deleteTool(tool.id);
                           if (context.mounted) {
                             Navigator.of(context).pop();
                           }
@@ -540,7 +540,7 @@ class _TemplateDetailsDialog extends StatelessWidget {
                       onPressed: () async {
                         final result = await Navigator.of(context).push(
                           MaterialPageRoute(
-                            builder: (context) => _EditTemplateScreen(template: template),
+                            builder: (context) => _EditToolScreen(tool: tool),
                           ),
                         );
                         if (result == true && context.mounted) {
@@ -555,16 +555,12 @@ class _TemplateDetailsDialog extends StatelessWidget {
                   ElevatedButton.icon(
                     onPressed: isCompatible
                         ? () {
-                            // Apply template
-                            final toolInstance = templateService.applyTemplate(
-                              template: template,
-                              screenId: 'main',
-                            );
-                            Navigator.of(context).pop(toolInstance);
+                            // Return the tool so it can be placed
+                            Navigator.of(context).pop(tool);
                           }
                         : null,
                     icon: const Icon(Icons.add),
-                    label: const Text('Apply Template'),
+                    label: const Text('Use Tool'),
                   ),
                 ],
               ),
@@ -607,31 +603,31 @@ class _InfoRow extends StatelessWidget {
 }
 
 /// Screen for editing an existing template
-class _EditTemplateScreen extends StatefulWidget {
-  final Template template;
+class _EditToolScreen extends StatefulWidget {
+  final Tool tool;
 
-  const _EditTemplateScreen({required this.template});
+  const _EditToolScreen({required this.tool});
 
   @override
-  State<_EditTemplateScreen> createState() => _EditTemplateScreenState();
+  State<_EditToolScreen> createState() => _EditToolScreenState();
 }
 
-class _EditTemplateScreenState extends State<_EditTemplateScreen> {
+class _EditToolScreenState extends State<_EditToolScreen> {
   final _formKey = GlobalKey<FormState>();
   late TextEditingController _nameController;
   late TextEditingController _descriptionController;
   late TextEditingController _authorController;
   late TextEditingController _tagsController;
-  late TemplateCategory _selectedCategory;
+  late ToolCategory _selectedCategory;
 
   @override
   void initState() {
     super.initState();
-    _nameController = TextEditingController(text: widget.template.name);
-    _descriptionController = TextEditingController(text: widget.template.description);
-    _authorController = TextEditingController(text: widget.template.author);
-    _tagsController = TextEditingController(text: widget.template.tags.join(', '));
-    _selectedCategory = widget.template.category;
+    _nameController = TextEditingController(text: widget.tool.name);
+    _descriptionController = TextEditingController(text: widget.tool.description);
+    _authorController = TextEditingController(text: widget.tool.author);
+    _tagsController = TextEditingController(text: widget.tool.tags.join(', '));
+    _selectedCategory = widget.tool.category;
   }
 
   @override
@@ -646,7 +642,7 @@ class _EditTemplateScreenState extends State<_EditTemplateScreen> {
   Future<void> _saveChanges() async {
     if (!_formKey.currentState!.validate()) return;
 
-    final templateService = Provider.of<TemplateService>(context, listen: false);
+    final toolService = Provider.of<ToolService>(context, listen: false);
 
     // Parse tags
     final tags = _tagsController.text
@@ -655,8 +651,8 @@ class _EditTemplateScreenState extends State<_EditTemplateScreen> {
         .where((t) => t.isNotEmpty)
         .toList();
 
-    // Create updated template
-    final updatedTemplate = widget.template.copyWith(
+    // Create updated tool
+    final updatedTool = widget.tool.copyWith(
       name: _nameController.text.trim(),
       description: _descriptionController.text.trim(),
       author: _authorController.text.trim(),
@@ -666,7 +662,7 @@ class _EditTemplateScreenState extends State<_EditTemplateScreen> {
     );
 
     try {
-      await templateService.saveTemplate(updatedTemplate);
+      await toolService.saveTool(updatedTool);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -692,7 +688,7 @@ class _EditTemplateScreenState extends State<_EditTemplateScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Edit Template'),
+        title: const Text('Edit Tool'),
         actions: [
           IconButton(
             icon: const Icon(Icons.check),
@@ -722,7 +718,7 @@ class _EditTemplateScreenState extends State<_EditTemplateScreen> {
                     SizedBox(width: 8),
                     Expanded(
                       child: Text(
-                        'Edit template metadata. Tool configuration cannot be modified.',
+                        'Edit tool metadata. Data configuration cannot be modified.',
                         style: TextStyle(fontSize: 12),
                       ),
                     ),
@@ -735,12 +731,12 @@ class _EditTemplateScreenState extends State<_EditTemplateScreen> {
               TextFormField(
                 controller: _nameController,
                 decoration: const InputDecoration(
-                  labelText: 'Template Name *',
+                  labelText: 'Tool Name *',
                   border: OutlineInputBorder(),
                 ),
                 validator: (value) {
                   if (value == null || value.trim().isEmpty) {
-                    return 'Please enter a template name';
+                    return 'Please enter a tool name';
                   }
                   return null;
                 },
@@ -775,13 +771,13 @@ class _EditTemplateScreenState extends State<_EditTemplateScreen> {
               const SizedBox(height: 16),
 
               // Category
-              DropdownButtonFormField<TemplateCategory>(
+              DropdownButtonFormField<ToolCategory>(
                 value: _selectedCategory,
                 decoration: const InputDecoration(
                   labelText: 'Category',
                   border: OutlineInputBorder(),
                 ),
-                items: TemplateCategory.values.map((category) {
+                items: ToolCategory.values.map((category) {
                   return DropdownMenuItem(
                     value: category,
                     child: Text(_categoryLabel(category)),
@@ -835,7 +831,7 @@ class _EditTemplateScreenState extends State<_EditTemplateScreen> {
   }
 
   Widget _buildConfigPreview() {
-    final config = widget.template.config;
+    final config = widget.tool.config;
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
@@ -847,7 +843,7 @@ class _EditTemplateScreenState extends State<_EditTemplateScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Tool Type: ${widget.template.toolTypeId}',
+            'Tool Type: ${widget.tool.toolTypeId}',
             style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
           ),
           const SizedBox(height: 8),
@@ -886,7 +882,7 @@ class _EditTemplateScreenState extends State<_EditTemplateScreen> {
     );
   }
 
-  String _categoryLabel(TemplateCategory category) {
+  String _categoryLabel(ToolCategory category) {
     return category.name[0].toUpperCase() + category.name.substring(1);
   }
 }

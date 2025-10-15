@@ -83,11 +83,9 @@ class _DeviceRegistrationScreenState extends State<DeviceRegistrationScreen> {
           authToken: token,
         );
 
-        // After successful connection, subscribe to dashboard paths
-        final paths = dashboardService.currentLayout?.getAllRequiredPaths() ?? [];
-        if (paths.isNotEmpty) {
-          await signalKService.setActiveTemplatePaths(paths);
-        }
+        // Trigger dashboard subscription update (happens automatically in DashboardService)
+        // Force an update to ensure subscriptions are set up
+        await dashboardService.updateLayout(dashboardService.currentLayout!);
 
         if (mounted) {
           Navigator.of(context).pushReplacement(

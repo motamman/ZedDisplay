@@ -82,18 +82,14 @@ class DashboardLayout {
     return this;
   }
 
-  /// Get all SignalK paths used by tools in this dashboard
-  List<String> getAllRequiredPaths() {
-    final paths = <String>{};
+  /// Get all unique tool IDs referenced across all screens
+  List<String> getAllToolIds() {
+    final toolIds = <String>{};
 
     for (final screen in screens) {
-      for (final tool in screen.tools) {
-        for (final dataSource in tool.config.dataSources) {
-          paths.add(dataSource.path);
-        }
-      }
+      toolIds.addAll(screen.getToolIds());
     }
 
-    return paths.toList();
+    return toolIds.toList();
   }
 }

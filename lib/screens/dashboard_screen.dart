@@ -86,53 +86,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
     });
   }
 
+  // Note: This is a test screen, not used in production
+  // The real dashboard is DashboardManagerScreen
   Future<void> _saveAsTemplate(ToolInstance toolInstance) async {
-    final templateService = Provider.of<TemplateService>(context, listen: false);
-
-    // Show dialog to get template metadata
-    final templateData = await showDialog<Map<String, dynamic>>(
-      context: context,
-      builder: (context) => SaveTemplateDialog(toolInstance: toolInstance),
-    );
-
-    if (templateData == null) return; // User cancelled
-
-    try {
-      // Create template from tool instance
-      final template = templateService.createTemplateFromTool(
-        toolInstance: toolInstance,
-        name: templateData['name'] as String,
-        description: templateData['description'] as String,
-        author: templateData['author'] as String,
-        category: templateData['category'] as TemplateCategory,
-        tags: templateData['tags'] as List<String>,
+    // This feature is not implemented in the new architecture
+    // Tools are managed directly in the ToolService
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Feature not available in this test screen'),
+          backgroundColor: Colors.orange,
+        ),
       );
-
-      // Save template
-      await templateService.saveTemplate(template);
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Template "${template.name}" saved successfully'),
-            backgroundColor: Colors.green,
-            action: SnackBarAction(
-              label: 'Browse',
-              textColor: Colors.white,
-              onPressed: _browseTemplates,
-            ),
-          ),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to save template: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
     }
   }
 

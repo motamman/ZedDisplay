@@ -4,7 +4,7 @@ import 'services/signalk_service.dart';
 import 'services/storage_service.dart';
 import 'services/dashboard_service.dart';
 import 'services/tool_registry.dart';
-import 'services/template_service.dart';
+import 'services/tool_service.dart';
 import 'services/auth_service.dart';
 import 'screens/connection_screen.dart';
 
@@ -16,16 +16,20 @@ void main() async {
   final storageService = StorageService();
   await storageService.initialize();
 
+  // Initialize tool service
+  final toolService = ToolService(storageService);
+  await toolService.initialize();
+
   // Initialize SignalK service (will connect later)
   final signalKService = SignalKService();
 
-  // Initialize dashboard service with SignalK service
-  final dashboardService = DashboardService(storageService, signalKService);
+  // Initialize dashboard service with SignalK and Tool services
+  final dashboardService = DashboardService(
+    storageService,
+    signalKService,
+    toolService,
+  );
   await dashboardService.initialize();
-
-  // Initialize template service
-  final templateService = TemplateService(storageService);
-  await templateService.initialize();
 
   // Initialize auth service
   final authService = AuthService(storageService);
@@ -38,7 +42,7 @@ void main() async {
     storageService: storageService,
     signalKService: signalKService,
     dashboardService: dashboardService,
-    templateService: templateService,
+    toolService: toolService,
     authService: authService,
   ));
 }
@@ -47,7 +51,7 @@ class ZedDisplayApp extends StatelessWidget {
   final StorageService storageService;
   final SignalKService signalKService;
   final DashboardService dashboardService;
-  final TemplateService templateService;
+  final ToolService toolService;
   final AuthService authService;
 
   const ZedDisplayApp({
@@ -55,7 +59,7 @@ class ZedDisplayApp extends StatelessWidget {
     required this.storageService,
     required this.signalKService,
     required this.dashboardService,
-    required this.templateService,
+    required this.toolService,
     required this.authService,
   });
 
@@ -66,7 +70,7 @@ class ZedDisplayApp extends StatelessWidget {
         ChangeNotifierProvider.value(value: storageService),
         ChangeNotifierProvider.value(value: signalKService),
         ChangeNotifierProvider.value(value: dashboardService),
-        ChangeNotifierProvider.value(value: templateService),
+        ChangeNotifierProvider.value(value: toolService),
         ChangeNotifierProvider.value(value: authService),
       ],
       child: MaterialApp(
