@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:web_socket_channel/io.dart';
@@ -42,6 +43,20 @@ class SignalKService extends ChangeNotifier {
     bool secure = false,
     AuthToken? authToken,
   }) async {
+    // Disconnect any existing connection first
+    if (_isConnected || _channel != null) {
+      if (kDebugMode) {
+        print('Disconnecting existing connection before new connect...');
+      }
+      await disconnect();
+      // Give the socket time to fully close
+      await Future.delayed(const Duration(milliseconds: 800));
+
+      if (kDebugMode) {
+        print('Old connection closed, starting new connection...');
+      }
+    }
+
     _serverUrl = serverUrl;
     _useSecureConnection = secure;
     _authToken = authToken;
@@ -53,16 +68,33 @@ class SignalKService extends ChangeNotifier {
       // Connect to WebSocket with authentication headers if we have a token
       if (_authToken != null) {
         if (kDebugMode) {
-          print('Connecting with Authorization header');
+          print('Connecting with Authorization header to: $wsUrl');
+          print('Token: ${_authToken!.token.substring(0, min(20, _authToken!.token.length))}...');
         }
 
         final headers = <String, String>{
           'Authorization': 'Bearer ${_authToken!.token}',
         };
 
-        // Use dart:io WebSocket.connect which supports headers
-        final socket = await WebSocket.connect(wsUrl, headers: headers);
-        _channel = IOWebSocketChannel(socket);
+        try {
+          // Use dart:io WebSocket.connect which supports headers
+          if (kDebugMode) {
+            print('Connecting to WebSocket URL: $wsUrl');
+          }
+
+          // Pass the URL string directly - don't parse and re-stringify
+          final socket = await WebSocket.connect(wsUrl, headers: headers);
+          _channel = IOWebSocketChannel(socket);
+
+          if (kDebugMode) {
+            print('WebSocket connection established successfully');
+          }
+        } catch (e) {
+          if (kDebugMode) {
+            print('WebSocket.connect failed: $e');
+          }
+          rethrow;
+        }
       } else {
         // Standard connection without authentication
         _channel = WebSocketChannel.connect(Uri.parse(wsUrl));
@@ -111,6 +143,12 @@ class SignalKService extends ChangeNotifier {
   /// Discover WebSocket endpoint from SignalK server
   Future<String> _discoverWebSocketEndpoint() async {
     final wsProtocol = _useSecureConnection ? 'wss' : 'ws';
+
+    // Use the server URL as-is - don't add default ports
+    // Many servers are behind reverse proxies and don't need explicit ports
+    if (kDebugMode) {
+      print('Server URL: $_serverUrl (secure: $_useSecureConnection)');
+    }
 
     // Use units-preference endpoint if authenticated
     if (_authToken != null) {
@@ -623,14 +661,29 @@ class SignalKService extends ChangeNotifier {
   }
 
   /// Disconnect from server
-  void disconnect() {
-    _subscription?.cancel();
-    _channel?.sink.close();
-    _isConnected = false;
-    _latestData.clear();
-    _activePaths.clear();
-    _vesselContext = null;
-    notifyListeners();
+  Future<void> disconnect() async {
+    try {
+      await _subscription?.cancel();
+      _subscription = null;
+
+      await _channel?.sink.close();
+      _channel = null;
+
+      _isConnected = false;
+      _latestData.clear();
+      _activePaths.clear();
+      _vesselContext = null;
+
+      if (kDebugMode) {
+        print('Disconnected and cleaned up WebSocket channel');
+      }
+
+      notifyListeners();
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error during disconnect: $e');
+      }
+    }
   }
 
   @override

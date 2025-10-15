@@ -24,10 +24,14 @@ class CompassGaugeTool extends StatelessWidget {
     }
 
     final dataSource = config.dataSources.first;
+    final dataPoint = signalKService.getValue(dataSource.path);
     final heading = signalKService.getConvertedValue(dataSource.path) ?? 0.0;
 
     // Get label from data source or style
     final label = dataSource.label ?? _getDefaultLabel(dataSource.path);
+
+    // Get formatted value from plugin if available
+    final formattedValue = dataPoint?.formatted;
 
     // Parse color from hex string
     Color primaryColor = Colors.red;
@@ -43,6 +47,7 @@ class CompassGaugeTool extends StatelessWidget {
     return CompassGauge(
       heading: heading,
       label: config.style.showLabel == true ? label : '',
+      formattedValue: formattedValue,
       primaryColor: primaryColor,
     );
   }

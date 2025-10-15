@@ -5,12 +5,14 @@ import 'package:flutter/material.dart';
 class CompassGauge extends StatelessWidget {
   final double heading; // In degrees (0-360)
   final String label;
+  final String? formattedValue;
   final Color primaryColor;
 
   const CompassGauge({
     super.key,
     required this.heading,
     this.label = 'Heading',
+    this.formattedValue,
     this.primaryColor = Colors.red,
   });
 
@@ -36,7 +38,7 @@ class CompassGauge extends StatelessWidget {
               ),
               const SizedBox(height: 4),
               Text(
-                '${heading.toStringAsFixed(0)}°',
+                formattedValue ?? '${heading.toStringAsFixed(0)}°',
                 style: const TextStyle(
                   fontSize: 32,
                   fontWeight: FontWeight.bold,

@@ -6,10 +6,10 @@ import '../services/tool_registry.dart';
 import '../services/tool_service.dart';
 import '../models/dashboard_screen.dart';
 import '../models/tool.dart';
-import '../models/tool_placement.dart';
 import '../widgets/save_template_dialog.dart';
 import 'tool_config_screen.dart';
 import 'template_library_screen.dart';
+import 'settings_screen.dart';
 
 /// Main dashboard screen with multi-screen support using PageView
 class DashboardManagerScreen extends StatefulWidget {
@@ -305,8 +305,13 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen> {
           IconButton(
             icon: const Icon(Icons.settings),
             onPressed: () {
-              // TODO: Navigate to settings
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (context) => const SettingsScreen(),
+                ),
+              );
             },
+            tooltip: 'Settings',
           ),
         ],
       ),
@@ -335,9 +340,16 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen> {
                     style: TextStyle(fontSize: 18, color: Colors.grey),
                   ),
                   const SizedBox(height: 16),
-                  ElevatedButton(
-                    onPressed: () => Navigator.of(context).pop(),
-                    child: const Text('Back to Connection'),
+                  ElevatedButton.icon(
+                    onPressed: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (context) => const SettingsScreen(),
+                        ),
+                      );
+                    },
+                    icon: const Icon(Icons.settings),
+                    label: const Text('Connection Settings'),
                   ),
                 ],
               ),
@@ -454,7 +466,7 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen> {
 
             // Adjust cell height based on orientation to prevent oversized cells
             final cellHeight = orientation == Orientation.landscape
-                ? (screenHeight - 100) / 2.5  // Landscape: limit height to fit screen better
+                ? (screenHeight - 150) / 3.0  // Landscape: more conservative height
                 : cellWidth;  // Portrait: square cells
 
             return SingleChildScrollView(
@@ -486,11 +498,23 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen> {
                     width: width,
                     height: height,
                     child: Stack(
+                      fit: StackFit.expand,
                       children: [
-                        registry.buildTool(
-                          tool.toolTypeId,
-                          tool.config,
-                          signalKService,
+                        // Use FittedBox to scale content down to fit if needed
+                        FittedBox(
+                          fit: BoxFit.scaleDown,
+                          alignment: Alignment.center,
+                          child: ConstrainedBox(
+                            constraints: BoxConstraints(
+                              maxWidth: width,
+                              maxHeight: height,
+                            ),
+                            child: registry.buildTool(
+                              tool.toolTypeId,
+                              tool.config,
+                              signalKService,
+                            ),
+                          ),
                         ),
 
                         // Edit mode buttons

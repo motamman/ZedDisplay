@@ -2,14 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../services/signalk_service.dart';
 import '../services/tool_registry.dart';
-import '../services/template_service.dart';
 import '../models/tool_instance.dart';
-import '../models/template.dart';
 import '../widgets/radial_gauge.dart';
 import '../widgets/compass_gauge.dart';
-import '../widgets/save_template_dialog.dart';
 import 'tool_config_screen.dart';
 import 'template_library_screen.dart';
+import 'settings_screen.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -217,8 +215,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
           IconButton(
             icon: const Icon(Icons.settings),
             onPressed: () {
-              // TODO: Navigate to settings
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (context) => const SettingsScreen(),
+                ),
+              );
             },
+            tooltip: 'Settings',
           ),
         ],
       ),
@@ -236,11 +239,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     style: TextStyle(fontSize: 18, color: Colors.grey),
                   ),
                   const SizedBox(height: 16),
-                  ElevatedButton(
+                  ElevatedButton.icon(
                     onPressed: () {
-                      Navigator.of(context).pop();
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (context) => const SettingsScreen(),
+                        ),
+                      );
                     },
-                    child: const Text('Back to Connection'),
+                    icon: const Icon(Icons.settings),
+                    label: const Text('Connection Settings'),
                   ),
                 ],
               ),

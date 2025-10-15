@@ -25,6 +25,7 @@ class LinearGaugeTool extends StatelessWidget {
     }
 
     final dataSource = config.dataSources.first;
+    final dataPoint = signalKService.getValue(dataSource.path);
     final value = signalKService.getConvertedValue(dataSource.path) ?? 0.0;
 
     // Get style configuration
@@ -35,7 +36,11 @@ class LinearGaugeTool extends StatelessWidget {
     // Get label from data source or derive from path
     final label = dataSource.label ?? _getDefaultLabel(dataSource.path);
 
+    // Get formatted value from plugin if available
+    final formattedValue = dataPoint?.formatted;
+
     // Get unit (prefer style override, fallback to server's unit)
+    // Only used if no formatted value
     final unit = style.unit ??
                  signalKService.getUnitSymbol(dataSource.path) ??
                  '';
@@ -66,6 +71,7 @@ class LinearGaugeTool extends StatelessWidget {
               maxValue,
               label,
               unit,
+              formattedValue,
               primaryColor,
               style,
             )
@@ -76,6 +82,7 @@ class LinearGaugeTool extends StatelessWidget {
               maxValue,
               label,
               unit,
+              formattedValue,
               primaryColor,
               style,
             ),
@@ -89,6 +96,7 @@ class LinearGaugeTool extends StatelessWidget {
     double maxValue,
     String label,
     String unit,
+    String? formattedValue,
     Color primaryColor,
     StyleConfig style,
   ) {
@@ -143,7 +151,7 @@ class LinearGaugeTool extends StatelessWidget {
               SizedBox(
                 width: 80,
                 child: Text(
-                  '${value.toStringAsFixed(1)} ${style.showUnit == true ? unit : ''}',
+                  formattedValue ?? '${value.toStringAsFixed(1)} ${style.showUnit == true ? unit : ''}',
                   style: const TextStyle(
                     fontSize: 18,
                     fontWeight: FontWeight.bold,
@@ -183,6 +191,7 @@ class LinearGaugeTool extends StatelessWidget {
     double maxValue,
     String label,
     String unit,
+    String? formattedValue,
     Color primaryColor,
     StyleConfig style,
   ) {
@@ -239,7 +248,7 @@ class LinearGaugeTool extends StatelessWidget {
             const SizedBox(height: 8),
             if (style.showValue == true)
               Text(
-                '${value.toStringAsFixed(1)} ${style.showUnit == true ? unit : ''}',
+                formattedValue ?? '${value.toStringAsFixed(1)} ${style.showUnit == true ? unit : ''}',
                 style: const TextStyle(
                   fontSize: 18,
                   fontWeight: FontWeight.bold,
