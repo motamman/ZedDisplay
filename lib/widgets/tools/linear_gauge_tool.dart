@@ -56,10 +56,12 @@ class LinearGaugeTool extends StatelessWidget {
       }
     }
 
-    // Get orientation from custom properties
+    // Get orientation and tick labels from custom properties
     final orientation = style.customProperties?['orientation'] == 'vertical'
         ? LinearGaugeOrientation.vertical
         : LinearGaugeOrientation.horizontal;
+    final showTickLabels = style.customProperties?['showTickLabels'] as bool? ?? false;
+    final divisions = style.customProperties?['divisions'] as int? ?? 10;
 
     return Padding(
       padding: const EdgeInsets.all(16),
@@ -74,6 +76,8 @@ class LinearGaugeTool extends StatelessWidget {
               formattedValue,
               primaryColor,
               style,
+              showTickLabels,
+              divisions,
             )
           : _buildVerticalGauge(
               context,
@@ -85,6 +89,8 @@ class LinearGaugeTool extends StatelessWidget {
               formattedValue,
               primaryColor,
               style,
+              showTickLabels,
+              divisions,
             ),
     );
   }
@@ -99,6 +105,8 @@ class LinearGaugeTool extends StatelessWidget {
     String? formattedValue,
     Color primaryColor,
     StyleConfig style,
+    bool showTickLabels,
+    int divisions,
   ) {
     final normalizedValue = ((value - minValue) / (maxValue - minValue)).clamp(0.0, 1.0);
 
@@ -118,32 +126,72 @@ class LinearGaugeTool extends StatelessWidget {
         Row(
           children: [
             Expanded(
-              child: Container(
-                height: 40,
-                decoration: BoxDecoration(
-                  color: Colors.grey.withValues(alpha: 0.2),
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(20),
-                  child: Stack(
-                    children: [
-                      FractionallySizedBox(
-                        widthFactor: normalizedValue,
-                        child: Container(
-                          decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              colors: [
-                                primaryColor,
-                                primaryColor.withValues(alpha: 0.7),
-                              ],
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Container(
+                    height: 40,
+                    decoration: BoxDecoration(
+                      color: Colors.grey.withValues(alpha: 0.2),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(20),
+                      child: Stack(
+                        children: [
+                          FractionallySizedBox(
+                            widthFactor: normalizedValue,
+                            child: Container(
+                              decoration: BoxDecoration(
+                                gradient: LinearGradient(
+                                  colors: [
+                                    primaryColor,
+                                    primaryColor.withValues(alpha: 0.7),
+                                  ],
+                                ),
+                              ),
                             ),
                           ),
-                        ),
+                        ],
                       ),
-                    ],
+                    ),
                   ),
-                ),
+                  const SizedBox(height: 4),
+                  if (showTickLabels)
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: List.generate(divisions + 1, (index) {
+                        final tickValue = minValue + (maxValue - minValue) * (index / divisions);
+                        return Text(
+                          tickValue.toStringAsFixed(0),
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: Colors.grey[600],
+                          ),
+                        );
+                      }),
+                    )
+                  else
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          minValue.toStringAsFixed(0),
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey[600],
+                          ),
+                        ),
+                        Text(
+                          maxValue.toStringAsFixed(0),
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey[600],
+                          ),
+                        ),
+                      ],
+                    ),
+                ],
               ),
             ),
             const SizedBox(width: 12),
@@ -160,26 +208,6 @@ class LinearGaugeTool extends StatelessWidget {
               ),
           ],
         ),
-        const SizedBox(height: 4),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text(
-              minValue.toStringAsFixed(0),
-              style: TextStyle(
-                fontSize: 12,
-                color: Colors.grey[600],
-              ),
-            ),
-            Text(
-              maxValue.toStringAsFixed(0),
-              style: TextStyle(
-                fontSize: 12,
-                color: Colors.grey[600],
-              ),
-            ),
-          ],
-        ),
       ],
     );
   }
@@ -194,38 +222,57 @@ class LinearGaugeTool extends StatelessWidget {
     String? formattedValue,
     Color primaryColor,
     StyleConfig style,
+    bool showTickLabels,
+    int divisions,
   ) {
     final normalizedValue = ((value - minValue) / (maxValue - minValue)).clamp(0.0, 1.0);
 
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
-      crossAxisAlignment: CrossAxisAlignment.end,
       children: [
-        Column(
-          mainAxisAlignment: MainAxisAlignment.end,
-          children: [
-            if (style.showLabel == true && label.isNotEmpty)
-              Text(
-                label,
-                style: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w500,
+        if (showTickLabels)
+          Expanded(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: List.generate(divisions + 1, (index) {
+                final tickValue = maxValue - (maxValue - minValue) * (index / divisions);
+                return Text(
+                  tickValue.toStringAsFixed(0),
+                  style: TextStyle(
+                    fontSize: 10,
+                    color: Colors.grey[600],
+                  ),
+                  textAlign: TextAlign.right,
+                );
+              }),
+            ),
+          ),
+        if (showTickLabels) const SizedBox(width: 8),
+        Expanded(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              if (style.showLabel == true && label.isNotEmpty)
+                Text(
+                  label,
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w500,
+                  ),
                 ),
-              ),
-            if (style.showLabel == true && label.isNotEmpty) const SizedBox(height: 8),
-            Expanded(
-              child: Container(
-                width: 40,
-                decoration: BoxDecoration(
-                  color: Colors.grey.withValues(alpha: 0.2),
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(20),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.end,
-                    children: [
-                      FractionallySizedBox(
+              if (style.showLabel == true && label.isNotEmpty) const SizedBox(height: 8),
+              Expanded(
+                child: Container(
+                  width: 40,
+                  decoration: BoxDecoration(
+                    color: Colors.grey.withValues(alpha: 0.2),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(20),
+                    child: Align(
+                      alignment: Alignment.bottomCenter,
+                      child: FractionallySizedBox(
                         heightFactor: normalizedValue,
                         child: Container(
                           decoration: BoxDecoration(
@@ -240,21 +287,21 @@ class LinearGaugeTool extends StatelessWidget {
                           ),
                         ),
                       ),
-                    ],
+                    ),
                   ),
                 ),
               ),
-            ),
-            const SizedBox(height: 8),
-            if (style.showValue == true)
-              Text(
-                formattedValue ?? '${value.toStringAsFixed(1)} ${style.showUnit == true ? unit : ''}',
-                style: const TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
+              const SizedBox(height: 8),
+              if (style.showValue == true)
+                Text(
+                  formattedValue ?? '${value.toStringAsFixed(1)} ${style.showUnit == true ? unit : ''}',
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
-              ),
-          ],
+            ],
+          ),
         ),
       ],
     );

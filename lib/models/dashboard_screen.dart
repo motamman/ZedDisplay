@@ -60,6 +60,14 @@ class DashboardScreen {
     );
   }
 
+  /// Reorder placements - move placement from oldIndex to newIndex
+  DashboardScreen reorderPlacements(int oldIndex, int newIndex) {
+    final newPlacements = List<ToolPlacement>.from(placements);
+    final item = newPlacements.removeAt(oldIndex);
+    newPlacements.insert(newIndex, item);
+    return copyWith(placements: newPlacements);
+  }
+
   /// Get all unique tool IDs referenced on this screen
   List<String> getToolIds() {
     return placements.map((p) => p.toolId).toSet().toList();

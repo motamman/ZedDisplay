@@ -1,7 +1,8 @@
-import 'dart:math';
 import 'package:flutter/material.dart';
+import 'package:syncfusion_flutter_gauges/gauges.dart';
 
 /// A customizable radial gauge widget for displaying numeric values
+/// Now powered by Syncfusion for professional appearance
 class RadialGauge extends StatelessWidget {
   final double value;
   final double minValue;
@@ -12,6 +13,7 @@ class RadialGauge extends StatelessWidget {
   final Color primaryColor;
   final Color backgroundColor;
   final int divisions;
+  final bool showTickLabels;
 
   const RadialGauge({
     super.key,
@@ -24,163 +26,118 @@ class RadialGauge extends StatelessWidget {
     this.primaryColor = Colors.blue,
     this.backgroundColor = Colors.grey,
     this.divisions = 10,
+    this.showTickLabels = false,
   });
 
   @override
   Widget build(BuildContext context) {
+    // Clamp value to valid range
+    final clampedValue = value.clamp(minValue, maxValue);
+
     return AspectRatio(
       aspectRatio: 1,
-      child: CustomPaint(
-        painter: _RadialGaugePainter(
-          value: value,
-          minValue: minValue,
-          maxValue: maxValue,
-          label: label,
-          unit: unit,
-          primaryColor: primaryColor,
-          backgroundColor: backgroundColor,
-          divisions: divisions,
-        ),
-        child: Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (label.isNotEmpty)
-                Text(
-                  label,
-                  style: const TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w300,
-                  ),
-                ),
-              const SizedBox(height: 4),
-              Text(
-                formattedValue ?? value.toStringAsFixed(1),
-                style: const TextStyle(
-                  fontSize: 32,
-                  fontWeight: FontWeight.bold,
-                ),
+      child: SfRadialGauge(
+        axes: <RadialAxis>[
+          RadialAxis(
+            minimum: minValue,
+            maximum: maxValue,
+            interval: (maxValue - minValue) / divisions,
+
+            // Arc styling (270 degrees)
+            startAngle: 135,
+            endAngle: 45,
+
+            // Hide axis line (we use ranges for the arc)
+            showAxisLine: false,
+
+            // Tick styling
+            majorTickStyle: MajorTickStyle(
+              length: showTickLabels ? 12 : 8,
+              thickness: 2,
+              color: Colors.grey.withOpacity(0.6),
+            ),
+            minorTicksPerInterval: 4,
+            minorTickStyle: MinorTickStyle(
+              length: 4,
+              thickness: 1,
+              color: Colors.grey.withOpacity(0.3),
+            ),
+
+            // Tick labels
+            showLabels: showTickLabels,
+            axisLabelStyle: GaugeTextStyle(
+              color: Colors.grey.withOpacity(0.8),
+              fontSize: 10,
+              fontWeight: FontWeight.w500,
+            ),
+            labelOffset: 15,
+
+            // Ranges for background and value arcs
+            ranges: <GaugeRange>[
+              // Background arc
+              GaugeRange(
+                startValue: minValue,
+                endValue: maxValue,
+                color: backgroundColor.withOpacity(0.2),
+                startWidth: 15,
+                endWidth: 15,
               ),
-              // Only show unit if not using formatted value (which includes unit)
-              if (unit.isNotEmpty && formattedValue == null)
-                Text(
-                  unit,
-                  style: const TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w300,
-                  ),
+              // Value arc with gradient
+              GaugeRange(
+                startValue: minValue,
+                endValue: clampedValue,
+                gradient: SweepGradient(
+                  colors: [
+                    primaryColor,
+                    primaryColor.withOpacity(0.6),
+                  ],
+                  stops: const [0.0, 1.0],
                 ),
+                startWidth: 15,
+                endWidth: 15,
+              ),
+            ],
+
+            // Center annotation with value display
+            annotations: <GaugeAnnotation>[
+              GaugeAnnotation(
+                widget: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (label.isNotEmpty)
+                      Text(
+                        label,
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w300,
+                        ),
+                      ),
+                    if (label.isNotEmpty) const SizedBox(height: 4),
+                    Text(
+                      formattedValue ?? value.toStringAsFixed(1),
+                      style: const TextStyle(
+                        fontSize: 32,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    // Only show unit if not using formatted value (which includes unit)
+                    if (unit.isNotEmpty && formattedValue == null)
+                      Text(
+                        unit,
+                        style: const TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w300,
+                        ),
+                      ),
+                  ],
+                ),
+                angle: 90,
+                positionFactor: 0.0,
+              ),
             ],
           ),
-        ),
+        ],
       ),
     );
-  }
-}
-
-class _RadialGaugePainter extends CustomPainter {
-  final double value;
-  final double minValue;
-  final double maxValue;
-  final String label;
-  final String unit;
-  final Color primaryColor;
-  final Color backgroundColor;
-  final int divisions;
-
-  _RadialGaugePainter({
-    required this.value,
-    required this.minValue,
-    required this.maxValue,
-    required this.label,
-    required this.unit,
-    required this.primaryColor,
-    required this.backgroundColor,
-    required this.divisions,
-  });
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final center = Offset(size.width / 2, size.height / 2);
-    final radius = min(size.width, size.height) / 2 - 20;
-    const strokeWidth = 15.0;
-
-    // Draw background arc
-    final backgroundPaint = Paint()
-      ..color = backgroundColor.withValues(alpha: 0.2)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = strokeWidth
-      ..strokeCap = StrokeCap.round;
-
-    const startAngle = -pi * 0.75; // Start at 135 degrees
-    const sweepAngle = pi * 1.5; // 270 degrees total
-
-    canvas.drawArc(
-      Rect.fromCircle(center: center, radius: radius),
-      startAngle,
-      sweepAngle,
-      false,
-      backgroundPaint,
-    );
-
-    // Draw value arc
-    final normalizedValue = ((value - minValue) / (maxValue - minValue)).clamp(0.0, 1.0);
-    final valueSweepAngle = sweepAngle * normalizedValue;
-
-    final valuePaint = Paint()
-      ..shader = LinearGradient(
-        colors: [
-          primaryColor,
-          primaryColor.withValues(alpha: 0.6),
-        ],
-      ).createShader(Rect.fromCircle(center: center, radius: radius))
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = strokeWidth
-      ..strokeCap = StrokeCap.round;
-
-    canvas.drawArc(
-      Rect.fromCircle(center: center, radius: radius),
-      startAngle,
-      valueSweepAngle,
-      false,
-      valuePaint,
-    );
-
-    // Draw tick marks
-    _drawTickMarks(canvas, center, radius, strokeWidth);
-  }
-
-  void _drawTickMarks(Canvas canvas, Offset center, double radius, double strokeWidth) {
-    final tickPaint = Paint()
-      ..color = Colors.grey
-      ..strokeWidth = 2
-      ..strokeCap = StrokeCap.round;
-
-    const startAngle = -pi * 0.75;
-    const sweepAngle = pi * 1.5;
-
-    for (int i = 0; i <= divisions; i++) {
-      final angle = startAngle + (sweepAngle * i / divisions);
-      final isMainTick = i % (divisions ~/ 5) == 0;
-      final tickLength = isMainTick ? 12.0 : 6.0;
-
-      final startX = center.dx + (radius + strokeWidth / 2 + 5) * cos(angle);
-      final startY = center.dy + (radius + strokeWidth / 2 + 5) * sin(angle);
-      final endX = center.dx + (radius + strokeWidth / 2 + 5 + tickLength) * cos(angle);
-      final endY = center.dy + (radius + strokeWidth / 2 + 5 + tickLength) * sin(angle);
-
-      canvas.drawLine(
-        Offset(startX, startY),
-        Offset(endX, endY),
-        tickPaint..strokeWidth = isMainTick ? 2.5 : 1.5,
-      );
-    }
-  }
-
-  @override
-  bool shouldRepaint(_RadialGaugePainter oldDelegate) {
-    return oldDelegate.value != value ||
-        oldDelegate.minValue != minValue ||
-        oldDelegate.maxValue != maxValue;
   }
 }

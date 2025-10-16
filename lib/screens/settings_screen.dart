@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:uuid/uuid.dart';
@@ -9,6 +8,7 @@ import '../services/dashboard_service.dart';
 import '../models/server_connection.dart';
 import 'connection_screen.dart';
 import 'device_registration_screen.dart';
+import 'autopilot_compass_demo.dart';
 
 /// Settings screen with connection management
 class SettingsScreen extends StatefulWidget {
@@ -58,6 +58,36 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           ),
           _buildSavedConnectionsList(storageService, signalKService.isConnected),
+
+          const Divider(height: 32),
+
+          // Demos Section
+          const Padding(
+            padding: EdgeInsets.all(16.0),
+            child: Text(
+              'Demos',
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+          Card(
+            margin: const EdgeInsets.symmetric(horizontal: 16),
+            child: ListTile(
+              leading: const Icon(Icons.explore, color: Colors.blue),
+              title: const Text('Autopilot Compass'),
+              subtitle: const Text('Test the new Syncfusion-based compass widget'),
+              trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+              onTap: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (context) => const AutopilotCompassDemo(),
+                  ),
+                );
+              },
+            ),
+          ),
 
           const SizedBox(height: 80),
         ],

@@ -7,6 +7,7 @@ class CompassGauge extends StatelessWidget {
   final String label;
   final String? formattedValue;
   final Color primaryColor;
+  final bool showTickLabels;
 
   const CompassGauge({
     super.key,
@@ -14,6 +15,7 @@ class CompassGauge extends StatelessWidget {
     this.label = 'Heading',
     this.formattedValue,
     this.primaryColor = Colors.red,
+    this.showTickLabels = false,
   });
 
   @override
@@ -24,6 +26,7 @@ class CompassGauge extends StatelessWidget {
         painter: _CompassPainter(
           heading: heading,
           primaryColor: primaryColor,
+          showTickLabels: showTickLabels,
         ),
         child: Center(
           child: Column(
@@ -68,10 +71,12 @@ class CompassGauge extends StatelessWidget {
 class _CompassPainter extends CustomPainter {
   final double heading;
   final Color primaryColor;
+  final bool showTickLabels;
 
   _CompassPainter({
     required this.heading,
     required this.primaryColor,
+    required this.showTickLabels,
   });
 
   @override
@@ -120,6 +125,55 @@ class _CompassPainter extends CustomPainter {
       textAlign: TextAlign.center,
     );
 
+    // Draw all tick marks (every 30 degrees)
+    final minorTickPaint = Paint()
+      ..color = Colors.grey.withValues(alpha: 0.5)
+      ..strokeWidth = 1
+      ..strokeCap = StrokeCap.round;
+
+    for (int i = 0; i < 12; i++) {
+      final angle = i * pi / 6 - pi / 2;
+      final isCardinal = i % 3 == 0;
+
+      if (!isCardinal) {
+        // Minor tick marks
+        final startX = center.dx + (radius - 10) * cos(angle);
+        final startY = center.dy + (radius - 10) * sin(angle);
+        final endX = center.dx + (radius - 5) * cos(angle);
+        final endY = center.dy + (radius - 5) * sin(angle);
+
+        canvas.drawLine(
+          Offset(startX, startY),
+          Offset(endX, endY),
+          minorTickPaint,
+        );
+      }
+
+      // Draw numeric labels if enabled (every 30 degrees)
+      if (showTickLabels) {
+        final degrees = (i * 30) % 360;
+        final labelDistance = radius * 0.7;
+        final labelX = center.dx + labelDistance * cos(angle);
+        final labelY = center.dy + labelDistance * sin(angle);
+
+        textPainter.text = TextSpan(
+          text: '$degrees°',
+          style: const TextStyle(
+            color: Colors.grey,
+            fontSize: 10,
+            fontWeight: FontWeight.w500,
+          ),
+        );
+
+        textPainter.layout();
+        textPainter.paint(
+          canvas,
+          Offset(labelX - textPainter.width / 2, labelY - textPainter.height / 2),
+        );
+      }
+    }
+
+    // Draw cardinal directions
     for (int i = 0; i < 4; i++) {
       final angle = i * pi / 2 - pi / 2; // Start at top (North)
       final x = center.dx + radius * 0.85 * cos(angle);
@@ -153,29 +207,6 @@ class _CompassPainter extends CustomPainter {
 
       canvas.drawLine(Offset(startX, startY), Offset(endX, endY), tickPaint);
     }
-
-    // Draw minor tick marks (every 30 degrees)
-    final minorTickPaint = Paint()
-      ..color = Colors.grey.withValues(alpha: 0.5)
-      ..strokeWidth = 1
-      ..strokeCap = StrokeCap.round;
-
-    for (int i = 0; i < 12; i++) {
-      if (i % 3 != 0) {
-        // Skip cardinal directions
-        final angle = i * pi / 6 - pi / 2;
-        final startX = center.dx + (radius - 10) * cos(angle);
-        final startY = center.dy + (radius - 10) * sin(angle);
-        final endX = center.dx + (radius - 5) * cos(angle);
-        final endY = center.dy + (radius - 5) * sin(angle);
-
-        canvas.drawLine(
-          Offset(startX, startY),
-          Offset(endX, endY),
-          minorTickPaint,
-        );
-      }
-    }
   }
 
   void _drawNorthIndicator(Canvas canvas, Offset center, double radius) {
@@ -195,6 +226,8 @@ class _CompassPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_CompassPainter oldDelegate) {
-    return oldDelegate.heading != heading;
+    return oldDelegate.heading != heading ||
+        oldDelegate.primaryColor != primaryColor ||
+        oldDelegate.showTickLabels != showTickLabels;
   }
 }

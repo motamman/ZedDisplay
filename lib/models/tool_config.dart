@@ -93,6 +93,20 @@ class GridPosition {
       _$GridPositionFromJson(json);
 
   Map<String, dynamic> toJson() => _$GridPositionToJson(this);
+
+  GridPosition copyWith({
+    int? row,
+    int? col,
+    int? width,
+    int? height,
+  }) {
+    return GridPosition(
+      row: row ?? this.row,
+      col: col ?? this.col,
+      width: width ?? this.width,
+      height: height ?? this.height,
+    );
+  }
 }
 
 /// Configuration for a tool instance

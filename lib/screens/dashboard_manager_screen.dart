@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
 import '../services/dashboard_service.dart';
 import '../services/signalk_service.dart';
 import '../services/tool_registry.dart';
@@ -51,11 +52,17 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen> {
       ),
     );
 
-    if (result is Tool) {
-      // Create a placement for this tool
+    if (result is Map<String, dynamic>) {
+      final tool = result['tool'] as Tool;
+      final width = result['width'] as int? ?? 1;
+      final height = result['height'] as int? ?? 1;
+
+      // Create a placement for this tool with size
       final placement = toolService.createPlacement(
-        toolId: result.id,
+        toolId: tool.id,
         screenId: activeScreen.id,
+        width: width,
+        height: height,
       );
       await dashboardService.addPlacementToActiveScreen(placement);
     }
@@ -74,11 +81,17 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen> {
       ),
     );
 
-    if (result is Tool) {
-      // Create a placement for this tool
+    if (result is Map<String, dynamic>) {
+      final tool = result['tool'] as Tool;
+      final width = result['width'] as int? ?? 1;
+      final height = result['height'] as int? ?? 1;
+
+      // Create a placement for this tool with size
       final placement = toolService.createPlacement(
-        toolId: result.id,
+        toolId: tool.id,
         screenId: activeScreen.id,
+        width: width,
+        height: height,
       );
       await dashboardService.addPlacementToActiveScreen(placement);
     }
@@ -115,45 +128,51 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen> {
     );
   }
 
-  Future<void> _editTool(Tool tool) async {
-    final toolService = Provider.of<ToolService>(context, listen: false);
+  Future<void> _editTool(Tool tool, String placementToolId) async {
+    final dashboardService = Provider.of<DashboardService>(context, listen: false);
+    final activeScreen = dashboardService.currentLayout?.activeScreen;
 
-    final templateData = await showDialog<Map<String, dynamic>>(
-      context: context,
-      builder: (context) => SaveTemplateDialog(tool: tool),
+    if (activeScreen == null) return;
+
+    // Find the current placement to get size
+    final currentPlacement = activeScreen.placements.firstWhere(
+      (p) => p.toolId == placementToolId,
     );
 
-    if (templateData == null) return;
+    // Open the tool configuration screen with the existing tool
+    final result = await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => ToolConfigScreen(
+          existingTool: tool,
+          screenId: activeScreen.id,
+          existingWidth: currentPlacement.position.width,
+          existingHeight: currentPlacement.position.height,
+        ),
+      ),
+    );
 
-    try {
-      final updatedTool = tool.copyWith(
-        name: templateData['name'] as String,
-        description: templateData['description'] as String,
-        author: templateData['author'] as String,
-        category: templateData['category'],
-        tags: templateData['tags'] as List<String>,
-        updatedAt: DateTime.now(),
+    if (result is Map<String, dynamic> && mounted) {
+      final updatedTool = result['tool'] as Tool;
+      final newWidth = result['width'] as int? ?? 1;
+      final newHeight = result['height'] as int? ?? 1;
+
+      // Update the placement size if it changed
+      if (newWidth != currentPlacement.position.width ||
+          newHeight != currentPlacement.position.height) {
+        await dashboardService.updatePlacementSize(
+          activeScreen.id,
+          placementToolId,
+          newWidth,
+          newHeight,
+        );
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Tool "${updatedTool.name}" updated successfully'),
+          backgroundColor: Colors.green,
+        ),
       );
-
-      await toolService.saveTool(updatedTool);
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Tool "${updatedTool.name}" updated successfully'),
-            backgroundColor: Colors.green,
-          ),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to update tool: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
     }
   }
 
@@ -441,124 +460,188 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen> {
       );
     }
 
-    return OrientationBuilder(
-      builder: (context, orientation) {
-        return LayoutBuilder(
-          builder: (context, constraints) {
-            // Calculate responsive columns based on screen width AND orientation
-            final screenWidth = constraints.maxWidth;
-            final screenHeight = constraints.maxHeight;
-            final int columns;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // Granular column calculation based on orientation
+        final orientation = MediaQuery.of(context).orientation;
+        final int columns = orientation == Orientation.landscape ? 8 : 4;
 
-            // Use width as primary factor for column count
-            if (screenWidth >= 1200) {
-              columns = 4; // Desktop/large tablets
-            } else if (screenWidth >= 900) {
-              columns = 3; // Tablets landscape or large tablets
-            } else if (screenWidth >= 600) {
-              columns = 2; // Large phones landscape or tablets portrait
-            } else {
-              columns = 1; // Phones in portrait
-            }
+        return SingleChildScrollView(
+          padding: const EdgeInsets.all(16),
+          child: StaggeredGrid.count(
+            crossAxisCount: columns,
+            mainAxisSpacing: 16,
+            crossAxisSpacing: 16,
+            children: screen.placements.asMap().entries.map((entry) {
+              final index = entry.key;
+              final placement = entry.value;
+              final tool = toolService.getTool(placement.toolId);
 
-            // Calculate cell size based on available width
-            final cellWidth = (screenWidth - 32 - (columns - 1) * 16) / columns;
+              if (tool == null) {
+                return const SizedBox.shrink();
+              }
 
-            // Adjust cell height based on orientation to prevent oversized cells
-            final cellHeight = orientation == Orientation.landscape
-                ? (screenHeight - 150) / 3.0  // Landscape: more conservative height
-                : cellWidth;  // Portrait: square cells
+              final registry = ToolRegistry();
 
-            return SingleChildScrollView(
-              padding: const EdgeInsets.all(16),
-              child: Wrap(
-                spacing: 16,
-                runSpacing: 16,
-                alignment: WrapAlignment.start,
-                children: screen.placements.map((placement) {
-                  final registry = ToolRegistry();
+              // Get tool size from placement (defaults to 1x1)
+              // Max rows: 4 in landscape, 8 in portrait
+              final maxRows = orientation == Orientation.landscape ? 4 : 8;
+              final crossAxisCells = placement.position.width.clamp(1, columns);
+              final mainAxisCells = placement.position.height.clamp(1, maxRows);
 
-                  // Resolve the tool from the placement
-                  final tool = toolService.getTool(placement.toolId);
+              // Build the tile child (content inside the StaggeredGridTile)
+              Widget tileChild;
 
-                  // Skip if tool not found
-                  if (tool == null) {
-                    return const SizedBox.shrink();
-                  }
-
-                  // Get tool's size preferences, clamped to available columns
-                  final toolWidth = placement.position.width.clamp(1, columns);
-                  final toolHeight = placement.position.height.clamp(1, 4);
-
-                  // Calculate actual dimensions
-                  final width = (cellWidth * toolWidth) + ((toolWidth - 1) * 16);
-                  final height = cellHeight * toolHeight + ((toolHeight - 1) * 16);
-
-                  return SizedBox(
-                    width: width,
-                    height: height,
-                    child: Stack(
-                      fit: StackFit.expand,
-                      children: [
-                        // Use FittedBox to scale content down to fit if needed
-                        FittedBox(
-                          fit: BoxFit.scaleDown,
-                          alignment: Alignment.center,
-                          child: ConstrainedBox(
-                            constraints: BoxConstraints(
-                              maxWidth: width,
-                              maxHeight: height,
+              if (_isEditMode) {
+                // In edit mode, wrap with drag and drop
+                tileChild = DragTarget<int>(
+                  onWillAcceptWithDetails: (details) => details.data != index,
+                  onAcceptWithDetails: (details) async {
+                    final dashboardService = Provider.of<DashboardService>(context, listen: false);
+                    await dashboardService.reorderPlacements(
+                      screen.id,
+                      details.data,
+                      index,
+                    );
+                  },
+                  builder: (context, candidateData, rejectedData) {
+                    final isHovering = candidateData.isNotEmpty;
+                    return LongPressDraggable<int>(
+                      data: index,
+                      feedback: Material(
+                        elevation: 8,
+                        borderRadius: BorderRadius.circular(8),
+                        child: Opacity(
+                          opacity: 0.8,
+                          child: Container(
+                            width: 150,
+                            height: 150,
+                            decoration: BoxDecoration(
+                              color: Theme.of(context).colorScheme.primaryContainer,
+                              borderRadius: BorderRadius.circular(8),
                             ),
-                            child: registry.buildTool(
-                              tool.toolTypeId,
-                              tool.config,
-                              signalKService,
+                            child: Center(
+                              child: Icon(
+                                Icons.dashboard_customize,
+                                size: 64,
+                                color: Theme.of(context).colorScheme.onPrimaryContainer,
+                              ),
                             ),
                           ),
                         ),
+                      ),
+                      childWhenDragging: Opacity(
+                        opacity: 0.3,
+                        child: Stack(
+                          fit: StackFit.expand,
+                          children: [
+                            Padding(
+                              padding: const EdgeInsets.all(8),
+                              child: registry.buildTool(
+                                tool.toolTypeId,
+                                tool.config,
+                                signalKService,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      child: Container(
+                        decoration: isHovering
+                            ? BoxDecoration(
+                                border: Border.all(
+                                  color: Theme.of(context).colorScheme.primary,
+                                  width: 3,
+                                ),
+                                borderRadius: BorderRadius.circular(8),
+                              )
+                            : null,
+                        child: Stack(
+                          fit: StackFit.expand,
+                          children: [
+                            // Tool widget
+                            Padding(
+                              padding: const EdgeInsets.all(8),
+                              child: registry.buildTool(
+                                tool.toolTypeId,
+                                tool.config,
+                                signalKService,
+                              ),
+                            ),
 
-                        // Edit mode buttons
-                        if (_isEditMode) ...[
-                          // Edit Tool button
-                          Positioned(
-                            top: 4,
-                            left: 4,
-                            child: IconButton(
-                              icon: const Icon(Icons.edit, size: 16),
-                              onPressed: () => _editTool(tool),
-                              style: IconButton.styleFrom(
-                                backgroundColor: Colors.blue.withValues(alpha: 0.7),
-                                foregroundColor: Colors.white,
+                            // Edit mode buttons
+                            // Drag handle
+                            Positioned(
+                              top: 4,
+                              left: 4,
+                              child: Container(
                                 padding: const EdgeInsets.all(4),
-                                minimumSize: const Size(24, 24),
+                                decoration: BoxDecoration(
+                                  color: Colors.grey.withValues(alpha: 0.7),
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                                child: const Icon(
+                                  Icons.drag_handle,
+                                  size: 20,
+                                  color: Colors.white,
+                                ),
                               ),
-                              tooltip: 'Edit Tool',
                             ),
-                          ),
-                          // Delete button
-                          Positioned(
-                            top: 4,
-                            right: 4,
-                            child: IconButton(
-                              icon: const Icon(Icons.close, size: 16),
-                              onPressed: () => _removePlacement(screen.id, placement.toolId),
-                              style: IconButton.styleFrom(
-                                backgroundColor: Colors.red.withValues(alpha: 0.7),
-                                foregroundColor: Colors.white,
-                                padding: const EdgeInsets.all(4),
-                                minimumSize: const Size(24, 24),
+                            Positioned(
+                              top: 4,
+                              right: 44,
+                              child: IconButton(
+                                icon: const Icon(Icons.edit, size: 16),
+                                onPressed: () => _editTool(tool, placement.toolId),
+                                style: IconButton.styleFrom(
+                                  backgroundColor: Colors.blue.withValues(alpha: 0.7),
+                                  foregroundColor: Colors.white,
+                                  padding: const EdgeInsets.all(4),
+                                  minimumSize: const Size(24, 24),
+                                ),
+                                tooltip: 'Edit Tool',
                               ),
-                              tooltip: 'Remove',
                             ),
-                          ),
-                        ],
-                      ],
-                    ),
-                  );
-                }).toList(),
-              ),
-            );
-          },
+                            Positioned(
+                              top: 4,
+                              right: 4,
+                              child: IconButton(
+                                icon: const Icon(Icons.close, size: 16),
+                                onPressed: () => _removePlacement(screen.id, placement.toolId),
+                                style: IconButton.styleFrom(
+                                  backgroundColor: Colors.red.withValues(alpha: 0.7),
+                                  foregroundColor: Colors.white,
+                                  padding: const EdgeInsets.all(4),
+                                  minimumSize: const Size(24, 24),
+                                ),
+                                tooltip: 'Remove',
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                );
+              } else {
+                // Normal mode - just show the tool
+                tileChild = Padding(
+                  padding: const EdgeInsets.all(8),
+                  child: registry.buildTool(
+                    tool.toolTypeId,
+                    tool.config,
+                    signalKService,
+                  ),
+                );
+              }
+
+              return StaggeredGridTile.count(
+                crossAxisCellCount: crossAxisCells,
+                mainAxisCellCount: mainAxisCells,
+                child: tileChild,
+              );
+            }).toList(),
+          ),
         );
       },
     );

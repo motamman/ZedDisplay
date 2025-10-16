@@ -55,6 +55,10 @@ class RadialGaugeTool extends StatelessWidget {
       }
     }
 
+    // Get divisions and tick labels from custom properties
+    final divisions = style.customProperties?['divisions'] as int? ?? 10;
+    final showTickLabels = style.customProperties?['showTickLabels'] as bool? ?? false;
+
     return RadialGauge(
       value: value,
       minValue: minValue,
@@ -63,6 +67,8 @@ class RadialGaugeTool extends StatelessWidget {
       unit: style.showUnit == true ? unit : '',
       formattedValue: formattedValue,
       primaryColor: primaryColor,
+      divisions: divisions,
+      showTickLabels: showTickLabels,
     );
   }
 

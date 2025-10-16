@@ -224,6 +224,54 @@ class DashboardService extends ChangeNotifier {
     await saveDashboard();
   }
 
+  /// Update just the size of a placement
+  Future<void> updatePlacementSize(
+    String screenId,
+    String toolId,
+    int width,
+    int height,
+  ) async {
+    if (_currentLayout == null) return;
+
+    final screen = _currentLayout!.screens.firstWhere(
+      (s) => s.id == screenId,
+      orElse: () => throw Exception('Screen not found'),
+    );
+
+    final placement = screen.placements.firstWhere(
+      (p) => p.toolId == toolId,
+      orElse: () => throw Exception('Placement not found'),
+    );
+
+    final updatedPlacement = placement.copyWith(
+      position: placement.position.copyWith(
+        width: width,
+        height: height,
+      ),
+    );
+
+    await updatePlacement(screenId, updatedPlacement);
+  }
+
+  /// Reorder placements on a screen
+  Future<void> reorderPlacements(
+    String screenId,
+    int oldIndex,
+    int newIndex,
+  ) async {
+    if (_currentLayout == null) return;
+
+    final screen = _currentLayout!.screens.firstWhere(
+      (s) => s.id == screenId,
+      orElse: () => throw Exception('Screen not found'),
+    );
+
+    final updatedScreen = screen.reorderPlacements(oldIndex, newIndex);
+    _currentLayout = _currentLayout!.updateScreen(updatedScreen);
+    notifyListeners();
+    await saveDashboard();
+  }
+
   /// Get all placements from all screens
   List<ToolPlacement> getAllPlacements() {
     if (_currentLayout == null) return [];

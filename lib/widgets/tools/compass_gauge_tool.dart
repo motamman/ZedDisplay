@@ -44,11 +44,15 @@ class CompassGaugeTool extends StatelessWidget {
       }
     }
 
+    // Get tick labels from custom properties
+    final showTickLabels = config.style.customProperties?['showTickLabels'] as bool? ?? false;
+
     return CompassGauge(
       heading: heading,
       label: config.style.showLabel == true ? label : '',
       formattedValue: formattedValue,
       primaryColor: primaryColor,
+      showTickLabels: showTickLabels,
     );
   }
 

@@ -13,11 +13,15 @@ import '../widgets/config/source_selector.dart';
 class ToolConfigScreen extends StatefulWidget {
   final Tool? existingTool; // null for new tool
   final String screenId;
+  final int? existingWidth;
+  final int? existingHeight;
 
   const ToolConfigScreen({
     super.key,
     this.existingTool,
     required this.screenId,
+    this.existingWidth,
+    this.existingHeight,
   });
 
   @override
@@ -39,6 +43,12 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
   String? _unit;
   String? _primaryColor;
   double? _fontSize;
+  bool _showLabel = true;
+  bool _showValue = true;
+  bool _showUnit = true;
+  bool _showTickLabels = false;
+  int _divisions = 10;
+  String _orientation = 'horizontal';
 
   // Chart-specific configuration
   String _chartDuration = '1h';
@@ -47,6 +57,9 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
   bool _chartShowGrid = true;
   bool _chartAutoRefresh = false;
   int _chartRefreshInterval = 60;
+
+  // Slider-specific configuration
+  int _sliderDecimalPlaces = 1;
 
   // Size configuration
   int _toolWidth = 1;
@@ -57,6 +70,13 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
     super.initState();
     if (widget.existingTool != null) {
       _loadExistingTool();
+    }
+    // Load existing size if provided
+    if (widget.existingWidth != null) {
+      _toolWidth = widget.existingWidth!;
+    }
+    if (widget.existingHeight != null) {
+      _toolHeight = widget.existingHeight!;
     }
   }
 
@@ -77,6 +97,12 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
     _unit = style.unit;
     _primaryColor = style.primaryColor;
     _fontSize = style.fontSize;
+    _showLabel = style.showLabel ?? true;
+    _showValue = style.showValue ?? true;
+    _showUnit = style.showUnit ?? true;
+    _showTickLabels = style.customProperties?['showTickLabels'] as bool? ?? false;
+    _divisions = style.customProperties?['divisions'] as int? ?? 10;
+    _orientation = style.customProperties?['orientation'] as String? ?? 'horizontal';
 
     // Load chart-specific settings from customProperties
     if (style.customProperties != null) {
@@ -86,6 +112,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
       _chartShowGrid = style.customProperties!['showGrid'] as bool? ?? true;
       _chartAutoRefresh = style.customProperties!['autoRefresh'] as bool? ?? false;
       _chartRefreshInterval = style.customProperties!['refreshInterval'] as int? ?? 60;
+      _sliderDecimalPlaces = style.customProperties!['decimalPlaces'] as int? ?? 1;
     }
 
     // Size is managed in placements, not tools
@@ -185,17 +212,29 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
 
     final toolService = Provider.of<ToolService>(context, listen: false);
 
-    // Create tool config with chart-specific properties if applicable
-    final customProperties = _selectedToolTypeId == 'historical_chart'
-        ? {
-            'duration': _chartDuration,
-            'resolution': _chartResolution,
-            'showLegend': _chartShowLegend,
-            'showGrid': _chartShowGrid,
-            'autoRefresh': _chartAutoRefresh,
-            'refreshInterval': _chartRefreshInterval,
-          }
-        : null;
+    // Create tool config with tool-specific properties
+    final Map<String, dynamic>? customProperties;
+    if (_selectedToolTypeId == 'historical_chart') {
+      customProperties = {
+        'duration': _chartDuration,
+        'resolution': _chartResolution,
+        'showLegend': _chartShowLegend,
+        'showGrid': _chartShowGrid,
+        'autoRefresh': _chartAutoRefresh,
+        'refreshInterval': _chartRefreshInterval,
+      };
+    } else if (_selectedToolTypeId == 'slider' || _selectedToolTypeId == 'knob') {
+      customProperties = {
+        'decimalPlaces': _sliderDecimalPlaces,
+      };
+    } else {
+      // Add gauge-specific properties
+      customProperties = {
+        'divisions': _divisions,
+        'orientation': _orientation,
+        'showTickLabels': _showTickLabels,
+      };
+    }
 
     final config = ToolConfig(
       dataSources: [
@@ -211,29 +250,48 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
         unit: _unit?.trim().isEmpty == true ? null : _unit,
         primaryColor: _primaryColor,
         fontSize: _fontSize,
-        showLabel: true,
-        showValue: true,
-        showUnit: true,
+        showLabel: _showLabel,
+        showValue: _showValue,
+        showUnit: _showUnit,
         customProperties: customProperties,
       ),
     );
 
-    // Create the tool with metadata
-    final tool = toolService.createTool(
-      toolTypeId: _selectedToolTypeId!,
-      config: config,
-      name: _customLabel ?? _selectedPath!.split('.').last,
-      description: 'Custom tool for $_selectedPath',
-      author: 'Local User',
-      category: ToolCategory.other,
-      tags: [_selectedToolTypeId!],
-    );
+    final Tool tool;
+
+    if (widget.existingTool != null) {
+      // Update existing tool - preserve ID and metadata
+      tool = widget.existingTool!.copyWith(
+        toolTypeId: _selectedToolTypeId,
+        config: config,
+        name: _customLabel ?? _selectedPath!.split('.').last,
+        description: 'Custom tool for $_selectedPath',
+        updatedAt: DateTime.now(),
+        tags: [_selectedToolTypeId!],
+      );
+    } else {
+      // Create new tool with metadata
+      tool = toolService.createTool(
+        toolTypeId: _selectedToolTypeId!,
+        config: config,
+        name: _customLabel ?? _selectedPath!.split('.').last,
+        description: 'Custom tool for $_selectedPath',
+        author: 'Local User',
+        category: ToolCategory.other,
+        tags: [_selectedToolTypeId!],
+      );
+    }
 
     // Save the tool
     await toolService.saveTool(tool);
 
     if (mounted) {
-      Navigator.of(context).pop(tool);
+      // Return both tool and size
+      Navigator.of(context).pop({
+        'tool': tool,
+        'width': _toolWidth,
+        'height': _toolHeight,
+      });
     }
   }
 
@@ -357,7 +415,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                                 const SizedBox(height: 8),
                                 Wrap(
                                   spacing: 8,
-                                  children: [1, 2, 3, 4].map((width) {
+                                  children: [1, 2, 3, 4, 5, 6, 7, 8].map((width) {
                                     return ChoiceChip(
                                       label: Text('$width'),
                                       selected: _toolWidth == width,
@@ -379,7 +437,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                                 const SizedBox(height: 8),
                                 Wrap(
                                   spacing: 8,
-                                  children: [1, 2, 3, 4].map((height) {
+                                  children: [1, 2, 3, 4, 5, 6, 7, 8].map((height) {
                                     return ChoiceChip(
                                       label: Text('$height'),
                                       selected: _toolHeight == height,
@@ -553,6 +611,29 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                         height: 200,
                         child: Consumer<SignalKService>(
                           builder: (context, service, child) {
+                            // Build preview customProperties same as save
+                            final Map<String, dynamic>? previewCustomProperties;
+                            if (_selectedToolTypeId == 'historical_chart') {
+                              previewCustomProperties = {
+                                'duration': _chartDuration,
+                                'resolution': _chartResolution,
+                                'showLegend': _chartShowLegend,
+                                'showGrid': _chartShowGrid,
+                                'autoRefresh': _chartAutoRefresh,
+                                'refreshInterval': _chartRefreshInterval,
+                              };
+                            } else if (_selectedToolTypeId == 'slider' || _selectedToolTypeId == 'knob') {
+                              previewCustomProperties = {
+                                'decimalPlaces': _sliderDecimalPlaces,
+                              };
+                            } else {
+                              previewCustomProperties = {
+                                'divisions': _divisions,
+                                'orientation': _orientation,
+                                'showTickLabels': _showTickLabels,
+                              };
+                            }
+
                             return registry.buildTool(
                               _selectedToolTypeId!,
                               ToolConfig(
@@ -569,6 +650,10 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                                   unit: _unit,
                                   primaryColor: _primaryColor,
                                   fontSize: _fontSize,
+                                  showLabel: _showLabel,
+                                  showValue: _showValue,
+                                  showUnit: _showUnit,
+                                  customProperties: previewCustomProperties,
                                 ),
                               ),
                               service,
@@ -594,6 +679,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
     final schema = definition.configSchema;
     final widgets = <Widget>[];
 
+    // Min/Max Values
     if (schema.allowsMinMax) {
       widgets.addAll([
         Row(
@@ -629,6 +715,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
       ]);
     }
 
+    // Unit
     widgets.addAll([
       TextFormField(
         decoration: const InputDecoration(
@@ -639,6 +726,10 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
         onChanged: (value) => _unit = value,
       ),
       const SizedBox(height: 16),
+    ]);
+
+    // Color
+    widgets.addAll([
       ListTile(
         leading: Container(
           width: 40,
@@ -667,7 +758,138 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
           side: BorderSide(color: Colors.grey.shade300),
         ),
       ),
+      const SizedBox(height: 16),
     ]);
+
+    // Show/Hide Options
+    widgets.addAll([
+      SwitchListTile(
+        title: const Text('Show Label'),
+        value: _showLabel,
+        onChanged: (value) {
+          setState(() => _showLabel = value);
+        },
+      ),
+      SwitchListTile(
+        title: const Text('Show Value'),
+        value: _showValue,
+        onChanged: (value) {
+          setState(() => _showValue = value);
+        },
+      ),
+      SwitchListTile(
+        title: const Text('Show Unit'),
+        value: _showUnit,
+        onChanged: (value) {
+          setState(() => _showUnit = value);
+        },
+      ),
+    ]);
+
+    // Gauge-specific options
+    if (_selectedToolTypeId == 'radial_gauge' || _selectedToolTypeId == 'compass_gauge') {
+      widgets.addAll([
+        const SizedBox(height: 16),
+        TextFormField(
+          decoration: const InputDecoration(
+            labelText: 'Divisions (tick marks)',
+            border: OutlineInputBorder(),
+            helperText: 'Number of major divisions on the gauge',
+          ),
+          keyboardType: TextInputType.number,
+          initialValue: _divisions.toString(),
+          onChanged: (value) {
+            final parsed = int.tryParse(value);
+            if (parsed != null && parsed > 0) {
+              setState(() => _divisions = parsed);
+            }
+          },
+        ),
+        const SizedBox(height: 8),
+        SwitchListTile(
+          title: const Text('Show Tick Labels'),
+          subtitle: const Text('Display numeric values at tick marks'),
+          value: _showTickLabels,
+          onChanged: (value) {
+            setState(() => _showTickLabels = value);
+          },
+        ),
+      ]);
+    }
+
+    // Linear gauge orientation
+    if (_selectedToolTypeId == 'linear_gauge') {
+      widgets.addAll([
+        const SizedBox(height: 16),
+        DropdownButtonFormField<String>(
+          decoration: const InputDecoration(
+            labelText: 'Orientation',
+            border: OutlineInputBorder(),
+          ),
+          value: _orientation,
+          items: const [
+            DropdownMenuItem(value: 'horizontal', child: Text('Horizontal')),
+            DropdownMenuItem(value: 'vertical', child: Text('Vertical')),
+          ],
+          onChanged: (value) {
+            if (value != null) {
+              setState(() => _orientation = value);
+            }
+          },
+        ),
+        const SizedBox(height: 16),
+        TextFormField(
+          decoration: const InputDecoration(
+            labelText: 'Divisions (tick marks)',
+            border: OutlineInputBorder(),
+            helperText: 'Number of major divisions on the gauge',
+          ),
+          keyboardType: TextInputType.number,
+          initialValue: _divisions.toString(),
+          onChanged: (value) {
+            final parsed = int.tryParse(value);
+            if (parsed != null && parsed > 0) {
+              setState(() => _divisions = parsed);
+            }
+          },
+        ),
+        const SizedBox(height: 8),
+        SwitchListTile(
+          title: const Text('Show Tick Labels'),
+          subtitle: const Text('Display numeric values at tick marks'),
+          value: _showTickLabels,
+          onChanged: (value) {
+            setState(() => _showTickLabels = value);
+          },
+        ),
+      ]);
+    }
+
+    // Slider and Knob-specific options
+    if (_selectedToolTypeId == 'slider' || _selectedToolTypeId == 'knob') {
+      widgets.addAll([
+        const SizedBox(height: 16),
+        DropdownButtonFormField<int>(
+          decoration: const InputDecoration(
+            labelText: 'Decimal Places',
+            border: OutlineInputBorder(),
+            helperText: 'Number of decimal places to display',
+          ),
+          value: _sliderDecimalPlaces,
+          items: const [
+            DropdownMenuItem(value: 0, child: Text('0 (e.g., 42)')),
+            DropdownMenuItem(value: 1, child: Text('1 (e.g., 42.5)')),
+            DropdownMenuItem(value: 2, child: Text('2 (e.g., 42.50)')),
+            DropdownMenuItem(value: 3, child: Text('3 (e.g., 42.500)')),
+          ],
+          onChanged: (value) {
+            if (value != null) {
+              setState(() => _sliderDecimalPlaces = value);
+            }
+          },
+        ),
+      ]);
+    }
 
     return widgets;
   }

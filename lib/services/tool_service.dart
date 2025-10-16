@@ -89,11 +89,18 @@ class ToolService extends ChangeNotifier {
     required String screenId,
     int row = 0,
     int col = 0,
+    int width = 1,
+    int height = 1,
   }) {
     return ToolPlacement(
       toolId: toolId,
       screenId: screenId,
-      position: GridPosition(row: row, col: col),
+      position: GridPosition(
+        row: row,
+        col: col,
+        width: width,
+        height: height,
+      ),
     );
   }
 
