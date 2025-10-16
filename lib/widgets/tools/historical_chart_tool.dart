@@ -205,6 +205,21 @@ class _HistoricalChartToolState extends State<HistoricalChartTool> {
 
     final autoRefresh = widget.config.style.customProperties?['autoRefresh'] as bool? ?? false;
 
+    // Get chart style from custom properties
+    final chartStyleStr = widget.config.style.customProperties?['chartStyle'] as String? ?? 'area';
+    final chartStyle = _parseChartStyle(chartStyleStr);
+
+    // Parse primary color from config
+    Color? primaryColor;
+    if (widget.config.style.primaryColor != null) {
+      try {
+        final colorString = widget.config.style.primaryColor!.replaceAll('#', '');
+        primaryColor = Color(int.parse('FF$colorString', radix: 16));
+      } catch (e) {
+        // Keep null if parsing fails
+      }
+    }
+
     return Stack(
       children: [
         HistoricalLineChart(
@@ -213,6 +228,8 @@ class _HistoricalChartToolState extends State<HistoricalChartTool> {
           showLegend: widget.config.style.customProperties?['showLegend'] as bool? ?? true,
           showGrid: widget.config.style.customProperties?['showGrid'] as bool? ?? true,
           signalKService: widget.signalKService,
+          chartStyle: chartStyle,
+          primaryColor: primaryColor,
         ),
         // Refresh button in top-right corner
         Positioned(
@@ -264,6 +281,19 @@ class _HistoricalChartToolState extends State<HistoricalChartTool> {
         ),
       ],
     );
+  }
+
+  ChartStyle _parseChartStyle(String styleStr) {
+    switch (styleStr.toLowerCase()) {
+      case 'line':
+        return ChartStyle.line;
+      case 'column':
+        return ChartStyle.column;
+      case 'stepline':
+        return ChartStyle.stepLine;
+      default:
+        return ChartStyle.area;
+    }
   }
 }
 

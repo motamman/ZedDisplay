@@ -1,6 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:syncfusion_flutter_gauges/gauges.dart';
 
+/// Available radial gauge arc styles
+enum RadialGaugeStyle {
+  arc,          // 270 degree arc (default)
+  full,         // 360 degree full circle
+  half,         // 180 degree semicircle
+  threequarter, // 270 degrees from bottom
+}
+
 /// A customizable radial gauge widget for displaying numeric values
 /// Now powered by Syncfusion for professional appearance
 class RadialGauge extends StatelessWidget {
@@ -14,6 +22,7 @@ class RadialGauge extends StatelessWidget {
   final Color backgroundColor;
   final int divisions;
   final bool showTickLabels;
+  final RadialGaugeStyle gaugeStyle;
 
   const RadialGauge({
     super.key,
@@ -27,12 +36,16 @@ class RadialGauge extends StatelessWidget {
     this.backgroundColor = Colors.grey,
     this.divisions = 10,
     this.showTickLabels = false,
+    this.gaugeStyle = RadialGaugeStyle.arc,
   });
 
   @override
   Widget build(BuildContext context) {
     // Clamp value to valid range
     final clampedValue = value.clamp(minValue, maxValue);
+
+    // Get start/end angles based on style
+    final angles = _getAngles(gaugeStyle);
 
     return AspectRatio(
       aspectRatio: 1,
@@ -43,9 +56,9 @@ class RadialGauge extends StatelessWidget {
             maximum: maxValue,
             interval: (maxValue - minValue) / divisions,
 
-            // Arc styling (270 degrees)
-            startAngle: 135,
-            endAngle: 45,
+            // Arc styling
+            startAngle: angles.startAngle,
+            endAngle: angles.endAngle,
 
             // Hide axis line (we use ranges for the arc)
             showAxisLine: false,
@@ -98,6 +111,25 @@ class RadialGauge extends StatelessWidget {
               ),
             ],
 
+            // Pointer for full circle style
+            pointers: gaugeStyle == RadialGaugeStyle.full
+                ? <GaugePointer>[
+                    NeedlePointer(
+                      value: clampedValue,
+                      needleLength: 0.7,
+                      needleStartWidth: 0,
+                      needleEndWidth: 8,
+                      needleColor: primaryColor,
+                      knobStyle: KnobStyle(
+                        knobRadius: 0.08,
+                        color: primaryColor,
+                        borderColor: primaryColor,
+                        borderWidth: 0.02,
+                      ),
+                    ),
+                  ]
+                : null,
+
             // Center annotation with value display
             annotations: <GaugeAnnotation>[
               GaugeAnnotation(
@@ -132,12 +164,26 @@ class RadialGauge extends StatelessWidget {
                   ],
                 ),
                 angle: 90,
-                positionFactor: 0.0,
+                positionFactor: gaugeStyle == RadialGaugeStyle.half ? 0.3 : 0.0,
               ),
             ],
           ),
         ],
       ),
     );
+  }
+
+  ({double startAngle, double endAngle}) _getAngles(RadialGaugeStyle style) {
+    switch (style) {
+      case RadialGaugeStyle.full:
+        return (startAngle: 270, endAngle: 270); // Full circle
+      case RadialGaugeStyle.half:
+        return (startAngle: 180, endAngle: 0); // Bottom semicircle
+      case RadialGaugeStyle.threequarter:
+        return (startAngle: 180, endAngle: 90); // 270 degrees from bottom
+      case RadialGaugeStyle.arc:
+      default:
+        return (startAngle: 135, endAngle: 45); // 270 degree arc
+    }
   }
 }

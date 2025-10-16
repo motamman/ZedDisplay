@@ -44,8 +44,10 @@ class CompassGaugeTool extends StatelessWidget {
       }
     }
 
-    // Get tick labels from custom properties
+    // Get tick labels and compass style from custom properties
     final showTickLabels = config.style.customProperties?['showTickLabels'] as bool? ?? false;
+    final compassStyleStr = config.style.customProperties?['compassStyle'] as String? ?? 'classic';
+    final compassStyle = _parseCompassStyle(compassStyleStr);
 
     return CompassGauge(
       heading: heading,
@@ -53,7 +55,21 @@ class CompassGaugeTool extends StatelessWidget {
       formattedValue: formattedValue,
       primaryColor: primaryColor,
       showTickLabels: showTickLabels,
+      compassStyle: compassStyle,
     );
+  }
+
+  CompassStyle _parseCompassStyle(String styleStr) {
+    switch (styleStr.toLowerCase()) {
+      case 'arc':
+        return CompassStyle.arc;
+      case 'minimal':
+        return CompassStyle.minimal;
+      case 'rose':
+        return CompassStyle.rose;
+      default:
+        return CompassStyle.classic;
+    }
   }
 
   /// Extract a readable label from the path
@@ -92,6 +108,7 @@ class CompassGaugeBuilder extends ToolBuilder {
         styleOptions: const [
           'primaryColor',
           'showLabel',
+          'compassStyle', // 'classic', 'arc', 'minimal', 'rose'
         ],
       ),
     );

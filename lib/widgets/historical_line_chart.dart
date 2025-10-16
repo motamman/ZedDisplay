@@ -1,25 +1,38 @@
 import 'package:flutter/material.dart';
-import 'package:fl_chart/fl_chart.dart';
+import 'package:syncfusion_flutter_charts/charts.dart';
 import '../models/historical_data.dart';
 import '../services/signalk_service.dart';
 import 'package:intl/intl.dart';
 
+/// Available chart display styles
+enum ChartStyle {
+  area,      // Spline area with fill (default)
+  line,      // Spline line only
+  column,    // Vertical column chart
+  stepLine,  // Step line chart
+}
+
 /// A line chart widget that displays up to 3 historical data series
+/// Now powered by Syncfusion for professional charting
 class HistoricalLineChart extends StatelessWidget {
   final List<ChartDataSeries> series;
   final String title;
   final bool showLegend;
   final bool showGrid;
   final SignalKService? signalKService;
+  final ChartStyle chartStyle;
+  final Color? primaryColor;
 
   const HistoricalLineChart({
-    Key? key,
+    super.key,
     required this.series,
     this.title = 'Historical Data',
     this.showLegend = true,
     this.showGrid = true,
     this.signalKService,
-  }) : super(key: key);
+    this.chartStyle = ChartStyle.area,
+    this.primaryColor,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -50,8 +63,6 @@ class HistoricalLineChart extends StatelessWidget {
                   ),
             ),
             const SizedBox(height: 16),
-            if (showLegend) _buildLegend(context),
-            const SizedBox(height: 16),
             Expanded(
               child: _buildChart(context),
             ),
@@ -61,218 +72,154 @@ class HistoricalLineChart extends StatelessWidget {
     );
   }
 
-  Widget _buildLegend(BuildContext context) {
-    final colors = _getSeriesColors();
-    return Wrap(
-      spacing: 16,
-      runSpacing: 8,
-      children: List.generate(
-        series.length,
-        (index) => Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 16,
-              height: 16,
-              decoration: BoxDecoration(
-                color: colors[index],
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-            const SizedBox(width: 8),
-            Text(
-              _getSeriesLabel(series[index]),
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
   Widget _buildChart(BuildContext context) {
     final colors = _getSeriesColors();
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
-    // Find global min/max for time axis
-    DateTime? minTime;
-    DateTime? maxTime;
-    for (final s in series) {
-      for (final point in s.points) {
-        if (minTime == null || point.timestamp.isBefore(minTime)) {
-          minTime = point.timestamp;
-        }
-        if (maxTime == null || point.timestamp.isAfter(maxTime)) {
-          maxTime = point.timestamp;
-        }
-      }
+    // Get unit symbol from first series (all series should have same unit)
+    String? unit;
+    if (signalKService != null && series.isNotEmpty) {
+      unit = signalKService!.getUnitSymbol(series.first.path);
     }
 
-    if (minTime == null || maxTime == null) {
-      return const Center(child: Text('No data points'));
-    }
+    return SfCartesianChart(
+      // Legend configuration
+      legend: Legend(
+        isVisible: showLegend,
+        position: LegendPosition.bottom,
+        overflowMode: LegendItemOverflowMode.wrap,
+      ),
 
-    // Find global min/max for value axis
-    double? minValue;
-    double? maxValue;
-    for (final s in series) {
-      if (s.minValue != null &&
-          (minValue == null || s.minValue! < minValue)) {
-        minValue = s.minValue;
-      }
-      if (s.maxValue != null &&
-          (maxValue == null || s.maxValue! > maxValue)) {
-        maxValue = s.maxValue;
-      }
-    }
-
-    // Add padding to value range
-    final valueRange = (maxValue ?? 1) - (minValue ?? 0);
-    final minY = (minValue ?? 0) - valueRange * 0.1;
-    final maxY = (maxValue ?? 1) + valueRange * 0.1;
-
-    return LineChart(
-      LineChartData(
-        gridData: FlGridData(
-          show: showGrid,
-          drawVerticalLine: true,
-          horizontalInterval: (maxY - minY) / 5,
-          verticalInterval:
-              (maxTime.millisecondsSinceEpoch - minTime.millisecondsSinceEpoch) /
-                  5,
+      // Tooltip configuration
+      tooltipBehavior: TooltipBehavior(
+        enable: true,
+        format: 'point.x\npoint.y ${unit ?? ''}',
+        textStyle: TextStyle(
+          fontSize: 12,
+          color: isDark ? Colors.white : Colors.black,
         ),
-        titlesData: FlTitlesData(
-          show: true,
-          rightTitles: const AxisTitles(
-            sideTitles: SideTitles(showTitles: false),
-          ),
-          topTitles: const AxisTitles(
-            sideTitles: SideTitles(showTitles: false),
-          ),
-          bottomTitles: AxisTitles(
-            sideTitles: SideTitles(
-              showTitles: true,
-              reservedSize: 30,
-              interval:
-                  (maxTime.millisecondsSinceEpoch - minTime.millisecondsSinceEpoch) /
-                      4,
-              getTitlesWidget: (value, meta) {
-                final date = DateTime.fromMillisecondsSinceEpoch(value.toInt());
-                final formatter = DateFormat('HH:mm');
-                return SideTitleWidget(
-                  axisSide: meta.axisSide,
-                  child: Text(
-                    formatter.format(date),
-                    style: const TextStyle(fontSize: 10),
-                  ),
-                );
-              },
-            ),
-          ),
-          leftTitles: AxisTitles(
-            sideTitles: SideTitles(
-              showTitles: true,
-              interval: (maxY - minY) / 5,
-              reservedSize: 50,
-              getTitlesWidget: (value, meta) {
-                // Get unit symbol from first series (all series should have same unit)
-                String? unit;
-                if (signalKService != null && series.isNotEmpty) {
-                  unit = signalKService!.getUnitSymbol(series.first.path);
-                }
+      ),
 
-                final valueText = value.toStringAsFixed(1);
-                final displayText = unit != null ? '$valueText $unit' : valueText;
+      // Zoom/pan behavior
+      zoomPanBehavior: ZoomPanBehavior(
+        enablePinching: true,
+        enablePanning: true,
+        enableDoubleTapZooming: true,
+      ),
 
-                return Text(
-                  displayText,
-                  style: const TextStyle(fontSize: 10),
-                  textAlign: TextAlign.left,
-                );
-              },
-            ),
-          ),
+      // Primary X axis (DateTime)
+      primaryXAxis: DateTimeAxis(
+        dateFormat: DateFormat('HH:mm'),
+        majorGridLines: MajorGridLines(
+          width: showGrid ? 1 : 0,
+          color: Colors.grey.withValues(alpha: 0.2),
         ),
-        borderData: FlBorderData(
-          show: true,
-          border: Border.all(
-            color: Theme.of(context).dividerColor,
-          ),
-        ),
-        minX: minTime.millisecondsSinceEpoch.toDouble(),
-        maxX: maxTime.millisecondsSinceEpoch.toDouble(),
-        minY: minY,
-        maxY: maxY,
-        lineBarsData: List.generate(
-          series.length,
-          (index) => _buildLineBarsData(
-            series[index],
-            colors[index],
-          ),
-        ),
-        lineTouchData: LineTouchData(
-          enabled: true,
-          touchTooltipData: LineTouchTooltipData(
-            tooltipBgColor: Theme.of(context).cardColor.withOpacity(0.9),
-            getTooltipItems: (touchedSpots) {
-              return touchedSpots.map((spot) {
-                final date = DateTime.fromMillisecondsSinceEpoch(
-                  spot.x.toInt(),
-                );
-                final formatter = DateFormat('HH:mm:ss');
+        axisLine: const AxisLine(width: 1),
+        labelStyle: const TextStyle(fontSize: 10),
+      ),
 
-                // Get unit symbol for this series
-                String? unit;
-                if (signalKService != null) {
-                  unit = signalKService!.getUnitSymbol(series[spot.barIndex].path);
-                }
-
-                final valueText = spot.y.toStringAsFixed(2);
-                final displayValue = unit != null ? '$valueText $unit' : valueText;
-
-                return LineTooltipItem(
-                  '${_getSeriesLabel(series[spot.barIndex])}\n${formatter.format(date)}\n$displayValue',
-                  TextStyle(
-                    color: colors[spot.barIndex],
-                    fontWeight: FontWeight.bold,
-                  ),
-                );
-              }).toList();
-            },
-          ),
+      // Primary Y axis (values)
+      primaryYAxis: NumericAxis(
+        labelFormat: unit != null ? '{value} $unit' : '{value}',
+        majorGridLines: MajorGridLines(
+          width: showGrid ? 1 : 0,
+          color: Colors.grey.withValues(alpha: 0.2),
         ),
+        axisLine: const AxisLine(width: 1),
+        labelStyle: const TextStyle(fontSize: 10),
+      ),
+
+      // Series data
+      series: List.generate(
+        series.length,
+        (index) => _buildSeries(series[index], colors[index]),
       ),
     );
   }
 
-  LineChartBarData _buildLineBarsData(
-    ChartDataSeries series,
+  /// Build series based on chart style
+  CartesianSeries<_ChartPoint, DateTime> _buildSeries(
+    ChartDataSeries seriesData,
     Color color,
   ) {
-    return LineChartBarData(
-      spots: series.points.map((point) {
-        return FlSpot(
-          point.timestamp.millisecondsSinceEpoch.toDouble(),
-          point.value,
+    final dataPoints = seriesData.points
+        .map((point) => _ChartPoint(point.timestamp, point.value))
+        .toList();
+
+    switch (chartStyle) {
+      case ChartStyle.line:
+        return SplineSeries<_ChartPoint, DateTime>(
+          name: _getSeriesLabel(seriesData),
+          dataSource: dataPoints,
+          xValueMapper: (_ChartPoint point, _) => point.timestamp,
+          yValueMapper: (_ChartPoint point, _) => point.value,
+          color: color,
+          width: 2,
+          splineType: SplineType.natural,
+          markerSettings: const MarkerSettings(
+            isVisible: false,
+          ),
         );
-      }).toList(),
-      isCurved: true,
-      color: color,
-      barWidth: 2,
-      isStrokeCapRound: true,
-      dotData: const FlDotData(show: false),
-      belowBarData: BarAreaData(
-        show: true,
-        color: color.withOpacity(0.1),
-      ),
-    );
+
+      case ChartStyle.column:
+        return ColumnSeries<_ChartPoint, DateTime>(
+          name: _getSeriesLabel(seriesData),
+          dataSource: dataPoints,
+          xValueMapper: (_ChartPoint point, _) => point.timestamp,
+          yValueMapper: (_ChartPoint point, _) => point.value,
+          color: color,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(3)),
+        );
+
+      case ChartStyle.stepLine:
+        return StepLineSeries<_ChartPoint, DateTime>(
+          name: _getSeriesLabel(seriesData),
+          dataSource: dataPoints,
+          xValueMapper: (_ChartPoint point, _) => point.timestamp,
+          yValueMapper: (_ChartPoint point, _) => point.value,
+          color: color,
+          width: 2,
+          markerSettings: const MarkerSettings(
+            isVisible: false,
+          ),
+        );
+
+      case ChartStyle.area:
+      default:
+        return SplineAreaSeries<_ChartPoint, DateTime>(
+          name: _getSeriesLabel(seriesData),
+          dataSource: dataPoints,
+          xValueMapper: (_ChartPoint point, _) => point.timestamp,
+          yValueMapper: (_ChartPoint point, _) => point.value,
+          color: color,
+          borderColor: color,
+          borderWidth: 2,
+          opacity: 0.1, // Area fill opacity
+          splineType: SplineType.natural,
+          markerSettings: const MarkerSettings(
+            isVisible: false,
+          ),
+        );
+    }
   }
 
   List<Color> _getSeriesColors() {
+    // Use primaryColor for first series, or default to blue
+    final baseColor = primaryColor ?? Colors.blue;
+
+    // Generate complementary colors for multiple series
     return [
-      Colors.blue,
-      Colors.red,
-      Colors.green,
+      baseColor,
+      _shiftHue(baseColor, 120), // Complementary color
+      _shiftHue(baseColor, 240), // Triadic color
     ];
+  }
+
+  /// Shift the hue of a color by a given degree
+  Color _shiftHue(Color color, double degrees) {
+    final hslColor = HSLColor.fromColor(color);
+    final newHue = (hslColor.hue + degrees) % 360;
+    return hslColor.withHue(newHue).toColor();
   }
 
   String _getSeriesLabel(ChartDataSeries series) {
@@ -289,4 +236,12 @@ class HistoricalLineChart extends StatelessWidget {
     }
     return shortPath;
   }
+}
+
+/// Chart data point class for Syncfusion
+class _ChartPoint {
+  final DateTime timestamp;
+  final double value;
+
+  _ChartPoint(this.timestamp, this.value);
 }

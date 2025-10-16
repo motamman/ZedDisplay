@@ -1,13 +1,23 @@
-import 'dart:math';
 import 'package:flutter/material.dart';
+import 'package:syncfusion_flutter_gauges/gauges.dart';
+
+/// Available compass display styles
+enum CompassStyle {
+  classic,  // Full circle with needle (default)
+  arc,      // 180° arc showing heading range
+  minimal,  // Clean modern with simplified markings
+  rose,     // Traditional compass rose style
+}
 
 /// A compass widget for displaying heading/bearing
+/// Now powered by Syncfusion for professional appearance
 class CompassGauge extends StatelessWidget {
   final double heading; // In degrees (0-360)
   final String label;
   final String? formattedValue;
   final Color primaryColor;
   final bool showTickLabels;
+  final CompassStyle compassStyle;
 
   const CompassGauge({
     super.key,
@@ -16,218 +26,279 @@ class CompassGauge extends StatelessWidget {
     this.formattedValue,
     this.primaryColor = Colors.red,
     this.showTickLabels = false,
+    this.compassStyle = CompassStyle.classic,
   });
 
   @override
   Widget build(BuildContext context) {
     return AspectRatio(
       aspectRatio: 1,
-      child: CustomPaint(
-        painter: _CompassPainter(
-          heading: heading,
-          primaryColor: primaryColor,
-          showTickLabels: showTickLabels,
-        ),
-        child: Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                label,
-                style: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w300,
+      child: SfRadialGauge(
+        axes: <RadialAxis>[
+          RadialAxis(
+            minimum: 0,
+            maximum: 360,
+            interval: _getInterval(),
+
+            // Angles based on style
+            startAngle: _getStartAngle(),
+            endAngle: _getEndAngle(),
+
+            // Hide axis line
+            showAxisLine: false,
+            showLastLabel: compassStyle != CompassStyle.arc,
+
+            // Tick configuration
+            majorTickStyle: MajorTickStyle(
+              length: _getMajorTickLength(),
+              thickness: compassStyle == CompassStyle.rose ? 3 : 2,
+              color: compassStyle == CompassStyle.minimal
+                  ? Colors.grey.withOpacity(0.3)
+                  : Colors.grey,
+            ),
+            minorTicksPerInterval: compassStyle == CompassStyle.minimal ? 0 : 2,
+            minorTickStyle: MinorTickStyle(
+              length: 6,
+              thickness: 1,
+              color: Colors.grey.withOpacity(0.5),
+            ),
+
+            // Custom labels for cardinal directions
+            axisLabelStyle: GaugeTextStyle(
+              color: Colors.grey,
+              fontSize: compassStyle == CompassStyle.rose ? 18 : 16,
+              fontWeight: compassStyle == CompassStyle.rose
+                  ? FontWeight.w900
+                  : FontWeight.bold,
+            ),
+            labelOffset: compassStyle == CompassStyle.rose ? 25 : 20,
+            onLabelCreated: (args) => _customizeLabel(args),
+
+            // Outer ring for visual boundary
+            ranges: _getRanges(),
+
+            // Heading pointer
+            pointers: _getPointers(),
+
+            // Center annotation with heading value
+            annotations: <GaugeAnnotation>[
+              GaugeAnnotation(
+                widget: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (compassStyle != CompassStyle.minimal)
+                      Text(
+                        label,
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w300,
+                        ),
+                      ),
+                    if (compassStyle != CompassStyle.minimal) const SizedBox(height: 4),
+                    Text(
+                      formattedValue ?? '${heading.toStringAsFixed(0)}°',
+                      style: TextStyle(
+                        fontSize: compassStyle == CompassStyle.rose ? 36 : 32,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    Text(
+                      _getCardinalDirection(heading),
+                      style: TextStyle(
+                        fontSize: compassStyle == CompassStyle.rose ? 20 : 18,
+                        fontWeight: FontWeight.w500,
+                        color: primaryColor,
+                      ),
+                    ),
+                  ],
                 ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                formattedValue ?? '${heading.toStringAsFixed(0)}°',
-                style: const TextStyle(
-                  fontSize: 32,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              Text(
-                _getCardinalDirection(heading),
-                style: const TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w500,
-                ),
+                angle: 90,
+                positionFactor: compassStyle == CompassStyle.arc ? 0.3 : 0.1,
               ),
             ],
           ),
-        ),
+        ],
       ),
     );
+  }
+
+  double _getStartAngle() {
+    switch (compassStyle) {
+      case CompassStyle.arc:
+        return 180; // Bottom half
+      default:
+        return 270; // Top (north)
+    }
+  }
+
+  double _getEndAngle() {
+    switch (compassStyle) {
+      case CompassStyle.arc:
+        return 0; // 180 degree arc
+      default:
+        return 270; // Full circle
+    }
+  }
+
+  double _getInterval() {
+    switch (compassStyle) {
+      case CompassStyle.minimal:
+        return 90; // Only cardinal directions
+      case CompassStyle.rose:
+        return 22.5; // 16 divisions
+      default:
+        return 30;
+    }
+  }
+
+  double _getMajorTickLength() {
+    switch (compassStyle) {
+      case CompassStyle.rose:
+        return 15;
+      case CompassStyle.minimal:
+        return 8;
+      default:
+        return 12;
+    }
+  }
+
+  void _customizeLabel(AxisLabelCreatedArgs args) {
+    // Replace degree labels with cardinal directions
+    switch (args.text) {
+      case '0':
+        args.text = 'N';
+        args.labelStyle = GaugeTextStyle(
+          color: primaryColor,
+          fontSize: compassStyle == CompassStyle.rose ? 22 : 20,
+          fontWeight: FontWeight.bold,
+        );
+        break;
+      case '90':
+        args.text = 'E';
+        break;
+      case '180':
+        args.text = 'S';
+        break;
+      case '270':
+        args.text = 'W';
+        break;
+      case '45':
+        args.text = compassStyle == CompassStyle.rose ? 'NE' : '';
+        break;
+      case '135':
+        args.text = compassStyle == CompassStyle.rose ? 'SE' : '';
+        break;
+      case '225':
+        args.text = compassStyle == CompassStyle.rose ? 'SW' : '';
+        break;
+      case '315':
+        args.text = compassStyle == CompassStyle.rose ? 'NW' : '';
+        break;
+      case '22.5':
+      case '67.5':
+      case '112.5':
+      case '157.5':
+      case '202.5':
+      case '247.5':
+      case '292.5':
+      case '337.5':
+        // Intercardinal directions for rose style
+        args.text = compassStyle == CompassStyle.rose ? '•' : '';
+        args.labelStyle = const GaugeTextStyle(fontSize: 8);
+        break;
+      default:
+        if (showTickLabels) {
+          args.text = '${args.text}°';
+        } else {
+          args.text = ''; // Hide non-cardinal labels
+        }
+    }
+  }
+
+  List<GaugeRange> _getRanges() {
+    if (compassStyle == CompassStyle.minimal) {
+      return [];
+    }
+
+    if (compassStyle == CompassStyle.rose) {
+      // Add quadrant shading for rose style
+      return [
+        GaugeRange(
+          startValue: 0,
+          endValue: 360,
+          color: Colors.grey.withOpacity(0.1),
+          startWidth: 2,
+          endWidth: 2,
+        ),
+      ];
+    }
+
+    return [
+      GaugeRange(
+        startValue: 0,
+        endValue: 360,
+        color: Colors.grey.withOpacity(0.2),
+        startWidth: 2,
+        endWidth: 2,
+      ),
+    ];
+  }
+
+  List<GaugePointer> _getPointers() {
+    if (compassStyle == CompassStyle.rose) {
+      // Traditional compass needle style (larger needle)
+      return [
+        NeedlePointer(
+          value: heading,
+          needleLength: 0.75,
+          needleStartWidth: 8,
+          needleEndWidth: 2,
+          needleColor: primaryColor,
+          knobStyle: KnobStyle(
+            knobRadius: 0.1,
+            color: primaryColor,
+            borderColor: Colors.white,
+            borderWidth: 0.03,
+          ),
+        ),
+      ];
+    }
+
+    if (compassStyle == CompassStyle.minimal) {
+      // Triangle marker
+      return [
+        MarkerPointer(
+          value: heading,
+          markerType: MarkerType.triangle,
+          markerHeight: 20,
+          markerWidth: 20,
+          color: primaryColor,
+          markerOffset: -10,
+        ),
+      ];
+    }
+
+    // Classic needle
+    return [
+      NeedlePointer(
+        value: heading,
+        needleLength: 0.7,
+        needleStartWidth: 0,
+        needleEndWidth: 10,
+        needleColor: primaryColor,
+        knobStyle: KnobStyle(
+          knobRadius: 0.08,
+          color: primaryColor,
+          borderColor: primaryColor,
+          borderWidth: 0.02,
+        ),
+      ),
+    ];
   }
 
   String _getCardinalDirection(double degrees) {
     const directions = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
     final index = ((degrees + 22.5) / 45).floor() % 8;
     return directions[index];
-  }
-}
-
-class _CompassPainter extends CustomPainter {
-  final double heading;
-  final Color primaryColor;
-  final bool showTickLabels;
-
-  _CompassPainter({
-    required this.heading,
-    required this.primaryColor,
-    required this.showTickLabels,
-  });
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final center = Offset(size.width / 2, size.height / 2);
-    final radius = min(size.width, size.height) / 2 - 30;
-
-    // Draw outer circle
-    final circlePaint = Paint()
-      ..color = Colors.grey.withValues(alpha: 0.2)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 2;
-
-    canvas.drawCircle(center, radius, circlePaint);
-
-    // Draw cardinal directions
-    _drawCardinalMarks(canvas, center, radius);
-
-    // Draw heading indicator (rotating arrow pointing to current heading)
-    canvas.save();
-    canvas.translate(center.dx, center.dy);
-    canvas.rotate((heading - 90) * pi / 180); // Rotate to heading
-
-    final arrowPaint = Paint()
-      ..color = primaryColor
-      ..style = PaintingStyle.fill;
-
-    // Draw arrow pointing to heading
-    final arrowPath = Path()
-      ..moveTo(radius - 40, 0) // Tip of arrow
-      ..lineTo(radius - 60, -8)
-      ..lineTo(radius - 60, 8)
-      ..close();
-
-    canvas.drawPath(arrowPath, arrowPaint);
-    canvas.restore();
-
-    // Draw north indicator (fixed at top)
-    _drawNorthIndicator(canvas, center, radius);
-  }
-
-  void _drawCardinalMarks(Canvas canvas, Offset center, double radius) {
-    const directions = ['N', 'E', 'S', 'W'];
-    final textPainter = TextPainter(
-      textDirection: TextDirection.ltr,
-      textAlign: TextAlign.center,
-    );
-
-    // Draw all tick marks (every 30 degrees)
-    final minorTickPaint = Paint()
-      ..color = Colors.grey.withValues(alpha: 0.5)
-      ..strokeWidth = 1
-      ..strokeCap = StrokeCap.round;
-
-    for (int i = 0; i < 12; i++) {
-      final angle = i * pi / 6 - pi / 2;
-      final isCardinal = i % 3 == 0;
-
-      if (!isCardinal) {
-        // Minor tick marks
-        final startX = center.dx + (radius - 10) * cos(angle);
-        final startY = center.dy + (radius - 10) * sin(angle);
-        final endX = center.dx + (radius - 5) * cos(angle);
-        final endY = center.dy + (radius - 5) * sin(angle);
-
-        canvas.drawLine(
-          Offset(startX, startY),
-          Offset(endX, endY),
-          minorTickPaint,
-        );
-      }
-
-      // Draw numeric labels if enabled (every 30 degrees)
-      if (showTickLabels) {
-        final degrees = (i * 30) % 360;
-        final labelDistance = radius * 0.7;
-        final labelX = center.dx + labelDistance * cos(angle);
-        final labelY = center.dy + labelDistance * sin(angle);
-
-        textPainter.text = TextSpan(
-          text: '$degrees°',
-          style: const TextStyle(
-            color: Colors.grey,
-            fontSize: 10,
-            fontWeight: FontWeight.w500,
-          ),
-        );
-
-        textPainter.layout();
-        textPainter.paint(
-          canvas,
-          Offset(labelX - textPainter.width / 2, labelY - textPainter.height / 2),
-        );
-      }
-    }
-
-    // Draw cardinal directions
-    for (int i = 0; i < 4; i++) {
-      final angle = i * pi / 2 - pi / 2; // Start at top (North)
-      final x = center.dx + radius * 0.85 * cos(angle);
-      final y = center.dy + radius * 0.85 * sin(angle);
-
-      textPainter.text = TextSpan(
-        text: directions[i],
-        style: TextStyle(
-          color: directions[i] == 'N' ? Colors.red : Colors.grey,
-          fontSize: 20,
-          fontWeight: FontWeight.bold,
-        ),
-      );
-
-      textPainter.layout();
-      textPainter.paint(
-        canvas,
-        Offset(x - textPainter.width / 2, y - textPainter.height / 2),
-      );
-
-      // Draw tick marks
-      final tickPaint = Paint()
-        ..color = Colors.grey
-        ..strokeWidth = directions[i] == 'N' ? 3 : 2
-        ..strokeCap = StrokeCap.round;
-
-      final startX = center.dx + (radius - 15) * cos(angle);
-      final startY = center.dy + (radius - 15) * sin(angle);
-      final endX = center.dx + (radius - 5) * cos(angle);
-      final endY = center.dy + (radius - 5) * sin(angle);
-
-      canvas.drawLine(Offset(startX, startY), Offset(endX, endY), tickPaint);
-    }
-  }
-
-  void _drawNorthIndicator(Canvas canvas, Offset center, double radius) {
-    // Draw a fixed triangle at the top to indicate north
-    final northPaint = Paint()
-      ..color = Colors.red.withValues(alpha: 0.3)
-      ..style = PaintingStyle.fill;
-
-    final northPath = Path()
-      ..moveTo(center.dx, center.dy - radius + 5)
-      ..lineTo(center.dx - 8, center.dy - radius + 20)
-      ..lineTo(center.dx + 8, center.dy - radius + 20)
-      ..close();
-
-    canvas.drawPath(northPath, northPaint);
-  }
-
-  @override
-  bool shouldRepaint(_CompassPainter oldDelegate) {
-    return oldDelegate.heading != heading ||
-        oldDelegate.primaryColor != primaryColor ||
-        oldDelegate.showTickLabels != showTickLabels;
   }
 }

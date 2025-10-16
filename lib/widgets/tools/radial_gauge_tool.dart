@@ -55,9 +55,11 @@ class RadialGaugeTool extends StatelessWidget {
       }
     }
 
-    // Get divisions and tick labels from custom properties
+    // Get divisions, tick labels, and gauge style from custom properties
     final divisions = style.customProperties?['divisions'] as int? ?? 10;
     final showTickLabels = style.customProperties?['showTickLabels'] as bool? ?? false;
+    final gaugeStyleStr = style.customProperties?['gaugeStyle'] as String? ?? 'arc';
+    final gaugeStyle = _parseGaugeStyle(gaugeStyleStr);
 
     return RadialGauge(
       value: value,
@@ -69,7 +71,21 @@ class RadialGaugeTool extends StatelessWidget {
       primaryColor: primaryColor,
       divisions: divisions,
       showTickLabels: showTickLabels,
+      gaugeStyle: gaugeStyle,
     );
+  }
+
+  RadialGaugeStyle _parseGaugeStyle(String styleStr) {
+    switch (styleStr.toLowerCase()) {
+      case 'full':
+        return RadialGaugeStyle.full;
+      case 'half':
+        return RadialGaugeStyle.half;
+      case 'threequarter':
+        return RadialGaugeStyle.threequarter;
+      default:
+        return RadialGaugeStyle.arc;
+    }
   }
 
   /// Extract a readable label from the path
@@ -112,6 +128,7 @@ class RadialGaugeBuilder extends ToolBuilder {
           'primaryColor',
           'showLabel',
           'showUnit',
+          'gaugeStyle', // 'arc', 'full', 'half', 'threequarter'
         ],
       ),
     );

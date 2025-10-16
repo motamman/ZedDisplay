@@ -1,12 +1,19 @@
 import 'package:flutter/material.dart';
+import 'package:syncfusion_flutter_gauges/gauges.dart';
 import '../../models/tool_definition.dart';
 import '../../models/tool_config.dart';
 import '../../services/signalk_service.dart';
 import '../../services/tool_registry.dart';
 
-enum LinearGaugeOrientation { horizontal, vertical }
+/// Available linear gauge styles
+enum LinearGaugeStyle {
+  bar,        // Filled bar (default)
+  thermometer, // Thermometer style
+  step,       // Stepped/segmented
+  bullet,     // Bullet chart style
+}
 
-/// Config-driven linear (bar) gauge
+/// Config-driven linear (bar) gauge powered by Syncfusion
 class LinearGaugeTool extends StatelessWidget {
   final ToolConfig config;
   final SignalKService signalKService;
@@ -40,10 +47,9 @@ class LinearGaugeTool extends StatelessWidget {
     final formattedValue = dataPoint?.formatted;
 
     // Get unit (prefer style override, fallback to server's unit)
-    // Only used if no formatted value
     final unit = style.unit ??
-                 signalKService.getUnitSymbol(dataSource.path) ??
-                 '';
+                signalKService.getUnitSymbol(dataSource.path) ??
+                '';
 
     // Parse color from hex string
     Color primaryColor = Colors.blue;
@@ -56,16 +62,16 @@ class LinearGaugeTool extends StatelessWidget {
       }
     }
 
-    // Get orientation and tick labels from custom properties
-    final orientation = style.customProperties?['orientation'] == 'vertical'
-        ? LinearGaugeOrientation.vertical
-        : LinearGaugeOrientation.horizontal;
+    // Get orientation, style variant, and tick labels from custom properties
+    final isVertical = style.customProperties?['orientation'] == 'vertical';
+    final gaugeStyleStr = style.customProperties?['gaugeStyle'] as String? ?? 'bar';
+    final gaugeStyle = _parseGaugeStyle(gaugeStyleStr);
     final showTickLabels = style.customProperties?['showTickLabels'] as bool? ?? false;
     final divisions = style.customProperties?['divisions'] as int? ?? 10;
 
     return Padding(
       padding: const EdgeInsets.all(16),
-      child: orientation == LinearGaugeOrientation.horizontal
+      child: !isVertical
           ? _buildHorizontalGauge(
               context,
               value,
@@ -76,6 +82,7 @@ class LinearGaugeTool extends StatelessWidget {
               formattedValue,
               primaryColor,
               style,
+              gaugeStyle,
               showTickLabels,
               divisions,
             )
@@ -89,10 +96,24 @@ class LinearGaugeTool extends StatelessWidget {
               formattedValue,
               primaryColor,
               style,
+              gaugeStyle,
               showTickLabels,
               divisions,
             ),
     );
+  }
+
+  LinearGaugeStyle _parseGaugeStyle(String styleStr) {
+    switch (styleStr.toLowerCase()) {
+      case 'thermometer':
+        return LinearGaugeStyle.thermometer;
+      case 'step':
+        return LinearGaugeStyle.step;
+      case 'bullet':
+        return LinearGaugeStyle.bullet;
+      default:
+        return LinearGaugeStyle.bar;
+    }
   }
 
   Widget _buildHorizontalGauge(
@@ -105,14 +126,13 @@ class LinearGaugeTool extends StatelessWidget {
     String? formattedValue,
     Color primaryColor,
     StyleConfig style,
+    LinearGaugeStyle gaugeStyle,
     bool showTickLabels,
     int divisions,
   ) {
-    final normalizedValue = ((value - minValue) / (maxValue - minValue)).clamp(0.0, 1.0);
-
     return Column(
       mainAxisAlignment: MainAxisAlignment.center,
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         if (style.showLabel == true && label.isNotEmpty)
           Text(
@@ -123,90 +143,52 @@ class LinearGaugeTool extends StatelessWidget {
             ),
           ),
         if (style.showLabel == true && label.isNotEmpty) const SizedBox(height: 8),
-        Row(
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Container(
-                    height: 40,
-                    decoration: BoxDecoration(
-                      color: Colors.grey.withValues(alpha: 0.2),
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(20),
-                      child: Stack(
-                        children: [
-                          FractionallySizedBox(
-                            widthFactor: normalizedValue,
-                            child: Container(
-                              decoration: BoxDecoration(
-                                gradient: LinearGradient(
-                                  colors: [
-                                    primaryColor,
-                                    primaryColor.withValues(alpha: 0.7),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  if (showTickLabels)
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: List.generate(divisions + 1, (index) {
-                        final tickValue = minValue + (maxValue - minValue) * (index / divisions);
-                        return Text(
-                          tickValue.toStringAsFixed(0),
-                          style: TextStyle(
-                            fontSize: 10,
-                            color: Colors.grey[600],
-                          ),
-                        );
-                      }),
-                    )
-                  else
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(
-                          minValue.toStringAsFixed(0),
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: Colors.grey[600],
-                          ),
-                        ),
-                        Text(
-                          maxValue.toStringAsFixed(0),
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: Colors.grey[600],
-                          ),
-                        ),
-                      ],
-                    ),
-                ],
-              ),
+        Expanded(
+          child: SfLinearGauge(
+            minimum: minValue,
+            maximum: maxValue,
+            interval: (maxValue - minValue) / divisions,
+
+            // Axis styling
+            showTicks: showTickLabels,
+            showLabels: showTickLabels,
+            axisLabelStyle: TextStyle(
+              fontSize: 10,
+              color: Colors.grey[600],
             ),
-            const SizedBox(width: 12),
-            if (style.showValue == true)
-              SizedBox(
-                width: 80,
-                child: Text(
-                  formattedValue ?? '${value.toStringAsFixed(1)} ${style.showUnit == true ? unit : ''}',
-                  style: const TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
-          ],
+            axisTrackStyle: LinearAxisTrackStyle(
+              thickness: _getTrackThickness(gaugeStyle),
+              edgeStyle: _getEdgeStyle(gaugeStyle),
+              borderWidth: 1,
+              borderColor: Colors.grey.withValues(alpha: 0.3),
+              color: Colors.grey.withValues(alpha: 0.2),
+            ),
+
+            // Bar or range pointers based on style
+            barPointers: _getBarPointers(
+              value,
+              minValue,
+              maxValue,
+              primaryColor,
+              gaugeStyle,
+            ),
+
+            // Range pointers for step style
+            ranges: gaugeStyle == LinearGaugeStyle.step
+                ? _getStepRanges(value, minValue, maxValue, primaryColor, divisions)
+                : null,
+
+            // Marker pointers for bullet and needle styles
+            markerPointers: _getMarkerPointers(
+              value,
+              formattedValue,
+              unit,
+              primaryColor,
+              style,
+              gaugeStyle,
+              maxValue,
+            ),
+          ),
         ),
       ],
     );
@@ -222,32 +204,13 @@ class LinearGaugeTool extends StatelessWidget {
     String? formattedValue,
     Color primaryColor,
     StyleConfig style,
+    LinearGaugeStyle gaugeStyle,
     bool showTickLabels,
     int divisions,
   ) {
-    final normalizedValue = ((value - minValue) / (maxValue - minValue)).clamp(0.0, 1.0);
-
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        if (showTickLabels)
-          Expanded(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: List.generate(divisions + 1, (index) {
-                final tickValue = maxValue - (maxValue - minValue) * (index / divisions);
-                return Text(
-                  tickValue.toStringAsFixed(0),
-                  style: TextStyle(
-                    fontSize: 10,
-                    color: Colors.grey[600],
-                  ),
-                  textAlign: TextAlign.right,
-                );
-              }),
-            ),
-          ),
-        if (showTickLabels) const SizedBox(width: 8),
         Expanded(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
@@ -262,49 +225,196 @@ class LinearGaugeTool extends StatelessWidget {
                 ),
               if (style.showLabel == true && label.isNotEmpty) const SizedBox(height: 8),
               Expanded(
-                child: Container(
-                  width: 40,
-                  decoration: BoxDecoration(
-                    color: Colors.grey.withValues(alpha: 0.2),
-                    borderRadius: BorderRadius.circular(20),
+                child: SfLinearGauge(
+                  minimum: minValue,
+                  maximum: maxValue,
+                  interval: (maxValue - minValue) / divisions,
+                  orientation: LinearGaugeOrientation.vertical,
+                  isAxisInversed: true,
+
+                  // Axis styling
+                  showTicks: showTickLabels,
+                  showLabels: showTickLabels,
+                  axisLabelStyle: TextStyle(
+                    fontSize: 10,
+                    color: Colors.grey[600],
                   ),
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(20),
-                    child: Align(
-                      alignment: Alignment.bottomCenter,
-                      child: FractionallySizedBox(
-                        heightFactor: normalizedValue,
-                        child: Container(
-                          decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              begin: Alignment.bottomCenter,
-                              end: Alignment.topCenter,
-                              colors: [
-                                primaryColor,
-                                primaryColor.withValues(alpha: 0.7),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
+                  labelPosition: LinearLabelPosition.outside,
+                  axisTrackStyle: LinearAxisTrackStyle(
+                    thickness: _getTrackThickness(gaugeStyle),
+                    edgeStyle: _getEdgeStyle(gaugeStyle),
+                    borderWidth: 1,
+                    borderColor: Colors.grey.withValues(alpha: 0.3),
+                    color: Colors.grey.withValues(alpha: 0.2),
+                  ),
+
+                  // Bar or range pointers based on style
+                  barPointers: _getBarPointers(
+                    value,
+                    minValue,
+                    maxValue,
+                    primaryColor,
+                    gaugeStyle,
+                  ),
+
+                  // Range pointers for step style
+                  ranges: gaugeStyle == LinearGaugeStyle.step
+                      ? _getStepRanges(value, minValue, maxValue, primaryColor, divisions)
+                      : null,
+
+                  // Marker pointers
+                  markerPointers: _getMarkerPointers(
+                    value,
+                    formattedValue,
+                    unit,
+                    primaryColor,
+                    style,
+                    gaugeStyle,
+                    minValue,
                   ),
                 ),
               ),
-              const SizedBox(height: 8),
-              if (style.showValue == true)
-                Text(
-                  formattedValue ?? '${value.toStringAsFixed(1)} ${style.showUnit == true ? unit : ''}',
-                  style: const TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
             ],
           ),
         ),
       ],
     );
+  }
+
+  double _getTrackThickness(LinearGaugeStyle gaugeStyle) {
+    switch (gaugeStyle) {
+      case LinearGaugeStyle.thermometer:
+        return 50;
+      case LinearGaugeStyle.bullet:
+        return 30;
+      case LinearGaugeStyle.step:
+        return 40;
+      default:
+        return 40;
+    }
+  }
+
+  LinearEdgeStyle _getEdgeStyle(LinearGaugeStyle gaugeStyle) {
+    switch (gaugeStyle) {
+      case LinearGaugeStyle.thermometer:
+        return LinearEdgeStyle.endCurve;
+      case LinearGaugeStyle.step:
+        return LinearEdgeStyle.bothFlat;
+      default:
+        return LinearEdgeStyle.bothCurve;
+    }
+  }
+
+  List<LinearBarPointer>? _getBarPointers(
+    double value,
+    double minValue,
+    double maxValue,
+    Color primaryColor,
+    LinearGaugeStyle gaugeStyle,
+  ) {
+    if (gaugeStyle == LinearGaugeStyle.step) {
+      return null; // Use ranges instead
+    }
+
+    if (gaugeStyle == LinearGaugeStyle.bullet) {
+      // Bullet chart has thin background bar
+      return [
+        LinearBarPointer(
+          value: value.clamp(minValue, maxValue),
+          thickness: 15,
+          edgeStyle: LinearEdgeStyle.bothCurve,
+          color: primaryColor,
+        ),
+      ];
+    }
+
+    return [
+      LinearBarPointer(
+        value: value.clamp(minValue, maxValue),
+        thickness: _getTrackThickness(gaugeStyle),
+        edgeStyle: _getEdgeStyle(gaugeStyle),
+        color: primaryColor,
+      ),
+    ];
+  }
+
+  List<LinearGaugeRange>? _getStepRanges(
+    double value,
+    double minValue,
+    double maxValue,
+    Color primaryColor,
+    int divisions,
+  ) {
+    final ranges = <LinearGaugeRange>[];
+    final stepSize = (maxValue - minValue) / divisions;
+
+    for (int i = 0; i < divisions; i++) {
+      final stepStart = minValue + (i * stepSize);
+      final stepEnd = stepStart + stepSize;
+
+      // Only fill up to current value
+      if (value >= stepStart) {
+        final endValue = value < stepEnd ? value : stepEnd;
+        ranges.add(
+          LinearGaugeRange(
+            startValue: stepStart,
+            endValue: endValue,
+            color: primaryColor.withValues(alpha: 0.9 - (i * 0.05)),
+            position: LinearElementPosition.cross,
+            startWidth: 40,
+            endWidth: 40,
+          ),
+        );
+      }
+    }
+
+    return ranges;
+  }
+
+  List<LinearMarkerPointer>? _getMarkerPointers(
+    double value,
+    String? formattedValue,
+    String unit,
+    Color primaryColor,
+    StyleConfig style,
+    LinearGaugeStyle gaugeStyle,
+    double anchorValue,
+  ) {
+    final pointers = <LinearMarkerPointer>[];
+
+    // Bullet style needs a marker
+    if (gaugeStyle == LinearGaugeStyle.bullet) {
+      pointers.add(
+        LinearShapePointer(
+          value: value.clamp(style.minValue ?? 0.0, style.maxValue ?? 100.0),
+          height: 25,
+          width: 25,
+          color: primaryColor.withValues(alpha: 0.8),
+          shapeType: LinearShapePointerType.triangle,
+          position: LinearElementPosition.cross,
+        ),
+      );
+    }
+
+    // Value label
+    if (style.showValue == true) {
+      pointers.add(
+        LinearWidgetPointer(
+          value: anchorValue,
+          position: LinearElementPosition.outside,
+          offset: 15,
+          child: Text(
+            formattedValue ?? '${value.toStringAsFixed(1)} ${style.showUnit == true ? unit : ''}',
+            style: const TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ),
+      );
+    }
+
+    return pointers.isEmpty ? null : pointers;
   }
 
   /// Extract a readable label from the path
@@ -349,6 +459,7 @@ class LinearGaugeBuilder extends ToolBuilder {
           'showValue',
           'showUnit',
           'orientation', // 'horizontal' or 'vertical'
+          'gaugeStyle', // 'bar', 'thermometer', 'step', 'bullet'
         ],
       ),
     );

@@ -49,6 +49,10 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
   bool _showTickLabels = false;
   int _divisions = 10;
   String _orientation = 'horizontal';
+  String _gaugeStyle = 'arc'; // For radial gauge: arc, full, half, threequarter
+  String _linearGaugeStyle = 'bar'; // For linear gauge: bar, thermometer, step, bullet
+  String _compassStyle = 'classic'; // For compass: classic, arc, minimal, rose
+  String _chartStyle = 'area'; // For historical chart: area, line, column, stepLine
 
   // Chart-specific configuration
   String _chartDuration = '1h';
@@ -103,6 +107,10 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
     _showTickLabels = style.customProperties?['showTickLabels'] as bool? ?? false;
     _divisions = style.customProperties?['divisions'] as int? ?? 10;
     _orientation = style.customProperties?['orientation'] as String? ?? 'horizontal';
+    _gaugeStyle = style.customProperties?['gaugeStyle'] as String? ?? 'arc';
+    _linearGaugeStyle = style.customProperties?['gaugeStyle'] as String? ?? 'bar';
+    _compassStyle = style.customProperties?['compassStyle'] as String? ?? 'classic';
+    _chartStyle = style.customProperties?['chartStyle'] as String? ?? 'area';
 
     // Load chart-specific settings from customProperties
     if (style.customProperties != null) {
@@ -222,6 +230,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
         'showGrid': _chartShowGrid,
         'autoRefresh': _chartAutoRefresh,
         'refreshInterval': _chartRefreshInterval,
+        'chartStyle': _chartStyle,
       };
     } else if (_selectedToolTypeId == 'slider' || _selectedToolTypeId == 'knob') {
       customProperties = {
@@ -229,11 +238,22 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
       };
     } else {
       // Add gauge-specific properties
-      customProperties = {
+      final Map<String, dynamic> baseProperties = {
         'divisions': _divisions,
         'orientation': _orientation,
         'showTickLabels': _showTickLabels,
       };
+
+      // Add style variant based on tool type
+      if (_selectedToolTypeId == 'radial_gauge') {
+        baseProperties['gaugeStyle'] = _gaugeStyle;
+      } else if (_selectedToolTypeId == 'linear_gauge') {
+        baseProperties['gaugeStyle'] = _linearGaugeStyle;
+      } else if (_selectedToolTypeId == 'compass') {
+        baseProperties['compassStyle'] = _compassStyle;
+      }
+
+      customProperties = baseProperties;
     }
 
     final config = ToolConfig(
@@ -532,6 +552,26 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                           setState(() => _chartShowGrid = value);
                         },
                       ),
+                      const SizedBox(height: 16),
+                      DropdownButtonFormField<String>(
+                        decoration: const InputDecoration(
+                          labelText: 'Chart Style',
+                          border: OutlineInputBorder(),
+                          helperText: 'Visual style of the chart',
+                        ),
+                        value: _chartStyle,
+                        items: const [
+                          DropdownMenuItem(value: 'area', child: Text('Area (filled spline)')),
+                          DropdownMenuItem(value: 'line', child: Text('Line (spline only)')),
+                          DropdownMenuItem(value: 'column', child: Text('Column (vertical bars)')),
+                          DropdownMenuItem(value: 'stepLine', child: Text('Step Line (stepped)')),
+                        ],
+                        onChanged: (value) {
+                          if (value != null) {
+                            setState(() => _chartStyle = value);
+                          }
+                        },
+                      ),
                       const Divider(),
                       SwitchListTile(
                         title: const Text('Auto Refresh'),
@@ -621,17 +661,29 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                                 'showGrid': _chartShowGrid,
                                 'autoRefresh': _chartAutoRefresh,
                                 'refreshInterval': _chartRefreshInterval,
+                                'chartStyle': _chartStyle,
                               };
                             } else if (_selectedToolTypeId == 'slider' || _selectedToolTypeId == 'knob') {
                               previewCustomProperties = {
                                 'decimalPlaces': _sliderDecimalPlaces,
                               };
                             } else {
-                              previewCustomProperties = {
+                              final Map<String, dynamic> basePreviewProperties = {
                                 'divisions': _divisions,
                                 'orientation': _orientation,
                                 'showTickLabels': _showTickLabels,
                               };
+
+                              // Add gauge style to preview
+                              if (_selectedToolTypeId == 'radial_gauge') {
+                                basePreviewProperties['gaugeStyle'] = _gaugeStyle;
+                              } else if (_selectedToolTypeId == 'linear_gauge') {
+                                basePreviewProperties['gaugeStyle'] = _linearGaugeStyle;
+                              } else if (_selectedToolTypeId == 'compass') {
+                                basePreviewProperties['compassStyle'] = _compassStyle;
+                              }
+
+                              previewCustomProperties = basePreviewProperties;
                             }
 
                             return registry.buildTool(
@@ -786,9 +838,64 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
       ),
     ]);
 
-    // Gauge-specific options
-    if (_selectedToolTypeId == 'radial_gauge' || _selectedToolTypeId == 'compass_gauge') {
+    // Compass-specific options
+    if (_selectedToolTypeId == 'compass') {
       widgets.addAll([
+        const SizedBox(height: 16),
+        DropdownButtonFormField<String>(
+          decoration: const InputDecoration(
+            labelText: 'Compass Style',
+            border: OutlineInputBorder(),
+            helperText: 'Visual style of the compass',
+          ),
+          value: _compassStyle,
+          items: const [
+            DropdownMenuItem(value: 'classic', child: Text('Classic (full circle with needle)')),
+            DropdownMenuItem(value: 'arc', child: Text('Arc (180° semicircle)')),
+            DropdownMenuItem(value: 'minimal', child: Text('Minimal (clean modern)')),
+            DropdownMenuItem(value: 'rose', child: Text('Rose (traditional compass rose)')),
+          ],
+          onChanged: (value) {
+            if (value != null) {
+              setState(() => _compassStyle = value);
+            }
+          },
+        ),
+        const SizedBox(height: 8),
+        SwitchListTile(
+          title: const Text('Show Tick Labels'),
+          subtitle: const Text('Display degree values'),
+          value: _showTickLabels,
+          onChanged: (value) {
+            setState(() => _showTickLabels = value);
+          },
+        ),
+      ]);
+    }
+
+    // Radial gauge-specific options
+    if (_selectedToolTypeId == 'radial_gauge') {
+      widgets.addAll([
+        const SizedBox(height: 16),
+        DropdownButtonFormField<String>(
+          decoration: const InputDecoration(
+            labelText: 'Gauge Style',
+            border: OutlineInputBorder(),
+            helperText: 'Visual style of the gauge',
+          ),
+          value: _gaugeStyle,
+          items: const [
+            DropdownMenuItem(value: 'arc', child: Text('Arc (270° default)')),
+            DropdownMenuItem(value: 'full', child: Text('Full Circle (360° with needle)')),
+            DropdownMenuItem(value: 'half', child: Text('Half Circle (180° semicircle)')),
+            DropdownMenuItem(value: 'threequarter', child: Text('Three Quarter (270° from bottom)')),
+          ],
+          onChanged: (value) {
+            if (value != null) {
+              setState(() => _gaugeStyle = value);
+            }
+          },
+        ),
         const SizedBox(height: 16),
         TextFormField(
           decoration: const InputDecoration(
@@ -820,6 +927,26 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
     // Linear gauge orientation
     if (_selectedToolTypeId == 'linear_gauge') {
       widgets.addAll([
+        const SizedBox(height: 16),
+        DropdownButtonFormField<String>(
+          decoration: const InputDecoration(
+            labelText: 'Gauge Style',
+            border: OutlineInputBorder(),
+            helperText: 'Visual style of the linear gauge',
+          ),
+          value: _linearGaugeStyle,
+          items: const [
+            DropdownMenuItem(value: 'bar', child: Text('Bar (filled bar)')),
+            DropdownMenuItem(value: 'thermometer', child: Text('Thermometer (rounded top)')),
+            DropdownMenuItem(value: 'step', child: Text('Step (segmented levels)')),
+            DropdownMenuItem(value: 'bullet', child: Text('Bullet Chart (thin bar with marker)')),
+          ],
+          onChanged: (value) {
+            if (value != null) {
+              setState(() => _linearGaugeStyle = value);
+            }
+          },
+        ),
         const SizedBox(height: 16),
         DropdownButtonFormField<String>(
           decoration: const InputDecoration(
