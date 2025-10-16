@@ -53,14 +53,14 @@ class CompassGauge extends StatelessWidget {
               length: _getMajorTickLength(),
               thickness: compassStyle == CompassStyle.rose ? 3 : 2,
               color: compassStyle == CompassStyle.minimal
-                  ? Colors.grey.withOpacity(0.3)
+                  ? Colors.grey.withValues(alpha: 0.3)
                   : Colors.grey,
             ),
             minorTicksPerInterval: compassStyle == CompassStyle.minimal ? 0 : 2,
             minorTickStyle: MinorTickStyle(
               length: 6,
               thickness: 1,
-              color: Colors.grey.withOpacity(0.5),
+              color: Colors.grey.withValues(alpha: 0.5),
             ),
 
             // Custom labels for cardinal directions
@@ -226,7 +226,7 @@ class CompassGauge extends StatelessWidget {
         GaugeRange(
           startValue: 0,
           endValue: 360,
-          color: Colors.grey.withOpacity(0.1),
+          color: Colors.grey.withValues(alpha: 0.1),
           startWidth: 2,
           endWidth: 2,
         ),
@@ -237,7 +237,7 @@ class CompassGauge extends StatelessWidget {
       GaugeRange(
         startValue: 0,
         endValue: 360,
-        color: Colors.grey.withOpacity(0.2),
+        color: Colors.grey.withValues(alpha: 0.2),
         startWidth: 2,
         endWidth: 2,
       ),

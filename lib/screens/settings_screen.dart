@@ -105,20 +105,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
     StorageService storageService,
   ) {
     if (!signalKService.isConnected) {
-      return Card(
-        margin: const EdgeInsets.symmetric(horizontal: 16),
+      return const Card(
+        margin: EdgeInsets.symmetric(horizontal: 16),
         child: Padding(
-          padding: const EdgeInsets.all(16.0),
+          padding: EdgeInsets.all(16.0),
           child: Column(
             children: [
-              const Icon(Icons.cloud_off, size: 48, color: Colors.grey),
-              const SizedBox(height: 8),
-              const Text(
+              Icon(Icons.cloud_off, size: 48, color: Colors.grey),
+              SizedBox(height: 8),
+              Text(
                 'Not Connected',
                 style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
               ),
-              const SizedBox(height: 4),
-              const Text(
+              SizedBox(height: 4),
+              Text(
                 'No active connection to a SignalK server',
                 style: TextStyle(fontSize: 12, color: Colors.grey),
               ),
@@ -135,11 +135,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
+            const Row(
               children: [
-                const Icon(Icons.cloud_done, color: Colors.green),
-                const SizedBox(width: 8),
-                const Text(
+                Icon(Icons.cloud_done, color: Colors.green),
+                SizedBox(width: 8),
+                Text(
                   'Connected',
                   style: TextStyle(
                     fontSize: 16,

@@ -7,7 +7,6 @@ import '../services/tool_registry.dart';
 import '../services/tool_service.dart';
 import '../models/dashboard_screen.dart';
 import '../models/tool.dart';
-import '../widgets/save_template_dialog.dart';
 import 'tool_config_screen.dart';
 import 'template_library_screen.dart';
 import 'settings_screen.dart';
@@ -167,12 +166,14 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen> {
         );
       }
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Tool "${updatedTool.name}" updated successfully'),
-          backgroundColor: Colors.green,
-        ),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Tool "${updatedTool.name}" updated successfully'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
     }
   }
 

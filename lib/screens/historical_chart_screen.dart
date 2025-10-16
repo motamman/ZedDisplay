@@ -7,7 +7,7 @@ import '../widgets/historical_line_chart.dart';
 
 /// Screen for displaying historical data charts with up to 3 data series
 class HistoricalChartScreen extends StatefulWidget {
-  const HistoricalChartScreen({Key? key}) : super(key: key);
+  const HistoricalChartScreen({super.key});
 
   @override
   State<HistoricalChartScreen> createState() => _HistoricalChartScreenState();
@@ -243,7 +243,7 @@ class _HistoricalChartScreenState extends State<HistoricalChartScreen> {
         ),
         const SizedBox(height: 8),
         DropdownButtonFormField<String>(
-          value: _selectedDuration,
+          initialValue: _selectedDuration,
           decoration: const InputDecoration(
             border: OutlineInputBorder(),
             contentPadding: EdgeInsets.symmetric(

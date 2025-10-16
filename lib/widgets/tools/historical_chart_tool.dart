@@ -243,7 +243,7 @@ class _HistoricalChartToolState extends State<HistoricalChartTool> {
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                   decoration: BoxDecoration(
-                    color: Colors.green.withOpacity(0.8),
+                    color: Colors.green.withValues(alpha: 0.8),
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Row(
@@ -270,7 +270,7 @@ class _HistoricalChartToolState extends State<HistoricalChartTool> {
                 icon: const Icon(Icons.refresh, size: 20),
                 onPressed: _loadData,
                 style: IconButton.styleFrom(
-                  backgroundColor: Colors.black.withOpacity(0.5),
+                  backgroundColor: Colors.black.withValues(alpha: 0.5),
                   foregroundColor: Colors.white,
                   padding: const EdgeInsets.all(4),
                 ),

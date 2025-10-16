@@ -12,6 +12,7 @@ import '../widgets/tools/slider_tool.dart';
 import '../widgets/tools/knob_tool.dart';
 import '../widgets/tools/windsteer_tool.dart';
 import '../widgets/tools/windsteer_demo_tool.dart';
+import '../widgets/tools/realtime_chart_tool.dart';
 
 /// Abstract builder for tool widgets
 abstract class ToolBuilder {
@@ -81,6 +82,7 @@ class ToolRegistry {
     register('text_display', TextDisplayBuilder());
     register('linear_gauge', LinearGaugeBuilder());
     register('historical_chart', HistoricalChartBuilder());
+    register('realtime_chart', RealtimeChartBuilder());
     register('switch', SwitchToolBuilder());
     register('slider', SliderToolBuilder());
     register('knob', KnobToolBuilder());

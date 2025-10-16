@@ -67,19 +67,19 @@ class RadialGauge extends StatelessWidget {
             majorTickStyle: MajorTickStyle(
               length: showTickLabels ? 12 : 8,
               thickness: 2,
-              color: Colors.grey.withOpacity(0.6),
+              color: Colors.grey.withValues(alpha: 0.6),
             ),
             minorTicksPerInterval: 4,
             minorTickStyle: MinorTickStyle(
               length: 4,
               thickness: 1,
-              color: Colors.grey.withOpacity(0.3),
+              color: Colors.grey.withValues(alpha: 0.3),
             ),
 
             // Tick labels
             showLabels: showTickLabels,
             axisLabelStyle: GaugeTextStyle(
-              color: Colors.grey.withOpacity(0.8),
+              color: Colors.grey.withValues(alpha: 0.8),
               fontSize: 10,
               fontWeight: FontWeight.w500,
             ),
@@ -91,7 +91,7 @@ class RadialGauge extends StatelessWidget {
               GaugeRange(
                 startValue: minValue,
                 endValue: maxValue,
-                color: backgroundColor.withOpacity(0.2),
+                color: backgroundColor.withValues(alpha: 0.2),
                 startWidth: 15,
                 endWidth: 15,
               ),
@@ -102,7 +102,7 @@ class RadialGauge extends StatelessWidget {
                 gradient: SweepGradient(
                   colors: [
                     primaryColor,
-                    primaryColor.withOpacity(0.6),
+                    primaryColor.withValues(alpha: 0.6),
                   ],
                   stops: const [0.0, 1.0],
                 ),

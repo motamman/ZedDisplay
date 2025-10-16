@@ -72,7 +72,7 @@ class _AutopilotCompassDemoState extends State<AutopilotCompassDemo> {
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
               color: Colors.grey[900],
-              border: Border(
+              border: const Border(
                 top: BorderSide(color: Colors.white24),
               ),
             ),

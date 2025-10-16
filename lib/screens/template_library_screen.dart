@@ -772,7 +772,7 @@ class _EditToolScreenState extends State<_EditToolScreen> {
 
               // Category
               DropdownButtonFormField<ToolCategory>(
-                value: _selectedCategory,
+                initialValue: _selectedCategory,
                 decoration: const InputDecoration(
                   labelText: 'Category',
                   border: OutlineInputBorder(),

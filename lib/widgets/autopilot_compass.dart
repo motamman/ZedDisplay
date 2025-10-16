@@ -71,7 +71,7 @@ class AutopilotCompass extends StatelessWidget {
                       GaugeRange(
                         startValue: _normalizeAngle(heading - 90),
                         endValue: _normalizeAngle(heading),
-                        color: Colors.red.withOpacity(0.3),
+                        color: Colors.red.withValues(alpha: 0.3),
                         startWidth: 30,
                         endWidth: 30,
                       ),
@@ -79,7 +79,7 @@ class AutopilotCompass extends StatelessWidget {
                       GaugeRange(
                         startValue: _normalizeAngle(heading),
                         endValue: _normalizeAngle(heading + 90),
-                        color: Colors.green.withOpacity(0.3),
+                        color: Colors.green.withValues(alpha: 0.3),
                         startWidth: 30,
                         endWidth: 30,
                       ),
@@ -229,7 +229,7 @@ class AutopilotCompass extends StatelessWidget {
                   child: Container(
                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                     decoration: BoxDecoration(
-                      color: Colors.red.withOpacity(0.3),
+                      color: Colors.red.withValues(alpha: 0.3),
                       borderRadius: BorderRadius.circular(4),
                     ),
                     child: Text(

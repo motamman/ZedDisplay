@@ -36,9 +36,7 @@ class DashboardService extends ChangeNotifier {
       }
 
       // If no active dashboard, try to load the default
-      if (_currentLayout == null) {
-        _currentLayout = await _storageService.getDefaultDashboard();
-      }
+      _currentLayout ??= await _storageService.getDefaultDashboard();
 
       // If still no dashboard, create a default one
       if (_currentLayout == null) {

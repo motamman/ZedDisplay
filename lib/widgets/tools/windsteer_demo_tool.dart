@@ -77,7 +77,7 @@ class WindsteerDemoTool extends StatelessWidget {
         // Info banner
         Container(
           padding: const EdgeInsets.all(8),
-          color: Colors.amber.withOpacity(0.3),
+          color: Colors.amber.withValues(alpha: 0.3),
           child: Row(
             children: [
               const Icon(Icons.info_outline, size: 16),

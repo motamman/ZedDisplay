@@ -117,7 +117,7 @@ class WindsteerGauge extends StatelessWidget {
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
                   decoration: BoxDecoration(
-                    color: Colors.black.withOpacity(0.7),
+                    color: Colors.black.withValues(alpha: 0.7),
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Text(
@@ -197,7 +197,7 @@ class _WindSpeedDisplay extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(8),
       decoration: BoxDecoration(
-        color: Colors.black.withOpacity(0.6),
+        color: Colors.black.withValues(alpha: 0.6),
         borderRadius: BorderRadius.circular(8),
       ),
       child: Column(
@@ -411,11 +411,17 @@ class _WindsteerPainter extends CustomPainter {
         final textY = -textRadius * math.cos(angle);
 
         String label;
-        if (i == 0) label = 'N';
-        else if (i == 90) label = 'E';
-        else if (i == 180) label = 'S';
-        else if (i == 270) label = 'W';
-        else label = i.toString();
+        if (i == 0) {
+          label = 'N';
+        } else if (i == 90) {
+          label = 'E';
+        } else if (i == 180) {
+          label = 'S';
+        } else if (i == 270) {
+          label = 'W';
+        } else {
+          label = i.toString();
+        }
 
         textPainter.text = TextSpan(
           text: label,
@@ -441,7 +447,7 @@ class _WindsteerPainter extends CustomPainter {
     // Draw wind sector showing historical wind range
     // Port sector (left side)
     final portSectorPaint = Paint()
-      ..color = primaryColor.withOpacity(0.3)
+      ..color = primaryColor.withValues(alpha: 0.3)
       ..style = PaintingStyle.fill;
 
     final minAngle = (trueWindMinHistoric! - laylineAngle) * math.pi / 180;
@@ -463,7 +469,7 @@ class _WindsteerPainter extends CustomPainter {
 
     // Starboard sector (right side)
     final stbdSectorPaint = Paint()
-      ..color = primaryColor.withOpacity(0.3)
+      ..color = primaryColor.withValues(alpha: 0.3)
       ..style = PaintingStyle.fill;
 
     final stbdPath = Path();
@@ -481,7 +487,7 @@ class _WindsteerPainter extends CustomPainter {
 
   void _drawLaylines(Canvas canvas, double radius, double awaAngle, double laylineAngle) {
     final laylinePaint = Paint()
-      ..color = primaryColor.withOpacity(0.6)
+      ..color = primaryColor.withValues(alpha: 0.6)
       ..style = PaintingStyle.stroke
       ..strokeWidth = 3
       ..strokeCap = StrokeCap.round;
