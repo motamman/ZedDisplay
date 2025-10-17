@@ -287,26 +287,30 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen> {
           },
         ),
         actions: [
+          // Compact connection status indicator
           Consumer<SignalKService>(
             builder: (context, service, child) {
-              return Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 8.0),
-                child: Center(
-                  child: Row(
-                    children: [
-                      Icon(
-                        service.isConnected ? Icons.cloud_done : Icons.cloud_off,
-                        color: service.isConnected ? Colors.green : Colors.red,
-                        size: 20,
-                      ),
-                      const SizedBox(width: 4),
-                      Text(
-                        service.isConnected ? 'Connected' : 'Disconnected',
-                        style: const TextStyle(fontSize: 12),
-                      ),
-                    ],
-                  ),
+              return IconButton(
+                icon: Icon(
+                  service.isConnected ? Icons.cloud_done : Icons.cloud_off,
+                  color: service.isConnected ? Colors.green : Colors.red,
+                  size: 22,
                 ),
+                onPressed: () {
+                  // Show connection details on tap
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(
+                        service.isConnected
+                            ? 'Connected to ${service.serverUrl}'
+                            : 'Not connected - tap Settings to connect',
+                      ),
+                      duration: const Duration(seconds: 2),
+                      backgroundColor: service.isConnected ? Colors.green : Colors.red,
+                    ),
+                  );
+                },
+                tooltip: service.isConnected ? 'Connected' : 'Disconnected',
               );
             },
           ),
@@ -376,54 +380,63 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen> {
             );
           }
 
-          return Column(
+          return Stack(
             children: [
-              // Page indicators
+              // PageView with screens - full screen
+              PageView.builder(
+                  controller: _pageController,
+                  itemCount: layout.screens.length,
+                  onPageChanged: (index) {
+                    dashboardService.setActiveScreen(index);
+                  },
+                itemBuilder: (context, index) {
+                  final screen = layout.screens[index];
+                  return _buildScreenContent(screen, signalKService);
+                },
+              ),
+
+              // Floating page indicators (only show if multiple screens)
               if (layout.screens.length > 1)
-                Container(
-                  padding: const EdgeInsets.symmetric(vertical: 8),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: List.generate(
-                      layout.screens.length,
-                      (index) => GestureDetector(
-                        onTap: () {
-                          _pageController.animateToPage(
-                            index,
-                            duration: const Duration(milliseconds: 300),
-                            curve: Curves.easeInOut,
-                          );
-                        },
-                        child: Container(
-                          margin: const EdgeInsets.symmetric(horizontal: 4),
-                          width: layout.activeScreenIndex == index ? 12 : 8,
-                          height: layout.activeScreenIndex == index ? 12 : 8,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: layout.activeScreenIndex == index
-                                ? Theme.of(context).colorScheme.primary
-                                : Colors.grey.withValues(alpha: 0.5),
+                Positioned(
+                  bottom: 16,
+                  left: 0,
+                  right: 0,
+                  child: Center(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: 0.6),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: List.generate(
+                          layout.screens.length,
+                          (index) => GestureDetector(
+                            onTap: () {
+                              _pageController.animateToPage(
+                                index,
+                                duration: const Duration(milliseconds: 300),
+                                curve: Curves.easeInOut,
+                              );
+                            },
+                            child: Container(
+                              margin: const EdgeInsets.symmetric(horizontal: 3),
+                              width: layout.activeScreenIndex == index ? 8 : 6,
+                              height: layout.activeScreenIndex == index ? 8 : 6,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: layout.activeScreenIndex == index
+                                    ? Colors.white
+                                    : Colors.white.withValues(alpha: 0.5),
+                              ),
+                            ),
                           ),
                         ),
                       ),
                     ),
                   ),
                 ),
-
-              // PageView with screens
-              Expanded(
-                child: PageView.builder(
-                  controller: _pageController,
-                  itemCount: layout.screens.length,
-                  onPageChanged: (index) {
-                    dashboardService.setActiveScreen(index);
-                  },
-                  itemBuilder: (context, index) {
-                    final screen = layout.screens[index];
-                    return _buildScreenContent(screen, signalKService);
-                  },
-                ),
-              ),
             ],
           );
         },

@@ -7,6 +7,7 @@ enum CompassStyle {
   arc,      // 180° arc showing heading range
   minimal,  // Clean modern with simplified markings
   rose,     // Traditional compass rose style
+  marine,   // Card rotates, needle points up (traditional marine compass)
 }
 
 /// A compass widget for displaying heading/bearing
@@ -31,91 +32,104 @@ class CompassGauge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Marine style uses a custom rotating card implementation
+    if (compassStyle == CompassStyle.marine) {
+      return _buildMarineCompass(context);
+    }
+
     return AspectRatio(
       aspectRatio: 1,
-      child: SfRadialGauge(
-        axes: <RadialAxis>[
-          RadialAxis(
-            minimum: 0,
-            maximum: 360,
-            interval: _getInterval(),
+      child: Stack(
+        children: [
+          // Gauge with pointer - drawn first
+          SfRadialGauge(
+            axes: <RadialAxis>[
+              RadialAxis(
+                minimum: 0,
+                maximum: 360,
+                interval: _getInterval(),
 
-            // Angles based on style
-            startAngle: _getStartAngle(),
-            endAngle: _getEndAngle(),
+                // Angles based on style
+                startAngle: _getStartAngle(),
+                endAngle: _getEndAngle(),
 
-            // Hide axis line
-            showAxisLine: false,
-            showLastLabel: compassStyle != CompassStyle.arc,
+                // Hide axis line
+                showAxisLine: false,
+                showLastLabel: compassStyle != CompassStyle.arc,
 
-            // Tick configuration
-            majorTickStyle: MajorTickStyle(
-              length: _getMajorTickLength(),
-              thickness: compassStyle == CompassStyle.rose ? 3 : 2,
-              color: compassStyle == CompassStyle.minimal
-                  ? Colors.grey.withValues(alpha: 0.3)
-                  : Colors.grey,
-            ),
-            minorTicksPerInterval: compassStyle == CompassStyle.minimal ? 0 : 2,
-            minorTickStyle: MinorTickStyle(
-              length: 6,
-              thickness: 1,
-              color: Colors.grey.withValues(alpha: 0.5),
-            ),
-
-            // Custom labels for cardinal directions
-            axisLabelStyle: GaugeTextStyle(
-              color: Colors.grey,
-              fontSize: compassStyle == CompassStyle.rose ? 18 : 16,
-              fontWeight: compassStyle == CompassStyle.rose
-                  ? FontWeight.w900
-                  : FontWeight.bold,
-            ),
-            labelOffset: compassStyle == CompassStyle.rose ? 25 : 20,
-            onLabelCreated: (args) => _customizeLabel(args),
-
-            // Outer ring for visual boundary
-            ranges: _getRanges(),
-
-            // Heading pointer
-            pointers: _getPointers(),
-
-            // Center annotation with heading value
-            annotations: <GaugeAnnotation>[
-              GaugeAnnotation(
-                widget: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    if (compassStyle != CompassStyle.minimal)
-                      Text(
-                        label,
-                        style: const TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w300,
-                        ),
-                      ),
-                    if (compassStyle != CompassStyle.minimal) const SizedBox(height: 4),
-                    Text(
-                      formattedValue ?? '${heading.toStringAsFixed(0)}°',
-                      style: TextStyle(
-                        fontSize: compassStyle == CompassStyle.rose ? 36 : 32,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    Text(
-                      _getCardinalDirection(heading),
-                      style: TextStyle(
-                        fontSize: compassStyle == CompassStyle.rose ? 20 : 18,
-                        fontWeight: FontWeight.w500,
-                        color: primaryColor,
-                      ),
-                    ),
-                  ],
+                // Tick configuration
+                majorTickStyle: MajorTickStyle(
+                  length: _getMajorTickLength(),
+                  thickness: compassStyle == CompassStyle.rose ? 3 : 2,
+                  color: compassStyle == CompassStyle.minimal
+                      ? Colors.grey.withValues(alpha: 0.3)
+                      : Colors.grey,
                 ),
-                angle: 90,
-                positionFactor: compassStyle == CompassStyle.arc ? 0.3 : 0.1,
+                minorTicksPerInterval: compassStyle == CompassStyle.minimal ? 0 : 2,
+                minorTickStyle: MinorTickStyle(
+                  length: 6,
+                  thickness: 1,
+                  color: Colors.grey.withValues(alpha: 0.5),
+                ),
+
+                // Custom labels for cardinal directions
+                axisLabelStyle: GaugeTextStyle(
+                  color: Colors.grey,
+                  fontSize: compassStyle == CompassStyle.rose ? 18 : 16,
+                  fontWeight: compassStyle == CompassStyle.rose
+                      ? FontWeight.w900
+                      : FontWeight.bold,
+                ),
+                labelOffset: compassStyle == CompassStyle.rose ? 25 : 20,
+                onLabelCreated: (args) => _customizeLabel(args),
+
+                // Outer ring for visual boundary
+                ranges: _getRanges(),
+
+                // Heading pointer
+                pointers: _getPointers(),
+
+                // No annotations - we'll add the value on top
+                annotations: const [],
               ),
             ],
+          ),
+
+          // Center annotation with heading value - drawn last so it's on top, moved down from center
+          Align(
+            alignment: Alignment.center,
+            child: Padding(
+              padding: const EdgeInsets.only(top: 55.0), // Move down from center to avoid overlap
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (compassStyle != CompassStyle.minimal)
+                    Text(
+                      label,
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w300,
+                      ),
+                    ),
+                  if (compassStyle != CompassStyle.minimal) const SizedBox(height: 4),
+                  Text(
+                    formattedValue ?? '${heading.toStringAsFixed(0)}°',
+                    style: TextStyle(
+                      fontSize: compassStyle == CompassStyle.rose ? 36 : 32,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  Text(
+                    _getCardinalDirection(heading),
+                    style: TextStyle(
+                      fontSize: compassStyle == CompassStyle.rose ? 20 : 18,
+                      fontWeight: FontWeight.w500,
+                      color: primaryColor,
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ),
         ],
       ),
@@ -300,5 +314,225 @@ class CompassGauge extends StatelessWidget {
     const directions = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
     final index = ((degrees + 22.5) / 45).floor() % 8;
     return directions[index];
+  }
+
+  /// Build marine-style compass where card rotates
+  Widget _buildMarineCompass(BuildContext context) {
+    return AspectRatio(
+      aspectRatio: 1,
+      child: Stack(
+        children: [
+          // Rotating compass card
+          Transform.rotate(
+            angle: -heading * 3.14159265359 / 180, // Rotate card opposite to heading
+            child: SfRadialGauge(
+              axes: <RadialAxis>[
+                RadialAxis(
+                  minimum: 0,
+                  maximum: 360,
+                  interval: 30,
+                  startAngle: 270,
+                  endAngle: 270,
+                  showAxisLine: false,
+                  showLastLabel: true,
+
+                  // Tick configuration
+                  majorTickStyle: const MajorTickStyle(
+                    length: 12,
+                    thickness: 2,
+                    color: Colors.grey,
+                  ),
+                  minorTicksPerInterval: 2,
+                  minorTickStyle: MinorTickStyle(
+                    length: 6,
+                    thickness: 1,
+                    color: Colors.grey.withValues(alpha: 0.5),
+                  ),
+
+                  // Labels that rotate with the card
+                  axisLabelStyle: const GaugeTextStyle(
+                    color: Colors.grey,
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
+                  labelOffset: 20,
+                  onLabelCreated: (args) => _customizeMarineLabel(args),
+
+                  // Outer ring
+                  ranges: [
+                    GaugeRange(
+                      startValue: 0,
+                      endValue: 360,
+                      color: Colors.grey.withValues(alpha: 0.2),
+                      startWidth: 2,
+                      endWidth: 2,
+                    ),
+                  ],
+
+                  // No pointer on the rotating card
+                  pointers: const [],
+
+                  annotations: const [],
+                ),
+              ],
+            ),
+          ),
+
+          // Fixed needle pointing up (North) - drawn before value so it's underneath
+          Center(
+            child: CustomPaint(
+              size: const Size(200, 200),
+              painter: _MarineNeedlePainter(primaryColor),
+            ),
+          ),
+
+          // Center annotation with heading value (non-rotating) - drawn last so it's on top
+          Align(
+            alignment: Alignment.center,
+            child: Padding(
+              padding: const EdgeInsets.only(top: 60.0), // Move down to avoid needle
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    label,
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w300,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    formattedValue ?? '${heading.toStringAsFixed(0)}°',
+                    style: const TextStyle(
+                      fontSize: 32,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  Text(
+                    _getCardinalDirection(heading),
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w500,
+                      color: primaryColor,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _customizeMarineLabel(AxisLabelCreatedArgs args) {
+    // Replace degree labels with cardinal directions for marine compass
+    switch (args.text) {
+      case '0':
+        args.text = 'N';
+        args.labelStyle = GaugeTextStyle(
+          color: primaryColor,
+          fontSize: 22,
+          fontWeight: FontWeight.bold,
+        );
+        break;
+      case '90':
+        args.text = 'E';
+        break;
+      case '180':
+        args.text = 'S';
+        break;
+      case '270':
+        args.text = 'W';
+        break;
+      case '30':
+      case '60':
+      case '120':
+      case '150':
+      case '210':
+      case '240':
+      case '300':
+      case '330':
+        args.text = showTickLabels ? '${args.text}°' : '';
+        break;
+      default:
+        args.text = '';
+    }
+  }
+}
+
+/// Custom painter for the fixed marine compass needle
+class _MarineNeedlePainter extends CustomPainter {
+  final Color color;
+
+  _MarineNeedlePainter(this.color);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+    final radius = size.width / 2;
+    final northNeedleLength = radius * 0.8; // 4/5 of radius
+    final southTailLength = radius * 0.75; // 3/4 of radius
+
+    final paint = Paint()
+      ..color = color
+      ..style = PaintingStyle.fill;
+
+    final shadowPaint = Paint()
+      ..color = Colors.black.withValues(alpha: 0.3)
+      ..style = PaintingStyle.fill
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 3);
+
+    // Draw needle pointing up (North)
+    final needlePath = Path();
+
+    // North pointing needle (red)
+    needlePath.moveTo(center.dx, center.dy - northNeedleLength);
+    needlePath.lineTo(center.dx - 8, center.dy);
+    needlePath.lineTo(center.dx, center.dy - 10);
+    needlePath.lineTo(center.dx + 8, center.dy);
+    needlePath.close();
+
+    // Draw shadow
+    canvas.drawPath(needlePath, shadowPaint);
+
+    // Draw needle
+    canvas.drawPath(needlePath, paint);
+
+    // South pointing tail (darker shade of primary color for better visibility)
+    final hslColor = HSLColor.fromColor(color);
+    final darkerColor = hslColor.withLightness((hslColor.lightness - 0.3).clamp(0.0, 1.0)).toColor();
+
+    final tailPaint = Paint()
+      ..color = darkerColor
+      ..style = PaintingStyle.fill;
+
+    final tailPath = Path();
+    tailPath.moveTo(center.dx, center.dy + southTailLength);
+    tailPath.lineTo(center.dx - 6, center.dy);
+    tailPath.lineTo(center.dx + 6, center.dy);
+    tailPath.close();
+
+    canvas.drawPath(tailPath, tailPaint);
+
+    // Draw center knob
+    final knobPaint = Paint()
+      ..color = color
+      ..style = PaintingStyle.fill;
+
+    canvas.drawCircle(center, 10, knobPaint);
+
+    final knobBorderPaint = Paint()
+      ..color = Colors.white
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2;
+
+    canvas.drawCircle(center, 10, knobBorderPaint);
+  }
+
+  @override
+  bool shouldRepaint(_MarineNeedlePainter oldDelegate) {
+    return color != oldDelegate.color;
   }
 }

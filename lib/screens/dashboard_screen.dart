@@ -18,6 +18,7 @@ class DashboardScreen extends StatefulWidget {
 
 class _DashboardScreenState extends State<DashboardScreen> {
   final List<ToolInstance> _customTools = [];
+  bool _showDebugInfo = false;
 
   Future<void> _addTool() async {
     final result = await Navigator.of(context).push(
@@ -495,13 +496,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 ),
                 const SizedBox(height: 16),
 
-                // Debug Info (you can remove this later)
+                // Debug Info (collapsible)
                 Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(16.0),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                  child: ExpansionTile(
+                    title: Row(
                       children: [
+                        const Icon(Icons.bug_report, size: 18),
+                        const SizedBox(width: 8),
                         const Text(
                           'Debug Info',
                           style: TextStyle(
@@ -509,40 +510,67 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             fontWeight: FontWeight.bold,
                           ),
                         ),
-                        const SizedBox(height: 8),
-                        Text(
-                          'Data points received: ${service.latestData.length}',
-                          style: const TextStyle(fontSize: 12),
-                        ),
-                        if (service.latestData.isNotEmpty)
-                          Text(
-                            'Sample paths: ${service.latestData.keys.take(5).join(", ")}',
-                            style: const TextStyle(fontSize: 10, color: Colors.grey),
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: Colors.blue.withValues(alpha: 0.2),
+                            borderRadius: BorderRadius.circular(10),
                           ),
-                        const SizedBox(height: 12),
-                        Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
-                          children: [
-                            ElevatedButton.icon(
-                              onPressed: () => _testGetVesselId(context, service),
-                              icon: const Icon(Icons.directions_boat, size: 16),
-                              label: const Text('Get Vessel ID', style: TextStyle(fontSize: 12)),
-                            ),
-                            ElevatedButton.icon(
-                              onPressed: () => _testGetPaths(context, service),
-                              icon: const Icon(Icons.list, size: 16),
-                              label: const Text('Get All Paths', style: TextStyle(fontSize: 12)),
-                            ),
-                            ElevatedButton.icon(
-                              onPressed: () => _testGetSources(context, service),
-                              icon: const Icon(Icons.sensors, size: 16),
-                              label: const Text('Get Sources', style: TextStyle(fontSize: 12)),
-                            ),
-                          ],
+                          child: Text(
+                            '${service.latestData.length} paths',
+                            style: const TextStyle(fontSize: 10),
+                          ),
                         ),
                       ],
                     ),
+                    initiallyExpanded: _showDebugInfo,
+                    onExpansionChanged: (expanded) {
+                      setState(() {
+                        _showDebugInfo = expanded;
+                      });
+                    },
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.all(16.0),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Data points received: ${service.latestData.length}',
+                              style: const TextStyle(fontSize: 12),
+                            ),
+                            if (service.latestData.isNotEmpty)
+                              Text(
+                                'Sample paths: ${service.latestData.keys.take(5).join(", ")}',
+                                style: const TextStyle(fontSize: 10, color: Colors.grey),
+                              ),
+                            const SizedBox(height: 12),
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: [
+                                ElevatedButton.icon(
+                                  onPressed: () => _testGetVesselId(context, service),
+                                  icon: const Icon(Icons.directions_boat, size: 16),
+                                  label: const Text('Get Vessel ID', style: TextStyle(fontSize: 12)),
+                                ),
+                                ElevatedButton.icon(
+                                  onPressed: () => _testGetPaths(context, service),
+                                  icon: const Icon(Icons.list, size: 16),
+                                  label: const Text('Get All Paths', style: TextStyle(fontSize: 12)),
+                                ),
+                                ElevatedButton.icon(
+                                  onPressed: () => _testGetSources(context, service),
+                                  icon: const Icon(Icons.sensors, size: 16),
+                                  label: const Text('Get Sources', style: TextStyle(fontSize: 12)),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ],

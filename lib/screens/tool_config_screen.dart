@@ -33,9 +33,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
 
   // Configuration state
   String? _selectedToolTypeId;
-  String? _selectedPath;
-  String? _selectedSource;
-  String? _customLabel;
+  List<DataSource> _dataSources = [];
 
   // Style configuration
   double? _minValue;
@@ -87,13 +85,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
   void _loadExistingTool() {
     final tool = widget.existingTool!;
     _selectedToolTypeId = tool.toolTypeId;
-
-    if (tool.config.dataSources.isNotEmpty) {
-      final dataSource = tool.config.dataSources.first;
-      _selectedPath = dataSource.path;
-      _selectedSource = dataSource.source;
-      _customLabel = dataSource.label;
-    }
+    _dataSources = List.from(tool.config.dataSources);
 
     final style = tool.config.style;
     _minValue = style.minValue;
@@ -128,39 +120,180 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
     _toolHeight = 1;
   }
 
-  Future<void> _selectPath() async {
+  Future<void> _addDataSource() async {
     final signalKService = Provider.of<SignalKService>(context, listen: false);
+    String? selectedPath;
+    String? selectedSource;
+    String? customLabel;
 
+    // Path selection dialog
     await showDialog(
       context: context,
       builder: (context) => PathSelectorDialog(
         signalKService: signalKService,
         onSelect: (path) {
-          setState(() {
-            _selectedPath = path;
-            _selectedSource = null; // Reset source when path changes
-          });
+          selectedPath = path;
         },
+      ),
+    );
+
+    if (selectedPath == null) return;
+
+    // Source selection dialog (optional)
+    if (mounted) {
+      await showDialog(
+        context: context,
+        builder: (context) => SourceSelectorDialog(
+          signalKService: signalKService,
+          path: selectedPath!,
+          currentSource: null,
+          onSelect: (source) {
+            selectedSource = source;
+          },
+        ),
+      );
+    }
+
+    // Label input dialog
+    if (mounted) {
+      await showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Custom Label'),
+          content: TextField(
+            decoration: const InputDecoration(
+              labelText: 'Label (optional)',
+              helperText: 'Leave empty to auto-generate from path',
+            ),
+            autofocus: true,
+            onChanged: (value) => customLabel = value,
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () {
+                setState(() {
+                  _dataSources.add(DataSource(
+                    path: selectedPath!,
+                    source: selectedSource,
+                    label: customLabel?.trim().isEmpty == true ? null : customLabel,
+                  ));
+                });
+                Navigator.of(context).pop();
+              },
+              child: const Text('Add'),
+            ),
+          ],
+        ),
+      );
+    }
+  }
+
+  void _removeDataSource(int index) {
+    setState(() {
+      _dataSources.removeAt(index);
+    });
+  }
+
+  void _editDataSource(int index) async {
+    final dataSource = _dataSources[index];
+    final signalKService = Provider.of<SignalKService>(context, listen: false);
+    String? newSource = dataSource.source;
+    String? newLabel = dataSource.label;
+
+    await showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Edit ${dataSource.path}'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Source selection
+            ListTile(
+              leading: const Icon(Icons.sensors),
+              title: const Text('Data Source'),
+              subtitle: Text(newSource ?? 'Auto'),
+              trailing: const Icon(Icons.edit),
+              onTap: () async {
+                Navigator.of(context).pop();
+                await showDialog(
+                  context: context,
+                  builder: (context) => SourceSelectorDialog(
+                    signalKService: signalKService,
+                    path: dataSource.path,
+                    currentSource: newSource,
+                    onSelect: (source) {
+                      newSource = source;
+                    },
+                  ),
+                );
+                if (mounted) {
+                  _editDataSource(index);
+                }
+              },
+            ),
+            const SizedBox(height: 8),
+            // Label input
+            TextField(
+              decoration: const InputDecoration(
+                labelText: 'Custom Label',
+                border: OutlineInputBorder(),
+              ),
+              controller: TextEditingController(text: newLabel),
+              onChanged: (value) => newLabel = value,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () {
+              setState(() {
+                _dataSources[index] = DataSource(
+                  path: dataSource.path,
+                  source: newSource,
+                  label: newLabel?.trim().isEmpty == true ? null : newLabel,
+                );
+              });
+              Navigator.of(context).pop();
+            },
+            child: const Text('Save'),
+          ),
+        ],
       ),
     );
   }
 
-  Future<void> _selectSource() async {
-    if (_selectedPath == null) return;
+  bool _canAddMoreDataSources() {
+    if (_selectedToolTypeId == null) return false;
 
-    final signalKService = Provider.of<SignalKService>(context, listen: false);
+    final registry = ToolRegistry();
+    final definition = registry.getDefinition(_selectedToolTypeId!);
+    if (definition == null) return false;
 
-    await showDialog(
-      context: context,
-      builder: (context) => SourceSelectorDialog(
-        signalKService: signalKService,
-        path: _selectedPath!,
-        currentSource: _selectedSource,
-        onSelect: (source) {
-          setState(() => _selectedSource = source);
-        },
-      ),
-    );
+    final schema = definition.configSchema;
+    if (!schema.allowsMultiplePaths) return _dataSources.isEmpty;
+
+    return _dataSources.length < schema.maxPaths;
+  }
+
+  String _getDataSourceLimitsText() {
+    final registry = ToolRegistry();
+    final definition = registry.getDefinition(_selectedToolTypeId!);
+    if (definition == null) return '';
+
+    final schema = definition.configSchema;
+    if (!schema.allowsMultiplePaths) {
+      return '(1 path only)';
+    }
+
+    return '(${_dataSources.length}/${schema.maxPaths} paths)';
   }
 
   Future<void> _selectColor() async {
@@ -216,7 +349,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
 
   Future<void> _saveTool() async {
     if (!_formKey.currentState!.validate()) return;
-    if (_selectedToolTypeId == null || _selectedPath == null) return;
+    if (_selectedToolTypeId == null || _dataSources.isEmpty) return;
 
     final toolService = Provider.of<ToolService>(context, listen: false);
 
@@ -257,13 +390,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
     }
 
     final config = ToolConfig(
-      dataSources: [
-        DataSource(
-          path: _selectedPath!,
-          source: _selectedSource,
-          label: _customLabel?.trim().isEmpty == true ? null : _customLabel,
-        ),
-      ],
+      dataSources: _dataSources,
       style: StyleConfig(
         minValue: _minValue,
         maxValue: _maxValue,
@@ -279,13 +406,22 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
 
     final Tool tool;
 
+    // Generate name from data sources
+    final toolName = _dataSources.length == 1
+        ? (_dataSources.first.label ?? _dataSources.first.path.split('.').last)
+        : '${_dataSources.length} paths';
+
+    final toolDescription = _dataSources.length == 1
+        ? 'Custom tool for ${_dataSources.first.path}'
+        : 'Custom tool for ${_dataSources.map((ds) => ds.path).join(', ')}';
+
     if (widget.existingTool != null) {
       // Update existing tool - preserve ID and metadata
       tool = widget.existingTool!.copyWith(
         toolTypeId: _selectedToolTypeId,
         config: config,
-        name: _customLabel ?? _selectedPath!.split('.').last,
-        description: 'Custom tool for $_selectedPath',
+        name: toolName,
+        description: toolDescription,
         updatedAt: DateTime.now(),
         tags: [_selectedToolTypeId!],
       );
@@ -294,8 +430,8 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
       tool = toolService.createTool(
         toolTypeId: _selectedToolTypeId!,
         config: config,
-        name: _customLabel ?? _selectedPath!.split('.').last,
-        description: 'Custom tool for $_selectedPath',
+        name: toolName,
+        description: toolDescription,
         author: 'Local User',
         category: ToolCategory.other,
         tags: [_selectedToolTypeId!],
@@ -325,7 +461,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
         title: Text(widget.existingTool == null ? 'Add Tool' : 'Edit Tool'),
         actions: [
           TextButton.icon(
-            onPressed: _selectedToolTypeId != null && _selectedPath != null
+            onPressed: _selectedToolTypeId != null && _dataSources.isNotEmpty
                 ? _saveTool
                 : null,
             icon: const Icon(Icons.check),
@@ -377,35 +513,70 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      '2. Configure Data Source',
-                      style: Theme.of(context).textTheme.titleMedium,
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          '2. Configure Data Sources',
+                          style: Theme.of(context).textTheme.titleMedium,
+                        ),
+                        if (_selectedToolTypeId != null)
+                          Text(
+                            _getDataSourceLimitsText(),
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                      ],
                     ),
                     const SizedBox(height: 16),
-                    ListTile(
-                      leading: const Icon(Icons.route),
-                      title: const Text('Data Path'),
-                      subtitle: Text(_selectedPath ?? 'Not selected'),
-                      trailing: const Icon(Icons.edit),
-                      onTap: _selectPath,
-                    ),
-                    if (_selectedPath != null)
-                      ListTile(
-                        leading: const Icon(Icons.sensors),
-                        title: const Text('Data Source'),
-                        subtitle: Text(_selectedSource ?? 'Auto'),
-                        trailing: const Icon(Icons.edit),
-                        onTap: _selectSource,
+                    // List of data sources
+                    if (_dataSources.isEmpty)
+                      const Center(
+                        child: Padding(
+                          padding: EdgeInsets.all(16.0),
+                          child: Text('No data sources configured'),
+                        ),
+                      )
+                    else
+                      ListView.builder(
+                        shrinkWrap: true,
+                        physics: const NeverScrollableScrollPhysics(),
+                        itemCount: _dataSources.length,
+                        itemBuilder: (context, index) {
+                          final ds = _dataSources[index];
+                          return Card(
+                            child: ListTile(
+                              leading: CircleAvatar(
+                                child: Text('${index + 1}'),
+                              ),
+                              title: Text(ds.label ?? ds.path.split('.').last),
+                              subtitle: Text(ds.path),
+                              trailing: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  IconButton(
+                                    icon: const Icon(Icons.edit),
+                                    onPressed: () => _editDataSource(index),
+                                  ),
+                                  IconButton(
+                                    icon: const Icon(Icons.delete),
+                                    onPressed: () => _removeDataSource(index),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          );
+                        },
                       ),
-                    const SizedBox(height: 8),
-                    TextFormField(
-                      decoration: const InputDecoration(
-                        labelText: 'Custom Label (optional)',
-                        border: OutlineInputBorder(),
+                    const SizedBox(height: 16),
+                    // Add button
+                    if (_canAddMoreDataSources())
+                      Center(
+                        child: ElevatedButton.icon(
+                          onPressed: _addDataSource,
+                          icon: const Icon(Icons.add),
+                          label: const Text('Add Data Source'),
+                        ),
                       ),
-                      initialValue: _customLabel,
-                      onChanged: (value) => _customLabel = value,
-                    ),
                   ],
                 ),
               ),
@@ -633,7 +804,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
             const SizedBox(height: 16),
 
             // Preview
-            if (_selectedToolTypeId != null && _selectedPath != null)
+            if (_selectedToolTypeId != null && _dataSources.isNotEmpty)
               Card(
                 child: Padding(
                   padding: const EdgeInsets.all(16),
@@ -689,13 +860,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                             return registry.buildTool(
                               _selectedToolTypeId!,
                               ToolConfig(
-                                dataSources: [
-                                  DataSource(
-                                    path: _selectedPath!,
-                                    source: _selectedSource,
-                                    label: _customLabel,
-                                  ),
-                                ],
+                                dataSources: _dataSources,
                                 style: StyleConfig(
                                   minValue: _minValue,
                                   maxValue: _maxValue,
@@ -854,6 +1019,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
             DropdownMenuItem(value: 'arc', child: Text('Arc (180° semicircle)')),
             DropdownMenuItem(value: 'minimal', child: Text('Minimal (clean modern)')),
             DropdownMenuItem(value: 'rose', child: Text('Rose (traditional compass rose)')),
+            DropdownMenuItem(value: 'marine', child: Text('Marine (rotating card, fixed needle)')),
           ],
           onChanged: (value) {
             if (value != null) {

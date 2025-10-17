@@ -67,6 +67,8 @@ class CompassGaugeTool extends StatelessWidget {
         return CompassStyle.minimal;
       case 'rose':
         return CompassStyle.rose;
+      case 'marine':
+        return CompassStyle.marine;
       default:
         return CompassStyle.classic;
     }
@@ -108,7 +110,7 @@ class CompassGaugeBuilder extends ToolBuilder {
         styleOptions: const [
           'primaryColor',
           'showLabel',
-          'compassStyle', // 'classic', 'arc', 'minimal', 'rose'
+          'compassStyle', // 'classic', 'arc', 'minimal', 'rose', 'marine'
         ],
       ),
     );
