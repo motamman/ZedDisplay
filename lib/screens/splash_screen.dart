@@ -4,7 +4,7 @@ import '../services/signalk_service.dart';
 import '../services/auth_service.dart';
 import '../services/storage_service.dart';
 import '../services/dashboard_service.dart';
-import 'connection_screen.dart';
+import 'server_list_screen.dart';
 import 'dashboard_manager_screen.dart';
 
 /// Splash screen shown on app launch while auto-connecting
@@ -26,9 +26,14 @@ class _SplashScreenState extends State<SplashScreen> {
   }
 
   Future<void> _tryAutoConnect() async {
+    if (!mounted) return;
+
     setState(() {
       _isConnecting = true;
     });
+
+    // Small delay to allow network to stabilize
+    await Future.delayed(const Duration(milliseconds: 500));
 
     final storageService = Provider.of<StorageService>(context, listen: false);
     final signalKService = Provider.of<SignalKService>(context, listen: false);
@@ -41,22 +46,40 @@ class _SplashScreenState extends State<SplashScreen> {
       final savedToken = authService.getSavedToken(lastServerUrl);
 
       if (savedToken != null && savedToken.isValid) {
-        try {
-          await signalKService.connect(
-            lastServerUrl,
-            secure: storageService.getLastUseSecure(),
-            authToken: savedToken,
-          );
+        // Try connecting with a retry for network timing issues
+        int attempts = 0;
+        const maxAttempts = 2;
+        bool connected = false;
 
-          // Set up dashboard subscriptions
-          if (dashboardService.currentLayout != null) {
-            await dashboardService.updateLayout(dashboardService.currentLayout!);
+        while (attempts < maxAttempts && !connected && mounted) {
+          try {
+            await signalKService.connect(
+              lastServerUrl,
+              secure: storageService.getLastUseSecure(),
+              authToken: savedToken,
+            );
+
+            // Set up dashboard subscriptions
+            if (dashboardService.currentLayout != null) {
+              await dashboardService.updateLayout(dashboardService.currentLayout!);
+            }
+
+            connected = true;
+            debugPrint('Auto-connect succeeded on attempt ${attempts + 1}');
+          } catch (e) {
+            attempts++;
+            if (attempts < maxAttempts) {
+              debugPrint('Auto-connect attempt $attempts failed, retrying... ($e)');
+              await Future.delayed(const Duration(milliseconds: 800));
+            } else {
+              debugPrint('Auto-connect failed after $maxAttempts attempts: $e');
+            }
           }
-        } catch (e) {
-          debugPrint('Auto-connect failed: $e');
         }
       }
     }
+
+    if (!mounted) return;
 
     setState(() {
       _isConnecting = false;
@@ -64,7 +87,8 @@ class _SplashScreenState extends State<SplashScreen> {
   }
 
   void _navigateAfterDelay() {
-    Future.delayed(const Duration(seconds: 2), () {
+    // Wait a bit longer to give auto-connect time to complete
+    Future.delayed(const Duration(milliseconds: 2500), () {
       if (mounted) {
         _navigateToNextScreen();
       }
@@ -86,7 +110,7 @@ class _SplashScreenState extends State<SplashScreen> {
     } else {
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(
-          builder: (context) => const ConnectionScreen(),
+          builder: (context) => const ServerListScreen(),
         ),
       );
     }

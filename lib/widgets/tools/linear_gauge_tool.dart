@@ -416,18 +416,22 @@ class LinearGaugeTool extends StatelessWidget {
       );
     }
 
-    // Value label
+    // Value label - use fixed width container to prevent layout shifts
     if (style.showValue == true) {
       pointers.add(
         LinearWidgetPointer(
           value: anchorValue,
           position: LinearElementPosition.outside,
           offset: 15,
-          child: Text(
-            formattedValue ?? '${value.toStringAsFixed(1)} ${style.showUnit == true ? unit : ''}',
-            style: const TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
+          child: SizedBox(
+            width: 120, // Fixed width to prevent gauge resizing when value changes
+            child: Text(
+              formattedValue ?? '${value.toStringAsFixed(1)}${unit.isNotEmpty ? " $unit" : ""}',
+              style: const TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+              ),
+              textAlign: isVertical ? TextAlign.left : TextAlign.center,
             ),
           ),
         ),

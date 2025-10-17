@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import '../models/dashboard_layout.dart';
+import '../models/dashboard_setup.dart';
 import '../models/auth_token.dart';
 import '../models/server_connection.dart';
 
@@ -12,12 +13,14 @@ class StorageService extends ChangeNotifier {
   static const String _settingsBoxName = 'settings';
   static const String _authTokenBoxName = 'authTokens';
   static const String _connectionsBoxName = 'connections';
+  static const String _setupsBoxName = 'saved_setups';
 
   late Box<String> _dashboardsBox;
   late Box<String> _templatesBox;
   late Box<String> _settingsBox;
   late Box<String> _authTokenBox;
   late Box<String> _connectionsBox;
+  late Box<String> _setupsBox;
 
   bool _initialized = false;
   bool get initialized => _initialized;
@@ -34,6 +37,7 @@ class StorageService extends ChangeNotifier {
       _settingsBox = await Hive.openBox<String>(_settingsBoxName);
       _authTokenBox = await Hive.openBox<String>(_authTokenBoxName);
       _connectionsBox = await Hive.openBox<String>(_connectionsBoxName);
+      _setupsBox = await Hive.openBox<String>(_setupsBoxName);
 
       _initialized = true;
       notifyListeners();
@@ -57,6 +61,7 @@ class StorageService extends ChangeNotifier {
     await _settingsBox.close();
     await _authTokenBox.close();
     await _connectionsBox.close();
+    await _setupsBox.close();
     super.dispose();
   }
 
@@ -247,6 +252,25 @@ class StorageService extends ChangeNotifier {
     await _settingsBox.delete(key);
   }
 
+  // ===== Theme Settings =====
+
+  /// Save theme mode preference
+  Future<void> saveThemeMode(String mode) async {
+    if (!_initialized) throw Exception('StorageService not initialized');
+    await _settingsBox.put('theme_mode', mode);
+    notifyListeners();
+
+    if (kDebugMode) {
+      print('Saved theme mode: $mode');
+    }
+  }
+
+  /// Get theme mode preference (defaults to 'dark')
+  String getThemeMode() {
+    if (!_initialized) return 'dark';
+    return _settingsBox.get('theme_mode', defaultValue: 'dark')!;
+  }
+
   // ===== Connection Settings =====
 
   /// Save the last successful connection details
@@ -309,7 +333,127 @@ class StorageService extends ChangeNotifier {
       'settings': _settingsBox.length,
       'authTokens': _authTokenBox.length,
       'connections': _connectionsBox.length,
+      'setups': _setupsBox.length,
     };
+  }
+
+  // ===== Setup Management =====
+
+  /// Save a complete dashboard setup (for saving/switching between setups)
+  Future<void> saveSetup(DashboardSetup setup) async {
+    if (!_initialized) throw Exception('StorageService not initialized');
+
+    try {
+      final json = jsonEncode(setup.toJson());
+      await _setupsBox.put(setup.layout.id, json);
+      notifyListeners();
+
+      if (kDebugMode) {
+        print('Setup saved: ${setup.metadata.name}');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error saving setup: $e');
+      }
+      rethrow;
+    }
+  }
+
+  /// Load a specific setup by ID
+  Future<DashboardSetup?> loadSetup(String id) async {
+    if (!_initialized) throw Exception('StorageService not initialized');
+
+    try {
+      final json = _setupsBox.get(id);
+      if (json != null) {
+        final map = jsonDecode(json) as Map<String, dynamic>;
+        return DashboardSetup.fromJson(map);
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error loading setup $id: $e');
+      }
+    }
+    return null;
+  }
+
+  /// Load all saved setups
+  Future<List<DashboardSetup>> loadAllSetups() async {
+    if (!_initialized) throw Exception('StorageService not initialized');
+
+    final setups = <DashboardSetup>[];
+
+    for (final json in _setupsBox.values) {
+      try {
+        final map = jsonDecode(json) as Map<String, dynamic>;
+        setups.add(DashboardSetup.fromJson(map));
+      } catch (e) {
+        if (kDebugMode) {
+          print('Error parsing setup: $e');
+        }
+      }
+    }
+
+    // Sort by last used (most recent first), then by created date
+    setups.sort((a, b) {
+      final aLastUsed = a.metadata.updatedAt ?? a.metadata.createdAt;
+      final bLastUsed = b.metadata.updatedAt ?? b.metadata.createdAt;
+      return bLastUsed.compareTo(aLastUsed);
+    });
+
+    return setups;
+  }
+
+  /// Delete a saved setup
+  Future<void> deleteSetup(String id) async {
+    if (!_initialized) throw Exception('StorageService not initialized');
+
+    await _setupsBox.delete(id);
+    notifyListeners();
+
+    if (kDebugMode) {
+      print('Setup deleted: $id');
+    }
+  }
+
+  /// Get saved setup references (lightweight list for UI)
+  List<SavedSetup> getSavedSetupReferences() {
+    if (!_initialized) return [];
+
+    final references = <SavedSetup>[];
+
+    for (final json in _setupsBox.values) {
+      try {
+        final map = jsonDecode(json) as Map<String, dynamic>;
+        final setup = DashboardSetup.fromJson(map);
+        references.add(SavedSetup.fromDashboardSetup(setup));
+      } catch (e) {
+        if (kDebugMode) {
+          print('Error parsing setup reference: $e');
+        }
+      }
+    }
+
+    // Sort by last used (most recent first), then by created date
+    references.sort((a, b) {
+      if (a.lastUsedAt != null && b.lastUsedAt != null) {
+        return b.lastUsedAt!.compareTo(a.lastUsedAt!);
+      } else if (a.lastUsedAt != null) {
+        return -1;
+      } else if (b.lastUsedAt != null) {
+        return 1;
+      } else {
+        return b.createdAt.compareTo(a.createdAt);
+      }
+    });
+
+    return references;
+  }
+
+  /// Check if a setup exists
+  bool setupExists(String id) {
+    if (!_initialized) return false;
+    return _setupsBox.containsKey(id);
   }
 
   // ===== Server Connection Management =====

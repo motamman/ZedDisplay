@@ -56,6 +56,7 @@ class CompassGaugeTool extends StatelessWidget {
       primaryColor: primaryColor,
       showTickLabels: showTickLabels,
       compassStyle: compassStyle,
+      showValue: config.style.showValue ?? true,
     );
   }
 
@@ -110,6 +111,7 @@ class CompassGaugeBuilder extends ToolBuilder {
         styleOptions: const [
           'primaryColor',
           'showLabel',
+          'showValue',
           'compassStyle', // 'classic', 'arc', 'minimal', 'rose', 'marine'
         ],
       ),

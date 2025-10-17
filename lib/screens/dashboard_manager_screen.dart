@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
 import '../services/dashboard_service.dart';
 import '../services/signalk_service.dart';
+import '../services/storage_service.dart';
 import '../services/tool_registry.dart';
 import '../services/tool_service.dart';
 import '../models/dashboard_screen.dart';
@@ -325,6 +326,21 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen> {
             icon: const Icon(Icons.view_carousel),
             onPressed: _showScreenManagementMenu,
             tooltip: 'Manage Screens',
+          ),
+          // Theme mode toggle
+          Consumer<StorageService>(
+            builder: (context, storageService, child) {
+              final themeMode = storageService.getThemeMode();
+              final isDark = themeMode == 'dark';
+              return IconButton(
+                icon: Icon(isDark ? Icons.light_mode : Icons.dark_mode),
+                onPressed: () async {
+                  final newMode = isDark ? 'light' : 'dark';
+                  await storageService.saveThemeMode(newMode);
+                },
+                tooltip: isDark ? 'Switch to Light Mode' : 'Switch to Dark Mode',
+              );
+            },
           ),
           IconButton(
             icon: const Icon(Icons.settings),

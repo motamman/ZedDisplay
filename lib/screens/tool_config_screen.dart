@@ -83,6 +83,23 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
     }
   }
 
+  void _loadDefaultsForToolType(String toolTypeId) {
+    final registry = ToolRegistry();
+    final signalKService = Provider.of<SignalKService>(context, listen: false);
+    final vesselId = signalKService.serverUrl;
+
+    final defaultConfig = registry.getDefaultConfig(toolTypeId, vesselId);
+    if (defaultConfig != null && defaultConfig.dataSources.isNotEmpty) {
+      _dataSources = List.from(defaultConfig.dataSources);
+
+      // Also load default style if available
+      final style = defaultConfig.style;
+      if (style.primaryColor != null) {
+        _primaryColor = style.primaryColor;
+      }
+    }
+  }
+
   void _loadExistingTool() {
     final tool = widget.existingTool!;
     _selectedToolTypeId = tool.toolTypeId;
@@ -498,7 +515,13 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                           label: Text(def.name),
                           selected: isSelected,
                           onSelected: (_) {
-                            setState(() => _selectedToolTypeId = def.id);
+                            setState(() {
+                              _selectedToolTypeId = def.id;
+                              // Load default paths when tool type is selected (only if no paths configured yet)
+                              if (_dataSources.isEmpty && widget.existingTool == null) {
+                                _loadDefaultsForToolType(def.id);
+                              }
+                            });
                           },
                         );
                       }).toList(),
@@ -675,7 +698,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                           labelText: 'Time Duration',
                           border: OutlineInputBorder(),
                         ),
-                        initialValue: _chartDuration,
+                        value: _chartDuration,
                         items: const [
                           DropdownMenuItem(value: '15m', child: Text('15 minutes')),
                           DropdownMenuItem(value: '30m', child: Text('30 minutes')),
@@ -699,7 +722,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                           border: OutlineInputBorder(),
                           helperText: 'Auto lets the server optimize for the timeframe',
                         ),
-                        initialValue: _chartResolution,
+                        value: _chartResolution,
                         items: const [
                           DropdownMenuItem(value: null, child: Text('Auto (Recommended)')),
                           DropdownMenuItem(value: 30000, child: Text('30 seconds')),
@@ -733,7 +756,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                           border: OutlineInputBorder(),
                           helperText: 'Visual style of the chart',
                         ),
-                        initialValue: _chartStyle,
+                        value: _chartStyle,
                         items: const [
                           DropdownMenuItem(value: 'area', child: Text('Area (filled spline)')),
                           DropdownMenuItem(value: 'line', child: Text('Line (spline only)')),
@@ -763,7 +786,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                               labelText: 'Refresh Interval',
                               border: OutlineInputBorder(),
                             ),
-                            initialValue: _chartRefreshInterval,
+                            value: _chartRefreshInterval,
                             items: const [
                               DropdownMenuItem(value: 30, child: Text('30 seconds')),
                               DropdownMenuItem(value: 60, child: Text('1 minute')),
@@ -1017,7 +1040,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
             border: OutlineInputBorder(),
             helperText: 'Visual style of the compass',
           ),
-          initialValue: _compassStyle,
+          value: _compassStyle,
           items: const [
             DropdownMenuItem(value: 'classic', child: Text('Classic (full circle with needle)')),
             DropdownMenuItem(value: 'arc', child: Text('Arc (180° semicircle)')),
@@ -1053,7 +1076,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
             border: OutlineInputBorder(),
             helperText: 'Visual style of the gauge',
           ),
-          initialValue: _gaugeStyle,
+          value: _gaugeStyle,
           items: const [
             DropdownMenuItem(value: 'arc', child: Text('Arc (270° default)')),
             DropdownMenuItem(value: 'full', child: Text('Full Circle (360° with needle)')),
@@ -1112,7 +1135,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
             border: OutlineInputBorder(),
             helperText: 'Visual style of the linear gauge',
           ),
-          initialValue: _linearGaugeStyle,
+          value: _linearGaugeStyle,
           items: const [
             DropdownMenuItem(value: 'bar', child: Text('Bar (filled bar)')),
             DropdownMenuItem(value: 'thermometer', child: Text('Thermometer (rounded top)')),
@@ -1131,7 +1154,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
             labelText: 'Orientation',
             border: OutlineInputBorder(),
           ),
-          initialValue: _orientation,
+          value: _orientation,
           items: const [
             DropdownMenuItem(value: 'horizontal', child: Text('Horizontal')),
             DropdownMenuItem(value: 'vertical', child: Text('Vertical')),
@@ -1188,7 +1211,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
             border: OutlineInputBorder(),
             helperText: 'Number of decimal places to display',
           ),
-          initialValue: _sliderDecimalPlaces,
+          value: _sliderDecimalPlaces,
           items: const [
             DropdownMenuItem(value: 0, child: Text('0 (e.g., 42)')),
             DropdownMenuItem(value: 1, child: Text('1 (e.g., 42.5)')),

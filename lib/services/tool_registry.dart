@@ -14,6 +14,7 @@ import '../widgets/tools/windsteer_tool.dart';
 import '../widgets/tools/windsteer_demo_tool.dart';
 import '../widgets/tools/realtime_chart_tool.dart';
 import '../widgets/tools/radial_bar_chart_tool.dart';
+import '../widgets/tools/autopilot_tool.dart';
 
 /// Abstract builder for tool widgets
 abstract class ToolBuilder {
@@ -22,6 +23,10 @@ abstract class ToolBuilder {
 
   /// Build a widget instance with the given configuration
   Widget build(ToolConfig config, SignalKService signalKService);
+
+  /// Get default config for this tool type (optional)
+  /// Returns null if no defaults needed
+  ToolConfig? getDefaultConfig(String vesselId) => null;
 }
 
 /// Registry for all available tool types
@@ -71,6 +76,11 @@ class ToolRegistry {
     return _builders.containsKey(toolTypeId);
   }
 
+  /// Get default config for a tool type
+  ToolConfig? getDefaultConfig(String toolTypeId, String vesselId) {
+    return _builders[toolTypeId]?.getDefaultConfig(vesselId);
+  }
+
   /// Clear all registered tools (mainly for testing)
   void clear() {
     _builders.clear();
@@ -90,5 +100,6 @@ class ToolRegistry {
     register('knob', KnobToolBuilder());
     register('windsteer_demo', WindsteerDemoToolBuilder());
     register('windsteer', WindsteerToolBuilder());
+    register('autopilot', AutopilotToolBuilder());
   }
 }

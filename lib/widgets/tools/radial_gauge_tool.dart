@@ -74,6 +74,7 @@ class RadialGaugeTool extends StatelessWidget {
       showTickLabels: showTickLabels,
       gaugeStyle: gaugeStyle,
       pointerOnly: pointerOnly,
+      showValue: style.showValue ?? true,
     );
   }
 
@@ -129,6 +130,7 @@ class RadialGaugeBuilder extends ToolBuilder {
           'unit',
           'primaryColor',
           'showLabel',
+          'showValue',
           'showUnit',
           'gaugeStyle', // 'arc', 'full', 'half', 'threequarter'
         ],
