@@ -117,6 +117,9 @@ class RadialBarChart extends StatelessWidget {
           trackBorderWidth: 1,
           trackOpacity: 0.3,
 
+          // Bar opacity
+          opacity: 0.9,
+
           // Data labels
           dataLabelSettings: DataLabelSettings(
             isVisible: showLabels,
@@ -160,17 +163,39 @@ class RadialBarChart extends StatelessWidget {
   List<Color> _getSeriesColors() {
     final baseColor = primaryColor ?? Colors.blue;
 
-    // Generate colors with hue shifts for visual distinction
+    // Generate a range of colors from the base color
+    // This creates shades from darker to lighter based on the base color
+    // keeping each chart visually cohesive while distinct from others
     return List.generate(
       4,
-      (index) => _shiftHue(baseColor, index * 90.0),
+      (index) => _createColorVariant(baseColor, index, 4),
     );
   }
 
-  Color _shiftHue(Color color, double degrees) {
-    final hslColor = HSLColor.fromColor(color);
-    final newHue = (hslColor.hue + degrees) % 360;
-    return hslColor.withHue(newHue).toColor();
+  Color _createColorVariant(Color baseColor, int index, int total) {
+    final hslColor = HSLColor.fromColor(baseColor);
+
+    // Calculate position in the range (0.0 to 1.0)
+    final position = index / (total - 1);
+
+    // Create variations by adjusting both lightness and saturation
+    // Start with darker/more saturated, end with lighter/less saturated
+    const lightnessRange = 0.3; // How much to vary lightness
+    const saturationRange = 0.2; // How much to vary saturation
+
+    // For darker base colors, increase lightness; for lighter, decrease
+    final baseLightness = hslColor.lightness;
+    final targetLightness = baseLightness < 0.5
+        ? baseLightness + (lightnessRange * position) // Darken to lighten
+        : baseLightness - (lightnessRange * (1 - position)); // Lighten to darken
+
+    final targetSaturation = (hslColor.saturation - (saturationRange * position))
+        .clamp(0.3, 1.0); // Keep minimum saturation for vibrancy
+
+    return hslColor
+        .withLightness(targetLightness.clamp(0.2, 0.8))
+        .withSaturation(targetSaturation)
+        .toColor();
   }
 }
 

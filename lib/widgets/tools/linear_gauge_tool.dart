@@ -62,12 +62,13 @@ class LinearGaugeTool extends StatelessWidget {
       }
     }
 
-    // Get orientation, style variant, and tick labels from custom properties
+    // Get orientation, style variant, tick labels, and pointer mode from custom properties
     final isVertical = style.customProperties?['orientation'] == 'vertical';
     final gaugeStyleStr = style.customProperties?['gaugeStyle'] as String? ?? 'bar';
     final gaugeStyle = _parseGaugeStyle(gaugeStyleStr);
     final showTickLabels = style.customProperties?['showTickLabels'] as bool? ?? false;
     final divisions = style.customProperties?['divisions'] as int? ?? 10;
+    final pointerOnly = style.customProperties?['pointerOnly'] as bool? ?? false;
 
     return Padding(
       padding: const EdgeInsets.all(16),
@@ -85,6 +86,7 @@ class LinearGaugeTool extends StatelessWidget {
               gaugeStyle,
               showTickLabels,
               divisions,
+              pointerOnly,
             )
           : _buildVerticalGauge(
               context,
@@ -99,6 +101,7 @@ class LinearGaugeTool extends StatelessWidget {
               gaugeStyle,
               showTickLabels,
               divisions,
+              pointerOnly,
             ),
     );
   }
@@ -129,6 +132,7 @@ class LinearGaugeTool extends StatelessWidget {
     LinearGaugeStyle gaugeStyle,
     bool showTickLabels,
     int divisions,
+    bool pointerOnly,
   ) {
     return Column(
       mainAxisAlignment: MainAxisAlignment.center,
@@ -164,8 +168,8 @@ class LinearGaugeTool extends StatelessWidget {
               color: Colors.grey.withValues(alpha: 0.2),
             ),
 
-            // Bar or range pointers based on style
-            barPointers: _getBarPointers(
+            // Bar or range pointers based on style (hidden in pointer-only mode)
+            barPointers: pointerOnly ? null : _getBarPointers(
               value,
               minValue,
               maxValue,
@@ -173,12 +177,12 @@ class LinearGaugeTool extends StatelessWidget {
               gaugeStyle,
             ),
 
-            // Range pointers for step style
-            ranges: gaugeStyle == LinearGaugeStyle.step
+            // Range pointers for step style (hidden in pointer-only mode)
+            ranges: (gaugeStyle == LinearGaugeStyle.step && !pointerOnly)
                 ? _getStepRanges(value, minValue, maxValue, primaryColor, divisions)
                 : null,
 
-            // Marker pointers for bullet and needle styles
+            // Marker pointers - always show in pointer-only mode
             markerPointers: _getMarkerPointers(
               value,
               formattedValue,
@@ -187,6 +191,9 @@ class LinearGaugeTool extends StatelessWidget {
               style,
               gaugeStyle,
               maxValue,
+              pointerOnly,
+              false, // isVertical
+              _getTrackThickness(gaugeStyle),
             ),
           ),
         ),
@@ -207,6 +214,7 @@ class LinearGaugeTool extends StatelessWidget {
     LinearGaugeStyle gaugeStyle,
     bool showTickLabels,
     int divisions,
+    bool pointerOnly,
   ) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
@@ -230,7 +238,6 @@ class LinearGaugeTool extends StatelessWidget {
                   maximum: maxValue,
                   interval: (maxValue - minValue) / divisions,
                   orientation: LinearGaugeOrientation.vertical,
-                  isAxisInversed: true,
 
                   // Axis styling
                   showTicks: showTickLabels,
@@ -239,7 +246,6 @@ class LinearGaugeTool extends StatelessWidget {
                     fontSize: 10,
                     color: Colors.grey[600],
                   ),
-                  labelPosition: LinearLabelPosition.outside,
                   axisTrackStyle: LinearAxisTrackStyle(
                     thickness: _getTrackThickness(gaugeStyle),
                     edgeStyle: _getEdgeStyle(gaugeStyle),
@@ -248,8 +254,8 @@ class LinearGaugeTool extends StatelessWidget {
                     color: Colors.grey.withValues(alpha: 0.2),
                   ),
 
-                  // Bar or range pointers based on style
-                  barPointers: _getBarPointers(
+                  // Bar or range pointers based on style (hidden in pointer-only mode)
+                  barPointers: pointerOnly ? null : _getBarPointers(
                     value,
                     minValue,
                     maxValue,
@@ -257,12 +263,12 @@ class LinearGaugeTool extends StatelessWidget {
                     gaugeStyle,
                   ),
 
-                  // Range pointers for step style
-                  ranges: gaugeStyle == LinearGaugeStyle.step
+                  // Range pointers for step style (hidden in pointer-only mode)
+                  ranges: (gaugeStyle == LinearGaugeStyle.step && !pointerOnly)
                       ? _getStepRanges(value, minValue, maxValue, primaryColor, divisions)
                       : null,
 
-                  // Marker pointers
+                  // Marker pointers - always show in pointer-only mode
                   markerPointers: _getMarkerPointers(
                     value,
                     formattedValue,
@@ -271,6 +277,9 @@ class LinearGaugeTool extends StatelessWidget {
                     style,
                     gaugeStyle,
                     minValue,
+                    pointerOnly,
+                    true, // isVertical
+                    _getTrackThickness(gaugeStyle),
                   ),
                 ),
               ),
@@ -379,19 +388,31 @@ class LinearGaugeTool extends StatelessWidget {
     StyleConfig style,
     LinearGaugeStyle gaugeStyle,
     double anchorValue,
+    bool pointerOnly,
+    bool isVertical,
+    double trackThickness,
   ) {
     final pointers = <LinearMarkerPointer>[];
 
-    // Bullet style needs a marker
-    if (gaugeStyle == LinearGaugeStyle.bullet) {
+    // Pointer-only mode OR bullet style needs a shape marker
+    if (pointerOnly || gaugeStyle == LinearGaugeStyle.bullet) {
+      // Size pointer relative to track thickness
+      final pointerSize = trackThickness * 0.8;
+      final offset = trackThickness * 0.75;
+
       pointers.add(
-        LinearShapePointer(
+        LinearWidgetPointer(
           value: value.clamp(style.minValue ?? 0.0, style.maxValue ?? 100.0),
-          height: 25,
-          width: 25,
-          color: primaryColor.withValues(alpha: 0.8),
-          shapeType: LinearShapePointerType.triangle,
           position: LinearElementPosition.cross,
+          offset: isVertical ? -offset : offset, // Left side for vertical (negative), below for horizontal
+          child: Transform.rotate(
+            angle: isVertical ? 0 : 3.14159 / 2, // 0° for vertical (points right), 90° for horizontal (points down)
+            child: Icon(
+              Icons.play_arrow,
+              size: pointerSize,
+              color: primaryColor.withValues(alpha: 0.9),
+            ),
+          ),
         ),
       );
     }

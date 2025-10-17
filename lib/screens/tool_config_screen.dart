@@ -45,6 +45,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
   bool _showValue = true;
   bool _showUnit = true;
   bool _showTickLabels = false;
+  bool _pointerOnly = false; // Show only pointer, no filled bar/arc
   int _divisions = 10;
   String _orientation = 'horizontal';
   String _gaugeStyle = 'arc'; // For radial gauge: arc, full, half, threequarter
@@ -97,6 +98,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
     _showValue = style.showValue ?? true;
     _showUnit = style.showUnit ?? true;
     _showTickLabels = style.customProperties?['showTickLabels'] as bool? ?? false;
+    _pointerOnly = style.customProperties?['pointerOnly'] as bool? ?? false;
     _divisions = style.customProperties?['divisions'] as int? ?? 10;
     _orientation = style.customProperties?['orientation'] as String? ?? 'horizontal';
     _gaugeStyle = style.customProperties?['gaugeStyle'] as String? ?? 'arc';
@@ -375,6 +377,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
         'divisions': _divisions,
         'orientation': _orientation,
         'showTickLabels': _showTickLabels,
+        'pointerOnly': _pointerOnly,
       };
 
       // Add style variant based on tool type
@@ -843,6 +846,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                                 'divisions': _divisions,
                                 'orientation': _orientation,
                                 'showTickLabels': _showTickLabels,
+                                'pointerOnly': _pointerOnly,
                               };
 
                               // Add gauge style to preview
@@ -1087,6 +1091,14 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
             setState(() => _showTickLabels = value);
           },
         ),
+        SwitchListTile(
+          title: const Text('Pointer Only Mode'),
+          subtitle: const Text('Show needle pointer without filled arc'),
+          value: _pointerOnly,
+          onChanged: (value) {
+            setState(() => _pointerOnly = value);
+          },
+        ),
       ]);
     }
 
@@ -1153,6 +1165,14 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
           value: _showTickLabels,
           onChanged: (value) {
             setState(() => _showTickLabels = value);
+          },
+        ),
+        SwitchListTile(
+          title: const Text('Pointer Only Mode'),
+          subtitle: const Text('Show triangle pointer without filled bar'),
+          value: _pointerOnly,
+          onChanged: (value) {
+            setState(() => _pointerOnly = value);
           },
         ),
       ]);

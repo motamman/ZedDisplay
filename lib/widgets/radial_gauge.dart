@@ -23,6 +23,7 @@ class RadialGauge extends StatelessWidget {
   final int divisions;
   final bool showTickLabels;
   final RadialGaugeStyle gaugeStyle;
+  final bool pointerOnly; // Show only pointer, no filled arc
 
   const RadialGauge({
     super.key,
@@ -37,6 +38,7 @@ class RadialGauge extends StatelessWidget {
     this.divisions = 10,
     this.showTickLabels = false,
     this.gaugeStyle = RadialGaugeStyle.arc,
+    this.pointerOnly = false,
   });
 
   @override
@@ -86,33 +88,44 @@ class RadialGauge extends StatelessWidget {
             labelOffset: 15,
 
             // Ranges for background and value arcs
-            ranges: <GaugeRange>[
-              // Background arc
-              GaugeRange(
-                startValue: minValue,
-                endValue: maxValue,
-                color: backgroundColor.withValues(alpha: 0.2),
-                startWidth: 15,
-                endWidth: 15,
-              ),
-              // Value arc with gradient
-              GaugeRange(
-                startValue: minValue,
-                endValue: clampedValue,
-                gradient: SweepGradient(
-                  colors: [
-                    primaryColor,
-                    primaryColor.withValues(alpha: 0.6),
+            ranges: pointerOnly
+                ? <GaugeRange>[
+                    // Only background arc when pointer-only mode
+                    GaugeRange(
+                      startValue: minValue,
+                      endValue: maxValue,
+                      color: backgroundColor.withValues(alpha: 0.2),
+                      startWidth: 15,
+                      endWidth: 15,
+                    ),
+                  ]
+                : <GaugeRange>[
+                    // Background arc
+                    GaugeRange(
+                      startValue: minValue,
+                      endValue: maxValue,
+                      color: backgroundColor.withValues(alpha: 0.2),
+                      startWidth: 15,
+                      endWidth: 15,
+                    ),
+                    // Value arc with gradient
+                    GaugeRange(
+                      startValue: minValue,
+                      endValue: clampedValue,
+                      gradient: SweepGradient(
+                        colors: [
+                          primaryColor,
+                          primaryColor.withValues(alpha: 0.6),
+                        ],
+                        stops: const [0.0, 1.0],
+                      ),
+                      startWidth: 15,
+                      endWidth: 15,
+                    ),
                   ],
-                  stops: const [0.0, 1.0],
-                ),
-                startWidth: 15,
-                endWidth: 15,
-              ),
-            ],
 
-            // Pointer for full circle style
-            pointers: gaugeStyle == RadialGaugeStyle.full
+            // Pointer - show for full circle style OR pointer-only mode
+            pointers: (gaugeStyle == RadialGaugeStyle.full || pointerOnly)
                 ? <GaugePointer>[
                     NeedlePointer(
                       value: clampedValue,

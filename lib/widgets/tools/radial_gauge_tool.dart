@@ -55,11 +55,12 @@ class RadialGaugeTool extends StatelessWidget {
       }
     }
 
-    // Get divisions, tick labels, and gauge style from custom properties
+    // Get divisions, tick labels, gauge style, and pointer mode from custom properties
     final divisions = style.customProperties?['divisions'] as int? ?? 10;
     final showTickLabels = style.customProperties?['showTickLabels'] as bool? ?? false;
     final gaugeStyleStr = style.customProperties?['gaugeStyle'] as String? ?? 'arc';
     final gaugeStyle = _parseGaugeStyle(gaugeStyleStr);
+    final pointerOnly = style.customProperties?['pointerOnly'] as bool? ?? false;
 
     return RadialGauge(
       value: value,
@@ -72,6 +73,7 @@ class RadialGaugeTool extends StatelessWidget {
       divisions: divisions,
       showTickLabels: showTickLabels,
       gaugeStyle: gaugeStyle,
+      pointerOnly: pointerOnly,
     );
   }
 
