@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
-import 'package:syncfusion_flutter_core/core.dart';
 import 'services/signalk_service.dart';
 import 'services/storage_service.dart';
 import 'services/dashboard_service.dart';
@@ -16,8 +15,8 @@ void main() async {
   // Ensure Flutter bindings are initialized
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Register Syncfusion license
-  SyncfusionLicense.registerLicense('YOUR_LICENSE_KEY_HERE');
+  // Note: Syncfusion license registration is no longer required
+  // The license is now handled automatically
 
   // Initialize storage service
   final storageService = StorageService();
