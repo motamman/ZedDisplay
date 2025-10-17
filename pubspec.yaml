@@ -4,7 +4,7 @@ publish_to: 'none'
 version: 0.1.0+1
 
 environment:
-  sdk: '>=3.0.0 <4.0.0'
+  sdk: '>=3.8.0 <4.0.0'
 
 dependencies:
   flutter:
@@ -20,11 +20,35 @@ dependencies:
   # JSON serialization
   json_annotation: ^4.8.1
 
+  # Storage
+  hive: ^2.2.3
+  hive_flutter: ^1.1.0
+  path_provider: ^2.1.1
+
   # Charts and Visualizations
   fl_chart: ^0.66.0
+  flutter_staggered_grid_view: ^0.7.0
+  syncfusion_flutter_gauges: ^27.2.5
+  syncfusion_flutter_charts: ^27.2.5
 
   # UI Components
   cupertino_icons: ^1.0.6
+
+  # UUID generation for device IDs
+  uuid: ^4.0.0
+
+  # Date/time formatting
+  intl: ^0.19.0
+
+  # Color picker
+  flutter_colorpicker: ^1.1.0
+
+  # Keep device awake and maintain connection
+  wakelock_plus: ^1.2.0
+  flutter_foreground_task: ^8.0.0
+
+  # Video player for splash screen
+  video_player: ^2.9.2
 
 dev_dependencies:
   flutter_test:
@@ -32,6 +56,19 @@ dev_dependencies:
   flutter_lints: ^3.0.0
   build_runner: ^2.4.7
   json_serializable: ^6.7.1
+  hive_generator: ^2.0.1
+  flutter_launcher_icons: ^0.14.1
 
 flutter:
   uses-material-design: true
+
+  assets:
+    - assets/
+    - assets/splash.mp4
+
+flutter_launcher_icons:
+  android: true
+  ios: false
+  image_path: "assets/icon.png"
+  adaptive_icon_background: "#000000"
+  adaptive_icon_foreground: "assets/icon_foreground.png"

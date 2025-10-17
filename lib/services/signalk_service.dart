@@ -1,9 +1,13 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
+import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
+import 'package:web_socket_channel/io.dart';
 import 'package:http/http.dart' as http;
 import '../models/signalk_data.dart';
+import '../models/auth_token.dart';
 
 /// Service to connect to SignalK server and stream data
 class SignalKService extends ChangeNotifier {
@@ -17,29 +21,84 @@ class SignalKService extends ChangeNotifier {
   // Data storage - keeps latest value for each path
   final Map<String, SignalKDataPoint> _latestData = {};
 
+  // Active subscriptions - only paths currently needed by UI
+  final Set<String> _activePaths = {};
+  String? _vesselContext;
+
   // Configuration
   String _serverUrl = 'localhost:3000';
   bool _useSecureConnection = false;
+  AuthToken? _authToken;
 
   // Getters
   bool get isConnected => _isConnected;
   String? get errorMessage => _errorMessage;
   Map<String, SignalKDataPoint> get latestData => Map.unmodifiable(_latestData);
+  String get serverUrl => _serverUrl;
+  bool get useSecureConnection => _useSecureConnection;
 
-  /// Connect to SignalK server
-  Future<void> connect(String serverUrl, {bool secure = false}) async {
+  /// Connect to SignalK server (optionally with authentication)
+  Future<void> connect(
+    String serverUrl, {
+    bool secure = false,
+    AuthToken? authToken,
+  }) async {
+    // Disconnect any existing connection first
+    if (_isConnected || _channel != null) {
+      if (kDebugMode) {
+        print('Disconnecting existing connection before new connect...');
+      }
+      await disconnect();
+      // Give the socket time to fully close
+      await Future.delayed(const Duration(milliseconds: 800));
+
+      if (kDebugMode) {
+        print('Old connection closed, starting new connection...');
+      }
+    }
+
     _serverUrl = serverUrl;
     _useSecureConnection = secure;
+    _authToken = authToken;
 
     try {
-      // First, discover the WebSocket endpoint
+      // Discover the WebSocket endpoint
       final wsUrl = await _discoverWebSocketEndpoint();
 
-      // Connect to WebSocket
-      _channel = WebSocketChannel.connect(Uri.parse(wsUrl));
+      // Connect to WebSocket with authentication headers if we have a token
+      if (_authToken != null) {
+        if (kDebugMode) {
+          print('Connecting with Authorization header to: $wsUrl');
+          print('Token: ${_authToken!.token.substring(0, min(20, _authToken!.token.length))}...');
+        }
 
-      // Subscribe to all updates with wildcard
-      _sendSubscription();
+        final headers = <String, String>{
+          'Authorization': 'Bearer ${_authToken!.token}',
+        };
+
+        try {
+          // Use dart:io WebSocket.connect which supports headers
+          if (kDebugMode) {
+            print('Connecting to WebSocket URL: $wsUrl');
+          }
+
+          // Pass the URL string directly - don't parse and re-stringify
+          final socket = await WebSocket.connect(wsUrl, headers: headers);
+          _channel = IOWebSocketChannel(socket);
+
+          if (kDebugMode) {
+            print('WebSocket connection established successfully');
+          }
+        } catch (e) {
+          if (kDebugMode) {
+            print('WebSocket.connect failed: $e');
+          }
+          rethrow;
+        }
+      } else {
+        // Standard connection without authentication
+        _channel = WebSocketChannel.connect(Uri.parse(wsUrl));
+      }
 
       // Listen to incoming messages
       _subscription = _channel!.stream.listen(
@@ -55,6 +114,13 @@ class SignalKService extends ChangeNotifier {
       if (kDebugMode) {
         print('Connected to SignalK server: $wsUrl');
       }
+
+      // Note: units-preference plugin does NOT use WebSocket-level authentication
+      // The auth token is used only for HTTP requests to the API
+      // The WebSocket connection is already authenticated at the HTTP upgrade level
+
+      // Subscribe to paths immediately
+      await _sendSubscription();
     } catch (e) {
       _errorMessage = 'Connection failed: $e';
       _isConnected = false;
@@ -63,44 +129,158 @@ class SignalKService extends ChangeNotifier {
     }
   }
 
+  /// Get HTTP headers with authentication if available
+  Map<String, String> _getHeaders() {
+    final headers = <String, String>{
+      'Content-Type': 'application/json',
+    };
+    if (_authToken != null) {
+      headers['Authorization'] = 'Bearer ${_authToken!.token}';
+    }
+    return headers;
+  }
+
   /// Discover WebSocket endpoint from SignalK server
   Future<String> _discoverWebSocketEndpoint() async {
     final wsProtocol = _useSecureConnection ? 'wss' : 'ws';
 
-    // Use signalk-units-preference plugin endpoint for pre-converted values
-    final unitsPreferenceEndpoint = '$wsProtocol://$_serverUrl/plugins/signalk-units-preference/stream';
-
+    // Use the server URL as-is - don't add default ports
+    // Many servers are behind reverse proxies and don't need explicit ports
     if (kDebugMode) {
-      print('Using units-preference endpoint: $unitsPreferenceEndpoint');
+      print('Server URL: $_serverUrl (secure: $_useSecureConnection)');
     }
 
-    return unitsPreferenceEndpoint;
+    // Use units-preference endpoint if authenticated
+    if (_authToken != null) {
+      final endpoint = '$wsProtocol://$_serverUrl/plugins/signalk-units-preference/stream';
+      if (kDebugMode) {
+        print('Using units-preference endpoint (authenticated): $endpoint');
+      }
+      return endpoint;
+    }
+
+    // Fallback to standard SignalK stream
+    final endpoint = '$wsProtocol://$_serverUrl/signalk/v1/stream?subscribe=self';
+    if (kDebugMode) {
+      print('Using standard endpoint (no auth): $endpoint');
+    }
+    return endpoint;
   }
 
-  /// Send subscription request to receive all data
-  void _sendSubscription() {
-    final subscription = {
-      'context': 'vessels.self',
-      'subscribe': [
-        {
-          'path': '*', // Subscribe to all paths
-          'period': 1000, // Update every second
-          'format': 'delta',
-          'policy': 'instant',
-        }
-      ]
+  /// Send WebSocket authentication with token
+  void _sendWebSocketAuth() {
+    if (_authToken == null) return;
+
+    final authMessage = {
+      'requestId': '${DateTime.now().millisecondsSinceEpoch}',
+      'token': _authToken!.token,
     };
 
-    _channel?.sink.add(jsonEncode(subscription));
+    _channel?.sink.add(jsonEncode(authMessage));
+
+    if (kDebugMode) {
+      print('Sent WebSocket authentication with token');
+    }
+  }
+
+  /// Initialize subscriptions after connection
+  /// Call this with all paths from deployed templates
+  Future<void> _sendSubscription() async {
+    try {
+      // For units-preference plugin, get vessel context
+      if (_authToken != null) {
+        final vesselId = await getVesselSelfId();
+        _vesselContext = vesselId != null ? 'vessels.$vesselId' : 'vessels.self';
+
+        if (kDebugMode) {
+          print('Vessel context: $_vesselContext');
+          print('Waiting for template paths to subscribe...');
+        }
+        // Don't subscribe yet - wait for setActiveTemplatePaths() to be called
+        return;
+      }
+
+      // Standard SignalK endpoint supports wildcard subscriptions (fallback)
+      final subscription = {
+        'context': 'vessels.self',
+        'subscribe': [
+          {
+            'path': '*',
+            'period': 1000,
+            'format': 'delta',
+            'policy': 'instant',
+          }
+        ]
+      };
+
+      _channel?.sink.add(jsonEncode(subscription));
+
+      if (kDebugMode) {
+        print('Subscribed to all paths with wildcard (*)');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error in subscription setup: $e');
+      }
+    }
+  }
+
+  /// Set paths from active templates and subscribe to them
+  /// Call this when dashboards/templates change
+  Future<void> setActiveTemplatePaths(List<String> paths) async {
+    if (!_isConnected || _channel == null) {
+      if (kDebugMode) {
+        print('Cannot subscribe: not connected');
+      }
+      return;
+    }
+
+    // Clear old subscriptions and set new ones
+    _activePaths.clear();
+    _activePaths.addAll(paths);
+
+    if (kDebugMode) {
+      print('Setting active template paths: ${_activePaths.length} paths');
+    }
+
+    await _updateSubscription();
   }
 
   /// Handle incoming WebSocket messages
   void _handleMessage(dynamic message) {
     try {
+      if (kDebugMode) {
+        print('WebSocket message received (first 200 chars): ${message.toString().substring(0, message.toString().length > 200 ? 200 : message.toString().length)}');
+      }
+
       final data = jsonDecode(message);
+
+      if (kDebugMode) {
+        print('Decoded message keys: ${data.keys.toList()}');
+      }
+
+      // Check if it's an authentication response
+      if (data['requestId'] != null && data['state'] != null) {
+        if (kDebugMode) {
+          print('Auth response: ${data['state']} - ${data['statusCode']}');
+        }
+        if (data['state'] == 'COMPLETED' && data['statusCode'] == 200) {
+          if (kDebugMode) {
+            print('WebSocket authentication successful');
+          }
+        } else {
+          if (kDebugMode) {
+            print('WebSocket authentication failed: ${data['message']}');
+          }
+        }
+        return;
+      }
 
       // Check if it's a delta update
       if (data['updates'] != null) {
+        if (kDebugMode) {
+          print('Processing delta update with ${(data['updates'] as List).length} updates');
+        }
         final update = SignalKUpdate.fromJson(data);
 
         // Process each value update
@@ -110,17 +290,31 @@ class SignalKService extends ChangeNotifier {
             if (value.value is Map<String, dynamic>) {
               final valueMap = value.value as Map<String, dynamic>;
 
+              // Extract values from plugin response
+              final convertedValue = valueMap['converted'];
+              final originalValue = valueMap['original'];
+              final formattedString = valueMap['formatted'] as String?;
+              final symbolString = valueMap['symbol'] as String?;
+
+              // For numeric values, use converted number for charts/gauges
+              // For objects (like position), keep as-is
+              final numericValue = convertedValue is num ? convertedValue.toDouble() : null;
+
               _latestData[value.path] = SignalKDataPoint(
                 path: value.path,
-                value: valueMap['converted'] ?? valueMap['value'],
+                value: numericValue ?? convertedValue ?? originalValue, // Prefer numeric converted, fallback to object/original
                 timestamp: updateValue.timestamp,
-                converted: valueMap['converted'] as double?,
-                formatted: valueMap['formatted'] as String?,
-                symbol: valueMap['symbol'] as String?,
-                original: valueMap['original'],
+                converted: numericValue, // Numeric converted value for charts/gauges
+                formatted: formattedString, // Display string like "12.6 kn" for labels
+                symbol: symbolString, // Unit symbol like "kn"
+                original: originalValue, // Raw SI value
               );
+
+              if (kDebugMode && numericValue != null) {
+                print('${value.path}: original=$originalValue -> converted=$numericValue (formatted: $formattedString)');
+              }
             } else {
-              // Standard SignalK format (fallback)
+              // Standard SignalK format (raw SI values, no conversion)
               _latestData[value.path] = SignalKDataPoint(
                 path: value.path,
                 value: value.value,
@@ -167,7 +361,7 @@ class SignalKService extends ChangeNotifier {
     try {
       final response = await http.put(
         Uri.parse('$protocol://$_serverUrl/signalk/v1/api/vessels/self/$path'),
-        headers: {'Content-Type': 'application/json'},
+        headers: _getHeaders(),
         body: jsonEncode({'value': value}),
       );
 
@@ -237,6 +431,7 @@ class SignalKService extends ChangeNotifier {
     try {
       final response = await http.get(
         Uri.parse('$protocol://$_serverUrl/signalk/v1/api/vessels'),
+        headers: _getHeaders(),
       ).timeout(const Duration(seconds: 5));
 
       if (response.statusCode == 200) {
@@ -268,6 +463,7 @@ class SignalKService extends ChangeNotifier {
     try {
       final response = await http.get(
         Uri.parse('$protocol://$_serverUrl/signalk/v1/api/vessels/self'),
+        headers: _getHeaders(),
       ).timeout(const Duration(seconds: 10));
 
       if (response.statusCode == 200) {
@@ -326,6 +522,7 @@ class SignalKService extends ChangeNotifier {
     try {
       final response = await http.get(
         Uri.parse('$protocol://$_serverUrl/signalk/v1/api/vessels/self/$apiPath'),
+        headers: _getHeaders(),
       ).timeout(const Duration(seconds: 5));
 
       if (kDebugMode) {
@@ -374,13 +571,119 @@ class SignalKService extends ChangeNotifier {
     return null;
   }
 
+  /// Subscribe to a set of paths (called when template/dashboard loads)
+  Future<void> subscribeToPaths(List<String> paths) async {
+    if (!_isConnected || _channel == null) {
+      if (kDebugMode) {
+        print('Cannot subscribe: not connected');
+      }
+      return;
+    }
+
+    final newPaths = paths.where((p) => !_activePaths.contains(p)).toList();
+    if (newPaths.isEmpty) {
+      if (kDebugMode) {
+        print('All requested paths already subscribed');
+      }
+      return;
+    }
+
+    _activePaths.addAll(newPaths);
+
+    if (kDebugMode) {
+      print('Adding ${newPaths.length} new paths to subscription (total: ${_activePaths.length})');
+    }
+
+    await _updateSubscription();
+  }
+
+  /// Unsubscribe from paths (called when template/dashboard unloads)
+  Future<void> unsubscribeFromPaths(List<String> paths) async {
+    if (!_isConnected || _channel == null) return;
+
+    final removedPaths = paths.where((p) => _activePaths.contains(p)).toList();
+    if (removedPaths.isEmpty) return;
+
+    _activePaths.removeAll(removedPaths);
+
+    if (kDebugMode) {
+      print('Removing ${removedPaths.length} paths from subscription (remaining: ${_activePaths.length})');
+    }
+
+    // Send unsubscribe message for units-preference plugin
+    if (_authToken != null && _vesselContext != null) {
+      final unsubscribeMessage = {
+        'context': _vesselContext,
+        'unsubscribe': removedPaths.map((path) => {'path': path}).toList(),
+      };
+
+      _channel?.sink.add(jsonEncode(unsubscribeMessage));
+    }
+  }
+
+  /// Update subscription with current active paths
+  Future<void> _updateSubscription() async {
+    if (!_isConnected || _channel == null || _activePaths.isEmpty) return;
+
+    if (_authToken != null && _vesselContext != null) {
+      // Units-preference plugin: subscribe to specific paths
+      final subscription = {
+        'context': _vesselContext,
+        'subscribe': _activePaths.map((path) => {
+          'path': path,
+          'period': 1000,
+          'format': 'delta',
+          'policy': 'instant',
+        }).toList(),
+      };
+
+      _channel?.sink.add(jsonEncode(subscription));
+
+      if (kDebugMode) {
+        print('Updated subscription: ${_activePaths.length} active paths');
+      }
+    } else {
+      // Standard SignalK: use wildcard (fallback)
+      final subscription = {
+        'context': 'vessels.self',
+        'subscribe': [
+          {
+            'path': '*',
+            'period': 1000,
+            'format': 'delta',
+            'policy': 'instant',
+          }
+        ]
+      };
+
+      _channel?.sink.add(jsonEncode(subscription));
+    }
+  }
+
   /// Disconnect from server
-  void disconnect() {
-    _subscription?.cancel();
-    _channel?.sink.close();
-    _isConnected = false;
-    _latestData.clear();
-    notifyListeners();
+  Future<void> disconnect() async {
+    try {
+      await _subscription?.cancel();
+      _subscription = null;
+
+      await _channel?.sink.close();
+      _channel = null;
+
+      _isConnected = false;
+      _latestData.clear();
+      _activePaths.clear();
+      _vesselContext = null;
+
+      if (kDebugMode) {
+        print('Disconnected and cleaned up WebSocket channel');
+      }
+
+      notifyListeners();
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error during disconnect: $e');
+      }
+    }
   }
 
   @override

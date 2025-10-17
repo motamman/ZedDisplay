@@ -1,11 +1,104 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../services/signalk_service.dart';
+import '../services/tool_registry.dart';
+import '../models/tool_instance.dart';
 import '../widgets/radial_gauge.dart';
 import '../widgets/compass_gauge.dart';
+import 'tool_config_screen.dart';
+import 'template_library_screen.dart';
+import 'settings_screen.dart';
 
-class DashboardScreen extends StatelessWidget {
+class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
+
+  @override
+  State<DashboardScreen> createState() => _DashboardScreenState();
+}
+
+class _DashboardScreenState extends State<DashboardScreen> {
+  final List<ToolInstance> _customTools = [];
+  bool _showDebugInfo = false;
+
+  Future<void> _addTool() async {
+    final result = await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => const ToolConfigScreen(screenId: 'main'),
+      ),
+    );
+
+    if (result is ToolInstance) {
+      setState(() {
+        _customTools.add(result);
+      });
+    }
+  }
+
+  Future<void> _browseTemplates() async {
+    final result = await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => const TemplateLibraryScreen(),
+      ),
+    );
+
+    if (result is ToolInstance) {
+      setState(() {
+        _customTools.add(result);
+      });
+    }
+  }
+
+  void _showAddMenu() {
+    showModalBottomSheet(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.add_circle_outline),
+              title: const Text('Create Custom Tool'),
+              subtitle: const Text('Configure a tool from scratch'),
+              onTap: () {
+                Navigator.pop(context);
+                _addTool();
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.collections_bookmark),
+              title: const Text('Browse Templates'),
+              subtitle: const Text('Use pre-configured tool templates'),
+              onTap: () {
+                Navigator.pop(context);
+                _browseTemplates();
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _removeTool(String toolId) {
+    setState(() {
+      _customTools.removeWhere((tool) => tool.id == toolId);
+    });
+  }
+
+  // Note: This is a test screen, not used in production
+  // The real dashboard is DashboardManagerScreen
+  Future<void> _saveAsTemplate(ToolInstance toolInstance) async {
+    // This feature is not implemented in the new architecture
+    // Tools are managed directly in the ToolService
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Feature not available in this test screen'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+    }
+  }
 
   // Test method for vessel ID
   void _testGetVesselId(BuildContext context, SignalKService service) async {
@@ -123,8 +216,13 @@ class DashboardScreen extends StatelessWidget {
           IconButton(
             icon: const Icon(Icons.settings),
             onPressed: () {
-              // TODO: Navigate to settings
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (context) => const SettingsScreen(),
+                ),
+              );
             },
+            tooltip: 'Settings',
           ),
         ],
       ),
@@ -142,11 +240,16 @@ class DashboardScreen extends StatelessWidget {
                     style: TextStyle(fontSize: 18, color: Colors.grey),
                   ),
                   const SizedBox(height: 16),
-                  ElevatedButton(
+                  ElevatedButton.icon(
                     onPressed: () {
-                      Navigator.of(context).pop();
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (context) => const SettingsScreen(),
+                        ),
+                      );
                     },
-                    child: const Text('Back to Connection'),
+                    icon: const Icon(Icons.settings),
+                    label: const Text('Connection Settings'),
                   ),
                 ],
               ),
@@ -156,20 +259,111 @@ class DashboardScreen extends StatelessWidget {
           // Extract common marine data paths (already converted by units-preference plugin)
           final speedOverGround = service.getConvertedValue('navigation.speedOverGround') ?? 0.0;
           final speedThroughWater = service.getConvertedValue('navigation.speedThroughWater') ?? 0.0;
-          final heading = service.getConvertedValue('navigation.headingTrue') ?? 0.0;
+          final heading = service.getConvertedValue('navigation.headingMagnetic') ?? 0.0;
           final windSpeed = service.getConvertedValue('environment.wind.speedApparent') ?? 0.0;
           final depth = service.getConvertedValue('environment.depth.belowTransducer') ?? 0.0;
-          final batteryVoltage = service.getConvertedValue('electrical.batteries.house.voltage') ?? 0.0;
+          final batteryVoltage = service.getConvertedValue('electrical.batteries.512.voltage') ?? 0.0;
 
           // Get unit symbols from server configuration
           final speedUnit = service.getUnitSymbol('navigation.speedOverGround') ?? 'kts';
           final depthUnit = service.getUnitSymbol('environment.depth.belowTransducer') ?? 'm';
-          final voltageUnit = service.getUnitSymbol('electrical.batteries.house.voltage') ?? 'V';
+          final voltageUnit = service.getUnitSymbol('electrical.batteries.512.voltage') ?? 'V';
 
           return SingleChildScrollView(
             padding: const EdgeInsets.all(16.0),
             child: Column(
               children: [
+                // Custom Tools Section
+                if (_customTools.isNotEmpty) ...[
+                  Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(16.0),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              const Text(
+                                'Custom Tools',
+                                style: TextStyle(
+                                  fontSize: 20,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              const Spacer(),
+                              Text(
+                                '${_customTools.length} tools',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.grey[600],
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 16),
+                          GridView.builder(
+                            shrinkWrap: true,
+                            physics: const NeverScrollableScrollPhysics(),
+                            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                              crossAxisCount: 2,
+                              mainAxisSpacing: 16,
+                              crossAxisSpacing: 16,
+                            ),
+                            itemCount: _customTools.length,
+                            itemBuilder: (context, index) {
+                              final tool = _customTools[index];
+                              final registry = ToolRegistry();
+
+                              return Stack(
+                                children: [
+                                  registry.buildTool(
+                                    tool.toolTypeId,
+                                    tool.config,
+                                    service,
+                                  ),
+                                  // Save as Template button
+                                  Positioned(
+                                    top: 4,
+                                    left: 4,
+                                    child: IconButton(
+                                      icon: const Icon(Icons.bookmark_add, size: 16),
+                                      onPressed: () => _saveAsTemplate(tool),
+                                      style: IconButton.styleFrom(
+                                        backgroundColor: Colors.blue.withValues(alpha: 0.7),
+                                        foregroundColor: Colors.white,
+                                        padding: const EdgeInsets.all(4),
+                                        minimumSize: const Size(24, 24),
+                                      ),
+                                      tooltip: 'Save as Template',
+                                    ),
+                                  ),
+                                  // Delete button
+                                  Positioned(
+                                    top: 4,
+                                    right: 4,
+                                    child: IconButton(
+                                      icon: const Icon(Icons.close, size: 16),
+                                      onPressed: () => _removeTool(tool.id),
+                                      style: IconButton.styleFrom(
+                                        backgroundColor: Colors.red.withValues(alpha: 0.7),
+                                        foregroundColor: Colors.white,
+                                        padding: const EdgeInsets.all(4),
+                                        minimumSize: const Size(24, 24),
+                                      ),
+                                      tooltip: 'Remove',
+                                    ),
+                                  ),
+                                ],
+                              );
+                            },
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                ],
+
                 // Navigation Section
                 Card(
                   child: Padding(
@@ -302,13 +496,13 @@ class DashboardScreen extends StatelessWidget {
                 ),
                 const SizedBox(height: 16),
 
-                // Debug Info (you can remove this later)
+                // Debug Info (collapsible)
                 Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(16.0),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                  child: ExpansionTile(
+                    title: Row(
                       children: [
+                        const Icon(Icons.bug_report, size: 18),
+                        const SizedBox(width: 8),
                         const Text(
                           'Debug Info',
                           style: TextStyle(
@@ -316,46 +510,78 @@ class DashboardScreen extends StatelessWidget {
                             fontWeight: FontWeight.bold,
                           ),
                         ),
-                        const SizedBox(height: 8),
-                        Text(
-                          'Data points received: ${service.latestData.length}',
-                          style: const TextStyle(fontSize: 12),
-                        ),
-                        if (service.latestData.isNotEmpty)
-                          Text(
-                            'Sample paths: ${service.latestData.keys.take(5).join(", ")}',
-                            style: const TextStyle(fontSize: 10, color: Colors.grey),
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: Colors.blue.withValues(alpha: 0.2),
+                            borderRadius: BorderRadius.circular(10),
                           ),
-                        const SizedBox(height: 12),
-                        Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
-                          children: [
-                            ElevatedButton.icon(
-                              onPressed: () => _testGetVesselId(context, service),
-                              icon: const Icon(Icons.directions_boat, size: 16),
-                              label: const Text('Get Vessel ID', style: TextStyle(fontSize: 12)),
-                            ),
-                            ElevatedButton.icon(
-                              onPressed: () => _testGetPaths(context, service),
-                              icon: const Icon(Icons.list, size: 16),
-                              label: const Text('Get All Paths', style: TextStyle(fontSize: 12)),
-                            ),
-                            ElevatedButton.icon(
-                              onPressed: () => _testGetSources(context, service),
-                              icon: const Icon(Icons.sensors, size: 16),
-                              label: const Text('Get Sources', style: TextStyle(fontSize: 12)),
-                            ),
-                          ],
+                          child: Text(
+                            '${service.latestData.length} paths',
+                            style: const TextStyle(fontSize: 10),
+                          ),
                         ),
                       ],
                     ),
+                    initiallyExpanded: _showDebugInfo,
+                    onExpansionChanged: (expanded) {
+                      setState(() {
+                        _showDebugInfo = expanded;
+                      });
+                    },
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.all(16.0),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Data points received: ${service.latestData.length}',
+                              style: const TextStyle(fontSize: 12),
+                            ),
+                            if (service.latestData.isNotEmpty)
+                              Text(
+                                'Sample paths: ${service.latestData.keys.take(5).join(", ")}',
+                                style: const TextStyle(fontSize: 10, color: Colors.grey),
+                              ),
+                            const SizedBox(height: 12),
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: [
+                                ElevatedButton.icon(
+                                  onPressed: () => _testGetVesselId(context, service),
+                                  icon: const Icon(Icons.directions_boat, size: 16),
+                                  label: const Text('Get Vessel ID', style: TextStyle(fontSize: 12)),
+                                ),
+                                ElevatedButton.icon(
+                                  onPressed: () => _testGetPaths(context, service),
+                                  icon: const Icon(Icons.list, size: 16),
+                                  label: const Text('Get All Paths', style: TextStyle(fontSize: 12)),
+                                ),
+                                ElevatedButton.icon(
+                                  onPressed: () => _testGetSources(context, service),
+                                  icon: const Icon(Icons.sensors, size: 16),
+                                  label: const Text('Get Sources', style: TextStyle(fontSize: 12)),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ],
             ),
           );
         },
+      ),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: _showAddMenu,
+        icon: const Icon(Icons.add),
+        label: const Text('Add Tool'),
       ),
     );
   }
