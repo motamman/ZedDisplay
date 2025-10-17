@@ -206,16 +206,19 @@ class _SourceSelectorDialogState extends State<SourceSelectorDialog> {
           final value = sourceData['value'];
           final timestamp = sourceData['timestamp'] as String?;
 
+          final isSelected = widget.currentSource == sourceId;
+
           return ListTile(
             leading: Icon(
-              isActive ? Icons.radio_button_checked : Icons.radio_button_off,
-              color: isActive ? Colors.green : Colors.grey,
+              isSelected ? Icons.check_circle : (isActive ? Icons.star : Icons.circle_outlined),
+              color: isSelected ? Theme.of(context).colorScheme.primary : (isActive ? Colors.orange : Colors.grey),
             ),
             title: Text(
               sourceId,
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 13,
                 fontFamily: 'monospace',
+                fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
               ),
             ),
             subtitle: Column(
@@ -234,22 +237,31 @@ class _SourceSelectorDialogState extends State<SourceSelectorDialog> {
                       color: Colors.grey[600],
                     ),
                   ),
-                if (isActive)
+                if (isActive && !isSelected)
                   const Text(
-                    'Currently Active',
+                    'SignalK Default (Auto will use this)',
                     style: TextStyle(
                       fontSize: 10,
-                      color: Colors.green,
+                      color: Colors.orange,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                if (isSelected)
+                  Text(
+                    'SELECTED',
+                    style: TextStyle(
+                      fontSize: 10,
+                      color: Theme.of(context).colorScheme.primary,
                       fontWeight: FontWeight.bold,
                     ),
                   ),
               ],
             ),
-            trailing: widget.currentSource == sourceId
+            trailing: isSelected
                 ? Icon(Icons.check_circle,
                     color: Theme.of(context).colorScheme.primary)
-                : null,
-            selected: widget.currentSource == sourceId,
+                : (isActive ? const Icon(Icons.star, color: Colors.orange, size: 20) : null),
+            selected: isSelected,
             onTap: () {
               widget.onSelect(sourceId);
               Navigator.of(context).pop();

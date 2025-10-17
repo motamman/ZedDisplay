@@ -31,8 +31,23 @@ class SignalKUpdateValue {
   });
 
   factory SignalKUpdateValue.fromJson(Map<String, dynamic> json) {
+    // Parse source - handle both standard SignalK format and units-preference format
+    String? sourceLabel;
+    if (json.containsKey('\$source')) {
+      // Units-preference format: "$source": "pypilot" (string)
+      sourceLabel = json['\$source'] as String?;
+    } else if (json.containsKey('source')) {
+      // Standard SignalK format: "source": {"label": "pypilot", ...} (object)
+      final sourceObj = json['source'];
+      if (sourceObj is Map<String, dynamic>) {
+        sourceLabel = sourceObj['label'] as String?;
+      } else if (sourceObj is String) {
+        sourceLabel = sourceObj;
+      }
+    }
+
     return SignalKUpdateValue(
-      source: json['source']?['label'],
+      source: sourceLabel,
       timestamp: DateTime.parse(json['timestamp'] ?? DateTime.now().toIso8601String()),
       values: (json['values'] as List?)
               ?.map((v) => SignalKValue.fromJson(v))

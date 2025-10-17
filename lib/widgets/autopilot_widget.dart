@@ -79,20 +79,23 @@ class AutopilotWidget extends StatelessWidget {
   Widget _buildCompassDisplay() {
     return AspectRatio(
       aspectRatio: 1,
-      child: Stack(
-        children: [
-          // Fixed port/starboard arcs at top (drawn first, behind everything)
-          Center(
-            child: CustomPaint(
-              size: const Size(200, 200),
-              painter: _PortStarboardArcsPainter(),
-            ),
-          ),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final size = Size(constraints.maxWidth, constraints.maxHeight);
+          return Stack(
+            children: [
+              // Fixed port/starboard arcs at top (drawn first, behind everything)
+              Center(
+                child: CustomPaint(
+                  size: size,
+                  painter: _PortStarboardArcsPainter(),
+                ),
+              ),
 
-          // Rotating compass card (marine style)
-          Transform.rotate(
-            angle: -currentHeading * math.pi / 180, // Rotate card opposite to heading
-            child: SfRadialGauge(
+              // Rotating compass card (marine style)
+              Transform.rotate(
+                angle: -currentHeading * math.pi / 180, // Rotate card opposite to heading
+                child: SfRadialGauge(
               axes: <RadialAxis>[
                 RadialAxis(
                   minimum: 0,
@@ -154,16 +157,16 @@ class AutopilotWidget extends StatelessWidget {
             ),
           ),
 
-          // Fixed needle pointing up (current heading direction)
-          Center(
-            child: CustomPaint(
-              size: const Size(200, 200),
-              painter: _FixedNeedlePainter(primaryColor),
-            ),
-          ),
+              // Fixed needle pointing up (current heading direction)
+              Center(
+                child: CustomPaint(
+                  size: size,
+                  painter: _FixedNeedlePainter(primaryColor),
+                ),
+              ),
 
-          // Center annotation with target heading value (non-rotating)
-          Align(
+              // Center annotation with target heading value (non-rotating)
+              Align(
             alignment: Alignment.center,
             child: Padding(
               padding: const EdgeInsets.only(top: 60.0),
@@ -268,7 +271,9 @@ class AutopilotWidget extends StatelessWidget {
                 ),
               ),
             ),
-        ],
+            ],
+          );
+        },
       ),
     );
   }

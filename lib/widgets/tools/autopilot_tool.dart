@@ -1,3 +1,5 @@
+import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../../models/tool_definition.dart';
 import '../../models/tool_config.dart';
@@ -43,16 +45,41 @@ class _AutopilotToolState extends State<AutopilotTool> {
   double? _trueWindAngle;
   double? _crossTrackError;
 
+  // Polling timer for autopilot state (fallback if delta updates don't work)
+  Timer? _pollingTimer;
+
   @override
   void initState() {
     super.initState();
     // Subscribe to SignalK data updates
     widget.signalKService.addListener(_onSignalKUpdate);
     _subscribeToAutopilotPaths();
+
+    // Initial state check
+    if (kDebugMode) {
+      print('Autopilot widget initialized');
+      print('Configured paths: ${widget.config.dataSources.map((ds) => ds.path).toList()}');
+      print('Configured sources:');
+      for (var i = 0; i < widget.config.dataSources.length; i++) {
+        final ds = widget.config.dataSources[i];
+        print('  [$i] ${ds.path} -> source: ${ds.source ?? "AUTO (no source specified)"}');
+      }
+    }
+
+    // Do an initial update after a short delay to let subscriptions settle
+    Future.delayed(const Duration(milliseconds: 500), () {
+      if (mounted) {
+        _onSignalKUpdate();
+        // REST polling disabled - was overloading server
+        // Use WebSocket deltas only
+        // _startPolling();
+      }
+    });
   }
 
   @override
   void dispose() {
+    _pollingTimer?.cancel();
     widget.signalKService.removeListener(_onSignalKUpdate);
     super.dispose();
   }
@@ -81,6 +108,73 @@ class _AutopilotToolState extends State<AutopilotTool> {
     widget.signalKService.subscribeToPaths(allPaths);
   }
 
+  /// Start polling autopilot state via REST API as fallback
+  /// This is needed because the autopilot plugin may not publish delta updates
+  void _startPolling() {
+    // Poll every 2 seconds for autopilot state
+    _pollingTimer = Timer.periodic(const Duration(seconds: 2), (_) async {
+      if (!mounted) return;
+
+      try {
+        // Fetch autopilot state directly from REST API
+        await _pollAutopilotState();
+      } catch (e) {
+        if (kDebugMode) {
+          print('Error polling autopilot state: $e');
+        }
+      }
+    });
+
+    if (kDebugMode) {
+      print('Started polling autopilot state every 2 seconds');
+    }
+  }
+
+  /// Poll autopilot state from REST API
+  Future<void> _pollAutopilotState() async {
+    // Use the SignalK service to fetch current autopilot state
+    final stateValue = await widget.signalKService.getRestValue('steering.autopilot.state');
+    final targetValue = await widget.signalKService.getRestValue('steering.autopilot.target.headingMagnetic');
+
+    if (!mounted) return;
+
+    bool stateChanged = false;
+
+    setState(() {
+      // Update state if we got a value from REST API
+      if (stateValue != null) {
+        final rawMode = stateValue.toString();
+        final newMode = rawMode.isNotEmpty
+            ? rawMode[0].toUpperCase() + rawMode.substring(1).toLowerCase()
+            : 'Standby';
+
+        if (newMode != _mode) {
+          if (kDebugMode) {
+            print('📡 Autopilot state from REST API: $_mode -> $newMode');
+          }
+          _mode = newMode;
+          stateChanged = true;
+        }
+
+        // Update engaged status
+        final newEngaged = _mode.toLowerCase() != 'standby';
+        if (newEngaged != _engaged) {
+          _engaged = newEngaged;
+          stateChanged = true;
+        }
+      }
+
+      // Update target heading from REST API
+      if (targetValue != null && targetValue is num) {
+        _targetHeading = _radiansToDegrees(targetValue);
+      }
+    });
+
+    if (stateChanged && kDebugMode) {
+      print('State updated from REST polling: mode=$_mode, engaged=$_engaged');
+    }
+  }
+
   /// Update local state from SignalK data
   void _onSignalKUpdate() {
     if (!mounted) return;
@@ -90,53 +184,121 @@ class _AutopilotToolState extends State<AutopilotTool> {
 
     setState(() {
       // 0: Autopilot state (REQUIRED)
+      // In V1 API, steering.autopilot.state contains the mode (auto, wind, route, standby)
       if (dataSources.isNotEmpty) {
-        final stateData = widget.signalKService.getValue(dataSources[0].path);
+        final statePath = dataSources[0].path;
+        final stateSource = dataSources[0].source;
+        final stateData = widget.signalKService.getValue(statePath, source: stateSource);
+
         if (stateData?.value != null) {
-          _mode = stateData!.value.toString();
+          final rawMode = stateData!.value.toString();
+          // Capitalize first letter for display consistency
+          final newMode = rawMode.isNotEmpty
+              ? rawMode[0].toUpperCase() + rawMode.substring(1).toLowerCase()
+              : 'Standby';
+
+          if (newMode != _mode) {
+            if (kDebugMode) {
+              print('🌊 Autopilot state from WebSocket delta: $_mode -> $newMode (raw: $rawMode)');
+            }
+            _mode = newMode;
+          }
+        } else {
+          if (kDebugMode) {
+            // Only log this occasionally to avoid spam
+            if (DateTime.now().second % 10 == 0) {
+              print('⚠️  No WebSocket delta updates for $statePath');
+              final autopilotPaths = widget.signalKService.latestData.keys
+                  .where((k) => k.contains('autopilot'))
+                  .toList();
+              if (autopilotPaths.isEmpty) {
+                print('   No autopilot paths in WebSocket data at all');
+              } else {
+                print('   Available autopilot paths: $autopilotPaths');
+              }
+            }
+          }
         }
       }
 
       // 1: Autopilot mode (optional - may be same as state in V1)
+      // In V1, this is redundant with state. In V2, this would be a separate path.
       // Skip for now, using state for mode
 
       // 2: Autopilot engaged (optional - V2 only)
+      // In V1, we derive engaged state from the mode
+      final bool newEngaged;
       if (dataSources.length > 2) {
-        final engagedData = widget.signalKService.getValue(dataSources[2].path);
-        if (engagedData?.value != null) {
-          _engaged = engagedData!.value as bool;
+        final engagedData = widget.signalKService.getValue(
+          dataSources[2].path,
+          source: dataSources[2].source,
+        );
+        if (engagedData?.value != null && engagedData!.value is bool) {
+          // V2: Use explicit engaged boolean
+          newEngaged = engagedData.value as bool;
         } else {
           // V1: engaged if not in standby
-          _engaged = _mode.toLowerCase() != 'standby';
+          newEngaged = _mode.toLowerCase() != 'standby';
         }
       } else {
         // V1: engaged if not in standby
-        _engaged = _mode.toLowerCase() != 'standby';
+        newEngaged = _mode.toLowerCase() != 'standby';
+      }
+
+      if (newEngaged != _engaged) {
+        if (kDebugMode) {
+          print('Autopilot engaged state changed: $_engaged -> $newEngaged');
+        }
+        _engaged = newEngaged;
       }
 
       // 3: Target heading (REQUIRED)
       if (dataSources.length > 3) {
-        final targetData = widget.signalKService.getValue(dataSources[3].path);
+        final targetData = widget.signalKService.getValue(
+          dataSources[3].path,
+          source: dataSources[3].source,
+        );
         if (targetData?.value != null) {
-          _targetHeading = _radiansToDegrees(targetData!.value as num);
+          // Value is already in degrees from units-preference plugin
+          _targetHeading = (targetData!.value as num).toDouble();
         }
       }
 
-      // 4: Current heading (REQUIRED)
+      // 4: Current heading (REQUIRED) - THIS IS THE KEY ONE!
       if (dataSources.length > 4) {
-        final headingData = widget.signalKService.getValue(dataSources[4].path);
+        if (kDebugMode) {
+          print('🧭 Requesting heading: path=${dataSources[4].path}, source=${dataSources[4].source ?? "AUTO"}');
+        }
+        final headingData = widget.signalKService.getValue(
+          dataSources[4].path,
+          source: dataSources[4].source,
+        );
         if (headingData?.value != null) {
-          _currentHeading = _radiansToDegrees(headingData!.value as num);
+          // Value is already in degrees from units-preference plugin's converted field
+          final newHeading = (headingData!.value as num).toDouble();
+          if (kDebugMode && (newHeading - _currentHeading).abs() > 5) {
+            print('🧭 Heading CHANGED significantly: $_currentHeading -> $newHeading (delta: ${newHeading - _currentHeading})');
+          }
+          _currentHeading = newHeading;
+        } else {
+          if (kDebugMode) {
+            print('⚠️  No heading data received!');
+          }
         }
       }
 
       // 5: Rudder angle (REQUIRED)
       if (dataSources.length > 5) {
-        final rudderData = widget.signalKService.getValue(dataSources[5].path);
+        final rudderData = widget.signalKService.getValue(
+          dataSources[5].path,
+          source: dataSources[5].source,
+        );
         if (rudderData?.value != null) {
-          _rudderAngle = _radiansToDegrees(rudderData!.value as num);
+          // Value is already in degrees from units-preference plugin
+          // Invert by default (positive rudder = turn right = card turns left visually)
+          _rudderAngle = -(rudderData!.value as num).toDouble();
 
-          // Apply invert rudder config if set
+          // Apply additional invert rudder config if set (for double-negative = normal)
           final invertRudder = widget.config.style.customProperties?['invertRudder'] as bool? ?? false;
           if (invertRudder) {
             _rudderAngle = -_rudderAngle;
@@ -146,15 +308,22 @@ class _AutopilotToolState extends State<AutopilotTool> {
 
       // 6: Apparent wind angle (optional)
       if (dataSources.length > 6) {
-        final awaData = widget.signalKService.getValue(dataSources[6].path);
+        final awaData = widget.signalKService.getValue(
+          dataSources[6].path,
+          source: dataSources[6].source,
+        );
         if (awaData?.value != null) {
-          _apparentWindAngle = _radiansToDegrees(awaData!.value as num);
+          // Value is already in degrees from units-preference plugin
+          _apparentWindAngle = (awaData!.value as num).toDouble();
         }
       }
 
       // 7: Cross track error (optional)
       if (dataSources.length > 7) {
-        final xteData = widget.signalKService.getValue(dataSources[7].path);
+        final xteData = widget.signalKService.getValue(
+          dataSources[7].path,
+          source: dataSources[7].source,
+        );
         if (xteData?.value != null) {
           _crossTrackError = (xteData!.value as num).toDouble();
         }
@@ -164,13 +333,15 @@ class _AutopilotToolState extends State<AutopilotTool> {
       // True heading (optional)
       final headingTrueData = widget.signalKService.getValue('navigation.headingTrue');
       if (headingTrueData?.value != null) {
-        _currentHeadingTrue = _radiansToDegrees(headingTrueData!.value as num);
+        // Value is already in degrees from units-preference plugin
+        _currentHeadingTrue = (headingTrueData!.value as num).toDouble();
       }
 
       // True wind angle (optional)
       final twaData = widget.signalKService.getValue('environment.wind.angleTrueWater');
       if (twaData?.value != null) {
-        _trueWindAngle = _radiansToDegrees(twaData!.value as num);
+        // Value is already in degrees from units-preference plugin
+        _trueWindAngle = (twaData!.value as num).toDouble();
       }
     });
   }
@@ -182,14 +353,38 @@ class _AutopilotToolState extends State<AutopilotTool> {
 
   /// Send V1 autopilot command via PUT request
   Future<void> _sendV1Command(String path, dynamic value) async {
+    if (kDebugMode) {
+      print('Sending autopilot command: $path = $value');
+    }
+
     try {
       await widget.signalKService.sendPutRequest(path, value);
+
+      if (kDebugMode) {
+        print('Autopilot command sent successfully');
+      }
+
+      // Show success feedback briefly
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Command sent: $value'),
+            backgroundColor: Colors.green,
+            duration: const Duration(milliseconds: 1000),
+          ),
+        );
+      }
     } catch (e) {
+      if (kDebugMode) {
+        print('Autopilot command failed: $e');
+      }
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Autopilot command failed: $e'),
             backgroundColor: Colors.red,
+            duration: const Duration(seconds: 3),
           ),
         );
       }
@@ -217,9 +412,36 @@ class _AutopilotToolState extends State<AutopilotTool> {
     _sendV1Command('steering.autopilot.actions.adjustHeading', degrees);
   }
 
-  /// Handle tack
-  void _handleTack(String direction) {
-    _sendV1Command('steering.autopilot.actions.tack', direction);
+  /// Handle tack with confirmation
+  void _handleTack(String direction) async {
+    // Show confirmation dialog for tacking
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Confirm Tack ${direction == 'port' ? 'to Port' : 'to Starboard'}'),
+        content: Text(
+          'Are you sure you want to tack to ${direction == 'port' ? 'port' : 'starboard'}?\n\n'
+          'This will initiate an autopilot tack maneuver.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: direction == 'port' ? Colors.red : Colors.green,
+            ),
+            child: Text('Tack ${direction == 'port' ? 'Port' : 'Starboard'}'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      _sendV1Command('steering.autopilot.actions.tack', direction);
+    }
   }
 
   @override
@@ -267,20 +489,86 @@ class _AutopilotToolState extends State<AutopilotTool> {
       displayWindAngle = _trueWindAngle;
     }
 
-    return AutopilotWidget(
-      currentHeading: displayHeading,
-      targetHeading: _targetHeading,
-      rudderAngle: _rudderAngle,
-      mode: _mode,
-      engaged: _engaged,
-      apparentWindAngle: displayWindAngle,
-      crossTrackError: _crossTrackError,
-      headingTrue: headingTrue,
-      primaryColor: primaryColor,
-      onEngageDisengage: _handleEngageDisengage,
-      onModeChange: _handleModeChange,
-      onAdjustHeading: _handleAdjustHeading,
-      onTack: _handleTack,
+    return Stack(
+      children: [
+        AutopilotWidget(
+          currentHeading: displayHeading,
+          targetHeading: _targetHeading,
+          rudderAngle: _rudderAngle,
+          mode: _mode,
+          engaged: _engaged,
+          apparentWindAngle: displayWindAngle,
+          crossTrackError: _crossTrackError,
+          headingTrue: headingTrue,
+          primaryColor: primaryColor,
+          onEngageDisengage: _handleEngageDisengage,
+          onModeChange: _handleModeChange,
+          onAdjustHeading: _handleAdjustHeading,
+          onTack: _handleTack,
+        ),
+        // Debug overlay button (only in debug mode)
+        if (kDebugMode)
+          Positioned(
+            top: 8,
+            right: 8,
+            child: IconButton(
+              icon: const Icon(Icons.bug_report, color: Colors.orange),
+              onPressed: _showDebugInfo,
+            ),
+          ),
+      ],
+    );
+  }
+
+  /// Show debug information dialog
+  void _showDebugInfo() {
+    final autopilotPaths = widget.signalKService.latestData.keys
+        .where((k) => k.contains('autopilot') || k.contains('steering'))
+        .toList();
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Autopilot Debug Info'),
+        content: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text('Current Mode: $_mode', style: const TextStyle(fontWeight: FontWeight.bold)),
+              Text('Engaged: $_engaged', style: const TextStyle(fontWeight: FontWeight.bold)),
+              const Divider(),
+              const Text('Configured Paths:', style: TextStyle(fontWeight: FontWeight.bold)),
+              ...widget.config.dataSources.map((ds) => Text('  ${ds.path}')),
+              const Divider(),
+              const Text('Available Autopilot Paths:', style: TextStyle(fontWeight: FontWeight.bold)),
+              if (autopilotPaths.isEmpty)
+                const Text('  No autopilot paths found!', style: TextStyle(color: Colors.red))
+              else
+                ...autopilotPaths.map((path) {
+                  final data = widget.signalKService.getValue(path);
+                  return Text('  $path: ${data?.value}');
+                }),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close'),
+          ),
+          TextButton(
+            onPressed: () {
+              _onSignalKUpdate();
+              Navigator.pop(context);
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Force refreshed')),
+              );
+            },
+            child: const Text('Force Refresh'),
+          ),
+        ],
+      ),
     );
   }
 }

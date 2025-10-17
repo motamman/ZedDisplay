@@ -220,71 +220,21 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
   void _editDataSource(int index) async {
     final dataSource = _dataSources[index];
     final signalKService = Provider.of<SignalKService>(context, listen: false);
-    String? newSource = dataSource.source;
-    String? newLabel = dataSource.label;
 
     await showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Text('Edit ${dataSource.path}'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // Source selection
-            ListTile(
-              leading: const Icon(Icons.sensors),
-              title: const Text('Data Source'),
-              subtitle: Text(newSource ?? 'Auto'),
-              trailing: const Icon(Icons.edit),
-              onTap: () async {
-                Navigator.of(context).pop();
-                await showDialog(
-                  context: context,
-                  builder: (context) => SourceSelectorDialog(
-                    signalKService: signalKService,
-                    path: dataSource.path,
-                    currentSource: newSource,
-                    onSelect: (source) {
-                      newSource = source;
-                    },
-                  ),
-                );
-                if (mounted) {
-                  _editDataSource(index);
-                }
-              },
-            ),
-            const SizedBox(height: 8),
-            // Label input
-            TextField(
-              decoration: const InputDecoration(
-                labelText: 'Custom Label',
-                border: OutlineInputBorder(),
-              ),
-              controller: TextEditingController(text: newLabel),
-              onChanged: (value) => newLabel = value,
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () {
-              setState(() {
-                _dataSources[index] = DataSource(
-                  path: dataSource.path,
-                  source: newSource,
-                  label: newLabel?.trim().isEmpty == true ? null : newLabel,
-                );
-              });
-              Navigator.of(context).pop();
-            },
-            child: const Text('Save'),
-          ),
-        ],
+      builder: (context) => _EditDataSourceDialog(
+        dataSource: dataSource,
+        signalKService: signalKService,
+        onSave: (newSource, newLabel) {
+          setState(() {
+            _dataSources[index] = DataSource(
+              path: dataSource.path,
+              source: newSource,
+              label: newLabel?.trim().isEmpty == true ? null : newLabel,
+            );
+          });
+        },
       ),
     );
   }
@@ -1228,5 +1178,92 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
     }
 
     return widgets;
+  }
+}
+
+/// Stateful dialog for editing a data source
+class _EditDataSourceDialog extends StatefulWidget {
+  final DataSource dataSource;
+  final SignalKService signalKService;
+  final Function(String?, String?) onSave;
+
+  const _EditDataSourceDialog({
+    required this.dataSource,
+    required this.signalKService,
+    required this.onSave,
+  });
+
+  @override
+  State<_EditDataSourceDialog> createState() => _EditDataSourceDialogState();
+}
+
+class _EditDataSourceDialogState extends State<_EditDataSourceDialog> {
+  late String? _newSource;
+  late String? _newLabel;
+
+  @override
+  void initState() {
+    super.initState();
+    _newSource = widget.dataSource.source;
+    _newLabel = widget.dataSource.label;
+  }
+
+  Future<void> _selectSource() async {
+    await showDialog(
+      context: context,
+      builder: (context) => SourceSelectorDialog(
+        signalKService: widget.signalKService,
+        path: widget.dataSource.path,
+        currentSource: _newSource,
+        onSelect: (source) {
+          setState(() {
+            _newSource = source;
+          });
+        },
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text('Edit ${widget.dataSource.path}'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Source selection
+          ListTile(
+            leading: const Icon(Icons.sensors),
+            title: const Text('Data Source'),
+            subtitle: Text(_newSource ?? 'Auto'),
+            trailing: const Icon(Icons.edit),
+            onTap: _selectSource,
+          ),
+          const SizedBox(height: 8),
+          // Label input
+          TextField(
+            decoration: const InputDecoration(
+              labelText: 'Custom Label',
+              border: OutlineInputBorder(),
+            ),
+            controller: TextEditingController(text: _newLabel),
+            onChanged: (value) => _newLabel = value,
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        TextButton(
+          onPressed: () {
+            widget.onSave(_newSource, _newLabel);
+            Navigator.of(context).pop();
+          },
+          child: const Text('Save'),
+        ),
+      ],
+    );
   }
 }
