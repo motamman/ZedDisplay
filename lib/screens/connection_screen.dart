@@ -155,14 +155,14 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
             mainAxisAlignment: MainAxisAlignment.center,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const Icon(
-                Icons.sailing,
-                size: 80,
-                color: Colors.blue,
+              Image.asset(
+                'assets/icon.png',
+                width: 120,
+                height: 120,
               ),
-              const SizedBox(height: 32),
+              const SizedBox(height: 24),
               const Text(
-                'SignalK Display',
+                'The ZedDisplay',
                 style: TextStyle(
                   fontSize: 32,
                   fontWeight: FontWeight.bold,
@@ -171,7 +171,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
               ),
               const SizedBox(height: 8),
               const Text(
-                'Marine data visualization',
+                'SignalK data visualization',
                 style: TextStyle(
                   fontSize: 16,
                   color: Colors.grey,

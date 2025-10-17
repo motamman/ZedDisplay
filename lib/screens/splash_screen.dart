@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:video_player/video_player.dart';
 import 'package:provider/provider.dart';
 import '../services/signalk_service.dart';
 import '../services/auth_service.dart';
@@ -8,7 +7,7 @@ import '../services/dashboard_service.dart';
 import 'connection_screen.dart';
 import 'dashboard_manager_screen.dart';
 
-/// Splash screen that plays a video once on app launch
+/// Splash screen shown on app launch while auto-connecting
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
 
@@ -17,47 +16,13 @@ class SplashScreen extends StatefulWidget {
 }
 
 class _SplashScreenState extends State<SplashScreen> {
-  VideoPlayerController? _controller;
-  bool _isInitialized = false;
-  bool _hasError = false;
   bool _isConnecting = false;
 
   @override
   void initState() {
     super.initState();
-    _initializeVideo();
     _tryAutoConnect();
-  }
-
-  Future<void> _initializeVideo() async {
-    try {
-      _controller = VideoPlayerController.asset('assets/splash.mp4');
-      await _controller!.initialize();
-      setState(() {
-        _isInitialized = true;
-      });
-
-      // Play the video once
-      _controller!.play();
-
-      // Listen for video completion
-      _controller!.addListener(_checkVideoCompleted);
-    } catch (e) {
-      debugPrint('Error loading splash video: $e');
-      setState(() {
-        _hasError = true;
-      });
-      // If video fails, navigate after a short delay
-      _navigateAfterDelay();
-    }
-  }
-
-  void _checkVideoCompleted() {
-    if (_controller != null && !_controller!.value.isPlaying) {
-      // Video has finished playing
-      _controller!.removeListener(_checkVideoCompleted);
-      _navigateToNextScreen();
-    }
+    _navigateAfterDelay();
   }
 
   Future<void> _tryAutoConnect() async {
@@ -128,65 +93,42 @@ class _SplashScreenState extends State<SplashScreen> {
   }
 
   @override
-  void dispose() {
-    _controller?.removeListener(_checkVideoCompleted);
-    _controller?.dispose();
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.black,
       body: Stack(
         fit: StackFit.expand,
         children: [
-          // Video player or fallback
-          if (_isInitialized && _controller != null)
-            Center(
-              child: AspectRatio(
-                aspectRatio: _controller!.value.aspectRatio,
-                child: VideoPlayer(_controller!),
-              ),
-            )
-          else if (_hasError)
-            // Fallback UI if video fails to load
-            Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(
-                    Icons.sailing,
-                    size: 120,
-                    color: Colors.blue[300],
+          // Static logo
+          Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Image.asset(
+                  'assets/icon.png',
+                  width: 120,
+                  height: 120,
+                ),
+                const SizedBox(height: 24),
+                const Text(
+                  'ZedDisplay',
+                  style: TextStyle(
+                    fontSize: 48,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
                   ),
-                  const SizedBox(height: 24),
-                  const Text(
-                    'ZedDisplay',
-                    style: TextStyle(
-                      fontSize: 48,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.white,
-                    ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Marine Dashboard',
+                  style: TextStyle(
+                    fontSize: 18,
+                    color: Colors.grey[400],
                   ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Marine Dashboard',
-                    style: TextStyle(
-                      fontSize: 18,
-                      color: Colors.grey[400],
-                    ),
-                  ),
-                ],
-              ),
-            )
-          else
-            // Loading indicator while video initializes
-            const Center(
-              child: CircularProgressIndicator(
-                color: Colors.white,
-              ),
+                ),
+              ],
             ),
+          ),
 
           // Connection status overlay
           if (_isConnecting)

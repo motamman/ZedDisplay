@@ -405,12 +405,11 @@ class LinearGaugeTool extends StatelessWidget {
           value: value.clamp(style.minValue ?? 0.0, style.maxValue ?? 100.0),
           position: LinearElementPosition.cross,
           offset: isVertical ? -offset : offset, // Left side for vertical (negative), below for horizontal
-          child: Transform.rotate(
-            angle: isVertical ? 0 : 3.14159 / 2, // 0° for vertical (points right), 90° for horizontal (points down)
-            child: Icon(
-              Icons.play_arrow,
-              size: pointerSize,
+          child: CustomPaint(
+            size: Size(pointerSize, pointerSize),
+            painter: _TrianglePainter(
               color: primaryColor.withValues(alpha: 0.9),
+              direction: isVertical ? AxisDirection.right : AxisDirection.down,
             ),
           ),
         ),
@@ -493,4 +492,55 @@ class LinearGaugeBuilder extends ToolBuilder {
       signalKService: signalKService,
     );
   }
+}
+
+/// Custom painter for drawing a triangle pointer
+class _TrianglePainter extends CustomPainter {
+  final Color color;
+  final AxisDirection direction;
+
+  _TrianglePainter({required this.color, required this.direction});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = color
+      ..style = PaintingStyle.fill;
+
+    final path = Path();
+
+    switch (direction) {
+      case AxisDirection.down:
+        // Triangle pointing down
+        path.moveTo(size.width / 2, size.height); // Bottom center (tip)
+        path.lineTo(0, 0); // Top left
+        path.lineTo(size.width, 0); // Top right
+        break;
+      case AxisDirection.up:
+        // Triangle pointing up
+        path.moveTo(size.width / 2, 0); // Top center (tip)
+        path.lineTo(0, size.height); // Bottom left
+        path.lineTo(size.width, size.height); // Bottom right
+        break;
+      case AxisDirection.right:
+        // Triangle pointing right
+        path.moveTo(size.width, size.height / 2); // Right center (tip)
+        path.lineTo(0, 0); // Top left
+        path.lineTo(0, size.height); // Bottom left
+        break;
+      case AxisDirection.left:
+        // Triangle pointing left
+        path.moveTo(0, size.height / 2); // Left center (tip)
+        path.lineTo(size.width, 0); // Top right
+        path.lineTo(size.width, size.height); // Bottom right
+        break;
+    }
+
+    path.close();
+    canvas.drawPath(path, paint);
+  }
+
+  @override
+  bool shouldRepaint(_TrianglePainter oldDelegate) =>
+      color != oldDelegate.color || direction != oldDelegate.direction;
 }
