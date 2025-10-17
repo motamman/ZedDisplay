@@ -441,6 +441,25 @@ class SignalKService extends ChangeNotifier {
     return result ?? _latestData[path]; // Fallback to default if source not found
   }
 
+  /// Check if data is fresh (within TTL threshold)
+  /// Returns true if data is fresh, false if stale or missing
+  bool isDataFresh(String path, {String? source, int? ttlSeconds}) {
+    if (ttlSeconds == null) {
+      // No TTL check requested
+      return true;
+    }
+
+    final dataPoint = getValue(path, source: source);
+    if (dataPoint == null) {
+      // No data available
+      return false;
+    }
+
+    final now = DateTime.now();
+    final age = now.difference(dataPoint.timestamp);
+    return age.inSeconds <= ttlSeconds;
+  }
+
   /// Get value for specific path directly from REST API
   /// This is useful when WebSocket delta updates aren't working
   Future<dynamic> getRestValue(String path) async {

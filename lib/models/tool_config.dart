@@ -36,6 +36,7 @@ class StyleConfig {
   final bool? showLabel;
   final bool? showValue;
   final bool? showUnit;
+  final int? ttlSeconds;         // Data staleness threshold in seconds (null = no check)
 
   // Windsteer-specific options
   final double? laylineAngle;    // Close-hauled layline angle (degrees)
@@ -59,6 +60,7 @@ class StyleConfig {
     this.showLabel = true,
     this.showValue = true,
     this.showUnit = true,
+    this.ttlSeconds,
     this.laylineAngle,
     this.showLaylines,
     this.showTrueWind,

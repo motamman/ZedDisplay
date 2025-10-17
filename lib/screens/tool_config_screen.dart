@@ -44,6 +44,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
   bool _showLabel = true;
   bool _showValue = true;
   bool _showUnit = true;
+  int? _ttlSeconds; // Data staleness threshold
   bool _showTickLabels = false;
   bool _pointerOnly = false; // Show only pointer, no filled bar/arc
   int _divisions = 10;
@@ -114,6 +115,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
     _showLabel = style.showLabel ?? true;
     _showValue = style.showValue ?? true;
     _showUnit = style.showUnit ?? true;
+    _ttlSeconds = style.ttlSeconds;
     _showTickLabels = style.customProperties?['showTickLabels'] as bool? ?? false;
     _pointerOnly = style.customProperties?['pointerOnly'] as bool? ?? false;
     _divisions = style.customProperties?['divisions'] as int? ?? 10;
@@ -370,6 +372,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
         showLabel: _showLabel,
         showValue: _showValue,
         showUnit: _showUnit,
+        ttlSeconds: _ttlSeconds,
         customProperties: customProperties,
       ),
     );
@@ -847,6 +850,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                                   showLabel: _showLabel,
                                   showValue: _showValue,
                                   showUnit: _showUnit,
+                                  ttlSeconds: _ttlSeconds,
                                   customProperties: previewCustomProperties,
                                 ),
                               ),
@@ -976,6 +980,28 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
         value: _showUnit,
         onChanged: (value) {
           setState(() => _showUnit = value);
+        },
+      ),
+      const SizedBox(height: 16),
+      DropdownButtonFormField<int?>(
+        decoration: const InputDecoration(
+          labelText: 'Data Staleness Threshold (TTL)',
+          border: OutlineInputBorder(),
+          helperText: 'Show "--" if data is older than this threshold',
+        ),
+        value: _ttlSeconds,
+        items: const [
+          DropdownMenuItem(value: null, child: Text('No check (always show data)')),
+          DropdownMenuItem(value: 5, child: Text('5 seconds')),
+          DropdownMenuItem(value: 10, child: Text('10 seconds')),
+          DropdownMenuItem(value: 30, child: Text('30 seconds')),
+          DropdownMenuItem(value: 60, child: Text('1 minute')),
+          DropdownMenuItem(value: 120, child: Text('2 minutes')),
+          DropdownMenuItem(value: 300, child: Text('5 minutes')),
+          DropdownMenuItem(value: 600, child: Text('10 minutes')),
+        ],
+        onChanged: (value) {
+          setState(() => _ttlSeconds = value);
         },
       ),
     ]);
