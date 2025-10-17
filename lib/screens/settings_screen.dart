@@ -92,35 +92,30 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
           const Divider(height: 32),
 
-          // Setup Management Section
-          const Padding(
-            padding: EdgeInsets.all(16.0),
-            child: Text(
-              'Dashboard Setups',
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ),
+          // Dashboard Setups Section
           Card(
-            margin: const EdgeInsets.symmetric(horizontal: 16),
-            child: Column(
-              children: [
-                ListTile(
-                  leading: const Icon(Icons.dashboard_customize, color: Colors.blue),
-                  title: const Text('Manage Setups'),
-                  subtitle: const Text('Save, load, and share dashboard configurations'),
-                  trailing: const Icon(Icons.arrow_forward_ios, size: 16),
-                  onTap: () {
-                    Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (context) => const SetupManagementScreen(),
-                      ),
-                    );
-                  },
+            margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: ListTile(
+              leading: const Icon(Icons.dashboard_customize, color: Colors.blue),
+              title: const Text(
+                'Dashboard Setups',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
                 ),
-              ],
+              ),
+              subtitle: const Text(
+                'Save, load, and share dashboard configurations',
+                style: TextStyle(fontSize: 12),
+              ),
+              trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+              onTap: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (context) => const SetupManagementScreen(),
+                  ),
+                );
+              },
             ),
           ),
 
