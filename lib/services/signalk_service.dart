@@ -249,29 +249,28 @@ class SignalKService extends ChangeNotifier {
   /// Handle incoming WebSocket messages
   void _handleMessage(dynamic message) {
     try {
-      if (kDebugMode) {
-        print('WebSocket message received (first 200 chars): ${message.toString().substring(0, message.toString().length > 200 ? 200 : message.toString().length)}');
-      }
+      // if (kDebugMode) {
+      //   print('WebSocket message received (first 200 chars): ${message.toString().substring(0, message.toString().length > 200 ? 200 : message.toString().length)}');
+      // }
 
       final data = jsonDecode(message);
 
-      if (kDebugMode) {
-        print('Decoded message keys: ${data.keys.toList()}');
-
-        // Log autopilot-related updates
-        if (data['updates'] != null) {
-          for (final update in data['updates']) {
-            if (update['values'] != null) {
-              for (final value in update['values']) {
-                final path = value['path'] as String?;
-                if (path != null && (path.contains('autopilot') || path.contains('steering'))) {
-                  print('🤖 AUTOPILOT UPDATE: $path = ${value['value']}');
-                }
-              }
-            }
-          }
-        }
-      }
+      // if (kDebugMode) {
+      //   print('Decoded message keys: ${data.keys.toList()}');
+      //   // Log autopilot-related updates
+      //   if (data['updates'] != null) {
+      //     for (final update in data['updates']) {
+      //       if (update['values'] != null) {
+      //         for (final value in update['values']) {
+      //           final path = value['path'] as String?;
+      //           if (path != null && (path.contains('autopilot') || path.contains('steering'))) {
+      //             print('🤖 AUTOPILOT UPDATE: $path = ${value['value']}');
+      //           }
+      //         }
+      //       }
+      //     }
+      //   }
+      // }
 
       // Check if it's an authentication response
       if (data['requestId'] != null && data['state'] != null) {
@@ -292,18 +291,18 @@ class SignalKService extends ChangeNotifier {
 
       // Check if it's a delta update
       if (data['updates'] != null) {
-        if (kDebugMode) {
-          print('Processing delta update with ${(data['updates'] as List).length} updates');
-        }
+        // if (kDebugMode) {
+        //   print('Processing delta update with ${(data['updates'] as List).length} updates');
+        // }
         final update = SignalKUpdate.fromJson(data);
 
         // Process each value update
         for (final updateValue in update.updates) {
           final source = updateValue.source; // Source label (e.g., "can0.115", "pypilot")
 
-          if (kDebugMode) {
-            print('🔍 Processing update from source: $source (${updateValue.values.length} values)');
-          }
+          // if (kDebugMode) {
+          //   print('🔍 Processing update from source: $source (${updateValue.values.length} values)');
+          // }
 
           for (final value in updateValue.values) {
             SignalKDataPoint dataPoint;
@@ -332,9 +331,9 @@ class SignalKService extends ChangeNotifier {
                 original: originalValue, // Raw SI value
               );
 
-              if (kDebugMode && numericValue != null) {
-                print('${value.path}: original=$originalValue -> converted=$numericValue (formatted: $formattedString)');
-              }
+              // if (kDebugMode && numericValue != null) {
+              //   print('${value.path}: original=$originalValue -> converted=$numericValue (formatted: $formattedString)');
+              // }
             } else {
               // Standard SignalK format (raw SI values, no conversion)
               dataPoint = SignalKDataPoint(
@@ -346,22 +345,22 @@ class SignalKService extends ChangeNotifier {
 
             // Store at default path
             _latestData[value.path] = dataPoint;
-            if (kDebugMode && (value.path.contains('heading') || value.path.contains('autopilot'))) {
-              print('📦 Stored ${value.path} at DEFAULT key: ${value.path} = ${dataPoint.value}');
-            }
+            // if (kDebugMode && (value.path.contains('heading') || value.path.contains('autopilot'))) {
+            //   print('📦 Stored ${value.path} at DEFAULT key: ${value.path} = ${dataPoint.value}');
+            // }
 
             // ALSO store at source-specific path if source is provided
             if (source != null) {
               final sourceKey = '${value.path}@$source';
               _latestData[sourceKey] = dataPoint;
-              if (kDebugMode && (value.path.contains('heading') || value.path.contains('autopilot'))) {
-                print('📍 ALSO stored ${value.path} from source $source at SOURCE-SPECIFIC key: $sourceKey = ${dataPoint.value}');
-              }
-            } else {
-              if (kDebugMode && (value.path.contains('heading') || value.path.contains('autopilot'))) {
-                print('⚠️  NO SOURCE provided for ${value.path} - stored ONLY at default path');
-              }
-            }
+              // if (kDebugMode && (value.path.contains('heading') || value.path.contains('autopilot'))) {
+              //   print('📍 ALSO stored ${value.path} from source $source at SOURCE-SPECIFIC key: $sourceKey = ${dataPoint.value}');
+              // }
+            } // else {
+              // if (kDebugMode && (value.path.contains('heading') || value.path.contains('autopilot'))) {
+              //   print('⚠️  NO SOURCE provided for ${value.path} - stored ONLY at default path');
+              // }
+            // }
           }
         }
 

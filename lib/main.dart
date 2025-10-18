@@ -141,11 +141,11 @@ class _ZedDisplayAppState extends State<ZedDisplayApp> with WidgetsBindingObserv
     if (widget.signalKService.isConnected) {
       // Enable wakelock when connected to keep screen on and connection alive
       WakelockPlus.enable();
-      debugPrint('Wakelock enabled - keeping connection alive');
+      // debugPrint('Wakelock enabled - keeping connection alive');
     } else {
       // Disable wakelock when disconnected to save battery
       WakelockPlus.disable();
-      debugPrint('Wakelock disabled');
+      // debugPrint('Wakelock disabled');
     }
   }
 

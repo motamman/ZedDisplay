@@ -45,9 +45,6 @@ class _SwitchToolState extends State<SwitchTool> {
       currentValue = stringValue == 'true' || stringValue == '1';
     }
 
-    // Debug: Print current state
-    print('Switch path: ${dataSource.path}, source: ${dataSource.source}, value: ${dataPoint?.value}, currentValue: $currentValue');
-
     // Get style configuration
     final style = widget.config.style;
 

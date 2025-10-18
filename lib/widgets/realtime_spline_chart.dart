@@ -58,19 +58,32 @@ class _RealtimeSplineChartState extends State<RealtimeSplineChart> {
 
   void _updateChartData() {
     setState(() {
+      bool anyDataAdded = false;
       for (int i = 0; i < widget.paths.length; i++) {
         final path = widget.paths[i];
         final value = widget.signalKService.getConvertedValue(path);
 
         if (value != null) {
-          _seriesData[i].add(_ChartData(_time, value));
+          anyDataAdded = true;
+          // Create new list with updated data (don't mutate existing)
+          final newData = List<_ChartData>.from(_seriesData[i]);
+          newData.add(_ChartData(_time, value));
 
-          // Keep only maxDataPoints
-          if (_seriesData[i].length > widget.maxDataPoints) {
-            _seriesData[i].removeAt(0);
+          // Keep only maxDataPoints (sliding window)
+          if (newData.length > widget.maxDataPoints) {
+            newData.removeAt(0);
           }
+
+          // Replace the list entirely to trigger chart update
+          _seriesData[i] = newData;
         }
       }
+
+      // Debug: print every 10 seconds
+      if (_time % 10 == 0) {
+        print('📊 Chart update: time=$_time, dataAdded=$anyDataAdded, points=${_seriesData.first.length}');
+      }
+
       _time++;
     });
   }
@@ -177,6 +190,12 @@ class _RealtimeSplineChartState extends State<RealtimeSplineChart> {
                   ),
                 ),
                 primaryXAxis: NumericAxis(
+                  // Dynamic range that updates with the data
+                  // Force chart to show sliding window
+                  minimum: _time > widget.maxDataPoints
+                      ? (_time - widget.maxDataPoints).toDouble()
+                      : 0.0,
+                  maximum: _time.toDouble() > 0 ? _time.toDouble() : 1.0,
                   majorGridLines: MajorGridLines(
                     width: widget.showGrid ? 1 : 0,
                     color: Colors.grey.withValues(alpha: 0.2),
@@ -184,9 +203,13 @@ class _RealtimeSplineChartState extends State<RealtimeSplineChart> {
                   axisLine: const AxisLine(width: 1),
                   labelStyle: const TextStyle(fontSize: 10),
                   title: const AxisTitle(
-                    text: 'Time',
+                    text: 'Time (seconds) →',
                     textStyle: TextStyle(fontSize: 12),
                   ),
+                  // Auto interval for cleaner labels
+                  desiredIntervals: 5,
+                  // Prevent auto-ranging
+                  enableAutoIntervalOnZooming: false,
                 ),
                 primaryYAxis: NumericAxis(
                   labelFormat: unit != null ? '{value} $unit' : '{value}',
