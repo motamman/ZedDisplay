@@ -56,3 +56,8 @@ AUTHENTICATION_ISSUES.md
 
 # Configuration files with sensitive data
 lib/config/app_config.dart
+
+# Android signing keys (NEVER commit these!)
+android/key.properties
+*.jks
+*.keystore
