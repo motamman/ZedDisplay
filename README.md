@@ -1,297 +1,312 @@
-# Zed Display - SignalK Marine Data Visualization
+# ZedDisplay
 
-A modern Flutter-based Android app for displaying SignalK marine data with beautiful gauges, charts, and real-time visualization.
+A customizable SignalK marine dashboard application to display real-time vessel data with beautiful gauges, charts, and widgets.
+ 
+![App Icon](assets/icon.png)
 
 ## Features
 
-### Current Implementation (v1.0)
+### 🚢 Real-Time Marine Data Display
+- Connect to any SignalK server (local or remote)
+- Real-time data streaming via WebSocket
+- Support for secure (HTTPS/WSS) and standard connections
+- Automatic reconnection on network changes
 
-- **Real-time SignalK Connection**: WebSocket-based connection to any SignalK server
-- **Beautiful Gauges**: Custom-painted radial gauges for displaying numeric data
-- **Compass Display**: Dedicated compass widget for heading/bearing
-- **Live Dashboard**: Real-time updates of marine data including:
-  - Speed Over Ground (SOG)
-  - Speed Through Water (STW)
-  - Heading (True)
-  - Wind Speed
-  - Depth
-  - Battery Voltage
-- **Connection Management**: Easy server configuration with secure/non-secure options
-- **Dark Mode Support**: Automatic light/dark theme based on system settings
+### 📊 Customizable Dashboard
+- Multiple dashboard screens with custom layouts
+- Drag-and-drop tool placement
+- Grid-based responsive layout
+- Support for various gauge types:
+  - Radial gauges (speed, depth, temperature, etc.)
+  - Linear gauges (tank levels, engine metrics)
+  - Line charts (historical data)
+  - Compass/heading indicators
+  - Wind instruments
+  - Autopilot displays
 
-### Upcoming Features
+### 🎨 Widget Library
+- **Radial Gauges**: Speed, depth, wind speed, RPM
+- **Linear Gauges**: Tank levels, trim indicators
+- **Compass**: True heading, magnetic heading with customizable styles
+- **Wind Display**: True wind, apparent wind with laylines
+- **Charts**: Historical line charts with time series data
+- **Autopilot**: Course control and monitoring
+- **Multi-value Displays**: Combine multiple data sources
 
-- Line charts for historical data trends
-- Customizable dashboard layouts
-- PUT requests for sending commands to SignalK
-- Switches and dials for interactive controls
-- Multiple dashboard pages
-- Data path selection and configuration
-- Alerts and notifications
-- Offline data caching
+### 🔧 Tool Management
+- Create and save custom tool configurations
+- Import/export tool definitions
+- Tool library with search and filtering
+- Reusable tools across multiple screens
 
-## Prerequisites
+### 💾 Setup Management & Sharing
+- Save multiple dashboard setups
+- Switch between setups instantly
+- Export setups as JSON files
+- Import shared setups from other users
+- Perfect for different boat configurations or conditions
 
-Before you begin, make sure you have the following installed:
+### 🔐 Secure Authentication
+- SignalK OAuth2 authentication flow
+- Device registration and approval
+- Secure token storage
+- Multiple server support
 
-1. **Flutter SDK** (3.0.0 or higher)
-   - Download from: https://docs.flutter.dev/get-started/install
-   - Follow the installation guide for your platform (macOS, Windows, Linux)
+### 🌓 Modern UI/UX
+- Material Design 3
+- Dark and light themes
+- Smooth animations and transitions
+- Responsive layout for phones and tablets
 
-2. **VS Code** with Flutter Extension
-   - Install VS Code: https://code.visualstudio.com/
-   - Install Flutter extension from the VS Code marketplace
+## Screenshots
 
-3. **Android Setup**:
-   - Android Studio (for Android SDK and emulator) OR
-   - Android SDK command-line tools
-   - An Android device or emulator
+### Dashboard Views
+![Main Dashboard](docs/screenshots/dashboard.png)
+*Main dashboard with multiple gauges and instruments*
 
-## Quick Start
+![Navigation Screen](docs/screenshots/navigation.png)
+*Navigation-focused screen with compass and wind data*
 
-### 1. Verify Flutter Installation
+![Engine Monitoring](docs/screenshots/engine.png)
+*Engine monitoring screen*
 
-```bash
-flutter doctor
-```
+### Setup & Configuration
+![Dashboard Manager](docs/screenshots/dashboard-manager.png)
+*Dashboard screen management*
 
-Make sure all checkmarks are green, especially for Flutter and Android toolchain.
+![Tool Configuration](docs/screenshots/tool-config.png)
+*Configuring a gauge tool*
 
-### 2. Get Dependencies
+![Setup Management](docs/screenshots/setup-management.png)
+*Managing and sharing dashboard setups*
 
-```bash
-flutter pub get
-```
+### Connection & Settings
+![Server List](docs/screenshots/server-list.png)
+*Saved server connections*
 
-### 3. Run the App
+![Settings](docs/screenshots/settings.png)
+*Settings screen*
 
-**On an emulator:**
-```bash
-flutter run
-```
+![Device Registration](docs/screenshots/device-registration.png)
+*SignalK device registration flow*
 
-**On a physical device:**
-- Enable Developer Options and USB Debugging on your Android device
-- Connect via USB
-- Run `flutter devices` to verify the device is detected
-- Run `flutter run`
+## Getting Started
 
-### 4. Connect to SignalK Server
+### Prerequisites
 
-The app will open to a connection screen where you can:
-- Enter your SignalK server address (e.g., `192.168.1.100:3000` or `demo.signalk.org`)
-- Toggle secure connection (HTTPS/WSS) if your server supports it
-- Tap "Connect"
+- Flutter SDK (>=3.8.0 <4.0.0)
+- Android SDK (for Android builds) or Xcode (for iOS builds)
+- Access to a SignalK server (local or remote)
 
-**Testing with Demo Server:**
-Use `demo.signalk.org` with secure connection enabled to test with sample data.
+### Installation
+
+1. **Clone the repository**
+   ```bash
+   git clone https://github.com/YOUR_USERNAME/ZedDisplay.git
+   cd ZedDisplay
+   ```
+
+2. **Install dependencies**
+   ```bash
+   flutter pub get
+   ```
+
+3. **Generate code**
+   ```bash
+   dart run build_runner build --delete-conflicting-outputs
+   ```
+
+4. **Run the app**
+   ```bash
+   flutter run
+   ```
+
+### First Time Setup
+
+1. Launch the app
+2. Add your SignalK server connection:
+   - Enter server URL (e.g., `192.168.1.100:3000` or `demo.signalk.org`)
+   - Choose secure connection if using HTTPS/WSS
+   - Give it a friendly name
+3. Approve the device in your SignalK server's Admin UI
+4. Start customizing your dashboard!
+
+## Usage
+
+### Creating Your First Dashboard
+
+1. **Connect to your SignalK server**
+   - Tap "Add Connection" on the connection screen
+   - Enter your server details and connect
+
+2. **Add Dashboard Screens**
+   - Open the Dashboard Manager (☰ menu)
+   - Tap "+" to add a new screen
+   - Give it a name (e.g., "Navigation", "Engine")
+
+3. **Add Tools to Your Screen**
+   - Long-press on a screen to add tools
+   - Choose a tool type (gauge, chart, compass, etc.)
+   - Configure the data source and styling
+   - Position it on the grid
+
+4. **Save Your Setup**
+   - Go to Settings → Dashboard Setups
+   - Tap "Save Current"
+   - Give your setup a name
+
+### Sharing Setups
+
+1. **Export a Setup**
+   - Settings → Dashboard Setups → Manage Setups
+   - Select your setup and tap "Share"
+   - Share the JSON file via your preferred method
+
+2. **Import a Setup**
+   - Settings → Dashboard Setups → Manage Setups
+   - Tap the import icon (📤)
+   - Choose "Browse File" or "Paste JSON"
+   - Decide whether to switch to it immediately
+
+### Switching Between Setups
+
+Perfect for different scenarios:
+- **Sailing Mode**: Wind instruments, compass, speed
+- **Motorsailing Mode**: Engine gauges, fuel, temperature
+- **Anchoring Mode**: Depth, position, battery status
+
+Simply go to Settings → Dashboard Setups and tap the setup you want to activate!
 
 ## Project Structure
 
 ```
 lib/
-├── main.dart                    # App entry point
-├── models/
-│   └── signalk_data.dart       # Data models for SignalK messages
-├── services/
-│   └── signalk_service.dart    # WebSocket client and data management
-├── widgets/
-│   ├── radial_gauge.dart       # Custom radial gauge widget
-│   └── compass_gauge.dart      # Custom compass widget
-└── screens/
-    ├── connection_screen.dart  # Server connection UI
-    └── dashboard_screen.dart   # Main data display dashboard
+├── config/           # App configuration
+├── models/           # Data models
+│   ├── dashboard_layout.dart
+│   ├── dashboard_setup.dart
+│   ├── tool.dart
+│   └── server_connection.dart
+├── screens/          # App screens
+│   ├── splash_screen.dart
+│   ├── server_list_screen.dart
+│   ├── connection_screen.dart
+│   ├── dashboard_manager_screen.dart
+│   ├── settings_screen.dart
+│   └── setup_management_screen.dart
+├── services/         # Business logic
+│   ├── signalk_service.dart
+│   ├── storage_service.dart
+│   ├── dashboard_service.dart
+│   ├── tool_service.dart
+│   ├── setup_service.dart
+│   └── auth_service.dart
+├── widgets/          # Reusable widgets
+│   ├── compass_gauge.dart
+│   ├── radial_gauge.dart
+│   ├── linear_gauge.dart
+│   └── tools/       # Tool implementations
+└── main.dart
 ```
 
-## Development Guide
+## Architecture
 
-### Understanding the Architecture
-
-**SignalKService** (`lib/services/signalk_service.dart`):
-- Handles WebSocket connection to SignalK server
-- Automatically discovers the correct WebSocket endpoint
-- Manages data subscriptions and real-time updates
-- Provides methods to access latest data values
-- Uses Provider/ChangeNotifier for state management
-
-**Widgets** (`lib/widgets/`):
-- `RadialGauge`: Customizable circular gauge using CustomPainter
-- `CompassGauge`: Compass display with cardinal directions
-- Both widgets update automatically when data changes
-
-**Data Flow**:
-1. SignalKService connects to server via WebSocket
-2. Server sends delta updates with data changes
-3. Service parses updates and stores latest values
-4. Widgets listen to service changes via Provider
-5. UI rebuilds automatically with new data
-
-### Adding New Gauges
-
-To display additional SignalK data paths:
-
-1. Find the SignalK path you want to display (e.g., `environment.water.temperature`)
-2. In `dashboard_screen.dart`, extract the value:
-   ```dart
-   final waterTemp = service.getNumericValue('environment.water.temperature') ?? 0.0;
-   ```
-3. Add a RadialGauge widget:
-   ```dart
-   RadialGauge(
-     value: waterTemp,
-     minValue: 0,
-     maxValue: 40,
-     label: 'Water Temp',
-     unit: '°C',
-     primaryColor: Colors.blue,
-   )
-   ```
-
-### Customizing Gauges
-
-The `RadialGauge` widget accepts these parameters:
-- `value`: Current numeric value to display
-- `minValue` / `maxValue`: Gauge range
-- `label`: Text label above the value
-- `unit`: Unit of measurement below the value
-- `primaryColor`: Color of the gauge arc
-- `divisions`: Number of tick marks (default: 10)
-
-### Working with Units
-
-SignalK uses SI units (meters, m/s, radians, etc.). Convert to your preferred units:
-
-```dart
-// Speed: m/s to knots
-final speedKnots = speedMetersPerSecond * 1.94384;
-
-// Heading: radians to degrees
-final headingDegrees = headingRadians * 180 / 3.14159;
-
-// Temperature: Kelvin to Celsius
-final tempCelsius = tempKelvin - 273.15;
+### Data Flow
+```
+SignalK Server (WebSocket)
+    ↓
+SignalKService (WebSocket handler)
+    ↓
+DashboardService (Data distribution)
+    ↓
+Tool Widgets (UI components)
 ```
 
-### Implementing PUT Requests
+### Storage
+- **Hive**: Local NoSQL database for persistent storage
+- **Stores**: Connections, dashboards, tools, setups, auth tokens
+- **JSON Serialization**: All models support import/export
 
-To send commands to SignalK (e.g., changing autopilot settings):
+### State Management
+- **Provider**: State management and dependency injection
+- **ChangeNotifier**: Reactive updates across the app
 
-```dart
-final service = context.read<SignalKService>();
-await service.sendPutRequest('steering.autopilot.target.headingTrue', 1.57); // 90 degrees in radians
-```
+## Technologies Used
 
-## Testing
+- **Flutter**: Cross-platform UI framework
+- **Syncfusion**: Professional gauges and charts
+- **Hive**: Fast, lightweight local database
+- **Provider**: State management
+- **SignalK**: Marine data protocol
+- **WebSocket**: Real-time data streaming
 
-### Unit Tests
+## Development
+
+### Running Tests
 ```bash
 flutter test
 ```
 
-### Running on Different Devices
+### Building for Release
 
-**Android Emulator:**
-```bash
-flutter emulators                    # List available emulators
-flutter emulators --launch <id>      # Launch specific emulator
-flutter run
-```
-
-**Physical Android Device:**
-1. Enable USB debugging on your device
-2. Connect via USB
-3. Run `flutter run`
-
-## Building for Release
-
-### Android APK
+**Android:**
 ```bash
 flutter build apk --release
 ```
-The APK will be in `build/app/outputs/flutter-apk/app-release.apk`
 
-### Android App Bundle (for Play Store)
+**iOS:**
 ```bash
-flutter build appbundle --release
+flutter build ios --release
 ```
 
-## Troubleshooting
+### Code Generation
+When adding new models with JSON serialization:
+```bash
+dart run build_runner build --delete-conflicting-outputs
+```
 
-**"Connection failed"**:
-- Verify SignalK server is running and accessible
-- Check if you need secure connection (HTTPS/WSS)
-- Try with `demo.signalk.org` to verify the app works
-- Check firewall settings on your network
+## Configuration
 
-**"No data points received"**:
-- The SignalK server may not be sending data
-- Check the debug info section on the dashboard
-- Verify your vessel is generating data
-
-**Flutter issues**:
-- Run `flutter clean` and then `flutter pub get`
-- Try `flutter doctor` to diagnose installation issues
-- Delete the `build/` directory and rebuild
-
-**VS Code issues**:
-- Make sure Flutter extension is installed
-- Restart VS Code after installing Flutter
-- Select the correct device from the status bar
-
-## Next Steps & Roadmap
-
-### Phase 1 (Current) - Basic Display
-- [x] SignalK WebSocket connection
-- [x] Radial gauges
-- [x] Compass display
-- [x] Real-time data updates
-
-### Phase 2 - Charts & History
-- [ ] Add fl_chart library integration
-- [ ] Line charts for speed, depth, wind over time
-- [ ] Data caching for historical views
-- [ ] Time range selection
-
-### Phase 3 - Interactivity
-- [ ] PUT request implementation for controls
-- [ ] Switch widgets (on/off controls)
-- [ ] Dial widgets (rotary controls)
-- [ ] Confirmation dialogs for critical commands
-
-### Phase 4 - Customization
-- [ ] User-configurable dashboards
-- [ ] Drag-and-drop gauge placement
-- [ ] Custom color themes
-- [ ] Save/load dashboard layouts
-
-### Phase 5 - Advanced Features
-- [ ] Alerts and notifications
-- [ ] Waypoint display
-- [ ] Route visualization
-- [ ] Multi-vessel support
-- [ ] Offline mode with local data storage
-
-## Resources
-
-- **Flutter Documentation**: https://docs.flutter.dev/
-- **SignalK Documentation**: https://signalk.org/
-- **fl_chart Library**: https://pub.dev/packages/fl_chart
-- **Provider Pattern**: https://pub.dev/packages/provider
+The app includes a configuration system for sensitive data (see `CONFIG_SETUP.md`), though it's currently not required. This infrastructure is ready for future use with API keys or other configuration values.
 
 ## Contributing
 
-This is a personal project, but suggestions and improvements are welcome! Feel free to:
-- Report issues
-- Suggest new features
-- Submit pull requests
-- Share your custom gauge designs
+Contributions are welcome! Please feel free to submit a Pull Request.
+
+1. Fork the repository
+2. Create your feature branch (`git checkout -b feature/AmazingFeature`)
+3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
+4. Push to the branch (`git push origin feature/AmazingFeature`)
+5. Open a Pull Request
 
 ## License
 
-This project is open source and available for personal and commercial use.
+This project is licensed under the MIT License - see the LICENSE file for details.
 
 ## Acknowledgments
 
-- SignalK community for the excellent open standard
-- Flutter team for the amazing framework
-- Demo.signalk.org for providing test data
+- [SignalK](https://signalk.org/) - Open source marine data standard
+- [Syncfusion](https://www.syncfusion.com/flutter-widgets) - Beautiful charts and gauges
+- Flutter team for an amazing framework
+
+## Support
+
+For questions or issues:
+- Open an issue on GitHub
+- Check the [SignalK documentation](https://signalk.org/documentation/)
+
+## Roadmap
+
+- [ ] Offline mode with cached data
+- [ ] Chart playback for historical data
+- [ ] Alerts and notifications
+- [ ] Weather integration
+- [ ] AIS target display
+- [ ] Route planning
+- [ ] More chart types
+- [ ] Themes customization
+- [ ] Multi-language support
+
+---
+
+**Built with ❤️ for the marine community**

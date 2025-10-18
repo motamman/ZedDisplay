@@ -30,7 +30,7 @@ class _SwitchToolState extends State<SwitchTool> {
     }
 
     final dataSource = widget.config.dataSources.first;
-    final dataPoint = widget.signalKService.getValue(dataSource.path);
+    final dataPoint = widget.signalKService.getValue(dataSource.path, source: dataSource.source);
 
     // Get boolean value - handle different formats
     bool currentValue = false;
@@ -104,13 +104,21 @@ class _SwitchToolState extends State<SwitchTool> {
 
             const SizedBox(height: 16),
 
-            // Switch
+            // Material Switch with enhanced styling
             Transform.scale(
-              scale: 1.5,
+              scale: 1.8,
               child: Switch(
                 value: currentValue,
                 activeColor: activeColor,
+                activeTrackColor: activeColor.withValues(alpha: 0.5),
                 inactiveThumbColor: inactiveColor,
+                inactiveTrackColor: inactiveColor.withValues(alpha: 0.3),
+                thumbIcon: WidgetStateProperty.resolveWith<Icon?>((states) {
+                  if (states.contains(WidgetState.selected)) {
+                    return Icon(Icons.check, size: 16, color: Colors.white);
+                  }
+                  return Icon(Icons.close, size: 16, color: Colors.white);
+                }),
                 onChanged: _isSending ? null : (value) => _toggleSwitch(value, dataSource.path),
               ),
             ),

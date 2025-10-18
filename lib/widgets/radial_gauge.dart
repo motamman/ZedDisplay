@@ -24,6 +24,7 @@ class RadialGauge extends StatelessWidget {
   final bool showTickLabels;
   final RadialGaugeStyle gaugeStyle;
   final bool pointerOnly; // Show only pointer, no filled arc
+  final bool showValue; // Show/hide the value display
 
   const RadialGauge({
     super.key,
@@ -39,6 +40,7 @@ class RadialGauge extends StatelessWidget {
     this.showTickLabels = false,
     this.gaugeStyle = RadialGaugeStyle.arc,
     this.pointerOnly = false,
+    this.showValue = true,
   });
 
   @override
@@ -157,21 +159,13 @@ class RadialGauge extends StatelessWidget {
                           fontWeight: FontWeight.w300,
                         ),
                       ),
-                    if (label.isNotEmpty) const SizedBox(height: 4),
-                    Text(
-                      formattedValue ?? value.toStringAsFixed(1),
-                      style: const TextStyle(
-                        fontSize: 32,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    // Only show unit if not using formatted value (which includes unit)
-                    if (unit.isNotEmpty && formattedValue == null)
+                    if (label.isNotEmpty && showValue) const SizedBox(height: 4),
+                    if (showValue)
                       Text(
-                        unit,
+                        formattedValue ?? '${value.toStringAsFixed(1)}${unit.isNotEmpty ? " $unit" : ""}',
                         style: const TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w300,
+                          fontSize: 32,
+                          fontWeight: FontWeight.bold,
                         ),
                       ),
                   ],

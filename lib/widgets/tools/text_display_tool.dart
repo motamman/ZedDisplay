@@ -23,7 +23,7 @@ class TextDisplayTool extends StatelessWidget {
     }
 
     final dataSource = config.dataSources.first;
-    final dataPoint = signalKService.getValue(dataSource.path);
+    final dataPoint = signalKService.getValue(dataSource.path, source: dataSource.source);
 
     // Get label from data source or derive from path
     final label = dataSource.label ?? _getDefaultLabel(dataSource.path);
@@ -38,7 +38,7 @@ class TextDisplayTool extends StatelessWidget {
       displayUnit = ''; // Unit is already in formatted string
     } else {
       // Fallback: format manually
-      final numValue = signalKService.getConvertedValue(dataSource.path) ?? 0.0;
+      final numValue = dataPoint?.converted ?? (dataPoint?.value is num ? (dataPoint!.value as num).toDouble() : 0.0);
       displayValue = numValue.toStringAsFixed(1);
       displayUnit = config.style.unit ??
                     signalKService.getUnitSymbol(dataSource.path) ??

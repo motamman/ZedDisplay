@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:uuid/uuid.dart';
 import '../services/signalk_service.dart';
 import '../services/auth_service.dart';
 import '../services/dashboard_service.dart';
 import '../services/storage_service.dart';
+import '../models/server_connection.dart';
 import 'dashboard_manager_screen.dart';
 import 'device_registration_screen.dart';
 
@@ -16,6 +18,7 @@ class ConnectionScreen extends StatefulWidget {
 
 class _ConnectionScreenState extends State<ConnectionScreen> {
   final _formKey = GlobalKey<FormState>();
+  final _nameController = TextEditingController();
   final _serverController = TextEditingController(text: '192.168.1.88:3000');
   bool _useSecure = false;
   bool _isConnecting = false;
@@ -61,6 +64,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
 
   @override
   void dispose() {
+    _nameController.dispose();
     _serverController.dispose();
     super.dispose();
   }
@@ -83,6 +87,33 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
       // Check if we have a saved token
       final savedToken = authService.getSavedToken(_serverController.text);
 
+      // First, save/update the connection in storage
+      final existingConnection = storageService.findConnectionByUrl(_serverController.text);
+      ServerConnection connection;
+
+      if (existingConnection != null) {
+        // Update existing connection
+        connection = existingConnection.copyWith(
+          name: _nameController.text.trim().isEmpty
+              ? existingConnection.name
+              : _nameController.text.trim(),
+          useSecure: _useSecure,
+        );
+      } else {
+        // Create new connection
+        connection = ServerConnection(
+          id: const Uuid().v4(),
+          name: _nameController.text.trim().isEmpty
+              ? _serverController.text
+              : _nameController.text.trim(),
+          serverUrl: _serverController.text,
+          useSecure: _useSecure,
+          createdAt: DateTime.now(),
+        );
+      }
+
+      await storageService.saveConnection(connection);
+
       if (savedToken != null && savedToken.isValid) {
         // Use saved token
         await signalKService.connect(
@@ -90,6 +121,9 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
           secure: _useSecure,
           authToken: savedToken,
         );
+
+        // Update last connected time
+        await storageService.updateConnectionLastConnected(connection.id);
 
         // Save this as the last successful connection
         await storageService.saveLastConnection(
@@ -179,6 +213,16 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 48),
+              TextFormField(
+                controller: _nameController,
+                decoration: const InputDecoration(
+                  labelText: 'Connection Name (optional)',
+                  hintText: 'My Boat',
+                  prefixIcon: Icon(Icons.label),
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 16),
               TextFormField(
                 controller: _serverController,
                 decoration: const InputDecoration(

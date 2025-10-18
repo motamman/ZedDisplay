@@ -19,6 +19,7 @@ class CompassGauge extends StatelessWidget {
   final Color primaryColor;
   final bool showTickLabels;
   final CompassStyle compassStyle;
+  final bool showValue; // Show/hide the heading value display
 
   const CompassGauge({
     super.key,
@@ -28,6 +29,7 @@ class CompassGauge extends StatelessWidget {
     this.primaryColor = Colors.red,
     this.showTickLabels = false,
     this.compassStyle = CompassStyle.classic,
+    this.showValue = true,
   });
 
   @override
@@ -96,41 +98,47 @@ class CompassGauge extends StatelessWidget {
           ),
 
           // Center annotation with heading value - drawn last so it's on top, moved down from center
-          Align(
-            alignment: Alignment.center,
-            child: Padding(
-              padding: const EdgeInsets.only(top: 55.0), // Move down from center to avoid overlap
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (compassStyle != CompassStyle.minimal)
-                    Text(
-                      label,
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w300,
+          if (showValue)
+            Align(
+              alignment: Alignment.center,
+              child: Padding(
+                padding: const EdgeInsets.only(top: 55.0), // Move down from center to avoid overlap
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (compassStyle != CompassStyle.minimal)
+                      Text(
+                        label,
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w300,
+                        ),
                       ),
+                    if (compassStyle != CompassStyle.minimal) const SizedBox(height: 4),
+                    Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          formattedValue ?? '${heading.toStringAsFixed(0)}°',
+                          style: TextStyle(
+                            fontSize: compassStyle == CompassStyle.rose ? 36 : 32,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        Text(
+                          _getCardinalDirection(heading),
+                          style: TextStyle(
+                            fontSize: compassStyle == CompassStyle.rose ? 20 : 18,
+                            fontWeight: FontWeight.w500,
+                            color: primaryColor,
+                          ),
+                        ),
+                      ],
                     ),
-                  if (compassStyle != CompassStyle.minimal) const SizedBox(height: 4),
-                  Text(
-                    formattedValue ?? '${heading.toStringAsFixed(0)}°',
-                    style: TextStyle(
-                      fontSize: compassStyle == CompassStyle.rose ? 36 : 32,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  Text(
-                    _getCardinalDirection(heading),
-                    style: TextStyle(
-                      fontSize: compassStyle == CompassStyle.rose ? 20 : 18,
-                      fontWeight: FontWeight.w500,
-                      color: primaryColor,
-                    ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
-          ),
         ],
       ),
     );
@@ -387,40 +395,46 @@ class CompassGauge extends StatelessWidget {
           ),
 
           // Center annotation with heading value (non-rotating) - drawn last so it's on top
-          Align(
-            alignment: Alignment.center,
-            child: Padding(
-              padding: const EdgeInsets.only(top: 60.0), // Move down to avoid needle
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    label,
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w300,
+          if (showValue)
+            Align(
+              alignment: Alignment.center,
+              child: Padding(
+                padding: const EdgeInsets.only(top: 60.0), // Move down to avoid needle
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      label,
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w300,
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    formattedValue ?? '${heading.toStringAsFixed(0)}°',
-                    style: const TextStyle(
-                      fontSize: 32,
-                      fontWeight: FontWeight.bold,
+                    const SizedBox(height: 4),
+                    Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          formattedValue ?? '${heading.toStringAsFixed(0)}°',
+                          style: const TextStyle(
+                            fontSize: 32,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        Text(
+                          _getCardinalDirection(heading),
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w500,
+                            color: primaryColor,
+                          ),
+                        ),
+                      ],
                     ),
-                  ),
-                  Text(
-                    _getCardinalDirection(heading),
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w500,
-                      color: primaryColor,
-                    ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
-          ),
         ],
       ),
     );

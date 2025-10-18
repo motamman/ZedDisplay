@@ -32,19 +32,33 @@ class LinearGaugeTool extends StatelessWidget {
     }
 
     final dataSource = config.dataSources.first;
-    final dataPoint = signalKService.getValue(dataSource.path);
-    final value = signalKService.getConvertedValue(dataSource.path) ?? 0.0;
+    final style = config.style;
+
+    // Get data point (with source if specified)
+    final dataPoint = signalKService.getValue(dataSource.path, source: dataSource.source);
+
+    // Get raw value from data point
+    final rawValue = dataPoint?.converted ?? (dataPoint?.value is num ? (dataPoint!.value as num).toDouble() : 0.0);
 
     // Get style configuration
-    final style = config.style;
     final minValue = style.minValue ?? 0.0;
     final maxValue = style.maxValue ?? 100.0;
+
+    // Check if data is fresh (within TTL threshold)
+    final isDataFresh = signalKService.isDataFresh(
+      dataSource.path,
+      source: dataSource.source,
+      ttlSeconds: style.ttlSeconds,
+    );
+
+    // If data is stale, show minimum value and "--" text
+    final value = isDataFresh ? rawValue : minValue;
 
     // Get label from data source or derive from path
     final label = dataSource.label ?? _getDefaultLabel(dataSource.path);
 
-    // Get formatted value from plugin if available
-    final formattedValue = dataPoint?.formatted;
+    // Get formatted value from plugin if available, or show "--" if stale
+    final formattedValue = isDataFresh ? dataPoint?.formatted : '--';
 
     // Get unit (prefer style override, fallback to server's unit)
     final unit = style.unit ??
@@ -416,18 +430,27 @@ class LinearGaugeTool extends StatelessWidget {
       );
     }
 
-    // Value label
+    // Value label - use fixed width container to prevent layout shifts
     if (style.showValue == true) {
+      // Determine display text - show "--" for stale data or formattedValue
+      final displayText = formattedValue == '--'
+          ? '--'
+          : (formattedValue ?? '${value.toStringAsFixed(1)}${unit.isNotEmpty ? " $unit" : ""}');
+
       pointers.add(
         LinearWidgetPointer(
           value: anchorValue,
           position: LinearElementPosition.outside,
           offset: 15,
-          child: Text(
-            formattedValue ?? '${value.toStringAsFixed(1)} ${style.showUnit == true ? unit : ''}',
-            style: const TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
+          child: SizedBox(
+            width: 120, // Fixed width to prevent gauge resizing when value changes
+            child: Text(
+              displayText,
+              style: const TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+              ),
+              textAlign: isVertical ? TextAlign.left : TextAlign.center,
             ),
           ),
         ),

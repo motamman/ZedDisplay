@@ -44,6 +44,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
   bool _showLabel = true;
   bool _showValue = true;
   bool _showUnit = true;
+  int? _ttlSeconds; // Data staleness threshold
   bool _showTickLabels = false;
   bool _pointerOnly = false; // Show only pointer, no filled bar/arc
   int _divisions = 10;
@@ -83,6 +84,23 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
     }
   }
 
+  void _loadDefaultsForToolType(String toolTypeId) {
+    final registry = ToolRegistry();
+    final signalKService = Provider.of<SignalKService>(context, listen: false);
+    final vesselId = signalKService.serverUrl;
+
+    final defaultConfig = registry.getDefaultConfig(toolTypeId, vesselId);
+    if (defaultConfig != null && defaultConfig.dataSources.isNotEmpty) {
+      _dataSources = List.from(defaultConfig.dataSources);
+
+      // Also load default style if available
+      final style = defaultConfig.style;
+      if (style.primaryColor != null) {
+        _primaryColor = style.primaryColor;
+      }
+    }
+  }
+
   void _loadExistingTool() {
     final tool = widget.existingTool!;
     _selectedToolTypeId = tool.toolTypeId;
@@ -97,6 +115,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
     _showLabel = style.showLabel ?? true;
     _showValue = style.showValue ?? true;
     _showUnit = style.showUnit ?? true;
+    _ttlSeconds = style.ttlSeconds;
     _showTickLabels = style.customProperties?['showTickLabels'] as bool? ?? false;
     _pointerOnly = style.customProperties?['pointerOnly'] as bool? ?? false;
     _divisions = style.customProperties?['divisions'] as int? ?? 10;
@@ -203,71 +222,21 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
   void _editDataSource(int index) async {
     final dataSource = _dataSources[index];
     final signalKService = Provider.of<SignalKService>(context, listen: false);
-    String? newSource = dataSource.source;
-    String? newLabel = dataSource.label;
 
     await showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Text('Edit ${dataSource.path}'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // Source selection
-            ListTile(
-              leading: const Icon(Icons.sensors),
-              title: const Text('Data Source'),
-              subtitle: Text(newSource ?? 'Auto'),
-              trailing: const Icon(Icons.edit),
-              onTap: () async {
-                Navigator.of(context).pop();
-                await showDialog(
-                  context: context,
-                  builder: (context) => SourceSelectorDialog(
-                    signalKService: signalKService,
-                    path: dataSource.path,
-                    currentSource: newSource,
-                    onSelect: (source) {
-                      newSource = source;
-                    },
-                  ),
-                );
-                if (mounted) {
-                  _editDataSource(index);
-                }
-              },
-            ),
-            const SizedBox(height: 8),
-            // Label input
-            TextField(
-              decoration: const InputDecoration(
-                labelText: 'Custom Label',
-                border: OutlineInputBorder(),
-              ),
-              controller: TextEditingController(text: newLabel),
-              onChanged: (value) => newLabel = value,
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () {
-              setState(() {
-                _dataSources[index] = DataSource(
-                  path: dataSource.path,
-                  source: newSource,
-                  label: newLabel?.trim().isEmpty == true ? null : newLabel,
-                );
-              });
-              Navigator.of(context).pop();
-            },
-            child: const Text('Save'),
-          ),
-        ],
+      builder: (context) => _EditDataSourceDialog(
+        dataSource: dataSource,
+        signalKService: signalKService,
+        onSave: (newSource, newLabel) {
+          setState(() {
+            _dataSources[index] = DataSource(
+              path: dataSource.path,
+              source: newSource,
+              label: newLabel?.trim().isEmpty == true ? null : newLabel,
+            );
+          });
+        },
       ),
     );
   }
@@ -403,6 +372,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
         showLabel: _showLabel,
         showValue: _showValue,
         showUnit: _showUnit,
+        ttlSeconds: _ttlSeconds,
         customProperties: customProperties,
       ),
     );
@@ -425,6 +395,8 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
         config: config,
         name: toolName,
         description: toolDescription,
+        defaultWidth: _toolWidth,
+        defaultHeight: _toolHeight,
         updatedAt: DateTime.now(),
         tags: [_selectedToolTypeId!],
       );
@@ -436,6 +408,8 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
         name: toolName,
         description: toolDescription,
         author: 'Local User',
+        defaultWidth: _toolWidth,
+        defaultHeight: _toolHeight,
         category: ToolCategory.other,
         tags: [_selectedToolTypeId!],
       );
@@ -498,7 +472,13 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                           label: Text(def.name),
                           selected: isSelected,
                           onSelected: (_) {
-                            setState(() => _selectedToolTypeId = def.id);
+                            setState(() {
+                              _selectedToolTypeId = def.id;
+                              // Load default paths when tool type is selected (only if no paths configured yet)
+                              if (_dataSources.isEmpty && widget.existingTool == null) {
+                                _loadDefaultsForToolType(def.id);
+                              }
+                            });
                           },
                         );
                       }).toList(),
@@ -675,7 +655,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                           labelText: 'Time Duration',
                           border: OutlineInputBorder(),
                         ),
-                        initialValue: _chartDuration,
+                        value: _chartDuration,
                         items: const [
                           DropdownMenuItem(value: '15m', child: Text('15 minutes')),
                           DropdownMenuItem(value: '30m', child: Text('30 minutes')),
@@ -699,7 +679,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                           border: OutlineInputBorder(),
                           helperText: 'Auto lets the server optimize for the timeframe',
                         ),
-                        initialValue: _chartResolution,
+                        value: _chartResolution,
                         items: const [
                           DropdownMenuItem(value: null, child: Text('Auto (Recommended)')),
                           DropdownMenuItem(value: 30000, child: Text('30 seconds')),
@@ -733,7 +713,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                           border: OutlineInputBorder(),
                           helperText: 'Visual style of the chart',
                         ),
-                        initialValue: _chartStyle,
+                        value: _chartStyle,
                         items: const [
                           DropdownMenuItem(value: 'area', child: Text('Area (filled spline)')),
                           DropdownMenuItem(value: 'line', child: Text('Line (spline only)')),
@@ -763,7 +743,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                               labelText: 'Refresh Interval',
                               border: OutlineInputBorder(),
                             ),
-                            initialValue: _chartRefreshInterval,
+                            value: _chartRefreshInterval,
                             items: const [
                               DropdownMenuItem(value: 30, child: Text('30 seconds')),
                               DropdownMenuItem(value: 60, child: Text('1 minute')),
@@ -874,6 +854,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                                   showLabel: _showLabel,
                                   showValue: _showValue,
                                   showUnit: _showUnit,
+                                  ttlSeconds: _ttlSeconds,
                                   customProperties: previewCustomProperties,
                                 ),
                               ),
@@ -1005,6 +986,28 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
           setState(() => _showUnit = value);
         },
       ),
+      const SizedBox(height: 16),
+      DropdownButtonFormField<int?>(
+        decoration: const InputDecoration(
+          labelText: 'Data Staleness Threshold (TTL)',
+          border: OutlineInputBorder(),
+          helperText: 'Show "--" if data is older than this threshold',
+        ),
+        value: _ttlSeconds,
+        items: const [
+          DropdownMenuItem(value: null, child: Text('No check (always show data)')),
+          DropdownMenuItem(value: 5, child: Text('5 seconds')),
+          DropdownMenuItem(value: 10, child: Text('10 seconds')),
+          DropdownMenuItem(value: 30, child: Text('30 seconds')),
+          DropdownMenuItem(value: 60, child: Text('1 minute')),
+          DropdownMenuItem(value: 120, child: Text('2 minutes')),
+          DropdownMenuItem(value: 300, child: Text('5 minutes')),
+          DropdownMenuItem(value: 600, child: Text('10 minutes')),
+        ],
+        onChanged: (value) {
+          setState(() => _ttlSeconds = value);
+        },
+      ),
     ]);
 
     // Compass-specific options
@@ -1017,7 +1020,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
             border: OutlineInputBorder(),
             helperText: 'Visual style of the compass',
           ),
-          initialValue: _compassStyle,
+          value: _compassStyle,
           items: const [
             DropdownMenuItem(value: 'classic', child: Text('Classic (full circle with needle)')),
             DropdownMenuItem(value: 'arc', child: Text('Arc (180° semicircle)')),
@@ -1053,7 +1056,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
             border: OutlineInputBorder(),
             helperText: 'Visual style of the gauge',
           ),
-          initialValue: _gaugeStyle,
+          value: _gaugeStyle,
           items: const [
             DropdownMenuItem(value: 'arc', child: Text('Arc (270° default)')),
             DropdownMenuItem(value: 'full', child: Text('Full Circle (360° with needle)')),
@@ -1112,7 +1115,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
             border: OutlineInputBorder(),
             helperText: 'Visual style of the linear gauge',
           ),
-          initialValue: _linearGaugeStyle,
+          value: _linearGaugeStyle,
           items: const [
             DropdownMenuItem(value: 'bar', child: Text('Bar (filled bar)')),
             DropdownMenuItem(value: 'thermometer', child: Text('Thermometer (rounded top)')),
@@ -1131,7 +1134,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
             labelText: 'Orientation',
             border: OutlineInputBorder(),
           ),
-          initialValue: _orientation,
+          value: _orientation,
           items: const [
             DropdownMenuItem(value: 'horizontal', child: Text('Horizontal')),
             DropdownMenuItem(value: 'vertical', child: Text('Vertical')),
@@ -1188,7 +1191,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
             border: OutlineInputBorder(),
             helperText: 'Number of decimal places to display',
           ),
-          initialValue: _sliderDecimalPlaces,
+          value: _sliderDecimalPlaces,
           items: const [
             DropdownMenuItem(value: 0, child: Text('0 (e.g., 42)')),
             DropdownMenuItem(value: 1, child: Text('1 (e.g., 42.5)')),
@@ -1205,5 +1208,92 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
     }
 
     return widgets;
+  }
+}
+
+/// Stateful dialog for editing a data source
+class _EditDataSourceDialog extends StatefulWidget {
+  final DataSource dataSource;
+  final SignalKService signalKService;
+  final Function(String?, String?) onSave;
+
+  const _EditDataSourceDialog({
+    required this.dataSource,
+    required this.signalKService,
+    required this.onSave,
+  });
+
+  @override
+  State<_EditDataSourceDialog> createState() => _EditDataSourceDialogState();
+}
+
+class _EditDataSourceDialogState extends State<_EditDataSourceDialog> {
+  late String? _newSource;
+  late String? _newLabel;
+
+  @override
+  void initState() {
+    super.initState();
+    _newSource = widget.dataSource.source;
+    _newLabel = widget.dataSource.label;
+  }
+
+  Future<void> _selectSource() async {
+    await showDialog(
+      context: context,
+      builder: (context) => SourceSelectorDialog(
+        signalKService: widget.signalKService,
+        path: widget.dataSource.path,
+        currentSource: _newSource,
+        onSelect: (source) {
+          setState(() {
+            _newSource = source;
+          });
+        },
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text('Edit ${widget.dataSource.path}'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Source selection
+          ListTile(
+            leading: const Icon(Icons.sensors),
+            title: const Text('Data Source'),
+            subtitle: Text(_newSource ?? 'Auto'),
+            trailing: const Icon(Icons.edit),
+            onTap: _selectSource,
+          ),
+          const SizedBox(height: 8),
+          // Label input
+          TextField(
+            decoration: const InputDecoration(
+              labelText: 'Custom Label',
+              border: OutlineInputBorder(),
+            ),
+            controller: TextEditingController(text: _newLabel),
+            onChanged: (value) => _newLabel = value,
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        TextButton(
+          onPressed: () {
+            widget.onSave(_newSource, _newLabel);
+            Navigator.of(context).pop();
+          },
+          child: const Text('Save'),
+        ),
+      ],
+    );
   }
 }

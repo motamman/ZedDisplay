@@ -7,12 +7,16 @@ import 'services/dashboard_service.dart';
 import 'services/tool_registry.dart';
 import 'services/tool_service.dart';
 import 'services/auth_service.dart';
+import 'services/setup_service.dart';
 import 'models/auth_token.dart';
 import 'screens/splash_screen.dart';
 
 void main() async {
   // Ensure Flutter bindings are initialized
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Note: Syncfusion license registration is no longer required
+  // The license is now handled automatically
 
   // Initialize storage service
   final storageService = StorageService();
@@ -36,6 +40,13 @@ void main() async {
   // Initialize auth service
   final authService = AuthService(storageService);
 
+  // Initialize setup service
+  final setupService = SetupService(
+    storageService,
+    toolService,
+    dashboardService,
+  );
+
   // Register all built-in tool types
   final toolRegistry = ToolRegistry();
   toolRegistry.registerDefaults();
@@ -46,6 +57,7 @@ void main() async {
     dashboardService: dashboardService,
     toolService: toolService,
     authService: authService,
+    setupService: setupService,
   ));
 }
 
@@ -55,6 +67,7 @@ class ZedDisplayApp extends StatefulWidget {
   final DashboardService dashboardService;
   final ToolService toolService;
   final AuthService authService;
+  final SetupService setupService;
 
   const ZedDisplayApp({
     super.key,
@@ -63,6 +76,7 @@ class ZedDisplayApp extends StatefulWidget {
     required this.dashboardService,
     required this.toolService,
     required this.authService,
+    required this.setupService,
   });
 
   @override
@@ -73,19 +87,51 @@ class _ZedDisplayAppState extends State<ZedDisplayApp> with WidgetsBindingObserv
   String? _lastServerUrl;
   bool? _lastUseSecure;
   AuthToken? _lastToken;
+  late ThemeMode _themeMode;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
 
+    // Initialize theme mode from storage (defaults to dark)
+    final themeModeStr = widget.storageService.getThemeMode();
+    _themeMode = _parseThemeMode(themeModeStr);
+
     // Listen to connection changes to manage wakelock
     widget.signalKService.addListener(_onConnectionChanged);
+
+    // Listen to storage changes for theme updates
+    widget.storageService.addListener(_onStorageChanged);
+  }
+
+  ThemeMode _parseThemeMode(String mode) {
+    switch (mode.toLowerCase()) {
+      case 'light':
+        return ThemeMode.light;
+      case 'dark':
+        return ThemeMode.dark;
+      case 'system':
+        return ThemeMode.system;
+      default:
+        return ThemeMode.dark; // Default to dark
+    }
+  }
+
+  void _onStorageChanged() {
+    final themeModeStr = widget.storageService.getThemeMode();
+    final newThemeMode = _parseThemeMode(themeModeStr);
+    if (newThemeMode != _themeMode) {
+      setState(() {
+        _themeMode = newThemeMode;
+      });
+    }
   }
 
   @override
   void dispose() {
     widget.signalKService.removeListener(_onConnectionChanged);
+    widget.storageService.removeListener(_onStorageChanged);
     WidgetsBinding.instance.removeObserver(this);
     WakelockPlus.disable();
     super.dispose();
@@ -95,11 +141,11 @@ class _ZedDisplayAppState extends State<ZedDisplayApp> with WidgetsBindingObserv
     if (widget.signalKService.isConnected) {
       // Enable wakelock when connected to keep screen on and connection alive
       WakelockPlus.enable();
-      debugPrint('Wakelock enabled - keeping connection alive');
+      // debugPrint('Wakelock enabled - keeping connection alive');
     } else {
       // Disable wakelock when disconnected to save battery
       WakelockPlus.disable();
-      debugPrint('Wakelock disabled');
+      // debugPrint('Wakelock disabled');
     }
   }
 
@@ -158,6 +204,7 @@ class _ZedDisplayAppState extends State<ZedDisplayApp> with WidgetsBindingObserv
         ChangeNotifierProvider.value(value: widget.dashboardService),
         ChangeNotifierProvider.value(value: widget.toolService),
         ChangeNotifierProvider.value(value: widget.authService),
+        ChangeNotifierProvider.value(value: widget.setupService),
       ],
       child: MaterialApp(
         title: 'Zed Display',
@@ -175,7 +222,7 @@ class _ZedDisplayAppState extends State<ZedDisplayApp> with WidgetsBindingObserv
           ),
           useMaterial3: true,
         ),
-        themeMode: ThemeMode.system,
+        themeMode: _themeMode,
         home: const SplashScreen(),
         debugShowCheckedModeBanner: false,
       ),

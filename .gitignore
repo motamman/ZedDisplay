@@ -54,4 +54,10 @@ SIGNALK_AUTH_IMPLEMENTATION.md
 SIGNALK_AUTH_PLAN.md
 AUTHENTICATION_ISSUES.md
 
+# Configuration files with sensitive data
+lib/config/app_config.dart
 
+# Android signing keys (NEVER commit these!)
+android/key.properties
+*.jks
+*.keystore

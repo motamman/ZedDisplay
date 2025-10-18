@@ -60,6 +60,8 @@ class ToolService extends ChangeNotifier {
     required String name,
     required String description,
     required String author,
+    int defaultWidth = 2,
+    int defaultHeight = 2,
     ToolCategory category = ToolCategory.other,
     List<String> tags = const [],
   }) {
@@ -76,6 +78,8 @@ class ToolService extends ChangeNotifier {
       createdAt: DateTime.now(),
       toolTypeId: toolTypeId,
       config: config,
+      defaultWidth: defaultWidth,
+      defaultHeight: defaultHeight,
       category: category,
       tags: tags,
       requiredPaths: requiredPaths,

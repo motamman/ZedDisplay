@@ -249,15 +249,28 @@ class SignalKService extends ChangeNotifier {
   /// Handle incoming WebSocket messages
   void _handleMessage(dynamic message) {
     try {
-      if (kDebugMode) {
-        print('WebSocket message received (first 200 chars): ${message.toString().substring(0, message.toString().length > 200 ? 200 : message.toString().length)}');
-      }
+      // if (kDebugMode) {
+      //   print('WebSocket message received (first 200 chars): ${message.toString().substring(0, message.toString().length > 200 ? 200 : message.toString().length)}');
+      // }
 
       final data = jsonDecode(message);
 
-      if (kDebugMode) {
-        print('Decoded message keys: ${data.keys.toList()}');
-      }
+      // if (kDebugMode) {
+      //   print('Decoded message keys: ${data.keys.toList()}');
+      //   // Log autopilot-related updates
+      //   if (data['updates'] != null) {
+      //     for (final update in data['updates']) {
+      //       if (update['values'] != null) {
+      //         for (final value in update['values']) {
+      //           final path = value['path'] as String?;
+      //           if (path != null && (path.contains('autopilot') || path.contains('steering'))) {
+      //             print('🤖 AUTOPILOT UPDATE: $path = ${value['value']}');
+      //           }
+      //         }
+      //       }
+      //     }
+      //   }
+      // }
 
       // Check if it's an authentication response
       if (data['requestId'] != null && data['state'] != null) {
@@ -278,14 +291,22 @@ class SignalKService extends ChangeNotifier {
 
       // Check if it's a delta update
       if (data['updates'] != null) {
-        if (kDebugMode) {
-          print('Processing delta update with ${(data['updates'] as List).length} updates');
-        }
+        // if (kDebugMode) {
+        //   print('Processing delta update with ${(data['updates'] as List).length} updates');
+        // }
         final update = SignalKUpdate.fromJson(data);
 
         // Process each value update
         for (final updateValue in update.updates) {
+          final source = updateValue.source; // Source label (e.g., "can0.115", "pypilot")
+
+          // if (kDebugMode) {
+          //   print('🔍 Processing update from source: $source (${updateValue.values.length} values)');
+          // }
+
           for (final value in updateValue.values) {
+            SignalKDataPoint dataPoint;
+
             // Check if value is from units-preference plugin (has converted format)
             if (value.value is Map<String, dynamic>) {
               final valueMap = value.value as Map<String, dynamic>;
@@ -300,7 +321,7 @@ class SignalKService extends ChangeNotifier {
               // For objects (like position), keep as-is
               final numericValue = convertedValue is num ? convertedValue.toDouble() : null;
 
-              _latestData[value.path] = SignalKDataPoint(
+              dataPoint = SignalKDataPoint(
                 path: value.path,
                 value: numericValue ?? convertedValue ?? originalValue, // Prefer numeric converted, fallback to object/original
                 timestamp: updateValue.timestamp,
@@ -310,17 +331,36 @@ class SignalKService extends ChangeNotifier {
                 original: originalValue, // Raw SI value
               );
 
-              if (kDebugMode && numericValue != null) {
-                print('${value.path}: original=$originalValue -> converted=$numericValue (formatted: $formattedString)');
-              }
+              // if (kDebugMode && numericValue != null) {
+              //   print('${value.path}: original=$originalValue -> converted=$numericValue (formatted: $formattedString)');
+              // }
             } else {
               // Standard SignalK format (raw SI values, no conversion)
-              _latestData[value.path] = SignalKDataPoint(
+              dataPoint = SignalKDataPoint(
                 path: value.path,
                 value: value.value,
                 timestamp: updateValue.timestamp,
               );
             }
+
+            // Store at default path
+            _latestData[value.path] = dataPoint;
+            // if (kDebugMode && (value.path.contains('heading') || value.path.contains('autopilot'))) {
+            //   print('📦 Stored ${value.path} at DEFAULT key: ${value.path} = ${dataPoint.value}');
+            // }
+
+            // ALSO store at source-specific path if source is provided
+            if (source != null) {
+              final sourceKey = '${value.path}@$source';
+              _latestData[sourceKey] = dataPoint;
+              // if (kDebugMode && (value.path.contains('heading') || value.path.contains('autopilot'))) {
+              //   print('📍 ALSO stored ${value.path} from source $source at SOURCE-SPECIFIC key: $sourceKey = ${dataPoint.value}');
+              // }
+            } // else {
+              // if (kDebugMode && (value.path.contains('heading') || value.path.contains('autopilot'))) {
+              //   print('⚠️  NO SOURCE provided for ${value.path} - stored ONLY at default path');
+              // }
+            // }
           }
         }
 
@@ -358,9 +398,13 @@ class SignalKService extends ChangeNotifier {
   Future<void> sendPutRequest(String path, dynamic value) async {
     final protocol = _useSecureConnection ? 'https' : 'http';
 
+    // Convert dot notation to slash notation for URL
+    // e.g., 'steering.autopilot.state' -> 'steering/autopilot/state'
+    final urlPath = path.replaceAll('.', '/');
+
     try {
       final response = await http.put(
-        Uri.parse('$protocol://$_serverUrl/signalk/v1/api/vessels/self/$path'),
+        Uri.parse('$protocol://$_serverUrl/signalk/v1/api/vessels/self/$urlPath'),
         headers: _getHeaders(),
         body: jsonEncode({'value': value}),
       );
@@ -376,9 +420,75 @@ class SignalKService extends ChangeNotifier {
     }
   }
 
-  /// Get value for specific path
-  SignalKDataPoint? getValue(String path) {
-    return _latestData[path];
+  /// Get value for specific path, optionally from a specific source
+  SignalKDataPoint? getValue(String path, {String? source}) {
+    if (source == null) {
+      // No source specified, return default value
+      return _latestData[path];
+    }
+
+    // Source specified, construct source-specific path
+    final sourceKey = '$path@$source';
+    final result = _latestData[sourceKey];
+
+    if (kDebugMode && result != null && path.contains('heading')) {
+      print('✅ getValue for $path with source $source: found at $sourceKey');
+    } else if (kDebugMode && result == null && path.contains('heading')) {
+      print('❌ getValue for $path with source $source: NOT FOUND at $sourceKey, falling back to default');
+    }
+
+    return result ?? _latestData[path]; // Fallback to default if source not found
+  }
+
+  /// Check if data is fresh (within TTL threshold)
+  /// Returns true if data is fresh, false if stale or missing
+  bool isDataFresh(String path, {String? source, int? ttlSeconds}) {
+    if (ttlSeconds == null) {
+      // No TTL check requested
+      return true;
+    }
+
+    final dataPoint = getValue(path, source: source);
+    if (dataPoint == null) {
+      // No data available
+      return false;
+    }
+
+    final now = DateTime.now();
+    final age = now.difference(dataPoint.timestamp);
+    return age.inSeconds <= ttlSeconds;
+  }
+
+  /// Get value for specific path directly from REST API
+  /// This is useful when WebSocket delta updates aren't working
+  Future<dynamic> getRestValue(String path) async {
+    final protocol = _useSecureConnection ? 'https' : 'http';
+
+    // Convert dot notation to slash notation for URL
+    // e.g., 'steering.autopilot.state' -> 'steering/autopilot/state'
+    final urlPath = path.replaceAll('.', '/');
+
+    try {
+      final response = await http.get(
+        Uri.parse('$protocol://$_serverUrl/signalk/v1/api/vessels/self/$urlPath'),
+        headers: _getHeaders(),
+      ).timeout(const Duration(seconds: 3));
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body) as Map<String, dynamic>;
+
+        // SignalK REST API returns the value in the 'value' field
+        if (data.containsKey('value')) {
+          return data['value'];
+        }
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error fetching REST value for path $path: $e');
+      }
+    }
+
+    return null;
   }
 
   /// Get numeric value for specific path (returns null if not numeric)

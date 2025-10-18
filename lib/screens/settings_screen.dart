@@ -8,7 +8,7 @@ import '../services/dashboard_service.dart';
 import '../models/server_connection.dart';
 import 'connection_screen.dart';
 import 'device_registration_screen.dart';
-import 'autopilot_compass_demo.dart';
+import 'setup_management_screen.dart';
 
 /// Settings screen with connection management
 class SettingsScreen extends StatefulWidget {
@@ -19,6 +19,8 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
+  bool _showConnections = false;
+
   @override
   Widget build(BuildContext context) {
     final signalKService = Provider.of<SignalKService>(context);
@@ -46,43 +48,71 @@ class _SettingsScreenState extends State<SettingsScreen> {
             const Divider(height: 32),
           ],
 
-          // Saved Connections Section
-          Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Text(
-              signalKService.isConnected ? 'Saved Connections' : 'Select Connection',
-              style: const TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-              ),
+          // Saved Connections Section (Collapsible)
+          Card(
+            margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: Column(
+              children: [
+                ListTile(
+                  leading: const Icon(Icons.dns, color: Colors.blue),
+                  title: Text(
+                    signalKService.isConnected ? 'Saved Connections' : 'Select Connection',
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  subtitle: Text(
+                    '${storageService.getAllConnections().length} connection(s)',
+                    style: const TextStyle(fontSize: 12),
+                  ),
+                  trailing: IconButton(
+                    icon: Icon(
+                      _showConnections ? Icons.expand_less : Icons.expand_more,
+                    ),
+                    onPressed: () {
+                      setState(() {
+                        _showConnections = !_showConnections;
+                      });
+                    },
+                  ),
+                  onTap: () {
+                    setState(() {
+                      _showConnections = !_showConnections;
+                    });
+                  },
+                ),
+                if (_showConnections) ...[
+                  const Divider(height: 1),
+                  _buildSavedConnectionsList(storageService, signalKService.isConnected),
+                ],
+              ],
             ),
           ),
-          _buildSavedConnectionsList(storageService, signalKService.isConnected),
 
           const Divider(height: 32),
 
-          // Demos Section
-          const Padding(
-            padding: EdgeInsets.all(16.0),
-            child: Text(
-              'Demos',
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ),
+          // Dashboard Setups Section
           Card(
-            margin: const EdgeInsets.symmetric(horizontal: 16),
+            margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             child: ListTile(
-              leading: const Icon(Icons.explore, color: Colors.blue),
-              title: const Text('Autopilot Compass'),
-              subtitle: const Text('Test the new Syncfusion-based compass widget'),
+              leading: const Icon(Icons.dashboard_customize, color: Colors.blue),
+              title: const Text(
+                'Dashboard Setups',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              subtitle: const Text(
+                'Save, load, and share dashboard configurations',
+                style: TextStyle(fontSize: 12),
+              ),
               trailing: const Icon(Icons.arrow_forward_ios, size: 16),
               onTap: () {
                 Navigator.of(context).push(
                   MaterialPageRoute(
-                    builder: (context) => const AutopilotCompassDemo(),
+                    builder: (context) => const SetupManagementScreen(),
                   ),
                 );
               },
@@ -208,108 +238,94 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final connections = storageService.getAllConnections();
 
     if (connections.isEmpty) {
-      return Card(
-        margin: const EdgeInsets.symmetric(horizontal: 16),
-        child: Padding(
-          padding: const EdgeInsets.all(32.0),
-          child: Column(
-            children: [
-              Icon(Icons.dns, size: 64, color: Colors.grey[400]),
-              const SizedBox(height: 16),
-              Text(
-                'No saved connections',
-                style: TextStyle(fontSize: 16, color: Colors.grey[600], fontWeight: FontWeight.bold),
+      return Padding(
+        padding: const EdgeInsets.all(24.0),
+        child: Column(
+          children: [
+            Icon(Icons.dns, size: 48, color: Colors.grey[400]),
+            const SizedBox(height: 12),
+            Text(
+              'No saved connections',
+              style: TextStyle(fontSize: 14, color: Colors.grey[600], fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Add a connection to get started',
+              style: TextStyle(fontSize: 12, color: Colors.grey[500]),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 16),
+            ElevatedButton.icon(
+              onPressed: () => _showAddConnectionDialog(storageService),
+              icon: const Icon(Icons.add, size: 18),
+              label: const Text('Add Connection'),
+              style: ElevatedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               ),
-              const SizedBox(height: 8),
-              Text(
-                'Add a connection to get started',
-                style: TextStyle(fontSize: 14, color: Colors.grey[500]),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 16),
-              ElevatedButton.icon(
-                onPressed: () => _showAddConnectionDialog(storageService),
-                icon: const Icon(Icons.add),
-                label: const Text('Add Connection'),
-              ),
-            ],
-          ),
+            ),
+          ],
         ),
       );
     }
 
     return Column(
       children: connections.map((connection) {
-        return Card(
-          margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-          child: ListTile(
-            leading: Icon(
-              Icons.dns,
-              color: connection.useSecure ? Colors.green : Colors.blue,
-            ),
-            title: Text(connection.name),
-            subtitle: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(connection.serverUrl),
-                if (connection.lastConnectedAt != null)
-                  Text(
-                    'Last connected: ${_formatDateTime(connection.lastConnectedAt!)}',
-                    style: const TextStyle(fontSize: 10),
-                  ),
-              ],
-            ),
-            trailing: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                IconButton(
-                  icon: const Icon(Icons.play_arrow),
-                  onPressed: () => _connectToSaved(connection),
-                  tooltip: 'Connect',
-                ),
-                if (isConnected) ...[
-                  IconButton(
-                    icon: const Icon(Icons.edit),
-                    onPressed: () => _showEditConnectionDialog(
-                      storageService,
-                      connection,
-                    ),
-                    tooltip: 'Edit',
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.delete),
-                    onPressed: () => _confirmDeleteConnection(
-                      storageService,
-                      connection,
-                    ),
-                    tooltip: 'Delete',
-                  ),
-                ],
-              ],
-            ),
-            // Make the entire tile tappable to connect when not connected
-            onTap: !isConnected ? () => _connectToSaved(connection) : null,
+        return ListTile(
+          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+          leading: Icon(
+            connection.useSecure ? Icons.lock : Icons.dns,
+            color: connection.useSecure ? Colors.green : Colors.blue,
+            size: 20,
           ),
+          title: Text(
+            connection.name,
+            style: const TextStyle(fontSize: 14),
+          ),
+          subtitle: Text(
+            connection.serverUrl,
+            style: const TextStyle(fontSize: 12),
+          ),
+          trailing: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              IconButton(
+                icon: const Icon(Icons.play_arrow, size: 20),
+                onPressed: () => _connectToSaved(connection),
+                tooltip: 'Connect',
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(),
+              ),
+              if (isConnected) ...[
+                const SizedBox(width: 8),
+                IconButton(
+                  icon: const Icon(Icons.edit, size: 18),
+                  onPressed: () => _showEditConnectionDialog(
+                    storageService,
+                    connection,
+                  ),
+                  tooltip: 'Edit',
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                ),
+                const SizedBox(width: 8),
+                IconButton(
+                  icon: const Icon(Icons.delete, size: 18),
+                  onPressed: () => _confirmDeleteConnection(
+                    storageService,
+                    connection,
+                  ),
+                  tooltip: 'Delete',
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                ),
+              ],
+            ],
+          ),
+          // Make the entire tile tappable to connect when not connected
+          onTap: !isConnected ? () => _connectToSaved(connection) : null,
         );
       }).toList(),
     );
-  }
-
-  String _formatDateTime(DateTime dateTime) {
-    final now = DateTime.now();
-    final difference = now.difference(dateTime);
-
-    if (difference.inMinutes < 1) {
-      return 'Just now';
-    } else if (difference.inHours < 1) {
-      return '${difference.inMinutes}m ago';
-    } else if (difference.inDays < 1) {
-      return '${difference.inHours}h ago';
-    } else if (difference.inDays < 7) {
-      return '${difference.inDays}d ago';
-    } else {
-      return '${dateTime.day}/${dateTime.month}/${dateTime.year}';
-    }
   }
 
   Future<void> _disconnect(
