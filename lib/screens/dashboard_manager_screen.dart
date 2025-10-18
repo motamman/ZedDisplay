@@ -106,7 +106,7 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen> {
           children: [
             ListTile(
               leading: const Icon(Icons.add_circle_outline),
-              title: const Text('Create Custom Tool'),
+              title: const Text('Create Tool'),
               subtitle: const Text('Configure a tool from scratch'),
               onTap: () {
                 Navigator.pop(context);

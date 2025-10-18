@@ -555,8 +555,12 @@ class _TemplateDetailsDialog extends StatelessWidget {
                   ElevatedButton.icon(
                     onPressed: isCompatible
                         ? () {
-                            // Return the tool so it can be placed
-                            Navigator.of(context).pop(tool);
+                            // Return the tool with its saved default size
+                            Navigator.of(context).pop({
+                              'tool': tool,
+                              'width': tool.defaultWidth,
+                              'height': tool.defaultHeight,
+                            });
                           }
                         : null,
                     icon: const Icon(Icons.add),

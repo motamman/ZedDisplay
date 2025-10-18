@@ -395,6 +395,8 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
         config: config,
         name: toolName,
         description: toolDescription,
+        defaultWidth: _toolWidth,
+        defaultHeight: _toolHeight,
         updatedAt: DateTime.now(),
         tags: [_selectedToolTypeId!],
       );
@@ -406,6 +408,8 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
         name: toolName,
         description: toolDescription,
         author: 'Local User',
+        defaultWidth: _toolWidth,
+        defaultHeight: _toolHeight,
         category: ToolCategory.other,
         tags: [_selectedToolTypeId!],
       );

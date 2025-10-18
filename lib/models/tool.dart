@@ -32,6 +32,10 @@ class Tool {
   final String toolTypeId;      // Which tool type this is (e.g., "radial_gauge")
   final ToolConfig config;      // Configuration (data sources, style, etc.)
 
+  // Default sizing
+  final int defaultWidth;       // Default width when placed (grid units)
+  final int defaultHeight;      // Default height when placed (grid units)
+
   // Organization & discovery
   final ToolCategory category;
   final List<String> tags;      // Searchable tags (e.g., ["speed", "wind", "navigation"])
@@ -63,6 +67,8 @@ class Tool {
     this.updatedAt,
     required this.toolTypeId,
     required this.config,
+    this.defaultWidth = 2,
+    this.defaultHeight = 2,
     this.category = ToolCategory.other,
     this.tags = const [],
     this.thumbnailUrl,
@@ -92,6 +98,8 @@ class Tool {
     DateTime? updatedAt,
     String? toolTypeId,
     ToolConfig? config,
+    int? defaultWidth,
+    int? defaultHeight,
     ToolCategory? category,
     List<String>? tags,
     String? thumbnailUrl,
@@ -114,6 +122,8 @@ class Tool {
       updatedAt: updatedAt ?? this.updatedAt,
       toolTypeId: toolTypeId ?? this.toolTypeId,
       config: config ?? this.config,
+      defaultWidth: defaultWidth ?? this.defaultWidth,
+      defaultHeight: defaultHeight ?? this.defaultHeight,
       category: category ?? this.category,
       tags: tags ?? this.tags,
       thumbnailUrl: thumbnailUrl ?? this.thumbnailUrl,

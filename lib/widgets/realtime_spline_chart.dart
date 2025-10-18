@@ -58,13 +58,11 @@ class _RealtimeSplineChartState extends State<RealtimeSplineChart> {
 
   void _updateChartData() {
     setState(() {
-      bool anyDataAdded = false;
       for (int i = 0; i < widget.paths.length; i++) {
         final path = widget.paths[i];
         final value = widget.signalKService.getConvertedValue(path);
 
         if (value != null) {
-          anyDataAdded = true;
           // Create new list with updated data (don't mutate existing)
           final newData = List<_ChartData>.from(_seriesData[i]);
           newData.add(_ChartData(_time, value));
@@ -77,11 +75,6 @@ class _RealtimeSplineChartState extends State<RealtimeSplineChart> {
           // Replace the list entirely to trigger chart update
           _seriesData[i] = newData;
         }
-      }
-
-      // Debug: print every 10 seconds
-      if (_time % 10 == 0) {
-        print('📊 Chart update: time=$_time, dataAdded=$anyDataAdded, points=${_seriesData.first.length}');
       }
 
       _time++;

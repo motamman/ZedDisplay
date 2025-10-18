@@ -18,6 +18,8 @@ Tool _$ToolFromJson(Map<String, dynamic> json) => Tool(
           : DateTime.parse(json['updatedAt'] as String),
       toolTypeId: json['toolTypeId'] as String,
       config: ToolConfig.fromJson(json['config'] as Map<String, dynamic>),
+      defaultWidth: (json['defaultWidth'] as num?)?.toInt() ?? 2,
+      defaultHeight: (json['defaultHeight'] as num?)?.toInt() ?? 2,
       category: $enumDecodeNullable(_$ToolCategoryEnumMap, json['category']) ??
           ToolCategory.other,
       tags:
@@ -47,6 +49,8 @@ Map<String, dynamic> _$ToolToJson(Tool instance) => <String, dynamic>{
       'updatedAt': instance.updatedAt?.toIso8601String(),
       'toolTypeId': instance.toolTypeId,
       'config': instance.config,
+      'defaultWidth': instance.defaultWidth,
+      'defaultHeight': instance.defaultHeight,
       'category': _$ToolCategoryEnumMap[instance.category]!,
       'tags': instance.tags,
       'thumbnailUrl': instance.thumbnailUrl,
