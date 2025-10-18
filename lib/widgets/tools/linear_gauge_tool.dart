@@ -34,19 +34,22 @@ class LinearGaugeTool extends StatelessWidget {
     final dataSource = config.dataSources.first;
     final style = config.style;
 
+    // Get data point (with source if specified)
+    final dataPoint = signalKService.getValue(dataSource.path, source: dataSource.source);
+
+    // Get raw value from data point
+    final rawValue = dataPoint?.converted ?? (dataPoint?.value is num ? (dataPoint!.value as num).toDouble() : 0.0);
+
+    // Get style configuration
+    final minValue = style.minValue ?? 0.0;
+    final maxValue = style.maxValue ?? 100.0;
+
     // Check if data is fresh (within TTL threshold)
     final isDataFresh = signalKService.isDataFresh(
       dataSource.path,
       source: dataSource.source,
       ttlSeconds: style.ttlSeconds,
     );
-
-    final dataPoint = signalKService.getValue(dataSource.path, source: dataSource.source);
-    final rawValue = signalKService.getConvertedValue(dataSource.path) ?? 0.0;
-
-    // Get style configuration
-    final minValue = style.minValue ?? 0.0;
-    final maxValue = style.maxValue ?? 100.0;
 
     // If data is stale, show minimum value and "--" text
     final value = isDataFresh ? rawValue : minValue;

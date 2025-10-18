@@ -1,5 +1,8 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
+import 'package:syncfusion_flutter_core/theme.dart';
+import 'package:syncfusion_flutter_sliders/sliders.dart';
 import '../../models/tool_definition.dart';
 import '../../models/tool_config.dart';
 import '../../services/signalk_service.dart';
@@ -32,7 +35,7 @@ class _SliderToolState extends State<SliderTool> {
     }
 
     final dataSource = widget.config.dataSources.first;
-    final dataPoint = widget.signalKService.getValue(dataSource.path);
+    final dataPoint = widget.signalKService.getValue(dataSource.path, source: dataSource.source);
     final style = widget.config.style;
 
     // Get min/max values from style config
@@ -131,23 +134,37 @@ class _SliderToolState extends State<SliderTool> {
               ],
             ),
 
-            // Slider - wrapped to prevent parent scroll interference
+            // Syncfusion Slider - wrapped to prevent parent scroll interference
             GestureDetector(
               onHorizontalDragStart: (_) {}, // Block parent scroll
               onHorizontalDragUpdate: (_) {},
               onHorizontalDragEnd: (_) {},
-              child: Slider(
-                value: currentValue,
-                min: minValue,
-                max: maxValue,
-                divisions: ((maxValue - minValue) * (10 * (decimalPlaces + 1))).toInt().clamp(10, 1000),
-                activeColor: primaryColor,
-                onChanged: _isSending ? null : (value) {
-                  setState(() {
-                    _currentSliderValue = value;
-                  });
-                },
-                onChangeEnd: (value) => _sendValue(value, dataSource.path),
+              child: SfSliderTheme(
+                data: SfSliderThemeData(
+                  activeTrackHeight: 6,
+                  inactiveTrackHeight: 6,
+                  activeTrackColor: primaryColor,
+                  inactiveTrackColor: Colors.grey.withValues(alpha: 0.3),
+                  thumbColor: primaryColor,
+                  thumbRadius: 12,
+                  overlayColor: primaryColor.withValues(alpha: 0.2),
+                  overlayRadius: 24,
+                  tooltipBackgroundColor: primaryColor,
+                ),
+                child: SfSlider(
+                  value: currentValue,
+                  min: minValue,
+                  max: maxValue,
+                  stepSize: (maxValue - minValue) / ((maxValue - minValue) * (10 * (decimalPlaces + 1))).clamp(10, 1000),
+                  enableTooltip: true,
+                  numberFormat: NumberFormat.decimalPatternDigits(decimalDigits: decimalPlaces),
+                  onChanged: _isSending ? null : (value) {
+                    setState(() {
+                      _currentSliderValue = value;
+                    });
+                  },
+                  onChangeEnd: (value) => _sendValue(value, dataSource.path),
+                ),
               ),
             ),
 
