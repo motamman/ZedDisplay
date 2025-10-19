@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
@@ -9,6 +10,8 @@ import 'services/tool_registry.dart';
 import 'services/tool_service.dart';
 import 'services/auth_service.dart';
 import 'services/setup_service.dart';
+import 'services/notification_service.dart';
+import 'services/foreground_service.dart';
 import 'models/auth_token.dart';
 import 'screens/splash_screen.dart';
 
@@ -22,6 +25,14 @@ void main() async {
   // Initialize storage service
   final storageService = StorageService();
   await storageService.initialize();
+
+  // Initialize notification service
+  final notificationService = NotificationService();
+  await notificationService.initialize();
+
+  // Initialize foreground service
+  final foregroundService = ForegroundTaskService();
+  await foregroundService.initialize();
 
   // Initialize tool service
   final toolService = ToolService(storageService);
@@ -66,6 +77,8 @@ void main() async {
     toolService: toolService,
     authService: authService,
     setupService: setupService,
+    notificationService: notificationService,
+    foregroundService: foregroundService,
   ));
 }
 
@@ -76,6 +89,8 @@ class ZedDisplayApp extends StatefulWidget {
   final ToolService toolService;
   final AuthService authService;
   final SetupService setupService;
+  final NotificationService notificationService;
+  final ForegroundTaskService foregroundService;
 
   const ZedDisplayApp({
     super.key,
@@ -85,6 +100,8 @@ class ZedDisplayApp extends StatefulWidget {
     required this.toolService,
     required this.authService,
     required this.setupService,
+    required this.notificationService,
+    required this.foregroundService,
   });
 
   @override
@@ -142,6 +159,7 @@ class _ZedDisplayAppState extends State<ZedDisplayApp> with WidgetsBindingObserv
     widget.storageService.removeListener(_onStorageChanged);
     WidgetsBinding.instance.removeObserver(this);
     WakelockPlus.disable();
+    widget.foregroundService.stop();
     super.dispose();
   }
 
@@ -149,11 +167,18 @@ class _ZedDisplayAppState extends State<ZedDisplayApp> with WidgetsBindingObserv
     if (widget.signalKService.isConnected) {
       // Enable wakelock when connected to keep screen on and connection alive
       WakelockPlus.enable();
-      // debugPrint('Wakelock enabled - keeping connection alive');
+
+      // Start foreground service if notifications are enabled
+      final notificationsEnabled = widget.storageService.getNotificationsEnabled();
+      if (notificationsEnabled) {
+        widget.foregroundService.start();
+      }
     } else {
       // Disable wakelock when disconnected to save battery
       WakelockPlus.disable();
-      // debugPrint('Wakelock disabled');
+
+      // Stop foreground service when disconnected
+      widget.foregroundService.stop();
     }
   }
 
@@ -236,6 +261,8 @@ class _ZedDisplayAppState extends State<ZedDisplayApp> with WidgetsBindingObserv
         builder: (context, child) {
           return SignalKNotificationListener(
             signalKService: widget.signalKService,
+            storageService: widget.storageService,
+            notificationService: widget.notificationService,
             child: child ?? const SizedBox.shrink(),
           );
         },
@@ -247,11 +274,15 @@ class _ZedDisplayAppState extends State<ZedDisplayApp> with WidgetsBindingObserv
 /// Widget that listens to SignalK notifications and displays them
 class SignalKNotificationListener extends StatefulWidget {
   final SignalKService signalKService;
+  final StorageService storageService;
+  final NotificationService notificationService;
   final Widget child;
 
   const SignalKNotificationListener({
     super.key,
     required this.signalKService,
+    required this.storageService,
+    required this.notificationService,
     required this.child,
   });
 
@@ -269,32 +300,41 @@ class _SignalKNotificationListenerState extends State<SignalKNotificationListene
   }
 
   void _setupNotificationListener() {
-    debugPrint('📱 NotificationListener: Setting up stream listener');
     _notificationSubscription = widget.signalKService.notificationStream.listen(
       _handleNotification,
       onError: (error) {
-        debugPrint('📱 NotificationListener: Stream error: $error');
-      },
-      onDone: () {
-        debugPrint('📱 NotificationListener: Stream closed');
+        if (kDebugMode) {
+          print('Notification stream error: $error');
+        }
       },
     );
-    debugPrint('📱 NotificationListener: Stream listener set up successfully');
   }
 
   void _handleNotification(SignalKNotification notification) {
-    debugPrint('📱 NotificationListener: Received notification: [${notification.state}] ${notification.message}');
+    if (!mounted) return;
 
-    if (!mounted) {
-      debugPrint('📱 NotificationListener: Widget not mounted, skipping display');
-      return;
+    // Check both in-app and system notification filters
+    final showInApp = widget.storageService.getInAppNotificationFilter(notification.state.toLowerCase());
+    final showSystem = widget.storageService.getSystemNotificationFilter(notification.state.toLowerCase());
+
+    if (kDebugMode) {
+      print('📱 Notification handler: [${notification.state}] showInApp=$showInApp, showSystem=$showSystem');
     }
 
-    // Check if this notification level should be displayed
-    final storageService = Provider.of<StorageService>(context, listen: false);
-    final shouldShow = storageService.getNotificationLevelFilter(notification.state.toLowerCase());
-    if (!shouldShow) {
-      debugPrint('📱 NotificationListener: Level ${notification.state} is filtered out');
+    if (!showInApp && !showSystem) {
+      return; // Filtered out
+    }
+
+    // Show system notification if enabled for this level
+    if (showSystem) {
+      if (kDebugMode) {
+        print('📱 Calling system notification for [${notification.state}] ${notification.message}');
+      }
+      widget.notificationService.showNotification(notification);
+    }
+
+    // Show in-app notification if enabled for this level
+    if (!showInApp) {
       return;
     }
 
@@ -334,8 +374,6 @@ class _SignalKNotificationListenerState extends State<SignalKNotificationListene
     }
 
     // Show the notification as a SnackBar
-    debugPrint('📱 NotificationListener: Showing SnackBar with color: $backgroundColor');
-
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Row(

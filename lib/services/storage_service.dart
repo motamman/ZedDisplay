@@ -655,25 +655,58 @@ class StorageService extends ChangeNotifier {
     return _settingsBox.get('notifications_enabled', defaultValue: 'false') == 'true';
   }
 
-  /// Save notification level filter (which levels to show)
-  Future<void> saveNotificationLevelFilter(String level, bool enabled) async {
+  /// Save in-app notification level filter
+  Future<void> saveInAppNotificationFilter(String level, bool enabled) async {
     if (!_initialized) throw Exception('StorageService not initialized');
-    await _settingsBox.put('notification_level_$level', enabled ? 'true' : 'false');
+    await _settingsBox.put('notification_inapp_$level', enabled ? 'true' : 'false');
     notifyListeners();
 
     if (kDebugMode) {
-      print('Saved notification level $level: $enabled');
+      print('Saved in-app notification level $level: $enabled');
     }
   }
 
-  /// Get notification level filter (defaults: only emergency enabled)
-  bool getNotificationLevelFilter(String level) {
+  /// Get in-app notification level filter (defaults: only emergency enabled)
+  bool getInAppNotificationFilter(String level) {
     if (!_initialized) {
       return level.toLowerCase() == 'emergency'; // Default: only emergency
     }
 
     // Defaults: only emergency enabled, all others disabled
     final defaultValue = level.toLowerCase() == 'emergency' ? 'true' : 'false';
-    return _settingsBox.get('notification_level_$level', defaultValue: defaultValue) == 'true';
+    return _settingsBox.get('notification_inapp_$level', defaultValue: defaultValue) == 'true';
+  }
+
+  /// Save system notification level filter
+  Future<void> saveSystemNotificationFilter(String level, bool enabled) async {
+    if (!_initialized) throw Exception('StorageService not initialized');
+    await _settingsBox.put('notification_system_$level', enabled ? 'true' : 'false');
+    notifyListeners();
+
+    if (kDebugMode) {
+      print('Saved system notification level $level: $enabled');
+    }
+  }
+
+  /// Get system notification level filter (defaults: only emergency enabled)
+  bool getSystemNotificationFilter(String level) {
+    if (!_initialized) {
+      // Default: only emergency for system notifications
+      return level.toLowerCase() == 'emergency';
+    }
+
+    // Defaults: only emergency enabled for system, others disabled
+    final defaultValue = level.toLowerCase() == 'emergency' ? 'true' : 'false';
+    return _settingsBox.get('notification_system_$level', defaultValue: defaultValue) == 'true';
+  }
+
+  // Legacy method for backward compatibility - maps to in-app filter
+  Future<void> saveNotificationLevelFilter(String level, bool enabled) async {
+    await saveInAppNotificationFilter(level, enabled);
+  }
+
+  // Legacy method for backward compatibility - maps to in-app filter
+  bool getNotificationLevelFilter(String level) {
+    return getInAppNotificationFilter(level);
   }
 }

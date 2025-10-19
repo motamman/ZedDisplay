@@ -5,6 +5,7 @@ import '../services/signalk_service.dart';
 import '../services/storage_service.dart';
 import '../services/auth_service.dart';
 import '../services/dashboard_service.dart';
+import '../services/foreground_service.dart';
 import '../models/server_connection.dart';
 import 'connection_screen.dart';
 import 'device_registration_screen.dart';
@@ -22,13 +23,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _showConnections = false;
   bool _notificationsEnabled = false;
 
-  // Notification level filters
-  bool _showEmergency = true;
-  bool _showAlarm = false;
-  bool _showWarn = false;
-  bool _showAlert = false;
-  bool _showNormal = false;
-  bool _showNominal = false;
+  // In-app notification level filters
+  bool _showInAppEmergency = true;
+  bool _showInAppAlarm = false;
+  bool _showInAppWarn = false;
+  bool _showInAppAlert = false;
+  bool _showInAppNormal = false;
+  bool _showInAppNominal = false;
+
+  // System notification level filters (only emergency and alarm available)
+  bool _showSystemEmergency = true;
+  bool _showSystemAlarm = false;
 
   @override
   void initState() {
@@ -42,12 +47,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
     setState(() {
       _notificationsEnabled = storageService.getNotificationsEnabled();
-      _showEmergency = storageService.getNotificationLevelFilter('emergency');
-      _showAlarm = storageService.getNotificationLevelFilter('alarm');
-      _showWarn = storageService.getNotificationLevelFilter('warn');
-      _showAlert = storageService.getNotificationLevelFilter('alert');
-      _showNormal = storageService.getNotificationLevelFilter('normal');
-      _showNominal = storageService.getNotificationLevelFilter('nominal');
+
+      // Load in-app notification filters
+      _showInAppEmergency = storageService.getInAppNotificationFilter('emergency');
+      _showInAppAlarm = storageService.getInAppNotificationFilter('alarm');
+      _showInAppWarn = storageService.getInAppNotificationFilter('warn');
+      _showInAppAlert = storageService.getInAppNotificationFilter('alert');
+      _showInAppNormal = storageService.getInAppNotificationFilter('normal');
+      _showInAppNominal = storageService.getInAppNotificationFilter('nominal');
+
+      // Load system notification filters (only emergency and alarm)
+      _showSystemEmergency = storageService.getSystemNotificationFilter('emergency');
+      _showSystemAlarm = storageService.getSystemNotificationFilter('alarm');
     });
 
     // Sync with SignalKService
@@ -184,6 +195,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     // Update SignalK subscription
                     await signalKService.setNotificationsEnabled(value);
 
+                    // Start/stop foreground service
+                    final foregroundService = ForegroundTaskService();
+                    if (value && signalKService.isConnected) {
+                      await foregroundService.start();
+                    } else {
+                      await foregroundService.stop();
+                    }
+
                     if (mounted) {
                       ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(
@@ -202,99 +221,130 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 if (_notificationsEnabled) ...[
                   const Divider(height: 1),
                   Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    padding: const EdgeInsets.all(16),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         const Text(
-                          'Notification Levels to Display',
-                          style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.bold,
-                          ),
+                          'Notification Types',
+                          style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
                         ),
-                        const SizedBox(height: 4),
-                        const Text(
-                          'Choose which notification levels to show',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: Colors.grey,
-                          ),
+                        const SizedBox(height: 8),
+                        // Header row
+                        Row(
+                          children: [
+                            const Expanded(flex: 2, child: SizedBox()),
+                            Expanded(
+                              child: Text(
+                                'In-App',
+                                style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                                textAlign: TextAlign.center,
+                              ),
+                            ),
+                            Expanded(
+                              child: Text(
+                                'System',
+                                style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                                textAlign: TextAlign.center,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const Divider(),
+                        // Emergency
+                        _buildNotificationRow(
+                          Icons.emergency,
+                          Colors.red,
+                          'Emergency',
+                          _showInAppEmergency,
+                          _showSystemEmergency,
+                          (inApp, system) async {
+                            setState(() {
+                              _showInAppEmergency = inApp;
+                              if (system != null) _showSystemEmergency = system;
+                            });
+                            await storageService.saveInAppNotificationFilter('emergency', inApp);
+                            if (system != null) {
+                              await storageService.saveSystemNotificationFilter('emergency', system);
+                            }
+                          },
+                        ),
+                        // Alarm
+                        _buildNotificationRow(
+                          Icons.alarm,
+                          Colors.red.shade700,
+                          'Alarm',
+                          _showInAppAlarm,
+                          _showSystemAlarm,
+                          (inApp, system) async {
+                            setState(() {
+                              _showInAppAlarm = inApp;
+                              if (system != null) _showSystemAlarm = system;
+                            });
+                            await storageService.saveInAppNotificationFilter('alarm', inApp);
+                            if (system != null) {
+                              await storageService.saveSystemNotificationFilter('alarm', system);
+                            }
+                          },
+                        ),
+                        // Warn (in-app only)
+                        _buildNotificationRow(
+                          Icons.warning,
+                          Colors.orange,
+                          'Warn',
+                          _showInAppWarn,
+                          null, // No system notification
+                          (inApp, system) async {
+                            setState(() {
+                              _showInAppWarn = inApp;
+                            });
+                            await storageService.saveInAppNotificationFilter('warn', inApp);
+                          },
+                        ),
+                        // Alert (in-app only)
+                        _buildNotificationRow(
+                          Icons.info,
+                          Colors.amber,
+                          'Alert',
+                          _showInAppAlert,
+                          null, // No system notification
+                          (inApp, system) async {
+                            setState(() {
+                              _showInAppAlert = inApp;
+                            });
+                            await storageService.saveInAppNotificationFilter('alert', inApp);
+                          },
+                        ),
+                        // Normal (in-app only)
+                        _buildNotificationRow(
+                          Icons.notifications,
+                          Colors.blue,
+                          'Normal',
+                          _showInAppNormal,
+                          null, // No system notification
+                          (inApp, system) async {
+                            setState(() {
+                              _showInAppNormal = inApp;
+                            });
+                            await storageService.saveInAppNotificationFilter('normal', inApp);
+                          },
+                        ),
+                        // Nominal (in-app only)
+                        _buildNotificationRow(
+                          Icons.check_circle,
+                          Colors.green,
+                          'Nominal',
+                          _showInAppNominal,
+                          null, // No system notification
+                          (inApp, system) async {
+                            setState(() {
+                              _showInAppNominal = inApp;
+                            });
+                            await storageService.saveInAppNotificationFilter('nominal', inApp);
+                          },
                         ),
                       ],
                     ),
-                  ),
-                  CheckboxListTile(
-                    secondary: const Icon(Icons.emergency, color: Colors.red, size: 20),
-                    title: const Text('Emergency'),
-                    subtitle: const Text('Critical emergencies (MOB, fire, etc.)'),
-                    value: _showEmergency,
-                    onChanged: (value) async {
-                      setState(() {
-                        _showEmergency = value ?? true;
-                      });
-                      await storageService.saveNotificationLevelFilter('emergency', value ?? true);
-                    },
-                  ),
-                  CheckboxListTile(
-                    secondary: const Icon(Icons.alarm, color: Colors.red, size: 20),
-                    title: const Text('Alarm'),
-                    subtitle: const Text('High priority alarms'),
-                    value: _showAlarm,
-                    onChanged: (value) async {
-                      setState(() {
-                        _showAlarm = value ?? false;
-                      });
-                      await storageService.saveNotificationLevelFilter('alarm', value ?? false);
-                    },
-                  ),
-                  CheckboxListTile(
-                    secondary: const Icon(Icons.warning, color: Colors.orange, size: 20),
-                    title: const Text('Warn'),
-                    subtitle: const Text('Important warnings'),
-                    value: _showWarn,
-                    onChanged: (value) async {
-                      setState(() {
-                        _showWarn = value ?? false;
-                      });
-                      await storageService.saveNotificationLevelFilter('warn', value ?? false);
-                    },
-                  ),
-                  CheckboxListTile(
-                    secondary: const Icon(Icons.info, color: Colors.amber, size: 20),
-                    title: const Text('Alert'),
-                    subtitle: const Text('General alerts'),
-                    value: _showAlert,
-                    onChanged: (value) async {
-                      setState(() {
-                        _showAlert = value ?? false;
-                      });
-                      await storageService.saveNotificationLevelFilter('alert', value ?? false);
-                    },
-                  ),
-                  CheckboxListTile(
-                    secondary: const Icon(Icons.notifications, color: Colors.blue, size: 20),
-                    title: const Text('Normal'),
-                    subtitle: const Text('Standard notifications'),
-                    value: _showNormal,
-                    onChanged: (value) async {
-                      setState(() {
-                        _showNormal = value ?? false;
-                      });
-                      await storageService.saveNotificationLevelFilter('normal', value ?? false);
-                    },
-                  ),
-                  CheckboxListTile(
-                    secondary: const Icon(Icons.check_circle, color: Colors.green, size: 20),
-                    title: const Text('Nominal'),
-                    subtitle: const Text('All systems operating as expected'),
-                    value: _showNominal,
-                    onChanged: (value) async {
-                      setState(() {
-                        _showNominal = value ?? false;
-                      });
-                      await storageService.saveNotificationLevelFilter('nominal', value ?? false);
-                    },
                   ),
                 ],
               ],
@@ -843,6 +893,51 @@ class _SettingsScreenState extends State<SettingsScreen> {
         setState(() {});
       }
     }
+  }
+
+  /// Build a notification level row with in-app and system checkboxes
+  Widget _buildNotificationRow(
+    IconData icon,
+    Color iconColor,
+    String label,
+    bool inAppValue,
+    bool? systemValue, // null means no system checkbox
+    Function(bool inApp, bool? system) onChanged,
+  ) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        children: [
+          Icon(icon, color: iconColor, size: 20),
+          const SizedBox(width: 12),
+          Expanded(
+            flex: 2,
+            child: Text(
+              label,
+              style: const TextStyle(fontSize: 14),
+            ),
+          ),
+          Expanded(
+            child: Checkbox(
+              value: inAppValue,
+              onChanged: (value) {
+                onChanged(value ?? false, systemValue);
+              },
+            ),
+          ),
+          Expanded(
+            child: systemValue != null
+                ? Checkbox(
+                    value: systemValue,
+                    onChanged: (value) {
+                      onChanged(inAppValue, value ?? false);
+                    },
+                  )
+                : const SizedBox(), // Empty space for consistency
+          ),
+        ],
+      ),
+    );
   }
 
 }

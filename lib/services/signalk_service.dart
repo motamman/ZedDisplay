@@ -139,9 +139,6 @@ class SignalKService extends ChangeNotifier {
       // Auto-connect notification channel if notifications are enabled
       if (_notificationsEnabled && _authToken != null) {
         await _connectNotificationChannel();
-        if (kDebugMode) {
-          print('🔔 Auto-connected notification channel on SignalK connection');
-        }
       }
     } catch (e) {
       _errorMessage = 'Connection failed: $e';
@@ -277,9 +274,7 @@ class SignalKService extends ChangeNotifier {
   /// Handle incoming WebSocket messages
   void _handleMessage(dynamic message) {
     try {
-      if (kDebugMode) {
-        print('🌊 RAW WebSocket message received (first 300 chars): ${message.toString().substring(0, message.toString().length > 300 ? 300 : message.toString().length)}');
-      }
+      // Verbose logging disabled - only log errors
 
       final data = jsonDecode(message);
 
@@ -319,9 +314,7 @@ class SignalKService extends ChangeNotifier {
 
       // Check if it's a delta update
       if (data['updates'] != null) {
-        if (kDebugMode) {
-          print('🔄 Processing delta update with ${(data['updates'] as List).length} updates');
-        }
+        // Verbose logging disabled
         final update = SignalKUpdate.fromJson(data);
 
         // Process each value update
@@ -333,12 +326,6 @@ class SignalKService extends ChangeNotifier {
           // }
 
           for (final value in updateValue.values) {
-            // DEBUG: Log all notification paths
-            if (kDebugMode && value.path.contains('notification')) {
-              print('🔔 RAW notification path detected: ${value.path}');
-              print('🔔 RAW notification value type: ${value.value.runtimeType}');
-              print('🔔 RAW notification value: ${value.value}');
-            }
             SignalKDataPoint dataPoint;
 
             // Check if value is from units-preference plugin (has converted format)
@@ -811,9 +798,6 @@ class SignalKService extends ChangeNotifier {
   /// Enable or disable notifications (manages separate WebSocket connection)
   Future<void> setNotificationsEnabled(bool enabled) async {
     if (_notificationsEnabled == enabled) {
-      if (kDebugMode) {
-        print('🔔 Notifications already ${enabled ? "enabled" : "disabled"}, skipping');
-      }
       return;
     }
 
@@ -833,18 +817,11 @@ class SignalKService extends ChangeNotifier {
   /// Connect to notification WebSocket (separate from data connection)
   Future<void> _connectNotificationChannel() async {
     if (_authToken == null) {
-      if (kDebugMode) {
-        print('🔔 Cannot connect notification channel: no auth token');
-      }
       return;
     }
 
     try {
       final wsUrl = _getNotificationEndpoint();
-
-      if (kDebugMode) {
-        print('🔔 Connecting notification WebSocket to: $wsUrl');
-      }
 
       final headers = <String, String>{
         'Authorization': 'Bearer ${_authToken!.token}',
@@ -853,35 +830,25 @@ class SignalKService extends ChangeNotifier {
       final socket = await WebSocket.connect(wsUrl, headers: headers);
       _notificationChannel = IOWebSocketChannel(socket);
 
-      if (kDebugMode) {
-        print('🔔 Notification WebSocket connected successfully');
-      }
-
       // Listen to incoming messages on notification channel
       _notificationSubscription = _notificationChannel!.stream.listen(
         _handleNotificationMessage,
         onError: (error) {
           if (kDebugMode) {
-            print('🔔 Notification WebSocket error: $error');
+            print('❌ Notification WebSocket error: $error');
           }
         },
         onDone: () {
-          if (kDebugMode) {
-            print('🔔 Notification WebSocket disconnected');
-          }
+          // Connection closed
         },
       );
 
       // Subscribe to notifications
       await Future.delayed(const Duration(milliseconds: 100));
       _subscribeToNotifications();
-
-      if (kDebugMode) {
-        print('🔔 Notifications ENABLED on separate WebSocket');
-      }
     } catch (e) {
       if (kDebugMode) {
-        print('🔔 Error connecting notification channel: $e');
+        print('❌ Error connecting notification channel: $e');
       }
     }
   }
@@ -897,13 +864,9 @@ class SignalKService extends ChangeNotifier {
 
       // Clear notification state tracking
       _lastNotificationState.clear();
-
-      if (kDebugMode) {
-        print('🔔 Notification WebSocket DISCONNECTED');
-      }
     } catch (e) {
       if (kDebugMode) {
-        print('🔔 Error disconnecting notification channel: $e');
+        print('❌ Error disconnecting notification channel: $e');
       }
     }
   }
@@ -924,19 +887,11 @@ class SignalKService extends ChangeNotifier {
     };
 
     _notificationChannel?.sink.add(jsonEncode(subscription));
-
-    if (kDebugMode) {
-      print('🔔 Sent notification subscription: ${jsonEncode(subscription)}');
-    }
   }
 
   /// Handle messages from notification WebSocket
   void _handleNotificationMessage(dynamic message) {
     try {
-      if (kDebugMode) {
-        print('🔔 Notification WS message: ${message.toString().substring(0, min(200, message.toString().length))}');
-      }
-
       final data = jsonDecode(message);
 
       // Skip non-Map messages
@@ -951,10 +906,6 @@ class SignalKService extends ChangeNotifier {
         for (final updateValue in update.updates) {
           for (final value in updateValue.values) {
             if (value.path.startsWith('notifications.')) {
-              if (kDebugMode) {
-                print('🔔 Notification path: ${value.path}');
-                print('🔔 Notification value: ${value.value}');
-              }
               _handleNotification(value.path, value.value, updateValue.timestamp);
             }
           }
@@ -962,7 +913,7 @@ class SignalKService extends ChangeNotifier {
       }
     } catch (e) {
       if (kDebugMode) {
-        print('🔔 Error parsing notification message: $e');
+        print('❌ Error parsing notification message: $e');
       }
     }
   }
@@ -973,37 +924,20 @@ class SignalKService extends ChangeNotifier {
       // Extract notification key from path (e.g., "notifications.mob" -> "mob")
       final key = path.replaceFirst('notifications.', '');
 
-      if (kDebugMode) {
-        print('🔔 Processing notification: path=$path, key=$key');
-        print('🔔 Value type: ${value.runtimeType}');
-        print('🔔 Value: $value');
-      }
-
       if (value is Map<String, dynamic>) {
         final state = value['state'] as String?;
         final message = value['message'] as String?;
         final method = value['method'] as List?;
 
-        if (kDebugMode) {
-          print('🔔 Parsed: state=$state, message=$message, method=$method');
-        }
-
         if (state != null && message != null) {
           // Deduplicate: only emit if state changed for this notification key
           final lastState = _lastNotificationState[key];
           if (lastState == state) {
-            if (kDebugMode) {
-              print('🔔 Notification state unchanged for "$key": $state - skipping');
-            }
             return;
           }
 
           // Update last state
           _lastNotificationState[key] = state;
-
-          if (kDebugMode) {
-            print('🔔 Notification state changed for "$key": "$lastState" -> "$state"');
-          }
 
           final notification = SignalKNotification(
             key: key,
@@ -1013,23 +947,7 @@ class SignalKService extends ChangeNotifier {
             timestamp: timestamp,
           );
 
-          if (kDebugMode) {
-            print('🔔 Adding notification to stream: [$state] $message');
-          }
-
           _notificationController.add(notification);
-
-          if (kDebugMode) {
-            print('🔔 Notification added to stream successfully');
-          }
-        } else {
-          if (kDebugMode) {
-            print('⚠️ Missing state or message in notification');
-          }
-        }
-      } else {
-        if (kDebugMode) {
-          print('⚠️ Notification value is not a Map');
         }
       }
     } catch (e) {
