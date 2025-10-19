@@ -431,12 +431,6 @@ class SignalKService extends ChangeNotifier {
     final sourceKey = '$path@$source';
     final result = _latestData[sourceKey];
 
-    if (kDebugMode && result != null && path.contains('heading')) {
-      print('✅ getValue for $path with source $source: found at $sourceKey');
-    } else if (kDebugMode && result == null && path.contains('heading')) {
-      print('❌ getValue for $path with source $source: NOT FOUND at $sourceKey, falling back to default');
-    }
-
     return result ?? _latestData[path]; // Fallback to default if source not found
   }
 
@@ -472,7 +466,7 @@ class SignalKService extends ChangeNotifier {
       final response = await http.get(
         Uri.parse('$protocol://$_serverUrl/signalk/v1/api/vessels/self/$urlPath'),
         headers: _getHeaders(),
-      ).timeout(const Duration(seconds: 3));
+      ).timeout(const Duration(seconds: 10)); // Increased from 3s for busy servers
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body) as Map<String, dynamic>;
@@ -574,7 +568,7 @@ class SignalKService extends ChangeNotifier {
       final response = await http.get(
         Uri.parse('$protocol://$_serverUrl/signalk/v1/api/vessels/self'),
         headers: _getHeaders(),
-      ).timeout(const Duration(seconds: 10));
+      ).timeout(const Duration(seconds: 30)); // Increased from 10s for busy servers
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body) as Map<String, dynamic>;
@@ -633,7 +627,7 @@ class SignalKService extends ChangeNotifier {
       final response = await http.get(
         Uri.parse('$protocol://$_serverUrl/signalk/v1/api/vessels/self/$apiPath'),
         headers: _getHeaders(),
-      ).timeout(const Duration(seconds: 5));
+      ).timeout(const Duration(seconds: 20)); // Increased from 5s for busy servers
 
       if (kDebugMode) {
         print('Sources API Response: ${response.statusCode}');
