@@ -20,6 +20,25 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   bool _showConnections = false;
+  bool _notificationsEnabled = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadNotificationsPreference();
+  }
+
+  Future<void> _loadNotificationsPreference() async {
+    final storageService = Provider.of<StorageService>(context, listen: false);
+    final signalKService = Provider.of<SignalKService>(context, listen: false);
+
+    setState(() {
+      _notificationsEnabled = storageService.getNotificationsEnabled();
+    });
+
+    // Sync with SignalKService
+    await signalKService.setNotificationsEnabled(_notificationsEnabled);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -116,6 +135,127 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                 );
               },
+            ),
+          ),
+
+          const Divider(height: 32),
+
+          // Notifications Section
+          Card(
+            margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: Column(
+              children: [
+                SwitchListTile(
+                  secondary: const Icon(Icons.notifications_active, color: Colors.orange),
+                  title: const Text(
+                    'SignalK Notifications',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  subtitle: const Text(
+                    'Receive and display alerts from the SignalK server',
+                    style: TextStyle(fontSize: 12),
+                  ),
+                  value: _notificationsEnabled,
+                  onChanged: (value) async {
+                    setState(() {
+                      _notificationsEnabled = value;
+                    });
+
+                    // Save preference
+                    await storageService.saveNotificationsEnabled(value);
+
+                    // Update SignalK subscription
+                    await signalKService.setNotificationsEnabled(value);
+
+                    if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(
+                            value
+                                ? 'Notifications enabled'
+                                : 'Notifications disabled',
+                          ),
+                          backgroundColor: value ? Colors.green : Colors.orange,
+                          duration: const Duration(seconds: 2),
+                        ),
+                      );
+                    }
+                  },
+                ),
+                if (_notificationsEnabled) ...[
+                  const Divider(height: 1),
+                  Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        const Text(
+                          'Test Notifications',
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [
+                            ElevatedButton.icon(
+                              onPressed: () => _sendTestNotification('normal', 'Normal notification test'),
+                              icon: const Icon(Icons.info, size: 16),
+                              label: const Text('Normal'),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.blue,
+                                foregroundColor: Colors.white,
+                              ),
+                            ),
+                            ElevatedButton.icon(
+                              onPressed: () => _sendTestNotification('alert', 'Alert notification test'),
+                              icon: const Icon(Icons.info_outline, size: 16),
+                              label: const Text('Alert'),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.amber,
+                                foregroundColor: Colors.white,
+                              ),
+                            ),
+                            ElevatedButton.icon(
+                              onPressed: () => _sendTestNotification('warn', 'Warning notification test'),
+                              icon: const Icon(Icons.warning, size: 16),
+                              label: const Text('Warn'),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.orange,
+                                foregroundColor: Colors.white,
+                              ),
+                            ),
+                            ElevatedButton.icon(
+                              onPressed: () => _sendTestNotification('alarm', 'Alarm notification test!'),
+                              icon: const Icon(Icons.alarm, size: 16),
+                              label: const Text('Alarm'),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.red,
+                                foregroundColor: Colors.white,
+                              ),
+                            ),
+                            ElevatedButton.icon(
+                              onPressed: () => _sendTestNotification('emergency', 'EMERGENCY TEST!'),
+                              icon: const Icon(Icons.emergency, size: 16),
+                              label: const Text('Emergency'),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.red.shade900,
+                                foregroundColor: Colors.white,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ],
             ),
           ),
 
@@ -659,6 +799,54 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
         );
         setState(() {});
+      }
+    }
+  }
+
+  /// Send a test notification to the SignalK server
+  Future<void> _sendTestNotification(String state, String message) async {
+    final signalKService = Provider.of<SignalKService>(context, listen: false);
+
+    if (!signalKService.isConnected) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Not connected to SignalK server'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+      return;
+    }
+
+    try {
+      // Send PUT request to create a notification
+      await signalKService.sendPutRequest(
+        'notifications.test',
+        {
+          'state': state,
+          'message': message,
+          'method': ['visual'],
+        },
+      );
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Test notification sent: $state'),
+            backgroundColor: Colors.green,
+            duration: const Duration(seconds: 1),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to send notification: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
       }
     }
   }

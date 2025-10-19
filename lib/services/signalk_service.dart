@@ -25,6 +25,11 @@ class SignalKService extends ChangeNotifier {
   final Set<String> _activePaths = {};
   String? _vesselContext;
 
+  // Notifications
+  bool _notificationsEnabled = false;
+  final StreamController<SignalKNotification> _notificationController =
+      StreamController<SignalKNotification>.broadcast();
+
   // Configuration
   String _serverUrl = 'localhost:3000';
   bool _useSecureConnection = false;
@@ -36,6 +41,8 @@ class SignalKService extends ChangeNotifier {
   Map<String, SignalKDataPoint> get latestData => Map.unmodifiable(_latestData);
   String get serverUrl => _serverUrl;
   bool get useSecureConnection => _useSecureConnection;
+  bool get notificationsEnabled => _notificationsEnabled;
+  Stream<SignalKNotification> get notificationStream => _notificationController.stream;
 
   /// Connect to SignalK server (optionally with authentication)
   Future<void> connect(
@@ -70,6 +77,7 @@ class SignalKService extends ChangeNotifier {
         if (kDebugMode) {
           print('Connecting with Authorization header to: $wsUrl');
           print('Token: ${_authToken!.token.substring(0, min(20, _authToken!.token.length))}...');
+          print('🔑 FULL TOKEN FOR TESTING: ${_authToken!.token}');
         }
 
         final headers = <String, String>{
@@ -148,9 +156,19 @@ class SignalKService extends ChangeNotifier {
     // Many servers are behind reverse proxies and don't need explicit ports
     if (kDebugMode) {
       print('Server URL: $_serverUrl (secure: $_useSecureConnection)');
+      print('Notifications enabled: $_notificationsEnabled');
     }
 
-    // Use units-preference endpoint if authenticated
+    // If notifications are enabled, use standard endpoint (units-preference doesn't support notifications)
+    if (_notificationsEnabled) {
+      final endpoint = '$wsProtocol://$_serverUrl/signalk/v1/stream?subscribe=none';
+      if (kDebugMode) {
+        print('Using STANDARD endpoint for notifications: $endpoint');
+      }
+      return endpoint;
+    }
+
+    // Use units-preference endpoint if authenticated (for unit conversions)
     if (_authToken != null) {
       final endpoint = '$wsProtocol://$_serverUrl/plugins/signalk-units-preference/stream';
       if (kDebugMode) {
@@ -249,9 +267,9 @@ class SignalKService extends ChangeNotifier {
   /// Handle incoming WebSocket messages
   void _handleMessage(dynamic message) {
     try {
-      // if (kDebugMode) {
-      //   print('WebSocket message received (first 200 chars): ${message.toString().substring(0, message.toString().length > 200 ? 200 : message.toString().length)}');
-      // }
+      if (kDebugMode) {
+        print('🌊 RAW WebSocket message received (first 300 chars): ${message.toString().substring(0, message.toString().length > 300 ? 300 : message.toString().length)}');
+      }
 
       final data = jsonDecode(message);
 
@@ -291,9 +309,9 @@ class SignalKService extends ChangeNotifier {
 
       // Check if it's a delta update
       if (data['updates'] != null) {
-        // if (kDebugMode) {
-        //   print('Processing delta update with ${(data['updates'] as List).length} updates');
-        // }
+        if (kDebugMode) {
+          print('🔄 Processing delta update with ${(data['updates'] as List).length} updates');
+        }
         final update = SignalKUpdate.fromJson(data);
 
         // Process each value update
@@ -305,6 +323,12 @@ class SignalKService extends ChangeNotifier {
           // }
 
           for (final value in updateValue.values) {
+            // DEBUG: Log all notification paths
+            if (kDebugMode && value.path.contains('notification')) {
+              print('🔔 RAW notification path detected: ${value.path}');
+              print('🔔 RAW notification value type: ${value.value.runtimeType}');
+              print('🔔 RAW notification value: ${value.value}');
+            }
             SignalKDataPoint dataPoint;
 
             // Check if value is from units-preference plugin (has converted format)
@@ -361,6 +385,16 @@ class SignalKService extends ChangeNotifier {
               //   print('⚠️  NO SOURCE provided for ${value.path} - stored ONLY at default path');
               // }
             // }
+
+            // Handle notifications if enabled
+            if (_notificationsEnabled && value.path.startsWith('notifications')) {
+              if (kDebugMode) {
+                print('🔔 Received notification path: ${value.path}');
+                print('🔔 Notification value: ${dataPoint.value}');
+                print('🔔 Notifications enabled: $_notificationsEnabled');
+              }
+              _handleNotification(value.path, dataPoint.value, updateValue.timestamp);
+            }
           }
         }
 
@@ -727,24 +761,51 @@ class SignalKService extends ChangeNotifier {
 
   /// Update subscription with current active paths
   Future<void> _updateSubscription() async {
-    if (!_isConnected || _channel == null || _activePaths.isEmpty) return;
+    if (!_isConnected || _channel == null) return;
+
+    final pathsToSubscribe = <String>[..._activePaths];
+
+    if (pathsToSubscribe.isEmpty && !_notificationsEnabled) return;
 
     if (_authToken != null && _vesselContext != null) {
-      // Units-preference plugin: subscribe to specific paths
-      final subscription = {
-        'context': _vesselContext,
-        'subscribe': _activePaths.map((path) => {
-          'path': path,
-          'period': 1000,
-          'format': 'delta',
-          'policy': 'instant',
-        }).toList(),
-      };
+      // Units-preference plugin: subscribe to specific paths (data only)
+      if (pathsToSubscribe.isNotEmpty) {
+        final dataSubscription = {
+          'context': _vesselContext,
+          'subscribe': pathsToSubscribe.map((path) => {
+            'path': path,
+            'period': 1000,
+            'format': 'delta',
+            'policy': 'instant',
+          }).toList(),
+        };
 
-      _channel?.sink.add(jsonEncode(subscription));
+        _channel?.sink.add(jsonEncode(dataSubscription));
 
-      if (kDebugMode) {
-        print('Updated subscription: ${_activePaths.length} active paths');
+        if (kDebugMode) {
+          print('Updated data subscription: ${pathsToSubscribe.length} active paths');
+        }
+      }
+
+      // Notifications: use standard SignalK subscription (not units-preference)
+      if (_notificationsEnabled) {
+        final notificationSubscription = {
+          'context': 'vessels.self',
+          'subscribe': [
+            {
+              'path': 'notifications.*',
+              'period': 1000,
+              'format': 'delta',
+              'policy': 'instant',
+            }
+          ]
+        };
+
+        _channel?.sink.add(jsonEncode(notificationSubscription));
+
+        if (kDebugMode) {
+          print('🔔 Sent standard SignalK notification subscription: ${jsonEncode(notificationSubscription)}');
+        }
       }
     } else {
       // Standard SignalK: use wildcard (fallback)
@@ -761,6 +822,100 @@ class SignalKService extends ChangeNotifier {
       };
 
       _channel?.sink.add(jsonEncode(subscription));
+    }
+  }
+
+  /// Enable or disable notifications subscription
+  Future<void> setNotificationsEnabled(bool enabled) async {
+    if (_notificationsEnabled == enabled) {
+      if (kDebugMode) {
+        print('🔔 Notifications already ${enabled ? "enabled" : "disabled"}, skipping');
+      }
+      return;
+    }
+
+    _notificationsEnabled = enabled;
+
+    if (kDebugMode) {
+      print('🔔 Notifications ${enabled ? "ENABLED" : "DISABLED"}');
+      print('🔔 Connected: $_isConnected');
+      print('🔔 Need to reconnect to switch endpoints');
+    }
+
+    // Reconnect to switch between units-preference and standard endpoints
+    if (_isConnected && _authToken != null) {
+      if (kDebugMode) {
+        print('🔔 Reconnecting to switch to ${enabled ? "standard" : "units-preference"} endpoint...');
+      }
+      final serverUrl = _serverUrl;
+      final useSecure = _useSecureConnection;
+      final token = _authToken;
+
+      await disconnect();
+      await Future.delayed(const Duration(milliseconds: 500));
+      await connect(serverUrl, secure: useSecure, authToken: token);
+
+      if (kDebugMode) {
+        print('🔔 Reconnection complete');
+      }
+    }
+
+    notifyListeners();
+  }
+
+  /// Handle incoming notification
+  void _handleNotification(String path, dynamic value, DateTime timestamp) {
+    try {
+      // Extract notification key from path (e.g., "notifications.mob" -> "mob")
+      final key = path.replaceFirst('notifications.', '');
+
+      if (kDebugMode) {
+        print('🔔 Processing notification: path=$path, key=$key');
+        print('🔔 Value type: ${value.runtimeType}');
+        print('🔔 Value: $value');
+      }
+
+      if (value is Map<String, dynamic>) {
+        final state = value['state'] as String?;
+        final message = value['message'] as String?;
+        final method = value['method'] as List?;
+
+        if (kDebugMode) {
+          print('🔔 Parsed: state=$state, message=$message, method=$method');
+        }
+
+        if (state != null && message != null) {
+          final notification = SignalKNotification(
+            key: key,
+            state: state,
+            message: message,
+            method: method?.map((e) => e.toString()).toList() ?? [],
+            timestamp: timestamp,
+          );
+
+          if (kDebugMode) {
+            print('🔔 Adding notification to stream: [$state] $message');
+          }
+
+          _notificationController.add(notification);
+
+          if (kDebugMode) {
+            print('🔔 Notification added to stream successfully');
+          }
+        } else {
+          if (kDebugMode) {
+            print('⚠️ Missing state or message in notification');
+          }
+        }
+      } else {
+        if (kDebugMode) {
+          print('⚠️ Notification value is not a Map');
+        }
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ Error handling notification: $e');
+      }
     }
   }
 
@@ -793,6 +948,24 @@ class SignalKService extends ChangeNotifier {
   @override
   void dispose() {
     disconnect();
+    _notificationController.close();
     super.dispose();
   }
+}
+
+/// SignalK Notification model
+class SignalKNotification {
+  final String key;
+  final String state; // normal, alert, warn, alarm, emergency
+  final String message;
+  final List<String> method; // visual, sound
+  final DateTime timestamp;
+
+  SignalKNotification({
+    required this.key,
+    required this.state,
+    required this.message,
+    required this.method,
+    required this.timestamp,
+  });
 }

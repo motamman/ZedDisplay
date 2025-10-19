@@ -635,4 +635,23 @@ class StorageService extends ChangeNotifier {
       print('All auth tokens cleared');
     }
   }
+
+  // ===== Notifications Settings =====
+
+  /// Save notifications enabled preference
+  Future<void> saveNotificationsEnabled(bool enabled) async {
+    if (!_initialized) throw Exception('StorageService not initialized');
+    await _settingsBox.put('notifications_enabled', enabled ? 'true' : 'false');
+    notifyListeners();
+
+    if (kDebugMode) {
+      print('Saved notifications enabled: $enabled');
+    }
+  }
+
+  /// Get notifications enabled preference (defaults to false)
+  bool getNotificationsEnabled() {
+    if (!_initialized) return false;
+    return _settingsBox.get('notifications_enabled', defaultValue: 'false') == 'true';
+  }
 }

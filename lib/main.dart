@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
@@ -225,7 +226,151 @@ class _ZedDisplayAppState extends State<ZedDisplayApp> with WidgetsBindingObserv
         themeMode: _themeMode,
         home: const SplashScreen(),
         debugShowCheckedModeBanner: false,
+        builder: (context, child) {
+          return SignalKNotificationListener(
+            signalKService: widget.signalKService,
+            child: child ?? const SizedBox.shrink(),
+          );
+        },
       ),
     );
+  }
+}
+
+/// Widget that listens to SignalK notifications and displays them
+class SignalKNotificationListener extends StatefulWidget {
+  final SignalKService signalKService;
+  final Widget child;
+
+  const SignalKNotificationListener({
+    super.key,
+    required this.signalKService,
+    required this.child,
+  });
+
+  @override
+  State<SignalKNotificationListener> createState() => _SignalKNotificationListenerState();
+}
+
+class _SignalKNotificationListenerState extends State<SignalKNotificationListener> {
+  StreamSubscription<SignalKNotification>? _notificationSubscription;
+
+  @override
+  void initState() {
+    super.initState();
+    _setupNotificationListener();
+  }
+
+  void _setupNotificationListener() {
+    debugPrint('📱 NotificationListener: Setting up stream listener');
+    _notificationSubscription = widget.signalKService.notificationStream.listen(
+      _handleNotification,
+      onError: (error) {
+        debugPrint('📱 NotificationListener: Stream error: $error');
+      },
+      onDone: () {
+        debugPrint('📱 NotificationListener: Stream closed');
+      },
+    );
+    debugPrint('📱 NotificationListener: Stream listener set up successfully');
+  }
+
+  void _handleNotification(SignalKNotification notification) {
+    debugPrint('📱 NotificationListener: Received notification: [${notification.state}] ${notification.message}');
+
+    if (!mounted) {
+      debugPrint('📱 NotificationListener: Widget not mounted, skipping display');
+      return;
+    }
+
+    // Determine color based on notification state
+    Color backgroundColor;
+    IconData icon;
+
+    switch (notification.state.toLowerCase()) {
+      case 'emergency':
+        backgroundColor = Colors.red.shade900;
+        icon = Icons.emergency;
+        break;
+      case 'alarm':
+        backgroundColor = Colors.red.shade700;
+        icon = Icons.alarm;
+        break;
+      case 'warn':
+        backgroundColor = Colors.orange.shade700;
+        icon = Icons.warning;
+        break;
+      case 'alert':
+        backgroundColor = Colors.amber.shade700;
+        icon = Icons.info;
+        break;
+      case 'normal':
+      default:
+        backgroundColor = Colors.blue.shade700;
+        icon = Icons.notifications;
+        break;
+    }
+
+    // Show the notification as a SnackBar
+    debugPrint('📱 NotificationListener: Showing SnackBar with color: $backgroundColor');
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            Icon(icon, color: Colors.white, size: 24),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    notification.state.toUpperCase(),
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 14,
+                      color: Colors.white,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    notification.message,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      color: Colors.white,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        backgroundColor: backgroundColor,
+        duration: notification.state.toLowerCase() == 'emergency' ||
+                notification.state.toLowerCase() == 'alarm'
+            ? const Duration(seconds: 10)
+            : const Duration(seconds: 5),
+        behavior: SnackBarBehavior.floating,
+        action: SnackBarAction(
+          label: 'DISMISS',
+          textColor: Colors.white,
+          onPressed: () {
+            ScaffoldMessenger.of(context).hideCurrentSnackBar();
+          },
+        ),
+      ),
+    );
+  }
+
+  @override
+  void dispose() {
+    _notificationSubscription?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return widget.child;
   }
 }
