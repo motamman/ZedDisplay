@@ -654,4 +654,26 @@ class StorageService extends ChangeNotifier {
     if (!_initialized) return false;
     return _settingsBox.get('notifications_enabled', defaultValue: 'false') == 'true';
   }
+
+  /// Save notification level filter (which levels to show)
+  Future<void> saveNotificationLevelFilter(String level, bool enabled) async {
+    if (!_initialized) throw Exception('StorageService not initialized');
+    await _settingsBox.put('notification_level_$level', enabled ? 'true' : 'false');
+    notifyListeners();
+
+    if (kDebugMode) {
+      print('Saved notification level $level: $enabled');
+    }
+  }
+
+  /// Get notification level filter (defaults: only emergency enabled)
+  bool getNotificationLevelFilter(String level) {
+    if (!_initialized) {
+      return level.toLowerCase() == 'emergency'; // Default: only emergency
+    }
+
+    // Defaults: only emergency enabled, all others disabled
+    final defaultValue = level.toLowerCase() == 'emergency' ? 'true' : 'false';
+    return _settingsBox.get('notification_level_$level', defaultValue: defaultValue) == 'true';
+  }
 }

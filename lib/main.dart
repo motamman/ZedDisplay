@@ -283,6 +283,14 @@ class _SignalKNotificationListenerState extends State<SignalKNotificationListene
       return;
     }
 
+    // Check if this notification level should be displayed
+    final storageService = Provider.of<StorageService>(context, listen: false);
+    final shouldShow = storageService.getNotificationLevelFilter(notification.state.toLowerCase());
+    if (!shouldShow) {
+      debugPrint('📱 NotificationListener: Level ${notification.state} is filtered out');
+      return;
+    }
+
     // Determine color based on notification state
     Color backgroundColor;
     IconData icon;

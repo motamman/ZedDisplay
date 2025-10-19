@@ -22,6 +22,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _showConnections = false;
   bool _notificationsEnabled = false;
 
+  // Notification level filters
+  bool _showEmergency = true;
+  bool _showAlarm = false;
+  bool _showWarn = false;
+  bool _showAlert = false;
+  bool _showNormal = false;
+
   @override
   void initState() {
     super.initState();
@@ -34,6 +41,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
     setState(() {
       _notificationsEnabled = storageService.getNotificationsEnabled();
+      _showEmergency = storageService.getNotificationLevelFilter('emergency');
+      _showAlarm = storageService.getNotificationLevelFilter('alarm');
+      _showWarn = storageService.getNotificationLevelFilter('warn');
+      _showAlert = storageService.getNotificationLevelFilter('alert');
+      _showNormal = storageService.getNotificationLevelFilter('normal');
     });
 
     // Sync with SignalKService
@@ -188,71 +200,87 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 if (_notificationsEnabled) ...[
                   const Divider(height: 1),
                   Padding(
-                    padding: const EdgeInsets.all(16.0),
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                     child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         const Text(
-                          'Test Notifications',
+                          'Notification Levels to Display',
                           style: TextStyle(
                             fontSize: 14,
                             fontWeight: FontWeight.bold,
                           ),
                         ),
-                        const SizedBox(height: 12),
-                        Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
-                          children: [
-                            ElevatedButton.icon(
-                              onPressed: () => _sendTestNotification('normal', 'Normal notification test'),
-                              icon: const Icon(Icons.info, size: 16),
-                              label: const Text('Normal'),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.blue,
-                                foregroundColor: Colors.white,
-                              ),
-                            ),
-                            ElevatedButton.icon(
-                              onPressed: () => _sendTestNotification('alert', 'Alert notification test'),
-                              icon: const Icon(Icons.info_outline, size: 16),
-                              label: const Text('Alert'),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.amber,
-                                foregroundColor: Colors.white,
-                              ),
-                            ),
-                            ElevatedButton.icon(
-                              onPressed: () => _sendTestNotification('warn', 'Warning notification test'),
-                              icon: const Icon(Icons.warning, size: 16),
-                              label: const Text('Warn'),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.orange,
-                                foregroundColor: Colors.white,
-                              ),
-                            ),
-                            ElevatedButton.icon(
-                              onPressed: () => _sendTestNotification('alarm', 'Alarm notification test!'),
-                              icon: const Icon(Icons.alarm, size: 16),
-                              label: const Text('Alarm'),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.red,
-                                foregroundColor: Colors.white,
-                              ),
-                            ),
-                            ElevatedButton.icon(
-                              onPressed: () => _sendTestNotification('emergency', 'EMERGENCY TEST!'),
-                              icon: const Icon(Icons.emergency, size: 16),
-                              label: const Text('Emergency'),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.red.shade900,
-                                foregroundColor: Colors.white,
-                              ),
-                            ),
-                          ],
+                        const SizedBox(height: 4),
+                        const Text(
+                          'Choose which notification levels to show',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey,
+                          ),
                         ),
                       ],
                     ),
+                  ),
+                  CheckboxListTile(
+                    secondary: const Icon(Icons.emergency, color: Colors.red, size: 20),
+                    title: const Text('Emergency'),
+                    subtitle: const Text('Critical emergencies (MOB, fire, etc.)'),
+                    value: _showEmergency,
+                    onChanged: (value) async {
+                      setState(() {
+                        _showEmergency = value ?? true;
+                      });
+                      await storageService.saveNotificationLevelFilter('emergency', value ?? true);
+                    },
+                  ),
+                  CheckboxListTile(
+                    secondary: const Icon(Icons.alarm, color: Colors.red, size: 20),
+                    title: const Text('Alarm'),
+                    subtitle: const Text('High priority alarms'),
+                    value: _showAlarm,
+                    onChanged: (value) async {
+                      setState(() {
+                        _showAlarm = value ?? false;
+                      });
+                      await storageService.saveNotificationLevelFilter('alarm', value ?? false);
+                    },
+                  ),
+                  CheckboxListTile(
+                    secondary: const Icon(Icons.warning, color: Colors.orange, size: 20),
+                    title: const Text('Warn'),
+                    subtitle: const Text('Important warnings'),
+                    value: _showWarn,
+                    onChanged: (value) async {
+                      setState(() {
+                        _showWarn = value ?? false;
+                      });
+                      await storageService.saveNotificationLevelFilter('warn', value ?? false);
+                    },
+                  ),
+                  CheckboxListTile(
+                    secondary: const Icon(Icons.info, color: Colors.amber, size: 20),
+                    title: const Text('Alert'),
+                    subtitle: const Text('General alerts'),
+                    value: _showAlert,
+                    onChanged: (value) async {
+                      setState(() {
+                        _showAlert = value ?? false;
+                      });
+                      await storageService.saveNotificationLevelFilter('alert', value ?? false);
+                    },
+                  ),
+                  CheckboxListTile(
+                    secondary: const Icon(Icons.notifications, color: Colors.blue, size: 20),
+                    title: const Text('Normal'),
+                    subtitle: const Text('Routine notifications'),
+                    value: _showNormal,
+                    onChanged: (value) async {
+                      setState(() {
+                        _showNormal = value ?? false;
+                      });
+                      await storageService.saveNotificationLevelFilter('normal', value ?? false);
+                    },
                   ),
                 ],
               ],
@@ -803,51 +831,4 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
-  /// Send a test notification to the SignalK server
-  Future<void> _sendTestNotification(String state, String message) async {
-    final signalKService = Provider.of<SignalKService>(context, listen: false);
-
-    if (!signalKService.isConnected) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Not connected to SignalK server'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-      return;
-    }
-
-    try {
-      // Send PUT request to create a notification
-      await signalKService.sendPutRequest(
-        'notifications.test',
-        {
-          'state': state,
-          'message': message,
-          'method': ['visual'],
-        },
-      );
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Test notification sent: $state'),
-            backgroundColor: Colors.green,
-            duration: const Duration(seconds: 1),
-          ),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to send notification: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    }
-  }
 }
