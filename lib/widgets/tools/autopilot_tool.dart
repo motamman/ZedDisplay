@@ -61,17 +61,6 @@ class _AutopilotToolState extends State<AutopilotTool> {
     widget.signalKService.addListener(_onSignalKUpdate);
     _subscribeToAutopilotPaths();
 
-    // Initial state check
-    if (kDebugMode) {
-      print('Autopilot widget initialized');
-      print('Configured paths: ${widget.config.dataSources.map((ds) => ds.path).toList()}');
-      print('Configured sources:');
-      for (var i = 0; i < widget.config.dataSources.length; i++) {
-        final ds = widget.config.dataSources[i];
-        print('  [$i] ${ds.path} -> source: ${ds.source ?? "AUTO (no source specified)"}');
-      }
-    }
-
     // Do an initial update after a short delay to let subscriptions settle
     Future.delayed(const Duration(milliseconds: 500), () {
       if (mounted) {

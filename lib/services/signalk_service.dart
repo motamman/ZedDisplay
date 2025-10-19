@@ -135,6 +135,14 @@ class SignalKService extends ChangeNotifier {
 
       // Subscribe to paths immediately
       await _sendSubscription();
+
+      // Auto-connect notification channel if notifications are enabled
+      if (_notificationsEnabled && _authToken != null) {
+        await _connectNotificationChannel();
+        if (kDebugMode) {
+          print('🔔 Auto-connected notification channel on SignalK connection');
+        }
+      }
     } catch (e) {
       _errorMessage = 'Connection failed: $e';
       _isConnected = false;

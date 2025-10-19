@@ -49,6 +49,9 @@ dependencies:
   wakelock_plus: ^1.2.0
   flutter_foreground_task: ^8.0.0
 
+  # System notifications
+  flutter_local_notifications: ^18.0.1
+
   # Share functionality
   share_plus: ^10.1.3
 

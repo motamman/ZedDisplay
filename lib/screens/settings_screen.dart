@@ -28,6 +28,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _showWarn = false;
   bool _showAlert = false;
   bool _showNormal = false;
+  bool _showNominal = false;
 
   @override
   void initState() {
@@ -46,6 +47,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _showWarn = storageService.getNotificationLevelFilter('warn');
       _showAlert = storageService.getNotificationLevelFilter('alert');
       _showNormal = storageService.getNotificationLevelFilter('normal');
+      _showNominal = storageService.getNotificationLevelFilter('nominal');
     });
 
     // Sync with SignalKService
@@ -273,13 +275,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   CheckboxListTile(
                     secondary: const Icon(Icons.notifications, color: Colors.blue, size: 20),
                     title: const Text('Normal'),
-                    subtitle: const Text('Routine notifications'),
+                    subtitle: const Text('Standard notifications'),
                     value: _showNormal,
                     onChanged: (value) async {
                       setState(() {
                         _showNormal = value ?? false;
                       });
                       await storageService.saveNotificationLevelFilter('normal', value ?? false);
+                    },
+                  ),
+                  CheckboxListTile(
+                    secondary: const Icon(Icons.check_circle, color: Colors.green, size: 20),
+                    title: const Text('Nominal'),
+                    subtitle: const Text('All systems operating as expected'),
+                    value: _showNominal,
+                    onChanged: (value) async {
+                      setState(() {
+                        _showNominal = value ?? false;
+                      });
+                      await storageService.saveNotificationLevelFilter('nominal', value ?? false);
                     },
                   ),
                 ],

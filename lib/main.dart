@@ -30,6 +30,13 @@ void main() async {
   // Initialize SignalK service (will connect later)
   final signalKService = SignalKService();
 
+  // Auto-enable notifications if they were enabled before
+  final notificationsEnabled = storageService.getNotificationsEnabled();
+  if (notificationsEnabled) {
+    // Note: Notification channel will connect when SignalK connects
+    await signalKService.setNotificationsEnabled(true);
+  }
+
   // Initialize dashboard service with SignalK and Tool services
   final dashboardService = DashboardService(
     storageService,
@@ -313,9 +320,16 @@ class _SignalKNotificationListenerState extends State<SignalKNotificationListene
         icon = Icons.info;
         break;
       case 'normal':
-      default:
         backgroundColor = Colors.blue.shade700;
         icon = Icons.notifications;
+        break;
+      case 'nominal':
+        backgroundColor = Colors.green.shade700;
+        icon = Icons.check_circle;
+        break;
+      default:
+        backgroundColor = Colors.grey.shade700;
+        icon = Icons.notifications_none;
         break;
     }
 
