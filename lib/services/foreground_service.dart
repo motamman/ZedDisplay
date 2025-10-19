@@ -57,15 +57,9 @@ class ForegroundTaskService {
     // Check if it's a success
     if (serviceStarted is ServiceRequestSuccess) {
       _isRunning = true;
-      if (kDebugMode) {
-        print('✅ Foreground service started');
-      }
       return true;
     }
 
-    if (kDebugMode) {
-      print('❌ Failed to start foreground service');
-    }
     return false;
   }
 
@@ -76,9 +70,6 @@ class ForegroundTaskService {
     final serviceStopped = await FlutterForegroundTask.stopService();
     if (serviceStopped is ServiceRequestSuccess) {
       _isRunning = false;
-      if (kDebugMode) {
-        print('✅ Foreground service stopped');
-      }
       return true;
     }
 
@@ -114,9 +105,6 @@ class _ForegroundTaskHandler extends TaskHandler {
   @override
   Future<void> onStart(DateTime timestamp, TaskStarter starter) async {
     // Called when the service is started
-    if (kDebugMode) {
-      print('🔄 Foreground task handler started');
-    }
   }
 
   @override
@@ -128,9 +116,6 @@ class _ForegroundTaskHandler extends TaskHandler {
   @override
   Future<void> onDestroy(DateTime timestamp) async {
     // Called when the service is stopped
-    if (kDebugMode) {
-      print('🔄 Foreground task handler stopped');
-    }
   }
 
   @override

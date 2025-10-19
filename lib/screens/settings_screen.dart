@@ -6,6 +6,7 @@ import '../services/storage_service.dart';
 import '../services/auth_service.dart';
 import '../services/dashboard_service.dart';
 import '../services/foreground_service.dart';
+import '../services/notification_service.dart';
 import '../models/server_connection.dart';
 import 'connection_screen.dart';
 import 'device_registration_screen.dart';
@@ -195,12 +196,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     // Update SignalK subscription
                     await signalKService.setNotificationsEnabled(value);
 
-                    // Start/stop foreground service
+                    // Start/stop foreground service and clear notifications
                     final foregroundService = ForegroundTaskService();
+                    final notificationService = NotificationService();
+
                     if (value && signalKService.isConnected) {
                       await foregroundService.start();
                     } else {
                       await foregroundService.stop();
+                      // Clear all queued system notifications when disabled
+                      await notificationService.cancelAll();
                     }
 
                     if (mounted) {

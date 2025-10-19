@@ -317,19 +317,12 @@ class _SignalKNotificationListenerState extends State<SignalKNotificationListene
     final showInApp = widget.storageService.getInAppNotificationFilter(notification.state.toLowerCase());
     final showSystem = widget.storageService.getSystemNotificationFilter(notification.state.toLowerCase());
 
-    if (kDebugMode) {
-      print('📱 Notification handler: [${notification.state}] showInApp=$showInApp, showSystem=$showSystem');
-    }
-
     if (!showInApp && !showSystem) {
       return; // Filtered out
     }
 
     // Show system notification if enabled for this level
     if (showSystem) {
-      if (kDebugMode) {
-        print('📱 Calling system notification for [${notification.state}] ${notification.message}');
-      }
       widget.notificationService.showNotification(notification);
     }
 

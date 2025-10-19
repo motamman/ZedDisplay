@@ -40,10 +40,7 @@ class NotificationService {
     // Request permissions for Android 13+
     if (defaultTargetPlatform == TargetPlatform.android) {
       final androidImplementation = _notifications.resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
-      final granted = await androidImplementation?.requestNotificationsPermission();
-      if (kDebugMode) {
-        print('📱 Android notification permission: ${granted == true ? "GRANTED" : "DENIED"}');
-      }
+      await androidImplementation?.requestNotificationsPermission();
     }
 
     // Request permissions for iOS
@@ -58,10 +55,6 @@ class NotificationService {
     }
 
     _initialized = true;
-
-    if (kDebugMode) {
-      print('📱 Notification service initialized');
-    }
   }
 
   /// Handle notification tap
@@ -74,14 +67,7 @@ class NotificationService {
 
   /// Show a system notification for a SignalK notification
   Future<void> showNotification(SignalKNotification notification) async {
-    if (kDebugMode) {
-      print('📱 showNotification called: [${notification.state}] ${notification.message}');
-    }
-
     if (!_initialized) {
-      if (kDebugMode) {
-        print('❌ NotificationService not initialized');
-      }
       return;
     }
 
@@ -125,10 +111,6 @@ class NotificationService {
         details,
         payload: notification.key,
       );
-
-      if (kDebugMode) {
-        print('📱 ✅ System notification shown: ID=$_notificationIdCounter [$title] ${notification.message}');
-      }
     } catch (e) {
       if (kDebugMode) {
         print('❌ Error showing system notification: $e');
