@@ -12,6 +12,8 @@ class NotificationService {
   final FlutterLocalNotificationsPlugin _notifications = FlutterLocalNotificationsPlugin();
   bool _initialized = false;
   int _notificationIdCounter = 0; // Sequential ID for unique notifications
+  static const int _groupSummaryId = 0; // Fixed ID for group summary
+  int _activeNotificationCount = 0; // Track active notifications for summary
 
   /// Initialize the notification service
   Future<void> initialize() async {
@@ -85,6 +87,8 @@ class NotificationService {
         playSound: notification.state.toLowerCase() == 'emergency' || notification.state.toLowerCase() == 'alarm',
         enableVibration: notification.state.toLowerCase() == 'emergency' || notification.state.toLowerCase() == 'alarm',
         ticker: notification.message,
+        groupKey: 'com.zennora.zed_display.SIGNALK_NOTIFICATIONS',
+        setAsGroupSummary: false,
       );
 
       const iosDetails = DarwinNotificationDetails(
@@ -106,16 +110,53 @@ class NotificationService {
 
       await _notifications.show(
         _notificationIdCounter,
-        title,
+        '[$title] ${notification.key}',
         notification.message,
         details,
         payload: notification.key,
       );
+
+      // Update group summary
+      _activeNotificationCount++;
+      await _updateGroupSummary();
     } catch (e) {
       if (kDebugMode) {
         print('❌ Error showing system notification: $e');
       }
     }
+  }
+
+  /// Update or create the group summary notification
+  Future<void> _updateGroupSummary() async {
+    if (!_initialized || _activeNotificationCount == 0) return;
+
+    const androidDetails = AndroidNotificationDetails(
+      'signalk_summary',
+      'SignalK Notifications',
+      channelDescription: 'Summary of SignalK notifications',
+      importance: Importance.low,
+      priority: Priority.low,
+      groupKey: 'com.zennora.zed_display.SIGNALK_NOTIFICATIONS',
+      setAsGroupSummary: true,
+    );
+
+    const iosDetails = DarwinNotificationDetails(
+      presentAlert: false,
+      presentBadge: true,
+      presentSound: false,
+    );
+
+    const details = NotificationDetails(
+      android: androidDetails,
+      iOS: iosDetails,
+    );
+
+    await _notifications.show(
+      _groupSummaryId,
+      'ZedDisplay',
+      '$_activeNotificationCount active alert${_activeNotificationCount > 1 ? 's' : ''}',
+      details,
+    );
   }
 
   /// Get notification settings based on severity level
@@ -141,10 +182,19 @@ class NotificationService {
   /// Cancel all notifications
   Future<void> cancelAll() async {
     await _notifications.cancelAll();
+    _activeNotificationCount = 0;
   }
 
   /// Cancel a specific notification
   Future<void> cancel(int id) async {
     await _notifications.cancel(id);
+    if (_activeNotificationCount > 0) {
+      _activeNotificationCount--;
+      if (_activeNotificationCount == 0) {
+        await _notifications.cancel(_groupSummaryId);
+      } else {
+        await _updateGroupSummary();
+      }
+    }
   }
 }

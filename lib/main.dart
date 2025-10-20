@@ -379,7 +379,7 @@ class _SignalKNotificationListenerState extends State<SignalKNotificationListene
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Text(
-                    notification.state.toUpperCase(),
+                    '[${notification.state.toUpperCase()}] ${notification.key}',
                     style: const TextStyle(
                       fontWeight: FontWeight.bold,
                       fontSize: 14,
