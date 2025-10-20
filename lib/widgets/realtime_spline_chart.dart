@@ -30,22 +30,44 @@ class RealtimeSplineChart extends StatefulWidget {
   State<RealtimeSplineChart> createState() => _RealtimeSplineChartState();
 }
 
-class _RealtimeSplineChartState extends State<RealtimeSplineChart> {
+class _RealtimeSplineChartState extends State<RealtimeSplineChart> with AutomaticKeepAliveClientMixin, WidgetsBindingObserver {
   late List<List<_ChartData>> _seriesData;
   Timer? _updateTimer;
-  int _time = 0;
+  DateTime? _startTime;
+
+  @override
+  bool get wantKeepAlive => true; // Keep accumulated data points alive
 
   @override
   void initState() {
     super.initState();
     _seriesData = List.generate(widget.paths.length, (_) => []);
+    _startTime = DateTime.now();
     _startRealTimeUpdates();
+    WidgetsBinding.instance.addObserver(this);
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _updateTimer?.cancel();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+
+    if (state == AppLifecycleState.resumed) {
+      // Restart updates when app comes back to foreground
+      if (_updateTimer == null || !_updateTimer!.isActive) {
+        _startRealTimeUpdates();
+      }
+    } else if (state == AppLifecycleState.paused || state == AppLifecycleState.inactive) {
+      // Optionally pause timer to save battery
+      // Comment out if you want continuous updates via foreground service
+      _updateTimer?.cancel();
+    }
   }
 
   void _startRealTimeUpdates() {
@@ -58,6 +80,9 @@ class _RealtimeSplineChartState extends State<RealtimeSplineChart> {
 
   void _updateChartData() {
     setState(() {
+      final now = DateTime.now();
+      final timeValue = now.millisecondsSinceEpoch;
+
       for (int i = 0; i < widget.paths.length; i++) {
         final path = widget.paths[i];
         final value = widget.signalKService.getConvertedValue(path);
@@ -65,7 +90,7 @@ class _RealtimeSplineChartState extends State<RealtimeSplineChart> {
         if (value != null) {
           // Create new list with updated data (don't mutate existing)
           final newData = List<_ChartData>.from(_seriesData[i]);
-          newData.add(_ChartData(_time, value));
+          newData.add(_ChartData(timeValue, value));
 
           // Keep only maxDataPoints (sliding window)
           if (newData.length > widget.maxDataPoints) {
@@ -76,13 +101,13 @@ class _RealtimeSplineChartState extends State<RealtimeSplineChart> {
           _seriesData[i] = newData;
         }
       }
-
-      _time++;
     });
   }
 
   @override
   Widget build(BuildContext context) {
+    super.build(context); // Required for AutomaticKeepAliveClientMixin
+
     if (!widget.signalKService.isConnected) {
       return Card(
         child: Center(
@@ -183,12 +208,6 @@ class _RealtimeSplineChartState extends State<RealtimeSplineChart> {
                   ),
                 ),
                 primaryXAxis: NumericAxis(
-                  // Dynamic range that updates with the data
-                  // Force chart to show sliding window
-                  minimum: _time > widget.maxDataPoints
-                      ? (_time - widget.maxDataPoints).toDouble()
-                      : 0.0,
-                  maximum: _time.toDouble() > 0 ? _time.toDouble() : 1.0,
                   majorGridLines: MajorGridLines(
                     width: widget.showGrid ? 1 : 0,
                     color: Colors.grey.withValues(alpha: 0.2),
@@ -196,13 +215,20 @@ class _RealtimeSplineChartState extends State<RealtimeSplineChart> {
                   axisLine: const AxisLine(width: 1),
                   labelStyle: const TextStyle(fontSize: 10),
                   title: const AxisTitle(
-                    text: 'Time (seconds) →',
+                    text: 'Time →',
                     textStyle: TextStyle(fontSize: 12),
                   ),
+                  // Format time as mm:ss
+                  axisLabelFormatter: (AxisLabelRenderDetails details) {
+                    final timestamp = details.value.toInt();
+                    final dateTime = DateTime.fromMillisecondsSinceEpoch(timestamp);
+                    return ChartAxisLabel(
+                      '${dateTime.minute.toString().padLeft(2, '0')}:${dateTime.second.toString().padLeft(2, '0')}',
+                      details.textStyle,
+                    );
+                  },
                   // Auto interval for cleaner labels
                   desiredIntervals: 5,
-                  // Prevent auto-ranging
-                  enableAutoIntervalOnZooming: false,
                 ),
                 primaryYAxis: NumericAxis(
                   labelFormat: unit != null ? '{value} $unit' : '{value}',

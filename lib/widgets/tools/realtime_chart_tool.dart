@@ -6,7 +6,7 @@ import '../../services/tool_registry.dart';
 import '../realtime_spline_chart.dart';
 
 /// Config-driven real-time chart tool
-class RealtimeChartTool extends StatelessWidget {
+class RealtimeChartTool extends StatefulWidget {
   final ToolConfig config;
   final SignalKService signalKService;
 
@@ -17,25 +17,30 @@ class RealtimeChartTool extends StatelessWidget {
   });
 
   @override
+  State<RealtimeChartTool> createState() => _RealtimeChartToolState();
+}
+
+class _RealtimeChartToolState extends State<RealtimeChartTool> {
+  @override
   Widget build(BuildContext context) {
-    if (config.dataSources.isEmpty) {
+    if (widget.config.dataSources.isEmpty) {
       return const Center(child: Text('No data sources configured'));
     }
 
     // Extract paths from data sources
-    final paths = config.dataSources.map((ds) => ds.path).toList();
+    final paths = widget.config.dataSources.map((ds) => ds.path).toList();
 
     // Get configuration from custom properties
-    final maxDataPoints = config.style.customProperties?['maxDataPoints'] as int? ?? 50;
-    final updateIntervalMs = config.style.customProperties?['updateInterval'] as int? ?? 500;
-    final showLegend = config.style.customProperties?['showLegend'] as bool? ?? true;
-    final showGrid = config.style.customProperties?['showGrid'] as bool? ?? true;
+    final maxDataPoints = widget.config.style.customProperties?['maxDataPoints'] as int? ?? 50;
+    final updateIntervalMs = widget.config.style.customProperties?['updateInterval'] as int? ?? 500;
+    final showLegend = widget.config.style.customProperties?['showLegend'] as bool? ?? true;
+    final showGrid = widget.config.style.customProperties?['showGrid'] as bool? ?? true;
 
     // Parse primary color
     Color? primaryColor;
-    if (config.style.primaryColor != null) {
+    if (widget.config.style.primaryColor != null) {
       try {
-        final colorString = config.style.primaryColor!.replaceAll('#', '');
+        final colorString = widget.config.style.primaryColor!.replaceAll('#', '');
         primaryColor = Color(int.parse('FF$colorString', radix: 16));
       } catch (e) {
         // Keep null if parsing fails
@@ -43,12 +48,12 @@ class RealtimeChartTool extends StatelessWidget {
     }
 
     // Generate title from paths
-    final title = config.style.customProperties?['title'] as String? ??
+    final title = widget.config.style.customProperties?['title'] as String? ??
                   _generateTitle(paths);
 
     return RealtimeSplineChart(
       paths: paths,
-      signalKService: signalKService,
+      signalKService: widget.signalKService,
       title: title,
       maxDataPoints: maxDataPoints,
       updateInterval: Duration(milliseconds: updateIntervalMs),

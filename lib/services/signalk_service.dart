@@ -22,6 +22,10 @@ class SignalKService extends ChangeNotifier {
   // Connection state
   bool _isConnected = false;
   String? _errorMessage;
+  Timer? _reconnectTimer;
+  int _reconnectAttempts = 0;
+  static const int _maxReconnectAttempts = 5;
+  bool _intentionalDisconnect = false;
 
   // Data storage - keeps latest value for each path
   final Map<String, SignalKDataPoint> _latestData = {};
@@ -98,6 +102,8 @@ class SignalKService extends ChangeNotifier {
 
           // Pass the URL string directly - don't parse and re-stringify
           final socket = await WebSocket.connect(wsUrl, headers: headers);
+          // Keep connection alive with ping frames every 30 seconds
+          socket.pingInterval = const Duration(seconds: 30);
           _channel = IOWebSocketChannel(socket);
 
           if (kDebugMode) {
@@ -123,6 +129,8 @@ class SignalKService extends ChangeNotifier {
 
       _isConnected = true;
       _errorMessage = null;
+      _reconnectAttempts = 0; // Reset reconnect attempts on successful connection
+      _intentionalDisconnect = false;
       notifyListeners();
 
       if (kDebugMode) {
@@ -415,6 +423,49 @@ class SignalKService extends ChangeNotifier {
     if (kDebugMode) {
       print('Disconnected from SignalK server');
     }
+
+    // Attempt reconnection if not intentional disconnect
+    if (!_intentionalDisconnect && _serverUrl.isNotEmpty) {
+      _attemptReconnect();
+    }
+  }
+
+  /// Attempt to reconnect with exponential backoff
+  void _attemptReconnect() {
+    if (_reconnectAttempts >= _maxReconnectAttempts) {
+      if (kDebugMode) {
+        print('Max reconnect attempts reached. Giving up.');
+      }
+      _errorMessage = 'Connection lost. Please reconnect manually.';
+      notifyListeners();
+      return;
+    }
+
+    _reconnectAttempts++;
+    final delay = Duration(seconds: 2 * _reconnectAttempts); // Exponential backoff: 2s, 4s, 6s, 8s, 10s
+
+    if (kDebugMode) {
+      print('Attempting reconnect #$_reconnectAttempts in ${delay.inSeconds}s...');
+    }
+
+    _reconnectTimer?.cancel();
+    _reconnectTimer = Timer(delay, () async {
+      try {
+        await connect(
+          _serverUrl,
+          secure: _useSecureConnection,
+          authToken: _authToken,
+        );
+        if (kDebugMode) {
+          print('Reconnected successfully!');
+        }
+      } catch (e) {
+        if (kDebugMode) {
+          print('Reconnect attempt #$_reconnectAttempts failed: $e');
+        }
+        // _handleDisconnect will be called again, triggering next attempt
+      }
+    });
   }
 
   /// Send PUT request to SignalK server
@@ -828,6 +879,8 @@ class SignalKService extends ChangeNotifier {
       };
 
       final socket = await WebSocket.connect(wsUrl, headers: headers);
+      // Keep connection alive with ping frames every 30 seconds
+      socket.pingInterval = const Duration(seconds: 30);
       _notificationChannel = IOWebSocketChannel(socket);
 
       // Listen to incoming messages on notification channel
@@ -960,6 +1013,11 @@ class SignalKService extends ChangeNotifier {
   /// Disconnect from server
   Future<void> disconnect() async {
     try {
+      // Mark as intentional disconnect to prevent auto-reconnect
+      _intentionalDisconnect = true;
+      _reconnectTimer?.cancel();
+      _reconnectAttempts = 0;
+
       // Disconnect main data channel
       await _subscription?.cancel();
       _subscription = null;
