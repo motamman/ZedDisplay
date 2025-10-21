@@ -15,6 +15,8 @@ import '../widgets/tools/windsteer_demo_tool.dart';
 import '../widgets/tools/realtime_chart_tool.dart';
 import '../widgets/tools/radial_bar_chart_tool.dart';
 import '../widgets/tools/autopilot_tool.dart';
+import '../widgets/tools/polar_radar_chart_tool.dart';
+import '../widgets/tools/ais_polar_chart_tool.dart';
 
 /// Abstract builder for tool widgets
 abstract class ToolBuilder {
@@ -101,5 +103,7 @@ class ToolRegistry {
     register('windsteer_demo', WindsteerDemoToolBuilder());
     register('windsteer', WindsteerToolBuilder());
     register('autopilot', AutopilotToolBuilder());
+    register('polar_radar_chart', PolarRadarChartBuilder());
+    register('ais_polar_chart', AISPolarChartBuilder());
   }
 }

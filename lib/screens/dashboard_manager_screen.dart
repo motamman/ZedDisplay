@@ -23,13 +23,18 @@ class DashboardManagerScreen extends StatefulWidget {
 class _DashboardManagerScreenState extends State<DashboardManagerScreen> {
   late PageController _pageController;
   bool _isEditMode = false;
+  int _currentVirtualPage = 0; // Track virtual page for infinite scroll
 
   @override
   void initState() {
     super.initState();
     final dashboardService = Provider.of<DashboardService>(context, listen: false);
+    final initialIndex = dashboardService.currentLayout?.activeScreenIndex ?? 0;
+
+    // Start at a high offset to allow wrap-around in both directions
+    _currentVirtualPage = 1000 + initialIndex;
     _pageController = PageController(
-      initialPage: dashboardService.currentLayout?.activeScreenIndex ?? 0,
+      initialPage: _currentVirtualPage,
     );
   }
 
@@ -225,10 +230,15 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen> {
               onTap: () async {
                 Navigator.pop(context);
                 await dashboardService.addScreen();
-                // Jump to the new screen
+                // Jump to the new screen using virtual page system
                 final newIndex = dashboardService.currentLayout!.screens.length - 1;
+                final totalScreens = dashboardService.currentLayout!.screens.length;
+                final currentActualIndex = _currentVirtualPage % totalScreens;
+
+                // Move forward to the new screen
+                final targetVirtualPage = _currentVirtualPage + (newIndex - currentActualIndex);
                 _pageController.animateToPage(
-                  newIndex,
+                  targetVirtualPage,
                   duration: const Duration(milliseconds: 300),
                   curve: Curves.easeInOut,
                 );
@@ -430,15 +440,27 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen> {
 
           return Stack(
             children: [
-              // PageView with screens - full screen
+              // PageView with screens - full screen with wrap-around
               PageView.builder(
-                  controller: _pageController,
-                  itemCount: layout.screens.length,
-                  onPageChanged: (index) {
-                    dashboardService.setActiveScreen(index);
-                  },
-                itemBuilder: (context, index) {
-                  final screen = layout.screens[index];
+                controller: _pageController,
+                onPageChanged: (virtualIndex) {
+                  final totalScreens = layout.screens.length;
+                  if (totalScreens == 0) return;
+
+                  // Calculate actual screen index from virtual index
+                  final actualIndex = virtualIndex % totalScreens;
+                  _currentVirtualPage = virtualIndex;
+                  dashboardService.setActiveScreen(actualIndex);
+                },
+                itemBuilder: (context, virtualIndex) {
+                  final totalScreens = layout.screens.length;
+                  if (totalScreens == 0) {
+                    return const Center(child: Text('No screens available'));
+                  }
+
+                  // Map virtual index to actual screen index using modulo
+                  final actualIndex = virtualIndex % totalScreens;
+                  final screen = layout.screens[actualIndex];
                   return _buildScreenContent(screen, signalKService);
                 },
               ),
@@ -462,8 +484,28 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen> {
                           layout.screens.length,
                           (index) => GestureDetector(
                             onTap: () {
+                              // Calculate the closest virtual page for the target index
+                              final totalScreens = layout.screens.length;
+                              final currentActualIndex = _currentVirtualPage % totalScreens;
+
+                              // Determine direction and distance
+                              int targetVirtualPage;
+                              if (index == currentActualIndex) {
+                                targetVirtualPage = _currentVirtualPage;
+                              } else {
+                                // Move in the shortest direction
+                                final forwardDist = (index - currentActualIndex + totalScreens) % totalScreens;
+                                final backwardDist = (currentActualIndex - index + totalScreens) % totalScreens;
+
+                                if (forwardDist <= backwardDist) {
+                                  targetVirtualPage = _currentVirtualPage + forwardDist;
+                                } else {
+                                  targetVirtualPage = _currentVirtualPage - backwardDist;
+                                }
+                              }
+
                               _pageController.animateToPage(
-                                index,
+                                targetVirtualPage,
                                 duration: const Duration(milliseconds: 300),
                                 curve: Curves.easeInOut,
                               );

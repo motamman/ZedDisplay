@@ -62,6 +62,13 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
   bool _chartAutoRefresh = false;
   int _chartRefreshInterval = 60;
 
+  // Polar chart-specific configuration
+  int _polarHistorySeconds = 60;
+
+  // AIS polar chart-specific configuration
+  double _aisMaxRangeNm = 5.0;
+  int _aisUpdateInterval = 10;
+
   // Slider-specific configuration
   int _sliderDecimalPlaces = 1;
 
@@ -133,6 +140,11 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
       _chartShowGrid = style.customProperties!['showGrid'] as bool? ?? true;
       _chartAutoRefresh = style.customProperties!['autoRefresh'] as bool? ?? false;
       _chartRefreshInterval = style.customProperties!['refreshInterval'] as int? ?? 60;
+      _polarHistorySeconds = style.customProperties!['historySeconds'] as int? ?? 60;
+      _aisMaxRangeNm = (style.customProperties!['maxRangeNm'] as num?)?.toDouble() ?? 5.0;
+      // Convert milliseconds back to seconds for UI
+      final updateIntervalMs = style.customProperties!['updateInterval'] as int? ?? 10000;
+      _aisUpdateInterval = (updateIntervalMs / 1000).round();
       _sliderDecimalPlaces = style.customProperties!['decimalPlaces'] as int? ?? 1;
     }
 
@@ -337,6 +349,19 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
         'refreshInterval': _chartRefreshInterval,
         'chartStyle': _chartStyle,
       };
+    } else if (_selectedToolTypeId == 'polar_radar_chart') {
+      customProperties = {
+        'historySeconds': _polarHistorySeconds,
+        'showLabels': true,
+        'showGrid': true,
+      };
+    } else if (_selectedToolTypeId == 'ais_polar_chart') {
+      customProperties = {
+        'maxRangeNm': _aisMaxRangeNm,
+        'updateInterval': _aisUpdateInterval * 1000, // Convert to milliseconds
+        'showLabels': true,
+        'showGrid': true,
+      };
     } else if (_selectedToolTypeId == 'slider' || _selectedToolTypeId == 'knob') {
       customProperties = {
         'decimalPlaces': _sliderDecimalPlaces,
@@ -527,13 +552,42 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                         itemCount: _dataSources.length,
                         itemBuilder: (context, index) {
                           final ds = _dataSources[index];
+
+                          // Add role labels for polar chart
+                          String? roleLabel;
+                          if (_selectedToolTypeId == 'polar_radar_chart') {
+                            if (index == 0) {
+                              roleLabel = 'Angle/Direction (e.g., wind direction, course)';
+                            } else if (index == 1) {
+                              roleLabel = 'Magnitude/Velocity (e.g., wind speed, boat speed)';
+                            }
+                          } else if (_selectedToolTypeId == 'ais_polar_chart') {
+                            if (index == 0) {
+                              roleLabel = 'Own Position (default: navigation.position)';
+                            }
+                          }
+
                           return Card(
                             child: ListTile(
                               leading: CircleAvatar(
                                 child: Text('${index + 1}'),
                               ),
                               title: Text(ds.label ?? ds.path.split('.').last),
-                              subtitle: Text(ds.path),
+                              subtitle: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(ds.path),
+                                  if (roleLabel != null)
+                                    Text(
+                                      roleLabel,
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        fontStyle: FontStyle.italic,
+                                        color: Theme.of(context).colorScheme.primary,
+                                      ),
+                                    ),
+                                ],
+                              ),
                               trailing: Row(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
@@ -639,6 +693,100 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
             const SizedBox(height: 16),
 
             // Chart-specific Configuration
+            if (_selectedToolTypeId == 'polar_radar_chart')
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '4. Polar Chart Settings',
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                      const SizedBox(height: 16),
+                      DropdownButtonFormField<int>(
+                        decoration: const InputDecoration(
+                          labelText: 'Time Window',
+                          border: OutlineInputBorder(),
+                          helperText: 'How much historical data to show',
+                        ),
+                        value: _polarHistorySeconds,
+                        items: const [
+                          DropdownMenuItem(value: 30, child: Text('30 seconds')),
+                          DropdownMenuItem(value: 60, child: Text('1 minute')),
+                          DropdownMenuItem(value: 120, child: Text('2 minutes')),
+                          DropdownMenuItem(value: 300, child: Text('5 minutes')),
+                          DropdownMenuItem(value: 600, child: Text('10 minutes')),
+                        ],
+                        onChanged: (value) {
+                          if (value != null) {
+                            setState(() => _polarHistorySeconds = value);
+                          }
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            if (_selectedToolTypeId == 'ais_polar_chart')
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '4. AIS Chart Settings',
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                      const SizedBox(height: 16),
+                      DropdownButtonFormField<double>(
+                        decoration: const InputDecoration(
+                          labelText: 'Maximum Range',
+                          border: OutlineInputBorder(),
+                          helperText: 'Display vessels within this range (0 = auto)',
+                        ),
+                        value: _aisMaxRangeNm,
+                        items: const [
+                          DropdownMenuItem(value: 0.0, child: Text('Auto (fit all vessels)')),
+                          DropdownMenuItem(value: 1.0, child: Text('1 nautical mile')),
+                          DropdownMenuItem(value: 2.0, child: Text('2 nautical miles')),
+                          DropdownMenuItem(value: 5.0, child: Text('5 nautical miles')),
+                          DropdownMenuItem(value: 10.0, child: Text('10 nautical miles')),
+                          DropdownMenuItem(value: 20.0, child: Text('20 nautical miles')),
+                        ],
+                        onChanged: (value) {
+                          if (value != null) {
+                            setState(() => _aisMaxRangeNm = value);
+                          }
+                        },
+                      ),
+                      const SizedBox(height: 16),
+                      DropdownButtonFormField<int>(
+                        decoration: const InputDecoration(
+                          labelText: 'Update Interval',
+                          border: OutlineInputBorder(),
+                          helperText: 'How often to refresh vessel data',
+                        ),
+                        value: _aisUpdateInterval,
+                        items: const [
+                          DropdownMenuItem(value: 5, child: Text('5 seconds')),
+                          DropdownMenuItem(value: 10, child: Text('10 seconds')),
+                          DropdownMenuItem(value: 15, child: Text('15 seconds')),
+                          DropdownMenuItem(value: 30, child: Text('30 seconds')),
+                          DropdownMenuItem(value: 60, child: Text('1 minute')),
+                        ],
+                        onChanged: (value) {
+                          if (value != null) {
+                            setState(() => _aisUpdateInterval = value);
+                          }
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+              ),
             if (_selectedToolTypeId == 'historical_chart')
               Card(
                 child: Padding(
@@ -774,7 +922,9 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        _selectedToolTypeId == 'historical_chart'
+                        (_selectedToolTypeId == 'historical_chart' ||
+                         _selectedToolTypeId == 'polar_radar_chart' ||
+                         _selectedToolTypeId == 'ais_polar_chart')
                             ? '5. Configure Style'
                             : '4. Configure Style',
                         style: Theme.of(context).textTheme.titleMedium,
@@ -796,7 +946,9 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        _selectedToolTypeId == 'historical_chart'
+                        (_selectedToolTypeId == 'historical_chart' ||
+                         _selectedToolTypeId == 'polar_radar_chart' ||
+                         _selectedToolTypeId == 'ais_polar_chart')
                             ? '6. Preview'
                             : '5. Preview',
                         style: Theme.of(context).textTheme.titleMedium,
@@ -817,6 +969,19 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                                 'autoRefresh': _chartAutoRefresh,
                                 'refreshInterval': _chartRefreshInterval,
                                 'chartStyle': _chartStyle,
+                              };
+                            } else if (_selectedToolTypeId == 'polar_radar_chart') {
+                              previewCustomProperties = {
+                                'historySeconds': _polarHistorySeconds,
+                                'showLabels': true,
+                                'showGrid': true,
+                              };
+                            } else if (_selectedToolTypeId == 'ais_polar_chart') {
+                              previewCustomProperties = {
+                                'maxRangeNm': _aisMaxRangeNm,
+                                'updateInterval': _aisUpdateInterval * 1000, // Convert to milliseconds
+                                'showLabels': true,
+                                'showGrid': true,
                               };
                             } else if (_selectedToolTypeId == 'slider' || _selectedToolTypeId == 'knob') {
                               previewCustomProperties = {

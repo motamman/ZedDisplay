@@ -603,6 +603,64 @@ class SignalKService extends ChangeNotifier {
     return dataPoint?.symbol;
   }
 
+  /// Get all AIS vessels with their positions from REST API
+  Future<Map<String, Map<String, dynamic>>> getAllAISVessels() async {
+    final vessels = <String, Map<String, dynamic>>{};
+    final protocol = _useSecureConnection ? 'https' : 'http';
+
+    try {
+      final response = await http.get(
+        Uri.parse('$protocol://$_serverUrl/signalk/v1/api/vessels'),
+        headers: _getHeaders(),
+      ).timeout(const Duration(seconds: 5));
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body) as Map<String, dynamic>;
+
+        for (final entry in data.entries) {
+          final vesselId = entry.key;
+
+          // Skip self
+          if (vesselId == 'self') continue;
+
+          final vesselData = entry.value as Map<String, dynamic>?;
+          if (vesselData != null) {
+            // Get position
+            final navigation = vesselData['navigation'] as Map<String, dynamic>?;
+            final position = navigation?['position'] as Map<String, dynamic>?;
+            final positionValue = position?['value'] as Map<String, dynamic>?;
+
+            if (positionValue != null) {
+              final lat = positionValue['latitude'];
+              final lon = positionValue['longitude'];
+
+              if (lat is num && lon is num) {
+                // Get additional data
+                final name = vesselData['name'] as String?;
+                final cog = navigation?['courseOverGroundTrue']?['value'] as num?;
+                final sog = navigation?['speedOverGround']?['value'] as num?;
+
+                vessels[vesselId] = {
+                  'latitude': lat.toDouble(),
+                  'longitude': lon.toDouble(),
+                  'name': name,
+                  'cog': cog?.toDouble(),
+                  'sog': sog?.toDouble(),
+                };
+              }
+            }
+          }
+        }
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error fetching AIS vessels: $e');
+      }
+    }
+
+    return vessels;
+  }
+
   /// Fetch vessel self ID from SignalK server
   Future<String?> getVesselSelfId() async {
     final protocol = _useSecureConnection ? 'https' : 'http';
