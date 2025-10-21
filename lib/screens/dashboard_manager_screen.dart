@@ -183,6 +183,33 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen> {
     await dashboardService.removePlacement(screenId, toolId);
   }
 
+  void _confirmRemovePlacement(String screenId, String toolId, String toolName) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Remove Tool'),
+        content: Text('Are you sure you want to remove "$toolName"?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(context);
+              _removePlacement(screenId, toolId);
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Remove'),
+          ),
+        ],
+      ),
+    );
+  }
+
   void _showScreenManagementMenu() {
     final dashboardService = Provider.of<DashboardService>(context, listen: false);
 
@@ -314,6 +341,11 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen> {
                 tooltip: service.isConnected ? 'Connected' : 'Disconnected',
               );
             },
+          ),
+          IconButton(
+            icon: const Icon(Icons.add),
+            onPressed: _showAddMenu,
+            tooltip: 'Add Tool',
           ),
           IconButton(
             icon: Icon(_isEditMode ? Icons.done : Icons.edit),
@@ -456,11 +488,6 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen> {
             ],
           );
         },
-      ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _showAddMenu,
-        icon: const Icon(Icons.add),
-        label: const Text('Add Tool'),
       ),
     );
   }
@@ -617,9 +644,10 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen> {
                                 ),
                               ),
                             ),
+                            // Edit button at top-right
                             Positioned(
                               top: 4,
-                              right: 44,
+                              right: 4,
                               child: IconButton(
                                 icon: const Icon(Icons.edit, size: 16),
                                 onPressed: () => _editTool(tool, placement.toolId),
@@ -632,12 +660,13 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen> {
                                 tooltip: 'Edit Tool',
                               ),
                             ),
+                            // Delete button at bottom-right
                             Positioned(
-                              top: 4,
+                              bottom: 4,
                               right: 4,
                               child: IconButton(
                                 icon: const Icon(Icons.close, size: 16),
-                                onPressed: () => _removePlacement(screen.id, placement.toolId),
+                                onPressed: () => _confirmRemovePlacement(screen.id, placement.toolId, tool.name),
                                 style: IconButton.styleFrom(
                                   backgroundColor: Colors.red.withValues(alpha: 0.7),
                                   foregroundColor: Colors.white,

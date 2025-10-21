@@ -1,7 +1,10 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../../models/tool_definition.dart';
 import '../../models/tool_config.dart';
+import '../../models/zone_data.dart';
 import '../../services/signalk_service.dart';
+import '../../services/zones_service.dart';
 import '../../services/tool_registry.dart';
 import '../realtime_spline_chart.dart';
 
@@ -21,6 +24,86 @@ class RealtimeChartTool extends StatefulWidget {
 }
 
 class _RealtimeChartToolState extends State<RealtimeChartTool> {
+  ZonesService? _zonesService;
+  List<ZoneDefinition>? _zones;
+
+  @override
+  void initState() {
+    super.initState();
+    _initializeZonesService();
+  }
+
+  void _initializeZonesService() {
+    // Wait for SignalK to be connected before fetching zones
+    // This ensures the auth token is available
+    if (kDebugMode) {
+      print('🔌 Initializing zones service. SignalK connected: ${widget.signalKService.isConnected}');
+    }
+
+    if (widget.signalKService.isConnected) {
+      _createZonesServiceAndFetch();
+    } else {
+      // Listen for connection and fetch zones once connected
+      if (kDebugMode) {
+        print('   Waiting for SignalK connection...');
+      }
+      widget.signalKService.addListener(_onSignalKConnectionChanged);
+    }
+  }
+
+  void _onSignalKConnectionChanged() {
+    if (kDebugMode) {
+      print('🔔 SignalK connection changed. Connected: ${widget.signalKService.isConnected}, ZonesService: ${_zonesService != null ? "exists" : "null"}');
+    }
+
+    if (widget.signalKService.isConnected && _zonesService == null) {
+      widget.signalKService.removeListener(_onSignalKConnectionChanged);
+      _createZonesServiceAndFetch();
+    }
+  }
+
+  void _createZonesServiceAndFetch() {
+    final token = widget.signalKService.authToken;
+    if (kDebugMode) {
+      print('🔑 Creating ZonesService with token: ${token != null ? "present (${token.token.substring(0, 20)}...)" : "NULL"}');
+      print('   Server: ${widget.signalKService.serverUrl}');
+      print('   Secure: ${widget.signalKService.useSecureConnection}');
+    }
+
+    _zonesService = ZonesService(
+      serverUrl: widget.signalKService.serverUrl,
+      useSecureConnection: widget.signalKService.useSecureConnection,
+      authToken: token,
+    );
+    _fetchZones();
+  }
+
+  @override
+  void dispose() {
+    widget.signalKService.removeListener(_onSignalKConnectionChanged);
+    super.dispose();
+  }
+
+  Future<void> _fetchZones() async {
+    if (_zonesService == null || widget.config.dataSources.isEmpty) {
+      return;
+    }
+
+    try {
+      // Fetch zones for the first path (primary data source)
+      final firstPath = widget.config.dataSources.first.path;
+      final pathZones = await _zonesService!.fetchZones(firstPath);
+
+      if (mounted && pathZones != null && pathZones.hasZones) {
+        setState(() {
+          _zones = pathZones.zones;
+        });
+      }
+    } catch (e) {
+      // Silently fail - zones are optional
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     if (widget.config.dataSources.isEmpty) {
@@ -51,6 +134,9 @@ class _RealtimeChartToolState extends State<RealtimeChartTool> {
     final title = widget.config.style.customProperties?['title'] as String? ??
                   _generateTitle(paths);
 
+    // Check if zones should be shown (can be disabled via config)
+    final showZones = widget.config.style.customProperties?['showZones'] as bool? ?? true;
+
     return RealtimeSplineChart(
       paths: paths,
       signalKService: widget.signalKService,
@@ -60,6 +146,8 @@ class _RealtimeChartToolState extends State<RealtimeChartTool> {
       showLegend: showLegend,
       showGrid: showGrid,
       primaryColor: primaryColor,
+      zones: _zones,
+      showZones: showZones,
     );
   }
 
@@ -96,6 +184,7 @@ class RealtimeChartBuilder extends ToolBuilder {
           'updateInterval', // Update interval in milliseconds (default: 500)
           'showLegend',
           'showGrid',
+          'showZones', // Show zone bands from SignalK metadata (default: true)
         ],
       ),
     );

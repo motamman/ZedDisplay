@@ -1,8 +1,11 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:syncfusion_flutter_gauges/gauges.dart';
 import '../../models/tool_definition.dart';
 import '../../models/tool_config.dart';
+import '../../models/zone_data.dart';
 import '../../services/signalk_service.dart';
+import '../../services/zones_service.dart';
 import '../../services/tool_registry.dart';
 
 /// Available linear gauge styles
@@ -14,7 +17,7 @@ enum LinearGaugeStyle {
 }
 
 /// Config-driven linear (bar) gauge powered by Syncfusion
-class LinearGaugeTool extends StatelessWidget {
+class LinearGaugeTool extends StatefulWidget {
   final ToolConfig config;
   final SignalKService signalKService;
 
@@ -25,17 +28,81 @@ class LinearGaugeTool extends StatelessWidget {
   });
 
   @override
+  State<LinearGaugeTool> createState() => _LinearGaugeToolState();
+}
+
+class _LinearGaugeToolState extends State<LinearGaugeTool> {
+  ZonesService? _zonesService;
+  List<ZoneDefinition>? _zones;
+
+  @override
+  void initState() {
+    super.initState();
+    _initializeZonesService();
+  }
+
+  void _initializeZonesService() {
+    if (widget.signalKService.isConnected) {
+      _createZonesServiceAndFetch();
+    } else {
+      widget.signalKService.addListener(_onSignalKConnectionChanged);
+    }
+  }
+
+  void _onSignalKConnectionChanged() {
+    if (widget.signalKService.isConnected && _zonesService == null) {
+      widget.signalKService.removeListener(_onSignalKConnectionChanged);
+      _createZonesServiceAndFetch();
+    }
+  }
+
+  void _createZonesServiceAndFetch() {
+    _zonesService = ZonesService(
+      serverUrl: widget.signalKService.serverUrl,
+      useSecureConnection: widget.signalKService.useSecureConnection,
+    );
+    _fetchZones();
+  }
+
+  Future<void> _fetchZones() async {
+    if (_zonesService == null || widget.config.dataSources.isEmpty) {
+      return;
+    }
+
+    try {
+      final firstPath = widget.config.dataSources.first.path;
+      final pathZones = await _zonesService!.fetchZones(firstPath);
+
+      if (mounted && pathZones != null && pathZones.hasZones) {
+        setState(() {
+          _zones = pathZones.zones;
+        });
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('Failed to fetch zones for linear gauge: $e');
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    widget.signalKService.removeListener(_onSignalKConnectionChanged);
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     // Get data from first data source
-    if (config.dataSources.isEmpty) {
+    if (widget.config.dataSources.isEmpty) {
       return const Center(child: Text('No data source configured'));
     }
 
-    final dataSource = config.dataSources.first;
-    final style = config.style;
+    final dataSource = widget.config.dataSources.first;
+    final style = widget.config.style;
 
     // Get data point (with source if specified)
-    final dataPoint = signalKService.getValue(dataSource.path, source: dataSource.source);
+    final dataPoint = widget.signalKService.getValue(dataSource.path, source: dataSource.source);
 
     // Get raw value from data point
     final rawValue = dataPoint?.converted ?? (dataPoint?.value is num ? (dataPoint!.value as num).toDouble() : 0.0);
@@ -45,7 +112,7 @@ class LinearGaugeTool extends StatelessWidget {
     final maxValue = style.maxValue ?? 100.0;
 
     // Check if data is fresh (within TTL threshold)
-    final isDataFresh = signalKService.isDataFresh(
+    final isDataFresh = widget.signalKService.isDataFresh(
       dataSource.path,
       source: dataSource.source,
       ttlSeconds: style.ttlSeconds,
@@ -62,7 +129,7 @@ class LinearGaugeTool extends StatelessWidget {
 
     // Get unit (prefer style override, fallback to server's unit)
     final unit = style.unit ??
-                signalKService.getUnitSymbol(dataSource.path) ??
+                widget.signalKService.getUnitSymbol(dataSource.path) ??
                 '';
 
     // Parse color from hex string
@@ -83,6 +150,7 @@ class LinearGaugeTool extends StatelessWidget {
     final showTickLabels = style.customProperties?['showTickLabels'] as bool? ?? false;
     final divisions = style.customProperties?['divisions'] as int? ?? 10;
     final pointerOnly = style.customProperties?['pointerOnly'] as bool? ?? false;
+    final showZones = style.customProperties?['showZones'] as bool? ?? true;
 
     return Padding(
       padding: const EdgeInsets.all(16),
@@ -101,6 +169,8 @@ class LinearGaugeTool extends StatelessWidget {
               showTickLabels,
               divisions,
               pointerOnly,
+              _zones,
+              showZones,
             )
           : _buildVerticalGauge(
               context,
@@ -116,6 +186,8 @@ class LinearGaugeTool extends StatelessWidget {
               showTickLabels,
               divisions,
               pointerOnly,
+              _zones,
+              showZones,
             ),
     );
   }
@@ -147,6 +219,8 @@ class LinearGaugeTool extends StatelessWidget {
     bool showTickLabels,
     int divisions,
     bool pointerOnly,
+    List<ZoneDefinition>? zones,
+    bool showZones,
   ) {
     return Column(
       mainAxisAlignment: MainAxisAlignment.center,
@@ -191,10 +265,18 @@ class LinearGaugeTool extends StatelessWidget {
               gaugeStyle,
             ),
 
-            // Range pointers for step style (hidden in pointer-only mode)
-            ranges: (gaugeStyle == LinearGaugeStyle.step && !pointerOnly)
-                ? _getStepRanges(value, minValue, maxValue, primaryColor, divisions)
-                : null,
+            // Ranges for step style and zones
+            ranges: _buildAllRanges(
+              gaugeStyle,
+              pointerOnly,
+              value,
+              minValue,
+              maxValue,
+              primaryColor,
+              divisions,
+              zones,
+              showZones,
+            ),
 
             // Marker pointers - always show in pointer-only mode
             markerPointers: _getMarkerPointers(
@@ -229,6 +311,8 @@ class LinearGaugeTool extends StatelessWidget {
     bool showTickLabels,
     int divisions,
     bool pointerOnly,
+    List<ZoneDefinition>? zones,
+    bool showZones,
   ) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
@@ -277,10 +361,18 @@ class LinearGaugeTool extends StatelessWidget {
                     gaugeStyle,
                   ),
 
-                  // Range pointers for step style (hidden in pointer-only mode)
-                  ranges: (gaugeStyle == LinearGaugeStyle.step && !pointerOnly)
-                      ? _getStepRanges(value, minValue, maxValue, primaryColor, divisions)
-                      : null,
+                  // Ranges for step style and zones
+                  ranges: _buildAllRanges(
+                    gaugeStyle,
+                    pointerOnly,
+                    value,
+                    minValue,
+                    maxValue,
+                    primaryColor,
+                    divisions,
+                    zones,
+                    showZones,
+                  ),
 
                   // Marker pointers - always show in pointer-only mode
                   markerPointers: _getMarkerPointers(
@@ -460,7 +552,76 @@ class LinearGaugeTool extends StatelessWidget {
     return pointers.isEmpty ? null : pointers;
   }
 
-  /// Extract a readable label from the path
+  /// Build all ranges including step ranges and zone ranges
+  List<LinearGaugeRange>? _buildAllRanges(
+    LinearGaugeStyle gaugeStyle,
+    bool pointerOnly,
+    double value,
+    double minValue,
+    double maxValue,
+    Color primaryColor,
+    int divisions,
+    List<ZoneDefinition>? zones,
+    bool showZones,
+  ) {
+    final ranges = <LinearGaugeRange>[];
+
+    // Add step ranges if applicable
+    if (gaugeStyle == LinearGaugeStyle.step && !pointerOnly) {
+      final stepRanges = _getStepRanges(value, minValue, maxValue, primaryColor, divisions);
+      if (stepRanges != null) {
+        ranges.addAll(stepRanges);
+      }
+    }
+
+    // Add zone ranges
+    if (showZones && zones != null && zones.isNotEmpty) {
+      ranges.addAll(_buildZoneRanges(zones, minValue, maxValue));
+    }
+
+    return ranges.isEmpty ? null : ranges;
+  }
+
+  /// Build zone ranges for linear gauge (above ticks, below bar)
+  List<LinearGaugeRange> _buildZoneRanges(
+    List<ZoneDefinition> zones,
+    double minValue,
+    double maxValue,
+  ) {
+    return zones.map((zone) {
+      final lower = zone.lower ?? minValue;
+      final upper = zone.upper ?? maxValue;
+
+      return LinearGaugeRange(
+        startValue: lower.clamp(minValue, maxValue),
+        endValue: upper.clamp(minValue, maxValue),
+        color: _getZoneColor(zone.state),
+        startWidth: 8,
+        endWidth: 8,
+        position: LinearElementPosition.inside, // Between ticks and bar
+        rangeShapeType: LinearRangeShapeType.curve,
+      );
+    }).toList();
+  }
+
+  /// Get color for a zone state
+  Color _getZoneColor(ZoneState state) {
+    switch (state) {
+      case ZoneState.nominal:
+        return Colors.blue.withValues(alpha: 0.5);
+      case ZoneState.alert:
+        return Colors.yellow.shade600.withValues(alpha: 0.6);
+      case ZoneState.warn:
+        return Colors.orange.withValues(alpha: 0.6);
+      case ZoneState.alarm:
+        return Colors.red.withValues(alpha: 0.6);
+      case ZoneState.emergency:
+        return Colors.red.shade900.withValues(alpha: 0.6);
+      case ZoneState.normal:
+        return Colors.grey.withValues(alpha: 0.5);
+    }
+  }
+
   String _getDefaultLabel(String path) {
     final parts = path.split('.');
     if (parts.isEmpty) return path;

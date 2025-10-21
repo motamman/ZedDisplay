@@ -53,6 +53,7 @@ class SignalKService extends ChangeNotifier {
   bool get useSecureConnection => _useSecureConnection;
   bool get notificationsEnabled => _notificationsEnabled;
   Stream<SignalKNotification> get notificationStream => _notificationController.stream;
+  AuthToken? get authToken => _authToken;
 
   /// Connect to SignalK server (optionally with authentication)
   Future<void> connect(

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:syncfusion_flutter_charts/charts.dart';
 import 'dart:async';
 import '../services/signalk_service.dart';
+import '../models/zone_data.dart';
 
 /// A real-time spline chart that displays live data from up to 3 SignalK paths
 class RealtimeSplineChart extends StatefulWidget {
@@ -13,6 +14,8 @@ class RealtimeSplineChart extends StatefulWidget {
   final bool showLegend;
   final bool showGrid;
   final Color? primaryColor;
+  final List<ZoneDefinition>? zones;
+  final bool showZones;
 
   const RealtimeSplineChart({
     super.key,
@@ -24,6 +27,8 @@ class RealtimeSplineChart extends StatefulWidget {
     this.showLegend = true,
     this.showGrid = true,
     this.primaryColor,
+    this.zones,
+    this.showZones = true,
   });
 
   @override
@@ -238,6 +243,10 @@ class _RealtimeSplineChartState extends State<RealtimeSplineChart> with Automati
                   ),
                   axisLine: const AxisLine(width: 1),
                   labelStyle: const TextStyle(fontSize: 10),
+                  plotBands: _getPlotBands(),
+                  // Dynamic range based on actual data
+                  minimum: _calculateYAxisRange().min,
+                  maximum: _calculateYAxisRange().max,
                 ),
                 series: List.generate(
                   widget.paths.length,
@@ -285,6 +294,75 @@ class _RealtimeSplineChartState extends State<RealtimeSplineChart> with Automati
         ? pathParts.sublist(pathParts.length - 2).join('.')
         : path;
     return shortPath;
+  }
+
+  /// Convert zone definitions to plot bands for the chart
+  List<PlotBand> _getPlotBands() {
+    if (!widget.showZones || widget.zones == null || widget.zones!.isEmpty) {
+      return [];
+    }
+
+    return widget.zones!.map((zone) {
+      final color = _getZoneColor(zone.state);
+      return PlotBand(
+        isVisible: true,
+        start: zone.lower ?? double.negativeInfinity,
+        end: zone.upper ?? double.infinity,
+        color: color.withValues(alpha: 0.15),
+        borderColor: color.withValues(alpha: 0.3),
+        borderWidth: 1,
+      );
+    }).toList();
+  }
+
+  /// Get color for a zone state
+  Color _getZoneColor(ZoneState state) {
+    switch (state) {
+      case ZoneState.nominal:
+        return Colors.blue;
+      case ZoneState.alert:
+        return Colors.yellow.shade700;
+      case ZoneState.warn:
+        return Colors.orange;
+      case ZoneState.alarm:
+        return Colors.red;
+      case ZoneState.emergency:
+        return Colors.red.shade900;
+      case ZoneState.normal:
+        return Colors.grey;
+    }
+  }
+
+  /// Calculate Y-axis range based on current data
+  ({double min, double max}) _calculateYAxisRange() {
+    double? minValue;
+    double? maxValue;
+
+    // Find min/max across all series
+    for (final series in _seriesData) {
+      for (final point in series) {
+        if (minValue == null || point.value < minValue) {
+          minValue = point.value;
+        }
+        if (maxValue == null || point.value > maxValue) {
+          maxValue = point.value;
+        }
+      }
+    }
+
+    // If no data, use default range
+    if (minValue == null || maxValue == null) {
+      return (min: 0, max: 100);
+    }
+
+    // Add 10% padding on each side for better visualization
+    final range = maxValue - minValue;
+    final padding = range * 0.1;
+
+    return (
+      min: minValue - padding,
+      max: maxValue + padding,
+    );
   }
 }
 
