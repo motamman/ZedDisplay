@@ -7,7 +7,7 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
 
     <application
-        android:label="SignalK ZedDisplay"
+        android:label="ZedDisplay"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity
@@ -37,6 +37,17 @@
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
+
+        <!-- Notification icon for foreground service -->
+        <meta-data
+            android:name="com.zennora.signalk.zeddisplay.NOTIFICATION_ICON"
+            android:resource="@mipmap/ic_launcher" />
+
+        <!-- Foreground service for keeping WebSocket connections alive -->
+        <service
+            android:name="com.pravera.flutter_foreground_task.service.ForegroundService"
+            android:foregroundServiceType="dataSync"
+            android:exported="false" />
     </application>
     <!-- Required to query activities that can process text, see:
          https://developer.android.com/training/package-visibility and

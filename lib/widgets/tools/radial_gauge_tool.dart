@@ -1,12 +1,15 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../../models/tool_definition.dart';
 import '../../models/tool_config.dart';
+import '../../models/zone_data.dart';
 import '../../services/signalk_service.dart';
+import '../../services/zones_service.dart';
 import '../../services/tool_registry.dart';
 import '../radial_gauge.dart';
 
 /// Config-driven radial gauge tool
-class RadialGaugeTool extends StatelessWidget {
+class RadialGaugeTool extends StatefulWidget {
   final ToolConfig config;
   final SignalKService signalKService;
 
@@ -17,18 +20,83 @@ class RadialGaugeTool extends StatelessWidget {
   });
 
   @override
+  State<RadialGaugeTool> createState() => _RadialGaugeToolState();
+}
+
+class _RadialGaugeToolState extends State<RadialGaugeTool> {
+  ZonesService? _zonesService;
+  List<ZoneDefinition>? _zones;
+
+  @override
+  void initState() {
+    super.initState();
+    _initializeZonesService();
+  }
+
+  void _initializeZonesService() {
+    if (widget.signalKService.isConnected) {
+      _createZonesServiceAndFetch();
+    } else {
+      widget.signalKService.addListener(_onSignalKConnectionChanged);
+    }
+  }
+
+  void _onSignalKConnectionChanged() {
+    if (widget.signalKService.isConnected && _zonesService == null) {
+      widget.signalKService.removeListener(_onSignalKConnectionChanged);
+      _createZonesServiceAndFetch();
+    }
+  }
+
+  void _createZonesServiceAndFetch() {
+    _zonesService = ZonesService(
+      serverUrl: widget.signalKService.serverUrl,
+      useSecureConnection: widget.signalKService.useSecureConnection,
+    );
+    _fetchZones();
+  }
+
+  Future<void> _fetchZones() async {
+    if (_zonesService == null || widget.config.dataSources.isEmpty) {
+      return;
+    }
+
+    try {
+      final firstPath = widget.config.dataSources.first.path;
+      final pathZones = await _zonesService!.fetchZones(firstPath);
+
+      if (mounted && pathZones != null && pathZones.hasZones) {
+        setState(() {
+          _zones = pathZones.zones;
+        });
+      }
+    } catch (e) {
+      // Silently fail - zones are optional
+      if (kDebugMode) {
+        print('Failed to fetch zones for radial gauge: $e');
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    widget.signalKService.removeListener(_onSignalKConnectionChanged);
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     // Get data from first data source
-    if (config.dataSources.isEmpty) {
+    if (widget.config.dataSources.isEmpty) {
       return const Center(child: Text('No data source configured'));
     }
 
-    final dataSource = config.dataSources.first;
-    final dataPoint = signalKService.getValue(dataSource.path);
-    final value = signalKService.getConvertedValue(dataSource.path) ?? 0.0;
+    final dataSource = widget.config.dataSources.first;
+    final dataPoint = widget.signalKService.getValue(dataSource.path);
+    final value = widget.signalKService.getConvertedValue(dataSource.path) ?? 0.0;
 
     // Get style configuration
-    final style = config.style;
+    final style = widget.config.style;
     final minValue = style.minValue ?? 0.0;
     final maxValue = style.maxValue ?? 100.0;
 
@@ -41,7 +109,7 @@ class RadialGaugeTool extends StatelessWidget {
     // Get unit (prefer style override, fallback to server's unit)
     // Only used if no formatted value
     final unit = style.unit ??
-                 signalKService.getUnitSymbol(dataSource.path) ??
+                 widget.signalKService.getUnitSymbol(dataSource.path) ??
                  '';
 
     // Parse color from hex string
@@ -61,6 +129,7 @@ class RadialGaugeTool extends StatelessWidget {
     final gaugeStyleStr = style.customProperties?['gaugeStyle'] as String? ?? 'arc';
     final gaugeStyle = _parseGaugeStyle(gaugeStyleStr);
     final pointerOnly = style.customProperties?['pointerOnly'] as bool? ?? false;
+    final showZones = style.customProperties?['showZones'] as bool? ?? true;
 
     return RadialGauge(
       value: value,
@@ -75,6 +144,8 @@ class RadialGaugeTool extends StatelessWidget {
       gaugeStyle: gaugeStyle,
       pointerOnly: pointerOnly,
       showValue: style.showValue ?? true,
+      zones: _zones,
+      showZones: showZones,
     );
   }
 

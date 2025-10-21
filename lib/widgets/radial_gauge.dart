@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:syncfusion_flutter_gauges/gauges.dart';
+import '../models/zone_data.dart';
 
 /// Available radial gauge arc styles
 enum RadialGaugeStyle {
@@ -25,6 +26,8 @@ class RadialGauge extends StatelessWidget {
   final RadialGaugeStyle gaugeStyle;
   final bool pointerOnly; // Show only pointer, no filled arc
   final bool showValue; // Show/hide the value display
+  final List<ZoneDefinition>? zones;
+  final bool showZones;
 
   const RadialGauge({
     super.key,
@@ -41,6 +44,8 @@ class RadialGauge extends StatelessWidget {
     this.gaugeStyle = RadialGaugeStyle.arc,
     this.pointerOnly = false,
     this.showValue = true,
+    this.zones,
+    this.showZones = true,
   });
 
   @override
@@ -89,7 +94,7 @@ class RadialGauge extends StatelessWidget {
             ),
             labelOffset: 15,
 
-            // Ranges for background and value arcs
+            // Ranges for background, value arcs, and zones
             ranges: pointerOnly
                 ? <GaugeRange>[
                     // Only background arc when pointer-only mode
@@ -100,6 +105,8 @@ class RadialGauge extends StatelessWidget {
                       startWidth: 15,
                       endWidth: 15,
                     ),
+                    // Zone ranges (inside, 1/3 thickness)
+                    ..._buildZoneRanges(),
                   ]
                 : <GaugeRange>[
                     // Background arc
@@ -124,6 +131,8 @@ class RadialGauge extends StatelessWidget {
                       startWidth: 15,
                       endWidth: 15,
                     ),
+                    // Zone ranges (inside, 1/3 thickness)
+                    ..._buildZoneRanges(),
                   ],
 
             // Pointer - show for full circle style OR pointer-only mode
@@ -191,6 +200,45 @@ class RadialGauge extends StatelessWidget {
       case RadialGaugeStyle.arc:
       default:
         return (startAngle: 135, endAngle: 45); // 270 degree arc
+    }
+  }
+
+  /// Build zone ranges for the gauge (positioned inside data bar, 1/3 thickness)
+  List<GaugeRange> _buildZoneRanges() {
+    if (!showZones || zones == null || zones!.isEmpty) {
+      return [];
+    }
+
+    return zones!.map((zone) {
+      final lower = zone.lower ?? minValue;
+      final upper = zone.upper ?? maxValue;
+
+      return GaugeRange(
+        startValue: lower.clamp(minValue, maxValue),
+        endValue: upper.clamp(minValue, maxValue),
+        color: _getZoneColor(zone.state),
+        startWidth: 5, // 1/3 of data bar thickness (15)
+        endWidth: 5,
+        sizeUnit: GaugeSizeUnit.logicalPixel,
+      );
+    }).toList();
+  }
+
+  /// Get color for a zone state
+  Color _getZoneColor(ZoneState state) {
+    switch (state) {
+      case ZoneState.nominal:
+        return Colors.blue.withValues(alpha: 0.5);
+      case ZoneState.alert:
+        return Colors.yellow.shade600.withValues(alpha: 0.6);
+      case ZoneState.warn:
+        return Colors.orange.withValues(alpha: 0.6);
+      case ZoneState.alarm:
+        return Colors.red.withValues(alpha: 0.6);
+      case ZoneState.emergency:
+        return Colors.red.shade900.withValues(alpha: 0.6);
+      case ZoneState.normal:
+        return Colors.grey.withValues(alpha: 0.5);
     }
   }
 }

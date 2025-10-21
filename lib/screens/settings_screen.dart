@@ -5,6 +5,8 @@ import '../services/signalk_service.dart';
 import '../services/storage_service.dart';
 import '../services/auth_service.dart';
 import '../services/dashboard_service.dart';
+import '../services/foreground_service.dart';
+import '../services/notification_service.dart';
 import '../models/server_connection.dart';
 import 'connection_screen.dart';
 import 'device_registration_screen.dart';
@@ -20,6 +22,49 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   bool _showConnections = false;
+  bool _notificationsEnabled = false;
+
+  // In-app notification level filters
+  bool _showInAppEmergency = true;
+  bool _showInAppAlarm = false;
+  bool _showInAppWarn = false;
+  bool _showInAppAlert = false;
+  bool _showInAppNormal = false;
+  bool _showInAppNominal = false;
+
+  // System notification level filters (only emergency and alarm available)
+  bool _showSystemEmergency = true;
+  bool _showSystemAlarm = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadNotificationsPreference();
+  }
+
+  Future<void> _loadNotificationsPreference() async {
+    final storageService = Provider.of<StorageService>(context, listen: false);
+    final signalKService = Provider.of<SignalKService>(context, listen: false);
+
+    setState(() {
+      _notificationsEnabled = storageService.getNotificationsEnabled();
+
+      // Load in-app notification filters
+      _showInAppEmergency = storageService.getInAppNotificationFilter('emergency');
+      _showInAppAlarm = storageService.getInAppNotificationFilter('alarm');
+      _showInAppWarn = storageService.getInAppNotificationFilter('warn');
+      _showInAppAlert = storageService.getInAppNotificationFilter('alert');
+      _showInAppNormal = storageService.getInAppNotificationFilter('normal');
+      _showInAppNominal = storageService.getInAppNotificationFilter('nominal');
+
+      // Load system notification filters (only emergency and alarm)
+      _showSystemEmergency = storageService.getSystemNotificationFilter('emergency');
+      _showSystemAlarm = storageService.getSystemNotificationFilter('alarm');
+    });
+
+    // Sync with SignalKService
+    await signalKService.setNotificationsEnabled(_notificationsEnabled);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -116,6 +161,198 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                 );
               },
+            ),
+          ),
+
+          const Divider(height: 32),
+
+          // Notifications Section
+          Card(
+            margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: Column(
+              children: [
+                SwitchListTile(
+                  secondary: const Icon(Icons.notifications_active, color: Colors.orange),
+                  title: const Text(
+                    'SignalK Notifications',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  subtitle: const Text(
+                    'Receive and display alerts from the SignalK server',
+                    style: TextStyle(fontSize: 12),
+                  ),
+                  value: _notificationsEnabled,
+                  onChanged: (value) async {
+                    setState(() {
+                      _notificationsEnabled = value;
+                    });
+
+                    // Save preference
+                    await storageService.saveNotificationsEnabled(value);
+
+                    // Update SignalK subscription
+                    await signalKService.setNotificationsEnabled(value);
+
+                    // Start/stop foreground service and clear notifications
+                    final foregroundService = ForegroundTaskService();
+                    final notificationService = NotificationService();
+
+                    if (value && signalKService.isConnected) {
+                      await foregroundService.start();
+                    } else {
+                      await foregroundService.stop();
+                      // Clear all queued system notifications when disabled
+                      await notificationService.cancelAll();
+                    }
+
+                    if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(
+                            value
+                                ? 'Notifications enabled'
+                                : 'Notifications disabled',
+                          ),
+                          backgroundColor: value ? Colors.green : Colors.orange,
+                          duration: const Duration(seconds: 2),
+                        ),
+                      );
+                    }
+                  },
+                ),
+                if (_notificationsEnabled) ...[
+                  const Divider(height: 1),
+                  Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Notification Types',
+                          style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+                        ),
+                        const SizedBox(height: 8),
+                        // Header row
+                        Row(
+                          children: [
+                            const Expanded(flex: 2, child: SizedBox()),
+                            Expanded(
+                              child: Text(
+                                'In-App',
+                                style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                                textAlign: TextAlign.center,
+                              ),
+                            ),
+                            Expanded(
+                              child: Text(
+                                'System',
+                                style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                                textAlign: TextAlign.center,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const Divider(),
+                        // Emergency
+                        _buildNotificationRow(
+                          Icons.emergency,
+                          Colors.red,
+                          'Emergency',
+                          _showInAppEmergency,
+                          _showSystemEmergency,
+                          (inApp, system) async {
+                            setState(() {
+                              _showInAppEmergency = inApp;
+                              if (system != null) _showSystemEmergency = system;
+                            });
+                            await storageService.saveInAppNotificationFilter('emergency', inApp);
+                            if (system != null) {
+                              await storageService.saveSystemNotificationFilter('emergency', system);
+                            }
+                          },
+                        ),
+                        // Alarm
+                        _buildNotificationRow(
+                          Icons.alarm,
+                          Colors.red.shade700,
+                          'Alarm',
+                          _showInAppAlarm,
+                          _showSystemAlarm,
+                          (inApp, system) async {
+                            setState(() {
+                              _showInAppAlarm = inApp;
+                              if (system != null) _showSystemAlarm = system;
+                            });
+                            await storageService.saveInAppNotificationFilter('alarm', inApp);
+                            if (system != null) {
+                              await storageService.saveSystemNotificationFilter('alarm', system);
+                            }
+                          },
+                        ),
+                        // Warn (in-app only)
+                        _buildNotificationRow(
+                          Icons.warning,
+                          Colors.orange,
+                          'Warn',
+                          _showInAppWarn,
+                          null, // No system notification
+                          (inApp, system) async {
+                            setState(() {
+                              _showInAppWarn = inApp;
+                            });
+                            await storageService.saveInAppNotificationFilter('warn', inApp);
+                          },
+                        ),
+                        // Alert (in-app only)
+                        _buildNotificationRow(
+                          Icons.info,
+                          Colors.amber,
+                          'Alert',
+                          _showInAppAlert,
+                          null, // No system notification
+                          (inApp, system) async {
+                            setState(() {
+                              _showInAppAlert = inApp;
+                            });
+                            await storageService.saveInAppNotificationFilter('alert', inApp);
+                          },
+                        ),
+                        // Normal (in-app only)
+                        _buildNotificationRow(
+                          Icons.notifications,
+                          Colors.blue,
+                          'Normal',
+                          _showInAppNormal,
+                          null, // No system notification
+                          (inApp, system) async {
+                            setState(() {
+                              _showInAppNormal = inApp;
+                            });
+                            await storageService.saveInAppNotificationFilter('normal', inApp);
+                          },
+                        ),
+                        // Nominal (in-app only)
+                        _buildNotificationRow(
+                          Icons.check_circle,
+                          Colors.green,
+                          'Nominal',
+                          _showInAppNominal,
+                          null, // No system notification
+                          (inApp, system) async {
+                            setState(() {
+                              _showInAppNominal = inApp;
+                            });
+                            await storageService.saveInAppNotificationFilter('nominal', inApp);
+                          },
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ],
             ),
           ),
 
@@ -662,4 +899,50 @@ class _SettingsScreenState extends State<SettingsScreen> {
       }
     }
   }
+
+  /// Build a notification level row with in-app and system checkboxes
+  Widget _buildNotificationRow(
+    IconData icon,
+    Color iconColor,
+    String label,
+    bool inAppValue,
+    bool? systemValue, // null means no system checkbox
+    Function(bool inApp, bool? system) onChanged,
+  ) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        children: [
+          Icon(icon, color: iconColor, size: 20),
+          const SizedBox(width: 12),
+          Expanded(
+            flex: 2,
+            child: Text(
+              label,
+              style: const TextStyle(fontSize: 14),
+            ),
+          ),
+          Expanded(
+            child: Checkbox(
+              value: inAppValue,
+              onChanged: (value) {
+                onChanged(value ?? false, systemValue);
+              },
+            ),
+          ),
+          Expanded(
+            child: systemValue != null
+                ? Checkbox(
+                    value: systemValue,
+                    onChanged: (value) {
+                      onChanged(inAppValue, value ?? false);
+                    },
+                  )
+                : const SizedBox(), // Empty space for consistency
+          ),
+        ],
+      ),
+    );
+  }
+
 }

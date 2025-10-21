@@ -152,6 +152,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
       context: context,
       builder: (context) => PathSelectorDialog(
         signalKService: signalKService,
+        useHistoricalPaths: _selectedToolTypeId == 'historical_chart',
         onSelect: (path) {
           selectedPath = path;
         },

@@ -1,15 +1,18 @@
 import 'package:flutter/material.dart';
 import '../../services/signalk_service.dart';
+import '../../services/historical_data_service.dart';
 
 /// Dialog for selecting a SignalK data path
 class PathSelectorDialog extends StatefulWidget {
   final SignalKService signalKService;
   final Function(String path) onSelect;
+  final bool useHistoricalPaths;
 
   const PathSelectorDialog({
     super.key,
     required this.signalKService,
     required this.onSelect,
+    this.useHistoricalPaths = false,
   });
 
   @override
@@ -44,18 +47,31 @@ class _PathSelectorDialogState extends State<PathSelectorDialog> {
     setState(() => _loading = true);
 
     try {
-      final tree = await widget.signalKService.getAvailablePaths();
-      if (tree != null) {
-        final paths = widget.signalKService.extractPathsFromTree(tree);
-        setState(() {
-          _allPaths = paths..sort();
-          _filteredPaths = _allPaths;
-          _categorizePaths();
-          _loading = false;
-        });
+      List<String> paths;
+
+      if (widget.useHistoricalPaths) {
+        // Load paths that have historical data
+        final historicalService = HistoricalDataService(
+          serverUrl: widget.signalKService.serverUrl,
+          useSecureConnection: widget.signalKService.useSecureConnection,
+        );
+        paths = await historicalService.getAvailablePaths();
       } else {
-        setState(() => _loading = false);
+        // Load all SignalK paths
+        final tree = await widget.signalKService.getAvailablePaths();
+        if (tree != null) {
+          paths = widget.signalKService.extractPathsFromTree(tree);
+        } else {
+          paths = [];
+        }
       }
+
+      setState(() {
+        _allPaths = paths..sort();
+        _filteredPaths = _allPaths;
+        _categorizePaths();
+        _loading = false;
+      });
     } catch (e) {
       setState(() => _loading = false);
     }
@@ -117,7 +133,9 @@ class _PathSelectorDialogState extends State<PathSelectorDialog> {
                   ),
                   const SizedBox(width: 12),
                   Text(
-                    'Select Data Path',
+                    widget.useHistoricalPaths
+                        ? 'Select Historical Data Path'
+                        : 'Select Data Path',
                     style: Theme.of(context).textTheme.titleLarge?.copyWith(
                           color:
                               Theme.of(context).colorScheme.onPrimaryContainer,
@@ -131,6 +149,18 @@ class _PathSelectorDialogState extends State<PathSelectorDialog> {
                 ],
               ),
             ),
+
+            // Helper text for historical paths
+            if (widget.useHistoricalPaths)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                child: Text(
+                  'Only showing paths with recorded historical data',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: Theme.of(context).colorScheme.secondary,
+                      ),
+                ),
+              ),
 
             // Search bar
             Padding(

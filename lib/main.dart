@@ -1,3 +1,5 @@
+import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
@@ -8,6 +10,8 @@ import 'services/tool_registry.dart';
 import 'services/tool_service.dart';
 import 'services/auth_service.dart';
 import 'services/setup_service.dart';
+import 'services/notification_service.dart';
+import 'services/foreground_service.dart';
 import 'models/auth_token.dart';
 import 'screens/splash_screen.dart';
 
@@ -22,12 +26,27 @@ void main() async {
   final storageService = StorageService();
   await storageService.initialize();
 
+  // Initialize notification service
+  final notificationService = NotificationService();
+  await notificationService.initialize();
+
+  // Initialize foreground service
+  final foregroundService = ForegroundTaskService();
+  await foregroundService.initialize();
+
   // Initialize tool service
   final toolService = ToolService(storageService);
   await toolService.initialize();
 
   // Initialize SignalK service (will connect later)
   final signalKService = SignalKService();
+
+  // Auto-enable notifications if they were enabled before
+  final notificationsEnabled = storageService.getNotificationsEnabled();
+  if (notificationsEnabled) {
+    // Note: Notification channel will connect when SignalK connects
+    await signalKService.setNotificationsEnabled(true);
+  }
 
   // Initialize dashboard service with SignalK and Tool services
   final dashboardService = DashboardService(
@@ -58,6 +77,8 @@ void main() async {
     toolService: toolService,
     authService: authService,
     setupService: setupService,
+    notificationService: notificationService,
+    foregroundService: foregroundService,
   ));
 }
 
@@ -68,6 +89,8 @@ class ZedDisplayApp extends StatefulWidget {
   final ToolService toolService;
   final AuthService authService;
   final SetupService setupService;
+  final NotificationService notificationService;
+  final ForegroundTaskService foregroundService;
 
   const ZedDisplayApp({
     super.key,
@@ -77,6 +100,8 @@ class ZedDisplayApp extends StatefulWidget {
     required this.toolService,
     required this.authService,
     required this.setupService,
+    required this.notificationService,
+    required this.foregroundService,
   });
 
   @override
@@ -134,6 +159,7 @@ class _ZedDisplayAppState extends State<ZedDisplayApp> with WidgetsBindingObserv
     widget.storageService.removeListener(_onStorageChanged);
     WidgetsBinding.instance.removeObserver(this);
     WakelockPlus.disable();
+    widget.foregroundService.stop();
     super.dispose();
   }
 
@@ -141,11 +167,18 @@ class _ZedDisplayAppState extends State<ZedDisplayApp> with WidgetsBindingObserv
     if (widget.signalKService.isConnected) {
       // Enable wakelock when connected to keep screen on and connection alive
       WakelockPlus.enable();
-      // debugPrint('Wakelock enabled - keeping connection alive');
+
+      // Start foreground service if notifications are enabled
+      final notificationsEnabled = widget.storageService.getNotificationsEnabled();
+      if (notificationsEnabled) {
+        widget.foregroundService.start();
+      }
     } else {
       // Disable wakelock when disconnected to save battery
       WakelockPlus.disable();
-      // debugPrint('Wakelock disabled');
+
+      // Stop foreground service when disconnected
+      widget.foregroundService.stop();
     }
   }
 
@@ -225,7 +258,172 @@ class _ZedDisplayAppState extends State<ZedDisplayApp> with WidgetsBindingObserv
         themeMode: _themeMode,
         home: const SplashScreen(),
         debugShowCheckedModeBanner: false,
+        builder: (context, child) {
+          return SignalKNotificationListener(
+            signalKService: widget.signalKService,
+            storageService: widget.storageService,
+            notificationService: widget.notificationService,
+            child: child ?? const SizedBox.shrink(),
+          );
+        },
       ),
     );
+  }
+}
+
+/// Widget that listens to SignalK notifications and displays them
+class SignalKNotificationListener extends StatefulWidget {
+  final SignalKService signalKService;
+  final StorageService storageService;
+  final NotificationService notificationService;
+  final Widget child;
+
+  const SignalKNotificationListener({
+    super.key,
+    required this.signalKService,
+    required this.storageService,
+    required this.notificationService,
+    required this.child,
+  });
+
+  @override
+  State<SignalKNotificationListener> createState() => _SignalKNotificationListenerState();
+}
+
+class _SignalKNotificationListenerState extends State<SignalKNotificationListener> {
+  StreamSubscription<SignalKNotification>? _notificationSubscription;
+
+  @override
+  void initState() {
+    super.initState();
+    _setupNotificationListener();
+  }
+
+  void _setupNotificationListener() {
+    _notificationSubscription = widget.signalKService.notificationStream.listen(
+      _handleNotification,
+      onError: (error) {
+        if (kDebugMode) {
+          print('Notification stream error: $error');
+        }
+      },
+    );
+  }
+
+  void _handleNotification(SignalKNotification notification) {
+    if (!mounted) return;
+
+    // Check both in-app and system notification filters
+    final showInApp = widget.storageService.getInAppNotificationFilter(notification.state.toLowerCase());
+    final showSystem = widget.storageService.getSystemNotificationFilter(notification.state.toLowerCase());
+
+    if (!showInApp && !showSystem) {
+      return; // Filtered out
+    }
+
+    // Show system notification if enabled for this level
+    if (showSystem) {
+      widget.notificationService.showNotification(notification);
+    }
+
+    // Show in-app notification if enabled for this level
+    if (!showInApp) {
+      return;
+    }
+
+    // Determine color based on notification state
+    Color backgroundColor;
+    IconData icon;
+
+    switch (notification.state.toLowerCase()) {
+      case 'emergency':
+        backgroundColor = Colors.red.shade900;
+        icon = Icons.emergency;
+        break;
+      case 'alarm':
+        backgroundColor = Colors.red.shade700;
+        icon = Icons.alarm;
+        break;
+      case 'warn':
+        backgroundColor = Colors.orange.shade700;
+        icon = Icons.warning;
+        break;
+      case 'alert':
+        backgroundColor = Colors.amber.shade700;
+        icon = Icons.info;
+        break;
+      case 'normal':
+        backgroundColor = Colors.blue.shade700;
+        icon = Icons.notifications;
+        break;
+      case 'nominal':
+        backgroundColor = Colors.green.shade700;
+        icon = Icons.check_circle;
+        break;
+      default:
+        backgroundColor = Colors.grey.shade700;
+        icon = Icons.notifications_none;
+        break;
+    }
+
+    // Show the notification as a SnackBar
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            Icon(icon, color: Colors.white, size: 24),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    '[${notification.state.toUpperCase()}] ${notification.key}',
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 14,
+                      color: Colors.white,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    notification.message,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      color: Colors.white,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        backgroundColor: backgroundColor,
+        duration: notification.state.toLowerCase() == 'emergency' ||
+                notification.state.toLowerCase() == 'alarm'
+            ? const Duration(seconds: 10)
+            : const Duration(seconds: 5),
+        behavior: SnackBarBehavior.floating,
+        action: SnackBarAction(
+          label: 'DISMISS',
+          textColor: Colors.white,
+          onPressed: () {
+            ScaffoldMessenger.of(context).hideCurrentSnackBar();
+          },
+        ),
+      ),
+    );
+  }
+
+  @override
+  void dispose() {
+    _notificationSubscription?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return widget.child;
   }
 }

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../../models/tool_definition.dart';
 import '../../models/tool_config.dart';
@@ -23,7 +24,7 @@ class HistoricalChartTool extends StatefulWidget {
   State<HistoricalChartTool> createState() => _HistoricalChartToolState();
 }
 
-class _HistoricalChartToolState extends State<HistoricalChartTool> {
+class _HistoricalChartToolState extends State<HistoricalChartTool> with AutomaticKeepAliveClientMixin, WidgetsBindingObserver {
   HistoricalDataService? _historicalService;
   List<ChartDataSeries> _chartSeries = [];
   bool _isLoading = false;
@@ -32,15 +33,36 @@ class _HistoricalChartToolState extends State<HistoricalChartTool> {
   DateTime? _lastRefreshTime;
 
   @override
+  bool get wantKeepAlive => true; // Keep this widget alive
+
+  @override
   void initState() {
     super.initState();
     _initializeService();
+    WidgetsBinding.instance.addObserver(this);
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _refreshTimer?.cancel();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+
+    if (state == AppLifecycleState.resumed) {
+      // Restart auto-refresh timer if it was enabled
+      final autoRefresh = widget.config.style.customProperties?['autoRefresh'] as bool? ?? false;
+      if (autoRefresh && (_refreshTimer == null || !_refreshTimer!.isActive)) {
+        _setupAutoRefresh();
+      }
+    } else if (state == AppLifecycleState.paused || state == AppLifecycleState.inactive) {
+      // Pause timer to save battery
+      _refreshTimer?.cancel();
+    }
   }
 
   void _initializeService() {
@@ -102,13 +124,27 @@ class _HistoricalChartToolState extends State<HistoricalChartTool> {
         resolution: resolution,
       );
 
+      if (kDebugMode) {
+        print('📊 Historical response: ${response.values.length} values, ${response.data.length} data rows');
+        for (var i = 0; i < response.values.length; i++) {
+          print('  Value $i: ${response.values[i].path} (${response.values[i].method})');
+        }
+      }
+
       final series = <ChartDataSeries>[];
       for (final dataSource in widget.config.dataSources) {
         final chartSeries = ChartDataSeries.fromHistoricalData(
           response,
           dataSource.path,
         );
-        if (chartSeries != null) {
+        if (kDebugMode) {
+          if (chartSeries == null) {
+            print('❌ No data for path: ${dataSource.path}');
+          } else {
+            print('✅ Found ${chartSeries.points.length} points for: ${dataSource.path}');
+          }
+        }
+        if (chartSeries != null && chartSeries.points.isNotEmpty) {
           series.add(chartSeries);
         }
       }
@@ -132,6 +168,8 @@ class _HistoricalChartToolState extends State<HistoricalChartTool> {
 
   @override
   Widget build(BuildContext context) {
+    super.build(context); // Required for AutomaticKeepAliveClientMixin
+
     if (!widget.signalKService.isConnected) {
       return const Center(
         child: Text('Not connected to SignalK server'),
