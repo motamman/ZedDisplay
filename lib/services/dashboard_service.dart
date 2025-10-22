@@ -42,7 +42,7 @@ class DashboardService extends ChangeNotifier {
       if (_currentLayout == null) {
         _currentLayout = DashboardLayout(
           id: 'layout_default',
-          name: 'Default Layout',
+          name: 'Default Dashboard',
           screens: [
             DashboardScreen(
               id: 'screen_main',
@@ -55,6 +55,10 @@ class DashboardService extends ChangeNotifier {
         );
 
         await saveDashboard();
+
+        if (kDebugMode) {
+          print('Created default dashboard on first install');
+        }
       }
 
       _initialized = true;
@@ -82,10 +86,10 @@ class DashboardService extends ChangeNotifier {
     final toolIds = _currentLayout!.getAllToolIds();
 
     // Resolve tool IDs to required paths
-    final requiredPaths = _toolService!.getRequiredPathsForTools(toolIds);
+    final requiredPaths = _toolService.getRequiredPathsForTools(toolIds);
 
     if (requiredPaths.isNotEmpty) {
-      await _signalKService!.setActiveTemplatePaths(requiredPaths);
+      await _signalKService.setActiveTemplatePaths(requiredPaths);
 
       if (kDebugMode) {
         print('Updated SignalK subscriptions: ${requiredPaths.length} paths from ${toolIds.length} tools');
@@ -137,6 +141,30 @@ class DashboardService extends ChangeNotifier {
     await saveDashboard();
   }
 
+  /// Create a new blank dashboard
+  Future<void> createNewDashboard() async {
+    _currentLayout = DashboardLayout(
+      id: 'layout_${DateTime.now().millisecondsSinceEpoch}',
+      name: 'New Dashboard',
+      screens: [
+        DashboardScreen(
+          id: 'screen_${DateTime.now().millisecondsSinceEpoch}',
+          name: 'Main',
+          placements: [],
+          order: 0,
+        ),
+      ],
+      activeScreenIndex: 0,
+    );
+
+    notifyListeners();
+    await saveDashboard();
+
+    if (kDebugMode) {
+      print('Created new blank dashboard');
+    }
+  }
+
   /// Remove a screen from the current layout
   Future<void> removeScreen(String screenId) async {
     if (_currentLayout == null) return;
@@ -186,7 +214,7 @@ class DashboardService extends ChangeNotifier {
 
     // Increment tool usage count
     if (_toolService != null) {
-      await _toolService!.incrementUsage(placement.toolId);
+      await _toolService.incrementUsage(placement.toolId);
     }
   }
 

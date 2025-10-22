@@ -43,10 +43,23 @@ class _SetupManagementScreenState extends State<SetupManagementScreen> {
                 return _buildSetupCard(setup);
               },
             ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _saveCurrentSetup,
-        icon: const Icon(Icons.save),
-        label: const Text('Save Current'),
+      floatingActionButton: Column(
+        mainAxisAlignment: MainAxisAlignment.end,
+        children: [
+          FloatingActionButton.extended(
+            onPressed: _createNewDashboard,
+            heroTag: 'new_dashboard',
+            icon: const Icon(Icons.add),
+            label: const Text('New Dashboard'),
+          ),
+          const SizedBox(height: 16),
+          FloatingActionButton.extended(
+            onPressed: _saveCurrentSetup,
+            heroTag: 'save_current',
+            icon: const Icon(Icons.save),
+            label: const Text('Save Current As'),
+          ),
+        ],
       ),
     );
   }
@@ -72,7 +85,7 @@ class _SetupManagementScreenState extends State<SetupManagementScreen> {
           ElevatedButton.icon(
             onPressed: _saveCurrentSetup,
             icon: const Icon(Icons.save),
-            label: const Text('Save Current Setup'),
+            label: const Text('Save Current As'),
           ),
         ],
       ),
@@ -142,9 +155,9 @@ class _SetupManagementScreenState extends State<SetupManagementScreen> {
                   label: const Text('Share'),
                 ),
                 TextButton.icon(
-                  onPressed: () => _renameSetup(setup),
+                  onPressed: () => _editSetup(setup),
                   icon: const Icon(Icons.edit, size: 16),
-                  label: const Text('Rename'),
+                  label: const Text('Edit'),
                 ),
                 if (!isActive)
                   TextButton.icon(
@@ -184,7 +197,7 @@ class _SetupManagementScreenState extends State<SetupManagementScreen> {
     final result = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Save Current Setup'),
+        title: const Text('Save Current As'),
         content: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -251,6 +264,65 @@ class _SetupManagementScreenState extends State<SetupManagementScreen> {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text('Error saving setup: $e'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
+    }
+  }
+
+  Future<void> _createNewDashboard() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Create New Dashboard'),
+        content: const Text(
+          'This will clear your current dashboard and create a blank one.\n\n'
+          'Make sure to save your current dashboard first if you want to keep it.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Create Blank Dashboard'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true && mounted) {
+      try {
+        final dashboardService = Provider.of<DashboardService>(context, listen: false);
+        final setupService = Provider.of<SetupService>(context, listen: false);
+
+        // Create a blank layout
+        await dashboardService.createNewDashboard();
+
+        // Save it as a setup so it appears in the dashboard list
+        await setupService.saveCurrentAsSetup(
+          name: 'New Dashboard',
+          description: 'Blank dashboard',
+        );
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('New blank dashboard created and saved'),
+              backgroundColor: Colors.green,
+            ),
+          );
+          // Navigate back to dashboard
+          Navigator.pop(context);
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Error creating new dashboard: $e'),
               backgroundColor: Colors.red,
             ),
           );
@@ -540,20 +612,37 @@ class _SetupManagementScreenState extends State<SetupManagementScreen> {
     }
   }
 
-  Future<void> _renameSetup(SavedSetup setup) async {
-    final controller = TextEditingController(text: setup.name);
+  Future<void> _editSetup(SavedSetup setup) async {
+    final nameController = TextEditingController(text: setup.name);
+    final descriptionController = TextEditingController(text: setup.description);
 
     final result = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Rename Setup'),
-        content: TextField(
-          controller: controller,
-          decoration: const InputDecoration(
-            labelText: 'Setup Name',
-            border: OutlineInputBorder(),
+        title: const Text('Edit Setup'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: nameController,
+                decoration: const InputDecoration(
+                  labelText: 'Setup Name',
+                  border: OutlineInputBorder(),
+                ),
+                autofocus: true,
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: descriptionController,
+                decoration: const InputDecoration(
+                  labelText: 'Description (optional)',
+                  border: OutlineInputBorder(),
+                ),
+                maxLines: 3,
+              ),
+            ],
           ),
-          autofocus: true,
         ),
         actions: [
           TextButton(
@@ -562,12 +651,12 @@ class _SetupManagementScreenState extends State<SetupManagementScreen> {
           ),
           ElevatedButton(
             onPressed: () {
-              if (controller.text.trim().isEmpty) {
+              if (nameController.text.trim().isEmpty) {
                 return;
               }
               Navigator.pop(context, true);
             },
-            child: const Text('Rename'),
+            child: const Text('Save'),
           ),
         ],
       ),
@@ -576,12 +665,13 @@ class _SetupManagementScreenState extends State<SetupManagementScreen> {
     if (result == true && mounted) {
       try {
         final setupService = Provider.of<SetupService>(context, listen: false);
-        await setupService.renameSetup(setup.id, controller.text.trim());
+        await setupService.renameSetup(setup.id, nameController.text.trim());
+        await setupService.updateSetupDescription(setup.id, descriptionController.text.trim());
 
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Setup renamed to "${controller.text.trim()}"'),
+            const SnackBar(
+              content: Text('Setup updated successfully'),
               backgroundColor: Colors.green,
             ),
           );
@@ -591,7 +681,7 @@ class _SetupManagementScreenState extends State<SetupManagementScreen> {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('Error renaming setup: $e'),
+              content: Text('Error updating setup: $e'),
               backgroundColor: Colors.red,
             ),
           );

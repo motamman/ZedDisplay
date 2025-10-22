@@ -65,6 +65,7 @@ void main() async {
     toolService,
     dashboardService,
   );
+  await setupService.initialize();
 
   // Register all built-in tool types
   final toolRegistry = ToolRegistry();

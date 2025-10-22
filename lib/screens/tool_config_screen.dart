@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'package:flutter_colorpicker/flutter_colorpicker.dart';
 import '../models/tool_config.dart';
 import '../models/tool.dart';
+import '../models/tool_definition.dart' as def;
 import '../services/signalk_service.dart';
 import '../services/tool_registry.dart';
 import '../services/tool_service.dart';
@@ -33,6 +34,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
 
   // Configuration state
   String? _selectedToolTypeId;
+  String? _selectedCategory; // Filter by category
   List<DataSource> _dataSources = [];
 
   // Style configuration
@@ -62,6 +64,13 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
   bool _chartAutoRefresh = false;
   int _chartRefreshInterval = 60;
 
+  // Polar chart-specific configuration
+  int _polarHistorySeconds = 60;
+
+  // AIS polar chart-specific configuration
+  double _aisMaxRangeNm = 5.0;
+  int _aisUpdateInterval = 10;
+
   // Slider-specific configuration
   int _sliderDecimalPlaces = 1;
 
@@ -84,6 +93,40 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
     }
   }
 
+  /// Reset all form fields to default values
+  void _resetFormFields() {
+    _dataSources = [];
+    _minValue = null;
+    _maxValue = null;
+    _unit = null;
+    _primaryColor = null;
+    _fontSize = null;
+    _showLabel = true;
+    _showValue = true;
+    _showUnit = true;
+    _ttlSeconds = null;
+    _showTickLabels = false;
+    _pointerOnly = false;
+    _divisions = 10;
+    _orientation = 'horizontal';
+    _gaugeStyle = 'arc';
+    _linearGaugeStyle = 'bar';
+    _compassStyle = 'classic';
+    _chartStyle = 'area';
+    _chartDuration = '1h';
+    _chartResolution = null;
+    _chartShowLegend = true;
+    _chartShowGrid = true;
+    _chartAutoRefresh = false;
+    _chartRefreshInterval = 60;
+    _polarHistorySeconds = 60;
+    _aisMaxRangeNm = 5.0;
+    _aisUpdateInterval = 10;
+    _sliderDecimalPlaces = 1;
+    _toolWidth = 1;
+    _toolHeight = 1;
+  }
+
   void _loadDefaultsForToolType(String toolTypeId) {
     final registry = ToolRegistry();
     final signalKService = Provider.of<SignalKService>(context, listen: false);
@@ -99,6 +142,154 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
         _primaryColor = style.primaryColor;
       }
     }
+
+    // Set default sizes for specific tool types
+    switch (toolTypeId) {
+      case 'autopilot':
+      case 'polar_radar_chart':
+      case 'ais_polar_chart':
+      case 'wind_compass':
+        _toolWidth = 6;
+        _toolHeight = 6;
+        break;
+      default:
+        // Keep current defaults for other tool types
+        break;
+    }
+  }
+
+  /// Filter tool definitions by selected category
+  List<def.ToolDefinition> _getFilteredToolDefinitions(List<def.ToolDefinition> allTools) {
+    List<def.ToolDefinition> filtered;
+
+    if (_selectedCategory == null || _selectedCategory == 'all') {
+      filtered = allTools; // Show all if no category selected or "all" selected
+    } else {
+      filtered = allTools.where((toolDef) {
+        switch (_selectedCategory) {
+          case 'gauges':
+            // Gauges and text displays
+            return toolDef.category == def.ToolCategory.gauge || toolDef.category == def.ToolCategory.display;
+          case 'charts':
+            return toolDef.category == def.ToolCategory.chart;
+          case 'controls':
+            return toolDef.category == def.ToolCategory.control;
+          case 'instruments':
+            // Compass and other instruments
+            return toolDef.category == def.ToolCategory.compass || toolDef.category == def.ToolCategory.other;
+          default:
+            return true;
+        }
+      }).toList();
+    }
+
+    // Sort by category to group colors together
+    filtered.sort((a, b) {
+      // Define category order: gauge/display (blue), chart (green), control (orange), compass/other (purple)
+      int categoryOrder(def.ToolCategory cat) {
+        switch (cat) {
+          case def.ToolCategory.gauge:
+          case def.ToolCategory.display:
+            return 0; // Blue - Gauges & Text
+          case def.ToolCategory.chart:
+            return 1; // Green - Charts
+          case def.ToolCategory.control:
+            return 2; // Orange - Controls
+          case def.ToolCategory.compass:
+          case def.ToolCategory.other:
+            return 3; // Purple - Instruments
+        }
+      }
+
+      final orderA = categoryOrder(a.category);
+      final orderB = categoryOrder(b.category);
+
+      if (orderA != orderB) {
+        return orderA.compareTo(orderB);
+      }
+
+      // Within same category, sort alphabetically by name
+      return a.name.compareTo(b.name);
+    });
+
+    return filtered;
+  }
+
+  /// Get color for a category
+  Color _getCategoryColor(def.ToolCategory category) {
+    switch (category) {
+      case def.ToolCategory.gauge:
+      case def.ToolCategory.display:
+        return Colors.blue;
+      case def.ToolCategory.chart:
+        return Colors.green;
+      case def.ToolCategory.control:
+        return Colors.orange;
+      case def.ToolCategory.compass:
+      case def.ToolCategory.other:
+        return Colors.purple;
+    }
+  }
+
+  /// Build a category filter button
+  Widget _buildCategoryButton(String categoryId, String label, Color color) {
+    final isSelected = _selectedCategory == categoryId;
+
+    return FilledButton(
+      onPressed: () {
+        setState(() {
+          _selectedCategory = categoryId;
+        });
+      },
+      style: FilledButton.styleFrom(
+        backgroundColor: isSelected ? color : color.withValues(alpha: 0.3),
+        foregroundColor: Colors.white,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
+          side: isSelected
+              ? BorderSide(color: color, width: 2)
+              : BorderSide.none,
+        ),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+        ),
+      ),
+    );
+  }
+
+  /// Build a tool selection button
+  Widget _buildToolButton(String toolId, String toolName, Color categoryColor, bool isSelected) {
+    return OutlinedButton(
+      onPressed: () {
+        setState(() {
+          // If selecting a different tool, reset form and load new defaults
+          if (_selectedToolTypeId != toolId) {
+            _resetFormFields();
+            _selectedToolTypeId = toolId;
+            _loadDefaultsForToolType(toolId);
+          }
+        });
+      },
+      style: OutlinedButton.styleFrom(
+        foregroundColor: isSelected ? Colors.white : categoryColor,
+        backgroundColor: isSelected ? categoryColor : Colors.transparent,
+        side: BorderSide(color: categoryColor, width: 2),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(8),
+        ),
+      ),
+      child: Text(
+        toolName,
+        style: TextStyle(
+          fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+        ),
+      ),
+    );
   }
 
   void _loadExistingTool() {
@@ -133,6 +324,11 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
       _chartShowGrid = style.customProperties!['showGrid'] as bool? ?? true;
       _chartAutoRefresh = style.customProperties!['autoRefresh'] as bool? ?? false;
       _chartRefreshInterval = style.customProperties!['refreshInterval'] as int? ?? 60;
+      _polarHistorySeconds = style.customProperties!['historySeconds'] as int? ?? 60;
+      _aisMaxRangeNm = (style.customProperties!['maxRangeNm'] as num?)?.toDouble() ?? 5.0;
+      // Convert milliseconds back to seconds for UI
+      final updateIntervalMs = style.customProperties!['updateInterval'] as int? ?? 10000;
+      _aisUpdateInterval = (updateIntervalMs / 1000).round();
       _sliderDecimalPlaces = style.customProperties!['decimalPlaces'] as int? ?? 1;
     }
 
@@ -337,6 +533,19 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
         'refreshInterval': _chartRefreshInterval,
         'chartStyle': _chartStyle,
       };
+    } else if (_selectedToolTypeId == 'polar_radar_chart') {
+      customProperties = {
+        'historySeconds': _polarHistorySeconds,
+        'showLabels': true,
+        'showGrid': true,
+      };
+    } else if (_selectedToolTypeId == 'ais_polar_chart') {
+      customProperties = {
+        'maxRangeNm': _aisMaxRangeNm,
+        'updateInterval': _aisUpdateInterval * 1000, // Convert to milliseconds
+        'showLabels': true,
+        'showGrid': true,
+      };
     } else if (_selectedToolTypeId == 'slider' || _selectedToolTypeId == 'knob') {
       customProperties = {
         'decimalPlaces': _sliderDecimalPlaces,
@@ -464,23 +673,31 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                       style: Theme.of(context).textTheme.titleMedium,
                     ),
                     const SizedBox(height: 16),
+                    // Category filter chips with colors
                     Wrap(
                       spacing: 8,
                       runSpacing: 8,
-                      children: toolDefinitions.map((def) {
-                        final isSelected = _selectedToolTypeId == def.id;
-                        return ChoiceChip(
-                          label: Text(def.name),
-                          selected: isSelected,
-                          onSelected: (_) {
-                            setState(() {
-                              _selectedToolTypeId = def.id;
-                              // Load default paths when tool type is selected (only if no paths configured yet)
-                              if (_dataSources.isEmpty && widget.existingTool == null) {
-                                _loadDefaultsForToolType(def.id);
-                              }
-                            });
-                          },
+                      children: [
+                        _buildCategoryButton('all', 'All', Colors.grey),
+                        _buildCategoryButton('gauges', 'Gauges & Text', Colors.blue),
+                        _buildCategoryButton('charts', 'Charts', Colors.green),
+                        _buildCategoryButton('controls', 'Controls', Colors.orange),
+                        _buildCategoryButton('instruments', 'Instruments', Colors.purple),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    // Tool type chips (filtered by category)
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: _getFilteredToolDefinitions(toolDefinitions).map((toolDef) {
+                        final isSelected = _selectedToolTypeId == toolDef.id;
+                        final categoryColor = _getCategoryColor(toolDef.category);
+                        return _buildToolButton(
+                          toolDef.id,
+                          toolDef.name,
+                          categoryColor,
+                          isSelected,
                         );
                       }).toList(),
                     ),
@@ -527,13 +744,42 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                         itemCount: _dataSources.length,
                         itemBuilder: (context, index) {
                           final ds = _dataSources[index];
+
+                          // Add role labels for polar chart
+                          String? roleLabel;
+                          if (_selectedToolTypeId == 'polar_radar_chart') {
+                            if (index == 0) {
+                              roleLabel = 'Angle/Direction (e.g., wind direction, course)';
+                            } else if (index == 1) {
+                              roleLabel = 'Magnitude/Velocity (e.g., wind speed, boat speed)';
+                            }
+                          } else if (_selectedToolTypeId == 'ais_polar_chart') {
+                            if (index == 0) {
+                              roleLabel = 'Own Position (default: navigation.position)';
+                            }
+                          }
+
                           return Card(
                             child: ListTile(
                               leading: CircleAvatar(
                                 child: Text('${index + 1}'),
                               ),
                               title: Text(ds.label ?? ds.path.split('.').last),
-                              subtitle: Text(ds.path),
+                              subtitle: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(ds.path),
+                                  if (roleLabel != null)
+                                    Text(
+                                      roleLabel,
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        fontStyle: FontStyle.italic,
+                                        color: Theme.of(context).colorScheme.primary,
+                                      ),
+                                    ),
+                                ],
+                              ),
                               trailing: Row(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
@@ -639,6 +885,100 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
             const SizedBox(height: 16),
 
             // Chart-specific Configuration
+            if (_selectedToolTypeId == 'polar_radar_chart')
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '4. Polar Chart Settings',
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                      const SizedBox(height: 16),
+                      DropdownButtonFormField<int>(
+                        decoration: const InputDecoration(
+                          labelText: 'Time Window',
+                          border: OutlineInputBorder(),
+                          helperText: 'How much historical data to show',
+                        ),
+                        initialValue: _polarHistorySeconds,
+                        items: const [
+                          DropdownMenuItem(value: 30, child: Text('30 seconds')),
+                          DropdownMenuItem(value: 60, child: Text('1 minute')),
+                          DropdownMenuItem(value: 120, child: Text('2 minutes')),
+                          DropdownMenuItem(value: 300, child: Text('5 minutes')),
+                          DropdownMenuItem(value: 600, child: Text('10 minutes')),
+                        ],
+                        onChanged: (value) {
+                          if (value != null) {
+                            setState(() => _polarHistorySeconds = value);
+                          }
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            if (_selectedToolTypeId == 'ais_polar_chart')
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '4. AIS Chart Settings',
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                      const SizedBox(height: 16),
+                      DropdownButtonFormField<double>(
+                        decoration: const InputDecoration(
+                          labelText: 'Maximum Range',
+                          border: OutlineInputBorder(),
+                          helperText: 'Display vessels within this range (0 = auto)',
+                        ),
+                        initialValue: _aisMaxRangeNm,
+                        items: const [
+                          DropdownMenuItem(value: 0.0, child: Text('Auto (fit all vessels)')),
+                          DropdownMenuItem(value: 1.0, child: Text('1 nautical mile')),
+                          DropdownMenuItem(value: 2.0, child: Text('2 nautical miles')),
+                          DropdownMenuItem(value: 5.0, child: Text('5 nautical miles')),
+                          DropdownMenuItem(value: 10.0, child: Text('10 nautical miles')),
+                          DropdownMenuItem(value: 20.0, child: Text('20 nautical miles')),
+                        ],
+                        onChanged: (value) {
+                          if (value != null) {
+                            setState(() => _aisMaxRangeNm = value);
+                          }
+                        },
+                      ),
+                      const SizedBox(height: 16),
+                      DropdownButtonFormField<int>(
+                        decoration: const InputDecoration(
+                          labelText: 'Update Interval',
+                          border: OutlineInputBorder(),
+                          helperText: 'How often to refresh vessel data',
+                        ),
+                        initialValue: _aisUpdateInterval,
+                        items: const [
+                          DropdownMenuItem(value: 5, child: Text('5 seconds')),
+                          DropdownMenuItem(value: 10, child: Text('10 seconds')),
+                          DropdownMenuItem(value: 15, child: Text('15 seconds')),
+                          DropdownMenuItem(value: 30, child: Text('30 seconds')),
+                          DropdownMenuItem(value: 60, child: Text('1 minute')),
+                        ],
+                        onChanged: (value) {
+                          if (value != null) {
+                            setState(() => _aisUpdateInterval = value);
+                          }
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+              ),
             if (_selectedToolTypeId == 'historical_chart')
               Card(
                 child: Padding(
@@ -656,7 +996,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                           labelText: 'Time Duration',
                           border: OutlineInputBorder(),
                         ),
-                        value: _chartDuration,
+                        initialValue: _chartDuration,
                         items: const [
                           DropdownMenuItem(value: '15m', child: Text('15 minutes')),
                           DropdownMenuItem(value: '30m', child: Text('30 minutes')),
@@ -680,7 +1020,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                           border: OutlineInputBorder(),
                           helperText: 'Auto lets the server optimize for the timeframe',
                         ),
-                        value: _chartResolution,
+                        initialValue: _chartResolution,
                         items: const [
                           DropdownMenuItem(value: null, child: Text('Auto (Recommended)')),
                           DropdownMenuItem(value: 30000, child: Text('30 seconds')),
@@ -714,7 +1054,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                           border: OutlineInputBorder(),
                           helperText: 'Visual style of the chart',
                         ),
-                        value: _chartStyle,
+                        initialValue: _chartStyle,
                         items: const [
                           DropdownMenuItem(value: 'area', child: Text('Area (filled spline)')),
                           DropdownMenuItem(value: 'line', child: Text('Line (spline only)')),
@@ -744,7 +1084,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                               labelText: 'Refresh Interval',
                               border: OutlineInputBorder(),
                             ),
-                            value: _chartRefreshInterval,
+                            initialValue: _chartRefreshInterval,
                             items: const [
                               DropdownMenuItem(value: 30, child: Text('30 seconds')),
                               DropdownMenuItem(value: 60, child: Text('1 minute')),
@@ -774,7 +1114,9 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        _selectedToolTypeId == 'historical_chart'
+                        (_selectedToolTypeId == 'historical_chart' ||
+                         _selectedToolTypeId == 'polar_radar_chart' ||
+                         _selectedToolTypeId == 'ais_polar_chart')
                             ? '5. Configure Style'
                             : '4. Configure Style',
                         style: Theme.of(context).textTheme.titleMedium,
@@ -796,7 +1138,9 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        _selectedToolTypeId == 'historical_chart'
+                        (_selectedToolTypeId == 'historical_chart' ||
+                         _selectedToolTypeId == 'polar_radar_chart' ||
+                         _selectedToolTypeId == 'ais_polar_chart')
                             ? '6. Preview'
                             : '5. Preview',
                         style: Theme.of(context).textTheme.titleMedium,
@@ -817,6 +1161,19 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                                 'autoRefresh': _chartAutoRefresh,
                                 'refreshInterval': _chartRefreshInterval,
                                 'chartStyle': _chartStyle,
+                              };
+                            } else if (_selectedToolTypeId == 'polar_radar_chart') {
+                              previewCustomProperties = {
+                                'historySeconds': _polarHistorySeconds,
+                                'showLabels': true,
+                                'showGrid': true,
+                              };
+                            } else if (_selectedToolTypeId == 'ais_polar_chart') {
+                              previewCustomProperties = {
+                                'maxRangeNm': _aisMaxRangeNm,
+                                'updateInterval': _aisUpdateInterval * 1000, // Convert to milliseconds
+                                'showLabels': true,
+                                'showGrid': true,
                               };
                             } else if (_selectedToolTypeId == 'slider' || _selectedToolTypeId == 'knob') {
                               previewCustomProperties = {
@@ -931,38 +1288,40 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
       const SizedBox(height: 16),
     ]);
 
-    // Color
-    widgets.addAll([
-      ListTile(
-        leading: Container(
-          width: 40,
-          height: 40,
-          decoration: BoxDecoration(
-            color: _primaryColor != null && _primaryColor!.isNotEmpty
-                ? () {
-                    try {
-                      final hexColor = _primaryColor!.replaceAll('#', '');
-                      return Color(int.parse('FF$hexColor', radix: 16));
-                    } catch (e) {
-                      return Colors.blue;
-                    }
-                  }()
-                : Colors.blue,
+    // Color (only if tool supports color customization)
+    if (schema.allowsColorCustomization) {
+      widgets.addAll([
+        ListTile(
+          leading: Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: _primaryColor != null && _primaryColor!.isNotEmpty
+                  ? () {
+                      try {
+                        final hexColor = _primaryColor!.replaceAll('#', '');
+                        return Color(int.parse('FF$hexColor', radix: 16));
+                      } catch (e) {
+                        return Colors.blue;
+                      }
+                    }()
+                  : Colors.blue,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.grey.shade400, width: 2),
+            ),
+          ),
+          title: const Text('Primary Color'),
+          subtitle: Text(_primaryColor ?? 'Default (Blue)'),
+          trailing: const Icon(Icons.edit),
+          onTap: _selectColor,
+          shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: Colors.grey.shade400, width: 2),
+            side: BorderSide(color: Colors.grey.shade300),
           ),
         ),
-        title: const Text('Primary Color'),
-        subtitle: Text(_primaryColor ?? 'Default (Blue)'),
-        trailing: const Icon(Icons.edit),
-        onTap: _selectColor,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(8),
-          side: BorderSide(color: Colors.grey.shade300),
-        ),
-      ),
-      const SizedBox(height: 16),
-    ]);
+        const SizedBox(height: 16),
+      ]);
+    }
 
     // Show/Hide Options
     widgets.addAll([
@@ -994,7 +1353,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
           border: OutlineInputBorder(),
           helperText: 'Show "--" if data is older than this threshold',
         ),
-        value: _ttlSeconds,
+        initialValue: _ttlSeconds,
         items: const [
           DropdownMenuItem(value: null, child: Text('No check (always show data)')),
           DropdownMenuItem(value: 5, child: Text('5 seconds')),
@@ -1021,7 +1380,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
             border: OutlineInputBorder(),
             helperText: 'Visual style of the compass',
           ),
-          value: _compassStyle,
+          initialValue: _compassStyle,
           items: const [
             DropdownMenuItem(value: 'classic', child: Text('Classic (full circle with needle)')),
             DropdownMenuItem(value: 'arc', child: Text('Arc (180° semicircle)')),
@@ -1057,7 +1416,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
             border: OutlineInputBorder(),
             helperText: 'Visual style of the gauge',
           ),
-          value: _gaugeStyle,
+          initialValue: _gaugeStyle,
           items: const [
             DropdownMenuItem(value: 'arc', child: Text('Arc (270° default)')),
             DropdownMenuItem(value: 'full', child: Text('Full Circle (360° with needle)')),
@@ -1116,7 +1475,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
             border: OutlineInputBorder(),
             helperText: 'Visual style of the linear gauge',
           ),
-          value: _linearGaugeStyle,
+          initialValue: _linearGaugeStyle,
           items: const [
             DropdownMenuItem(value: 'bar', child: Text('Bar (filled bar)')),
             DropdownMenuItem(value: 'thermometer', child: Text('Thermometer (rounded top)')),
@@ -1135,7 +1494,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
             labelText: 'Orientation',
             border: OutlineInputBorder(),
           ),
-          value: _orientation,
+          initialValue: _orientation,
           items: const [
             DropdownMenuItem(value: 'horizontal', child: Text('Horizontal')),
             DropdownMenuItem(value: 'vertical', child: Text('Vertical')),
@@ -1192,7 +1551,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
             border: OutlineInputBorder(),
             helperText: 'Number of decimal places to display',
           ),
-          value: _sliderDecimalPlaces,
+          initialValue: _sliderDecimalPlaces,
           items: const [
             DropdownMenuItem(value: 0, child: Text('0 (e.g., 42)')),
             DropdownMenuItem(value: 1, child: Text('1 (e.g., 42.5)')),

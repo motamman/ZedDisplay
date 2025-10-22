@@ -12,11 +12,131 @@ class SetupService extends ChangeNotifier {
   final ToolService _toolService;
   final DashboardService _dashboardService;
 
+  String? _activeSetupId; // Track the currently active setup
+
   SetupService(
     this._storageService,
     this._toolService,
     this._dashboardService,
-  );
+  ) {
+    // Listen to dashboard changes and auto-save active setup
+    _dashboardService.addListener(_onDashboardChanged);
+  }
+
+  /// Initialize and create default setup if needed
+  Future<void> initialize() async {
+    try {
+      // Check if any setups exist
+      final setups = _storageService.getSavedSetupReferences();
+
+      // If no setups exist, create a default one from current dashboard
+      if (setups.isEmpty && _dashboardService.currentLayout != null) {
+        final layout = _dashboardService.currentLayout!;
+
+        // Get all tools from the layout
+        final toolIds = layout.getAllToolIds();
+        final tools = <Tool>[];
+        for (final toolId in toolIds) {
+          final tool = _toolService.getTool(toolId);
+          if (tool != null) {
+            tools.add(tool);
+          }
+        }
+
+        // Create default setup
+        final metadata = SetupMetadata(
+          name: 'Default Dashboard',
+          description: 'Your first dashboard',
+          author: 'System',
+          createdAt: DateTime.now(),
+          tags: ['default'],
+        );
+
+        final setup = DashboardSetup(
+          metadata: metadata,
+          layout: layout,
+          tools: tools,
+        );
+
+        await _storageService.saveSetup(setup);
+
+        // Set as active setup
+        _activeSetupId = layout.id;
+
+        if (kDebugMode) {
+          print('Created default setup on first install');
+        }
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error initializing SetupService: $e');
+      }
+    }
+  }
+
+  String? get activeSetupId => _activeSetupId;
+
+  /// Clear the active setup (when creating a new blank dashboard)
+  void clearActiveSetup() {
+    _activeSetupId = null;
+    notifyListeners();
+    if (kDebugMode) {
+      print('Active setup cleared');
+    }
+  }
+
+  /// Auto-save active setup when dashboard changes
+  void _onDashboardChanged() {
+    if (_activeSetupId != null) {
+      _autoSaveActiveSetup();
+    }
+  }
+
+  /// Automatically save the active setup with current dashboard state
+  Future<void> _autoSaveActiveSetup() async {
+    if (_activeSetupId == null) return;
+
+    try {
+      final setup = await _storageService.loadSetup(_activeSetupId!);
+      if (setup == null) return;
+
+      // Get current layout and tools
+      final layout = _dashboardService.currentLayout;
+      if (layout == null) return;
+
+      final toolIds = layout.getAllToolIds();
+      final tools = <Tool>[];
+      for (final toolId in toolIds) {
+        final tool = _toolService.getTool(toolId);
+        if (tool != null) {
+          tools.add(tool);
+        }
+      }
+
+      // Update the setup with current state
+      final updatedSetup = setup.copyWith(
+        layout: layout,
+        tools: tools,
+        metadata: setup.metadata.copyWith(updatedAt: DateTime.now()),
+      );
+
+      await _storageService.saveSetup(updatedSetup);
+
+      if (kDebugMode) {
+        print('Auto-saved active setup: ${setup.metadata.name}');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error auto-saving setup: $e');
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _dashboardService.removeListener(_onDashboardChanged);
+    super.dispose();
+  }
 
   /// Export current dashboard layout as a shareable setup
   DashboardSetup exportCurrentSetup({
@@ -120,8 +240,11 @@ class SetupService extends ChangeNotifier {
 
         await _storageService.saveSetup(setup);
 
+        // Set as active setup for auto-saving
+        _activeSetupId = currentLayout.id;
+
         if (kDebugMode) {
-          print('Setup updated: $name');
+          print('Setup updated: $name (now active for auto-save)');
         }
       } else {
         // Create new setup with a unique ID
@@ -155,8 +278,14 @@ class SetupService extends ChangeNotifier {
 
         await _storageService.saveSetup(setup);
 
+        // Update the dashboard to use the new layout ID
+        await _dashboardService.updateLayout(newLayout);
+
+        // Set as active setup for auto-saving
+        _activeSetupId = newLayoutId;
+
         if (kDebugMode) {
-          print('New setup created: $name');
+          print('New setup created: $name (now active for auto-save)');
         }
       }
     } catch (e) {
@@ -184,6 +313,9 @@ class SetupService extends ChangeNotifier {
       // Then update the dashboard layout
       await _dashboardService.updateLayout(setup.layout);
 
+      // Set this as the active setup for auto-saving
+      _activeSetupId = setupId;
+
       // Update the setup's last used timestamp
       final updatedMetadata = setup.metadata.copyWith(
         updatedAt: DateTime.now(),
@@ -194,7 +326,7 @@ class SetupService extends ChangeNotifier {
       notifyListeners();
 
       if (kDebugMode) {
-        print('Setup loaded: ${setup.metadata.name}');
+        print('Setup loaded: ${setup.metadata.name} (now active for auto-save)');
       }
     } catch (e) {
       if (kDebugMode) {

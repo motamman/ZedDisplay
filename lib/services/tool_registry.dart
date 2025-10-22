@@ -10,11 +10,14 @@ import '../widgets/tools/historical_chart_tool.dart';
 import '../widgets/tools/switch_tool.dart';
 import '../widgets/tools/slider_tool.dart';
 import '../widgets/tools/knob_tool.dart';
-import '../widgets/tools/windsteer_tool.dart';
-import '../widgets/tools/windsteer_demo_tool.dart';
+import '../widgets/tools/checkbox_tool.dart';
+import '../widgets/tools/dropdown_tool.dart';
 import '../widgets/tools/realtime_chart_tool.dart';
 import '../widgets/tools/radial_bar_chart_tool.dart';
 import '../widgets/tools/autopilot_tool.dart';
+import '../widgets/tools/polar_radar_chart_tool.dart';
+import '../widgets/tools/ais_polar_chart_tool.dart';
+import '../widgets/tools/wind_compass_tool.dart';
 
 /// Abstract builder for tool widgets
 abstract class ToolBuilder {
@@ -98,8 +101,11 @@ class ToolRegistry {
     register('switch', SwitchToolBuilder());
     register('slider', SliderToolBuilder());
     register('knob', KnobToolBuilder());
-    register('windsteer_demo', WindsteerDemoToolBuilder());
-    register('windsteer', WindsteerToolBuilder());
+    register('checkbox', CheckboxToolBuilder());
+    register('dropdown', DropdownToolBuilder());
     register('autopilot', AutopilotToolBuilder());
+    register('polar_radar_chart', PolarRadarChartBuilder());
+    register('ais_polar_chart', AISPolarChartBuilder());
+    register('wind_compass', WindCompassToolBuilder());
   }
 }
