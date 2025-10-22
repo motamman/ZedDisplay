@@ -17,6 +17,12 @@ class WindCompass extends StatefulWidget {
   final double? windDirectionTrueDegrees;
   final double? windDirectionApparentDegrees;
 
+  // Wind speed values
+  final double? windSpeedTrue;
+  final String? windSpeedTrueFormatted;
+  final double? windSpeedApparent;
+  final String? windSpeedApparentFormatted;
+
   final double? speedOverGround;
   final String? sogFormatted;
   final double? cogDegrees;
@@ -31,6 +37,10 @@ class WindCompass extends StatefulWidget {
     this.windDirectionApparentRadians,
     this.windDirectionTrueDegrees,
     this.windDirectionApparentDegrees,
+    this.windSpeedTrue,
+    this.windSpeedTrueFormatted,
+    this.windSpeedApparent,
+    this.windSpeedApparentFormatted,
     this.speedOverGround,
     this.sogFormatted,
     this.cogDegrees,
@@ -52,6 +62,55 @@ class _WindCompassState extends State<WindCompass> {
       angle -= 360;
     }
     return angle;
+  }
+
+  /// Build sailing zones that handle 0°/360° wraparound
+  List<GaugeRange> _buildSailingZones(double windDegrees) {
+    final zones = <GaugeRange>[];
+
+    // Helper to add a range, splitting if it crosses 0°
+    void addRange(double start, double end, Color color) {
+      final startNorm = _normalizeAngle(start);
+      final endNorm = _normalizeAngle(end);
+
+      if (startNorm < endNorm) {
+        // Normal case: doesn't cross 0°
+        zones.add(GaugeRange(
+          startValue: startNorm,
+          endValue: endNorm,
+          color: color,
+          startWidth: 25,
+          endWidth: 25,
+        ));
+      } else {
+        // Crosses 0°: split into two ranges
+        zones.add(GaugeRange(
+          startValue: startNorm,
+          endValue: 360,
+          color: color,
+          startWidth: 25,
+          endWidth: 25,
+        ));
+        zones.add(GaugeRange(
+          startValue: 0,
+          endValue: endNorm,
+          color: color,
+          startWidth: 25,
+          endWidth: 25,
+        ));
+      }
+    }
+
+    // Red zone - port tack (wind - 135° to wind - 45°, extended to 90° wide)
+    addRange(windDegrees - 135, windDegrees - 45, Colors.red.withValues(alpha: 0.5));
+
+    // No-go zone (wind - 45° to wind + 45°)
+    addRange(windDegrees - 45, windDegrees + 45, Colors.white.withValues(alpha: 0.3));
+
+    // Green zone - starboard tack (wind + 45° to wind + 135°, extended to 90° wide)
+    addRange(windDegrees + 45, windDegrees + 135, Colors.green.withValues(alpha: 0.5));
+
+    return zones;
   }
 
   /// Build compass labels (N, S, E, W, degrees) as gauge annotations
@@ -190,33 +249,8 @@ class _WindCompassState extends State<WindCompass> {
 
                     // Sailing zones: red (port tack), no-go, green (starboard tack)
                     ranges: <GaugeRange>[
-                      // Red zone - 45° to the LEFT of no-go zone
                       if (primaryWindDegrees != null)
-                        GaugeRange(
-                          startValue: _normalizeAngle(primaryWindDegrees! - 90),
-                          endValue: _normalizeAngle(primaryWindDegrees! - 45),
-                          color: Colors.red.withValues(alpha: 0.5),
-                          startWidth: 25,
-                          endWidth: 25,
-                        ),
-                      // No-go zone (white/gray) - ±45° from wind direction
-                      if (primaryWindDegrees != null)
-                        GaugeRange(
-                          startValue: _normalizeAngle(primaryWindDegrees! - 45),
-                          endValue: _normalizeAngle(primaryWindDegrees! + 45),
-                          color: Colors.white.withValues(alpha: 0.3),
-                          startWidth: 25,
-                          endWidth: 25,
-                        ),
-                      // Green zone - 45° to the RIGHT of no-go zone
-                      if (primaryWindDegrees != null)
-                        GaugeRange(
-                          startValue: _normalizeAngle(primaryWindDegrees! + 45),
-                          endValue: _normalizeAngle(primaryWindDegrees! + 90),
-                          color: Colors.green.withValues(alpha: 0.5),
-                          startWidth: 25,
-                          endWidth: 25,
-                        ),
+                        ..._buildSailingZones(primaryWindDegrees!),
                     ],
 
                     // Pointers for wind, heading, and COG (drawn in order: first = bottom, last = top)
@@ -272,14 +306,23 @@ class _WindCompassState extends State<WindCompass> {
                       if (widget.cogDegrees != null)
                         NeedlePointer(
                           value: widget.cogDegrees!,
-                          needleLength: 0.65,
-                          needleStartWidth: 3,
-                          needleEndWidth: 0,
+                          needleLength: 0.60,  // Slightly shorter so rounded end fits
+                          needleStartWidth: 0,
+                          needleEndWidth: 6,
                           needleColor: Colors.white,
                           knobStyle: KnobStyle(
-                            knobRadius: 0.02,
-                            color: Colors.white,
+                            knobRadius: 0,
                           ),
+                        ),
+                      // Rounded end for COG indicator
+                      if (widget.cogDegrees != null)
+                        MarkerPointer(
+                          value: widget.cogDegrees!,
+                          markerType: MarkerType.circle,
+                          markerHeight: 10,
+                          markerWidth: 10,
+                          color: Colors.white,
+                          markerOffset: -5, // Position at outer edge of compass
                         ),
 
                       // WIND INDICATORS - LAYER 2 (above heading indicators)
@@ -544,6 +587,28 @@ class _WindCompassState extends State<WindCompass> {
                           fontWeight: FontWeight.w500,
                         ),
                       ),
+                      // True Wind Speed
+                      if (widget.windSpeedTrue != null || widget.windSpeedTrueFormatted != null)
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'TWS',
+                              style: TextStyle(
+                                fontSize: 10,
+                                color: Colors.white60,
+                              ),
+                            ),
+                            Text(
+                              widget.windSpeedTrueFormatted ?? widget.windSpeedTrue!.toStringAsFixed(1),
+                              style: TextStyle(
+                                fontSize: 16,
+                                color: Colors.white,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ],
+                        ),
                     ],
                   ),
                 ),
@@ -586,6 +651,28 @@ class _WindCompassState extends State<WindCompass> {
                           fontWeight: FontWeight.w500,
                         ),
                       ),
+                      // Apparent Wind Speed
+                      if (widget.windSpeedApparent != null || widget.windSpeedApparentFormatted != null)
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: [
+                            Text(
+                              'AWS',
+                              style: TextStyle(
+                                fontSize: 10,
+                                color: Colors.white60,
+                              ),
+                            ),
+                            Text(
+                              widget.windSpeedApparentFormatted ?? widget.windSpeedApparent!.toStringAsFixed(1),
+                              style: TextStyle(
+                                fontSize: 16,
+                                color: Colors.white,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ],
+                        ),
                     ],
                   ),
                 ),
