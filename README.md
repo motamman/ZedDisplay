@@ -27,28 +27,28 @@ A customizable SignalK marine dashboard application to display real-time vessel 
 ### 🎨 Tool Library
 
 **Display Tools**
-- **Radial Gauge**: Circular gauge for numeric values
-- **Linear Gauge**: Horizontal/vertical bar gauge
-- **Compass**: Heading display
-- **Text Display**: Formatted text output
+- **Radial Gauge**: Circular gauge with arc display for numeric values
+- **Linear Gauge**: Horizontal or vertical bar gauge for numeric values
+- **Compass Gauge**: Circular compass display for heading/bearing values
+- **Text Display**: Large numeric value display with label and unit
 
 **Chart Tools**
-- **Historical Chart**: Time series line charts
-- **Realtime Chart**: Live updating line charts
-- **Radial Bar Chart**: Circular bar charts
-- **Polar Radar Chart**: Polar coordinate visualization
-- **AIS Polar Chart**: AIS target display on polar radar
+- **Historical Chart**: Line chart showing historical data for up to 3 paths
+- **Real-Time Chart**: Live spline chart showing real-time data for up to 3 paths
+- **Radial Bar Chart**: Circular chart displaying up to 4 values as concentric rings
+- **Polar Radar Chart**: Polar chart showing magnitude vs angle with area fill (e.g., wind speed/direction)
+- **AIS Polar Chart**: Display nearby AIS vessels on polar chart relative to own position
 
 **Navigation Tools**
-- **Wind Compass**: Wind direction and speed display
-- **Autopilot**: Course control interface
+- **Wind Compass**: Autopilot-style compass showing heading (true/magnetic), wind direction (true/apparent), and speed over ground
+- **Autopilot**: Full autopilot control with compass display, mode selection, and tacking
 
 **Control Tools**
-- **Switch**: Toggle control
-- **Slider**: Continuous value adjustment
-- **Knob**: Rotary control
-- **Checkbox**: Boolean toggle
-- **Dropdown**: Selection control
+- **Switch**: Toggle switch for boolean SignalK paths with PUT support
+- **Slider**: Slider control for sending numeric values to SignalK paths
+- **Knob**: Rotary knob control for sending numeric values to SignalK paths
+- **Checkbox**: Checkbox for boolean SignalK paths with PUT support
+- **Dropdown**: Dropdown selector for sending numeric values to SignalK paths
 
 ### 🔧 Tool Management
 - Create and save custom tool configurations
