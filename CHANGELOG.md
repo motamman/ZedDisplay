@@ -7,6 +7,65 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0+3] - 2025-10-22
+
+### Added
+- **Checkbox Tool**: New config-driven checkbox widget for boolean SignalK paths
+  - Interactive checkbox for toggling boolean values (e.g., switches, alarms)
+  - Full color customization for checked/unchecked states
+  - State management with real-time updates
+- **Wind Compass Tool**: Comprehensive wind direction and speed display
+  - True wind and apparent wind visualization
+  - No-go zone indicator for sailing optimization
+  - Vessel shadow for enhanced orientation
+  - Wind mode support showing wind indicators
+  - Absolute wind direction calculations for compass display
+  - Custom painters for professional visualization
+- **AIS Polar Chart**: Display AIS targets on polar radar
+  - Real-time vessel tracking
+  - Distance and bearing visualization
+- **Polar Radar Chart**: Advanced polar coordinate visualization
+  - Customizable angle and magnitude labels
+  - Tool-specific default sizing
+  - Enhanced color customization options
+  - Zone handling for sectors and regions
+- **Historical Data Support**: Enhanced time-series data handling
+  - Support for historical paths in path selector
+  - Real-time chart tool updates using widget state
+  - Auto-refresh capability for historical chart tool
+- **Dashboard Management Improvements**:
+  - Confirmation dialog before tool removal
+  - Improved action button layout
+  - Better organization of dashboard controls
+
+### Enhanced
+- **Autopilot Tool**: Major improvements for wind sailing modes
+  - Calculate and display absolute wind directions
+  - Show wind indicators in wind steering mode
+  - Updated widget parameters for better configuration
+- **Setup Service**: Improved initialization and auto-save
+  - Auto-save active setup on dashboard changes
+  - Initialize default setup on first launch
+  - Create new blank dashboard automatically
+  - Enhanced dashboard persistence when adding tools
+- **Notification System**: Better user feedback
+  - Updated app label for clarity
+  - Improved notification display format
+  - Group summary for multiple active notifications
+
+### Fixed
+- Code refactoring for better maintainability:
+  - Removed unnecessary null safety operators
+  - Updated color opacity methods from deprecated `withOpacity()` to `withValues(alpha:)`
+  - Improved code readability in DashboardService and WindCompass
+
+### Changed
+- Removed windsteer tools from tool registry (replaced by enhanced Autopilot Tool)
+- Updated widget tests to initialize additional services
+- Updated app launch verification in tests
+
+## [0.2.0] - Previous release
+
 ### Added
 - **SignalK Units Preference Integration**: Full integration with signalk-units-preference plugin
   - Connect to `/plugins/signalk-units-preference/stream` for pre-converted values
