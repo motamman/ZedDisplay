@@ -10,6 +10,8 @@ import '../widgets/tools/historical_chart_tool.dart';
 import '../widgets/tools/switch_tool.dart';
 import '../widgets/tools/slider_tool.dart';
 import '../widgets/tools/knob_tool.dart';
+import '../widgets/tools/checkbox_tool.dart';
+import '../widgets/tools/dropdown_tool.dart';
 import '../widgets/tools/realtime_chart_tool.dart';
 import '../widgets/tools/radial_bar_chart_tool.dart';
 import '../widgets/tools/autopilot_tool.dart';
@@ -99,6 +101,8 @@ class ToolRegistry {
     register('switch', SwitchToolBuilder());
     register('slider', SliderToolBuilder());
     register('knob', KnobToolBuilder());
+    register('checkbox', CheckboxToolBuilder());
+    register('dropdown', DropdownToolBuilder());
     register('autopilot', AutopilotToolBuilder());
     register('polar_radar_chart', PolarRadarChartBuilder());
     register('ais_polar_chart', AISPolarChartBuilder());

@@ -93,6 +93,40 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
     }
   }
 
+  /// Reset all form fields to default values
+  void _resetFormFields() {
+    _dataSources = [];
+    _minValue = null;
+    _maxValue = null;
+    _unit = null;
+    _primaryColor = null;
+    _fontSize = null;
+    _showLabel = true;
+    _showValue = true;
+    _showUnit = true;
+    _ttlSeconds = null;
+    _showTickLabels = false;
+    _pointerOnly = false;
+    _divisions = 10;
+    _orientation = 'horizontal';
+    _gaugeStyle = 'arc';
+    _linearGaugeStyle = 'bar';
+    _compassStyle = 'classic';
+    _chartStyle = 'area';
+    _chartDuration = '1h';
+    _chartResolution = null;
+    _chartShowLegend = true;
+    _chartShowGrid = true;
+    _chartAutoRefresh = false;
+    _chartRefreshInterval = 60;
+    _polarHistorySeconds = 60;
+    _aisMaxRangeNm = 5.0;
+    _aisUpdateInterval = 10;
+    _sliderDecimalPlaces = 1;
+    _toolWidth = 1;
+    _toolHeight = 1;
+  }
+
   void _loadDefaultsForToolType(String toolTypeId) {
     final registry = ToolRegistry();
     final signalKService = Provider.of<SignalKService>(context, listen: false);
@@ -126,26 +160,136 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
 
   /// Filter tool definitions by selected category
   List<def.ToolDefinition> _getFilteredToolDefinitions(List<def.ToolDefinition> allTools) {
-    if (_selectedCategory == null) {
-      return allTools; // Show all if no category selected
+    List<def.ToolDefinition> filtered;
+
+    if (_selectedCategory == null || _selectedCategory == 'all') {
+      filtered = allTools; // Show all if no category selected or "all" selected
+    } else {
+      filtered = allTools.where((toolDef) {
+        switch (_selectedCategory) {
+          case 'gauges':
+            // Gauges and text displays
+            return toolDef.category == def.ToolCategory.gauge || toolDef.category == def.ToolCategory.display;
+          case 'charts':
+            return toolDef.category == def.ToolCategory.chart;
+          case 'controls':
+            return toolDef.category == def.ToolCategory.control;
+          case 'instruments':
+            // Compass and other instruments
+            return toolDef.category == def.ToolCategory.compass || toolDef.category == def.ToolCategory.other;
+          default:
+            return true;
+        }
+      }).toList();
     }
 
-    return allTools.where((toolDef) {
-      switch (_selectedCategory) {
-        case 'gauges':
-          // Gauges and text displays
-          return toolDef.category == def.ToolCategory.gauge || toolDef.category == def.ToolCategory.display;
-        case 'charts':
-          return toolDef.category == def.ToolCategory.chart;
-        case 'controls':
-          return toolDef.category == def.ToolCategory.control;
-        case 'instruments':
-          // Compass and other instruments
-          return toolDef.category == def.ToolCategory.compass || toolDef.category == def.ToolCategory.other;
-        default:
-          return true;
+    // Sort by category to group colors together
+    filtered.sort((a, b) {
+      // Define category order: gauge/display (blue), chart (green), control (orange), compass/other (purple)
+      int categoryOrder(def.ToolCategory cat) {
+        switch (cat) {
+          case def.ToolCategory.gauge:
+          case def.ToolCategory.display:
+            return 0; // Blue - Gauges & Text
+          case def.ToolCategory.chart:
+            return 1; // Green - Charts
+          case def.ToolCategory.control:
+            return 2; // Orange - Controls
+          case def.ToolCategory.compass:
+          case def.ToolCategory.other:
+            return 3; // Purple - Instruments
+        }
       }
-    }).toList();
+
+      final orderA = categoryOrder(a.category);
+      final orderB = categoryOrder(b.category);
+
+      if (orderA != orderB) {
+        return orderA.compareTo(orderB);
+      }
+
+      // Within same category, sort alphabetically by name
+      return a.name.compareTo(b.name);
+    });
+
+    return filtered;
+  }
+
+  /// Get color for a category
+  Color _getCategoryColor(def.ToolCategory category) {
+    switch (category) {
+      case def.ToolCategory.gauge:
+      case def.ToolCategory.display:
+        return Colors.blue;
+      case def.ToolCategory.chart:
+        return Colors.green;
+      case def.ToolCategory.control:
+        return Colors.orange;
+      case def.ToolCategory.compass:
+      case def.ToolCategory.other:
+        return Colors.purple;
+    }
+  }
+
+  /// Build a category filter button
+  Widget _buildCategoryButton(String categoryId, String label, Color color) {
+    final isSelected = _selectedCategory == categoryId;
+
+    return FilledButton(
+      onPressed: () {
+        setState(() {
+          _selectedCategory = categoryId;
+        });
+      },
+      style: FilledButton.styleFrom(
+        backgroundColor: isSelected ? color : color.withValues(alpha: 0.3),
+        foregroundColor: Colors.white,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
+          side: isSelected
+              ? BorderSide(color: color, width: 2)
+              : BorderSide.none,
+        ),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+        ),
+      ),
+    );
+  }
+
+  /// Build a tool selection button
+  Widget _buildToolButton(String toolId, String toolName, Color categoryColor, bool isSelected) {
+    return OutlinedButton(
+      onPressed: () {
+        setState(() {
+          // If selecting a different tool, reset form and load new defaults
+          if (_selectedToolTypeId != toolId) {
+            _resetFormFields();
+            _selectedToolTypeId = toolId;
+            _loadDefaultsForToolType(toolId);
+          }
+        });
+      },
+      style: OutlinedButton.styleFrom(
+        foregroundColor: isSelected ? Colors.white : categoryColor,
+        backgroundColor: isSelected ? categoryColor : Colors.transparent,
+        side: BorderSide(color: categoryColor, width: 2),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(8),
+        ),
+      ),
+      child: Text(
+        toolName,
+        style: TextStyle(
+          fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+        ),
+      ),
+    );
   }
 
   void _loadExistingTool() {
@@ -529,47 +673,16 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                       style: Theme.of(context).textTheme.titleMedium,
                     ),
                     const SizedBox(height: 16),
-                    // Category filter chips
+                    // Category filter chips with colors
                     Wrap(
                       spacing: 8,
                       runSpacing: 8,
                       children: [
-                        FilterChip(
-                          label: const Text('Gauges & Text'),
-                          selected: _selectedCategory == 'gauges',
-                          onSelected: (selected) {
-                            setState(() {
-                              _selectedCategory = selected ? 'gauges' : null;
-                            });
-                          },
-                        ),
-                        FilterChip(
-                          label: const Text('Charts'),
-                          selected: _selectedCategory == 'charts',
-                          onSelected: (selected) {
-                            setState(() {
-                              _selectedCategory = selected ? 'charts' : null;
-                            });
-                          },
-                        ),
-                        FilterChip(
-                          label: const Text('Controls'),
-                          selected: _selectedCategory == 'controls',
-                          onSelected: (selected) {
-                            setState(() {
-                              _selectedCategory = selected ? 'controls' : null;
-                            });
-                          },
-                        ),
-                        FilterChip(
-                          label: const Text('Instruments'),
-                          selected: _selectedCategory == 'instruments',
-                          onSelected: (selected) {
-                            setState(() {
-                              _selectedCategory = selected ? 'instruments' : null;
-                            });
-                          },
-                        ),
+                        _buildCategoryButton('all', 'All', Colors.grey),
+                        _buildCategoryButton('gauges', 'Gauges & Text', Colors.blue),
+                        _buildCategoryButton('charts', 'Charts', Colors.green),
+                        _buildCategoryButton('controls', 'Controls', Colors.orange),
+                        _buildCategoryButton('instruments', 'Instruments', Colors.purple),
                       ],
                     ),
                     const SizedBox(height: 16),
@@ -579,18 +692,12 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                       runSpacing: 8,
                       children: _getFilteredToolDefinitions(toolDefinitions).map((toolDef) {
                         final isSelected = _selectedToolTypeId == toolDef.id;
-                        return ChoiceChip(
-                          label: Text(toolDef.name),
-                          selected: isSelected,
-                          onSelected: (_) {
-                            setState(() {
-                              _selectedToolTypeId = toolDef.id;
-                              // Load default paths when tool type is selected (only if no paths configured yet)
-                              if (_dataSources.isEmpty && widget.existingTool == null) {
-                                _loadDefaultsForToolType(toolDef.id);
-                              }
-                            });
-                          },
+                        final categoryColor = _getCategoryColor(toolDef.category);
+                        return _buildToolButton(
+                          toolDef.id,
+                          toolDef.name,
+                          categoryColor,
+                          isSelected,
                         );
                       }).toList(),
                     ),
