@@ -6,6 +6,7 @@ import '../../services/tool_registry.dart';
 import '../../utils/string_extensions.dart';
 import '../../utils/color_extensions.dart';
 import '../../utils/data_extensions.dart';
+import 'common/control_tool_layout.dart';
 
 /// Config-driven checkbox tool for toggling boolean SignalK paths
 class CheckboxTool extends StatefulWidget {
@@ -53,77 +54,35 @@ class _CheckboxToolState extends State<CheckboxTool> {
       fallback: Colors.grey
     ) ?? Colors.grey;
 
-    return Card(
-      elevation: 2,
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            if (style.showLabel == true) ...[
-              Text(
-                label,
-                style: const TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                ),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 8),
-            ],
-
-            // State label
-            Text(
-              currentValue ? 'ON' : 'OFF',
-              style: TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
-                color: currentValue ? activeColor : inactiveColor,
-              ),
-            ),
-
-            const SizedBox(height: 16),
-
-            // Checkbox with enhanced styling
-            Transform.scale(
-              scale: 2.0,
-              child: Checkbox(
-                value: currentValue,
-                activeColor: activeColor,
-                checkColor: Colors.white,
-                side: BorderSide(
-                  color: currentValue ? activeColor : inactiveColor,
-                  width: 2,
-                ),
-                onChanged: _isSending ? null : (value) => _toggleCheckbox(value ?? false, dataSource.path),
-              ),
-            ),
-
-            // Path info
-            const SizedBox(height: 8),
-            Text(
-              dataSource.path,
-              style: TextStyle(
-                fontSize: 10,
-                color: Colors.grey[600],
-              ),
-              textAlign: TextAlign.center,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-            ),
-
-            // Sending indicator
-            if (_isSending) ...[
-              const SizedBox(height: 8),
-              const SizedBox(
-                width: 16,
-                height: 16,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              ),
-            ],
-          ],
+    return ControlToolLayout(
+      label: label,
+      showLabel: style.showLabel == true,
+      valueWidget: Text(
+        currentValue ? 'ON' : 'OFF',
+        style: TextStyle(
+          fontSize: 24,
+          fontWeight: FontWeight.bold,
+          color: currentValue ? activeColor : inactiveColor,
         ),
       ),
+      additionalWidgets: [
+        const SizedBox(height: 8),
+      ],
+      controlWidget: Transform.scale(
+        scale: 2.0,
+        child: Checkbox(
+          value: currentValue,
+          activeColor: activeColor,
+          checkColor: Colors.white,
+          side: BorderSide(
+            color: currentValue ? activeColor : inactiveColor,
+            width: 2,
+          ),
+          onChanged: _isSending ? null : (value) => _toggleCheckbox(value ?? false, dataSource.path),
+        ),
+      ),
+      path: dataSource.path,
+      isSending: _isSending,
     );
   }
 

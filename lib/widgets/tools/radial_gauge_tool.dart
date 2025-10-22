@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 import '../../models/tool_definition.dart';
 import '../../models/tool_config.dart';
-import '../../models/zone_data.dart';
 import '../../services/signalk_service.dart';
 import '../../services/tool_registry.dart';
 import '../../utils/string_extensions.dart';
 import '../../utils/color_extensions.dart';
+import 'mixins/zones_mixin.dart';
 import '../radial_gauge.dart';
 
 /// Config-driven radial gauge tool
@@ -23,43 +23,18 @@ class RadialGaugeTool extends StatefulWidget {
   State<RadialGaugeTool> createState() => _RadialGaugeToolState();
 }
 
-class _RadialGaugeToolState extends State<RadialGaugeTool> {
-  List<ZoneDefinition>? _zones;
-  bool _zonesRequested = false;
-
+class _RadialGaugeToolState extends State<RadialGaugeTool> with ZonesMixin {
   @override
   void initState() {
     super.initState();
-    _fetchZonesIfReady();
-    widget.signalKService.addListener(_onConnectionChanged);
-  }
-
-  void _onConnectionChanged() {
-    if (widget.signalKService.isConnected && !_zonesRequested) {
-      _fetchZonesIfReady();
+    if (widget.config.dataSources.isNotEmpty) {
+      initializeZones(widget.signalKService, widget.config.dataSources.first.path);
     }
-  }
-
-  void _fetchZonesIfReady() {
-    if (widget.config.dataSources.isEmpty) return;
-    if (widget.signalKService.zonesCache == null) return;
-    if (_zonesRequested) return;
-
-    _zonesRequested = true;
-    final firstPath = widget.config.dataSources.first.path;
-
-    widget.signalKService.zonesCache!.getZones(firstPath).then((zones) {
-      if (mounted && zones != null) {
-        setState(() {
-          _zones = zones;
-        });
-      }
-    });
   }
 
   @override
   void dispose() {
-    widget.signalKService.removeListener(_onConnectionChanged);
+    cleanupZones(widget.signalKService);
     super.dispose();
   }
 
@@ -117,7 +92,7 @@ class _RadialGaugeToolState extends State<RadialGaugeTool> {
       gaugeStyle: gaugeStyle,
       pointerOnly: pointerOnly,
       showValue: style.showValue ?? true,
-      zones: _zones,
+      zones: zones,
       showZones: showZones,
     );
   }

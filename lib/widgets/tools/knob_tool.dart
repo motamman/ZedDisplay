@@ -7,6 +7,8 @@ import '../../services/signalk_service.dart';
 import '../../services/tool_registry.dart';
 import '../../utils/string_extensions.dart';
 import '../../utils/color_extensions.dart';
+import 'mixins/control_tool_mixin.dart';
+import 'common/control_tool_layout.dart';
 
 /// Config-driven knob (rotary control) tool for sending numeric values to SignalK paths
 class KnobTool extends StatefulWidget {
@@ -23,8 +25,7 @@ class KnobTool extends StatefulWidget {
   State<KnobTool> createState() => _KnobToolState();
 }
 
-class _KnobToolState extends State<KnobTool> {
-  bool _isSending = false;
+class _KnobToolState extends State<KnobTool> with ControlToolMixin {
   double? _currentKnobValue;
   bool _isDragging = false;
 
@@ -74,227 +75,157 @@ class _KnobToolState extends State<KnobTool> {
     // Get decimal places from customProperties
     final decimalPlaces = style.customProperties?['decimalPlaces'] as int? ?? 1;
 
-    return Card(
-      elevation: 2,
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            if (style.showLabel == true) ...[
-              Text(
-                label,
-                style: const TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                ),
-                textAlign: TextAlign.center,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-              ),
-              const SizedBox(height: 8),
-            ],
+    return ControlToolLayout(
+      label: label,
+      showLabel: style.showLabel == true,
+      valueWidget: null, // Value is displayed inside the gauge
+      additionalWidgets: [
+        // Syncfusion Radial Gauge as Knob control
+        Expanded(
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final size = min(constraints.maxWidth, constraints.maxHeight);
 
-            // Syncfusion Radial Gauge as Knob control
-            Expanded(
-              child: LayoutBuilder(
-                builder: (context, constraints) {
-                  final size = min(constraints.maxWidth, constraints.maxHeight);
-
-                  return Center(
-                    child: SizedBox(
-                      width: size * 0.9,
-                      height: size * 0.9,
-                      child: SfRadialGauge(
-                        axes: <RadialAxis>[
-                          RadialAxis(
-                            minimum: minValue,
-                            maximum: maxValue,
-                            startAngle: 150,
-                            endAngle: 30,
-                            showLabels: false,
-                            showTicks: true,
-                            minorTicksPerInterval: 0,
-                            majorTickStyle: MajorTickStyle(
-                              length: 8,
-                              thickness: 2,
-                              color: Colors.grey[400],
-                            ),
-                            axisLineStyle: AxisLineStyle(
-                              thickness: 0.15,
-                              thicknessUnit: GaugeSizeUnit.factor,
-                              color: Colors.grey[300],
-                            ),
-                            pointers: <GaugePointer>[
-                              // Range arc showing filled portion
-                              RangePointer(
-                                value: currentValue,
-                                width: 0.15,
-                                sizeUnit: GaugeSizeUnit.factor,
-                                color: primaryColor,
-                                enableAnimation: false,
-                              ),
-                              // Marker pointer for interaction
-                              MarkerPointer(
-                                value: currentValue,
-                                markerType: MarkerType.circle,
-                                markerHeight: 24,
-                                markerWidth: 24,
-                                color: primaryColor,
-                                borderWidth: 3,
-                                borderColor: Colors.white,
-                                elevation: 4,
-                                enableDragging: !_isSending,
-                                enableAnimation: false,
-                                onValueChanged: (newValue) {
-                                  if (!_isSending) {
+              return Center(
+                child: SizedBox(
+                  width: size * 0.9,
+                  height: size * 0.9,
+                  child: SfRadialGauge(
+                    axes: <RadialAxis>[
+                      RadialAxis(
+                        minimum: minValue,
+                        maximum: maxValue,
+                        startAngle: 150,
+                        endAngle: 30,
+                        showLabels: false,
+                        showTicks: true,
+                        minorTicksPerInterval: 0,
+                        majorTickStyle: MajorTickStyle(
+                          length: 8,
+                          thickness: 2,
+                          color: Colors.grey[400],
+                        ),
+                        axisLineStyle: AxisLineStyle(
+                          thickness: 0.15,
+                          thicknessUnit: GaugeSizeUnit.factor,
+                          color: Colors.grey[300],
+                        ),
+                        pointers: <GaugePointer>[
+                          // Range arc showing filled portion
+                          RangePointer(
+                            value: currentValue,
+                            width: 0.15,
+                            sizeUnit: GaugeSizeUnit.factor,
+                            color: primaryColor,
+                            enableAnimation: false,
+                          ),
+                          // Marker pointer for interaction
+                          MarkerPointer(
+                            value: currentValue,
+                            markerType: MarkerType.circle,
+                            markerHeight: 24,
+                            markerWidth: 24,
+                            color: primaryColor,
+                            borderWidth: 3,
+                            borderColor: Colors.white,
+                            elevation: 4,
+                            enableDragging: !isSending,
+                            enableAnimation: false,
+                            onValueChanged: (newValue) {
+                              if (!isSending) {
+                                setState(() {
+                                  _currentKnobValue = newValue;
+                                });
+                              }
+                            },
+                            onValueChangeEnd: (newValue) {
+                              if (!isSending) {
+                                final decimalPlaces = widget.config.style.customProperties?['decimalPlaces'] as int? ?? 1;
+                                sendNumericValue(
+                                  value: newValue,
+                                  path: dataSource.path,
+                                  signalKService: widget.signalKService,
+                                  decimalPlaces: decimalPlaces,
+                                  onComplete: () {
                                     setState(() {
-                                      _currentKnobValue = newValue;
+                                      _currentKnobValue = null;
                                     });
-                                  }
-                                },
-                                onValueChangeEnd: (newValue) {
-                                  if (!_isSending) {
-                                    _sendValue(newValue, dataSource.path);
-                                  }
-                                },
-                              ),
-                              // Needle pointer from center
-                              NeedlePointer(
-                                value: currentValue,
-                                needleLength: 0.6,
-                                needleStartWidth: 1,
-                                needleEndWidth: 4,
-                                needleColor: primaryColor,
-                                knobStyle: KnobStyle(
-                                  knobRadius: 0.08,
-                                  sizeUnit: GaugeSizeUnit.factor,
+                                  },
+                                );
+                              }
+                            },
+                          ),
+                          // Needle pointer from center
+                          NeedlePointer(
+                            value: currentValue,
+                            needleLength: 0.6,
+                            needleStartWidth: 1,
+                            needleEndWidth: 4,
+                            needleColor: primaryColor,
+                            knobStyle: KnobStyle(
+                              knobRadius: 0.08,
+                              sizeUnit: GaugeSizeUnit.factor,
+                              color: primaryColor,
+                              borderColor: Colors.white,
+                              borderWidth: 0.02,
+                            ),
+                            enableAnimation: false,
+                          ),
+                        ],
+                        annotations: <GaugeAnnotation>[
+                          // Value display in center
+                          GaugeAnnotation(
+                            widget: Container(
+                              child: Text(
+                                currentValue.toStringAsFixed(decimalPlaces),
+                                style: TextStyle(
+                                  fontSize: size * 0.08,
+                                  fontWeight: FontWeight.bold,
                                   color: primaryColor,
-                                  borderColor: Colors.white,
-                                  borderWidth: 0.02,
                                 ),
-                                enableAnimation: false,
                               ),
-                            ],
-                            annotations: <GaugeAnnotation>[
-                              // Value display in center
-                              GaugeAnnotation(
-                                widget: Container(
-                                  child: Text(
-                                    currentValue.toStringAsFixed(decimalPlaces),
-                                    style: TextStyle(
-                                      fontSize: size * 0.08,
-                                      fontWeight: FontWeight.bold,
-                                      color: primaryColor,
-                                    ),
-                                  ),
-                                ),
-                                angle: 90,
-                                positionFactor: 0.7,
-                              ),
-                            ],
+                            ),
+                            angle: 90,
+                            positionFactor: 0.7,
                           ),
                         ],
                       ),
-                    ),
-                  );
-                },
-              ),
-            ),
-
-            const SizedBox(height: 16),
-
-            // Min/Max labels
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  minValue.toStringAsFixed(0),
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Colors.grey[600],
+                    ],
                   ),
                 ),
-                Text(
-                  maxValue.toStringAsFixed(0),
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Colors.grey[600],
-                  ),
-                ),
-              ],
-            ),
-
-            const SizedBox(height: 8),
-
-            // Path info
+              );
+            },
+          ),
+        ),
+        const SizedBox(height: 16),
+        // Min/Max labels
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
             Text(
-              dataSource.path,
+              minValue.toStringAsFixed(0),
               style: TextStyle(
-                fontSize: 10,
+                fontSize: 12,
                 color: Colors.grey[600],
               ),
-              textAlign: TextAlign.center,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
             ),
-
-            // Sending indicator
-            if (_isSending) ...[
-              const SizedBox(height: 8),
-              const SizedBox(
-                width: 16,
-                height: 16,
-                child: CircularProgressIndicator(strokeWidth: 2),
+            Text(
+              maxValue.toStringAsFixed(0),
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.grey[600],
               ),
-            ],
+            ),
           ],
         ),
-      ),
+        const SizedBox(height: 8),
+      ],
+      controlWidget: const SizedBox.shrink(), // No separate control widget
+      path: dataSource.path,
+      isSending: isSending,
     );
   }
 
-  Future<void> _sendValue(double value, String path) async {
-    setState(() {
-      _isSending = true;
-    });
-
-    try {
-      // Get decimal places and round the value before sending
-      final decimalPlaces = widget.config.style.customProperties?['decimalPlaces'] as int? ?? 1;
-      final multiplier = pow(10, decimalPlaces).toDouble();
-      final roundedValue = (value * multiplier).round() / multiplier;
-
-      await widget.signalKService.sendPutRequest(path, roundedValue);
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('${path.toReadableLabel()} set to ${roundedValue.toStringAsFixed(decimalPlaces)}'),
-            duration: const Duration(seconds: 1),
-            backgroundColor: Colors.green,
-          ),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to set value: $e'),
-            duration: const Duration(seconds: 2),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isSending = false;
-          _currentKnobValue = null; // Reset to sync with server value
-        });
-      }
-    }
-  }
 }
 
 /// Builder for knob tools

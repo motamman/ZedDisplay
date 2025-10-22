@@ -1,4 +1,3 @@
-import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:syncfusion_flutter_core/theme.dart';
@@ -9,6 +8,8 @@ import '../../services/signalk_service.dart';
 import '../../services/tool_registry.dart';
 import '../../utils/string_extensions.dart';
 import '../../utils/color_extensions.dart';
+import 'mixins/control_tool_mixin.dart';
+import 'common/control_tool_layout.dart';
 
 /// Config-driven slider tool for sending numeric values to SignalK paths
 class SliderTool extends StatefulWidget {
@@ -25,8 +26,7 @@ class SliderTool extends StatefulWidget {
   State<SliderTool> createState() => _SliderToolState();
 }
 
-class _SliderToolState extends State<SliderTool> {
-  bool _isSending = false;
+class _SliderToolState extends State<SliderTool> with ControlToolMixin {
   double? _currentSliderValue;
 
   @override
@@ -75,165 +75,91 @@ class _SliderToolState extends State<SliderTool> {
     // Get decimal places from customProperties
     final decimalPlaces = style.customProperties?['decimalPlaces'] as int? ?? 1;
 
-    return Card(
-      elevation: 2,
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            if (style.showLabel == true) ...[
-              Text(
-                label,
-                style: const TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                ),
-                textAlign: TextAlign.center,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-              ),
-              const SizedBox(height: 8),
-            ],
-
-            // Current value display
-            if (style.showValue == true) ...[
-              Text(
-                '${currentValue.toStringAsFixed(decimalPlaces)}${style.showUnit == true ? " $unit" : ""}',
-                style: TextStyle(
-                  fontSize: 32,
-                  fontWeight: FontWeight.bold,
-                  color: primaryColor,
-                ),
-              ),
-              const SizedBox(height: 8),
-            ],
-
-            // Min/Max labels
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  '${minValue.toStringAsFixed(0)}',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Colors.grey[600],
-                  ),
-                ),
-                Text(
-                  '${maxValue.toStringAsFixed(0)}',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Colors.grey[600],
-                  ),
-                ),
-              ],
-            ),
-
-            // Syncfusion Slider - wrapped to prevent parent scroll interference
-            GestureDetector(
-              onHorizontalDragStart: (_) {}, // Block parent scroll
-              onHorizontalDragUpdate: (_) {},
-              onHorizontalDragEnd: (_) {},
-              child: SfSliderTheme(
-                data: SfSliderThemeData(
-                  activeTrackHeight: 6,
-                  inactiveTrackHeight: 6,
-                  activeTrackColor: primaryColor,
-                  inactiveTrackColor: Colors.grey.withValues(alpha: 0.3),
-                  thumbColor: primaryColor,
-                  thumbRadius: 12,
-                  overlayColor: primaryColor.withValues(alpha: 0.2),
-                  overlayRadius: 24,
-                  tooltipBackgroundColor: primaryColor,
-                ),
-                child: SfSlider(
-                  value: currentValue,
-                  min: minValue,
-                  max: maxValue,
-                  stepSize: (maxValue - minValue) / ((maxValue - minValue) * (10 * (decimalPlaces + 1))).clamp(10, 1000),
-                  enableTooltip: true,
-                  numberFormat: NumberFormat.decimalPatternDigits(decimalDigits: decimalPlaces),
-                  onChanged: _isSending ? null : (value) {
-                    setState(() {
-                      _currentSliderValue = value;
-                    });
-                  },
-                  onChangeEnd: (value) => _sendValue(value, dataSource.path),
-                ),
-              ),
-            ),
-
-            const SizedBox(height: 4),
-
-            // Path info
-            Text(
-              dataSource.path,
+    return ControlToolLayout(
+      label: label,
+      showLabel: style.showLabel == true,
+      valueWidget: style.showValue == true
+          ? Text(
+              '${currentValue.toStringAsFixed(decimalPlaces)}${style.showUnit == true ? " $unit" : ""}',
               style: TextStyle(
-                fontSize: 10,
+                fontSize: 32,
+                fontWeight: FontWeight.bold,
+                color: primaryColor,
+              ),
+            )
+          : null,
+      additionalWidgets: [
+        // Min/Max labels
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              '${minValue.toStringAsFixed(0)}',
+              style: TextStyle(
+                fontSize: 12,
                 color: Colors.grey[600],
               ),
-              textAlign: TextAlign.center,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
             ),
-
-            // Sending indicator
-            if (_isSending) ...[
-              const SizedBox(height: 8),
-              const SizedBox(
-                width: 16,
-                height: 16,
-                child: CircularProgressIndicator(strokeWidth: 2),
+            Text(
+              '${maxValue.toStringAsFixed(0)}',
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.grey[600],
               ),
-            ],
+            ),
           ],
         ),
+      ],
+      controlWidget: GestureDetector(
+        onHorizontalDragStart: (_) {}, // Block parent scroll
+        onHorizontalDragUpdate: (_) {},
+        onHorizontalDragEnd: (_) {},
+        child: SfSliderTheme(
+          data: SfSliderThemeData(
+            activeTrackHeight: 6,
+            inactiveTrackHeight: 6,
+            activeTrackColor: primaryColor,
+            inactiveTrackColor: Colors.grey.withValues(alpha: 0.3),
+            thumbColor: primaryColor,
+            thumbRadius: 12,
+            overlayColor: primaryColor.withValues(alpha: 0.2),
+            overlayRadius: 24,
+            tooltipBackgroundColor: primaryColor,
+          ),
+          child: SfSlider(
+            value: currentValue,
+            min: minValue,
+            max: maxValue,
+            stepSize: (maxValue - minValue) / ((maxValue - minValue) * (10 * (decimalPlaces + 1))).clamp(10, 1000),
+            enableTooltip: true,
+            numberFormat: NumberFormat.decimalPatternDigits(decimalDigits: decimalPlaces),
+            onChanged: isSending ? null : (value) {
+              setState(() {
+                _currentSliderValue = value;
+              });
+            },
+            onChangeEnd: (value) {
+              final decimalPlaces = widget.config.style.customProperties?['decimalPlaces'] as int? ?? 1;
+              sendNumericValue(
+                value: value,
+                path: dataSource.path,
+                signalKService: widget.signalKService,
+                decimalPlaces: decimalPlaces,
+                onComplete: () {
+                  setState(() {
+                    _currentSliderValue = null;
+                  });
+                },
+              );
+            },
+          ),
+        ),
       ),
+      path: dataSource.path,
+      isSending: isSending,
     );
   }
 
-  Future<void> _sendValue(double value, String path) async {
-    setState(() {
-      _isSending = true;
-    });
-
-    try {
-      // Get decimal places and round the value before sending
-      final decimalPlaces = widget.config.style.customProperties?['decimalPlaces'] as int? ?? 1;
-      final multiplier = pow(10, decimalPlaces).toDouble();
-      final roundedValue = (value * multiplier).round() / multiplier;
-
-      await widget.signalKService.sendPutRequest(path, roundedValue);
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('${path.toReadableLabel()} set to ${roundedValue.toStringAsFixed(decimalPlaces)}'),
-            duration: const Duration(seconds: 1),
-            backgroundColor: Colors.green,
-          ),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to set value: $e'),
-            duration: const Duration(seconds: 2),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isSending = false;
-          _currentSliderValue = null; // Reset to sync with server value
-        });
-      }
-    }
-  }
 }
 
 /// Builder for slider tools

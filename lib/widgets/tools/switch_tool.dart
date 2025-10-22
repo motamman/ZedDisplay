@@ -6,6 +6,7 @@ import '../../services/tool_registry.dart';
 import '../../utils/string_extensions.dart';
 import '../../utils/color_extensions.dart';
 import '../../utils/data_extensions.dart';
+import 'common/control_tool_layout.dart';
 
 /// Config-driven switch tool for toggling boolean SignalK paths
 class SwitchTool extends StatefulWidget {
@@ -53,81 +54,39 @@ class _SwitchToolState extends State<SwitchTool> {
       fallback: Colors.grey
     ) ?? Colors.grey;
 
-    return Card(
-      elevation: 2,
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            if (style.showLabel == true) ...[
-              Text(
-                label,
-                style: const TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                ),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 8),
-            ],
-
-            // State label
-            Text(
-              currentValue ? 'ON' : 'OFF',
-              style: TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
-                color: currentValue ? activeColor : inactiveColor,
-              ),
-            ),
-
-            const SizedBox(height: 16),
-
-            // Material Switch with enhanced styling
-            Transform.scale(
-              scale: 1.8,
-              child: Switch(
-                value: currentValue,
-                activeColor: activeColor,
-                activeTrackColor: activeColor.withValues(alpha: 0.5),
-                inactiveThumbColor: inactiveColor,
-                inactiveTrackColor: inactiveColor.withValues(alpha: 0.3),
-                thumbIcon: WidgetStateProperty.resolveWith<Icon?>((states) {
-                  if (states.contains(WidgetState.selected)) {
-                    return Icon(Icons.check, size: 16, color: Colors.white);
-                  }
-                  return Icon(Icons.close, size: 16, color: Colors.white);
-                }),
-                onChanged: _isSending ? null : (value) => _toggleSwitch(value, dataSource.path),
-              ),
-            ),
-
-            // Path info
-            const SizedBox(height: 8),
-            Text(
-              dataSource.path,
-              style: TextStyle(
-                fontSize: 10,
-                color: Colors.grey[600],
-              ),
-              textAlign: TextAlign.center,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-            ),
-
-            // Sending indicator
-            if (_isSending) ...[
-              const SizedBox(height: 8),
-              const SizedBox(
-                width: 16,
-                height: 16,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              ),
-            ],
-          ],
+    return ControlToolLayout(
+      label: label,
+      showLabel: style.showLabel == true,
+      valueWidget: Text(
+        currentValue ? 'ON' : 'OFF',
+        style: TextStyle(
+          fontSize: 24,
+          fontWeight: FontWeight.bold,
+          color: currentValue ? activeColor : inactiveColor,
         ),
       ),
+      additionalWidgets: [
+        const SizedBox(height: 8),
+      ],
+      controlWidget: Transform.scale(
+        scale: 1.8,
+        child: Switch(
+          value: currentValue,
+          activeColor: activeColor,
+          activeTrackColor: activeColor.withValues(alpha: 0.5),
+          inactiveThumbColor: inactiveColor,
+          inactiveTrackColor: inactiveColor.withValues(alpha: 0.3),
+          thumbIcon: WidgetStateProperty.resolveWith<Icon?>((states) {
+            if (states.contains(WidgetState.selected)) {
+              return Icon(Icons.check, size: 16, color: Colors.white);
+            }
+            return Icon(Icons.close, size: 16, color: Colors.white);
+          }),
+          onChanged: _isSending ? null : (value) => _toggleSwitch(value, dataSource.path),
+        ),
+      ),
+      path: dataSource.path,
+      isSending: _isSending,
     );
   }
 

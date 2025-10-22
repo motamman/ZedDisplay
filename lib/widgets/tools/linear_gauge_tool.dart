@@ -7,6 +7,7 @@ import '../../services/signalk_service.dart';
 import '../../services/tool_registry.dart';
 import '../../utils/string_extensions.dart';
 import '../../utils/color_extensions.dart';
+import 'mixins/zones_mixin.dart';
 
 /// Available linear gauge styles
 enum LinearGaugeStyle {
@@ -31,43 +32,18 @@ class LinearGaugeTool extends StatefulWidget {
   State<LinearGaugeTool> createState() => _LinearGaugeToolState();
 }
 
-class _LinearGaugeToolState extends State<LinearGaugeTool> {
-  List<ZoneDefinition>? _zones;
-  bool _zonesRequested = false;
-
+class _LinearGaugeToolState extends State<LinearGaugeTool> with ZonesMixin {
   @override
   void initState() {
     super.initState();
-    _fetchZonesIfReady();
-    widget.signalKService.addListener(_onConnectionChanged);
-  }
-
-  void _onConnectionChanged() {
-    if (widget.signalKService.isConnected && !_zonesRequested) {
-      _fetchZonesIfReady();
+    if (widget.config.dataSources.isNotEmpty) {
+      initializeZones(widget.signalKService, widget.config.dataSources.first.path);
     }
-  }
-
-  void _fetchZonesIfReady() {
-    if (widget.config.dataSources.isEmpty) return;
-    if (widget.signalKService.zonesCache == null) return;
-    if (_zonesRequested) return;
-
-    _zonesRequested = true;
-    final firstPath = widget.config.dataSources.first.path;
-
-    widget.signalKService.zonesCache!.getZones(firstPath).then((zones) {
-      if (mounted && zones != null) {
-        setState(() {
-          _zones = zones;
-        });
-      }
-    });
   }
 
   @override
   void dispose() {
-    widget.signalKService.removeListener(_onConnectionChanged);
+    cleanupZones(widget.signalKService);
     super.dispose();
   }
 
@@ -143,7 +119,7 @@ class _LinearGaugeToolState extends State<LinearGaugeTool> {
               showTickLabels,
               divisions,
               pointerOnly,
-              _zones,
+              zones,
               showZones,
             )
           : _buildVerticalGauge(
@@ -160,7 +136,7 @@ class _LinearGaugeToolState extends State<LinearGaugeTool> {
               showTickLabels,
               divisions,
               pointerOnly,
-              _zones,
+              zones,
               showZones,
             ),
     );
