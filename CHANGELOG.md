@@ -72,6 +72,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Reduced cognitive load with named constants instead of magic numbers
 - Foundation for easier future tool development
 
+## [0.2.0+4] - 2025-10-22
+
+### Fixed
+- **Critical Bug Fix**: Tools now correctly added to the intended screen
+  - Fixed issue where realtime charts and other tools were being placed on wrong dashboard screen
+  - Root cause: `DashboardService.addPlacementToActiveScreen()` was using current active screen instead of placement's screenId
+  - Updated `dashboard_service.dart:210` to use `placement.screenId` to find correct screen
+  - Affects: All tool types when adding to multi-screen dashboards
+
 ## [0.2.0+3] - 2025-10-22
 
 ### Added
