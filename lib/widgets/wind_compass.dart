@@ -1,3 +1,4 @@
+import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:syncfusion_flutter_gauges/gauges.dart';
 
@@ -135,7 +136,28 @@ class _WindCompassState extends State<WindCompass> {
         builder: (context, constraints) {
           return Stack(
             children: [
-              // Main compass gauge (full circle) - wrapped in Transform.rotate
+              // Vessel shadow - LOWEST LAYER - FIXED pointing up (not rotating with compass)
+              Positioned.fill(
+                child: CustomPaint(
+                  painter: VesselShadowPainter(),
+                ),
+              ),
+
+              // No-go zone - LAYER 2 - rotates with compass, below wind/heading pointers
+              if (primaryWindDegrees != null)
+                Positioned.fill(
+                  child: Transform.rotate(
+                    angle: -primaryHeadingRadians - (3.14159265359 / 2),
+                    child: CustomPaint(
+                      painter: NoGoZoneVPainter(
+                        windAngle: primaryWindDegrees,
+                        headingAngle: primaryHeadingDegrees,
+                      ),
+                    ),
+                  ),
+                ),
+
+              // Main compass gauge (full circle) - LAYER 3 - wrapped in Transform.rotate
               Transform.rotate(
                 angle: -primaryHeadingRadians - (3.14159265359 / 2),  // Rotation minus 90° to compensate
                 child: SfRadialGauge(
@@ -197,10 +219,10 @@ class _WindCompassState extends State<WindCompass> {
                         ),
                     ],
 
-                    // Pointers for wind, heading, and COG (drawn in order, later ones appear on top)
+                    // Pointers for wind, heading, and COG (drawn in order: first = bottom, last = top)
                     pointers: <GaugePointer>[
-                      // Non-selected heading indicator FIRST (so other arrows can be seen over it)
-                      // Yellow for true heading when mag is selected
+                      // HEADING INDICATORS - LAYER 1 (above no-go zone, below wind)
+                      // Yellow for true heading
                       if (!_useTrueHeading && widget.headingTrueDegrees != null)
                         NeedlePointer(
                           value: widget.headingTrueDegrees!,
@@ -223,7 +245,7 @@ class _WindCompassState extends State<WindCompass> {
                           markerOffset: -5, // Position at outer edge of compass
                         ),
 
-                      // Orange for magnetic heading when true is selected
+                      // Orange for magnetic heading
                       if (_useTrueHeading && widget.headingMagneticDegrees != null)
                         NeedlePointer(
                           value: widget.headingMagneticDegrees!,
@@ -246,7 +268,7 @@ class _WindCompassState extends State<WindCompass> {
                           markerOffset: -5, // Position at outer edge of compass
                         ),
 
-                      // COG (Course Over Ground) - white needle, always visible
+                      // COG (Course Over Ground)
                       if (widget.cogDegrees != null)
                         NeedlePointer(
                           value: widget.cogDegrees!,
@@ -260,7 +282,8 @@ class _WindCompassState extends State<WindCompass> {
                           ),
                         ),
 
-                      // Apparent wind direction marker - primary
+                      // WIND INDICATORS - LAYER 2 (above heading indicators)
+                      // Apparent wind - primary
                       if (widget.windDirectionApparentDegrees != null)
                         NeedlePointer(
                           value: widget.windDirectionApparentDegrees!,
@@ -289,7 +312,7 @@ class _WindCompassState extends State<WindCompass> {
                         ),
                     ],
 
-                    // Fixed compass labels as annotations
+                    // Annotations - compass labels
                     annotations: _buildCompassLabels(),
                   ),
                 ],
@@ -371,7 +394,7 @@ class _WindCompassState extends State<WindCompass> {
                 ),
               ),
 
-              // White circle in the center - above everything
+              // White circle in the center - HIGHEST LAYER - above everything
               Positioned.fill(
                 child: Center(
                   child: Container(
@@ -602,4 +625,119 @@ class _WindCompassState extends State<WindCompass> {
       ),
     );
   }
+}
+
+/// Custom painter for the V-shaped no-go zone indicator
+class NoGoZoneVPainter extends CustomPainter {
+  final double windAngle;
+  final double headingAngle;
+  final double noGoAngle = 45.0; // ±45° from wind direction
+
+  NoGoZoneVPainter({
+    required this.windAngle,
+    required this.headingAngle,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+    final radius = size.width / 2 * 0.85; // 85% of radius to stay within compass
+
+    // windAngle is in compass coordinates (0-360°)
+    // The SfRadialGauge has startAngle: 0, endAngle: 360
+    // In gauge's natural coordinate system: 0° is at 3 o'clock (right)
+    // The gauge value maps directly to this angle system
+    // Since we're inside the gauge as an annotation, we use the same system
+
+    // Convert gauge value to canvas radians (value in degrees -> radians)
+    // In gauge's natural coords: value 0 = 0° = 3 o'clock position
+    final windRad = windAngle * pi / 180;
+    final noGoRad = noGoAngle * pi / 180;
+
+    // Calculate the V-shape edges centered on wind direction
+    final leftAngle = windRad - noGoRad;  // -45° from wind direction
+    final rightAngle = windRad + noGoRad; // +45° from wind direction
+
+    // Create path for V-shape
+    final path = Path();
+    path.moveTo(center.dx, center.dy); // Start at center
+
+    // Left edge of V
+    path.lineTo(
+      center.dx + radius * cos(leftAngle),
+      center.dy + radius * sin(leftAngle),
+    );
+
+    // Arc along the perimeter from left to right edge
+    path.arcTo(
+      Rect.fromCircle(center: center, radius: radius),
+      leftAngle,
+      2 * noGoRad,  // Sweep angle: from -45° to +45° (total 90°)
+      false,
+    );
+
+    // Right edge back to center
+    path.lineTo(center.dx, center.dy);
+
+    // Close the path
+    path.close();
+
+    // Draw the V-shape with 50% opacity grey
+    final paint = Paint()
+      ..color = Colors.grey.withOpacity(0.5)
+      ..style = PaintingStyle.fill;
+
+    canvas.drawPath(path, paint);
+  }
+
+  @override
+  bool shouldRepaint(NoGoZoneVPainter oldDelegate) {
+    return oldDelegate.windAngle != windAngle || oldDelegate.headingAngle != headingAngle;
+  }
+}
+
+/// Custom painter for vessel shadow
+class VesselShadowPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+    final scale = size.width / 200; // Increased scale (was 400, now 200 = 2x larger)
+
+    // Create boat shape pointing up (will be rotated by heading)
+    final path = Path();
+
+    // Bow (front point) - made much longer
+    path.moveTo(center.dx, center.dy - 60 * scale);
+
+    // Port side (left) - made wider
+    path.lineTo(center.dx - 30 * scale, center.dy + 40 * scale);
+
+    // Stern (back) - made wider
+    path.lineTo(center.dx - 16 * scale, center.dy + 50 * scale);
+    path.lineTo(center.dx + 16 * scale, center.dy + 50 * scale);
+
+    // Starboard side (right) - made wider
+    path.lineTo(center.dx + 30 * scale, center.dy + 40 * scale);
+
+    // Back to bow
+    path.close();
+
+    // Draw vessel shadow with semi-transparent black
+    final paint = Paint()
+      ..color = Colors.black.withOpacity(0.6)
+      ..style = PaintingStyle.fill;
+
+    canvas.drawPath(path, paint);
+
+    // Optional: Add a subtle outline
+    final outlinePaint = Paint()
+      ..color = Colors.white.withOpacity(0.3)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.5;
+
+    canvas.drawPath(path, outlinePaint);
+  }
+
+  @override
+  bool shouldRepaint(VesselShadowPainter oldDelegate) => false;
 }
