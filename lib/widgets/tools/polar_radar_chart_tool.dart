@@ -32,6 +32,10 @@ class PolarRadarChartTool extends StatelessWidget {
     final anglePath = config.dataSources[0].path;
     final magnitudePath = config.dataSources[1].path;
 
+    // Get custom labels from data sources
+    final angleLabel = config.dataSources[0].label;
+    final magnitudeLabel = config.dataSources[1].label;
+
     // Get configuration from custom properties
     final historySeconds = config.style.customProperties?['historySeconds'] as int? ?? 60;
     final updateIntervalMs = config.style.customProperties?['updateInterval'] as int? ?? 500;
@@ -68,6 +72,8 @@ class PolarRadarChartTool extends StatelessWidget {
     return PolarRadarChart(
       anglePath: anglePath,
       magnitudePath: magnitudePath,
+      angleLabel: angleLabel,
+      magnitudeLabel: magnitudeLabel,
       signalKService: signalKService,
       title: title,
       historyDuration: Duration(seconds: historySeconds),

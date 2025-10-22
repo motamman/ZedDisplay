@@ -14,6 +14,8 @@ import '../services/signalk_service.dart';
 class PolarRadarChart extends StatefulWidget {
   final String anglePath;
   final String magnitudePath;
+  final String? angleLabel;
+  final String? magnitudeLabel;
   final SignalKService signalKService;
   final String title;
   final Duration historyDuration; // Time window for data (e.g., last 60 seconds)
@@ -28,6 +30,8 @@ class PolarRadarChart extends StatefulWidget {
     super.key,
     required this.anglePath,
     required this.magnitudePath,
+    this.angleLabel,
+    this.magnitudeLabel,
     required this.signalKService,
     this.title = 'Polar Chart',
     this.historyDuration = const Duration(seconds: 60),
@@ -140,6 +144,8 @@ class _PolarRadarChartState extends State<PolarRadarChart>
             Expanded(
               child: _buildRadarChart(primaryColor, fillColor, isDark),
             ),
+            const SizedBox(height: 8),
+            _buildValueLabels(context),
           ],
         ),
       ),
@@ -187,6 +193,115 @@ class _PolarRadarChartState extends State<PolarRadarChart>
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildValueLabels(BuildContext context) {
+    // Get current values
+    final angleData = widget.signalKService.getValue(widget.anglePath);
+    final magnitudeData = widget.signalKService.getValue(widget.magnitudePath);
+
+    // Use formatted values if available, otherwise format the converted value
+    final angleValue = angleData?.value;
+    final angleDisplay = angleData?.formatted ??
+        (angleValue != null ? '${angleValue.toStringAsFixed(0)}°' : '--');
+
+    final magnitudeValue = magnitudeData?.value;
+    final magnitudeDisplay = magnitudeData?.formatted ??
+        (magnitudeValue != null ? magnitudeValue.toStringAsFixed(1) : '--');
+
+    // Use custom labels if provided, otherwise extract from paths
+    final angleLabel = widget.angleLabel ?? () {
+      final angleParts = widget.anglePath.split('.');
+      return angleParts.length > 1
+          ? angleParts.sublist(angleParts.length - 1).join('.')
+          : 'Angle';
+    }();
+
+    final magnitudeLabel = widget.magnitudeLabel ?? () {
+      final magnitudeParts = widget.magnitudePath.split('.');
+      return magnitudeParts.length > 1
+          ? magnitudeParts.sublist(magnitudeParts.length - 1).join('.')
+          : 'Velocity';
+    }();
+
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+      children: [
+        Expanded(
+          child: _buildLabel(
+            context,
+            angleLabel,
+            angleDisplay,
+            Icons.explore,
+            isDark,
+          ),
+        ),
+        const SizedBox(width: 16),
+        Expanded(
+          child: _buildLabel(
+            context,
+            magnitudeLabel,
+            magnitudeDisplay,
+            Icons.speed,
+            isDark,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildLabel(
+    BuildContext context,
+    String label,
+    String value,
+    IconData icon,
+    bool isDark,
+  ) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: isDark ? Colors.white.withValues(alpha: 0.05) : Colors.black.withValues(alpha: 0.03),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: isDark ? Colors.white.withValues(alpha: 0.1) : Colors.black.withValues(alpha: 0.1),
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 16, color: isDark ? Colors.white70 : Colors.black54),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 10,
+                    color: isDark ? Colors.white60 : Colors.black45,
+                    fontWeight: FontWeight.w500,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  value,
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                    color: isDark ? Colors.white : Colors.black87,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 

@@ -106,6 +106,20 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
         _primaryColor = style.primaryColor;
       }
     }
+
+    // Set default sizes for specific tool types
+    switch (toolTypeId) {
+      case 'autopilot':
+      case 'polar_radar_chart':
+      case 'ais_polar_chart':
+      case 'wind_compass':
+        _toolWidth = 6;
+        _toolHeight = 6;
+        break;
+      default:
+        // Keep current defaults for other tool types
+        break;
+    }
   }
 
   void _loadExistingTool() {
@@ -1096,38 +1110,40 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
       const SizedBox(height: 16),
     ]);
 
-    // Color
-    widgets.addAll([
-      ListTile(
-        leading: Container(
-          width: 40,
-          height: 40,
-          decoration: BoxDecoration(
-            color: _primaryColor != null && _primaryColor!.isNotEmpty
-                ? () {
-                    try {
-                      final hexColor = _primaryColor!.replaceAll('#', '');
-                      return Color(int.parse('FF$hexColor', radix: 16));
-                    } catch (e) {
-                      return Colors.blue;
-                    }
-                  }()
-                : Colors.blue,
+    // Color (only if tool supports color customization)
+    if (schema.allowsColorCustomization) {
+      widgets.addAll([
+        ListTile(
+          leading: Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: _primaryColor != null && _primaryColor!.isNotEmpty
+                  ? () {
+                      try {
+                        final hexColor = _primaryColor!.replaceAll('#', '');
+                        return Color(int.parse('FF$hexColor', radix: 16));
+                      } catch (e) {
+                        return Colors.blue;
+                      }
+                    }()
+                  : Colors.blue,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.grey.shade400, width: 2),
+            ),
+          ),
+          title: const Text('Primary Color'),
+          subtitle: Text(_primaryColor ?? 'Default (Blue)'),
+          trailing: const Icon(Icons.edit),
+          onTap: _selectColor,
+          shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: Colors.grey.shade400, width: 2),
+            side: BorderSide(color: Colors.grey.shade300),
           ),
         ),
-        title: const Text('Primary Color'),
-        subtitle: Text(_primaryColor ?? 'Default (Blue)'),
-        trailing: const Icon(Icons.edit),
-        onTap: _selectColor,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(8),
-          side: BorderSide(color: Colors.grey.shade300),
-        ),
-      ),
-      const SizedBox(height: 16),
-    ]);
+        const SizedBox(height: 16),
+      ]);
+    }
 
     // Show/Hide Options
     widgets.addAll([
