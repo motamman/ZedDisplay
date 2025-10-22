@@ -6,6 +6,7 @@ import '../../services/tool_registry.dart';
 import '../../utils/string_extensions.dart';
 import '../../utils/color_extensions.dart';
 import '../../utils/data_extensions.dart';
+import '../../config/ui_constants.dart';
 import 'common/control_tool_layout.dart';
 
 /// Config-driven checkbox tool for toggling boolean SignalK paths
@@ -69,7 +70,7 @@ class _CheckboxToolState extends State<CheckboxTool> {
         const SizedBox(height: 8),
       ],
       controlWidget: Transform.scale(
-        scale: 2.0,
+        scale: UIConstants.checkboxScale,
         child: Checkbox(
           value: currentValue,
           activeColor: activeColor,
@@ -98,7 +99,7 @@ class _CheckboxToolState extends State<CheckboxTool> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('${path.toReadableLabel()} ${newValue ? "enabled" : "disabled"}'),
-            duration: const Duration(seconds: 1),
+            duration: UIConstants.snackBarShort,
             backgroundColor: Colors.green,
           ),
         );
@@ -108,7 +109,7 @@ class _CheckboxToolState extends State<CheckboxTool> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Failed to toggle: $e'),
-            duration: const Duration(seconds: 2),
+            duration: UIConstants.snackBarNormal,
             backgroundColor: Colors.red,
           ),
         );

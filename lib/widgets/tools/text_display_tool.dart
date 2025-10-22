@@ -5,6 +5,7 @@ import '../../services/signalk_service.dart';
 import '../../services/tool_registry.dart';
 import '../../utils/string_extensions.dart';
 import '../../utils/color_extensions.dart';
+import '../../config/ui_constants.dart';
 
 /// Config-driven text display for large numeric values
 class TextDisplayTool extends StatelessWidget {
@@ -67,7 +68,7 @@ class TextDisplayTool extends StatelessWidget {
               style: TextStyle(
                 fontSize: fontSize * 0.35,
                 fontWeight: FontWeight.w300,
-                color: textColor.withValues(alpha: 0.7),
+                color: UIConstants.withSubtleOpacity(textColor),
               ),
               textAlign: TextAlign.center,
             ),
@@ -90,7 +91,7 @@ class TextDisplayTool extends StatelessWidget {
               style: TextStyle(
                 fontSize: fontSize * 0.35,
                 fontWeight: FontWeight.w300,
-                color: textColor.withValues(alpha: 0.7),
+                color: UIConstants.withSubtleOpacity(textColor),
               ),
             ),
         ],

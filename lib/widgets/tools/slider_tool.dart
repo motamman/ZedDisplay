@@ -8,6 +8,7 @@ import '../../services/signalk_service.dart';
 import '../../services/tool_registry.dart';
 import '../../utils/string_extensions.dart';
 import '../../utils/color_extensions.dart';
+import '../../config/ui_constants.dart';
 import 'mixins/control_tool_mixin.dart';
 import 'common/control_tool_layout.dart';
 
@@ -73,7 +74,7 @@ class _SliderToolState extends State<SliderTool> with ControlToolMixin {
     final unit = style.unit ?? dataPoint?.symbol ?? '';
 
     // Get decimal places from customProperties
-    final decimalPlaces = style.customProperties?['decimalPlaces'] as int? ?? 1;
+    final decimalPlaces = style.customProperties?['decimalPlaces'] as int? ?? UIConstants.defaultDecimalPlaces;
 
     return ControlToolLayout(
       label: label,
@@ -116,14 +117,14 @@ class _SliderToolState extends State<SliderTool> with ControlToolMixin {
         onHorizontalDragEnd: (_) {},
         child: SfSliderTheme(
           data: SfSliderThemeData(
-            activeTrackHeight: 6,
-            inactiveTrackHeight: 6,
+            activeTrackHeight: UIConstants.sliderActiveTrackHeight,
+            inactiveTrackHeight: UIConstants.sliderInactiveTrackHeight,
             activeTrackColor: primaryColor,
-            inactiveTrackColor: Colors.grey.withValues(alpha: 0.3),
+            inactiveTrackColor: UIConstants.withLightOpacity(Colors.grey),
             thumbColor: primaryColor,
-            thumbRadius: 12,
-            overlayColor: primaryColor.withValues(alpha: 0.2),
-            overlayRadius: 24,
+            thumbRadius: UIConstants.sliderThumbRadius,
+            overlayColor: UIConstants.withOpacity(primaryColor, UIConstants.veryLightOpacity),
+            overlayRadius: UIConstants.sliderOverlayRadius,
             tooltipBackgroundColor: primaryColor,
           ),
           child: SfSlider(
@@ -139,7 +140,7 @@ class _SliderToolState extends State<SliderTool> with ControlToolMixin {
               });
             },
             onChangeEnd: (value) {
-              final decimalPlaces = widget.config.style.customProperties?['decimalPlaces'] as int? ?? 1;
+              final decimalPlaces = widget.config.style.customProperties?['decimalPlaces'] as int? ?? UIConstants.defaultDecimalPlaces;
               sendNumericValue(
                 value: value,
                 path: dataSource.path,

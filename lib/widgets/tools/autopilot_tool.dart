@@ -6,6 +6,7 @@ import '../../models/tool_config.dart';
 import '../../services/signalk_service.dart';
 import '../../services/tool_registry.dart';
 import '../../utils/color_extensions.dart';
+import '../../config/ui_constants.dart';
 import '../autopilot_widget.dart';
 
 /// Autopilot control tool - subscribes to SignalK paths and displays autopilot controls
@@ -50,10 +51,10 @@ class _AutopilotToolState extends State<AutopilotTool> {
   Timer? _pollingTimer;
   DateTime? _lastCommandTime;
   DateTime? _lastOptimisticUpdate; // Track when we did an optimistic UI update
-  static const Duration _fastPollingInterval = Duration(seconds: 5);
-  static const Duration _slowPollingInterval = Duration(seconds: 30);
-  static const Duration _fastPollingDuration = Duration(seconds: 30); // Stay fast for 30s after command
-  static const Duration _optimisticUpdateWindow = Duration(seconds: 3); // Ignore WebSocket for 3s after optimistic update
+  static const Duration _fastPollingInterval = UIConstants.fastPolling;
+  static const Duration _slowPollingInterval = UIConstants.slowPolling;
+  static const Duration _fastPollingDuration = UIConstants.fastPollingDuration;
+  static const Duration _optimisticUpdateWindow = UIConstants.optimisticUpdateWindow;
 
   @override
   void initState() {
@@ -393,7 +394,7 @@ class _AutopilotToolState extends State<AutopilotTool> {
           SnackBar(
             content: Text('Command sent: $value'),
             backgroundColor: Colors.green,
-            duration: const Duration(milliseconds: 1000),
+            duration: UIConstants.snackBarShort,
           ),
         );
       }
@@ -407,7 +408,7 @@ class _AutopilotToolState extends State<AutopilotTool> {
           SnackBar(
             content: Text('Autopilot command failed: $e'),
             backgroundColor: Colors.red,
-            duration: const Duration(seconds: 3),
+            duration: UIConstants.snackBarLong,
           ),
         );
       }

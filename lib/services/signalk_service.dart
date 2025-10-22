@@ -9,9 +9,10 @@ import 'package:http/http.dart' as http;
 import '../models/signalk_data.dart';
 import '../models/auth_token.dart';
 import 'zones_cache_service.dart';
+import 'interfaces/data_service.dart';
 
 /// Service to connect to SignalK server and stream data
-class SignalKService extends ChangeNotifier {
+class SignalKService extends ChangeNotifier implements DataService {
   // Main data WebSocket (units-preference endpoint)
   WebSocketChannel? _channel;
   StreamSubscription? _subscription;

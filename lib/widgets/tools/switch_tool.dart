@@ -6,6 +6,7 @@ import '../../services/tool_registry.dart';
 import '../../utils/string_extensions.dart';
 import '../../utils/color_extensions.dart';
 import '../../utils/data_extensions.dart';
+import '../../config/ui_constants.dart';
 import 'common/control_tool_layout.dart';
 
 /// Config-driven switch tool for toggling boolean SignalK paths
@@ -69,13 +70,13 @@ class _SwitchToolState extends State<SwitchTool> {
         const SizedBox(height: 8),
       ],
       controlWidget: Transform.scale(
-        scale: 1.8,
+        scale: UIConstants.switchScale,
         child: Switch(
           value: currentValue,
           activeColor: activeColor,
-          activeTrackColor: activeColor.withValues(alpha: 0.5),
+          activeTrackColor: UIConstants.withMediumOpacity(activeColor),
           inactiveThumbColor: inactiveColor,
-          inactiveTrackColor: inactiveColor.withValues(alpha: 0.3),
+          inactiveTrackColor: UIConstants.withLightOpacity(inactiveColor),
           thumbIcon: WidgetStateProperty.resolveWith<Icon?>((states) {
             if (states.contains(WidgetState.selected)) {
               return Icon(Icons.check, size: 16, color: Colors.white);
@@ -102,7 +103,7 @@ class _SwitchToolState extends State<SwitchTool> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('${path.toReadableLabel()} ${newValue ? "enabled" : "disabled"}'),
-            duration: const Duration(seconds: 1),
+            duration: UIConstants.snackBarShort,
             backgroundColor: Colors.green,
           ),
         );
@@ -112,7 +113,7 @@ class _SwitchToolState extends State<SwitchTool> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Failed to toggle: $e'),
-            duration: const Duration(seconds: 2),
+            duration: UIConstants.snackBarNormal,
             backgroundColor: Colors.red,
           ),
         );
