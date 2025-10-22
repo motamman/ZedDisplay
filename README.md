@@ -1,8 +1,15 @@
+# <img src="assets/icon.png" alt="SignalK Zed Display" width="72" height="72" style="vertical-align: middle; margin-right: 20px;"> SignalK Parquet Data Store
+
 # ZedDisplay
 
-A customizable SignalK marine dashboard application to display real-time vessel data with beautiful gauges, charts, and widgets.
+A customizable SignalK marine dashboard application to display real-time vessel data with configurable tools.
  
-![App Icon](assets/icon.png)
+## SignalK Dependencies
+ - signalk-units-preference must me install to have base values converted. Without it many tools will not work.
+ - signalk-parquet allows some tools to display historic data for selected paths. 
+
+
+
 
 ## Features
 
@@ -16,22 +23,32 @@ A customizable SignalK marine dashboard application to display real-time vessel 
 - Multiple dashboard screens with custom layouts
 - Drag-and-drop tool placement
 - Grid-based responsive layout
-- Support for various gauge types:
-  - Radial gauges (speed, depth, temperature, etc.)
-  - Linear gauges (tank levels, engine metrics)
-  - Line charts (historical data)
-  - Compass/heading indicators
-  - Wind instruments
-  - Autopilot displays
 
-### 🎨 Widget Library
-- **Radial Gauges**: Speed, depth, wind speed, RPM
-- **Linear Gauges**: Tank levels, trim indicators
-- **Compass**: True heading, magnetic heading with customizable styles
-- **Wind Display**: True wind, apparent wind with laylines
-- **Charts**: Historical line charts with time series data
-- **Autopilot**: Course control and monitoring
-- **Multi-value Displays**: Combine multiple data sources
+### 🎨 Tool Library
+
+**Display Tools**
+- **Radial Gauge**: Circular gauge for numeric values
+- **Linear Gauge**: Horizontal/vertical bar gauge
+- **Compass**: Heading display
+- **Text Display**: Formatted text output
+
+**Chart Tools**
+- **Historical Chart**: Time series line charts
+- **Realtime Chart**: Live updating line charts
+- **Radial Bar Chart**: Circular bar charts
+- **Polar Radar Chart**: Polar coordinate visualization
+- **AIS Polar Chart**: AIS target display on polar radar
+
+**Navigation Tools**
+- **Wind Compass**: Wind direction and speed display
+- **Autopilot**: Course control interface
+
+**Control Tools**
+- **Switch**: Toggle control
+- **Slider**: Continuous value adjustment
+- **Knob**: Rotary control
+- **Checkbox**: Boolean toggle
+- **Dropdown**: Selection control
 
 ### 🔧 Tool Management
 - Create and save custom tool configurations
@@ -201,7 +218,7 @@ lib/
 │   ├── tool_service.dart
 │   ├── setup_service.dart
 │   └── auth_service.dart
-├── widgets/          # Reusable widgets
+├── widgets/          # UI components
 │   ├── compass_gauge.dart
 │   ├── radial_gauge.dart
 │   ├── linear_gauge.dart
@@ -219,13 +236,12 @@ SignalKService (WebSocket handler)
     ↓
 DashboardService (Data distribution)
     ↓
-Tool Widgets (UI components)
+Tool Components (Display layer)
 ```
 
 ### Storage
-- **Hive**: Local NoSQL database for persistent storage
-- **Stores**: Connections, dashboards, tools, setups, auth tokens
-- **JSON Serialization**: All models support import/export
+- Local persistent storage for connections, dashboards, tools, setups, and auth tokens
+- JSON serialization for import/export
 
 ### State Management
 - **Provider**: State management and dependency injection
@@ -234,8 +250,7 @@ Tool Widgets (UI components)
 ## Technologies Used
 
 - **Flutter**: Cross-platform UI framework
-- **Syncfusion**: Professional gauges and charts
-- **Hive**: Fast, lightweight local database
+- **Syncfusion**: Gauges and charts library
 - **Provider**: State management
 - **SignalK**: Marine data protocol
 - **WebSocket**: Real-time data streaming
@@ -299,13 +314,12 @@ For questions or issues:
 
 - [ ] Offline mode with cached data
 - [ ] Chart playback for historical data
-- [ ] Alerts and notifications
-- [ ] Weather integration
-- [ ] AIS target display
-- [ ] Route planning
-- [ ] More chart types
-- [ ] Themes customization
-- [ ] Multi-language support
+- [ ] Enhanced alerts and notification rules
+- [ ] Weather integration (GRIB files, forecasts)
+- [x] AIS target display (completed in v0.2.0+3)
+- [ ] Route planning and waypoint navigation
+- [ ] More chart types (bar charts, area charts)
+- [ ] AI integration
 
 ---
 

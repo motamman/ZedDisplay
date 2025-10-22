@@ -4,6 +4,8 @@ import '../../models/tool_config.dart';
 import '../../services/signalk_service.dart';
 import '../../services/tool_registry.dart';
 import '../compass_gauge.dart';
+import '../../utils/string_extensions.dart';
+import '../../utils/color_extensions.dart';
 
 /// Config-driven compass gauge tool
 class CompassGaugeTool extends StatelessWidget {
@@ -28,21 +30,15 @@ class CompassGaugeTool extends StatelessWidget {
     final heading = signalKService.getConvertedValue(dataSource.path) ?? 0.0;
 
     // Get label from data source or style
-    final label = dataSource.label ?? _getDefaultLabel(dataSource.path);
+    final label = dataSource.label ?? dataSource.path.toReadableLabel();
 
     // Get formatted value from plugin if available
     final formattedValue = dataPoint?.formatted;
 
     // Parse color from hex string
-    Color primaryColor = Colors.red;
-    if (config.style.primaryColor != null) {
-      try {
-        final colorString = config.style.primaryColor!.replaceAll('#', '');
-        primaryColor = Color(int.parse('FF$colorString', radix: 16));
-      } catch (e) {
-        // Keep default color if parsing fails
-      }
-    }
+    final primaryColor = config.style.primaryColor?.toColor(
+      fallback: Colors.red
+    ) ?? Colors.red;
 
     // Get tick labels and compass style from custom properties
     final showTickLabels = config.style.customProperties?['showTickLabels'] as bool? ?? false;
@@ -73,23 +69,6 @@ class CompassGaugeTool extends StatelessWidget {
       default:
         return CompassStyle.classic;
     }
-  }
-
-  /// Extract a readable label from the path
-  String _getDefaultLabel(String path) {
-    final parts = path.split('.');
-    if (parts.isEmpty) return path;
-
-    // Get the last part and make it readable
-    final lastPart = parts.last;
-
-    // Convert camelCase to Title Case
-    final result = lastPart.replaceAllMapped(
-      RegExp(r'([A-Z])'),
-      (match) => ' ${match.group(1)}',
-    ).trim();
-
-    return result.isEmpty ? lastPart : result;
   }
 }
 

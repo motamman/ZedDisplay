@@ -1,12 +1,13 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:syncfusion_flutter_gauges/gauges.dart';
 import '../../models/tool_definition.dart';
 import '../../models/tool_config.dart';
 import '../../models/zone_data.dart';
 import '../../services/signalk_service.dart';
-import '../../services/zones_service.dart';
 import '../../services/tool_registry.dart';
+import '../../utils/string_extensions.dart';
+import '../../utils/color_extensions.dart';
+import 'mixins/zones_mixin.dart';
 
 /// Available linear gauge styles
 enum LinearGaugeStyle {
@@ -31,63 +32,18 @@ class LinearGaugeTool extends StatefulWidget {
   State<LinearGaugeTool> createState() => _LinearGaugeToolState();
 }
 
-class _LinearGaugeToolState extends State<LinearGaugeTool> {
-  ZonesService? _zonesService;
-  List<ZoneDefinition>? _zones;
-
+class _LinearGaugeToolState extends State<LinearGaugeTool> with ZonesMixin {
   @override
   void initState() {
     super.initState();
-    _initializeZonesService();
-  }
-
-  void _initializeZonesService() {
-    if (widget.signalKService.isConnected) {
-      _createZonesServiceAndFetch();
-    } else {
-      widget.signalKService.addListener(_onSignalKConnectionChanged);
-    }
-  }
-
-  void _onSignalKConnectionChanged() {
-    if (widget.signalKService.isConnected && _zonesService == null) {
-      widget.signalKService.removeListener(_onSignalKConnectionChanged);
-      _createZonesServiceAndFetch();
-    }
-  }
-
-  void _createZonesServiceAndFetch() {
-    _zonesService = ZonesService(
-      serverUrl: widget.signalKService.serverUrl,
-      useSecureConnection: widget.signalKService.useSecureConnection,
-    );
-    _fetchZones();
-  }
-
-  Future<void> _fetchZones() async {
-    if (_zonesService == null || widget.config.dataSources.isEmpty) {
-      return;
-    }
-
-    try {
-      final firstPath = widget.config.dataSources.first.path;
-      final pathZones = await _zonesService!.fetchZones(firstPath);
-
-      if (mounted && pathZones != null && pathZones.hasZones) {
-        setState(() {
-          _zones = pathZones.zones;
-        });
-      }
-    } catch (e) {
-      if (kDebugMode) {
-        print('Failed to fetch zones for linear gauge: $e');
-      }
+    if (widget.config.dataSources.isNotEmpty) {
+      initializeZones(widget.signalKService, widget.config.dataSources.first.path);
     }
   }
 
   @override
   void dispose() {
-    widget.signalKService.removeListener(_onSignalKConnectionChanged);
+    cleanupZones(widget.signalKService);
     super.dispose();
   }
 
@@ -122,7 +78,7 @@ class _LinearGaugeToolState extends State<LinearGaugeTool> {
     final value = isDataFresh ? rawValue : minValue;
 
     // Get label from data source or derive from path
-    final label = dataSource.label ?? _getDefaultLabel(dataSource.path);
+    final label = dataSource.label ?? dataSource.path.toReadableLabel();
 
     // Get formatted value from plugin if available, or show "--" if stale
     final formattedValue = isDataFresh ? dataPoint?.formatted : '--';
@@ -133,15 +89,9 @@ class _LinearGaugeToolState extends State<LinearGaugeTool> {
                 '';
 
     // Parse color from hex string
-    Color primaryColor = Colors.blue;
-    if (style.primaryColor != null) {
-      try {
-        final colorString = style.primaryColor!.replaceAll('#', '');
-        primaryColor = Color(int.parse('FF$colorString', radix: 16));
-      } catch (e) {
-        // Keep default color if parsing fails
-      }
-    }
+    final primaryColor = style.primaryColor?.toColor(
+      fallback: Colors.blue
+    ) ?? Colors.blue;
 
     // Get orientation, style variant, tick labels, and pointer mode from custom properties
     final isVertical = style.customProperties?['orientation'] == 'vertical';
@@ -169,7 +119,7 @@ class _LinearGaugeToolState extends State<LinearGaugeTool> {
               showTickLabels,
               divisions,
               pointerOnly,
-              _zones,
+              zones,
               showZones,
             )
           : _buildVerticalGauge(
@@ -186,7 +136,7 @@ class _LinearGaugeToolState extends State<LinearGaugeTool> {
               showTickLabels,
               divisions,
               pointerOnly,
-              _zones,
+              zones,
               showZones,
             ),
     );
@@ -620,22 +570,6 @@ class _LinearGaugeToolState extends State<LinearGaugeTool> {
       case ZoneState.normal:
         return Colors.grey.withValues(alpha: 0.5);
     }
-  }
-
-  String _getDefaultLabel(String path) {
-    final parts = path.split('.');
-    if (parts.isEmpty) return path;
-
-    // Get the last part and make it readable
-    final lastPart = parts.last;
-
-    // Convert camelCase to Title Case
-    final result = lastPart.replaceAllMapped(
-      RegExp(r'([A-Z])'),
-      (match) => ' ${match.group(1)}',
-    ).trim();
-
-    return result.isEmpty ? lastPart : result;
   }
 }
 

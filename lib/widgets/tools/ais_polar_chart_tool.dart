@@ -3,6 +3,7 @@ import '../../models/tool_definition.dart';
 import '../../models/tool_config.dart';
 import '../../services/signalk_service.dart';
 import '../../services/tool_registry.dart';
+import '../../utils/color_extensions.dart';
 import '../ais_polar_chart.dart';
 
 /// Config-driven AIS polar chart tool
@@ -32,15 +33,7 @@ class AISPolarChartTool extends StatelessWidget {
         : 'navigation.position';
 
     // Parse vessel color
-    Color? vesselColor;
-    if (config.style.primaryColor != null) {
-      try {
-        final colorString = config.style.primaryColor!.replaceAll('#', '');
-        vesselColor = Color(int.parse('FF$colorString', radix: 16));
-      } catch (e) {
-        // Keep null if parsing fails
-      }
-    }
+    final vesselColor = config.style.primaryColor?.toColor();
 
     // Generate title
     final title = config.style.customProperties?['title'] as String? ?? 'AIS Vessels';

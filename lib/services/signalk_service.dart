@@ -8,9 +8,11 @@ import 'package:web_socket_channel/io.dart';
 import 'package:http/http.dart' as http;
 import '../models/signalk_data.dart';
 import '../models/auth_token.dart';
+import 'zones_cache_service.dart';
+import 'interfaces/data_service.dart';
 
 /// Service to connect to SignalK server and stream data
-class SignalKService extends ChangeNotifier {
+class SignalKService extends ChangeNotifier implements DataService {
   // Main data WebSocket (units-preference endpoint)
   WebSocketChannel? _channel;
   StreamSubscription? _subscription;
@@ -45,6 +47,9 @@ class SignalKService extends ChangeNotifier {
   bool _useSecureConnection = false;
   AuthToken? _authToken;
 
+  // Zones cache service
+  ZonesCacheService? _zonesCache;
+
   // Getters
   bool get isConnected => _isConnected;
   String? get errorMessage => _errorMessage;
@@ -54,6 +59,7 @@ class SignalKService extends ChangeNotifier {
   bool get notificationsEnabled => _notificationsEnabled;
   Stream<SignalKNotification> get notificationStream => _notificationController.stream;
   AuthToken? get authToken => _authToken;
+  ZonesCacheService? get zonesCache => _zonesCache;
 
   /// Connect to SignalK server (optionally with authentication)
   Future<void> connect(
@@ -78,6 +84,12 @@ class SignalKService extends ChangeNotifier {
     _serverUrl = serverUrl;
     _useSecureConnection = secure;
     _authToken = authToken;
+
+    // Initialize zones cache service
+    _zonesCache = ZonesCacheService(
+      serverUrl: serverUrl,
+      useSecureConnection: secure,
+    );
 
     try {
       // Discover the WebSocket endpoint

@@ -4,6 +4,8 @@ import '../../models/tool_config.dart';
 import '../../services/signalk_service.dart';
 import '../../services/tool_registry.dart';
 import '../radial_bar_chart.dart';
+import '../../utils/string_extensions.dart';
+import '../../utils/color_extensions.dart';
 
 /// Config-driven radial bar chart tool
 /// Displays up to 4 SignalK paths as concentric circular rings
@@ -56,7 +58,7 @@ class RadialBarChartTool extends StatelessWidget {
     for (final dataSource in config.dataSources) {
       final value = signalKService.getConvertedValue(dataSource.path) ?? 0.0;
       final dataPoint = signalKService.getValue(dataSource.path);
-      final label = dataSource.label ?? _getDefaultLabel(dataSource.path);
+      final label = dataSource.label ?? dataSource.path.toReadableLabel();
       final unit = signalKService.getUnitSymbol(dataSource.path) ?? '';
 
       // Get max value from style config or custom properties for this specific path
@@ -75,15 +77,7 @@ class RadialBarChartTool extends StatelessWidget {
     }
 
     // Parse primary color from config
-    Color? primaryColor;
-    if (config.style.primaryColor != null) {
-      try {
-        final colorString = config.style.primaryColor!.replaceAll('#', '');
-        primaryColor = Color(int.parse('FF$colorString', radix: 16));
-      } catch (e) {
-        // Keep null if parsing fails
-      }
-    }
+    final primaryColor = config.style.primaryColor?.toColor();
 
     // Get configuration from custom properties
     final title = config.style.customProperties?['title'] as String? ?? '';
@@ -106,25 +100,6 @@ class RadialBarChartTool extends StatelessWidget {
         ),
       ),
     );
-  }
-
-  /// Extract a readable label from the path
-  String _getDefaultLabel(String path) {
-    final parts = path.split('.');
-    if (parts.isEmpty) return path;
-
-    // Get the last part and make it readable
-    final lastPart = parts.last;
-
-    // Convert camelCase to Title Case
-    final result = lastPart.replaceAllMapped(
-      RegExp(r'([A-Z])'),
-      (match) => ' ${match.group(1)}',
-    ).trim();
-
-    // Capitalize first letter
-    if (result.isEmpty) return lastPart;
-    return result[0].toUpperCase() + result.substring(1);
   }
 }
 

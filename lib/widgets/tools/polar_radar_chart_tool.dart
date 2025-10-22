@@ -3,6 +3,7 @@ import '../../models/tool_definition.dart';
 import '../../models/tool_config.dart';
 import '../../services/signalk_service.dart';
 import '../../services/tool_registry.dart';
+import '../../utils/color_extensions.dart';
 import '../polar_radar_chart.dart';
 
 /// Config-driven polar radar chart tool
@@ -44,26 +45,9 @@ class PolarRadarChartTool extends StatelessWidget {
     final maxMagnitude = (config.style.customProperties?['maxMagnitude'] as num?)?.toDouble() ?? 0.0;
 
     // Parse primary and fill colors
-    Color? primaryColor;
-    Color? fillColor;
+    final primaryColor = config.style.primaryColor?.toColor();
 
-    if (config.style.primaryColor != null) {
-      try {
-        final colorString = config.style.primaryColor!.replaceAll('#', '');
-        primaryColor = Color(int.parse('FF$colorString', radix: 16));
-      } catch (e) {
-        // Keep null if parsing fails
-      }
-    }
-
-    if (config.style.customProperties?['fillColor'] != null) {
-      try {
-        final colorString = (config.style.customProperties!['fillColor'] as String).replaceAll('#', '');
-        fillColor = Color(int.parse('FF$colorString', radix: 16));
-      } catch (e) {
-        // Keep null if parsing fails
-      }
-    }
+    final fillColor = (config.style.customProperties?['fillColor'] as String?)?.toColor();
 
     // Generate title
     final title = config.style.customProperties?['title'] as String? ??

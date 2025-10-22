@@ -1,9 +1,12 @@
-import 'dart:math';
 import 'package:flutter/material.dart';
 import '../../models/tool_definition.dart';
 import '../../models/tool_config.dart';
 import '../../services/signalk_service.dart';
 import '../../services/tool_registry.dart';
+import '../../utils/string_extensions.dart';
+import '../../utils/color_extensions.dart';
+import 'mixins/control_tool_mixin.dart';
+import 'common/control_tool_layout.dart';
 
 /// Config-driven dropdown tool for sending numeric values to SignalK paths
 class DropdownTool extends StatefulWidget {
@@ -20,8 +23,7 @@ class DropdownTool extends StatefulWidget {
   State<DropdownTool> createState() => _DropdownToolState();
 }
 
-class _DropdownToolState extends State<DropdownTool> {
-  bool _isSending = false;
+class _DropdownToolState extends State<DropdownTool> with ControlToolMixin {
   double? _currentSelectedValue;
 
   @override
@@ -78,205 +80,112 @@ class _DropdownToolState extends State<DropdownTool> {
     );
 
     // Get label from data source or style
-    final label = dataSource.label ?? _getDefaultLabel(dataSource.path);
+    final label = dataSource.label ?? dataSource.path.toReadableLabel();
 
     // Parse color from hex string
-    Color primaryColor = Theme.of(context).colorScheme.primary;
-    if (style.primaryColor != null) {
-      try {
-        final colorString = style.primaryColor!.replaceAll('#', '');
-        primaryColor = Color(int.parse('FF$colorString', radix: 16));
-      } catch (e) {
-        // Keep default color if parsing fails
-      }
-    }
+    final primaryColor = style.primaryColor?.toColor(
+      fallback: Theme.of(context).colorScheme.primary
+    ) ?? Theme.of(context).colorScheme.primary;
 
     // Get unit
     final unit = style.unit ?? dataPoint?.symbol ?? '';
 
-    return Card(
-      elevation: 2,
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            if (style.showLabel == true) ...[
-              Text(
-                label,
-                style: const TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                ),
-                textAlign: TextAlign.center,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-              ),
-              const SizedBox(height: 8),
-            ],
-
-            // Current value display
-            if (style.showValue == true) ...[
-              Text(
-                '${closestValue.toStringAsFixed(decimalPlaces)}${style.showUnit == true ? " $unit" : ""}',
-                style: TextStyle(
-                  fontSize: 32,
-                  fontWeight: FontWeight.bold,
-                  color: primaryColor,
-                ),
-              ),
-              const SizedBox(height: 16),
-            ],
-
-            // Dropdown button
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-              decoration: BoxDecoration(
-                border: Border.all(color: primaryColor, width: 2),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: DropdownButton<double>(
-                value: closestValue,
-                isExpanded: true,
-                underline: const SizedBox(),
-                icon: Icon(Icons.arrow_drop_down, color: primaryColor),
-                dropdownColor: Theme.of(context).cardColor,
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                  color: primaryColor,
-                ),
-                items: dropdownValues.map((double value) {
-                  return DropdownMenuItem<double>(
-                    value: value,
-                    child: Center(
-                      child: Text(
-                        '${value.toStringAsFixed(decimalPlaces)}${unit.isNotEmpty ? " $unit" : ""}',
-                      ),
-                    ),
-                  );
-                }).toList(),
-                onChanged: _isSending ? null : (value) {
-                  if (value != null) {
-                    setState(() {
-                      _currentSelectedValue = value;
-                    });
-                    _sendValue(value, dataSource.path);
-                  }
-                },
-              ),
-            ),
-
-            const SizedBox(height: 8),
-
-            // Min/Max labels
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  'Min: ${minValue.toStringAsFixed(decimalPlaces)}',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Colors.grey[600],
-                  ),
-                ),
-                Text(
-                  'Max: ${maxValue.toStringAsFixed(decimalPlaces)}',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Colors.grey[600],
-                  ),
-                ),
-              ],
-            ),
-
-            const SizedBox(height: 4),
-
-            // Path info
-            Text(
-              dataSource.path,
+    return ControlToolLayout(
+      label: label,
+      showLabel: style.showLabel == true,
+      valueWidget: style.showValue == true
+          ? Text(
+              '${closestValue.toStringAsFixed(decimalPlaces)}${style.showUnit == true ? " $unit" : ""}',
               style: TextStyle(
-                fontSize: 10,
-                color: Colors.grey[600],
+                fontSize: 32,
+                fontWeight: FontWeight.bold,
+                color: primaryColor,
               ),
-              textAlign: TextAlign.center,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
+            )
+          : null,
+      additionalWidgets: [
+        const SizedBox(height: 8),
+      ],
+      controlWidget: Column(
+        children: [
+          // Dropdown button
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+            decoration: BoxDecoration(
+              border: Border.all(color: primaryColor, width: 2),
+              borderRadius: BorderRadius.circular(8),
             ),
-
-            // Sending indicator
-            if (_isSending) ...[
-              const SizedBox(height: 8),
-              const SizedBox(
-                width: 16,
-                height: 16,
-                child: CircularProgressIndicator(strokeWidth: 2),
+            child: DropdownButton<double>(
+              value: closestValue,
+              isExpanded: true,
+              underline: const SizedBox(),
+              icon: Icon(Icons.arrow_drop_down, color: primaryColor),
+              dropdownColor: Theme.of(context).cardColor,
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: primaryColor,
+              ),
+              items: dropdownValues.map((double value) {
+                return DropdownMenuItem<double>(
+                  value: value,
+                  child: Center(
+                    child: Text(
+                      '${value.toStringAsFixed(decimalPlaces)}${unit.isNotEmpty ? " $unit" : ""}',
+                    ),
+                  ),
+                );
+              }).toList(),
+              onChanged: isSending ? null : (value) {
+                if (value != null) {
+                  setState(() {
+                    _currentSelectedValue = value;
+                  });
+                  final decimalPlaces = widget.config.style.customProperties?['decimalPlaces'] as int? ?? 1;
+                  sendNumericValue(
+                    value: value,
+                    path: dataSource.path,
+                    signalKService: widget.signalKService,
+                    decimalPlaces: decimalPlaces,
+                    onComplete: () {
+                      setState(() {
+                        _currentSelectedValue = null;
+                      });
+                    },
+                  );
+                }
+              },
+            ),
+          ),
+          const SizedBox(height: 8),
+          // Min/Max labels
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                'Min: ${minValue.toStringAsFixed(decimalPlaces)}',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: Colors.grey[600],
+                ),
+              ),
+              Text(
+                'Max: ${maxValue.toStringAsFixed(decimalPlaces)}',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: Colors.grey[600],
+                ),
               ),
             ],
-          ],
-        ),
+          ),
+          const SizedBox(height: 4),
+        ],
       ),
+      path: dataSource.path,
+      isSending: isSending,
     );
   }
 
-  Future<void> _sendValue(double value, String path) async {
-    setState(() {
-      _isSending = true;
-    });
-
-    try {
-      // Get decimal places and round the value before sending
-      final decimalPlaces = widget.config.style.customProperties?['decimalPlaces'] as int? ?? 1;
-      final multiplier = pow(10, decimalPlaces).toDouble();
-      final roundedValue = (value * multiplier).round() / multiplier;
-
-      await widget.signalKService.sendPutRequest(path, roundedValue);
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('${_getDefaultLabel(path)} set to ${roundedValue.toStringAsFixed(decimalPlaces)}'),
-            duration: const Duration(seconds: 1),
-            backgroundColor: Colors.green,
-          ),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to set value: $e'),
-            duration: const Duration(seconds: 2),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isSending = false;
-          _currentSelectedValue = null; // Reset to sync with server value
-        });
-      }
-    }
-  }
-
-  /// Extract a readable label from the path
-  String _getDefaultLabel(String path) {
-    final parts = path.split('.');
-    if (parts.isEmpty) return path;
-
-    // Get the last part and make it readable
-    final lastPart = parts.last;
-
-    // Convert camelCase to Title Case
-    final result = lastPart.replaceAllMapped(
-      RegExp(r'([A-Z])'),
-      (match) => ' ${match.group(1)}',
-    ).trim();
-
-    return result.isEmpty ? lastPart : result;
-  }
 }
 
 /// Builder for dropdown tools

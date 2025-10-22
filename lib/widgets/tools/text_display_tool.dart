@@ -3,6 +3,9 @@ import '../../models/tool_definition.dart';
 import '../../models/tool_config.dart';
 import '../../services/signalk_service.dart';
 import '../../services/tool_registry.dart';
+import '../../utils/string_extensions.dart';
+import '../../utils/color_extensions.dart';
+import '../../config/ui_constants.dart';
 
 /// Config-driven text display for large numeric values
 class TextDisplayTool extends StatelessWidget {
@@ -26,7 +29,7 @@ class TextDisplayTool extends StatelessWidget {
     final dataPoint = signalKService.getValue(dataSource.path, source: dataSource.source);
 
     // Get label from data source or derive from path
-    final label = dataSource.label ?? _getDefaultLabel(dataSource.path);
+    final label = dataSource.label ?? dataSource.path.toReadableLabel();
 
     // Use formatted string from plugin if available, otherwise format manually
     String displayValue;
@@ -46,15 +49,9 @@ class TextDisplayTool extends StatelessWidget {
     }
 
     // Parse color from hex string
-    Color textColor = Theme.of(context).colorScheme.onSurface;
-    if (config.style.primaryColor != null) {
-      try {
-        final colorString = config.style.primaryColor!.replaceAll('#', '');
-        textColor = Color(int.parse('FF$colorString', radix: 16));
-      } catch (e) {
-        // Keep default color if parsing fails
-      }
-    }
+    final textColor = config.style.primaryColor?.toColor(
+      fallback: Theme.of(context).colorScheme.onSurface
+    ) ?? Theme.of(context).colorScheme.onSurface;
 
     // Get font size from config or use default
     final fontSize = config.style.fontSize ?? 48.0;
@@ -71,7 +68,7 @@ class TextDisplayTool extends StatelessWidget {
               style: TextStyle(
                 fontSize: fontSize * 0.35,
                 fontWeight: FontWeight.w300,
-                color: textColor.withValues(alpha: 0.7),
+                color: UIConstants.withSubtleOpacity(textColor),
               ),
               textAlign: TextAlign.center,
             ),
@@ -94,7 +91,7 @@ class TextDisplayTool extends StatelessWidget {
               style: TextStyle(
                 fontSize: fontSize * 0.35,
                 fontWeight: FontWeight.w300,
-                color: textColor.withValues(alpha: 0.7),
+                color: UIConstants.withSubtleOpacity(textColor),
               ),
             ),
         ],
@@ -102,22 +99,6 @@ class TextDisplayTool extends StatelessWidget {
     );
   }
 
-  /// Extract a readable label from the path
-  String _getDefaultLabel(String path) {
-    final parts = path.split('.');
-    if (parts.isEmpty) return path;
-
-    // Get the last part and make it readable
-    final lastPart = parts.last;
-
-    // Convert camelCase to Title Case
-    final result = lastPart.replaceAllMapped(
-      RegExp(r'([A-Z])'),
-      (match) => ' ${match.group(1)}',
-    ).trim();
-
-    return result.isEmpty ? lastPart : result;
-  }
 }
 
 /// Builder for text display tools
