@@ -57,19 +57,44 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen> {
       ),
     );
 
-    if (result is Map<String, dynamic>) {
-      final tool = result['tool'] as Tool;
-      final width = result['width'] as int? ?? 1;
-      final height = result['height'] as int? ?? 1;
+    if (result is Map<String, dynamic> && mounted) {
+      try {
+        final tool = result['tool'] as Tool;
+        final width = result['width'] as int? ?? 1;
+        final height = result['height'] as int? ?? 1;
 
-      // Create a placement for this tool with size
-      final placement = toolService.createPlacement(
-        toolId: tool.id,
-        screenId: activeScreen.id,
-        width: width,
-        height: height,
-      );
-      await dashboardService.addPlacementToActiveScreen(placement);
+        // Create a placement for this tool with size
+        final placement = toolService.createPlacement(
+          toolId: tool.id,
+          screenId: activeScreen.id,
+          width: width,
+          height: height,
+        );
+
+        // Add placement to dashboard (this calls saveDashboard internally)
+        await dashboardService.addPlacementToActiveScreen(placement);
+
+        // Explicitly save dashboard to ensure persistence
+        await dashboardService.saveDashboard();
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Tool "${tool.name}" added and saved'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Error adding tool: $e'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
     }
   }
 
@@ -86,19 +111,44 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen> {
       ),
     );
 
-    if (result is Map<String, dynamic>) {
-      final tool = result['tool'] as Tool;
-      final width = result['width'] as int? ?? 1;
-      final height = result['height'] as int? ?? 1;
+    if (result is Map<String, dynamic> && mounted) {
+      try {
+        final tool = result['tool'] as Tool;
+        final width = result['width'] as int? ?? 1;
+        final height = result['height'] as int? ?? 1;
 
-      // Create a placement for this tool with size
-      final placement = toolService.createPlacement(
-        toolId: tool.id,
-        screenId: activeScreen.id,
-        width: width,
-        height: height,
-      );
-      await dashboardService.addPlacementToActiveScreen(placement);
+        // Create a placement for this tool with size
+        final placement = toolService.createPlacement(
+          toolId: tool.id,
+          screenId: activeScreen.id,
+          width: width,
+          height: height,
+        );
+
+        // Add placement to dashboard (this calls saveDashboard internally)
+        await dashboardService.addPlacementToActiveScreen(placement);
+
+        // Explicitly save dashboard to ensure persistence
+        await dashboardService.saveDashboard();
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Tool "${tool.name}" added and saved'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Error adding tool: $e'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
     }
   }
 
@@ -170,6 +220,9 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen> {
           newWidth,
           newHeight,
         );
+      } else {
+        // Even if size didn't change, save the dashboard to persist any updates
+        await dashboardService.saveDashboard();
       }
 
       if (mounted) {

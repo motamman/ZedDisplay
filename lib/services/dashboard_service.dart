@@ -42,7 +42,7 @@ class DashboardService extends ChangeNotifier {
       if (_currentLayout == null) {
         _currentLayout = DashboardLayout(
           id: 'layout_default',
-          name: 'Default Layout',
+          name: 'Default Dashboard',
           screens: [
             DashboardScreen(
               id: 'screen_main',
@@ -55,6 +55,10 @@ class DashboardService extends ChangeNotifier {
         );
 
         await saveDashboard();
+
+        if (kDebugMode) {
+          print('Created default dashboard on first install');
+        }
       }
 
       _initialized = true;
@@ -135,6 +139,30 @@ class DashboardService extends ChangeNotifier {
     _currentLayout = _currentLayout!.addScreen(newScreen);
     notifyListeners();
     await saveDashboard();
+  }
+
+  /// Create a new blank dashboard
+  Future<void> createNewDashboard() async {
+    _currentLayout = DashboardLayout(
+      id: 'layout_${DateTime.now().millisecondsSinceEpoch}',
+      name: 'New Dashboard',
+      screens: [
+        DashboardScreen(
+          id: 'screen_${DateTime.now().millisecondsSinceEpoch}',
+          name: 'Main',
+          placements: [],
+          order: 0,
+        ),
+      ],
+      activeScreenIndex: 0,
+    );
+
+    notifyListeners();
+    await saveDashboard();
+
+    if (kDebugMode) {
+      print('Created new blank dashboard');
+    }
   }
 
   /// Remove a screen from the current layout
