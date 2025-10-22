@@ -1,5 +1,6 @@
+# <img src="assets/icon.png" alt="SignalK Zed Display" width="72" height="72" style="vertical-align: middle; margin-right: 20px;"> SignalK Parquet Data Store
+
 # ZedDisplay
-<img src="assets/icon.png" alt="App Icon" width="92" height="92">
 
 A customizable SignalK marine dashboard application to display real-time vessel data with configurable tools.
  
