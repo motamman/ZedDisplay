@@ -537,6 +537,23 @@ class _AutopilotToolState extends State<AutopilotTool> {
       displayWindAngle = _trueWindAngle;
     }
 
+    // Calculate absolute wind directions for compass display
+    double? apparentWindDir;
+    double? trueWindDir;
+
+    if (_apparentWindAngle != null) {
+      apparentWindDir = (displayHeading + _apparentWindAngle!) % 360;
+      if (apparentWindDir < 0) apparentWindDir += 360;
+    }
+
+    if (_trueWindAngle != null) {
+      trueWindDir = (displayHeading + _trueWindAngle!) % 360;
+      if (trueWindDir < 0) trueWindDir += 360;
+    }
+
+    // Show wind indicators only in wind mode
+    final isWindMode = _mode.toLowerCase() == 'wind' || _mode.toLowerCase() == 'true wind';
+
     return Stack(
       children: [
         AutopilotWidget(
@@ -546,8 +563,11 @@ class _AutopilotToolState extends State<AutopilotTool> {
           mode: _mode,
           engaged: _engaged,
           apparentWindAngle: displayWindAngle,
+          apparentWindDirection: apparentWindDir,
+          trueWindDirection: trueWindDir,
           crossTrackError: _crossTrackError,
           headingTrue: headingTrue,
+          showWindIndicators: isWindMode,
           primaryColor: primaryColor,
           onEngageDisengage: _handleEngageDisengage,
           onModeChange: _handleModeChange,
