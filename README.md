@@ -3,6 +3,12 @@
 
 A customizable SignalK marine dashboard application to display real-time vessel data with configurable tools.
  
+## SignalK Dependencies
+ - signalk-units-preference must me install to have base values converted. Without it many tools will not work.
+ - signalk-parquet allows some tools to display historic data for selected paths. 
+
+
+
 
 ## Features
 
@@ -312,10 +318,7 @@ For questions or issues:
 - [x] AIS target display (completed in v0.2.0+3)
 - [ ] Route planning and waypoint navigation
 - [ ] More chart types (bar charts, area charts)
-- [ ] Custom themes and color schemes
-- [ ] Multi-language support
-- [ ] Instrument calibration and offsets
-- [ ] Data logging and export
+- [ ] AI integration
 
 ---
 

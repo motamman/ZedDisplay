@@ -4,6 +4,8 @@ import '../../models/tool_definition.dart';
 import '../../models/tool_config.dart';
 import '../../services/signalk_service.dart';
 import '../../services/tool_registry.dart';
+import '../../utils/string_extensions.dart';
+import '../../utils/color_extensions.dart';
 
 /// Config-driven dropdown tool for sending numeric values to SignalK paths
 class DropdownTool extends StatefulWidget {
@@ -78,18 +80,12 @@ class _DropdownToolState extends State<DropdownTool> {
     );
 
     // Get label from data source or style
-    final label = dataSource.label ?? _getDefaultLabel(dataSource.path);
+    final label = dataSource.label ?? dataSource.path.toReadableLabel();
 
     // Parse color from hex string
-    Color primaryColor = Theme.of(context).colorScheme.primary;
-    if (style.primaryColor != null) {
-      try {
-        final colorString = style.primaryColor!.replaceAll('#', '');
-        primaryColor = Color(int.parse('FF$colorString', radix: 16));
-      } catch (e) {
-        // Keep default color if parsing fails
-      }
-    }
+    final primaryColor = style.primaryColor?.toColor(
+      fallback: Theme.of(context).colorScheme.primary
+    ) ?? Theme.of(context).colorScheme.primary;
 
     // Get unit
     final unit = style.unit ?? dataPoint?.symbol ?? '';
@@ -235,7 +231,7 @@ class _DropdownToolState extends State<DropdownTool> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('${_getDefaultLabel(path)} set to ${roundedValue.toStringAsFixed(decimalPlaces)}'),
+            content: Text('${path.toReadableLabel()} set to ${roundedValue.toStringAsFixed(decimalPlaces)}'),
             duration: const Duration(seconds: 1),
             backgroundColor: Colors.green,
           ),
@@ -259,23 +255,6 @@ class _DropdownToolState extends State<DropdownTool> {
         });
       }
     }
-  }
-
-  /// Extract a readable label from the path
-  String _getDefaultLabel(String path) {
-    final parts = path.split('.');
-    if (parts.isEmpty) return path;
-
-    // Get the last part and make it readable
-    final lastPart = parts.last;
-
-    // Convert camelCase to Title Case
-    final result = lastPart.replaceAllMapped(
-      RegExp(r'([A-Z])'),
-      (match) => ' ${match.group(1)}',
-    ).trim();
-
-    return result.isEmpty ? lastPart : result;
   }
 }
 

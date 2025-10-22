@@ -7,6 +7,7 @@ import '../../models/historical_data.dart';
 import '../../services/signalk_service.dart';
 import '../../services/historical_data_service.dart';
 import '../../services/tool_registry.dart';
+import '../../utils/color_extensions.dart';
 import '../historical_line_chart.dart';
 
 /// Config-driven historical chart tool
@@ -248,15 +249,7 @@ class _HistoricalChartToolState extends State<HistoricalChartTool> with Automati
     final chartStyle = _parseChartStyle(chartStyleStr);
 
     // Parse primary color from config
-    Color? primaryColor;
-    if (widget.config.style.primaryColor != null) {
-      try {
-        final colorString = widget.config.style.primaryColor!.replaceAll('#', '');
-        primaryColor = Color(int.parse('FF$colorString', radix: 16));
-      } catch (e) {
-        // Keep null if parsing fails
-      }
-    }
+    final primaryColor = widget.config.style.primaryColor?.toColor();
 
     return Stack(
       children: [

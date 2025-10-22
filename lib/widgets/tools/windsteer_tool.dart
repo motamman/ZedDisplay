@@ -3,6 +3,7 @@ import '../../models/tool_definition.dart';
 import '../../models/tool_config.dart';
 import '../../services/signalk_service.dart';
 import '../../services/tool_registry.dart';
+import '../../utils/color_extensions.dart';
 import '../windsteer_gauge.dart';
 
 /// Config-driven windsteer tool with comprehensive features
@@ -121,26 +122,13 @@ class WindsteerTool extends StatelessWidget {
     final showWindSectors = style.customProperties?['showWindSectors'] as bool? ?? false;
 
     // Parse colors from hex string
-    Color primaryColor = Colors.blue;
-    Color secondaryColor = Colors.green;
+    final primaryColor = style.primaryColor?.toColor(
+      fallback: Colors.blue
+    ) ?? Colors.blue;
 
-    if (style.primaryColor != null) {
-      try {
-        final colorString = style.primaryColor!.replaceAll('#', '');
-        primaryColor = Color(int.parse('FF$colorString', radix: 16));
-      } catch (e) {
-        // Keep default color if parsing fails
-      }
-    }
-
-    if (style.secondaryColor != null) {
-      try {
-        final colorString = style.secondaryColor!.replaceAll('#', '');
-        secondaryColor = Color(int.parse('FF$colorString', radix: 16));
-      } catch (e) {
-        // Keep default color if parsing fails
-      }
-    }
+    final secondaryColor = style.secondaryColor?.toColor(
+      fallback: Colors.green
+    ) ?? Colors.green;
 
     return WindsteerGauge(
       heading: heading,

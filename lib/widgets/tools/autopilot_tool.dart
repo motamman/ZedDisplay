@@ -5,6 +5,7 @@ import '../../models/tool_definition.dart';
 import '../../models/tool_config.dart';
 import '../../services/signalk_service.dart';
 import '../../services/tool_registry.dart';
+import '../../utils/color_extensions.dart';
 import '../autopilot_widget.dart';
 
 /// Autopilot control tool - subscribes to SignalK paths and displays autopilot controls
@@ -511,15 +512,9 @@ class _AutopilotToolState extends State<AutopilotTool> {
     }
 
     // Parse color from hex string
-    Color primaryColor = Colors.red;
-    if (widget.config.style.primaryColor != null) {
-      try {
-        final colorString = widget.config.style.primaryColor!.replaceAll('#', '');
-        primaryColor = Color(int.parse('FF$colorString', radix: 16));
-      } catch (e) {
-        // Keep default color if parsing fails
-      }
-    }
+    final primaryColor = widget.config.style.primaryColor?.toColor(
+      fallback: Colors.red
+    ) ?? Colors.red;
 
     // Get heading preference from config
     final headingTrue = widget.config.style.customProperties?['headingTrue'] as bool? ?? false;

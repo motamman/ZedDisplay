@@ -3,6 +3,9 @@ import '../../models/tool_definition.dart';
 import '../../models/tool_config.dart';
 import '../../services/signalk_service.dart';
 import '../../services/tool_registry.dart';
+import '../../utils/string_extensions.dart';
+import '../../utils/color_extensions.dart';
+import '../../utils/data_extensions.dart';
 
 /// Config-driven checkbox tool for toggling boolean SignalK paths
 class CheckboxTool extends StatefulWidget {
@@ -33,45 +36,22 @@ class _CheckboxToolState extends State<CheckboxTool> {
     final dataPoint = widget.signalKService.getValue(dataSource.path, source: dataSource.source);
 
     // Get boolean value - handle different formats
-    bool currentValue = false;
-    if (dataPoint?.value is bool) {
-      currentValue = dataPoint!.value as bool;
-    } else if (dataPoint?.value is num) {
-      // Handle numeric 0/1 as boolean
-      currentValue = (dataPoint!.value as num) != 0;
-    } else if (dataPoint?.value is String) {
-      // Handle string "true"/"false"
-      final stringValue = (dataPoint!.value as String).toLowerCase();
-      currentValue = stringValue == 'true' || stringValue == '1';
-    }
+    final currentValue = dataPoint.toBool();
 
     // Get style configuration
     final style = widget.config.style;
 
     // Get label from data source or style
-    final label = dataSource.label ?? _getDefaultLabel(dataSource.path);
+    final label = dataSource.label ?? dataSource.path.toReadableLabel();
 
     // Parse colors from hex string
-    Color activeColor = Colors.green;
-    Color inactiveColor = Colors.grey;
+    final activeColor = style.primaryColor?.toColor(
+      fallback: Colors.green
+    ) ?? Colors.green;
 
-    if (style.primaryColor != null) {
-      try {
-        final colorString = style.primaryColor!.replaceAll('#', '');
-        activeColor = Color(int.parse('FF$colorString', radix: 16));
-      } catch (e) {
-        // Keep default color if parsing fails
-      }
-    }
-
-    if (style.secondaryColor != null) {
-      try {
-        final colorString = style.secondaryColor!.replaceAll('#', '');
-        inactiveColor = Color(int.parse('FF$colorString', radix: 16));
-      } catch (e) {
-        // Keep default color if parsing fails
-      }
-    }
+    final inactiveColor = style.secondaryColor?.toColor(
+      fallback: Colors.grey
+    ) ?? Colors.grey;
 
     return Card(
       elevation: 2,
@@ -158,7 +138,7 @@ class _CheckboxToolState extends State<CheckboxTool> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('${_getDefaultLabel(path)} ${newValue ? "enabled" : "disabled"}'),
+            content: Text('${path.toReadableLabel()} ${newValue ? "enabled" : "disabled"}'),
             duration: const Duration(seconds: 1),
             backgroundColor: Colors.green,
           ),
@@ -181,23 +161,6 @@ class _CheckboxToolState extends State<CheckboxTool> {
         });
       }
     }
-  }
-
-  /// Extract a readable label from the path
-  String _getDefaultLabel(String path) {
-    final parts = path.split('.');
-    if (parts.isEmpty) return path;
-
-    // Get the last part and make it readable
-    final lastPart = parts.last;
-
-    // Convert camelCase to Title Case
-    final result = lastPart.replaceAllMapped(
-      RegExp(r'([A-Z])'),
-      (match) => ' ${match.group(1)}',
-    ).trim();
-
-    return result.isEmpty ? lastPart : result;
   }
 }
 

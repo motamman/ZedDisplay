@@ -6,6 +6,7 @@ import '../../models/zone_data.dart';
 import '../../services/signalk_service.dart';
 import '../../services/zones_service.dart';
 import '../../services/tool_registry.dart';
+import '../../utils/color_extensions.dart';
 import '../realtime_spline_chart.dart';
 
 /// Config-driven real-time chart tool
@@ -120,15 +121,7 @@ class _RealtimeChartToolState extends State<RealtimeChartTool> {
     final showGrid = widget.config.style.customProperties?['showGrid'] as bool? ?? true;
 
     // Parse primary color
-    Color? primaryColor;
-    if (widget.config.style.primaryColor != null) {
-      try {
-        final colorString = widget.config.style.primaryColor!.replaceAll('#', '');
-        primaryColor = Color(int.parse('FF$colorString', radix: 16));
-      } catch (e) {
-        // Keep null if parsing fails
-      }
-    }
+    final primaryColor = widget.config.style.primaryColor?.toColor();
 
     // Generate title from paths
     final title = widget.config.style.customProperties?['title'] as String? ??
