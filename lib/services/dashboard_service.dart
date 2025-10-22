@@ -201,12 +201,18 @@ class DashboardService extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Add a tool placement to the current active screen
+  /// Add a tool placement to the screen specified in the placement
+  /// Note: Uses the placement's screenId to determine which screen to add to
   Future<void> addPlacementToActiveScreen(ToolPlacement placement) async {
-    if (_currentLayout == null || _currentLayout!.activeScreen == null) return;
+    if (_currentLayout == null) return;
 
-    final activeScreen = _currentLayout!.activeScreen!;
-    final updatedScreen = activeScreen.addPlacement(placement);
+    // Find the screen specified in the placement (not necessarily the active screen)
+    final screen = _currentLayout!.screens.firstWhere(
+      (s) => s.id == placement.screenId,
+      orElse: () => throw Exception('Screen not found: ${placement.screenId}'),
+    );
+
+    final updatedScreen = screen.addPlacement(placement);
     _currentLayout = _currentLayout!.updateScreen(updatedScreen);
     notifyListeners();
     await _updateSignalKSubscriptions();
