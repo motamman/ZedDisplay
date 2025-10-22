@@ -743,7 +743,6 @@ class NoGoZoneVPainter extends CustomPainter {
 
     // Calculate the V-shape edges centered on wind direction
     final leftAngle = windRad - noGoRad;  // -45° from wind direction
-    final rightAngle = windRad + noGoRad; // +45° from wind direction
 
     // Create path for V-shape
     final path = Path();
@@ -771,7 +770,7 @@ class NoGoZoneVPainter extends CustomPainter {
 
     // Draw the V-shape with 50% opacity grey
     final paint = Paint()
-      ..color = Colors.grey.withOpacity(0.5)
+      ..color = Colors.grey.withValues(alpha: 0.5)
       ..style = PaintingStyle.fill;
 
     canvas.drawPath(path, paint);
@@ -811,14 +810,14 @@ class VesselShadowPainter extends CustomPainter {
 
     // Draw vessel shadow with semi-transparent black
     final paint = Paint()
-      ..color = Colors.black.withOpacity(0.6)
+      ..color = Colors.black.withValues(alpha: 0.6)
       ..style = PaintingStyle.fill;
 
     canvas.drawPath(path, paint);
 
     // Optional: Add a subtle outline
     final outlinePaint = Paint()
-      ..color = Colors.white.withOpacity(0.3)
+      ..color = Colors.white.withValues(alpha: 0.3)
       ..style = PaintingStyle.stroke
       ..strokeWidth = 2.5;
 

@@ -86,10 +86,10 @@ class DashboardService extends ChangeNotifier {
     final toolIds = _currentLayout!.getAllToolIds();
 
     // Resolve tool IDs to required paths
-    final requiredPaths = _toolService!.getRequiredPathsForTools(toolIds);
+    final requiredPaths = _toolService.getRequiredPathsForTools(toolIds);
 
     if (requiredPaths.isNotEmpty) {
-      await _signalKService!.setActiveTemplatePaths(requiredPaths);
+      await _signalKService.setActiveTemplatePaths(requiredPaths);
 
       if (kDebugMode) {
         print('Updated SignalK subscriptions: ${requiredPaths.length} paths from ${toolIds.length} tools');
@@ -214,7 +214,7 @@ class DashboardService extends ChangeNotifier {
 
     // Increment tool usage count
     if (_toolService != null) {
-      await _toolService!.incrementUsage(placement.toolId);
+      await _toolService.incrementUsage(placement.toolId);
     }
   }
 

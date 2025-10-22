@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'package:flutter_colorpicker/flutter_colorpicker.dart';
 import '../models/tool_config.dart';
 import '../models/tool.dart';
+import '../models/tool_definition.dart' as def;
 import '../services/signalk_service.dart';
 import '../services/tool_registry.dart';
 import '../services/tool_service.dart';
@@ -33,6 +34,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
 
   // Configuration state
   String? _selectedToolTypeId;
+  String? _selectedCategory; // Filter by category
   List<DataSource> _dataSources = [];
 
   // Style configuration
@@ -120,6 +122,30 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
         // Keep current defaults for other tool types
         break;
     }
+  }
+
+  /// Filter tool definitions by selected category
+  List<def.ToolDefinition> _getFilteredToolDefinitions(List<def.ToolDefinition> allTools) {
+    if (_selectedCategory == null) {
+      return allTools; // Show all if no category selected
+    }
+
+    return allTools.where((toolDef) {
+      switch (_selectedCategory) {
+        case 'gauges':
+          // Gauges and text displays
+          return toolDef.category == def.ToolCategory.gauge || toolDef.category == def.ToolCategory.display;
+        case 'charts':
+          return toolDef.category == def.ToolCategory.chart;
+        case 'controls':
+          return toolDef.category == def.ToolCategory.control;
+        case 'instruments':
+          // Compass and other instruments
+          return toolDef.category == def.ToolCategory.compass || toolDef.category == def.ToolCategory.other;
+        default:
+          return true;
+      }
+    }).toList();
   }
 
   void _loadExistingTool() {
@@ -503,20 +529,65 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                       style: Theme.of(context).textTheme.titleMedium,
                     ),
                     const SizedBox(height: 16),
+                    // Category filter chips
                     Wrap(
                       spacing: 8,
                       runSpacing: 8,
-                      children: toolDefinitions.map((def) {
-                        final isSelected = _selectedToolTypeId == def.id;
+                      children: [
+                        FilterChip(
+                          label: const Text('Gauges & Text'),
+                          selected: _selectedCategory == 'gauges',
+                          onSelected: (selected) {
+                            setState(() {
+                              _selectedCategory = selected ? 'gauges' : null;
+                            });
+                          },
+                        ),
+                        FilterChip(
+                          label: const Text('Charts'),
+                          selected: _selectedCategory == 'charts',
+                          onSelected: (selected) {
+                            setState(() {
+                              _selectedCategory = selected ? 'charts' : null;
+                            });
+                          },
+                        ),
+                        FilterChip(
+                          label: const Text('Controls'),
+                          selected: _selectedCategory == 'controls',
+                          onSelected: (selected) {
+                            setState(() {
+                              _selectedCategory = selected ? 'controls' : null;
+                            });
+                          },
+                        ),
+                        FilterChip(
+                          label: const Text('Instruments'),
+                          selected: _selectedCategory == 'instruments',
+                          onSelected: (selected) {
+                            setState(() {
+                              _selectedCategory = selected ? 'instruments' : null;
+                            });
+                          },
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    // Tool type chips (filtered by category)
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: _getFilteredToolDefinitions(toolDefinitions).map((toolDef) {
+                        final isSelected = _selectedToolTypeId == toolDef.id;
                         return ChoiceChip(
-                          label: Text(def.name),
+                          label: Text(toolDef.name),
                           selected: isSelected,
                           onSelected: (_) {
                             setState(() {
-                              _selectedToolTypeId = def.id;
+                              _selectedToolTypeId = toolDef.id;
                               // Load default paths when tool type is selected (only if no paths configured yet)
                               if (_dataSources.isEmpty && widget.existingTool == null) {
-                                _loadDefaultsForToolType(def.id);
+                                _loadDefaultsForToolType(toolDef.id);
                               }
                             });
                           },
@@ -725,7 +796,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                           border: OutlineInputBorder(),
                           helperText: 'How much historical data to show',
                         ),
-                        value: _polarHistorySeconds,
+                        initialValue: _polarHistorySeconds,
                         items: const [
                           DropdownMenuItem(value: 30, child: Text('30 seconds')),
                           DropdownMenuItem(value: 60, child: Text('1 minute')),
@@ -761,7 +832,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                           border: OutlineInputBorder(),
                           helperText: 'Display vessels within this range (0 = auto)',
                         ),
-                        value: _aisMaxRangeNm,
+                        initialValue: _aisMaxRangeNm,
                         items: const [
                           DropdownMenuItem(value: 0.0, child: Text('Auto (fit all vessels)')),
                           DropdownMenuItem(value: 1.0, child: Text('1 nautical mile')),
@@ -783,7 +854,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                           border: OutlineInputBorder(),
                           helperText: 'How often to refresh vessel data',
                         ),
-                        value: _aisUpdateInterval,
+                        initialValue: _aisUpdateInterval,
                         items: const [
                           DropdownMenuItem(value: 5, child: Text('5 seconds')),
                           DropdownMenuItem(value: 10, child: Text('10 seconds')),
@@ -818,7 +889,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                           labelText: 'Time Duration',
                           border: OutlineInputBorder(),
                         ),
-                        value: _chartDuration,
+                        initialValue: _chartDuration,
                         items: const [
                           DropdownMenuItem(value: '15m', child: Text('15 minutes')),
                           DropdownMenuItem(value: '30m', child: Text('30 minutes')),
@@ -842,7 +913,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                           border: OutlineInputBorder(),
                           helperText: 'Auto lets the server optimize for the timeframe',
                         ),
-                        value: _chartResolution,
+                        initialValue: _chartResolution,
                         items: const [
                           DropdownMenuItem(value: null, child: Text('Auto (Recommended)')),
                           DropdownMenuItem(value: 30000, child: Text('30 seconds')),
@@ -876,7 +947,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                           border: OutlineInputBorder(),
                           helperText: 'Visual style of the chart',
                         ),
-                        value: _chartStyle,
+                        initialValue: _chartStyle,
                         items: const [
                           DropdownMenuItem(value: 'area', child: Text('Area (filled spline)')),
                           DropdownMenuItem(value: 'line', child: Text('Line (spline only)')),
@@ -906,7 +977,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                               labelText: 'Refresh Interval',
                               border: OutlineInputBorder(),
                             ),
-                            value: _chartRefreshInterval,
+                            initialValue: _chartRefreshInterval,
                             items: const [
                               DropdownMenuItem(value: 30, child: Text('30 seconds')),
                               DropdownMenuItem(value: 60, child: Text('1 minute')),
@@ -1175,7 +1246,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
           border: OutlineInputBorder(),
           helperText: 'Show "--" if data is older than this threshold',
         ),
-        value: _ttlSeconds,
+        initialValue: _ttlSeconds,
         items: const [
           DropdownMenuItem(value: null, child: Text('No check (always show data)')),
           DropdownMenuItem(value: 5, child: Text('5 seconds')),
@@ -1202,7 +1273,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
             border: OutlineInputBorder(),
             helperText: 'Visual style of the compass',
           ),
-          value: _compassStyle,
+          initialValue: _compassStyle,
           items: const [
             DropdownMenuItem(value: 'classic', child: Text('Classic (full circle with needle)')),
             DropdownMenuItem(value: 'arc', child: Text('Arc (180° semicircle)')),
@@ -1238,7 +1309,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
             border: OutlineInputBorder(),
             helperText: 'Visual style of the gauge',
           ),
-          value: _gaugeStyle,
+          initialValue: _gaugeStyle,
           items: const [
             DropdownMenuItem(value: 'arc', child: Text('Arc (270° default)')),
             DropdownMenuItem(value: 'full', child: Text('Full Circle (360° with needle)')),
@@ -1297,7 +1368,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
             border: OutlineInputBorder(),
             helperText: 'Visual style of the linear gauge',
           ),
-          value: _linearGaugeStyle,
+          initialValue: _linearGaugeStyle,
           items: const [
             DropdownMenuItem(value: 'bar', child: Text('Bar (filled bar)')),
             DropdownMenuItem(value: 'thermometer', child: Text('Thermometer (rounded top)')),
@@ -1316,7 +1387,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
             labelText: 'Orientation',
             border: OutlineInputBorder(),
           ),
-          value: _orientation,
+          initialValue: _orientation,
           items: const [
             DropdownMenuItem(value: 'horizontal', child: Text('Horizontal')),
             DropdownMenuItem(value: 'vertical', child: Text('Vertical')),
@@ -1373,7 +1444,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
             border: OutlineInputBorder(),
             helperText: 'Number of decimal places to display',
           ),
-          value: _sliderDecimalPlaces,
+          initialValue: _sliderDecimalPlaces,
           items: const [
             DropdownMenuItem(value: 0, child: Text('0 (e.g., 42)')),
             DropdownMenuItem(value: 1, child: Text('1 (e.g., 42.5)')),
