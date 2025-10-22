@@ -17,6 +17,7 @@ import '../widgets/tools/radial_bar_chart_tool.dart';
 import '../widgets/tools/autopilot_tool.dart';
 import '../widgets/tools/polar_radar_chart_tool.dart';
 import '../widgets/tools/ais_polar_chart_tool.dart';
+import '../widgets/tools/wind_compass_tool.dart';
 
 /// Abstract builder for tool widgets
 abstract class ToolBuilder {
@@ -105,5 +106,6 @@ class ToolRegistry {
     register('autopilot', AutopilotToolBuilder());
     register('polar_radar_chart', PolarRadarChartBuilder());
     register('ais_polar_chart', AISPolarChartBuilder());
+    register('wind_compass', WindCompassToolBuilder());
   }
 }

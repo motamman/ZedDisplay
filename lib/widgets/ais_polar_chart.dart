@@ -14,8 +14,6 @@ class AISPolarChart extends StatefulWidget {
   final SignalKService signalKService;
   final String positionPath; // Path to own position (default: navigation.position)
   final String title;
-  final double maxRangeNm; // Maximum range in nautical miles (0 = auto)
-  final Duration updateInterval;
   final Color? vesselColor;
   final bool showLabels;
   final bool showGrid;
@@ -25,8 +23,6 @@ class AISPolarChart extends StatefulWidget {
     required this.signalKService,
     this.positionPath = 'navigation.position',
     this.title = 'AIS Vessels',
-    this.maxRangeNm = 0, // 0 = auto-scale
-    this.updateInterval = const Duration(seconds: 10),
     this.vesselColor,
     this.showLabels = true,
     this.showGrid = true,
@@ -38,15 +34,20 @@ class AISPolarChart extends StatefulWidget {
 
 class _AISPolarChartState extends State<AISPolarChart>
     with AutomaticKeepAliveClientMixin {
-  Timer? _updateTimer;
+  Timer? _highlightTimer;
   final List<_VesselPoint> _vessels = [];
 
   // Own position
   double? _ownLat;
   double? _ownLon;
 
-  // Auto-calculated range
+  // Range control
+  bool _autoRange = true;
+  double _manualRange = 5.0;
   double _calculatedRange = 5.0;
+
+  // Highlighted vessel (for tap-to-highlight)
+  String? _highlightedVesselMMSI;
 
   @override
   bool get wantKeepAlive => true;
@@ -54,21 +55,41 @@ class _AISPolarChartState extends State<AISPolarChart>
   @override
   void initState() {
     super.initState();
-    _startRealTimeUpdates();
+    // Listen for SignalK service updates (fires on every WebSocket update)
+    widget.signalKService.addListener(_onServiceUpdate);
+    // Load existing vessels from REST, then subscribe for real-time updates
+    widget.signalKService.loadAndSubscribeAISVessels();
     // Fetch immediately on init
     _updateVesselData();
   }
 
   @override
   void dispose() {
-    _updateTimer?.cancel();
+    widget.signalKService.removeListener(_onServiceUpdate);
+    _highlightTimer?.cancel();
     super.dispose();
   }
 
-  void _startRealTimeUpdates() {
-    _updateTimer = Timer.periodic(widget.updateInterval, (_) {
+  void _onServiceUpdate() {
+    if (mounted) {
+      _updateVesselData();
+    }
+  }
+
+  void _highlightVessel(String mmsi) {
+    setState(() {
+      _highlightedVesselMMSI = mmsi;
+    });
+
+    // Cancel existing timer
+    _highlightTimer?.cancel();
+
+    // Reset highlight after 3 seconds
+    _highlightTimer = Timer(const Duration(seconds: 3), () {
       if (mounted) {
-        _updateVesselData();
+        setState(() {
+          _highlightedVesselMMSI = null;
+        });
       }
     });
   }
@@ -94,13 +115,11 @@ class _AISPolarChartState extends State<AISPolarChart>
     });
   }
 
-  void _fetchNearbyVessels() async {
+  void _fetchNearbyVessels() {
     if (_ownLat == null || _ownLon == null) return;
 
-    final aisVessels = await widget.signalKService.getAllAISVessels();
-    print('AIS DEBUG: Found ${aisVessels.length} vessels from SignalK');
-
-    if (!mounted) return;
+    // Get live vessel data from WebSocket cache (populated by vessels.* subscription)
+    final aisVessels = widget.signalKService.getLiveAISVessels();
 
     // Build new vessel list
     final newVessels = <_VesselPoint>[];
@@ -119,8 +138,6 @@ class _AISPolarChartState extends State<AISPolarChart>
         final bearing = _calculateBearing(_ownLat!, _ownLon!, lat, lon);
         final distance = _calculateDistance(_ownLat!, _ownLon!, lat, lon);
 
-        print('AIS DEBUG: Vessel $vesselId - bearing: $bearing°, distance: ${distance.toStringAsFixed(2)}nm');
-
         newVessels.add(_VesselPoint(
           name: name,
           mmsi: vesselId,
@@ -133,24 +150,45 @@ class _AISPolarChartState extends State<AISPolarChart>
     }
 
     // Update state once with all vessels
-    if (mounted) {
-      setState(() {
-        _vessels.clear();
-        _vessels.addAll(newVessels);
+    setState(() {
+      _vessels.clear();
+      _vessels.addAll(newVessels);
 
-        // Auto-calculate range if needed
-        if (widget.maxRangeNm == 0 && _vessels.isNotEmpty) {
-          final maxDistance = _vessels.map((v) => v.distance).reduce((a, b) => a > b ? a : b);
-          _calculatedRange = (maxDistance * 1.2).clamp(1.0, 50.0); // 20% padding, min 1nm, max 50nm
-        }
-      });
-    }
-
-    print('AIS DEBUG: ${_vessels.length} vessels, range: ${_getDisplayRange().toStringAsFixed(1)}nm');
+      // Auto-calculate range if in auto mode
+      if (_autoRange && _vessels.isNotEmpty) {
+        final maxDistance = _vessels.map((v) => v.distance).reduce((a, b) => a > b ? a : b);
+        _calculatedRange = (maxDistance * 1.2).clamp(1.0, 50.0); // 20% padding, min 1nm, max 50nm
+      }
+    });
   }
 
   double _getDisplayRange() {
-    return widget.maxRangeNm > 0 ? widget.maxRangeNm : _calculatedRange;
+    return _autoRange ? _calculatedRange : _manualRange;
+  }
+
+  void _zoomIn() {
+    setState(() {
+      _autoRange = false;
+      _manualRange = (_manualRange / 1.5).clamp(0.5, 50.0);
+    });
+  }
+
+  void _zoomOut() {
+    setState(() {
+      _autoRange = false;
+      _manualRange = (_manualRange * 1.5).clamp(0.5, 50.0);
+    });
+  }
+
+  void _toggleAutoRange() {
+    setState(() {
+      _autoRange = !_autoRange;
+      if (_autoRange && _vessels.isNotEmpty) {
+        // Recalculate range when switching to auto
+        final maxDistance = _vessels.map((v) => v.distance).reduce((a, b) => a > b ? a : b);
+        _calculatedRange = (maxDistance * 1.2).clamp(1.0, 50.0);
+      }
+    });
   }
 
   /// Calculate bearing from point 1 to point 2 (in degrees, 0-360)
@@ -229,6 +267,7 @@ class _AISPolarChartState extends State<AISPolarChart>
             _buildHeader(context),
             const SizedBox(height: 16),
             Expanded(
+              flex: 2,
               child: Center(
                 child: AspectRatio(
                   aspectRatio: 1.0,
@@ -237,8 +276,8 @@ class _AISPolarChartState extends State<AISPolarChart>
               ),
             ),
             const SizedBox(height: 16),
-            SizedBox(
-              height: 200,
+            Expanded(
+              flex: 1,
               child: _buildVesselList(context, isDark),
             ),
           ],
@@ -264,12 +303,42 @@ class _AISPolarChartState extends State<AISPolarChart>
                 color: Colors.grey,
               ),
         ),
-        const SizedBox(width: 8),
-        Text(
-          '${_getDisplayRange().toStringAsFixed(1)} nm${widget.maxRangeNm == 0 ? ' (auto)' : ''}',
-          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: Colors.grey,
-              ),
+        const SizedBox(width: 16),
+        // Zoom out button
+        IconButton(
+          icon: const Icon(Icons.zoom_out, size: 20),
+          onPressed: _zoomOut,
+          tooltip: 'Zoom Out',
+          padding: EdgeInsets.zero,
+          constraints: const BoxConstraints(),
+        ),
+        const SizedBox(width: 4),
+        // Range display with auto indicator
+        InkWell(
+          onTap: _toggleAutoRange,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: _autoRange ? Colors.blue.withValues(alpha: 0.2) : Colors.grey.withValues(alpha: 0.2),
+              borderRadius: BorderRadius.circular(4),
+            ),
+            child: Text(
+              '${_getDisplayRange().toStringAsFixed(1)} nm${_autoRange ? ' (auto)' : ''}',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: _autoRange ? Colors.blue : Colors.grey,
+                    fontWeight: FontWeight.w500,
+                  ),
+            ),
+          ),
+        ),
+        const SizedBox(width: 4),
+        // Zoom in button
+        IconButton(
+          icon: const Icon(Icons.zoom_in, size: 20),
+          onPressed: _zoomIn,
+          tooltip: 'Zoom In',
+          padding: EdgeInsets.zero,
+          constraints: const BoxConstraints(),
         ),
       ],
     );
@@ -280,20 +349,28 @@ class _AISPolarChartState extends State<AISPolarChart>
     final vesselPoints = _vesselsToCartesian();
     final displayRange = _getDisplayRange();
 
+    // Split vessels into normal and highlighted
+    final normalVessels = vesselPoints.where((v) => v.mmsi != _highlightedVesselMMSI).toList();
+    final highlightedVessels = vesselPoints.where((v) => v.mmsi == _highlightedVesselMMSI).toList();
+
+    // Expand axis range to accommodate labels (labels are at 1.15 * range)
+    final axisRange = displayRange * 1.25;
+
     return SfCartesianChart(
       plotAreaBackgroundColor: Colors.transparent,
-      margin: const EdgeInsets.all(20),
+      margin: const EdgeInsets.all(5),
       primaryXAxis: NumericAxis(
-        minimum: -displayRange,
-        maximum: displayRange,
+        minimum: -axisRange,
+        maximum: axisRange,
         isVisible: false,
         majorGridLines: const MajorGridLines(width: 0),
       ),
       primaryYAxis: NumericAxis(
-        minimum: -displayRange,
-        maximum: displayRange,
+        minimum: -axisRange,
+        maximum: axisRange,
         isVisible: false,
         majorGridLines: const MajorGridLines(width: 0),
+        isInversed: true, // Flip Y-axis so North is at top
       ),
       plotAreaBorderWidth: 0,
       annotations: [
@@ -306,10 +383,11 @@ class _AISPolarChartState extends State<AISPolarChart>
           ..._buildGridSeries(displayRange, isDark),
         // Center point (own vessel)
         ScatterSeries<_CartesianPoint, double>(
-          dataSource: [_CartesianPoint(x: 0, y: 0, label: 'Own')],
+          dataSource: [_CartesianPoint(x: 0, y: 0, label: 'Own', mmsi: 'self')],
           xValueMapper: (_CartesianPoint point, _) => point.x,
           yValueMapper: (_CartesianPoint point, _) => point.y,
           color: Colors.green,
+          animationDuration: 0,
           markerSettings: const MarkerSettings(
             height: 12,
             width: 12,
@@ -318,19 +396,36 @@ class _AISPolarChartState extends State<AISPolarChart>
             borderWidth: 2,
           ),
         ),
-        // AIS vessels
-        if (vesselPoints.isNotEmpty)
+        // Normal AIS vessels
+        if (normalVessels.isNotEmpty)
           ScatterSeries<_CartesianPoint, double>(
-            dataSource: vesselPoints,
+            dataSource: normalVessels,
             xValueMapper: (_CartesianPoint point, _) => point.x,
             yValueMapper: (_CartesianPoint point, _) => point.y,
             color: vesselColor,
+            animationDuration: 0,
             markerSettings: MarkerSettings(
               height: 8,
               width: 8,
               shape: DataMarkerType.triangle,
               borderColor: vesselColor,
               borderWidth: 1,
+            ),
+          ),
+        // Highlighted AIS vessel (double size)
+        if (highlightedVessels.isNotEmpty)
+          ScatterSeries<_CartesianPoint, double>(
+            dataSource: highlightedVessels,
+            xValueMapper: (_CartesianPoint point, _) => point.x,
+            yValueMapper: (_CartesianPoint point, _) => point.y,
+            color: Colors.yellow,
+            animationDuration: 0,
+            markerSettings: const MarkerSettings(
+              height: 16,
+              width: 16,
+              shape: DataMarkerType.triangle,
+              borderColor: Colors.orange,
+              borderWidth: 2,
             ),
           ),
       ],
@@ -355,6 +450,7 @@ class _AISPolarChartState extends State<AISPolarChart>
           x: radius * math.cos(angleRad),
           y: radius * math.sin(angleRad),
           label: '',
+          mmsi: '',
         ));
       }
 
@@ -364,6 +460,7 @@ class _AISPolarChartState extends State<AISPolarChart>
         yValueMapper: (_CartesianPoint point, _) => point.y,
         color: gridColor,
         width: 1,
+        animationDuration: 0,
       ));
     }
 
@@ -372,17 +469,19 @@ class _AISPolarChartState extends State<AISPolarChart>
       final angle = i * math.pi / 8 - math.pi / 2; // Start from North
       series.add(LineSeries<_CartesianPoint, double>(
         dataSource: [
-          _CartesianPoint(x: 0, y: 0, label: ''),
+          _CartesianPoint(x: 0, y: 0, label: '', mmsi: ''),
           _CartesianPoint(
             x: maxRange * math.cos(angle),
             y: maxRange * math.sin(angle),
             label: '',
+            mmsi: '',
           ),
         ],
         xValueMapper: (_CartesianPoint point, _) => point.x,
         yValueMapper: (_CartesianPoint point, _) => point.y,
         color: radialColor,
         width: 1,
+        animationDuration: 0,
       ));
     }
 
@@ -469,7 +568,8 @@ class _AISPolarChartState extends State<AISPolarChart>
       return _CartesianPoint(
         x: x,
         y: y,
-        label: vessel.mmsi,
+        label: vessel.name ?? _extractMMSI(vessel.mmsi),
+        mmsi: vessel.mmsi,
       );
     }).toList();
   }
@@ -497,13 +597,14 @@ class _AISPolarChartState extends State<AISPolarChart>
 
         return ListTile(
           dense: true,
+          onTap: () => _highlightVessel(vessel.mmsi),
           leading: const Icon(
             Icons.navigation,
             color: Colors.grey,
             size: 20,
           ),
           title: Text(
-            vessel.name ?? vessel.mmsi.substring(vessel.mmsi.length > 15 ? vessel.mmsi.length - 15 : 0),
+            vessel.name ?? _extractMMSI(vessel.mmsi),
             style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
@@ -550,6 +651,16 @@ class _AISPolarChartState extends State<AISPolarChart>
     );
   }
 
+  /// Extract MMSI number from vessel ID (e.g., "urn:mrn:imo:mmsi:368346080" -> "368346080")
+  String _extractMMSI(String vesselId) {
+    // Try to extract MMSI from URN format
+    if (vesselId.contains(':')) {
+      final parts = vesselId.split(':');
+      return parts.last; // Return the last part (the MMSI number)
+    }
+    return vesselId; // Return as-is if not in URN format
+  }
+
   /// Calculate Closest Point of Approach (simplified)
   double? _calculateCPA(_VesselPoint vessel) {
     // Need own vessel COG and SOG for proper CPA calculation
@@ -585,10 +696,12 @@ class _CartesianPoint {
   final double x;
   final double y;
   final String label;
+  final String mmsi;
 
   _CartesianPoint({
     required this.x,
     required this.y,
     required this.label,
+    required this.mmsi,
   });
 }

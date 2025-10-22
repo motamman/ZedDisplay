@@ -215,19 +215,7 @@ class _PolarRadarChartState extends State<PolarRadarChart>
           width: 1,
         ),
         tickCount: 4,
-        ticksTextStyle: TextStyle(
-          color: isDark ? Colors.white70 : Colors.black54,
-          fontSize: 10,
-        ),
-        dataSets: [
-          RadarDataSet(
-            fillColor: fillColor,
-            borderColor: primaryColor,
-            borderWidth: 3,
-            entryRadius: 3,
-            dataEntries: radarData,
-          ),
-        ],
+        radarTouchData: RadarTouchData(enabled: false),
         getTitle: (index, angle) {
           if (!widget.showLabels) return RadarChartTitle(text: '');
 
@@ -243,6 +231,19 @@ class _PolarRadarChartState extends State<PolarRadarChart>
           fontSize: 12,
           fontWeight: FontWeight.bold,
         ),
+        ticksTextStyle: TextStyle(
+          color: isDark ? Colors.white70 : Colors.black54,
+          fontSize: 10,
+        ),
+        dataSets: [
+          RadarDataSet(
+            fillColor: fillColor,
+            borderColor: primaryColor,
+            borderWidth: 3,
+            entryRadius: 3,
+            dataEntries: radarData,
+          ),
+        ],
       ),
       swapAnimationDuration: const Duration(milliseconds: 150),
       swapAnimationCurve: Curves.easeInOut,
@@ -269,12 +270,17 @@ class _PolarRadarChartState extends State<PolarRadarChart>
         final angleDiff = _angleDifference(point.angle, compassAngle);
 
         // Use Gaussian-like weighting: stronger contribution for closer angles
-        final weight = math.exp(-math.pow(angleDiff / 30, 2));
-        values[i] = math.max(values[i], point.magnitude * weight);
+        // Only apply weight if angle is within 60° of the compass direction
+        if (angleDiff < 60) {
+          final weight = math.exp(-math.pow(angleDiff / 30, 2));
+          values[i] = math.max(values[i], point.magnitude * weight);
+        }
       }
     }
 
-    return values.map((v) => RadarEntry(value: v)).toList();
+    // Clamp very small values to 0 (below 1% of max)
+    final threshold = maxMag * 0.01;
+    return values.map((v) => RadarEntry(value: v < threshold ? 0 : v)).toList();
   }
 
   /// Calculate the smallest angle difference between two angles

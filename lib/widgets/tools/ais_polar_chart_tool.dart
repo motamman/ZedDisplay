@@ -23,8 +23,6 @@ class AISPolarChartTool extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     // Get configuration from custom properties
-    final maxRangeNm = (config.style.customProperties?['maxRangeNm'] as num?)?.toDouble() ?? 0.0;
-    final updateIntervalMs = config.style.customProperties?['updateInterval'] as int? ?? 10000;
     final showLabels = config.style.customProperties?['showLabels'] as bool? ?? true;
     final showGrid = config.style.customProperties?['showGrid'] as bool? ?? true;
 
@@ -51,8 +49,6 @@ class AISPolarChartTool extends StatelessWidget {
       signalKService: signalKService,
       positionPath: positionPath,
       title: title,
-      maxRangeNm: maxRangeNm,
-      updateInterval: Duration(milliseconds: updateIntervalMs),
       vesselColor: vesselColor,
       showLabels: showLabels,
       showGrid: showGrid,
@@ -80,8 +76,6 @@ class AISPolarChartBuilder extends ToolBuilder {
           'title',             // Chart title
           'showLabel',         // Show compass labels (N, NE, E, etc.)
           'showGrid',          // Show grid lines
-          'maxRangeNm',        // Maximum range in nautical miles (default: 5.0)
-          'updateInterval',    // Update interval in milliseconds (default: 2000)
         ],
       ),
     );
@@ -104,8 +98,6 @@ class AISPolarChartBuilder extends ToolBuilder {
       ],
       style: StyleConfig(
         customProperties: {
-          'maxRangeNm': 0.0, // Auto-scale
-          'updateInterval': 10000, // 10 seconds
           'showLabels': true,
           'showGrid': true,
           'title': 'AIS Vessels',
