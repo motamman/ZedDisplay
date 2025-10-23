@@ -27,6 +27,11 @@ class WindCompass extends StatefulWidget {
   final String? sogFormatted;
   final double? cogDegrees;
 
+  // Target AWA configuration
+  final double targetAWA;          // Optimal close-hauled angle from polar data (degrees)
+  final double targetTolerance;    // Acceptable deviation from target (degrees)
+  final bool showAWANumbers;       // Show numeric AWA display with target comparison
+
   const WindCompass({
     super.key,
     this.headingTrueRadians,
@@ -44,6 +49,9 @@ class WindCompass extends StatefulWidget {
     this.speedOverGround,
     this.sogFormatted,
     this.cogDegrees,
+    this.targetAWA = 40.0,
+    this.targetTolerance = 3.0,
+    this.showAWANumbers = true,
   });
 
   @override
@@ -65,11 +73,12 @@ class _WindCompassState extends State<WindCompass> {
   }
 
   /// Build sailing zones that handle 0°/360° wraparound
+  /// Uses configurable targetAWA instead of hardcoded angles
   List<GaugeRange> _buildSailingZones(double windDegrees) {
     final zones = <GaugeRange>[];
 
     // Helper to add a range, splitting if it crosses 0°
-    void addRange(double start, double end, Color color) {
+    void addRange(double start, double end, Color color, {double width = 25}) {
       final startNorm = _normalizeAngle(start);
       final endNorm = _normalizeAngle(end);
 
@@ -79,8 +88,8 @@ class _WindCompassState extends State<WindCompass> {
           startValue: startNorm,
           endValue: endNorm,
           color: color,
-          startWidth: 25,
-          endWidth: 25,
+          startWidth: width,
+          endWidth: width,
         ));
       } else {
         // Crosses 0°: split into two ranges
@@ -88,38 +97,184 @@ class _WindCompassState extends State<WindCompass> {
           startValue: startNorm,
           endValue: 360,
           color: color,
-          startWidth: 25,
-          endWidth: 25,
+          startWidth: width,
+          endWidth: width,
         ));
         zones.add(GaugeRange(
           startValue: 0,
           endValue: endNorm,
           color: color,
-          startWidth: 25,
-          endWidth: 25,
+          startWidth: width,
+          endWidth: width,
         ));
       }
     }
 
-    // Red zone - port tack (wind - 135° to wind - 45°, extended to 90° wide)
-    addRange(windDegrees - 135, windDegrees - 45, Colors.red.withValues(alpha: 0.5));
+    // GRADIATED ZONES - darker near close-hauled, lighter toward downwind
 
-    // No-go zone (wind - 45° to wind + 45°)
-    addRange(windDegrees - 45, windDegrees + 45, Colors.white.withValues(alpha: 0.3));
+    // PORT SIDE - Gradiated Red Zones (darker = more important)
+    // Zone 1: Close-hauled (target to 60°) - darkest
+    addRange(windDegrees - 60, windDegrees - widget.targetAWA, Colors.red.withValues(alpha: 0.6));
+    // Zone 2: Close reach (60° to 90°) - medium
+    addRange(windDegrees - 90, windDegrees - 60, Colors.red.withValues(alpha: 0.4));
+    // Zone 3: Beam reach (90° to 110°) - lighter
+    addRange(windDegrees - 110, windDegrees - 90, Colors.red.withValues(alpha: 0.25));
+    // Zone 4: Broad reach/run (110° to 150°) - lightest
+    addRange(windDegrees - 150, windDegrees - 110, Colors.red.withValues(alpha: 0.15));
 
-    // Green zone - starboard tack (wind + 45° to wind + 135°, extended to 90° wide)
-    addRange(windDegrees + 45, windDegrees + 135, Colors.green.withValues(alpha: 0.5));
+    // No-go zone (wind ± targetAWA)
+    addRange(windDegrees - widget.targetAWA, windDegrees + widget.targetAWA, Colors.white.withValues(alpha: 0.3));
+
+    // STARBOARD SIDE - Gradiated Green Zones (darker = more important)
+    // Zone 1: Close-hauled (target to 60°) - darkest
+    addRange(windDegrees + widget.targetAWA, windDegrees + 60, Colors.green.withValues(alpha: 0.6));
+    // Zone 2: Close reach (60° to 90°) - medium
+    addRange(windDegrees + 60, windDegrees + 90, Colors.green.withValues(alpha: 0.4));
+    // Zone 3: Beam reach (90° to 110°) - lighter
+    addRange(windDegrees + 90, windDegrees + 110, Colors.green.withValues(alpha: 0.25));
+    // Zone 4: Broad reach/run (110° to 150°) - lightest
+    addRange(windDegrees + 110, windDegrees + 150, Colors.green.withValues(alpha: 0.15));
+
+    // PERFORMANCE ZONES - layer on top with narrower width to show as inner rings
+    final target = widget.targetAWA;
+    final tolerance = widget.targetTolerance;
+
+    // PORT SIDE PERFORMANCE ZONES
+    // Optimal green zone: target ± tolerance (e.g., 40° ± 3° = 37-43°)
+    addRange(windDegrees - target - tolerance, windDegrees - target + tolerance,
+             Colors.green.withValues(alpha: 0.8), width: 15);
+
+    // Acceptable yellow zones: tolerance to 2×tolerance
+    addRange(windDegrees - target - (2 * tolerance), windDegrees - target - tolerance,
+             Colors.yellow.withValues(alpha: 0.7), width: 15);
+    addRange(windDegrees - target + tolerance, windDegrees - target + (2 * tolerance),
+             Colors.yellow.withValues(alpha: 0.7), width: 15);
+
+    // STARBOARD SIDE PERFORMANCE ZONES
+    // Optimal green zone: target ± tolerance
+    addRange(windDegrees + target - tolerance, windDegrees + target + tolerance,
+             Colors.green.withValues(alpha: 0.8), width: 15);
+
+    // Acceptable yellow zones: tolerance to 2×tolerance
+    addRange(windDegrees + target - (2 * tolerance), windDegrees + target - tolerance,
+             Colors.yellow.withValues(alpha: 0.7), width: 15);
+    addRange(windDegrees + target + tolerance, windDegrees + target + (2 * tolerance),
+             Colors.yellow.withValues(alpha: 0.7), width: 15);
 
     return zones;
   }
 
+  /// Build AWA performance display showing current vs target
+  Widget _buildAWAPerformanceDisplay(double headingDegrees) {
+    // Calculate AWA (Apparent Wind Angle) - relative to boat
+    final windDirection = widget.windDirectionApparentDegrees!;
+    double awa = windDirection - headingDegrees;
+
+    // Normalize to -180 to +180 range
+    while (awa > 180) {
+      awa -= 360;
+    }
+    while (awa < -180) {
+      awa += 360;
+    }
+
+    // Get absolute AWA for comparison with target
+    final absAWA = awa.abs();
+    final diff = absAWA - widget.targetAWA;
+    final absDiff = diff.abs();
+
+    // Determine status color and text
+    Color statusColor;
+    String statusText;
+
+    if (absDiff <= widget.targetTolerance) {
+      statusColor = Colors.green;
+      statusText = 'OPTIMAL';
+    } else if (absDiff <= widget.targetTolerance * 2) {
+      statusColor = Colors.yellow;
+      statusText = diff > 0 ? 'HIGH' : 'LOW';
+    } else {
+      statusColor = Colors.red;
+      statusText = diff > 0 ? 'TOO HIGH' : 'TOO LOW';
+    }
+
+    return Positioned(
+      top: 35,
+      left: 0,
+      right: 0,
+      child: Center(
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: Colors.black.withValues(alpha: 0.8),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: statusColor, width: 2),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    'AWA: ',
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: Colors.white70,
+                    ),
+                  ),
+                  Text(
+                    '${absAWA.toStringAsFixed(0)}°',
+                    style: const TextStyle(
+                      fontSize: 16,
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    '(${awa > 0 ? "STBD" : "PORT"})',
+                    style: TextStyle(
+                      fontSize: 10,
+                      color: awa > 0 ? Colors.green : Colors.red,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 2),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    'TGT: ${widget.targetAWA.toStringAsFixed(0)}°',
+                    style: const TextStyle(
+                      fontSize: 11,
+                      color: Colors.white60,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    '${diff > 0 ? '+' : ''}${diff.toStringAsFixed(1)}° $statusText',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: statusColor,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   /// Build compass labels (N, S, E, W, degrees) as gauge annotations
-  /// Labels counter-rotate to stay upright while compass card rotates
+  /// Labels are positioned at their angle on the rotating gauge
   List<GaugeAnnotation> _buildCompassLabels() {
     final labels = <GaugeAnnotation>[];
-
-    // Get the current heading in DEGREES for counter-rotation (doesn't need to use selected heading)
-    final headingDegrees = widget.headingMagneticDegrees ?? widget.headingTrueDegrees ?? 0.0;
 
     for (int i = 0; i < 360; i += 30) {
       String label;
@@ -211,6 +366,7 @@ class _WindCompassState extends State<WindCompass> {
                       painter: NoGoZoneVPainter(
                         windAngle: primaryWindDegrees,
                         headingAngle: primaryHeadingDegrees,
+                        noGoAngle: widget.targetAWA,
                       ),
                     ),
                   ),
@@ -250,7 +406,7 @@ class _WindCompassState extends State<WindCompass> {
                     // Sailing zones: red (port tack), no-go, green (starboard tack)
                     ranges: <GaugeRange>[
                       if (primaryWindDegrees != null)
-                        ..._buildSailingZones(primaryWindDegrees!),
+                        ..._buildSailingZones(primaryWindDegrees),
                     ],
 
                     // Pointers for wind, heading, and COG (drawn in order: first = bottom, last = top)
@@ -406,6 +562,10 @@ class _WindCompassState extends State<WindCompass> {
                   ),
                 ),
               ),
+
+              // AWA Performance Display - shows current vs target
+              if (widget.showAWANumbers && widget.windDirectionApparentDegrees != null)
+                _buildAWAPerformanceDisplay(primaryHeadingDegrees),
 
               // Center display with heading (use degrees) - moved down
               Positioned.fill(
@@ -718,11 +878,12 @@ class _WindCompassState extends State<WindCompass> {
 class NoGoZoneVPainter extends CustomPainter {
   final double windAngle;
   final double headingAngle;
-  final double noGoAngle = 45.0; // ±45° from wind direction
+  final double noGoAngle; // Target AWA angle from wind direction
 
   NoGoZoneVPainter({
     required this.windAngle,
     required this.headingAngle,
+    this.noGoAngle = 40.0, // Default to 40° if not specified
   });
 
   @override

@@ -109,7 +109,8 @@ class WindsteerTool extends StatelessWidget {
 
     // Get style configuration
     final style = config.style;
-    final laylineAngle = style.laylineAngle ?? 45.0;
+    final laylineAngle = style.laylineAngle ?? 40.0;
+    final targetTolerance = style.targetTolerance ?? 3.0;
     final showLaylines = style.showLaylines ?? true;
     final showTrueWind = style.showTrueWind ?? true;
     final showCOG = style.showCOG ?? false;
@@ -179,8 +180,9 @@ class WindsteerToolBuilder extends ToolBuilder {
         styleOptions: const [
           'primaryColor',      // Apparent wind color (default: blue)
           'secondaryColor',    // True wind color (default: green)
-          'laylineAngle',      // Close-hauled layline angle in degrees (default: 45)
-          'showLaylines',      // Show close-hauled laylines (default: true)
+          'laylineAngle',      // Target AWA angle in degrees (default: 40)
+          'targetTolerance',   // Acceptable deviation from target in degrees (default: 3)
+          'showLaylines',      // Show target AWA lines (default: true)
           'showTrueWind',      // Show true wind indicator (default: true)
           'showCOG',           // Show course over ground (default: false)
           'showAWS',           // Show apparent wind speed (default: true)

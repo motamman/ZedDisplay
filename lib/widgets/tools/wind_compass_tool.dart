@@ -104,6 +104,12 @@ class WindCompassTool extends StatelessWidget {
       cogDegrees = signalKService.getConvertedValue(config.dataSources[7].path);
     }
 
+    // Get style configuration
+    final style = config.style;
+    final targetAWA = style.laylineAngle ?? 40.0;
+    final targetTolerance = style.targetTolerance ?? 3.0;
+    final showAWANumbers = style.customProperties?['showAWANumbers'] as bool? ?? true;
+
     // If no data available, show message
     if (headingTrueRadians == null && headingMagneticRadians == null) {
       return const Center(child: Text('No heading source configured'));
@@ -125,6 +131,9 @@ class WindCompassTool extends StatelessWidget {
       speedOverGround: speedOverGround,
       sogFormatted: sogFormatted,
       cogDegrees: cogDegrees,
+      targetAWA: targetAWA,
+      targetTolerance: targetTolerance,
+      showAWANumbers: showAWANumbers,
     );
   }
 }
@@ -144,7 +153,11 @@ class WindCompassToolBuilder extends ToolBuilder {
         allowsMultiplePaths: true,
         minPaths: 0,
         maxPaths: 8,
-        styleOptions: const [],
+        styleOptions: const [
+          'laylineAngle',                        // Target AWA angle in degrees (default: 40)
+          'targetTolerance',                     // Acceptable deviation from target in degrees (default: 3)
+          'customProperties.showAWANumbers',     // Show numeric AWA display with performance feedback (default: true)
+        ],
       ),
     );
   }

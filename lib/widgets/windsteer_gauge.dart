@@ -26,8 +26,8 @@ class WindsteerGauge extends StatelessWidget {
   final double? trueWindMaxHistoric;
 
   // Configuration
-  final double laylineAngle;
-  final bool showLaylines;
+  final double laylineAngle; // Target AWA angle (degrees) - optimal close-hauled angle from polar data
+  final bool showLaylines;   // Show target AWA lines
   final bool showTrueWind;
   final bool showCOG;
   final bool showAWS;
@@ -59,7 +59,7 @@ class WindsteerGauge extends StatelessWidget {
     this.trueWindMinHistoric,
     this.trueWindMidHistoric,
     this.trueWindMaxHistoric,
-    this.laylineAngle = 45.0,
+    this.laylineAngle = 40.0,
     this.showLaylines = true,
     this.showTrueWind = true,
     this.showCOG = false,
@@ -492,7 +492,8 @@ class _WindsteerPainter extends CustomPainter {
       ..strokeWidth = 3
       ..strokeCap = StrokeCap.round;
 
-    // Laylines are offset from AWA by the layline angle
+    // Target AWA lines: show optimal sailing angle from polar data
+    // These are performance steering guides, not true navigation laylines
     final portLaylineAngle = (awaAngle - laylineAngle) * math.pi / 180;
     final stbdLaylineAngle = (awaAngle + laylineAngle) * math.pi / 180;
 

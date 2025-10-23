@@ -39,8 +39,9 @@ class StyleConfig {
   final int? ttlSeconds;         // Data staleness threshold in seconds (null = no check)
 
   // Windsteer-specific options
-  final double? laylineAngle;    // Close-hauled layline angle (degrees)
-  final bool? showLaylines;      // Show laylines
+  final double? laylineAngle;    // Target AWA angle in degrees (default: 40)
+  final double? targetTolerance; // Acceptable deviation from target AWA in degrees (default: 3)
+  final bool? showLaylines;      // Show target AWA lines
   final bool? showTrueWind;      // Show true wind indicator
   final bool? showCOG;           // Show course over ground
   final bool? showAWS;           // Show apparent wind speed
@@ -62,6 +63,7 @@ class StyleConfig {
     this.showUnit = true,
     this.ttlSeconds,
     this.laylineAngle,
+    this.targetTolerance,
     this.showLaylines,
     this.showTrueWind,
     this.showCOG,
