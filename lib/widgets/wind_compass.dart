@@ -345,19 +345,28 @@ class _WindCompassState extends State<WindCompass> {
   List<GaugePointer> _buildWindPointers(double primaryHeadingDegrees) {
     final pointers = <GaugePointer>[];
 
-    // HEADING INDICATORS
-    // Yellow for true heading (if not primary)
-    if (widget.headingTrueDegrees != null)
-      pointers.add(NeedlePointer(
-        value: widget.headingTrueDegrees!,
-        needleLength: 0.92,
-        needleStartWidth: 0,
-        needleEndWidth: 10,
-        needleColor: Colors.yellow,
-        knobStyle: const KnobStyle(knobRadius: 0),
-      ));
+    // Determine which heading is primary (being used for compass rotation)
+    final isPrimaryTrue = widget.headingTrueDegrees != null &&
+                          (widget.headingTrueDegrees! - primaryHeadingDegrees).abs() < 0.5;
+    final isPrimaryMagnetic = widget.headingMagneticDegrees != null &&
+                              (widget.headingMagneticDegrees! - primaryHeadingDegrees).abs() < 0.5;
 
-    if (widget.headingTrueDegrees != null)
+    // HEADING INDICATORS
+    // True heading - only show needle if NOT primary (vessel shadow shows primary)
+    if (widget.headingTrueDegrees != null) {
+      // Only show needle for non-primary heading
+      if (!isPrimaryTrue) {
+        pointers.add(NeedlePointer(
+          value: widget.headingTrueDegrees!,
+          needleLength: 0.92,
+          needleStartWidth: 0,
+          needleEndWidth: 10,
+          needleColor: Colors.yellow,
+          knobStyle: const KnobStyle(knobRadius: 0),
+        ));
+      }
+
+      // Always show dot
       pointers.add(MarkerPointer(
         value: widget.headingTrueDegrees!,
         markerType: MarkerType.circle,
@@ -366,19 +375,23 @@ class _WindCompassState extends State<WindCompass> {
         color: Colors.yellow,
         markerOffset: -5,
       ));
+    }
 
-    // Orange for magnetic heading
-    if (widget.headingMagneticDegrees != null)
-      pointers.add(NeedlePointer(
-        value: widget.headingMagneticDegrees!,
-        needleLength: 0.92,
-        needleStartWidth: 0,
-        needleEndWidth: 10,
-        needleColor: Colors.orange,
-        knobStyle: const KnobStyle(knobRadius: 0),
-      ));
+    // Magnetic heading - only show needle if NOT primary (vessel shadow shows primary)
+    if (widget.headingMagneticDegrees != null) {
+      // Only show needle for non-primary heading
+      if (!isPrimaryMagnetic) {
+        pointers.add(NeedlePointer(
+          value: widget.headingMagneticDegrees!,
+          needleLength: 0.92,
+          needleStartWidth: 0,
+          needleEndWidth: 10,
+          needleColor: Colors.orange,
+          knobStyle: const KnobStyle(knobRadius: 0),
+        ));
+      }
 
-    if (widget.headingMagneticDegrees != null)
+      // Always show dot
       pointers.add(MarkerPointer(
         value: widget.headingMagneticDegrees!,
         markerType: MarkerType.circle,
@@ -387,6 +400,7 @@ class _WindCompassState extends State<WindCompass> {
         color: Colors.orange,
         markerOffset: -5,
       ));
+    }
 
     // COG (Course Over Ground)
     if (widget.cogDegrees != null) {

@@ -519,6 +519,10 @@ class SailTrimIndicatorPainter extends CustomPainter {
     // If wind from port (-), sail on starboard (+)
     final sailSide = apparentWindAngle > 0 ? -1.0 : 1.0;
 
+    // Check if in no-go zone (luffing) - typically < 40° or configurable target AWA
+    // For now, use 40° as standard no-go angle
+    final isLuffing = absAWA < 40;
+
     // Calculate sail position based on point of sail
     // Close hauled (0-50°): close to vessel
     // Close/beam reach (50-90°): medium distance
@@ -530,7 +534,7 @@ class SailTrimIndicatorPainter extends CustomPainter {
     if (absAWA < 50) {
       // Close hauled - tight sail, close to vessel
       sailDistance = 25 * scale;
-      sailColor = Colors.green.withValues(alpha: 0.8);
+      sailColor = isLuffing ? Colors.red.withValues(alpha: 0.8) : Colors.green.withValues(alpha: 0.8);
     } else if (absAWA < 90) {
       // Close to beam reach - sail easing out
       sailDistance = 35 * scale;
@@ -552,75 +556,106 @@ class SailTrimIndicatorPainter extends CustomPainter {
     final bowY = center.dy - 40 * scale;
     path.moveTo(center.dx + (sailSide * 8 * scale), bowY);
 
-    // Curve out to max distance at mid-vessel
-    final midY = center.dy + 10 * scale;
-    final controlPoint1 = Offset(
-      center.dx + (sailSide * sailDistance * 0.5),
-      center.dy - 20 * scale,
-    );
-    final controlPoint2 = Offset(
-      center.dx + (sailSide * sailDistance),
-      midY - 10 * scale,
-    );
-    final midPoint = Offset(
-      center.dx + (sailSide * sailDistance),
-      midY,
-    );
+    if (isLuffing) {
+      // LUFFING MODE - create smooth wavy sail edge to show fluttering
+      final totalHeight = 80 * scale;
+      final numWaves = 3; // Number of complete wave cycles
+      final waveAmplitude = 5 * scale; // Wave size
 
-    path.cubicTo(
-      controlPoint1.dx, controlPoint1.dy,
-      controlPoint2.dx, controlPoint2.dy,
-      midPoint.dx, midPoint.dy,
-    );
+      // Generate smooth curve points
+      final steps = 20; // More steps = smoother curve
+      Offset? prevPoint;
 
-    // Curve back toward stern
-    final sternY = center.dy + 40 * scale;
-    final controlPoint3 = Offset(
-      center.dx + (sailSide * sailDistance),
-      midY + 10 * scale,
-    );
-    final controlPoint4 = Offset(
-      center.dx + (sailSide * sailDistance * 0.5),
-      sternY - 5 * scale,
-    );
-    final sternPoint = Offset(
-      center.dx + (sailSide * 12 * scale),
-      sternY,
-    );
+      for (int i = 0; i <= steps; i++) {
+        final t = i / steps;
+        final y = bowY + (totalHeight * t);
 
-    path.cubicTo(
-      controlPoint3.dx, controlPoint3.dy,
-      controlPoint4.dx, controlPoint4.dy,
-      sternPoint.dx, sternPoint.dy,
-    );
+        // Base distance varies along sail length (billows out in middle)
+        double baseDistance;
+        if (t < 0.5) {
+          baseDistance = sailDistance * (0.3 + t * 1.4);
+        } else {
+          baseDistance = sailDistance * (1.0 - (t - 0.5) * 1.6);
+        }
+
+        // Add smooth wave
+        final wave = waveAmplitude * sin(t * numWaves * 2 * pi);
+        final x = center.dx + (sailSide * (baseDistance + wave));
+
+        final currentPoint = Offset(x, y);
+
+        if (i == 0) {
+          path.lineTo(x, y);
+        } else if (prevPoint != null) {
+          // Use smooth quadratic curves with control point at midpoint
+          final midY = (prevPoint.dy + currentPoint.dy) / 2;
+          final midX = (prevPoint.dx + currentPoint.dx) / 2;
+          path.quadraticBezierTo(midX, midY, currentPoint.dx, currentPoint.dy);
+        }
+
+        prevPoint = currentPoint;
+      }
+    } else {
+      // NORMAL MODE - smooth sail curve
+      // Curve out to max distance at mid-vessel
+      final midY = center.dy + 10 * scale;
+      final controlPoint1 = Offset(
+        center.dx + (sailSide * sailDistance * 0.5),
+        center.dy - 20 * scale,
+      );
+      final controlPoint2 = Offset(
+        center.dx + (sailSide * sailDistance),
+        midY - 10 * scale,
+      );
+      final midPoint = Offset(
+        center.dx + (sailSide * sailDistance),
+        midY,
+      );
+
+      path.cubicTo(
+        controlPoint1.dx, controlPoint1.dy,
+        controlPoint2.dx, controlPoint2.dy,
+        midPoint.dx, midPoint.dy,
+      );
+
+      // Curve back toward stern
+      final sternY = center.dy + 40 * scale;
+      final controlPoint3 = Offset(
+        center.dx + (sailSide * sailDistance),
+        midY + 10 * scale,
+      );
+      final controlPoint4 = Offset(
+        center.dx + (sailSide * sailDistance * 0.5),
+        sternY - 5 * scale,
+      );
+      final sternPoint = Offset(
+        center.dx + (sailSide * 12 * scale),
+        sternY,
+      );
+
+      path.cubicTo(
+        controlPoint3.dx, controlPoint3.dy,
+        controlPoint4.dx, controlPoint4.dy,
+        sternPoint.dx, sternPoint.dy,
+      );
+    }
 
     // Draw the sail curve
     final paint = Paint()
       ..color = sailColor
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 3.5
+      ..strokeWidth = isLuffing ? 2.5 : 3.5 // Thinner when luffing
       ..strokeCap = StrokeCap.round;
 
     canvas.drawPath(path, paint);
 
     // Draw semi-transparent fill to show sail area
     final fillPaint = Paint()
-      ..color = sailColor.withValues(alpha: 0.2)
+      ..color = sailColor.withValues(alpha: isLuffing ? 0.1 : 0.2) // More transparent when luffing
       ..style = PaintingStyle.fill;
 
-    // Create filled sail shape
-    final fillPath = Path();
-    fillPath.moveTo(center.dx + (sailSide * 8 * scale), bowY);
-    fillPath.cubicTo(
-      controlPoint1.dx, controlPoint1.dy,
-      controlPoint2.dx, controlPoint2.dy,
-      midPoint.dx, midPoint.dy,
-    );
-    fillPath.cubicTo(
-      controlPoint3.dx, controlPoint3.dy,
-      controlPoint4.dx, controlPoint4.dy,
-      sternPoint.dx, sternPoint.dy,
-    );
+    // Create filled sail shape - close path back to vessel
+    final fillPath = Path.from(path);
     // Line back along vessel side
     fillPath.lineTo(center.dx + (sailSide * 8 * scale), bowY);
     fillPath.close();

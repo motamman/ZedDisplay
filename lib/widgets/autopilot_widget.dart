@@ -149,6 +149,9 @@ class AutopilotWidget extends StatelessWidget {
   List<GaugePointer> _buildAutopilotPointers(double primaryHeadingDegrees) {
     final pointers = <GaugePointer>[];
 
+    // Determine which heading is primary (being used for compass rotation)
+    final usingTrueHeading = headingTrue;
+
     // Target heading marker (needle with rounded end) - drawn first (below)
     pointers.add(NeedlePointer(
       value: targetHeading,
@@ -169,16 +172,7 @@ class AutopilotWidget extends StatelessWidget {
       markerOffset: -5,
     ));
 
-    // Current heading indicator - drawn second (on top), smaller
-    pointers.add(NeedlePointer(
-      value: currentHeading,
-      needleLength: 0.92,
-      needleStartWidth: 0,
-      needleEndWidth: 7,
-      needleColor: Colors.yellow,
-      knobStyle: const KnobStyle(knobRadius: 0),
-    ));
-
+    // Current heading indicator - only show dot (no needle) since vessel shadow shows direction
     // Rounded end for current heading indicator
     pointers.add(MarkerPointer(
       value: currentHeading,
@@ -318,8 +312,9 @@ class AutopilotWidget extends StatelessWidget {
           ),
         ),
 
-        // XTE display (right side below heading display) if available
-        if (crossTrackError != null)
+        // XTE display (right side below heading display) if available and reasonable
+        // Only show XTE if < 10nm (~18520m) to filter out bad data
+        if (crossTrackError != null && crossTrackError!.abs() < 18520)
           Positioned(
             right: 16,
             bottom: 100,
