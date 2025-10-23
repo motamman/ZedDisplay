@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:syncfusion_flutter_gauges/gauges.dart';
 import 'dart:math' as math;
+import 'base_compass.dart';
 
 /// Full-featured autopilot control widget with compass display
-/// Based on marine compass style with rotating card
+/// Built on BaseCompass for consistent styling with wind compass
 class AutopilotWidget extends StatelessWidget {
   final double currentHeading; // Current heading in degrees (0-360)
   final double targetHeading; // Target autopilot heading
@@ -17,6 +18,13 @@ class AutopilotWidget extends StatelessWidget {
   final bool headingTrue; // True vs Magnetic heading
   final bool showWindIndicators; // Whether to show wind needles
   final Color primaryColor;
+
+  // Vessel configuration
+  final bool isSailingVessel; // Whether vessel is sailing type (shows wind mode & tack)
+
+  // Polar configuration (for wind mode zones)
+  final double targetAWA; // Optimal close-hauled angle (degrees)
+  final double targetTolerance; // Acceptable deviation from target (degrees)
 
   // Callbacks
   final VoidCallback? onEngageDisengage;
@@ -38,14 +46,337 @@ class AutopilotWidget extends StatelessWidget {
     this.headingTrue = false,
     this.showWindIndicators = false,
     this.primaryColor = Colors.red,
+    this.isSailingVessel = true,
+    this.targetAWA = 40.0,
+    this.targetTolerance = 3.0,
     this.onEngageDisengage,
     this.onModeChange,
     this.onAdjustHeading,
     this.onTack,
   });
 
+  /// Normalize angle to 0-360 range
+  double _normalizeAngle(double angle) {
+    while (angle < 0) angle += 360;
+    while (angle >= 360) angle -= 360;
+    return angle;
+  }
+
+  /// Build autopilot zones - SAME STYLE AS WIND COMPASS
+  List<GaugeRange> _buildAutopilotZones(double primaryHeadingDegrees) {
+    final zones = <GaugeRange>[];
+
+    // Helper to add a range, splitting if it crosses 0°
+    void addRange(double start, double end, Color color, {double width = 25}) {
+      final startNorm = _normalizeAngle(start);
+      final endNorm = _normalizeAngle(end);
+
+      if (startNorm < endNorm) {
+        zones.add(GaugeRange(
+          startValue: startNorm,
+          endValue: endNorm,
+          color: color,
+          startWidth: width,
+          endWidth: width,
+        ));
+      } else {
+        // Crosses 0°: split into two ranges
+        zones.add(GaugeRange(
+          startValue: startNorm,
+          endValue: 360,
+          color: color,
+          startWidth: width,
+          endWidth: width,
+        ));
+        zones.add(GaugeRange(
+          startValue: 0,
+          endValue: endNorm,
+          color: color,
+          startWidth: width,
+          endWidth: width,
+        ));
+      }
+    }
+
+    if (showWindIndicators && apparentWindAngle != null) {
+      // WIND MODE - USE EXACT SAME ZONES AS WIND COMPASS
+      final windDirection = _normalizeAngle(currentHeading + apparentWindAngle!);
+      final effectiveTargetAWA = targetAWA; // Use configured target AWA
+      final tolerance = targetTolerance; // Use configured tolerance
+
+      // PORT SIDE - Gradiated Red Zones (darker = more important)
+      addRange(windDirection - 60, windDirection - effectiveTargetAWA, Colors.red.withValues(alpha: 0.6));
+      addRange(windDirection - 90, windDirection - 60, Colors.red.withValues(alpha: 0.4));
+      addRange(windDirection - 110, windDirection - 90, Colors.red.withValues(alpha: 0.25));
+      addRange(windDirection - 150, windDirection - 110, Colors.red.withValues(alpha: 0.15));
+
+      // No-go zone (wind ± targetAWA)
+      addRange(windDirection - effectiveTargetAWA, windDirection + effectiveTargetAWA, Colors.white.withValues(alpha: 0.3));
+
+      // STARBOARD SIDE - Gradiated Green Zones (darker = more important)
+      addRange(windDirection + effectiveTargetAWA, windDirection + 60, Colors.green.withValues(alpha: 0.6));
+      addRange(windDirection + 60, windDirection + 90, Colors.green.withValues(alpha: 0.4));
+      addRange(windDirection + 90, windDirection + 110, Colors.green.withValues(alpha: 0.25));
+      addRange(windDirection + 110, windDirection + 150, Colors.green.withValues(alpha: 0.15));
+
+      // PERFORMANCE ZONES - layer on top with narrower width to show as inner rings
+      // PORT SIDE PERFORMANCE ZONES
+      addRange(windDirection - effectiveTargetAWA - tolerance, windDirection - effectiveTargetAWA + tolerance,
+               Colors.green.withValues(alpha: 0.8), width: 15);
+      addRange(windDirection - effectiveTargetAWA - (2 * tolerance), windDirection - effectiveTargetAWA - tolerance,
+               Colors.yellow.withValues(alpha: 0.7), width: 15);
+      addRange(windDirection - effectiveTargetAWA + tolerance, windDirection - effectiveTargetAWA + (2 * tolerance),
+               Colors.yellow.withValues(alpha: 0.7), width: 15);
+
+      // STARBOARD SIDE PERFORMANCE ZONES
+      addRange(windDirection + effectiveTargetAWA - tolerance, windDirection + effectiveTargetAWA + tolerance,
+               Colors.green.withValues(alpha: 0.8), width: 15);
+      addRange(windDirection + effectiveTargetAWA - (2 * tolerance), windDirection + effectiveTargetAWA - tolerance,
+               Colors.yellow.withValues(alpha: 0.7), width: 15);
+      addRange(windDirection + effectiveTargetAWA + tolerance, windDirection + effectiveTargetAWA + (2 * tolerance),
+               Colors.yellow.withValues(alpha: 0.7), width: 15);
+
+    } else {
+      // HEADING MODE - Simple port/starboard zones
+      addRange(currentHeading - 180, currentHeading, Colors.red.withValues(alpha: 0.3));
+      addRange(currentHeading, currentHeading + 180, Colors.green.withValues(alpha: 0.3));
+    }
+
+    return zones;
+  }
+
+  /// Build autopilot pointers (target, current heading, wind)
+  List<GaugePointer> _buildAutopilotPointers(double primaryHeadingDegrees) {
+    final pointers = <GaugePointer>[];
+
+    // Target heading marker (needle with rounded end) - drawn first (below)
+    pointers.add(NeedlePointer(
+      value: targetHeading,
+      needleLength: 0.92,
+      needleStartWidth: 0,
+      needleEndWidth: 10,
+      needleColor: primaryColor,
+      knobStyle: const KnobStyle(knobRadius: 0),
+    ));
+
+    // Rounded end for target heading indicator
+    pointers.add(MarkerPointer(
+      value: targetHeading,
+      markerType: MarkerType.circle,
+      markerHeight: 16,
+      markerWidth: 16,
+      color: primaryColor,
+      markerOffset: -5,
+    ));
+
+    // Current heading indicator - drawn second (on top), smaller
+    pointers.add(NeedlePointer(
+      value: currentHeading,
+      needleLength: 0.92,
+      needleStartWidth: 0,
+      needleEndWidth: 7,
+      needleColor: Colors.yellow,
+      knobStyle: const KnobStyle(knobRadius: 0),
+    ));
+
+    // Rounded end for current heading indicator
+    pointers.add(MarkerPointer(
+      value: currentHeading,
+      markerType: MarkerType.circle,
+      markerHeight: 11,
+      markerWidth: 11,
+      color: Colors.yellow,
+      markerOffset: -5,
+    ));
+
+    // WIND INDICATORS - only show in wind mode
+    if (showWindIndicators) {
+      // Apparent wind direction - primary (blue)
+      if (apparentWindDirection != null) {
+        pointers.add(NeedlePointer(
+          value: apparentWindDirection!,
+          needleLength: 0.95,
+          needleStartWidth: 5,
+          needleEndWidth: 0,
+          needleColor: Colors.blue,
+          knobStyle: const KnobStyle(
+            knobRadius: 0.03,
+            color: Colors.blue,
+          ),
+        ));
+      }
+
+      // True wind direction - secondary (green)
+      if (trueWindDirection != null) {
+        pointers.add(NeedlePointer(
+          value: trueWindDirection!,
+          needleLength: 0.75,
+          needleStartWidth: 4,
+          needleEndWidth: 0,
+          needleColor: Colors.green,
+          knobStyle: const KnobStyle(
+            knobRadius: 0.025,
+            color: Colors.green,
+          ),
+        ));
+      }
+    }
+
+    return pointers;
+  }
+
+  /// Build custom painters (no-go zone for wind mode)
+  List<CustomPainter> _buildCustomPainters(double primaryHeadingRadians, double primaryHeadingDegrees) {
+    final painters = <CustomPainter>[];
+
+    if (showWindIndicators && apparentWindAngle != null) {
+      painters.add(_NoGoZoneVPainter(
+        windDirection: _normalizeAngle(currentHeading + apparentWindAngle!),
+      ));
+    }
+
+    return painters;
+  }
+
+  /// Build autopilot overlay (minimal - just shows mode/target info)
+  Widget _buildAutopilotOverlay(double primaryHeadingDegrees) {
+    // Calculate heading error
+    double error = currentHeading - targetHeading;
+    while (error > 180) error -= 360;
+    while (error < -180) error += 360;
+
+    Color errorColor;
+    if (error.abs() < 3) {
+      errorColor = Colors.green;
+    } else if (error.abs() < 10) {
+      errorColor = Colors.yellow;
+    } else {
+      errorColor = Colors.red;
+    }
+
+    return Stack(
+      children: [
+        // Mode and target info at bottom center (above SOG/COG area)
+        Positioned(
+          bottom: 70,
+          left: 0,
+          right: 0,
+          child: Center(
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.8),
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(color: primaryColor, width: 2),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    mode.toUpperCase(),
+                    style: const TextStyle(
+                      fontSize: 10,
+                      color: Colors.white60,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 1.2,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Text(
+                        'TGT: ',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: Colors.white60,
+                        ),
+                      ),
+                      Text(
+                        '${targetHeading.toStringAsFixed(0)}°',
+                        style: TextStyle(
+                          fontSize: 16,
+                          color: primaryColor,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        '${error > 0 ? '+' : ''}${error.toStringAsFixed(1)}°',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: errorColor,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+
+        // XTE display (right side below heading display) if available
+        if (crossTrackError != null)
+          Positioned(
+            right: 16,
+            bottom: 100,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.8),
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(
+                  color: crossTrackError! >= 0 ? Colors.green : Colors.red,
+                  width: 2,
+                ),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  const Text(
+                    'XTE',
+                    style: TextStyle(
+                      fontSize: 10,
+                      color: Colors.white60,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    crossTrackError!.abs() >= 1000
+                        ? '${(crossTrackError!.abs() / 1000).toStringAsFixed(2)}'
+                        : '${crossTrackError!.abs().toStringAsFixed(0)}',
+                    style: const TextStyle(
+                      fontSize: 16,
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  Text(
+                    '${crossTrackError!.abs() >= 1000 ? 'km' : 'm'} ${crossTrackError! >= 0 ? 'STBD' : 'PORT'}',
+                    style: TextStyle(
+                      fontSize: 10,
+                      color: crossTrackError! >= 0 ? Colors.green : Colors.red,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+
   @override
   Widget build(BuildContext context) {
+    // Convert heading to radians for rotation
+    final headingRadians = currentHeading * math.pi / 180;
+
     return Container(
       padding: const EdgeInsets.all(16),
       child: Column(
@@ -53,7 +384,19 @@ class AutopilotWidget extends StatelessWidget {
           // Compass display
           Expanded(
             flex: 3,
-            child: _buildCompassDisplay(),
+            child: BaseCompass(
+              headingTrueRadians: headingTrue ? headingRadians : null,
+              headingMagneticRadians: !headingTrue ? headingRadians : null,
+              headingTrueDegrees: headingTrue ? currentHeading : null,
+              headingMagneticDegrees: !headingTrue ? currentHeading : null,
+              rangesBuilder: _buildAutopilotZones,
+              pointersBuilder: _buildAutopilotPointers,
+              customPaintersBuilder: _buildCustomPainters,
+              overlayBuilder: _buildAutopilotOverlay,
+              // Use default center display (current heading) - looks like wind compass
+              // Use default heading corner displays - looks like wind compass
+              allowHeadingModeToggle: false, // Autopilot uses one mode
+            ),
           ),
 
           const SizedBox(height: 16),
@@ -74,453 +417,12 @@ class AutopilotWidget extends StatelessWidget {
 
           const SizedBox(height: 12),
 
-          // Tack buttons
-          if (engaged && (mode == 'Auto' || mode == 'Wind'))
+          // Tack buttons (only for sailing vessels)
+          if (isSailingVessel && engaged && (mode == 'Auto' || mode == 'Wind'))
             _buildTackButtons(),
         ],
       ),
     );
-  }
-
-  Widget _buildCompassDisplay() {
-    return AspectRatio(
-      aspectRatio: 1,
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          final size = Size(constraints.maxWidth, constraints.maxHeight);
-          return Stack(
-            children: [
-              // Vessel shadow in center - FIXED pointing up
-              Center(
-                child: CustomPaint(
-                  size: size,
-                  painter: _VesselShadowPainter(),
-                ),
-              ),
-
-              // No-go zone V-shape - only in wind mode
-              if (showWindIndicators && apparentWindAngle != null)
-                Transform.rotate(
-                  angle: -currentHeading * math.pi / 180 - (math.pi / 2),
-                  child: CustomPaint(
-                    size: size,
-                    painter: _NoGoZoneVPainter(
-                      windDirection: _normalizeAngle(currentHeading + apparentWindAngle!),
-                    ),
-                  ),
-                ),
-
-              // Rotating compass card (marine style)
-              Transform.rotate(
-                angle: -currentHeading * math.pi / 180 - (math.pi / 2), // Rotate card opposite to heading, compensate for 90° offset
-                child: SfRadialGauge(
-              axes: <RadialAxis>[
-                RadialAxis(
-                  minimum: 0,
-                  maximum: 360,
-                  interval: 30,
-                  startAngle: 0,
-                  endAngle: 360,
-                  showAxisLine: false,
-                  showLastLabel: false,
-
-                  // Tick configuration - match wind compass style
-                  majorTickStyle: const MajorTickStyle(
-                    length: 15,
-                    thickness: 2,
-                    color: Colors.white70,
-                  ),
-                  minorTicksPerInterval: 2,
-                  minorTickStyle: const MinorTickStyle(
-                    length: 8,
-                    thickness: 1,
-                    color: Colors.white30,
-                  ),
-
-                  // Hide auto-generated labels - we'll add counter-rotating ones
-                  showLabels: false,
-
-                  // Zones: wind-based in wind mode, heading-based otherwise
-                  ranges: showWindIndicators && apparentWindAngle != null
-                      ? _buildWindSailingZones()
-                      : _buildHeadingZones(),
-
-                  // Target heading marker on rotating card
-                  pointers: [
-                    // Target heading marker (needle with rounded end) - drawn first (below)
-                    NeedlePointer(
-                      value: targetHeading,
-                      needleLength: 0.92,
-                      needleStartWidth: 0,
-                      needleEndWidth: 10,
-                      needleColor: primaryColor,
-                      knobStyle: const KnobStyle(
-                        knobRadius: 0,
-                      ),
-                    ),
-                    // Rounded end for target heading indicator
-                    MarkerPointer(
-                      value: targetHeading,
-                      markerType: MarkerType.circle,
-                      markerHeight: 16,
-                      markerWidth: 16,
-                      color: primaryColor,
-                      markerOffset: -5,
-                    ),
-
-                    // Current heading indicator - drawn second (on top), 1/3 smaller
-                    NeedlePointer(
-                      value: currentHeading,
-                      needleLength: 0.92,
-                      needleStartWidth: 0,
-                      needleEndWidth: 7, // 1/3 smaller (was 10)
-                      needleColor: Colors.yellow,
-                      knobStyle: const KnobStyle(
-                        knobRadius: 0,
-                      ),
-                    ),
-                    // Rounded end for current heading indicator
-                    MarkerPointer(
-                      value: currentHeading,
-                      markerType: MarkerType.circle,
-                      markerHeight: 11, // 1/3 smaller (was 16)
-                      markerWidth: 11,
-                      color: Colors.yellow,
-                      markerOffset: -5,
-                    ),
-
-                    // WIND INDICATORS - only show in wind mode
-                    // Apparent wind direction - primary (blue)
-                    if (showWindIndicators && apparentWindDirection != null)
-                      NeedlePointer(
-                        value: apparentWindDirection!,
-                        needleLength: 0.95,
-                        needleStartWidth: 5,
-                        needleEndWidth: 0,
-                        needleColor: Colors.blue,
-                        knobStyle: const KnobStyle(
-                          knobRadius: 0.03,
-                          color: Colors.blue,
-                        ),
-                      ),
-
-                    // True wind direction - secondary (green/cyan)
-                    if (showWindIndicators && trueWindDirection != null)
-                      NeedlePointer(
-                        value: trueWindDirection!,
-                        needleLength: 0.75,
-                        needleStartWidth: 4,
-                        needleEndWidth: 0,
-                        needleColor: Colors.green,
-                        knobStyle: const KnobStyle(
-                          knobRadius: 0.025,
-                          color: Colors.green,
-                        ),
-                      ),
-                  ],
-
-                  // Counter-rotating compass labels
-                  annotations: _buildCompassLabels(),
-                ),
-              ],
-            ),
-          ),
-
-              // Center annotation with target heading value (non-rotating)
-              // Positioned below the white center dot, inside vessel shape
-              Positioned(
-            top: size.height / 2 + 20, // Start just below the center dot (10px dot radius + 10px spacing)
-            left: 0,
-            right: 0,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  '${targetHeading.toStringAsFixed(0)}°',
-                  style: TextStyle(
-                    fontSize: 36,
-                    fontWeight: FontWeight.bold,
-                    color: primaryColor,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  mode.toUpperCase(),
-                  style: const TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w500,
-                    color: Colors.white70,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  'TARGET',
-                  style: const TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w300,
-                    color: Colors.white70,
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-          // White circle in the center - above everything
-          Positioned.fill(
-            child: Center(
-              child: Container(
-                width: 20,
-                height: 20,
-                decoration: const BoxDecoration(
-                  color: Colors.white,
-                  shape: BoxShape.circle,
-                ),
-              ),
-            ),
-          ),
-
-          // HDG label (top left)
-          Positioned(
-            left: 8,
-            top: 8,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              decoration: BoxDecoration(
-                color: Colors.black.withValues(alpha: 0.4),
-                borderRadius: BorderRadius.circular(4),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    'HDG',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Colors.white.withValues(alpha: 0.6),
-                    ),
-                  ),
-                  Text(
-                    '${currentHeading.toStringAsFixed(0)}°${headingTrue ? 'T' : 'M'}',
-                    style: const TextStyle(
-                      fontSize: 18,
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-
-          // AWA display (top right) if available
-          if (apparentWindAngle != null)
-            Positioned(
-              right: 8,
-              top: 8,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  color: Colors.black.withValues(alpha: 0.4),
-                  borderRadius: BorderRadius.circular(4),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      'AWA',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Colors.white.withValues(alpha: 0.6),
-                      ),
-                    ),
-                    Text(
-                      '${apparentWindAngle!.abs().toStringAsFixed(0)}° ${apparentWindAngle! >= 0 ? 'S' : 'P'}',
-                      style: const TextStyle(
-                        fontSize: 18,
-                        color: Colors.cyan,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            ],
-          );
-        },
-      ),
-    );
-  }
-
-  /// Build counter-rotating compass labels (N, S, E, W, and degree numbers)
-  List<GaugeAnnotation> _buildCompassLabels() {
-    final labels = <GaugeAnnotation>[];
-
-    for (int i = 0; i < 360; i += 30) {
-      String label;
-      Color labelColor;
-      double fontSize;
-
-      switch (i) {
-        case 0:
-          label = 'N';
-          labelColor = Colors.white;
-          fontSize = 24;
-          break;
-        case 90:
-          label = 'E';
-          labelColor = Colors.white70;
-          fontSize = 20;
-          break;
-        case 180:
-          label = 'S';
-          labelColor = Colors.white70;
-          fontSize = 20;
-          break;
-        case 270:
-          label = 'W';
-          labelColor = Colors.white70;
-          fontSize = 20;
-          break;
-        default:
-          label = i.toString();
-          labelColor = Colors.white54;
-          fontSize = 16;
-      }
-
-      labels.add(
-        GaugeAnnotation(
-          widget: Transform.rotate(
-            angle: currentHeading * math.pi / 180,  // Counter-rotate to keep upright
-            child: Text(
-              label,
-              style: TextStyle(
-                color: labelColor,
-                fontSize: fontSize,
-                fontWeight: fontSize > 20 ? FontWeight.bold : FontWeight.normal,
-              ),
-            ),
-          ),
-          angle: i.toDouble(),
-          positionFactor: 0.82,
-        ),
-      );
-    }
-
-    return labels;
-  }
-
-  /// Normalize angle to 0-360 range
-  double _normalizeAngle(double angle) {
-    while (angle < 0) {
-      angle += 360;
-    }
-    while (angle >= 360) {
-      angle -= 360;
-    }
-    return angle;
-  }
-
-  /// Build port/starboard zones based on heading (for non-wind modes)
-  /// Red on port (left), green on starboard (right), each extending 135° from heading
-  List<GaugeRange> _buildHeadingZones() {
-    final zones = <GaugeRange>[];
-
-    // Helper to add a range, splitting if it crosses 0°
-    void addRange(double start, double end, Color color) {
-      final startNorm = _normalizeAngle(start);
-      final endNorm = _normalizeAngle(end);
-
-      if (startNorm < endNorm) {
-        // Normal case: doesn't cross 0°
-        zones.add(GaugeRange(
-          startValue: startNorm,
-          endValue: endNorm,
-          color: color,
-          startWidth: 25,
-          endWidth: 25,
-        ));
-      } else {
-        // Crosses 0°: split into two ranges
-        zones.add(GaugeRange(
-          startValue: startNorm,
-          endValue: 360,
-          color: color,
-          startWidth: 25,
-          endWidth: 25,
-        ));
-        zones.add(GaugeRange(
-          startValue: 0,
-          endValue: endNorm,
-          color: color,
-          startWidth: 25,
-          endWidth: 25,
-        ));
-      }
-    }
-
-    // Port (left/red): from heading - 135° to heading
-    addRange(currentHeading - 135, currentHeading, Colors.red.withValues(alpha: 0.5));
-
-    // Starboard (right/green): from heading to heading + 135°
-    addRange(currentHeading, currentHeading + 135, Colors.green.withValues(alpha: 0.5));
-
-    return zones;
-  }
-
-  /// Build sailing zones (red/white/green) based on apparent wind angle (for wind mode)
-  List<GaugeRange> _buildWindSailingZones() {
-    if (apparentWindAngle == null) return [];
-
-    final zones = <GaugeRange>[];
-    // Convert apparent wind angle (relative, -180 to +180) to absolute wind direction
-    final windDirection = _normalizeAngle(currentHeading + apparentWindAngle!);
-
-    // Helper to add a range, splitting if it crosses 0°
-    void addRange(double start, double end, Color color) {
-      final startNorm = _normalizeAngle(start);
-      final endNorm = _normalizeAngle(end);
-
-      if (startNorm < endNorm) {
-        // Normal case: doesn't cross 0°
-        zones.add(GaugeRange(
-          startValue: startNorm,
-          endValue: endNorm,
-          color: color,
-          startWidth: 25,
-          endWidth: 25,
-        ));
-      } else {
-        // Crosses 0°: split into two ranges
-        zones.add(GaugeRange(
-          startValue: startNorm,
-          endValue: 360,
-          color: color,
-          startWidth: 25,
-          endWidth: 25,
-        ));
-        zones.add(GaugeRange(
-          startValue: 0,
-          endValue: endNorm,
-          color: color,
-          startWidth: 25,
-          endWidth: 25,
-        ));
-      }
-    }
-
-    // Red zone - port tack (wind - 135° to wind - 45°, extended to 90° wide)
-    addRange(windDirection - 135, windDirection - 45, Colors.red.withValues(alpha: 0.5));
-
-    // No-go zone (wind - 45° to wind + 45°)
-    addRange(windDirection - 45, windDirection + 45, Colors.white.withValues(alpha: 0.3));
-
-    // Green zone - starboard tack (wind + 45° to wind + 135°, extended to 90° wide)
-    addRange(windDirection + 45, windDirection + 135, Colors.green.withValues(alpha: 0.5));
-
-    return zones;
   }
 
   Widget _buildRudderIndicator() {
@@ -545,15 +447,12 @@ class AutopilotWidget extends StatelessWidget {
               Expanded(
                 child: LayoutBuilder(
                   builder: (context, constraints) {
-                    // Calculate rudder position within the available width
-                    // rudderAngle ranges from -35 to +35 degrees
-                    final normalizedPosition = (rudderAngle + 35) / 70; // 0.0 to 1.0
-                    final leftPosition = (constraints.maxWidth * normalizedPosition) - 4; // -4 for half width of indicator
+                    final normalizedPosition = (rudderAngle + 35) / 70;
+                    final leftPosition = (constraints.maxWidth * normalizedPosition) - 4;
 
                     return Stack(
                       alignment: Alignment.center,
                       children: [
-                        // Background bar
                         Container(
                           height: 20,
                           decoration: BoxDecoration(
@@ -561,13 +460,11 @@ class AutopilotWidget extends StatelessWidget {
                             borderRadius: BorderRadius.circular(4),
                           ),
                         ),
-                        // Center line
                         Container(
                           width: 2,
                           height: 30,
                           color: Colors.white.withValues(alpha: 0.5),
                         ),
-                        // Rudder position indicator
                         Positioned(
                           left: leftPosition.clamp(0.0, constraints.maxWidth - 8),
                           child: Container(
@@ -585,7 +482,6 @@ class AutopilotWidget extends StatelessWidget {
                             ),
                           ),
                         ),
-                        // Angle text
                         Text(
                           '${rudderAngle.toStringAsFixed(0)}°',
                           style: const TextStyle(
@@ -653,7 +549,9 @@ class AutopilotWidget extends StatelessWidget {
             ),
             const SizedBox(height: 16),
             _buildModeOption(context, 'Auto', 'Compass heading mode'),
-            _buildModeOption(context, 'Wind', 'Wind angle mode'),
+            // Wind mode only for sailing vessels
+            if (isSailingVessel)
+              _buildModeOption(context, 'Wind', 'Wind angle mode'),
             _buildModeOption(context, 'Route', 'Route following mode'),
             _buildModeOption(context, 'Standby', 'Autopilot standby'),
             const SizedBox(height: 8),
@@ -741,8 +639,8 @@ class AutopilotWidget extends StatelessWidget {
 
 /// Custom painter for no-go zone V-shape
 class _NoGoZoneVPainter extends CustomPainter {
-  final double windDirection; // Wind direction in degrees (0-360)
-  final double noGoAngle; // Half-angle of no-go zone (default 45°)
+  final double windDirection;
+  final double noGoAngle;
 
   _NoGoZoneVPainter({
     required this.windDirection,
@@ -752,40 +650,31 @@ class _NoGoZoneVPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final center = Offset(size.width / 2, size.height / 2);
-    final radius = size.width / 2 * 0.85; // 85% of radius to stay within compass
+    final radius = size.width / 2 * 0.85;
 
-    // Convert to radians
     final windRad = windDirection * math.pi / 180;
     final noGoRad = noGoAngle * math.pi / 180;
 
-    // Calculate the V-shape edges centered on wind direction
-    final leftAngle = windRad - noGoRad;  // -45° from wind direction
+    final leftAngle = windRad - noGoRad;
 
-    // Create path for V-shape
     final path = Path();
-    path.moveTo(center.dx, center.dy); // Start at center
+    path.moveTo(center.dx, center.dy);
 
-    // Left edge of V
     path.lineTo(
       center.dx + radius * math.cos(leftAngle),
       center.dy + radius * math.sin(leftAngle),
     );
 
-    // Arc along the perimeter from left to right edge
     path.arcTo(
       Rect.fromCircle(center: center, radius: radius),
       leftAngle,
-      2 * noGoRad,  // Sweep angle: from -45° to +45° (total 90°)
+      2 * noGoRad,
       false,
     );
 
-    // Right edge back to center
     path.lineTo(center.dx, center.dy);
-
-    // Close the path
     path.close();
 
-    // Draw the V-shape with 50% opacity grey
     final paint = Paint()
       ..color = Colors.grey.withValues(alpha: 0.5)
       ..style = PaintingStyle.fill;
@@ -797,50 +686,4 @@ class _NoGoZoneVPainter extends CustomPainter {
   bool shouldRepaint(_NoGoZoneVPainter oldDelegate) {
     return oldDelegate.windDirection != windDirection;
   }
-}
-
-/// Custom painter for vessel shadow in the center
-class _VesselShadowPainter extends CustomPainter {
-  @override
-  void paint(Canvas canvas, Size size) {
-    final center = Offset(size.width / 2, size.height / 2);
-    final scale = size.width / 200; // Scale for vessel size
-
-    // Create boat shape pointing up
-    final path = Path();
-
-    // Bow (front point) - larger vessel
-    path.moveTo(center.dx, center.dy - 60 * scale);
-
-    // Port side (left) - wider
-    path.lineTo(center.dx - 30 * scale, center.dy + 40 * scale);
-
-    // Stern (back) - wider
-    path.lineTo(center.dx - 16 * scale, center.dy + 50 * scale);
-    path.lineTo(center.dx + 16 * scale, center.dy + 50 * scale);
-
-    // Starboard side (right) - wider
-    path.lineTo(center.dx + 30 * scale, center.dy + 40 * scale);
-
-    // Back to bow
-    path.close();
-
-    // Draw vessel shadow with semi-transparent black
-    final paint = Paint()
-      ..color = Colors.black.withValues(alpha: 0.6)
-      ..style = PaintingStyle.fill;
-
-    canvas.drawPath(path, paint);
-
-    // Add a subtle outline
-    final outlinePaint = Paint()
-      ..color = Colors.white.withValues(alpha: 0.3)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 2.5;
-
-    canvas.drawPath(path, outlinePaint);
-  }
-
-  @override
-  bool shouldRepaint(_VesselShadowPainter oldDelegate) => false;
 }

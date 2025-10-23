@@ -46,6 +46,7 @@ class _AutopilotToolState extends State<AutopilotTool> {
   double? _apparentWindAngle;
   double? _trueWindAngle;
   double? _crossTrackError;
+  bool _isSailingVessel = true; // Default to true to show wind options unless we know otherwise
 
   // Adaptive polling - fast after commands, slow during monitoring
   Timer? _pollingTimer;
@@ -97,6 +98,7 @@ class _AutopilotToolState extends State<AutopilotTool> {
       'navigation.course.calcValues.distance',
       'navigation.course.calcValues.timeToGo',
       'navigation.course.calcValues.estimatedTimeOfArrival',
+      'design.aisShipType', // Vessel type to determine if sailing
     ];
 
     // Combine configured paths with additional paths (removing duplicates)
@@ -367,6 +369,21 @@ class _AutopilotToolState extends State<AutopilotTool> {
         // Value is already in degrees from units-preference plugin
         _trueWindAngle = (twaData!.value as num).toDouble();
       }
+
+      // Vessel type (to determine if sailing)
+      final vesselTypeData = widget.signalKService.getValue('design.aisShipType');
+      if (vesselTypeData?.value != null) {
+        final vesselType = vesselTypeData!.value;
+        if (vesselType is Map) {
+          // Check both name and id for sailing vessel
+          final name = vesselType['name']?.toString().toLowerCase() ?? '';
+          final id = vesselType['id'];
+          _isSailingVessel = name.contains('sail') || id == 36;
+        } else if (vesselType is num) {
+          // If it's just the id number
+          _isSailingVessel = vesselType == 36;
+        }
+      }
     });
   }
 
@@ -520,6 +537,10 @@ class _AutopilotToolState extends State<AutopilotTool> {
     // Get heading preference from config
     final headingTrue = widget.config.style.customProperties?['headingTrue'] as bool? ?? false;
 
+    // Get polar configuration from config (same fields as wind compass)
+    final targetAWA = widget.config.style.laylineAngle ?? 40.0;
+    final targetTolerance = widget.config.style.targetTolerance ?? 3.0;
+
     // Select the appropriate heading based on config
     final displayHeading = headingTrue ? _currentHeadingTrue : _currentHeading;
 
@@ -565,6 +586,9 @@ class _AutopilotToolState extends State<AutopilotTool> {
           headingTrue: headingTrue,
           showWindIndicators: isWindMode,
           primaryColor: primaryColor,
+          isSailingVessel: _isSailingVessel,
+          targetAWA: targetAWA,
+          targetTolerance: targetTolerance,
           onEngageDisengage: _handleEngageDisengage,
           onModeChange: _handleModeChange,
           onAdjustHeading: _handleAdjustHeading,
@@ -656,6 +680,8 @@ class AutopilotToolBuilder extends ToolBuilder {
           'primaryColor',
           'headingTrue',      // Boolean: use true vs magnetic heading
           'invertRudder',     // Boolean: invert rudder angle display
+          'laylineAngle',     // Number: optimal close-hauled angle (degrees) - same as wind compass
+          'targetTolerance',  // Number: acceptable deviation from target (degrees) - same as wind compass
         ],
       ),
     );
@@ -677,6 +703,8 @@ class AutopilotToolBuilder extends ToolBuilder {
       ],
       style: StyleConfig(
         primaryColor: '#FF0000', // Red for autopilot
+        laylineAngle: 40.0,      // Default target AWA
+        targetTolerance: 3.0,    // Default tolerance
       ),
     );
   }
