@@ -92,6 +92,7 @@ class WindCompass extends StatefulWidget {
   final double targetTolerance;    // Acceptable deviation from target (degrees)
   final bool showAWANumbers;       // Show numeric AWA display with target comparison
   final bool enableVMG;            // Enable VMG optimization with polar-based target AWA
+  final bool isSailingVessel;      // Whether vessel is sailing type (shows sail trim indicator)
 
   const WindCompass({
     super.key,
@@ -117,6 +118,7 @@ class WindCompass extends StatefulWidget {
     this.targetTolerance = 3.0,
     this.showAWANumbers = true,
     this.enableVMG = false,
+    this.isSailingVessel = true,
   });
 
   @override
@@ -974,6 +976,8 @@ class _WindCompassState extends State<WindCompass> {
       headingTrueDegrees: widget.headingTrueDegrees,
       headingMagneticDegrees: widget.headingMagneticDegrees,
       cogDegrees: widget.cogDegrees,
+      isSailingVessel: widget.isSailingVessel,
+      apparentWindAngle: widget.windAngleApparent,
       rangesBuilder: _buildSailingZones,
       pointersBuilder: _buildWindPointers,
       customPaintersBuilder: _buildCustomPainters,

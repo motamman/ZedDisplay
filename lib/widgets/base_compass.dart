@@ -14,6 +14,10 @@ class BaseCompass extends StatefulWidget {
   // COG (Course Over Ground) - optional
   final double? cogDegrees;
 
+  // Sailing vessel configuration
+  final bool isSailingVessel;
+  final double? apparentWindAngle; // AWA in degrees (-180 to +180) for sail trim indicator
+
   // Customization builders
   final List<GaugeRange> Function(double primaryHeadingDegrees)? rangesBuilder;
   final List<GaugePointer> Function(double primaryHeadingDegrees)? pointersBuilder;
@@ -44,6 +48,8 @@ class BaseCompass extends StatefulWidget {
     this.headingTrueDegrees,
     this.headingMagneticDegrees,
     this.cogDegrees,
+    this.isSailingVessel = false,
+    this.apparentWindAngle,
     this.rangesBuilder,
     this.pointersBuilder,
     this.customPaintersBuilder,
@@ -285,6 +291,19 @@ class _BaseCompassState extends State<BaseCompass> {
                 ),
               )),
 
+              // Sail trim indicator - LAYER 2.5 - for sailing vessels with wind data
+              if (widget.isSailingVessel && widget.apparentWindAngle != null)
+                Positioned.fill(
+                  child: Transform.rotate(
+                    angle: -primaryHeadingRadians - (pi / 2),
+                    child: CustomPaint(
+                      painter: SailTrimIndicatorPainter(
+                        apparentWindAngle: widget.apparentWindAngle!,
+                      ),
+                    ),
+                  ),
+                ),
+
               // Main compass gauge (full circle) - LAYER 3 - wrapped in Transform.rotate
               Transform.rotate(
                 angle: -primaryHeadingRadians - (pi / 2),  // Rotation minus 90° to compensate
@@ -476,4 +495,141 @@ class VesselShadowPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(VesselShadowPainter oldDelegate) => false;
+}
+
+/// Custom painter for sail trim indicator
+/// Shows a curved line on opposite side of vessel representing point of sail
+class SailTrimIndicatorPainter extends CustomPainter {
+  final double apparentWindAngle; // AWA in degrees (-180 to +180)
+
+  SailTrimIndicatorPainter({
+    required this.apparentWindAngle,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+    final scale = size.width / 200;
+
+    // Get absolute AWA
+    final absAWA = apparentWindAngle.abs();
+
+    // Determine side (opposite of wind)
+    // If wind from starboard (+), sail on port (-)
+    // If wind from port (-), sail on starboard (+)
+    final sailSide = apparentWindAngle > 0 ? -1.0 : 1.0;
+
+    // Calculate sail position based on point of sail
+    // Close hauled (0-50°): close to vessel
+    // Close/beam reach (50-90°): medium distance
+    // Beam/broad reach (90-135°): further out
+    // Running (135-180°): furthest out
+    double sailDistance;
+    Color sailColor;
+
+    if (absAWA < 50) {
+      // Close hauled - tight sail, close to vessel
+      sailDistance = 25 * scale;
+      sailColor = Colors.green.withValues(alpha: 0.8);
+    } else if (absAWA < 90) {
+      // Close to beam reach - sail easing out
+      sailDistance = 35 * scale;
+      sailColor = Colors.yellow.withValues(alpha: 0.8);
+    } else if (absAWA < 135) {
+      // Beam to broad reach - sail well out
+      sailDistance = 45 * scale;
+      sailColor = Colors.orange.withValues(alpha: 0.8);
+    } else {
+      // Running - sail all the way out
+      sailDistance = 55 * scale;
+      sailColor = Colors.red.withValues(alpha: 0.8);
+    }
+
+    // Draw curved sail line on the side opposite to wind
+    final path = Path();
+
+    // Sail starts at bow area
+    final bowY = center.dy - 40 * scale;
+    path.moveTo(center.dx + (sailSide * 8 * scale), bowY);
+
+    // Curve out to max distance at mid-vessel
+    final midY = center.dy + 10 * scale;
+    final controlPoint1 = Offset(
+      center.dx + (sailSide * sailDistance * 0.5),
+      center.dy - 20 * scale,
+    );
+    final controlPoint2 = Offset(
+      center.dx + (sailSide * sailDistance),
+      midY - 10 * scale,
+    );
+    final midPoint = Offset(
+      center.dx + (sailSide * sailDistance),
+      midY,
+    );
+
+    path.cubicTo(
+      controlPoint1.dx, controlPoint1.dy,
+      controlPoint2.dx, controlPoint2.dy,
+      midPoint.dx, midPoint.dy,
+    );
+
+    // Curve back toward stern
+    final sternY = center.dy + 40 * scale;
+    final controlPoint3 = Offset(
+      center.dx + (sailSide * sailDistance),
+      midY + 10 * scale,
+    );
+    final controlPoint4 = Offset(
+      center.dx + (sailSide * sailDistance * 0.5),
+      sternY - 5 * scale,
+    );
+    final sternPoint = Offset(
+      center.dx + (sailSide * 12 * scale),
+      sternY,
+    );
+
+    path.cubicTo(
+      controlPoint3.dx, controlPoint3.dy,
+      controlPoint4.dx, controlPoint4.dy,
+      sternPoint.dx, sternPoint.dy,
+    );
+
+    // Draw the sail curve
+    final paint = Paint()
+      ..color = sailColor
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 3.5
+      ..strokeCap = StrokeCap.round;
+
+    canvas.drawPath(path, paint);
+
+    // Draw semi-transparent fill to show sail area
+    final fillPaint = Paint()
+      ..color = sailColor.withValues(alpha: 0.2)
+      ..style = PaintingStyle.fill;
+
+    // Create filled sail shape
+    final fillPath = Path();
+    fillPath.moveTo(center.dx + (sailSide * 8 * scale), bowY);
+    fillPath.cubicTo(
+      controlPoint1.dx, controlPoint1.dy,
+      controlPoint2.dx, controlPoint2.dy,
+      midPoint.dx, midPoint.dy,
+    );
+    fillPath.cubicTo(
+      controlPoint3.dx, controlPoint3.dy,
+      controlPoint4.dx, controlPoint4.dy,
+      sternPoint.dx, sternPoint.dy,
+    );
+    // Line back along vessel side
+    fillPath.lineTo(center.dx + (sailSide * 8 * scale), bowY);
+    fillPath.close();
+
+    canvas.drawPath(fillPath, fillPaint);
+  }
+
+  @override
+  bool shouldRepaint(SailTrimIndicatorPainter oldDelegate) {
+    return oldDelegate.apparentWindAngle != apparentWindAngle;
+  }
 }

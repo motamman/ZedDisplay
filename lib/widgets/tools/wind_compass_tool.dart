@@ -129,6 +129,20 @@ class WindCompassTool extends StatelessWidget {
     final showAWANumbers = style.customProperties?['showAWANumbers'] as bool? ?? true;
     final enableVMG = style.customProperties?['enableVMG'] as bool? ?? false;
 
+    // Vessel type detection for sail trim indicator
+    bool isSailingVessel = true; // Default to true for wind compass
+    final vesselTypeData = signalKService.getValue('design.aisShipType');
+    if (vesselTypeData?.value != null) {
+      final vesselType = vesselTypeData!.value;
+      if (vesselType is Map) {
+        final name = vesselType['name']?.toString().toLowerCase() ?? '';
+        final id = vesselType['id'];
+        isSailingVessel = name.contains('sail') || id == 36;
+      } else if (vesselType is num) {
+        isSailingVessel = vesselType == 36;
+      }
+    }
+
     // If no data available, show message
     if (headingTrueRadians == null && headingMagneticRadians == null) {
       return const Center(child: Text('No heading source configured'));
@@ -157,6 +171,7 @@ class WindCompassTool extends StatelessWidget {
       targetTolerance: targetTolerance,
       showAWANumbers: showAWANumbers,
       enableVMG: enableVMG,
+      isSailingVessel: isSailingVessel,
     );
   }
 }

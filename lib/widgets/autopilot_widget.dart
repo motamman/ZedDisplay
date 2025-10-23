@@ -226,6 +226,7 @@ class AutopilotWidget extends StatelessWidget {
   }
 
   /// Build custom painters (no-go zone for wind mode)
+  /// Note: Sail trim indicator is now handled by BaseCompass automatically
   List<CustomPainter> _buildCustomPainters(double primaryHeadingRadians, double primaryHeadingDegrees) {
     final painters = <CustomPainter>[];
 
@@ -389,6 +390,8 @@ class AutopilotWidget extends StatelessWidget {
               headingMagneticRadians: !headingTrue ? headingRadians : null,
               headingTrueDegrees: headingTrue ? currentHeading : null,
               headingMagneticDegrees: !headingTrue ? currentHeading : null,
+              isSailingVessel: isSailingVessel,
+              apparentWindAngle: apparentWindAngle,
               rangesBuilder: _buildAutopilotZones,
               pointersBuilder: _buildAutopilotPointers,
               customPaintersBuilder: _buildCustomPainters,
