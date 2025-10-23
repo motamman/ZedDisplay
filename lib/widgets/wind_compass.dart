@@ -992,6 +992,8 @@ class _WindCompassState extends State<WindCompass> {
       cogDegrees: widget.cogDegrees,
       isSailingVessel: widget.isSailingVessel,
       apparentWindAngle: widget.windAngleApparent,
+      targetAWA: widget.targetAWA,
+      targetTolerance: widget.targetTolerance,
       rangesBuilder: _buildSailingZones,
       pointersBuilder: _buildWindPointers,
       customPaintersBuilder: _buildCustomPainters,

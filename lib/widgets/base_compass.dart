@@ -17,6 +17,8 @@ class BaseCompass extends StatefulWidget {
   // Sailing vessel configuration
   final bool isSailingVessel;
   final double? apparentWindAngle; // AWA in degrees (-180 to +180) for sail trim indicator
+  final double targetAWA; // Target AWA for optimal sailing (from polar)
+  final double targetTolerance; // Tolerance for target AWA
 
   // Customization builders
   final List<GaugeRange> Function(double primaryHeadingDegrees)? rangesBuilder;
@@ -50,6 +52,8 @@ class BaseCompass extends StatefulWidget {
     this.cogDegrees,
     this.isSailingVessel = false,
     this.apparentWindAngle,
+    this.targetAWA = 40.0,
+    this.targetTolerance = 3.0,
     this.rangesBuilder,
     this.pointersBuilder,
     this.customPaintersBuilder,
@@ -299,6 +303,8 @@ class _BaseCompassState extends State<BaseCompass> {
                     child: CustomPaint(
                       painter: SailTrimIndicatorPainter(
                         apparentWindAngle: widget.apparentWindAngle!,
+                        targetAWA: widget.targetAWA,
+                        targetTolerance: widget.targetTolerance,
                       ),
                     ),
                   ),
@@ -501,9 +507,13 @@ class VesselShadowPainter extends CustomPainter {
 /// Shows a curved line on opposite side of vessel representing point of sail
 class SailTrimIndicatorPainter extends CustomPainter {
   final double apparentWindAngle; // AWA in degrees (-180 to +180)
+  final double targetAWA; // Target AWA from polar configuration
+  final double targetTolerance; // Tolerance from polar configuration
 
   SailTrimIndicatorPainter({
     required this.apparentWindAngle,
+    this.targetAWA = 40.0,
+    this.targetTolerance = 3.0,
   });
 
   @override
@@ -519,34 +529,47 @@ class SailTrimIndicatorPainter extends CustomPainter {
     // If wind from port (-), sail on starboard (+)
     final sailSide = apparentWindAngle > 0 ? -1.0 : 1.0;
 
-    // Check if in no-go zone (luffing) - typically < 40° or configurable target AWA
-    // For now, use 40° as standard no-go angle
-    final isLuffing = absAWA < 40;
+    // Check if in no-go zone (luffing) - below target minus 2x tolerance
+    final isLuffing = absAWA < (targetAWA - 2 * targetTolerance);
 
-    // Calculate sail position based on point of sail
-    // Close hauled (0-50°): close to vessel
-    // Close/beam reach (50-90°): medium distance
-    // Beam/broad reach (90-135°): further out
-    // Running (135-180°): furthest out
+    // Calculate sail position and color based on point of sail
+    // Color matches the compass rim zones - POLAR ZONES FIRST
     double sailDistance;
     Color sailColor;
 
-    if (absAWA < 50) {
-      // Close hauled - tight sail, close to vessel
+    if (isLuffing) {
+      // In no-go zone - grey/white like the no-go zone on compass
       sailDistance = 25 * scale;
-      sailColor = isLuffing ? Colors.red.withValues(alpha: 0.8) : Colors.green.withValues(alpha: 0.8);
+      sailColor = Colors.grey.withValues(alpha: 0.8);
+    } else if (absAWA >= (targetAWA - targetTolerance) && absAWA <= (targetAWA + targetTolerance)) {
+      // Optimal performance zone - green (target ± tolerance)
+      sailDistance = 25 * scale;
+      sailColor = Colors.green.withValues(alpha: 0.8);
+    } else if ((absAWA >= (targetAWA - 2 * targetTolerance) && absAWA < (targetAWA - targetTolerance)) ||
+               (absAWA > (targetAWA + targetTolerance) && absAWA <= (targetAWA + 2 * targetTolerance))) {
+      // Acceptable performance zone - yellow (on both sides of green)
+      sailDistance = 28 * scale;
+      sailColor = Colors.yellow.withValues(alpha: 0.7);
+    } else if (absAWA < 60) {
+      // Close hauled zone - match gradiated zone colors (port tack green, starboard tack red)
+      sailDistance = 28 * scale;
+      sailColor = (apparentWindAngle < 0 ? Colors.green : Colors.red).withValues(alpha: 0.6);
     } else if (absAWA < 90) {
       // Close to beam reach - sail easing out
       sailDistance = 35 * scale;
-      sailColor = Colors.yellow.withValues(alpha: 0.8);
-    } else if (absAWA < 135) {
-      // Beam to broad reach - sail well out
+      sailColor = (apparentWindAngle < 0 ? Colors.green : Colors.red).withValues(alpha: 0.4);
+    } else if (absAWA < 110) {
+      // Beam reach
       sailDistance = 45 * scale;
-      sailColor = Colors.orange.withValues(alpha: 0.8);
+      sailColor = (apparentWindAngle < 0 ? Colors.green : Colors.red).withValues(alpha: 0.25);
+    } else if (absAWA < 150) {
+      // Broad reach
+      sailDistance = 50 * scale;
+      sailColor = (apparentWindAngle < 0 ? Colors.green : Colors.red).withValues(alpha: 0.15);
     } else {
-      // Running - sail all the way out
+      // Dead downwind (150-180°) - grey zone, no performance data
       sailDistance = 55 * scale;
-      sailColor = Colors.red.withValues(alpha: 0.8);
+      sailColor = Colors.grey.withValues(alpha: 0.5);
     }
 
     // Draw curved sail line on the side opposite to wind
@@ -644,14 +667,14 @@ class SailTrimIndicatorPainter extends CustomPainter {
     final paint = Paint()
       ..color = sailColor
       ..style = PaintingStyle.stroke
-      ..strokeWidth = isLuffing ? 2.5 : 3.5 // Thinner when luffing
+      ..strokeWidth = 3.5 // Same thickness for all sails
       ..strokeCap = StrokeCap.round;
 
     canvas.drawPath(path, paint);
 
     // Draw semi-transparent fill to show sail area
     final fillPaint = Paint()
-      ..color = sailColor.withValues(alpha: isLuffing ? 0.1 : 0.2) // More transparent when luffing
+      ..color = sailColor.withValues(alpha: 0.2) // Same transparency for all sails
       ..style = PaintingStyle.fill;
 
     // Create filled sail shape - close path back to vessel
@@ -665,6 +688,8 @@ class SailTrimIndicatorPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(SailTrimIndicatorPainter oldDelegate) {
-    return oldDelegate.apparentWindAngle != apparentWindAngle;
+    return oldDelegate.apparentWindAngle != apparentWindAngle ||
+           oldDelegate.targetAWA != targetAWA ||
+           oldDelegate.targetTolerance != targetTolerance;
   }
 }

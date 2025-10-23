@@ -387,6 +387,8 @@ class AutopilotWidget extends StatelessWidget {
               headingMagneticDegrees: !headingTrue ? currentHeading : null,
               isSailingVessel: isSailingVessel,
               apparentWindAngle: apparentWindAngle,
+              targetAWA: targetAWA,
+              targetTolerance: targetTolerance,
               rangesBuilder: _buildAutopilotZones,
               pointersBuilder: _buildAutopilotPointers,
               customPaintersBuilder: _buildCustomPainters,
