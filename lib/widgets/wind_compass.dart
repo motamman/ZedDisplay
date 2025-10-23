@@ -69,6 +69,9 @@ class WindCompass extends StatefulWidget {
   final double? windDirectionTrueDegrees;
   final double? windDirectionApparentDegrees;
 
+  // Raw apparent wind angle (relative to boat) - not converted to absolute direction
+  final double? windAngleApparent;
+
   // Wind speed values
   final double? windSpeedTrue;
   final String? windSpeedTrueFormatted;
@@ -99,6 +102,7 @@ class WindCompass extends StatefulWidget {
     this.windDirectionApparentRadians,
     this.windDirectionTrueDegrees,
     this.windDirectionApparentDegrees,
+    this.windAngleApparent,
     this.windSpeedTrue,
     this.windSpeedTrueFormatted,
     this.windSpeedApparent,
@@ -121,6 +125,126 @@ class WindCompass extends StatefulWidget {
 class _WindCompassState extends State<WindCompass> {
   bool _useTrueHeading = false; // Default to magnetic
   WindCompassMode _currentMode = WindCompassMode.targetAWA; // Default mode
+
+  // Wind shift tracking
+  final List<_WindSample> _windHistory = [];
+  static const int _windHistoryDuration = 30; // Track last 30 seconds
+  double? _baselineWindDirection; // Average wind direction for comparison
+
+  @override
+  void didUpdateWidget(WindCompass oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Update wind history when true wind direction changes
+    if (widget.windDirectionTrueDegrees != null &&
+        widget.windDirectionTrueDegrees != oldWidget.windDirectionTrueDegrees) {
+      _updateWindHistory(widget.windDirectionTrueDegrees!);
+    }
+  }
+
+  /// Update wind history with new sample
+  void _updateWindHistory(double windDirection) {
+    final now = DateTime.now();
+    _windHistory.add(_WindSample(windDirection, now));
+
+    // Remove old samples
+    final cutoff = now.subtract(Duration(seconds: _windHistoryDuration));
+    _windHistory.removeWhere((sample) => sample.timestamp.isBefore(cutoff));
+
+    // Calculate baseline (average) wind direction
+    if (_windHistory.length >= 5) {
+      _baselineWindDirection = _calculateAverageWindDirection();
+    }
+  }
+
+  /// Calculate average wind direction handling 0°/360° wraparound
+  double _calculateAverageWindDirection() {
+    if (_windHistory.isEmpty) return 0;
+
+    // Use vector averaging to handle wraparound
+    double sumSin = 0;
+    double sumCos = 0;
+
+    for (var sample in _windHistory) {
+      final radians = sample.direction * pi / 180;
+      sumSin += sin(radians);
+      sumCos += cos(radians);
+    }
+
+    final avgRadians = atan2(sumSin / _windHistory.length, sumCos / _windHistory.length);
+    double avgDegrees = avgRadians * 180 / pi;
+
+    if (avgDegrees < 0) avgDegrees += 360;
+
+    return avgDegrees;
+  }
+
+  /// Calculate wind shift from baseline
+  /// Returns: positive = clockwise shift, negative = counter-clockwise shift
+  double? _calculateWindShift() {
+    if (_baselineWindDirection == null || widget.windDirectionTrueDegrees == null) {
+      return null;
+    }
+
+    double shift = widget.windDirectionTrueDegrees! - _baselineWindDirection!;
+
+    // Normalize to -180 to +180 range
+    while (shift > 180) {
+      shift -= 360;
+    }
+    while (shift < -180) {
+      shift += 360;
+    }
+
+    return shift;
+  }
+
+  /// Determine if wind shift is a lift or header
+  /// Returns: 'lift', 'header', or null
+  String? _getShiftType(double shift) {
+    if (shift.abs() < 3) {
+      return null; // Shift too small to matter
+    }
+
+    // Calculate AWA to determine tack
+    // Use raw AWA if available, otherwise calculate from absolute direction
+    double? awa;
+    if (widget.windAngleApparent != null) {
+      // Use raw AWA value (already relative to boat, independent of true/magnetic)
+      awa = widget.windAngleApparent!;
+    } else if (widget.windDirectionApparentDegrees != null) {
+      // Fallback: calculate from absolute direction (old method, has true/magnetic bug)
+      final headingDegrees = widget.headingMagneticDegrees ?? widget.headingTrueDegrees;
+      if (headingDegrees != null) {
+        double tempAwa = widget.windDirectionApparentDegrees! - headingDegrees;
+        while (tempAwa > 180) {
+          tempAwa -= 360;
+        }
+        while (tempAwa < -180) {
+          tempAwa += 360;
+        }
+        awa = tempAwa;
+      }
+    }
+
+    if (awa == null) {
+      return null; // No AWA data available
+    }
+
+    // Only show lift/header when sailing upwind (AWA < 90°)
+    if (awa.abs() > 90) {
+      return null;
+    }
+
+    final isPortTack = awa < 0;
+
+    // Port tack: clockwise shift (+) = lift, counter-clockwise (-) = header
+    // Starboard tack: counter-clockwise (-) = lift, clockwise (+) = header
+    if (isPortTack) {
+      return shift > 0 ? 'lift' : 'header';
+    } else {
+      return shift < 0 ? 'lift' : 'header';
+    }
+  }
 
   /// Normalize angle to 0-360 range
   double _normalizeAngle(double angle) {
@@ -291,8 +415,16 @@ class _WindCompassState extends State<WindCompass> {
   /// Build AWA performance display showing current vs target (tappable to change modes)
   Widget _buildAWAPerformanceDisplay(double headingDegrees) {
     // Calculate AWA (Apparent Wind Angle) - relative to boat
-    final windDirection = widget.windDirectionApparentDegrees!;
-    double awa = windDirection - headingDegrees;
+    // Use raw AWA if available, otherwise calculate from absolute direction
+    double awa;
+    if (widget.windAngleApparent != null) {
+      // Use raw AWA value (already relative to boat, independent of true/magnetic)
+      awa = widget.windAngleApparent!;
+    } else {
+      // Fallback: calculate from absolute direction (old method, has true/magnetic bug)
+      final windDirection = widget.windDirectionApparentDegrees!;
+      awa = windDirection - headingDegrees;
+    }
 
     // Normalize to -180 to +180 range
     while (awa > 180) {
@@ -450,10 +582,14 @@ class _WindCompassState extends State<WindCompass> {
     }
 
     // Calculate AWA for status
-    final windDirection = widget.windDirectionApparentDegrees;
+    // Use raw AWA if available, otherwise calculate from absolute direction
     double? awa;
-    if (windDirection != null) {
-      double tempAwa = windDirection - headingDegrees;
+    if (widget.windAngleApparent != null) {
+      // Use raw AWA value (already relative to boat, independent of true/magnetic)
+      awa = widget.windAngleApparent!;
+    } else if (widget.windDirectionApparentDegrees != null) {
+      // Fallback: calculate from absolute direction (old method, has true/magnetic bug)
+      double tempAwa = widget.windDirectionApparentDegrees! - headingDegrees;
       while (tempAwa > 180) {
         tempAwa -= 360;
       }
@@ -538,6 +674,69 @@ class _WindCompassState extends State<WindCompass> {
           ),
         ],
       ],
+    );
+  }
+
+  /// Build wind shift indicator showing lift/header
+  Widget _buildWindShiftIndicator() {
+    final shift = _calculateWindShift();
+    if (shift == null || shift.abs() < 3) {
+      return const SizedBox.shrink(); // No significant shift
+    }
+
+    final shiftType = _getShiftType(shift);
+    if (shiftType == null) {
+      return const SizedBox.shrink(); // Not sailing upwind or shift too small
+    }
+
+    final isLift = shiftType == 'lift';
+    final shiftColor = isLift ? Colors.green : Colors.red;
+    final shiftIcon = isLift ? Icons.arrow_upward : Icons.arrow_downward;
+    final shiftLabel = isLift ? 'LIFT' : 'HEADER';
+
+    // Position inside compass rim on the right side
+    // Using a fixed offset that works well for typical compass sizes
+    return Positioned(
+      right: 80,
+      top: 0,
+      bottom: 0,
+      child: Center(
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
+          decoration: BoxDecoration(
+            color: Colors.black.withOpacity(0.7),
+            border: Border.all(color: shiftColor, width: 2),
+            borderRadius: BorderRadius.circular(6),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                shiftIcon,
+                color: shiftColor,
+                size: 24,
+              ),
+              const SizedBox(height: 2),
+              Text(
+                shiftLabel,
+                style: TextStyle(
+                  fontSize: 10,
+                  color: shiftColor,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              Text(
+                '${shift.abs().toStringAsFixed(0)}°',
+                style: TextStyle(
+                  fontSize: 14,
+                  color: shiftColor,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
@@ -760,7 +959,7 @@ class _WindCompassState extends State<WindCompass> {
                       painter: NoGoZoneVPainter(
                         windAngle: primaryWindDegrees,
                         headingAngle: primaryHeadingDegrees,
-                        noGoAngle: widget.targetAWA,
+                        noGoAngle: _getOptimalTargetAWA(), // Use dynamic target AWA
                       ),
                     ),
                   ),
@@ -952,6 +1151,9 @@ class _WindCompassState extends State<WindCompass> {
               // AWA Performance Display - shows current vs target
               if (widget.showAWANumbers && widget.windDirectionApparentDegrees != null)
                 _buildAWAPerformanceDisplay(primaryHeadingDegrees),
+
+              // Wind shift indicator (lift/header)
+              _buildWindShiftIndicator(),
 
               // Center display with heading (use degrees) - moved down
               Positioned.fill(
@@ -1373,7 +1575,9 @@ class NoGoZoneVPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(NoGoZoneVPainter oldDelegate) {
-    return oldDelegate.windAngle != windAngle || oldDelegate.headingAngle != headingAngle;
+    return oldDelegate.windAngle != windAngle ||
+           oldDelegate.headingAngle != headingAngle ||
+           oldDelegate.noGoAngle != noGoAngle;  // Must repaint when target AWA changes
   }
 }
 
@@ -1421,4 +1625,12 @@ class VesselShadowPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(VesselShadowPainter oldDelegate) => false;
+}
+
+/// Wind sample for tracking historical wind direction
+class _WindSample {
+  final double direction;
+  final DateTime timestamp;
+
+  _WindSample(this.direction, this.timestamp);
 }

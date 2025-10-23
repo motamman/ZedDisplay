@@ -57,13 +57,17 @@ class WindCompassTool extends StatelessWidget {
       windDirectionTrueDegrees = signalKService.getConvertedValue(config.dataSources[2].path);
     }
 
-    // Get wind angle apparent (relative to boat) and convert to absolute direction
+    // Get wind angle apparent (relative to boat) - keep raw value AND convert to absolute direction
     double? windDirectionApparentRadians;
     double? windDirectionApparentDegrees;
+    double? windAngleApparent; // Raw AWA value (not converted to absolute)
     if (config.dataSources.length > 3) {
       final dataPoint = signalKService.getValue(config.dataSources[3].path);
       final angleApparentRadians = dataPoint?.original is num ? (dataPoint!.original as num).toDouble() : null;
       final angleApparentDegrees = signalKService.getConvertedValue(config.dataSources[3].path);
+
+      // Store raw AWA value (degrees)
+      windAngleApparent = angleApparentDegrees;
 
       // Convert relative angle to absolute direction by adding to heading
       if (angleApparentRadians != null && (headingTrueRadians != null || headingMagneticRadians != null)) {
@@ -139,6 +143,7 @@ class WindCompassTool extends StatelessWidget {
       windDirectionApparentRadians: windDirectionApparentRadians,
       windDirectionTrueDegrees: windDirectionTrueDegrees,
       windDirectionApparentDegrees: windDirectionApparentDegrees,
+      windAngleApparent: windAngleApparent,
       windSpeedTrue: windSpeedTrue,
       windSpeedTrueFormatted: windSpeedTrueFormatted,
       windSpeedApparent: windSpeedApparent,
