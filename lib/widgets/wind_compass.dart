@@ -2,6 +2,58 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:syncfusion_flutter_gauges/gauges.dart';
 
+/// Display mode for wind compass
+enum WindCompassMode {
+  targetAWA,    // Performance steering - show target AWA zones
+  laylines,     // Navigation - show laylines to waypoint
+  vmg,          // VMG optimization - show velocity made good
+  combined,     // Show both (future)
+}
+
+/// Simple polar data - maps true wind speed to optimal upwind angle
+class SimplePolar {
+  // Default polar for typical 30-40ft cruiser/racer
+  static final Map<double, double> defaultUpwindAngles = {
+    0.0: 45.0,    // No wind - wide angle
+    5.0: 45.0,    // Light air (0-5 kts) - sail free for speed
+    8.0: 42.0,    // Light-medium (5-8 kts) - tighten up
+    12.0: 40.0,   // Medium (8-12 kts) - optimal pointing
+    16.0: 38.0,   // Medium-heavy (12-16 kts) - can point higher
+    20.0: 36.0,   // Heavy (16-20 kts) - flatten sails, point high
+    25.0: 38.0,   // Very heavy (20-25 kts) - ease slightly for power
+    30.0: 40.0,   // Storm (25+ kts) - sail for control
+  };
+
+  /// Get optimal upwind angle for given wind speed (linear interpolation)
+  static double getOptimalAngle(double windSpeed, {Map<double, double>? customPolar}) {
+    final polar = customPolar ?? defaultUpwindAngles;
+    final speeds = polar.keys.toList()..sort();
+
+    // Handle edge cases
+    if (windSpeed <= speeds.first) return polar[speeds.first]!;
+    if (windSpeed >= speeds.last) return polar[speeds.last]!;
+
+    // Find bracketing values
+    double lowerSpeed = speeds.first;
+    double upperSpeed = speeds.last;
+
+    for (int i = 0; i < speeds.length - 1; i++) {
+      if (windSpeed >= speeds[i] && windSpeed <= speeds[i + 1]) {
+        lowerSpeed = speeds[i];
+        upperSpeed = speeds[i + 1];
+        break;
+      }
+    }
+
+    // Linear interpolation
+    final lowerAngle = polar[lowerSpeed]!;
+    final upperAngle = polar[upperSpeed]!;
+    final ratio = (windSpeed - lowerSpeed) / (upperSpeed - lowerSpeed);
+
+    return lowerAngle + (upperAngle - lowerAngle) * ratio;
+  }
+}
+
 /// Wind compass gauge with full circle rotating card (autopilot style)
 /// Shows heading (true/magnetic), wind direction (true/apparent), and SOG
 class WindCompass extends StatefulWidget {
@@ -17,6 +69,9 @@ class WindCompass extends StatefulWidget {
   final double? windDirectionTrueDegrees;
   final double? windDirectionApparentDegrees;
 
+  // Raw apparent wind angle (relative to boat) - not converted to absolute direction
+  final double? windAngleApparent;
+
   // Wind speed values
   final double? windSpeedTrue;
   final String? windSpeedTrueFormatted;
@@ -26,6 +81,16 @@ class WindCompass extends StatefulWidget {
   final double? speedOverGround;
   final String? sogFormatted;
   final double? cogDegrees;
+
+  // Waypoint navigation
+  final double? waypointBearing;   // True bearing to waypoint (degrees)
+  final double? waypointDistance;  // Distance to waypoint (meters)
+
+  // Target AWA configuration
+  final double targetAWA;          // Optimal close-hauled angle from polar data (degrees)
+  final double targetTolerance;    // Acceptable deviation from target (degrees)
+  final bool showAWANumbers;       // Show numeric AWA display with target comparison
+  final bool enableVMG;            // Enable VMG optimization with polar-based target AWA
 
   const WindCompass({
     super.key,
@@ -37,6 +102,7 @@ class WindCompass extends StatefulWidget {
     this.windDirectionApparentRadians,
     this.windDirectionTrueDegrees,
     this.windDirectionApparentDegrees,
+    this.windAngleApparent,
     this.windSpeedTrue,
     this.windSpeedTrueFormatted,
     this.windSpeedApparent,
@@ -44,6 +110,12 @@ class WindCompass extends StatefulWidget {
     this.speedOverGround,
     this.sogFormatted,
     this.cogDegrees,
+    this.waypointBearing,
+    this.waypointDistance,
+    this.targetAWA = 40.0,
+    this.targetTolerance = 3.0,
+    this.showAWANumbers = true,
+    this.enableVMG = false,
   });
 
   @override
@@ -52,6 +124,127 @@ class WindCompass extends StatefulWidget {
 
 class _WindCompassState extends State<WindCompass> {
   bool _useTrueHeading = false; // Default to magnetic
+  WindCompassMode _currentMode = WindCompassMode.targetAWA; // Default mode
+
+  // Wind shift tracking
+  final List<_WindSample> _windHistory = [];
+  static const int _windHistoryDuration = 30; // Track last 30 seconds
+  double? _baselineWindDirection; // Average wind direction for comparison
+
+  @override
+  void didUpdateWidget(WindCompass oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Update wind history when true wind direction changes
+    if (widget.windDirectionTrueDegrees != null &&
+        widget.windDirectionTrueDegrees != oldWidget.windDirectionTrueDegrees) {
+      _updateWindHistory(widget.windDirectionTrueDegrees!);
+    }
+  }
+
+  /// Update wind history with new sample
+  void _updateWindHistory(double windDirection) {
+    final now = DateTime.now();
+    _windHistory.add(_WindSample(windDirection, now));
+
+    // Remove old samples
+    final cutoff = now.subtract(Duration(seconds: _windHistoryDuration));
+    _windHistory.removeWhere((sample) => sample.timestamp.isBefore(cutoff));
+
+    // Calculate baseline (average) wind direction
+    if (_windHistory.length >= 5) {
+      _baselineWindDirection = _calculateAverageWindDirection();
+    }
+  }
+
+  /// Calculate average wind direction handling 0°/360° wraparound
+  double _calculateAverageWindDirection() {
+    if (_windHistory.isEmpty) return 0;
+
+    // Use vector averaging to handle wraparound
+    double sumSin = 0;
+    double sumCos = 0;
+
+    for (var sample in _windHistory) {
+      final radians = sample.direction * pi / 180;
+      sumSin += sin(radians);
+      sumCos += cos(radians);
+    }
+
+    final avgRadians = atan2(sumSin / _windHistory.length, sumCos / _windHistory.length);
+    double avgDegrees = avgRadians * 180 / pi;
+
+    if (avgDegrees < 0) avgDegrees += 360;
+
+    return avgDegrees;
+  }
+
+  /// Calculate wind shift from baseline
+  /// Returns: positive = clockwise shift, negative = counter-clockwise shift
+  double? _calculateWindShift() {
+    if (_baselineWindDirection == null || widget.windDirectionTrueDegrees == null) {
+      return null;
+    }
+
+    double shift = widget.windDirectionTrueDegrees! - _baselineWindDirection!;
+
+    // Normalize to -180 to +180 range
+    while (shift > 180) {
+      shift -= 360;
+    }
+    while (shift < -180) {
+      shift += 360;
+    }
+
+    return shift;
+  }
+
+  /// Determine if wind shift is a lift or header
+  /// Returns: 'lift', 'header', or null
+  String? _getShiftType(double shift) {
+    if (shift.abs() < 3) {
+      return null; // Shift too small to matter
+    }
+
+    // Calculate AWA to determine tack
+    // Use raw AWA if available, otherwise calculate from absolute direction
+    double? awa;
+    if (widget.windAngleApparent != null) {
+      // Use raw AWA value (already relative to boat, independent of true/magnetic)
+      awa = widget.windAngleApparent!;
+    } else if (widget.windDirectionApparentDegrees != null) {
+      // Fallback: calculate from absolute direction (old method, has true/magnetic bug)
+      final headingDegrees = widget.headingMagneticDegrees ?? widget.headingTrueDegrees;
+      if (headingDegrees != null) {
+        double tempAwa = widget.windDirectionApparentDegrees! - headingDegrees;
+        while (tempAwa > 180) {
+          tempAwa -= 360;
+        }
+        while (tempAwa < -180) {
+          tempAwa += 360;
+        }
+        awa = tempAwa;
+      }
+    }
+
+    if (awa == null) {
+      return null; // No AWA data available
+    }
+
+    // Only show lift/header when sailing upwind (AWA < 90°)
+    if (awa.abs() > 90) {
+      return null;
+    }
+
+    final isPortTack = awa < 0;
+
+    // Port tack: clockwise shift (+) = lift, counter-clockwise (-) = header
+    // Starboard tack: counter-clockwise (-) = lift, clockwise (+) = header
+    if (isPortTack) {
+      return shift > 0 ? 'lift' : 'header';
+    } else {
+      return shift < 0 ? 'lift' : 'header';
+    }
+  }
 
   /// Normalize angle to 0-360 range
   double _normalizeAngle(double angle) {
@@ -65,11 +258,15 @@ class _WindCompassState extends State<WindCompass> {
   }
 
   /// Build sailing zones that handle 0°/360° wraparound
+  /// Uses configurable targetAWA (or dynamic polar-based target if VMG enabled)
   List<GaugeRange> _buildSailingZones(double windDegrees) {
     final zones = <GaugeRange>[];
 
+    // Use dynamic target AWA if VMG mode enabled
+    final effectiveTargetAWA = _getOptimalTargetAWA();
+
     // Helper to add a range, splitting if it crosses 0°
-    void addRange(double start, double end, Color color) {
+    void addRange(double start, double end, Color color, {double width = 25}) {
       final startNorm = _normalizeAngle(start);
       final endNorm = _normalizeAngle(end);
 
@@ -79,8 +276,8 @@ class _WindCompassState extends State<WindCompass> {
           startValue: startNorm,
           endValue: endNorm,
           color: color,
-          startWidth: 25,
-          endWidth: 25,
+          startWidth: width,
+          endWidth: width,
         ));
       } else {
         // Crosses 0°: split into two ranges
@@ -88,38 +285,589 @@ class _WindCompassState extends State<WindCompass> {
           startValue: startNorm,
           endValue: 360,
           color: color,
-          startWidth: 25,
-          endWidth: 25,
+          startWidth: width,
+          endWidth: width,
         ));
         zones.add(GaugeRange(
           startValue: 0,
           endValue: endNorm,
           color: color,
-          startWidth: 25,
-          endWidth: 25,
+          startWidth: width,
+          endWidth: width,
         ));
       }
     }
 
-    // Red zone - port tack (wind - 135° to wind - 45°, extended to 90° wide)
-    addRange(windDegrees - 135, windDegrees - 45, Colors.red.withValues(alpha: 0.5));
+    // GRADIATED ZONES - darker near close-hauled, lighter toward downwind
 
-    // No-go zone (wind - 45° to wind + 45°)
-    addRange(windDegrees - 45, windDegrees + 45, Colors.white.withValues(alpha: 0.3));
+    // PORT SIDE - Gradiated Red Zones (darker = more important)
+    // Zone 1: Close-hauled (target to 60°) - darkest
+    addRange(windDegrees - 60, windDegrees - effectiveTargetAWA, Colors.red.withValues(alpha: 0.6));
+    // Zone 2: Close reach (60° to 90°) - medium
+    addRange(windDegrees - 90, windDegrees - 60, Colors.red.withValues(alpha: 0.4));
+    // Zone 3: Beam reach (90° to 110°) - lighter
+    addRange(windDegrees - 110, windDegrees - 90, Colors.red.withValues(alpha: 0.25));
+    // Zone 4: Broad reach/run (110° to 150°) - lightest
+    addRange(windDegrees - 150, windDegrees - 110, Colors.red.withValues(alpha: 0.15));
 
-    // Green zone - starboard tack (wind + 45° to wind + 135°, extended to 90° wide)
-    addRange(windDegrees + 45, windDegrees + 135, Colors.green.withValues(alpha: 0.5));
+    // No-go zone (wind ± targetAWA)
+    addRange(windDegrees - effectiveTargetAWA, windDegrees + effectiveTargetAWA, Colors.white.withValues(alpha: 0.3));
+
+    // STARBOARD SIDE - Gradiated Green Zones (darker = more important)
+    // Zone 1: Close-hauled (target to 60°) - darkest
+    addRange(windDegrees + effectiveTargetAWA, windDegrees + 60, Colors.green.withValues(alpha: 0.6));
+    // Zone 2: Close reach (60° to 90°) - medium
+    addRange(windDegrees + 60, windDegrees + 90, Colors.green.withValues(alpha: 0.4));
+    // Zone 3: Beam reach (90° to 110°) - lighter
+    addRange(windDegrees + 90, windDegrees + 110, Colors.green.withValues(alpha: 0.25));
+    // Zone 4: Broad reach/run (110° to 150°) - lightest
+    addRange(windDegrees + 110, windDegrees + 150, Colors.green.withValues(alpha: 0.15));
+
+    // PERFORMANCE ZONES - layer on top with narrower width to show as inner rings
+    final target = effectiveTargetAWA;
+    final tolerance = widget.targetTolerance;
+
+    // PORT SIDE PERFORMANCE ZONES
+    // Optimal green zone: target ± tolerance (e.g., 40° ± 3° = 37-43°)
+    addRange(windDegrees - target - tolerance, windDegrees - target + tolerance,
+             Colors.green.withValues(alpha: 0.8), width: 15);
+
+    // Acceptable yellow zones: tolerance to 2×tolerance
+    addRange(windDegrees - target - (2 * tolerance), windDegrees - target - tolerance,
+             Colors.yellow.withValues(alpha: 0.7), width: 15);
+    addRange(windDegrees - target + tolerance, windDegrees - target + (2 * tolerance),
+             Colors.yellow.withValues(alpha: 0.7), width: 15);
+
+    // STARBOARD SIDE PERFORMANCE ZONES
+    // Optimal green zone: target ± tolerance
+    addRange(windDegrees + target - tolerance, windDegrees + target + tolerance,
+             Colors.green.withValues(alpha: 0.8), width: 15);
+
+    // Acceptable yellow zones: tolerance to 2×tolerance
+    addRange(windDegrees + target - (2 * tolerance), windDegrees + target - tolerance,
+             Colors.yellow.withValues(alpha: 0.7), width: 15);
+    addRange(windDegrees + target + tolerance, windDegrees + target + (2 * tolerance),
+             Colors.yellow.withValues(alpha: 0.7), width: 15);
 
     return zones;
   }
 
+  /// Cycle through display modes
+  void _cycleMode() {
+    setState(() {
+      switch (_currentMode) {
+        case WindCompassMode.targetAWA:
+          // Switch to VMG if enabled, otherwise laylines, otherwise stay
+          if (widget.enableVMG && widget.windSpeedTrue != null) {
+            _currentMode = WindCompassMode.vmg;
+          } else if (widget.waypointBearing != null) {
+            _currentMode = WindCompassMode.laylines;
+          }
+          break;
+        case WindCompassMode.vmg:
+          // Switch to laylines if available, otherwise back to target AWA
+          if (widget.waypointBearing != null) {
+            _currentMode = WindCompassMode.laylines;
+          } else {
+            _currentMode = WindCompassMode.targetAWA;
+          }
+          break;
+        case WindCompassMode.laylines:
+          _currentMode = WindCompassMode.targetAWA;
+          break;
+        case WindCompassMode.combined:
+          _currentMode = WindCompassMode.targetAWA;
+          break;
+      }
+    });
+  }
+
+  /// Calculate VMG (Velocity Made Good) toward wind
+  /// VMG = SOG × cos(angle between COG and true wind direction)
+  double? _calculateVMG() {
+    if (widget.speedOverGround == null || widget.cogDegrees == null || widget.windDirectionTrueDegrees == null) {
+      return null;
+    }
+
+    // Calculate angle between COG and wind direction
+    double angleToWind = (widget.cogDegrees! - widget.windDirectionTrueDegrees!).abs();
+
+    // Normalize to 0-180 range
+    if (angleToWind > 180) {
+      angleToWind = 360 - angleToWind;
+    }
+
+    // VMG = SOG × cos(angle)
+    final vmg = widget.speedOverGround! * cos(angleToWind * pi / 180);
+
+    return vmg;
+  }
+
+  /// Get optimal target AWA based on current wind speed (if VMG mode enabled)
+  double _getOptimalTargetAWA() {
+    if (!widget.enableVMG || widget.windSpeedTrue == null) {
+      return widget.targetAWA;
+    }
+
+    return SimplePolar.getOptimalAngle(widget.windSpeedTrue!);
+  }
+
+  /// Build AWA performance display showing current vs target (tappable to change modes)
+  Widget _buildAWAPerformanceDisplay(double headingDegrees) {
+    // Calculate AWA (Apparent Wind Angle) - relative to boat
+    // Use raw AWA if available, otherwise calculate from absolute direction
+    double awa;
+    if (widget.windAngleApparent != null) {
+      // Use raw AWA value (already relative to boat, independent of true/magnetic)
+      awa = widget.windAngleApparent!;
+    } else {
+      // Fallback: calculate from absolute direction (old method, has true/magnetic bug)
+      final windDirection = widget.windDirectionApparentDegrees!;
+      awa = windDirection - headingDegrees;
+    }
+
+    // Normalize to -180 to +180 range
+    while (awa > 180) {
+      awa -= 360;
+    }
+    while (awa < -180) {
+      awa += 360;
+    }
+
+    // Get optimal target AWA (dynamic if VMG mode enabled)
+    final currentTargetAWA = _getOptimalTargetAWA();
+
+    // Get absolute AWA for comparison with target
+    final absAWA = awa.abs();
+    final diff = absAWA - currentTargetAWA;
+    final absDiff = diff.abs();
+
+    // Determine status color and text
+    Color statusColor;
+    String statusText;
+
+    if (absDiff <= widget.targetTolerance) {
+      statusColor = Colors.green;
+      statusText = 'OPTIMAL';
+    } else if (absDiff <= widget.targetTolerance * 2) {
+      statusColor = Colors.yellow;
+      statusText = diff > 0 ? 'HIGH' : 'LOW';
+    } else {
+      statusColor = Colors.red;
+      statusText = diff > 0 ? 'TOO HIGH' : 'TOO LOW';
+    }
+
+    // Build content based on mode
+    Widget content;
+    String modeLabel;
+
+    if (_currentMode == WindCompassMode.targetAWA) {
+      modeLabel = 'AWA MODE';
+      content = Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                'AWA: ',
+                style: const TextStyle(
+                  fontSize: 12,
+                  color: Colors.white70,
+                ),
+              ),
+              Text(
+                '${absAWA.toStringAsFixed(0)}°',
+                style: const TextStyle(
+                  fontSize: 16,
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                '(${awa > 0 ? "STBD" : "PORT"})',
+                style: TextStyle(
+                  fontSize: 10,
+                  color: awa > 0 ? Colors.green : Colors.red,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 2),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                'TGT: ${currentTargetAWA.toStringAsFixed(0)}°',
+                style: const TextStyle(
+                  fontSize: 11,
+                  color: Colors.white60,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                '${diff > 0 ? '+' : ''}${diff.toStringAsFixed(1)}° $statusText',
+                style: TextStyle(
+                  fontSize: 11,
+                  color: statusColor,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
+        ],
+      );
+    } else if (_currentMode == WindCompassMode.vmg) {
+      // VMG mode
+      modeLabel = 'VMG MODE';
+      content = _buildVMGDisplay(headingDegrees);
+    } else {
+      // Laylines mode
+      modeLabel = 'LAYLINES';
+      content = _buildLaylinesDisplay(headingDegrees);
+    }
+
+    return Positioned(
+      top: 35,
+      left: 0,
+      right: 0,
+      child: Center(
+        child: GestureDetector(
+          onTap: _cycleMode,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: Colors.black.withValues(alpha: 0.8),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: statusColor, width: 2),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  modeLabel,
+                  style: const TextStyle(
+                    fontSize: 9,
+                    color: Colors.white38,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 1.2,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                content,
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Build VMG display showing velocity made good performance
+  Widget _buildVMGDisplay(double headingDegrees) {
+    final vmg = _calculateVMG();
+    final currentTargetAWA = _getOptimalTargetAWA();
+    final tws = widget.windSpeedTrue;
+
+    if (vmg == null || tws == null) {
+      return const Text(
+        'NO VMG DATA',
+        style: TextStyle(
+          fontSize: 12,
+          color: Colors.white60,
+        ),
+      );
+    }
+
+    // Calculate AWA for status
+    // Use raw AWA if available, otherwise calculate from absolute direction
+    double? awa;
+    if (widget.windAngleApparent != null) {
+      // Use raw AWA value (already relative to boat, independent of true/magnetic)
+      awa = widget.windAngleApparent!;
+    } else if (widget.windDirectionApparentDegrees != null) {
+      // Fallback: calculate from absolute direction (old method, has true/magnetic bug)
+      double tempAwa = widget.windDirectionApparentDegrees! - headingDegrees;
+      while (tempAwa > 180) {
+        tempAwa -= 360;
+      }
+      while (tempAwa < -180) {
+        tempAwa += 360;
+      }
+      awa = tempAwa;
+    }
+
+    // Determine performance color
+    Color vmgColor = Colors.green;
+    if (vmg < 0) {
+      vmgColor = Colors.red; // Going downwind
+    } else if (vmg < (widget.speedOverGround ?? 0) * 0.5) {
+      vmgColor = Colors.yellow; // Poor VMG
+    }
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        // VMG value
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              'VMG: ',
+              style: const TextStyle(
+                fontSize: 12,
+                color: Colors.white70,
+              ),
+            ),
+            Text(
+              vmg.abs().toStringAsFixed(2),
+              style: TextStyle(
+                fontSize: 20,
+                color: vmgColor,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(width: 4),
+            Text(
+              widget.sogFormatted != null ? widget.sogFormatted!.replaceAll(RegExp(r'[\d.]+'), '') : 'kts',
+              style: const TextStyle(
+                fontSize: 11,
+                color: Colors.white60,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 4),
+        // Wind speed and optimal angle
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              'TWS: ${tws.toStringAsFixed(1)} →',
+              style: const TextStyle(
+                fontSize: 11,
+                color: Colors.white60,
+              ),
+            ),
+            const SizedBox(width: 4),
+            Text(
+              'OPT: ${currentTargetAWA.toStringAsFixed(0)}°',
+              style: const TextStyle(
+                fontSize: 11,
+                color: Colors.greenAccent,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ],
+        ),
+        // Current AWA if available
+        if (awa != null) ...[
+          const SizedBox(height: 2),
+          Text(
+            'AWA: ${awa.abs().toStringAsFixed(0)}° (${awa > 0 ? "STBD" : "PORT"})',
+            style: TextStyle(
+              fontSize: 10,
+              color: Colors.white.withOpacity(0.5),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
+  /// Build wind shift indicator showing lift/header
+  Widget _buildWindShiftIndicator() {
+    final shift = _calculateWindShift();
+    if (shift == null || shift.abs() < 3) {
+      return const SizedBox.shrink(); // No significant shift
+    }
+
+    final shiftType = _getShiftType(shift);
+    if (shiftType == null) {
+      return const SizedBox.shrink(); // Not sailing upwind or shift too small
+    }
+
+    final isLift = shiftType == 'lift';
+    final shiftColor = isLift ? Colors.green : Colors.red;
+    final shiftIcon = isLift ? Icons.arrow_upward : Icons.arrow_downward;
+    final shiftLabel = isLift ? 'LIFT' : 'HEADER';
+
+    // Position inside compass rim on the right side
+    // Using a fixed offset that works well for typical compass sizes
+    return Positioned(
+      right: 80,
+      top: 0,
+      bottom: 0,
+      child: Center(
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
+          decoration: BoxDecoration(
+            color: Colors.black.withOpacity(0.7),
+            border: Border.all(color: shiftColor, width: 2),
+            borderRadius: BorderRadius.circular(6),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                shiftIcon,
+                color: shiftColor,
+                size: 24,
+              ),
+              const SizedBox(height: 2),
+              Text(
+                shiftLabel,
+                style: TextStyle(
+                  fontSize: 10,
+                  color: shiftColor,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              Text(
+                '${shift.abs().toStringAsFixed(0)}°',
+                style: TextStyle(
+                  fontSize: 14,
+                  color: shiftColor,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Build laylines display showing navigation to waypoint
+  Widget _buildLaylinesDisplay(double headingDegrees) {
+    if (widget.waypointBearing == null) {
+      return const Text(
+        'NO WAYPOINT',
+        style: TextStyle(
+          fontSize: 12,
+          color: Colors.white60,
+        ),
+      );
+    }
+
+    // Calculate True Wind Direction (TWD)
+    // TWD = Heading + TWA (true wind angle relative to boat)
+    final twd = widget.windDirectionTrueDegrees ?? headingDegrees;
+
+    // Calculate laylines: TWD ± optimal angle
+    final portLayline = _normalizeAngle(twd + widget.targetAWA);
+    final stbdLayline = _normalizeAngle(twd - widget.targetAWA);
+
+    final waypointBearing = widget.waypointBearing!;
+
+    // Determine if waypoint is fetchable on each tack
+    final canFetchPort = _isAngleBetween(waypointBearing, portLayline, twd);
+    final canFetchStbd = _isAngleBetween(waypointBearing, twd, stbdLayline);
+
+    // Calculate tack angles
+    final portTackAngle = _angleDifference(headingDegrees, portLayline);
+    final stbdTackAngle = _angleDifference(headingDegrees, stbdLayline);
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              'WPT: ${waypointBearing.toStringAsFixed(0)}°',
+              style: const TextStyle(
+                fontSize: 14,
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            if (widget.waypointDistance != null) ...[
+              const SizedBox(width: 8),
+              Text(
+                '${(widget.waypointDistance! / 1852).toStringAsFixed(1)}nm',
+                style: const TextStyle(
+                  fontSize: 11,
+                  color: Colors.white60,
+                ),
+              ),
+            ],
+          ],
+        ),
+        const SizedBox(height: 4),
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Port tack
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(
+                color: canFetchPort ? Colors.green.withValues(alpha: 0.3) : Colors.red.withValues(alpha: 0.2),
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: Text(
+                'PORT ${portTackAngle.abs().toStringAsFixed(0)}°',
+                style: TextStyle(
+                  fontSize: 10,
+                  color: canFetchPort ? Colors.green : Colors.red,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            // Starboard tack
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(
+                color: canFetchStbd ? Colors.green.withValues(alpha: 0.3) : Colors.red.withValues(alpha: 0.2),
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: Text(
+                'STBD ${stbdTackAngle.abs().toStringAsFixed(0)}°',
+                style: TextStyle(
+                  fontSize: 10,
+                  color: canFetchStbd ? Colors.green : Colors.red,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  /// Check if angle is between two other angles (handles wraparound)
+  bool _isAngleBetween(double angle, double start, double end) {
+    angle = _normalizeAngle(angle);
+    start = _normalizeAngle(start);
+    end = _normalizeAngle(end);
+
+    if (start <= end) {
+      return angle >= start && angle <= end;
+    } else {
+      return angle >= start || angle <= end;
+    }
+  }
+
+  /// Calculate signed difference between two angles
+  double _angleDifference(double from, double to) {
+    double diff = to - from;
+    while (diff > 180) {
+      diff -= 360;
+    }
+    while (diff < -180) {
+      diff += 360;
+    }
+    return diff;
+  }
+
   /// Build compass labels (N, S, E, W, degrees) as gauge annotations
-  /// Labels counter-rotate to stay upright while compass card rotates
+  /// Labels are positioned at their angle on the rotating gauge
   List<GaugeAnnotation> _buildCompassLabels() {
     final labels = <GaugeAnnotation>[];
-
-    // Get the current heading in DEGREES for counter-rotation (doesn't need to use selected heading)
-    final headingDegrees = widget.headingMagneticDegrees ?? widget.headingTrueDegrees ?? 0.0;
 
     for (int i = 0; i < 360; i += 30) {
       String label;
@@ -211,6 +959,7 @@ class _WindCompassState extends State<WindCompass> {
                       painter: NoGoZoneVPainter(
                         windAngle: primaryWindDegrees,
                         headingAngle: primaryHeadingDegrees,
+                        noGoAngle: _getOptimalTargetAWA(), // Use dynamic target AWA
                       ),
                     ),
                   ),
@@ -250,7 +999,7 @@ class _WindCompassState extends State<WindCompass> {
                     // Sailing zones: red (port tack), no-go, green (starboard tack)
                     ranges: <GaugeRange>[
                       if (primaryWindDegrees != null)
-                        ..._buildSailingZones(primaryWindDegrees!),
+                        ..._buildSailingZones(primaryWindDegrees),
                     ],
 
                     // Pointers for wind, heading, and COG (drawn in order: first = bottom, last = top)
@@ -325,6 +1074,43 @@ class _WindCompassState extends State<WindCompass> {
                           markerOffset: -5, // Position at outer edge of compass
                         ),
 
+                      // LAYLINES - show when in laylines mode
+                      if (_currentMode == WindCompassMode.laylines && widget.waypointBearing != null && widget.windDirectionTrueDegrees != null) ...[
+                        // Port layline
+                        NeedlePointer(
+                          value: _normalizeAngle(widget.windDirectionTrueDegrees! + widget.targetAWA),
+                          needleLength: 0.85,
+                          needleStartWidth: 0,
+                          needleEndWidth: 4,
+                          needleColor: Colors.purple,
+                          knobStyle: KnobStyle(
+                            knobRadius: 0,
+                          ),
+                        ),
+                        // Starboard layline
+                        NeedlePointer(
+                          value: _normalizeAngle(widget.windDirectionTrueDegrees! - widget.targetAWA),
+                          needleLength: 0.85,
+                          needleStartWidth: 0,
+                          needleEndWidth: 4,
+                          needleColor: Colors.purple,
+                          knobStyle: KnobStyle(
+                            knobRadius: 0,
+                          ),
+                        ),
+                        // Waypoint bearing indicator
+                        NeedlePointer(
+                          value: widget.waypointBearing!,
+                          needleLength: 0.90,
+                          needleStartWidth: 0,
+                          needleEndWidth: 6,
+                          needleColor: Colors.yellow,
+                          knobStyle: KnobStyle(
+                            knobRadius: 0,
+                          ),
+                        ),
+                      ],
+
                       // WIND INDICATORS - LAYER 2 (above heading indicators)
                       // Apparent wind - primary
                       if (widget.windDirectionApparentDegrees != null)
@@ -362,50 +1148,12 @@ class _WindCompassState extends State<WindCompass> {
                 ),
               ),
 
-              // COG label at top center - styled like other labels
-              Positioned(
-                top: 0,
-                left: 0,
-                right: 0,
-                child: Center(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Container(
-                            width: 12,
-                            height: 12,
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              shape: BoxShape.circle,
-                            ),
-                          ),
-                          const SizedBox(width: 4),
-                          Text(
-                            'COG',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: Colors.white,
-                            ),
-                          ),
-                        ],
-                      ),
-                      Text(
-                        widget.cogDegrees != null
-                            ? '${widget.cogDegrees!.toStringAsFixed(0)}°'
-                            : '--',
-                        style: const TextStyle(
-                          fontSize: 20,
-                          color: Colors.white,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
+              // AWA Performance Display - shows current vs target
+              if (widget.showAWANumbers && widget.windDirectionApparentDegrees != null)
+                _buildAWAPerformanceDisplay(primaryHeadingDegrees),
+
+              // Wind shift indicator (lift/header)
+              _buildWindShiftIndicator(),
 
               // Center display with heading (use degrees) - moved down
               Positioned.fill(
@@ -677,35 +1425,83 @@ class _WindCompassState extends State<WindCompass> {
                   ),
                 ),
 
-              // Speed Over Ground (bottom center)
-              if (widget.speedOverGround != null)
-                Positioned(
-                  bottom: 20,
-                  left: 0,
-                  right: 0,
-                  child: Center(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          'SOG',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: Colors.white60,
+              // Speed Over Ground and COG (bottom center) - always shown
+              Positioned(
+                bottom: 20,
+                left: 0,
+                right: 0,
+                child: Center(
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      // SOG
+                      Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            'SOG',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.white60,
+                            ),
                           ),
-                        ),
-                        Text(
-                          widget.sogFormatted ?? widget.speedOverGround!.toStringAsFixed(1),
-                          style: const TextStyle(
-                            fontSize: 24,
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold,
+                          Text(
+                            widget.speedOverGround != null
+                                ? (widget.sogFormatted ?? widget.speedOverGround!.toStringAsFixed(1))
+                                : '--',
+                            style: const TextStyle(
+                              fontSize: 24,
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                            ),
                           ),
-                        ),
-                      ],
-                    ),
+                        ],
+                      ),
+
+                      // Spacing between SOG and COG
+                      const SizedBox(width: 24),
+
+                      // COG
+                      Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Container(
+                                width: 10,
+                                height: 10,
+                                decoration: BoxDecoration(
+                                  color: Colors.white,
+                                  shape: BoxShape.circle,
+                                ),
+                              ),
+                              const SizedBox(width: 4),
+                              Text(
+                                'COG',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.white60,
+                                ),
+                              ),
+                            ],
+                          ),
+                          Text(
+                            widget.cogDegrees != null
+                                ? '${widget.cogDegrees!.toStringAsFixed(0)}°'
+                                : '--',
+                            style: const TextStyle(
+                              fontSize: 20,
+                              color: Colors.white,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
                   ),
                 ),
+              ),
             ],
           );
         },
@@ -718,11 +1514,12 @@ class _WindCompassState extends State<WindCompass> {
 class NoGoZoneVPainter extends CustomPainter {
   final double windAngle;
   final double headingAngle;
-  final double noGoAngle = 45.0; // ±45° from wind direction
+  final double noGoAngle; // Target AWA angle from wind direction
 
   NoGoZoneVPainter({
     required this.windAngle,
     required this.headingAngle,
+    this.noGoAngle = 40.0, // Default to 40° if not specified
   });
 
   @override
@@ -778,7 +1575,9 @@ class NoGoZoneVPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(NoGoZoneVPainter oldDelegate) {
-    return oldDelegate.windAngle != windAngle || oldDelegate.headingAngle != headingAngle;
+    return oldDelegate.windAngle != windAngle ||
+           oldDelegate.headingAngle != headingAngle ||
+           oldDelegate.noGoAngle != noGoAngle;  // Must repaint when target AWA changes
   }
 }
 
@@ -826,4 +1625,12 @@ class VesselShadowPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(VesselShadowPainter oldDelegate) => false;
+}
+
+/// Wind sample for tracking historical wind direction
+class _WindSample {
+  final double direction;
+  final DateTime timestamp;
+
+  _WindSample(this.direction, this.timestamp);
 }

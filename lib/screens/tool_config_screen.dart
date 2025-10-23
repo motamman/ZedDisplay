@@ -74,6 +74,16 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
   // Slider-specific configuration
   int _sliderDecimalPlaces = 1;
 
+  // Wind compass-specific configuration
+  double _laylineAngle = 40.0;       // Target AWA angle in degrees
+  double _targetTolerance = 3.0;     // Acceptable deviation from target in degrees
+  bool _showAWANumbers = true;       // Show numeric AWA display
+  bool _enableVMG = false;           // Enable VMG optimization with polar data
+
+  // Autopilot-specific configuration
+  bool _headingTrue = false;         // Use true vs magnetic heading
+  bool _invertRudder = false;        // Invert rudder angle display
+
   // Size configuration
   int _toolWidth = 1;
   int _toolHeight = 1;
@@ -123,6 +133,12 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
     _aisMaxRangeNm = 5.0;
     _aisUpdateInterval = 10;
     _sliderDecimalPlaces = 1;
+    _laylineAngle = 40.0;
+    _targetTolerance = 3.0;
+    _showAWANumbers = true;
+    _enableVMG = false;
+    _headingTrue = false;
+    _invertRudder = false;
     _toolWidth = 1;
     _toolHeight = 1;
   }
@@ -330,7 +346,18 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
       final updateIntervalMs = style.customProperties!['updateInterval'] as int? ?? 10000;
       _aisUpdateInterval = (updateIntervalMs / 1000).round();
       _sliderDecimalPlaces = style.customProperties!['decimalPlaces'] as int? ?? 1;
+      // Wind compass settings
+      _showAWANumbers = style.customProperties!['showAWANumbers'] as bool? ?? true;
+      _enableVMG = style.customProperties!['enableVMG'] as bool? ?? false;
+      // Autopilot settings
+      _headingTrue = style.customProperties!['headingTrue'] as bool? ?? false;
+      _invertRudder = style.customProperties!['invertRudder'] as bool? ?? false;
+      _enableVMG = style.customProperties!['enableVMG'] as bool? ?? false;
     }
+
+    // Load wind compass and autopilot settings from style
+    _laylineAngle = style.laylineAngle ?? 40.0;
+    _targetTolerance = style.targetTolerance ?? 3.0;
 
     // Size is managed in placements, not tools
     _toolWidth = 1;
@@ -550,6 +577,17 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
       customProperties = {
         'decimalPlaces': _sliderDecimalPlaces,
       };
+    } else if (_selectedToolTypeId == 'wind_compass') {
+      customProperties = {
+        'showAWANumbers': _showAWANumbers,
+        'enableVMG': _enableVMG,
+      };
+    } else if (_selectedToolTypeId == 'autopilot') {
+      customProperties = {
+        'headingTrue': _headingTrue,
+        'invertRudder': _invertRudder,
+        'enableVMG': _enableVMG,
+      };
     } else {
       // Add gauge-specific properties
       final Map<String, dynamic> baseProperties = {
@@ -583,6 +621,8 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
         showValue: _showValue,
         showUnit: _showUnit,
         ttlSeconds: _ttlSeconds,
+        laylineAngle: (_selectedToolTypeId == 'wind_compass' || _selectedToolTypeId == 'autopilot') ? _laylineAngle : null,
+        targetTolerance: (_selectedToolTypeId == 'wind_compass' || _selectedToolTypeId == 'autopilot') ? _targetTolerance : null,
         customProperties: customProperties,
       ),
     );
@@ -1179,6 +1219,17 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                               previewCustomProperties = {
                                 'decimalPlaces': _sliderDecimalPlaces,
                               };
+                            } else if (_selectedToolTypeId == 'wind_compass') {
+                              previewCustomProperties = {
+                                'showAWANumbers': _showAWANumbers,
+                                'enableVMG': _enableVMG,
+                              };
+                            } else if (_selectedToolTypeId == 'autopilot') {
+                              previewCustomProperties = {
+                                'headingTrue': _headingTrue,
+                                'invertRudder': _invertRudder,
+                                'enableVMG': _enableVMG,
+                              };
                             } else {
                               final Map<String, dynamic> basePreviewProperties = {
                                 'divisions': _divisions,
@@ -1213,6 +1264,8 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                                   showValue: _showValue,
                                   showUnit: _showUnit,
                                   ttlSeconds: _ttlSeconds,
+                                  laylineAngle: (_selectedToolTypeId == 'wind_compass' || _selectedToolTypeId == 'autopilot') ? _laylineAngle : null,
+                                  targetTolerance: (_selectedToolTypeId == 'wind_compass' || _selectedToolTypeId == 'autopilot') ? _targetTolerance : null,
                                   customProperties: previewCustomProperties,
                                 ),
                               ),
@@ -1401,6 +1454,197 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
           value: _showTickLabels,
           onChanged: (value) {
             setState(() => _showTickLabels = value);
+          },
+        ),
+      ]);
+    }
+
+    // Wind compass-specific options
+    if (_selectedToolTypeId == 'wind_compass') {
+      widgets.addAll([
+        const SizedBox(height: 16),
+        const Text(
+          'Performance Sailing Settings',
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        const SizedBox(height: 8),
+        // Target AWA slider
+        ListTile(
+          title: const Text('Target AWA Angle'),
+          subtitle: Text(
+            '${_laylineAngle.toStringAsFixed(0)}° - Optimal close-hauled angle for your boat',
+            style: const TextStyle(fontSize: 12),
+          ),
+          contentPadding: EdgeInsets.zero,
+        ),
+        Slider(
+          value: _laylineAngle,
+          min: 30,
+          max: 50,
+          divisions: 20,
+          label: '${_laylineAngle.toStringAsFixed(0)}°',
+          onChanged: (value) {
+            setState(() => _laylineAngle = value);
+          },
+        ),
+        const SizedBox(height: 8),
+        // Target tolerance slider
+        ListTile(
+          title: const Text('Target Tolerance'),
+          subtitle: Text(
+            '±${_targetTolerance.toStringAsFixed(0)}° - Acceptable deviation (green zone)',
+            style: const TextStyle(fontSize: 12),
+          ),
+          contentPadding: EdgeInsets.zero,
+        ),
+        Slider(
+          value: _targetTolerance,
+          min: 1,
+          max: 10,
+          divisions: 9,
+          label: '±${_targetTolerance.toStringAsFixed(0)}°',
+          onChanged: (value) {
+            setState(() => _targetTolerance = value);
+          },
+        ),
+        const SizedBox(height: 8),
+        // Show AWA Numbers toggle
+        SwitchListTile(
+          title: const Text('Show AWA Numbers'),
+          subtitle: const Text('Display numeric AWA with performance feedback'),
+          value: _showAWANumbers,
+          onChanged: (value) {
+            setState(() => _showAWANumbers = value);
+          },
+        ),
+        // Enable VMG toggle
+        SwitchListTile(
+          title: const Text('Enable VMG Optimization'),
+          subtitle: const Text('Use polar-based dynamic target AWA (varies with wind speed)'),
+          value: _enableVMG,
+          onChanged: (value) {
+            setState(() => _enableVMG = value);
+          },
+        ),
+        if (_enableVMG)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.blue.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.blue.withValues(alpha: 0.3)),
+              ),
+              child: const Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'VMG Mode Active',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: Colors.blue,
+                    ),
+                  ),
+                  SizedBox(height: 4),
+                  Text(
+                    'Target AWA will dynamically adjust based on true wind speed using built-in polar data. Manual target angle is overridden.',
+                    style: TextStyle(fontSize: 12),
+                  ),
+                ],
+              ),
+            ),
+          ),
+      ]);
+    }
+
+    // Autopilot-specific options
+    if (_selectedToolTypeId == 'autopilot') {
+      widgets.addAll([
+        const SizedBox(height: 16),
+        const Text(
+          'Autopilot Display Settings',
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        const SizedBox(height: 8),
+        SwitchListTile(
+          title: const Text('Use True Heading'),
+          subtitle: const Text('Display true heading instead of magnetic'),
+          value: _headingTrue,
+          onChanged: (value) {
+            setState(() => _headingTrue = value);
+          },
+        ),
+        SwitchListTile(
+          title: const Text('Invert Rudder Display'),
+          subtitle: const Text('Reverse rudder angle visualization (for non-standard sensor polarity)'),
+          value: _invertRudder,
+          onChanged: (value) {
+            setState(() => _invertRudder = value);
+          },
+        ),
+        const SizedBox(height: 16),
+        const Text(
+          'Performance Sailing Settings (Wind Mode)',
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        const SizedBox(height: 8),
+        // Target AWA slider
+        ListTile(
+          title: const Text('Target AWA Angle'),
+          subtitle: Text(
+            '${_laylineAngle.toStringAsFixed(0)}° - Optimal close-hauled angle for your boat',
+            style: const TextStyle(fontSize: 12),
+          ),
+          contentPadding: EdgeInsets.zero,
+        ),
+        Slider(
+          value: _laylineAngle,
+          min: 30,
+          max: 50,
+          divisions: 20,
+          label: '${_laylineAngle.toStringAsFixed(0)}°',
+          onChanged: (value) {
+            setState(() => _laylineAngle = value);
+          },
+        ),
+        const SizedBox(height: 8),
+        // Target tolerance slider
+        ListTile(
+          title: const Text('Target Tolerance'),
+          subtitle: Text(
+            '±${_targetTolerance.toStringAsFixed(0)}° - Acceptable deviation (green zone)',
+            style: const TextStyle(fontSize: 12),
+          ),
+          contentPadding: EdgeInsets.zero,
+        ),
+        Slider(
+          value: _targetTolerance,
+          min: 1,
+          max: 10,
+          divisions: 9,
+          label: '±${_targetTolerance.toStringAsFixed(0)}°',
+          onChanged: (value) {
+            setState(() => _targetTolerance = value);
+          },
+        ),
+        const SizedBox(height: 8),
+        // Enable VMG toggle
+        SwitchListTile(
+          title: const Text('Enable VMG Optimization'),
+          subtitle: const Text('Use polar-based dynamic target AWA (varies with wind speed)'),
+          value: _enableVMG,
+          onChanged: (value) {
+            setState(() => _enableVMG = value);
           },
         ),
       ]);

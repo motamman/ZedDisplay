@@ -40,7 +40,14 @@ A customizable SignalK marine dashboard application to display real-time vessel 
 - **AIS Polar Chart**: Display nearby AIS vessels on polar chart relative to own position
 
 **Navigation Tools**
-- **Wind Compass**: Autopilot-style compass showing heading (true/magnetic), wind direction (true/apparent), and speed over ground
+- **Wind Compass**: Advanced autopilot-style compass with multiple sailing modes
+  - **Target AWA Mode**: Performance steering with configurable target angles and tolerance zones
+  - **Laylines Mode**: True navigation laylines for upwind waypoint navigation with "can fetch" indicators
+  - **VMG Mode**: Real-time Velocity Made Good with polar-based optimization
+  - Gradiated sailing zones (red/green) showing optimal sailing angles
+  - Dynamic target AWA adjustment based on wind speed and polar data
+  - Tap display to cycle between modes
+  - Shows heading (true/magnetic), wind direction (true/apparent), SOG, and COG
 - **Autopilot**: Full autopilot control with compass display, mode selection, and tacking
 
 **Control Tools**
@@ -312,6 +319,7 @@ For questions or issues:
 
 ## Roadmap
 
+### General Features
 - [ ] Offline mode with cached data
 - [ ] Chart playback for historical data
 - [ ] Enhanced alerts and notification rules
@@ -320,6 +328,15 @@ For questions or issues:
 - [ ] Route planning and waypoint navigation
 - [ ] More chart types (bar charts, area charts)
 - [ ] AI integration
+
+### Wind Compass Improvements
+- [x] Target AWA mode with performance zones (completed)
+- [x] True laylines for waypoint navigation (completed)
+- [x] VMG optimization with basic polar data (completed)
+- [ ] Custom polar data upload
+- [ ] Downwind polar angles
+- [ ] VMG optimization for reaching/running
+- [ ] Polar curve visualization
 
 ---
 

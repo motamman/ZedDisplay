@@ -27,6 +27,8 @@ class WindCompassTool extends StatelessWidget {
     // 5: environment.wind.speedApparent (optional)
     // 6: navigation.speedOverGround (optional)
     // 7: navigation.courseOverGroundTrue (optional) - in DEGREES
+    // 8: navigation.courseGreatCircle.nextPoint.bearingTrue (optional) - waypoint bearing in RADIANS
+    // 9: navigation.courseGreatCircle.nextPoint.distance (optional) - waypoint distance in meters
 
     // Get heading true (optional) - use original radians value for rotation
     double? headingTrueRadians;
@@ -55,13 +57,17 @@ class WindCompassTool extends StatelessWidget {
       windDirectionTrueDegrees = signalKService.getConvertedValue(config.dataSources[2].path);
     }
 
-    // Get wind angle apparent (relative to boat) and convert to absolute direction
+    // Get wind angle apparent (relative to boat) - keep raw value AND convert to absolute direction
     double? windDirectionApparentRadians;
     double? windDirectionApparentDegrees;
+    double? windAngleApparent; // Raw AWA value (not converted to absolute)
     if (config.dataSources.length > 3) {
       final dataPoint = signalKService.getValue(config.dataSources[3].path);
       final angleApparentRadians = dataPoint?.original is num ? (dataPoint!.original as num).toDouble() : null;
       final angleApparentDegrees = signalKService.getConvertedValue(config.dataSources[3].path);
+
+      // Store raw AWA value (degrees)
+      windAngleApparent = angleApparentDegrees;
 
       // Convert relative angle to absolute direction by adding to heading
       if (angleApparentRadians != null && (headingTrueRadians != null || headingMagneticRadians != null)) {
@@ -104,6 +110,25 @@ class WindCompassTool extends StatelessWidget {
       cogDegrees = signalKService.getConvertedValue(config.dataSources[7].path);
     }
 
+    // Get waypoint bearing (optional)
+    double? waypointBearing;
+    if (config.dataSources.length > 8) {
+      waypointBearing = signalKService.getConvertedValue(config.dataSources[8].path);
+    }
+
+    // Get waypoint distance (optional)
+    double? waypointDistance;
+    if (config.dataSources.length > 9) {
+      waypointDistance = signalKService.getConvertedValue(config.dataSources[9].path);
+    }
+
+    // Get style configuration
+    final style = config.style;
+    final targetAWA = style.laylineAngle ?? 40.0;
+    final targetTolerance = style.targetTolerance ?? 3.0;
+    final showAWANumbers = style.customProperties?['showAWANumbers'] as bool? ?? true;
+    final enableVMG = style.customProperties?['enableVMG'] as bool? ?? false;
+
     // If no data available, show message
     if (headingTrueRadians == null && headingMagneticRadians == null) {
       return const Center(child: Text('No heading source configured'));
@@ -118,6 +143,7 @@ class WindCompassTool extends StatelessWidget {
       windDirectionApparentRadians: windDirectionApparentRadians,
       windDirectionTrueDegrees: windDirectionTrueDegrees,
       windDirectionApparentDegrees: windDirectionApparentDegrees,
+      windAngleApparent: windAngleApparent,
       windSpeedTrue: windSpeedTrue,
       windSpeedTrueFormatted: windSpeedTrueFormatted,
       windSpeedApparent: windSpeedApparent,
@@ -125,6 +151,12 @@ class WindCompassTool extends StatelessWidget {
       speedOverGround: speedOverGround,
       sogFormatted: sogFormatted,
       cogDegrees: cogDegrees,
+      waypointBearing: waypointBearing,
+      waypointDistance: waypointDistance,
+      targetAWA: targetAWA,
+      targetTolerance: targetTolerance,
+      showAWANumbers: showAWANumbers,
+      enableVMG: enableVMG,
     );
   }
 }
@@ -143,8 +175,13 @@ class WindCompassToolBuilder extends ToolBuilder {
         allowsColorCustomization: false,
         allowsMultiplePaths: true,
         minPaths: 0,
-        maxPaths: 8,
-        styleOptions: const [],
+        maxPaths: 10,
+        styleOptions: const [
+          'laylineAngle',                        // Target AWA angle in degrees (default: 40) - overridden by VMG if enabled
+          'targetTolerance',                     // Acceptable deviation from target in degrees (default: 3)
+          'customProperties.showAWANumbers',     // Show numeric AWA display with performance feedback (default: true)
+          'customProperties.enableVMG',          // Enable VMG optimization with polar-based dynamic target AWA (default: false)
+        ],
       ),
     );
   }
@@ -162,8 +199,12 @@ class WindCompassToolBuilder extends ToolBuilder {
         DataSource(path: 'environment.wind.speedApparent', label: 'Wind Speed Apparent'),
         DataSource(path: 'navigation.speedOverGround', label: 'Speed Over Ground'),
         DataSource(path: 'navigation.courseOverGroundTrue', label: 'Course Over Ground'),
+        DataSource(path: 'navigation.courseGreatCircle.nextPoint.bearingTrue', label: 'Waypoint Bearing'),
+        DataSource(path: 'navigation.courseGreatCircle.nextPoint.distance', label: 'Waypoint Distance'),
       ],
       style: StyleConfig(
+        laylineAngle: 40.0,
+        targetTolerance: 3.0,
         customProperties: {},
       ),
     );
