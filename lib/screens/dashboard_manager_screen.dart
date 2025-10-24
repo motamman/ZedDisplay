@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
 import '../services/dashboard_service.dart';
@@ -23,6 +25,9 @@ class DashboardManagerScreen extends StatefulWidget {
 class _DashboardManagerScreenState extends State<DashboardManagerScreen> {
   late PageController _pageController;
   bool _isEditMode = false;
+  bool _isFullScreen = false;
+  bool _showAppBar = true;
+  Timer? _appBarHideTimer;
   int _currentVirtualPage = 0; // Track virtual page for infinite scroll
 
   @override
@@ -40,8 +45,31 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen> {
 
   @override
   void dispose() {
+    _appBarHideTimer?.cancel();
     _pageController.dispose();
     super.dispose();
+  }
+
+  void _startAppBarHideTimer() {
+    _appBarHideTimer?.cancel();
+    if (_isFullScreen) {
+      _appBarHideTimer = Timer(const Duration(seconds: 5), () {
+        if (mounted && _isFullScreen) {
+          setState(() {
+            _showAppBar = false;
+          });
+        }
+      });
+    }
+  }
+
+  void _showAppBarTemporarily() {
+    if (_isFullScreen) {
+      setState(() {
+        _showAppBar = true;
+      });
+      _startAppBarHideTimer();
+    }
   }
 
   Future<void> _addTool() async {
@@ -181,6 +209,29 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen> {
         ),
       ),
     );
+  }
+
+  void _toggleFullScreen() {
+    setState(() {
+      _isFullScreen = !_isFullScreen;
+      if (_isFullScreen) {
+        // Enter full-screen mode (hide system UI)
+        SystemChrome.setEnabledSystemUIMode(
+          SystemUiMode.immersiveSticky,
+          overlays: [],
+        );
+        _showAppBar = true;
+        _startAppBarHideTimer();
+      } else {
+        // Exit full-screen mode (show system UI)
+        SystemChrome.setEnabledSystemUIMode(
+          SystemUiMode.manual,
+          overlays: SystemUiOverlay.values,
+        );
+        _appBarHideTimer?.cancel();
+        _showAppBar = true;
+      }
+    });
   }
 
   Future<void> _editTool(Tool tool, String placementToolId) async {
@@ -367,7 +418,9 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
+      extendBody: _isFullScreen,
+      extendBodyBehindAppBar: _isFullScreen,
+      appBar: (!_isFullScreen || _showAppBar) ? AppBar(
         title: Consumer<DashboardService>(
           builder: (context, dashboardService, child) {
             final layout = dashboardService.currentLayout;
@@ -437,6 +490,12 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen> {
               );
             },
           ),
+          // Fullscreen toggle
+          IconButton(
+            icon: Icon(_isFullScreen ? Icons.fullscreen_exit : Icons.fullscreen),
+            onPressed: _toggleFullScreen,
+            tooltip: _isFullScreen ? 'Exit Full Screen' : 'Enter Full Screen',
+          ),
           IconButton(
             icon: const Icon(Icons.settings),
             onPressed: () {
@@ -449,49 +508,54 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen> {
             tooltip: 'Settings',
           ),
         ],
-      ),
-      body: Consumer2<DashboardService, SignalKService>(
-        builder: (context, dashboardService, signalKService, child) {
-          if (!dashboardService.initialized) {
-            return const Center(child: CircularProgressIndicator());
-          }
+      ) : null,
+      body: SafeArea(
+        top: !_isFullScreen,
+        bottom: !_isFullScreen,
+        left: !_isFullScreen,
+        right: !_isFullScreen,
+        child: Consumer2<DashboardService, SignalKService>(
+          builder: (context, dashboardService, signalKService, child) {
+            if (!dashboardService.initialized) {
+              return const Center(child: CircularProgressIndicator());
+            }
 
-          final layout = dashboardService.currentLayout;
-          if (layout == null || layout.screens.isEmpty) {
-            return const Center(
-              child: Text('No dashboard screens available'),
-            );
-          }
+            final layout = dashboardService.currentLayout;
+            if (layout == null || layout.screens.isEmpty) {
+              return const Center(
+                child: Text('No dashboard screens available'),
+              );
+            }
 
-          if (!signalKService.isConnected) {
-            return Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  const Icon(Icons.cloud_off, size: 64, color: Colors.grey),
-                  const SizedBox(height: 16),
-                  const Text(
-                    'Not connected to SignalK server',
-                    style: TextStyle(fontSize: 18, color: Colors.grey),
-                  ),
-                  const SizedBox(height: 16),
-                  ElevatedButton.icon(
-                    onPressed: () {
-                      Navigator.of(context).push(
-                        MaterialPageRoute(
-                          builder: (context) => const SettingsScreen(),
-                        ),
-                      );
-                    },
-                    icon: const Icon(Icons.settings),
-                    label: const Text('Connection Settings'),
-                  ),
-                ],
-              ),
-            );
-          }
+            if (!signalKService.isConnected) {
+              return Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Icon(Icons.cloud_off, size: 64, color: Colors.grey),
+                    const SizedBox(height: 16),
+                    const Text(
+                      'Not connected to SignalK server',
+                      style: TextStyle(fontSize: 18, color: Colors.grey),
+                    ),
+                    const SizedBox(height: 16),
+                    ElevatedButton.icon(
+                      onPressed: () {
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (context) => const SettingsScreen(),
+                          ),
+                        );
+                      },
+                      icon: const Icon(Icons.settings),
+                      label: const Text('Connection Settings'),
+                    ),
+                  ],
+                ),
+              );
+            }
 
-          return Stack(
+            return Stack(
             children: [
               // PageView with screens - full screen with wrap-around
               PageView.builder(
@@ -504,6 +568,9 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen> {
                   final actualIndex = virtualIndex % totalScreens;
                   _currentVirtualPage = virtualIndex;
                   dashboardService.setActiveScreen(actualIndex);
+
+                  // Show app bar temporarily when switching screens in fullscreen mode
+                  _showAppBarTemporarily();
                 },
                 itemBuilder: (context, virtualIndex) {
                   final totalScreens = layout.screens.length;
@@ -584,6 +651,7 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen> {
           );
         },
       ),
+        ),
     );
   }
 
