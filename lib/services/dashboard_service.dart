@@ -256,6 +256,15 @@ class DashboardService extends ChangeNotifier {
     await saveDashboard();
   }
 
+  /// Update a screen directly (for orientation-specific edits)
+  Future<void> updateScreen(DashboardScreen updatedScreen) async {
+    if (_currentLayout == null) return;
+
+    _currentLayout = _currentLayout!.updateScreen(updatedScreen);
+    notifyListeners();
+    await saveDashboard();
+  }
+
   /// Update just the size of a placement
   Future<void> updatePlacementSize(
     String screenId,
@@ -270,7 +279,12 @@ class DashboardService extends ChangeNotifier {
       orElse: () => throw Exception('Screen not found'),
     );
 
-    final placement = screen.placements.firstWhere(
+    // Try to find in portrait placements first
+    final placements = screen.portraitPlacements.isNotEmpty
+        ? screen.portraitPlacements
+        : screen.landscapePlacements;
+
+    final placement = placements.firstWhere(
       (p) => p.toolId == toolId,
       orElse: () => throw Exception('Placement not found'),
     );
@@ -298,22 +312,40 @@ class DashboardService extends ChangeNotifier {
       orElse: () => throw Exception('Screen not found'),
     );
 
-    final updatedScreen = screen.reorderPlacements(oldIndex, newIndex);
+    // Reorder in both orientations
+    final portraitPlacements = List<ToolPlacement>.from(screen.portraitPlacements);
+    final landscapePlacements = List<ToolPlacement>.from(screen.landscapePlacements);
+
+    if (oldIndex < portraitPlacements.length) {
+      final item = portraitPlacements.removeAt(oldIndex);
+      portraitPlacements.insert(newIndex, item);
+    }
+
+    if (oldIndex < landscapePlacements.length) {
+      final item = landscapePlacements.removeAt(oldIndex);
+      landscapePlacements.insert(newIndex, item);
+    }
+
+    final updatedScreen = screen.copyWith(
+      portraitPlacements: portraitPlacements,
+      landscapePlacements: landscapePlacements,
+    );
+
     _currentLayout = _currentLayout!.updateScreen(updatedScreen);
     notifyListeners();
     await saveDashboard();
   }
 
-  /// Get all placements from all screens
+  /// Get all placements from all screens (portrait + landscape, deduplicated)
   List<ToolPlacement> getAllPlacements() {
     if (_currentLayout == null) return [];
 
     return _currentLayout!.screens
-        .expand((screen) => screen.placements)
+        .expand((screen) => [...screen.portraitPlacements, ...screen.landscapePlacements])
         .toList();
   }
 
-  /// Get placements for a specific screen
+  /// Get placements for a specific screen (returns portrait placements by default)
   List<ToolPlacement> getPlacementsForScreen(String screenId) {
     if (_currentLayout == null) return [];
 
@@ -322,6 +354,9 @@ class DashboardService extends ChangeNotifier {
       orElse: () => throw Exception('Screen not found'),
     );
 
-    return screen.placements;
+    // Return portrait placements, or landscape if portrait is empty
+    return screen.portraitPlacements.isNotEmpty
+        ? screen.portraitPlacements
+        : screen.landscapePlacements;
   }
 }

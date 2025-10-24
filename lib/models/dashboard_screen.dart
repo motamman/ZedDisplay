@@ -9,15 +9,29 @@ part 'dashboard_screen.g.dart';
 class DashboardScreen {
   final String id;              // Unique screen ID
   final String name;            // Display name (e.g., "Main", "Navigation", "Engine")
-  final List<ToolPlacement> placements;  // Tool placements on this screen
+
+  // NEW: Separate layouts for portrait and landscape
+  final List<ToolPlacement> portraitPlacements;   // Tools in portrait mode
+  final List<ToolPlacement> landscapePlacements;  // Tools in landscape mode
+
+  // Allow widgets to extend beyond screen (enables vertical scrolling)
+  final bool allowOverflow;
+
+  // DEPRECATED: Old single placement list (kept for backward compatibility)
+  final List<ToolPlacement>? placements;
+
   final int order;              // Display order (0-based)
 
   DashboardScreen({
     required this.id,
     required this.name,
-    required this.placements,
+    List<ToolPlacement>? portraitPlacements,
+    List<ToolPlacement>? landscapePlacements,
+    this.allowOverflow = false,
+    this.placements,  // Deprecated
     this.order = 0,
-  });
+  }) : portraitPlacements = portraitPlacements ?? placements ?? [],
+       landscapePlacements = landscapePlacements ?? placements ?? [];
 
   factory DashboardScreen.fromJson(Map<String, dynamic> json) =>
       _$DashboardScreenFromJson(json);
@@ -28,48 +42,54 @@ class DashboardScreen {
   DashboardScreen copyWith({
     String? id,
     String? name,
-    List<ToolPlacement>? placements,
+    List<ToolPlacement>? portraitPlacements,
+    List<ToolPlacement>? landscapePlacements,
+    bool? allowOverflow,
     int? order,
   }) {
     return DashboardScreen(
       id: id ?? this.id,
       name: name ?? this.name,
-      placements: placements ?? this.placements,
+      portraitPlacements: portraitPlacements ?? this.portraitPlacements,
+      landscapePlacements: landscapePlacements ?? this.landscapePlacements,
+      allowOverflow: allowOverflow ?? this.allowOverflow,
       order: order ?? this.order,
     );
   }
 
-  /// Add a tool placement to this screen
-  DashboardScreen addPlacement(ToolPlacement placement) {
-    return copyWith(placements: [...placements, placement]);
+  /// Add a tool placement to this screen (to both orientations by default)
+  DashboardScreen addPlacement(ToolPlacement placement, {bool portrait = true, bool landscape = true}) {
+    return copyWith(
+      portraitPlacements: portrait ? [...portraitPlacements, placement] : portraitPlacements,
+      landscapePlacements: landscape ? [...landscapePlacements, placement] : landscapePlacements,
+    );
   }
 
-  /// Remove a tool placement from this screen
+  /// Remove a tool placement from this screen (from both orientations)
   DashboardScreen removePlacement(String toolId) {
     return copyWith(
-      placements: placements.where((p) => p.toolId != toolId).toList(),
+      portraitPlacements: portraitPlacements.where((p) => p.toolId != toolId).toList(),
+      landscapePlacements: landscapePlacements.where((p) => p.toolId != toolId).toList(),
     );
   }
 
-  /// Update a tool placement on this screen
-  DashboardScreen updatePlacement(ToolPlacement updatedPlacement) {
+  /// Update a tool placement on this screen (in both orientations)
+  DashboardScreen updatePlacement(ToolPlacement updatedPlacement, {bool portrait = true, bool landscape = true}) {
     return copyWith(
-      placements: placements
-          .map((p) => p.toolId == updatedPlacement.toolId ? updatedPlacement : p)
-          .toList(),
+      portraitPlacements: portrait
+          ? portraitPlacements.map((p) => p.toolId == updatedPlacement.toolId ? updatedPlacement : p).toList()
+          : portraitPlacements,
+      landscapePlacements: landscape
+          ? landscapePlacements.map((p) => p.toolId == updatedPlacement.toolId ? updatedPlacement : p).toList()
+          : landscapePlacements,
     );
   }
 
-  /// Reorder placements - move placement from oldIndex to newIndex
-  DashboardScreen reorderPlacements(int oldIndex, int newIndex) {
-    final newPlacements = List<ToolPlacement>.from(placements);
-    final item = newPlacements.removeAt(oldIndex);
-    newPlacements.insert(newIndex, item);
-    return copyWith(placements: newPlacements);
-  }
-
-  /// Get all unique tool IDs referenced on this screen
+  /// Get all unique tool IDs referenced on this screen (from both orientations)
   List<String> getToolIds() {
-    return placements.map((p) => p.toolId).toSet().toList();
+    final allIds = <String>{};
+    allIds.addAll(portraitPlacements.map((p) => p.toolId));
+    allIds.addAll(landscapePlacements.map((p) => p.toolId));
+    return allIds.toList();
   }
 }

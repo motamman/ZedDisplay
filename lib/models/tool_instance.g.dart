@@ -7,12 +7,12 @@ part of 'tool_instance.dart';
 // **************************************************************************
 
 ToolInstance _$ToolInstanceFromJson(Map<String, dynamic> json) => ToolInstance(
-      id: json['id'] as String,
-      toolTypeId: json['toolTypeId'] as String,
-      config: ToolConfig.fromJson(json['config'] as Map<String, dynamic>),
-      screenId: json['screenId'] as String,
-      position: GridPosition.fromJson(json['position'] as Map<String, dynamic>),
-    );
+  id: json['id'] as String,
+  toolTypeId: json['toolTypeId'] as String,
+  config: ToolConfig.fromJson(json['config'] as Map<String, dynamic>),
+  screenId: json['screenId'] as String,
+  position: GridPosition.fromJson(json['position'] as Map<String, dynamic>),
+);
 
 Map<String, dynamic> _$ToolInstanceToJson(ToolInstance instance) =>
     <String, dynamic>{

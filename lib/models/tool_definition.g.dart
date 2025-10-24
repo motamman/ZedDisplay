@@ -7,17 +7,17 @@ part of 'tool_definition.dart';
 // **************************************************************************
 
 ConfigSchema _$ConfigSchemaFromJson(Map<String, dynamic> json) => ConfigSchema(
-      allowsMinMax: json['allowsMinMax'] as bool? ?? true,
-      allowsColorCustomization:
-          json['allowsColorCustomization'] as bool? ?? true,
-      allowsMultiplePaths: json['allowsMultiplePaths'] as bool? ?? false,
-      minPaths: (json['minPaths'] as num?)?.toInt() ?? 1,
-      maxPaths: (json['maxPaths'] as num?)?.toInt() ?? 1,
-      styleOptions: (json['styleOptions'] as List<dynamic>?)
-              ?.map((e) => e as String)
-              .toList() ??
-          const [],
-    );
+  allowsMinMax: json['allowsMinMax'] as bool? ?? true,
+  allowsColorCustomization: json['allowsColorCustomization'] as bool? ?? true,
+  allowsMultiplePaths: json['allowsMultiplePaths'] as bool? ?? false,
+  minPaths: (json['minPaths'] as num?)?.toInt() ?? 1,
+  maxPaths: (json['maxPaths'] as num?)?.toInt() ?? 1,
+  styleOptions:
+      (json['styleOptions'] as List<dynamic>?)
+          ?.map((e) => e as String)
+          .toList() ??
+      const [],
+);
 
 Map<String, dynamic> _$ConfigSchemaToJson(ConfigSchema instance) =>
     <String, dynamic>{
@@ -35,8 +35,9 @@ ToolDefinition _$ToolDefinitionFromJson(Map<String, dynamic> json) =>
       name: json['name'] as String,
       description: json['description'] as String,
       category: $enumDecode(_$ToolCategoryEnumMap, json['category']),
-      configSchema:
-          ConfigSchema.fromJson(json['configSchema'] as Map<String, dynamic>),
+      configSchema: ConfigSchema.fromJson(
+        json['configSchema'] as Map<String, dynamic>,
+      ),
     );
 
 Map<String, dynamic> _$ToolDefinitionToJson(ToolDefinition instance) =>
