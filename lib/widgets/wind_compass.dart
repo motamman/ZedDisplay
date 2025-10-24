@@ -485,7 +485,7 @@ class _WindCompassState extends State<WindCompass> {
     return pointers;
   }
 
-  /// Build custom painters (no-go zone)
+  /// Build custom painters (no-go zone and AWA indicators)
   List<CustomPainter> _buildCustomPainters(double primaryHeadingRadians, double primaryHeadingDegrees) {
     final painters = <CustomPainter>[];
 
@@ -1024,6 +1024,31 @@ class _WindCompassState extends State<WindCompass> {
     return diff;
   }
 
+  /// Get layline angles (only in laylines mode)
+  List<double>? _getLaylinesAngles() {
+    if (_currentMode != WindCompassMode.laylines || widget.windDirectionTrueDegrees == null) {
+      return null;
+    }
+    final twd = widget.windDirectionTrueDegrees!;
+    return [
+      _normalizeAngle(twd + widget.targetAWA), // Port layline
+      _normalizeAngle(twd - widget.targetAWA), // Starboard layline
+    ];
+  }
+
+  /// Get VMG optimal angles (only in VMG mode)
+  List<double>? _getVMGAngles() {
+    if (_currentMode != WindCompassMode.vmg || widget.windDirectionTrueDegrees == null) {
+      return null;
+    }
+    final twd = widget.windDirectionTrueDegrees!;
+    final optimalAWA = _getOptimalTargetAWA();
+    return [
+      _normalizeAngle(twd + optimalAWA), // Port tack optimal VMG
+      _normalizeAngle(twd - optimalAWA), // Starboard tack optimal VMG
+    ];
+  }
+
   @override
   Widget build(BuildContext context) {
     return BaseCompass(
@@ -1036,6 +1061,8 @@ class _WindCompassState extends State<WindCompass> {
       apparentWindAngle: widget.windAngleApparent,
       targetAWA: widget.targetAWA,
       targetTolerance: widget.targetTolerance,
+      laylinesAngles: _getLaylinesAngles(),
+      vmgAngles: _getVMGAngles(),
       rangesBuilder: _buildSailingZones,
       pointersBuilder: _buildWindPointers,
       customPaintersBuilder: _buildCustomPainters,

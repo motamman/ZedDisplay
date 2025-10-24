@@ -20,6 +20,10 @@ class BaseCompass extends StatefulWidget {
   final double targetAWA; // Target AWA for optimal sailing (from polar)
   final double targetTolerance; // Tolerance for target AWA
 
+  // Additional angle indicators
+  final List<double>? laylinesAngles; // Layline angles to show with purple arrows
+  final List<double>? vmgAngles; // VMG optimal angles to show with cyan arrows
+
   // Customization builders
   final List<GaugeRange> Function(double primaryHeadingDegrees)? rangesBuilder;
   final List<GaugePointer> Function(double primaryHeadingDegrees)? pointersBuilder;
@@ -54,6 +58,8 @@ class BaseCompass extends StatefulWidget {
     this.apparentWindAngle,
     this.targetAWA = 40.0,
     this.targetTolerance = 3.0,
+    this.laylinesAngles,
+    this.vmgAngles,
     this.rangesBuilder,
     this.pointersBuilder,
     this.customPaintersBuilder,
@@ -87,6 +93,117 @@ class _BaseCompassState extends State<BaseCompass> {
       angle -= 360;
     }
     return angle;
+  }
+
+  /// Build angle indicators (for laylines, VMG, etc.) - simple arrows pointing outward
+  List<Widget> _buildAngleIndicators(
+    double width,
+    double height,
+    List<double> angles,
+    Color color,
+  ) {
+    final center = Offset(width / 2, height / 2);
+    final radius = min(width, height) / 2 * 0.95;
+
+    final indicators = <Widget>[];
+
+    for (final angle in angles) {
+      final angleRad = angle * pi / 180;
+      final x = center.dx + radius * sin(angleRad);
+      final y = center.dy - radius * cos(angleRad);
+
+      // Simple arrow pointing outward
+      indicators.add(
+        Positioned(
+          left: x - 10,
+          top: y - 10,
+          child: Transform.rotate(
+            angle: angleRad,
+            child: Icon(
+              Icons.navigation,
+              size: 20,
+              color: color,
+              shadows: const [
+                Shadow(color: Colors.white, blurRadius: 2),
+                Shadow(color: Colors.black, blurRadius: 4),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    return indicators;
+  }
+
+  /// Build AWA icon indicators using actual Flutter Icons
+  List<Widget> _buildAWAIconIndicators(
+    double width,
+    double height,
+    double awa,
+    double targetAWA,
+    double targetTolerance,
+  ) {
+    final center = Offset(width / 2, height / 2);
+    final radius = min(width, height) / 2 * 0.95;
+
+    // Determine performance color
+    final absAWA = awa.abs();
+    final diff = absAWA - targetAWA;
+    Color performanceColor;
+    if (diff.abs() <= targetTolerance) {
+      performanceColor = Colors.green.shade600;
+    } else if (diff.abs() <= targetTolerance * 2) {
+      performanceColor = Colors.yellow.shade700;
+    } else {
+      performanceColor = Colors.red.shade600;
+    }
+
+    final indicators = <Widget>[];
+
+    // Determine if optimal, too high, or too low
+    final isOptimal = diff.abs() <= targetTolerance;
+    final isTooHigh = absAWA > targetAWA;
+
+    // Create simple arrow icon at port and starboard AWA positions
+    for (final angle in [awa, -awa]) {
+      final angleRad = angle * pi / 180;
+      final x = center.dx + radius * sin(angleRad);
+      final y = center.dy - radius * cos(angleRad);
+
+      // Arrow direction based on performance:
+      // - Optimal: point straight out (radial)
+      // - Too high: point counter-clockwise along rim (toward wind)
+      // - Too low: point clockwise along rim (away from wind)
+      final double rotationAngle;
+      if (isOptimal) {
+        rotationAngle = angleRad; // Point outward
+      } else {
+        final steerDirection = isTooHigh ? -pi / 2 : pi / 2;
+        rotationAngle = angleRad + steerDirection; // Point along rim
+      }
+
+      indicators.add(
+        Positioned(
+          left: x - 10, // Center icon
+          top: y - 10,
+          child: Transform.rotate(
+            angle: rotationAngle,
+            child: Icon(
+              Icons.navigation,
+              size: 20,
+              color: performanceColor,
+              shadows: const [
+                Shadow(color: Colors.white, blurRadius: 2),
+                Shadow(color: Colors.black, blurRadius: 4),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    return indicators;
   }
 
   /// Build compass labels (N, S, E, W, degrees) as gauge annotations
@@ -351,6 +468,34 @@ class _BaseCompassState extends State<BaseCompass> {
                   ],
                 ),
               ),
+
+              // AWA indicators using actual Icons - LAYER 3.5 - FIXED on rim (ABOVE compass)
+              if (widget.apparentWindAngle != null)
+                ..._buildAWAIconIndicators(
+                  constraints.maxWidth,
+                  constraints.maxHeight,
+                  widget.apparentWindAngle!,
+                  widget.targetAWA,
+                  widget.targetTolerance,
+                ),
+
+              // Layline indicators - LAYER 3.6 - purple arrows
+              if (widget.laylinesAngles != null)
+                ..._buildAngleIndicators(
+                  constraints.maxWidth,
+                  constraints.maxHeight,
+                  widget.laylinesAngles!,
+                  Colors.purple.shade400,
+                ),
+
+              // VMG indicators - LAYER 3.7 - cyan arrows
+              if (widget.vmgAngles != null)
+                ..._buildAngleIndicators(
+                  constraints.maxWidth,
+                  constraints.maxHeight,
+                  widget.vmgAngles!,
+                  Colors.cyan.shade400,
+                ),
 
               // Custom overlay (AWA displays, XTE, etc.) - LAYER 4
               if (widget.overlayBuilder != null)
@@ -712,3 +857,4 @@ class SailTrimIndicatorPainter extends CustomPainter {
            oldDelegate.targetTolerance != targetTolerance;
   }
 }
+

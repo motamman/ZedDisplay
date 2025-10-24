@@ -1047,8 +1047,11 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen> {
                 child: GestureDetector(
                   onPanUpdate: (details) {
                     setState(() {
-                      _placingX = (_placingX + details.delta.dx).clamp(0, screenWidth - _placingWidth);
-                      _placingY = (_placingY + details.delta.dy).clamp(0, screenHeight - _placingHeight);
+                      // Ensure max is always >= 0 to avoid clamp error
+                      final maxX = (screenWidth - _placingWidth).clamp(0.0, double.infinity);
+                      final maxY = (screenHeight - _placingHeight).clamp(0.0, double.infinity);
+                      _placingX = (_placingX + details.delta.dx).clamp(0, maxX);
+                      _placingY = (_placingY + details.delta.dy).clamp(0, maxY);
                     });
                   },
                   onPanEnd: (details) async {
