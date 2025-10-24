@@ -857,8 +857,8 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
             ),
             const SizedBox(height: 16),
 
-            // Size Configuration (hide for autopilot - uses pixel positioning)
-            if (_selectedToolTypeId != null && _selectedToolTypeId != 'autopilot')
+            // Size Configuration (hide for autopilot and wind_compass - use pixel positioning)
+            if (_selectedToolTypeId != null && _selectedToolTypeId != 'autopilot' && _selectedToolTypeId != 'wind_compass')
               Card(
                 child: Padding(
                   padding: const EdgeInsets.all(16),
@@ -1162,7 +1162,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                          _selectedToolTypeId == 'polar_radar_chart' ||
                          _selectedToolTypeId == 'ais_polar_chart')
                             ? '5. Configure Style'
-                            : (_selectedToolTypeId == 'autopilot')
+                            : (_selectedToolTypeId == 'autopilot' || _selectedToolTypeId == 'wind_compass')
                                 ? '3. Configure Style'
                                 : '4. Configure Style',
                         style: Theme.of(context).textTheme.titleMedium,
@@ -1188,7 +1188,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                          _selectedToolTypeId == 'polar_radar_chart' ||
                          _selectedToolTypeId == 'ais_polar_chart')
                             ? '6. Preview'
-                            : (_selectedToolTypeId == 'autopilot')
+                            : (_selectedToolTypeId == 'autopilot' || _selectedToolTypeId == 'wind_compass')
                                 ? '4. Preview'
                                 : '5. Preview',
                         style: Theme.of(context).textTheme.titleMedium,
@@ -1337,8 +1337,8 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
       ]);
     }
 
-    // Unit (not applicable for autopilot)
-    if (_selectedToolTypeId != 'autopilot') {
+    // Unit (not applicable for autopilot or wind_compass)
+    if (_selectedToolTypeId != 'autopilot' && _selectedToolTypeId != 'wind_compass') {
       widgets.addAll([
         TextFormField(
           decoration: const InputDecoration(
@@ -1387,8 +1387,8 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
       ]);
     }
 
-    // Show/Hide Options (not applicable for autopilot)
-    if (_selectedToolTypeId != 'autopilot') {
+    // Show/Hide Options (not applicable for autopilot or wind_compass)
+    if (_selectedToolTypeId != 'autopilot' && _selectedToolTypeId != 'wind_compass') {
       widgets.addAll([
         SwitchListTile(
           title: const Text('Show Label'),

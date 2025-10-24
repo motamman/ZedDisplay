@@ -207,7 +207,7 @@ class _BaseCompassState extends State<BaseCompass> {
   }
 
   /// Build compass labels (N, S, E, W, degrees) as gauge annotations
-  List<GaugeAnnotation> _buildCompassLabels() {
+  List<GaugeAnnotation> _buildCompassLabels(double headingDegrees) {
     if (!widget.showCompassLabels) return [];
 
     final labels = <GaugeAnnotation>[];
@@ -246,12 +246,15 @@ class _BaseCompassState extends State<BaseCompass> {
 
       labels.add(
         GaugeAnnotation(
-          widget: Text(
-            label,
-            style: TextStyle(
-              color: labelColor,
-              fontSize: fontSize,
-              fontWeight: i == 0 || i % 90 == 0 ? FontWeight.bold : FontWeight.w500,
+          widget: Transform.rotate(
+            angle: (headingDegrees * pi / 180) + (pi / 2), // Counter-rotate by heading + 90° to align with vessel bow
+            child: Text(
+              label,
+              style: TextStyle(
+                color: labelColor,
+                fontSize: fontSize,
+                fontWeight: i == 0 || i % 90 == 0 ? FontWeight.bold : FontWeight.w500,
+              ),
             ),
           ),
           angle: i.toDouble(),
@@ -463,7 +466,7 @@ class _BaseCompassState extends State<BaseCompass> {
                       pointers: widget.pointersBuilder?.call(primaryHeadingDegrees) ?? [],
 
                       // Compass labels
-                      annotations: _buildCompassLabels(),
+                      annotations: _buildCompassLabels(primaryHeadingDegrees),
                     ),
                   ],
                 ),
