@@ -710,13 +710,22 @@ class AutopilotWidget extends StatelessWidget {
   }
 
   Widget _buildHeadingControls() {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+    return Column(
+      mainAxisSize: MainAxisSize.min,
       children: [
-        _buildAdjustButton('-10°', -10),
-        _buildAdjustButton('-1°', -1),
-        _buildAdjustButton('+1°', 1),
-        _buildAdjustButton('+10°', 10),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          children: [
+            _buildAdjustButton('-10°', -10),
+            _buildAdjustButton('-1°', -1),
+            _buildAdjustButton('+1°', 1),
+            _buildAdjustButton('+10°', 10),
+          ],
+        ),
+        const SizedBox(height: 12),
+        _HeadingAdjustmentSlider(
+          onAdjustHeading: onAdjustHeading,
+        ),
       ],
     );
   }
@@ -737,6 +746,126 @@ class AutopilotWidget extends StatelessWidget {
     );
   }
 
+}
+
+/// Stateful slider widget for fine-grained heading adjustments
+class _HeadingAdjustmentSlider extends StatefulWidget {
+  final Function(int degrees)? onAdjustHeading;
+
+  const _HeadingAdjustmentSlider({
+    this.onAdjustHeading,
+  });
+
+  @override
+  State<_HeadingAdjustmentSlider> createState() => _HeadingAdjustmentSliderState();
+}
+
+class _HeadingAdjustmentSliderState extends State<_HeadingAdjustmentSlider> {
+  double _sliderValue = 0.0;
+  bool _isDragging = false;
+
+  Future<void> _showConfirmationDialog(int degrees) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Confirm Heading Adjustment'),
+        content: Text(
+          'Adjust heading by ${degrees > 0 ? '+' : ''}$degrees°?',
+          style: const TextStyle(fontSize: 16),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('No'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.blue,
+            ),
+            child: const Text('Yes'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      widget.onAdjustHeading?.call(degrees);
+    }
+
+    // Reset slider to 0 regardless of choice
+    setState(() {
+      _sliderValue = 0.0;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text(
+                'Change Course',
+                style: TextStyle(
+                  fontSize: 11,
+                  color: Colors.white70,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              Text(
+                '${_sliderValue.round() > 0 ? '+' : ''}${_sliderValue.round()}°',
+                style: TextStyle(
+                  fontSize: 14,
+                  color: _sliderValue.round() == 0
+                      ? Colors.white70
+                      : (_sliderValue > 0 ? Colors.green : Colors.red),
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          SliderTheme(
+            data: SliderThemeData(
+              activeTrackColor: Colors.grey.withValues(alpha: 0.3),
+              inactiveTrackColor: Colors.grey.withValues(alpha: 0.3),
+              thumbColor: _sliderValue.round() == 0
+                  ? Colors.white
+                  : (_sliderValue > 0 ? Colors.green : Colors.red),
+              overlayColor: (_sliderValue > 0 ? Colors.green : Colors.red).withValues(alpha: 0.2),
+              trackHeight: 4,
+              thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 10),
+            ),
+            child: Slider(
+              value: _sliderValue,
+              min: -180,
+              max: 180,
+              divisions: 360,
+              onChanged: (value) {
+                setState(() {
+                  _sliderValue = value;
+                  _isDragging = true;
+                });
+              },
+              onChangeEnd: (value) {
+                if (value.round() != 0) {
+                  _showConfirmationDialog(value.round());
+                }
+                setState(() {
+                  _isDragging = false;
+                });
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 /// Custom painter for no-go zone V-shape
