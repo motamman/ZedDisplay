@@ -415,73 +415,138 @@ class AutopilotWidget extends StatelessWidget {
 
     return Container(
       padding: const EdgeInsets.all(16),
-      child: Column(
+      child: Stack(
         children: [
-          // Target info box and heading label aligned horizontally
-          SizedBox(
-            height: 60, // Fixed height to contain both elements
-            child: Stack(
-              children: [
-                // Target box centered
-                Align(
-                  alignment: Alignment.topCenter,
-                  child: _buildTargetInfoBox(),
-                ),
-                // Heading label on the right with spacing
-                Positioned(
-                  right: 16,
-                  top: 0,
-                  child: _buildHeadingLabel(currentHeading, headingTrue),
-                ),
-              ],
+          // Compass with overlaid controls (85% size, centered)
+          Center(
+            child: FractionallySizedBox(
+              widthFactor: 0.85,
+              heightFactor: 0.85,
+              child: BaseCompass(
+                headingTrueRadians: headingTrue ? headingRadians : null,
+                headingMagneticRadians: !headingTrue ? headingRadians : null,
+                headingTrueDegrees: headingTrue ? currentHeading : null,
+                headingMagneticDegrees: !headingTrue ? currentHeading : null,
+                isSailingVessel: isSailingVessel,
+                apparentWindAngle: apparentWindAngle,
+                targetAWA: targetAWA,
+                targetTolerance: targetTolerance,
+                rangesBuilder: _buildAutopilotZones,
+                pointersBuilder: _buildAutopilotPointers,
+                customPaintersBuilder: _buildCustomPainters,
+                overlayBuilder: _buildAutopilotOverlay,
+                magneticHeadingDisplayBuilder: _buildEmptyHeadingDisplay,
+                trueHeadingDisplayBuilder: _buildEmptyHeadingDisplay,
+                allowHeadingModeToggle: false, // Autopilot uses one mode
+              ),
             ),
           ),
 
-          const SizedBox(height: 8),
-
-          // Compass display (without heading labels in corners)
-          Expanded(
-            flex: 3,
-            child: BaseCompass(
-              headingTrueRadians: headingTrue ? headingRadians : null,
-              headingMagneticRadians: !headingTrue ? headingRadians : null,
-              headingTrueDegrees: headingTrue ? currentHeading : null,
-              headingMagneticDegrees: !headingTrue ? currentHeading : null,
-              isSailingVessel: isSailingVessel,
-              apparentWindAngle: apparentWindAngle,
-              targetAWA: targetAWA,
-              targetTolerance: targetTolerance,
-              rangesBuilder: _buildAutopilotZones,
-              pointersBuilder: _buildAutopilotPointers,
-              customPaintersBuilder: _buildCustomPainters,
-              overlayBuilder: _buildAutopilotOverlay,
-              magneticHeadingDisplayBuilder: _buildEmptyHeadingDisplay,
-              trueHeadingDisplayBuilder: _buildEmptyHeadingDisplay,
-              allowHeadingModeToggle: false, // Autopilot uses one mode
-            ),
+          // Target box - top left corner
+          Positioned(
+            left: 16,
+            top: 16,
+            child: _buildTargetInfoBox(),
           ),
 
-          const SizedBox(height: 16),
+          // Heading label - top right corner
+          Positioned(
+            right: 16,
+            top: 16,
+            child: _buildHeadingLabel(currentHeading, headingTrue),
+          ),
 
-          // Rudder indicator
-          _buildRudderIndicator(),
-
-          const SizedBox(height: 16),
-
-          // Mode selector and engage/disengage
-          _buildModeControls(context),
-
-          const SizedBox(height: 12),
-
-          // Heading adjustment buttons (for all vessels in Auto/Compass/Wind mode)
-          if (engaged && (mode == 'Auto' || mode == 'Compass' || mode == 'Wind'))
-            _buildHeadingControls(),
-
-          const SizedBox(height: 12),
-
-          // Tack buttons (only for sailing vessels in Auto/Wind mode)
+          // Tack Port button - left side, aligned with compass midline (only for sailing vessels in Auto/Wind mode)
           if (isSailingVessel && engaged && (mode == 'Auto' || mode == 'Wind'))
-            _buildTackButtons(),
+            Positioned(
+              left: 0,
+              top: 0,
+              bottom: 0,
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: SizedBox(
+                  width: 75,
+                  child: ElevatedButton(
+                    onPressed: () => onTack?.call('port'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.red.withValues(alpha: 0.6),
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                    ),
+                    child: const Text('TACK\nPORT',
+                      style: TextStyle(fontSize: 9),
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+
+          // Tack Starboard button - right side, aligned with compass midline (only for sailing vessels in Auto/Wind mode)
+          if (isSailingVessel && engaged && (mode == 'Auto' || mode == 'Wind'))
+            Positioned(
+              right: 0,
+              top: 0,
+              bottom: 0,
+              child: Align(
+                alignment: Alignment.centerRight,
+                child: SizedBox(
+                  width: 75,
+                  child: ElevatedButton(
+                    onPressed: () => onTack?.call('starboard'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.green.withValues(alpha: 0.6),
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                    ),
+                    child: const Text('TACK\nSTBD',
+                      style: TextStyle(fontSize: 9),
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+
+          // Controls overlay - bottom third of compass
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: Container(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    Colors.black.withValues(alpha: 0.0),
+                    Colors.black.withValues(alpha: 0.7),
+                    Colors.black.withValues(alpha: 0.9),
+                  ],
+                ),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const SizedBox(height: 12),
+
+                  // Mode selector and engage/disengage
+                  _buildModeControls(context),
+
+                  const SizedBox(height: 10),
+
+                  // Heading adjustment buttons (for all vessels in Auto/Compass/Wind mode)
+                  if (engaged && (mode == 'Auto' || mode == 'Compass' || mode == 'Wind'))
+                    _buildHeadingControls(),
+
+                  const SizedBox(height: 10),
+
+                  // Rudder indicator
+                  _buildRudderIndicator(),
+
+                  const SizedBox(height: 12),
+                ],
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -572,24 +637,25 @@ class AutopilotWidget extends StatelessWidget {
         Expanded(
           child: OutlinedButton.icon(
             onPressed: () => _showModeMenu(context),
-            icon: const Icon(Icons.navigation),
-            label: Text('Mode: $mode'),
+            icon: const Icon(Icons.navigation, size: 18),
+            label: Text('Mode: $mode', style: const TextStyle(fontSize: 13)),
             style: OutlinedButton.styleFrom(
-              padding: const EdgeInsets.symmetric(vertical: 12),
+              padding: const EdgeInsets.symmetric(vertical: 10),
+              backgroundColor: Colors.black.withValues(alpha: 0.3),
             ),
           ),
         ),
-        const SizedBox(width: 12),
+        const SizedBox(width: 10),
         Expanded(
           child: ElevatedButton(
             onPressed: onEngageDisengage,
             style: ElevatedButton.styleFrom(
-              backgroundColor: engaged ? Colors.red : Colors.green,
-              padding: const EdgeInsets.symmetric(vertical: 12),
+              backgroundColor: (engaged ? Colors.red : Colors.green).withValues(alpha: 0.7),
+              padding: const EdgeInsets.symmetric(vertical: 10),
             ),
             child: Text(
               engaged ? 'DISENGAGE' : 'ENGAGE',
-              style: const TextStyle(fontWeight: FontWeight.bold),
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
             ),
           ),
         ),
@@ -658,45 +724,19 @@ class AutopilotWidget extends StatelessWidget {
   Widget _buildAdjustButton(String label, int degrees) {
     return Expanded(
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 4),
+        padding: const EdgeInsets.symmetric(horizontal: 3),
         child: ElevatedButton(
           onPressed: () => onAdjustHeading?.call(degrees),
           style: ElevatedButton.styleFrom(
-            padding: const EdgeInsets.symmetric(vertical: 12),
+            padding: const EdgeInsets.symmetric(vertical: 10),
+            backgroundColor: Colors.blue.withValues(alpha: 0.6),
           ),
-          child: Text(label),
+          child: Text(label, style: const TextStyle(fontSize: 13)),
         ),
       ),
     );
   }
 
-  Widget _buildTackButtons() {
-    return Row(
-      children: [
-        Expanded(
-          child: ElevatedButton(
-            onPressed: () => onTack?.call('port'),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.red.withValues(alpha: 0.8),
-              padding: const EdgeInsets.symmetric(vertical: 12),
-            ),
-            child: const Text('TACK PORT'),
-          ),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: ElevatedButton(
-            onPressed: () => onTack?.call('starboard'),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.green.withValues(alpha: 0.8),
-              padding: const EdgeInsets.symmetric(vertical: 12),
-            ),
-            child: const Text('TACK STBD'),
-          ),
-        ),
-      ],
-    );
-  }
 }
 
 /// Custom painter for no-go zone V-shape
