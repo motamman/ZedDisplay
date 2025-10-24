@@ -1,11 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:syncfusion_flutter_gauges/gauges.dart';
 import 'dart:math' as math;
+import 'dart:async';
 import 'base_compass.dart';
 
 /// Full-featured autopilot control widget with compass display
 /// Built on BaseCompass for consistent styling with wind compass
-class AutopilotWidget extends StatelessWidget {
+class AutopilotWidget extends StatefulWidget {
   final double currentHeading; // Current heading in degrees (0-360)
   final double targetHeading; // Target autopilot heading
   final double rudderAngle; // Rudder angle (-35 to +35 degrees)
@@ -32,6 +33,9 @@ class AutopilotWidget extends StatelessWidget {
   final Function(int degrees)? onAdjustHeading;
   final Function(String direction)? onTack;
 
+  // Fade configuration
+  final int fadeDelaySeconds; // Seconds before controls fade after activity
+
   const AutopilotWidget({
     super.key,
     required this.currentHeading,
@@ -53,7 +57,57 @@ class AutopilotWidget extends StatelessWidget {
     this.onModeChange,
     this.onAdjustHeading,
     this.onTack,
+    this.fadeDelaySeconds = 5,
   });
+
+  @override
+  State<AutopilotWidget> createState() => _AutopilotWidgetState();
+}
+
+class _AutopilotWidgetState extends State<AutopilotWidget> {
+  Timer? _dimTimer;
+  double _controlsOpacity = 0.7;
+
+  @override
+  void dispose() {
+    _dimTimer?.cancel();
+    super.dispose();
+  }
+
+  void _onHeadingAdjustmentSent() {
+    // Cancel any existing timer
+    _dimTimer?.cancel();
+
+    // Reset opacity to normal (70%)
+    setState(() {
+      _controlsOpacity = 0.7;
+    });
+
+    // Start configurable timer to dim controls
+    _dimTimer = Timer(Duration(seconds: widget.fadeDelaySeconds), () {
+      setState(() {
+        _controlsOpacity = 0.1;
+      });
+    });
+  }
+
+  void _onScreenTap() {
+    // Cancel any existing timer
+    _dimTimer?.cancel();
+
+    // Restore normal opacity (70%)
+    setState(() {
+      _controlsOpacity = 0.7;
+    });
+  }
+
+  void _onCompassDoubleTap() {
+    // Double-tap on compass triggers disengage
+    if (widget.engaged) {
+      widget.onEngageDisengage?.call();
+      _onHeadingAdjustmentSent();
+    }
+  }
 
   /// Normalize angle to 0-360 range
   double _normalizeAngle(double angle) {
@@ -98,11 +152,11 @@ class AutopilotWidget extends StatelessWidget {
       }
     }
 
-    if (showWindIndicators && apparentWindAngle != null) {
+    if (widget.showWindIndicators && widget.apparentWindAngle != null) {
       // WIND MODE - USE EXACT SAME ZONES AS WIND COMPASS
-      final windDirection = _normalizeAngle(currentHeading + apparentWindAngle!);
-      final effectiveTargetAWA = targetAWA; // Use configured target AWA
-      final tolerance = targetTolerance; // Use configured tolerance
+      final windDirection = _normalizeAngle(widget.currentHeading + widget.apparentWindAngle!);
+      final effectiveTargetAWA = widget.targetAWA; // Use configured target AWA
+      final tolerance = widget.targetTolerance; // Use configured tolerance
 
       // PORT SIDE - Gradiated Red Zones (darker = more important)
       addRange(windDirection - 60, windDirection - effectiveTargetAWA, Colors.red.withValues(alpha: 0.6));
@@ -138,8 +192,8 @@ class AutopilotWidget extends StatelessWidget {
 
     } else {
       // HEADING MODE - Simple port/starboard zones
-      addRange(currentHeading - 180, currentHeading, Colors.red.withValues(alpha: 0.3));
-      addRange(currentHeading, currentHeading + 180, Colors.green.withValues(alpha: 0.3));
+      addRange(widget.currentHeading - 180, widget.currentHeading, Colors.red.withValues(alpha: 0.3));
+      addRange(widget.currentHeading, widget.currentHeading + 180, Colors.green.withValues(alpha: 0.3));
     }
 
     return zones;
@@ -150,32 +204,32 @@ class AutopilotWidget extends StatelessWidget {
     final pointers = <GaugePointer>[];
 
     // Determine which heading is primary (being used for compass rotation)
-    final usingTrueHeading = headingTrue;
+    final usingTrueHeading = widget.headingTrue;
 
     // Target heading marker (needle with rounded end) - drawn first (below)
     pointers.add(NeedlePointer(
-      value: targetHeading,
+      value: widget.targetHeading,
       needleLength: 0.92,
       needleStartWidth: 0,
       needleEndWidth: 10,
-      needleColor: primaryColor,
+      needleColor: widget.primaryColor,
       knobStyle: const KnobStyle(knobRadius: 0),
     ));
 
     // Rounded end for target heading indicator
     pointers.add(MarkerPointer(
-      value: targetHeading,
+      value: widget.targetHeading,
       markerType: MarkerType.circle,
       markerHeight: 16,
       markerWidth: 16,
-      color: primaryColor,
+      color: widget.primaryColor,
       markerOffset: -5,
     ));
 
     // Current heading indicator - only show dot (no needle) since vessel shadow shows direction
     // Rounded end for current heading indicator
     pointers.add(MarkerPointer(
-      value: currentHeading,
+      value: widget.currentHeading,
       markerType: MarkerType.circle,
       markerHeight: 11,
       markerWidth: 11,
@@ -184,11 +238,11 @@ class AutopilotWidget extends StatelessWidget {
     ));
 
     // WIND INDICATORS - only show in wind mode
-    if (showWindIndicators) {
+    if (widget.showWindIndicators) {
       // Apparent wind direction - primary (blue)
-      if (apparentWindDirection != null) {
+      if (widget.apparentWindDirection != null) {
         pointers.add(NeedlePointer(
-          value: apparentWindDirection!,
+          value: widget.apparentWindDirection!,
           needleLength: 0.95,
           needleStartWidth: 5,
           needleEndWidth: 0,
@@ -201,9 +255,9 @@ class AutopilotWidget extends StatelessWidget {
       }
 
       // True wind direction - secondary (green)
-      if (trueWindDirection != null) {
+      if (widget.trueWindDirection != null) {
         pointers.add(NeedlePointer(
-          value: trueWindDirection!,
+          value: widget.trueWindDirection!,
           needleLength: 0.75,
           needleStartWidth: 4,
           needleEndWidth: 0,
@@ -224,9 +278,10 @@ class AutopilotWidget extends StatelessWidget {
   List<CustomPainter> _buildCustomPainters(double primaryHeadingRadians, double primaryHeadingDegrees) {
     final painters = <CustomPainter>[];
 
-    if (showWindIndicators && apparentWindAngle != null) {
+    if (widget.showWindIndicators && widget.apparentWindAngle != null) {
       painters.add(_NoGoZoneVPainter(
-        windDirection: _normalizeAngle(currentHeading + apparentWindAngle!),
+        windDirection: _normalizeAngle(widget.currentHeading + widget.apparentWindAngle!),
+        noGoAngle: widget.targetAWA,
       ));
     }
 
@@ -234,9 +289,54 @@ class AutopilotWidget extends StatelessWidget {
   }
 
   /// Build autopilot overlay (minimal - just shows mode/target info)
-  Widget _buildAutopilotOverlay(double primaryHeadingDegrees) {
+  /// Build heading display for top row (with orange dot)
+  Widget _buildHeadingLabel(double headingDegrees, bool isTrue) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.end,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              'HDG',
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.white,
+              ),
+            ),
+            const SizedBox(width: 4),
+            Container(
+              width: 12,
+              height: 12,
+              decoration: const BoxDecoration(
+                color: Colors.orange,
+                shape: BoxShape.circle,
+              ),
+            ),
+          ],
+        ),
+        Text(
+          '${headingDegrees.toStringAsFixed(0)}°${isTrue ? 'T' : 'M'}',
+          style: const TextStyle(
+            fontSize: 16,
+            color: Colors.white,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// Empty builder to hide heading labels inside compass
+  Widget _buildEmptyHeadingDisplay(double headingDegrees, bool isActive) {
+    return const SizedBox.shrink();
+  }
+
+  /// Build target info box
+  Widget _buildTargetInfoBox() {
     // Calculate heading error
-    double error = currentHeading - targetHeading;
+    double error = widget.currentHeading - widget.targetHeading;
     while (error > 180) error -= 360;
     while (error < -180) error += 360;
 
@@ -249,72 +349,66 @@ class AutopilotWidget extends StatelessWidget {
       errorColor = Colors.red;
     }
 
-    return Stack(
-      children: [
-        // Mode and target info at bottom center (above SOG/COG area)
-        Positioned(
-          bottom: 70,
-          left: 0,
-          right: 0,
-          child: Center(
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-              decoration: BoxDecoration(
-                color: Colors.black.withValues(alpha: 0.8),
-                borderRadius: BorderRadius.circular(6),
-                border: Border.all(color: primaryColor, width: 2),
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    mode.toUpperCase(),
-                    style: const TextStyle(
-                      fontSize: 10,
-                      color: Colors.white60,
-                      fontWeight: FontWeight.bold,
-                      letterSpacing: 1.2,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Text(
-                        'TGT: ',
-                        style: TextStyle(
-                          fontSize: 11,
-                          color: Colors.white60,
-                        ),
-                      ),
-                      Text(
-                        '${targetHeading.toStringAsFixed(0)}°',
-                        style: TextStyle(
-                          fontSize: 16,
-                          color: primaryColor,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        '${error > 0 ? '+' : ''}${error.toStringAsFixed(1)}°',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: errorColor,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.8),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: widget.primaryColor, width: 2),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            widget.mode.toUpperCase(),
+            style: const TextStyle(
+              fontSize: 10,
+              color: Colors.white60,
+              fontWeight: FontWeight.bold,
+              letterSpacing: 1.2,
             ),
           ),
-        ),
+          const SizedBox(height: 2),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                'TGT: ',
+                style: TextStyle(
+                  fontSize: 11,
+                  color: Colors.white60,
+                ),
+              ),
+              Text(
+                '${widget.targetHeading.toStringAsFixed(0)}°',
+                style: TextStyle(
+                  fontSize: 16,
+                  color: widget.primaryColor,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                '${error > 0 ? '+' : ''}${error.toStringAsFixed(1)}°',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: errorColor,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
 
+  Widget _buildAutopilotOverlay(double primaryHeadingDegrees) {
+    return Stack(
+      children: [
         // XTE display (right side below heading display) if available and reasonable
         // Only show XTE if < 10nm (~18520m) to filter out bad data
-        if (crossTrackError != null && crossTrackError!.abs() < 18520)
+        if (widget.crossTrackError != null && widget.crossTrackError!.abs() < 18520)
           Positioned(
             right: 16,
             bottom: 100,
@@ -324,7 +418,7 @@ class AutopilotWidget extends StatelessWidget {
                 color: Colors.black.withValues(alpha: 0.8),
                 borderRadius: BorderRadius.circular(6),
                 border: Border.all(
-                  color: crossTrackError! >= 0 ? Colors.green : Colors.red,
+                  color: widget.crossTrackError! >= 0 ? Colors.green : Colors.red,
                   width: 2,
                 ),
               ),
@@ -342,9 +436,9 @@ class AutopilotWidget extends StatelessWidget {
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    crossTrackError!.abs() >= 1000
-                        ? '${(crossTrackError!.abs() / 1000).toStringAsFixed(2)}'
-                        : '${crossTrackError!.abs().toStringAsFixed(0)}',
+                    widget.crossTrackError!.abs() >= 1000
+                        ? '${(widget.crossTrackError!.abs() / 1000).toStringAsFixed(2)}'
+                        : '${widget.crossTrackError!.abs().toStringAsFixed(0)}',
                     style: const TextStyle(
                       fontSize: 16,
                       color: Colors.white,
@@ -352,10 +446,10 @@ class AutopilotWidget extends StatelessWidget {
                     ),
                   ),
                   Text(
-                    '${crossTrackError!.abs() >= 1000 ? 'km' : 'm'} ${crossTrackError! >= 0 ? 'STBD' : 'PORT'}',
+                    '${widget.crossTrackError!.abs() >= 1000 ? 'km' : 'm'} ${widget.crossTrackError! >= 0 ? 'STBD' : 'PORT'}',
                     style: TextStyle(
                       fontSize: 10,
-                      color: crossTrackError! >= 0 ? Colors.green : Colors.red,
+                      color: widget.crossTrackError! >= 0 ? Colors.green : Colors.red,
                       fontWeight: FontWeight.bold,
                     ),
                   ),
@@ -371,54 +465,166 @@ class AutopilotWidget extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     // Convert heading to radians for rotation
-    final headingRadians = currentHeading * math.pi / 180;
+    final headingRadians = widget.currentHeading * math.pi / 180;
 
-    return Container(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        children: [
-          // Compass display
-          Expanded(
-            flex: 3,
-            child: BaseCompass(
-              headingTrueRadians: headingTrue ? headingRadians : null,
-              headingMagneticRadians: !headingTrue ? headingRadians : null,
-              headingTrueDegrees: headingTrue ? currentHeading : null,
-              headingMagneticDegrees: !headingTrue ? currentHeading : null,
-              isSailingVessel: isSailingVessel,
-              apparentWindAngle: apparentWindAngle,
-              rangesBuilder: _buildAutopilotZones,
-              pointersBuilder: _buildAutopilotPointers,
-              customPaintersBuilder: _buildCustomPainters,
-              overlayBuilder: _buildAutopilotOverlay,
-              // Use default center display (current heading) - looks like wind compass
-              // Use default heading corner displays - looks like wind compass
-              allowHeadingModeToggle: false, // Autopilot uses one mode
+    return GestureDetector(
+      onTap: _onScreenTap,
+      onDoubleTap: _onCompassDoubleTap,
+      behavior: HitTestBehavior.translucent,
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        child: Stack(
+          children: [
+          // Compass with overlaid controls (85% size, centered)
+          Center(
+            child: FractionallySizedBox(
+              widthFactor: 0.85,
+              heightFactor: 0.85,
+              child: BaseCompass(
+                headingTrueRadians: widget.headingTrue ? headingRadians : null,
+                headingMagneticRadians: !widget.headingTrue ? headingRadians : null,
+                headingTrueDegrees: widget.headingTrue ? widget.currentHeading : null,
+                headingMagneticDegrees: !widget.headingTrue ? widget.currentHeading : null,
+                isSailingVessel: widget.isSailingVessel,
+                apparentWindAngle: widget.apparentWindAngle,
+                targetAWA: widget.targetAWA,
+                targetTolerance: widget.targetTolerance,
+                rangesBuilder: _buildAutopilotZones,
+                pointersBuilder: _buildAutopilotPointers,
+                customPaintersBuilder: _buildCustomPainters,
+                overlayBuilder: _buildAutopilotOverlay,
+                magneticHeadingDisplayBuilder: _buildEmptyHeadingDisplay,
+                trueHeadingDisplayBuilder: _buildEmptyHeadingDisplay,
+                allowHeadingModeToggle: false, // Autopilot uses one mode
+              ),
             ),
           ),
 
-          const SizedBox(height: 16),
+          // Target box - top left corner
+          Positioned(
+            left: 16,
+            top: 16,
+            child: _buildTargetInfoBox(),
+          ),
 
-          // Rudder indicator
-          _buildRudderIndicator(),
+          // Heading label - top right corner
+          Positioned(
+            right: 16,
+            top: 16,
+            child: _buildHeadingLabel(widget.currentHeading, widget.headingTrue),
+          ),
 
-          const SizedBox(height: 16),
+          // Tack Port button - left side, aligned with compass midline (only for sailing vessels in Auto/Wind mode)
+          if (widget.isSailingVessel && widget.engaged && (widget.mode == 'Auto' || widget.mode == 'Wind'))
+            Positioned(
+              left: 0,
+              top: 0,
+              bottom: 0,
+              child: AnimatedOpacity(
+                opacity: _controlsOpacity,
+                duration: const Duration(milliseconds: 300),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: SizedBox(
+                    width: 75,
+                    child: ElevatedButton(
+                      onPressed: () {
+                        widget.onTack?.call('port');
+                        _onHeadingAdjustmentSent();
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.red.withValues(alpha: 0.6),
+                        padding: const EdgeInsets.symmetric(vertical: 8),
+                      ),
+                      child: const Text('TACK\nPORT',
+                        style: TextStyle(fontSize: 9),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
 
-          // Mode selector and engage/disengage
-          _buildModeControls(context),
+          // Tack Starboard button - right side, aligned with compass midline (only for sailing vessels in Auto/Wind mode)
+          if (widget.isSailingVessel && widget.engaged && (widget.mode == 'Auto' || widget.mode == 'Wind'))
+            Positioned(
+              right: 0,
+              top: 0,
+              bottom: 0,
+              child: AnimatedOpacity(
+                opacity: _controlsOpacity,
+                duration: const Duration(milliseconds: 300),
+                child: Align(
+                  alignment: Alignment.centerRight,
+                  child: SizedBox(
+                    width: 75,
+                    child: ElevatedButton(
+                      onPressed: () {
+                        widget.onTack?.call('starboard');
+                        _onHeadingAdjustmentSent();
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.green.withValues(alpha: 0.6),
+                        padding: const EdgeInsets.symmetric(vertical: 8),
+                      ),
+                      child: const Text('TACK\nSTBD',
+                        style: TextStyle(fontSize: 9),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
 
-          const SizedBox(height: 12),
+          // Controls overlay - bottom third of compass
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: AnimatedOpacity(
+              opacity: _controlsOpacity,
+              duration: const Duration(milliseconds: 300),
+              child: Container(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      Colors.black.withValues(alpha: 0.0),
+                      Colors.black.withValues(alpha: 0.7),
+                      Colors.black.withValues(alpha: 0.9),
+                    ],
+                  ),
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const SizedBox(height: 12),
 
-          // Heading adjustment buttons
-          if (engaged && (mode == 'Auto' || mode == 'Compass'))
-            _buildHeadingControls(),
+                    // Mode selector and engage/disengage
+                    _buildModeControls(context),
 
-          const SizedBox(height: 12),
+                    const SizedBox(height: 10),
 
-          // Tack buttons (only for sailing vessels)
-          if (isSailingVessel && engaged && (mode == 'Auto' || mode == 'Wind'))
-            _buildTackButtons(),
-        ],
+                    // Heading adjustment buttons (for all vessels in Auto/Compass/Wind mode)
+                    if (widget.engaged && (widget.mode == 'Auto' || widget.mode == 'Compass' || widget.mode == 'Wind'))
+                      _buildHeadingControls(),
+
+                    const SizedBox(height: 10),
+
+                    // Rudder indicator
+                    _buildRudderIndicator(),
+
+                    const SizedBox(height: 12),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          ],
+        ),
       ),
     );
   }
@@ -445,7 +651,7 @@ class AutopilotWidget extends StatelessWidget {
               Expanded(
                 child: LayoutBuilder(
                   builder: (context, constraints) {
-                    final normalizedPosition = (rudderAngle + 35) / 70;
+                    final normalizedPosition = (widget.rudderAngle + 35) / 70;
                     final leftPosition = (constraints.maxWidth * normalizedPosition) - 4;
 
                     return Stack(
@@ -469,7 +675,7 @@ class AutopilotWidget extends StatelessWidget {
                             width: 8,
                             height: 30,
                             decoration: BoxDecoration(
-                              color: rudderAngle < 0 ? Colors.red : Colors.green,
+                              color: widget.rudderAngle < 0 ? Colors.red : Colors.green,
                               borderRadius: BorderRadius.circular(2),
                               boxShadow: [
                                 BoxShadow(
@@ -481,7 +687,7 @@ class AutopilotWidget extends StatelessWidget {
                           ),
                         ),
                         Text(
-                          '${rudderAngle.toStringAsFixed(0)}°',
+                          '${widget.rudderAngle.toStringAsFixed(0)}°',
                           style: const TextStyle(
                             fontSize: 12,
                             fontWeight: FontWeight.bold,
@@ -507,25 +713,32 @@ class AutopilotWidget extends StatelessWidget {
       children: [
         Expanded(
           child: OutlinedButton.icon(
-            onPressed: () => _showModeMenu(context),
-            icon: const Icon(Icons.navigation),
-            label: Text('Mode: $mode'),
+            onPressed: () {
+              _onScreenTap(); // Reset timer when opening menu
+              _showModeMenu(context);
+            },
+            icon: const Icon(Icons.navigation, size: 18),
+            label: Text('Mode: ${widget.mode}', style: const TextStyle(fontSize: 13)),
             style: OutlinedButton.styleFrom(
-              padding: const EdgeInsets.symmetric(vertical: 12),
+              padding: const EdgeInsets.symmetric(vertical: 10),
+              backgroundColor: Colors.black.withValues(alpha: 0.3),
             ),
           ),
         ),
-        const SizedBox(width: 12),
+        const SizedBox(width: 10),
         Expanded(
           child: ElevatedButton(
-            onPressed: onEngageDisengage,
+            onPressed: () {
+              widget.onEngageDisengage?.call();
+              _onHeadingAdjustmentSent();
+            },
             style: ElevatedButton.styleFrom(
-              backgroundColor: engaged ? Colors.red : Colors.green,
-              padding: const EdgeInsets.symmetric(vertical: 12),
+              backgroundColor: (widget.engaged ? Colors.red : Colors.green).withValues(alpha: 0.7),
+              padding: const EdgeInsets.symmetric(vertical: 10),
             ),
             child: Text(
-              engaged ? 'DISENGAGE' : 'ENGAGE',
-              style: const TextStyle(fontWeight: FontWeight.bold),
+              widget.engaged ? 'DISENGAGE' : 'ENGAGE',
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
             ),
           ),
         ),
@@ -548,7 +761,7 @@ class AutopilotWidget extends StatelessWidget {
             const SizedBox(height: 16),
             _buildModeOption(context, 'Auto', 'Compass heading mode'),
             // Wind mode only for sailing vessels
-            if (isSailingVessel)
+            if (widget.isSailingVessel)
               _buildModeOption(context, 'Wind', 'Wind angle mode'),
             _buildModeOption(context, 'Route', 'Route following mode'),
             _buildModeOption(context, 'Standby', 'Autopilot standby'),
@@ -564,29 +777,40 @@ class AutopilotWidget extends StatelessWidget {
   }
 
   Widget _buildModeOption(BuildContext context, String modeOption, String description) {
-    final isSelected = mode == modeOption;
+    final isSelected = widget.mode == modeOption;
     return ListTile(
       leading: Icon(
         isSelected ? Icons.check_circle : Icons.radio_button_unchecked,
-        color: isSelected ? primaryColor : Colors.grey,
+        color: isSelected ? widget.primaryColor : Colors.grey,
       ),
       title: Text(modeOption),
       subtitle: Text(description, style: const TextStyle(fontSize: 12)),
       onTap: () {
-        onModeChange?.call(modeOption);
+        widget.onModeChange?.call(modeOption);
+        _onHeadingAdjustmentSent();
         Navigator.pop(context);
       },
     );
   }
 
   Widget _buildHeadingControls() {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+    return Column(
+      mainAxisSize: MainAxisSize.min,
       children: [
-        _buildAdjustButton('-10°', -10),
-        _buildAdjustButton('-1°', -1),
-        _buildAdjustButton('+1°', 1),
-        _buildAdjustButton('+10°', 10),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          children: [
+            _buildAdjustButton('-10°', -10),
+            _buildAdjustButton('-1°', -1),
+            _buildAdjustButton('+1°', 1),
+            _buildAdjustButton('+10°', 10),
+          ],
+        ),
+        const SizedBox(height: 12),
+        _HeadingAdjustmentSlider(
+          onAdjustHeading: widget.onAdjustHeading,
+          onHeadingAdjustmentSent: _onHeadingAdjustmentSent,
+        ),
       ],
     );
   }
@@ -594,43 +818,144 @@ class AutopilotWidget extends StatelessWidget {
   Widget _buildAdjustButton(String label, int degrees) {
     return Expanded(
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 4),
+        padding: const EdgeInsets.symmetric(horizontal: 3),
         child: ElevatedButton(
-          onPressed: () => onAdjustHeading?.call(degrees),
+          onPressed: () {
+            widget.onAdjustHeading?.call(degrees);
+            _onHeadingAdjustmentSent();
+          },
           style: ElevatedButton.styleFrom(
-            padding: const EdgeInsets.symmetric(vertical: 12),
+            padding: const EdgeInsets.symmetric(vertical: 10),
+            backgroundColor: Colors.blue.withValues(alpha: 0.6),
           ),
-          child: Text(label),
+          child: Text(label, style: const TextStyle(fontSize: 13)),
         ),
       ),
     );
   }
 
-  Widget _buildTackButtons() {
-    return Row(
-      children: [
-        Expanded(
-          child: ElevatedButton(
-            onPressed: () => onTack?.call('port'),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.red.withValues(alpha: 0.8),
-              padding: const EdgeInsets.symmetric(vertical: 12),
-            ),
-            child: const Text('TACK PORT'),
-          ),
+}
+
+/// Stateful slider widget for fine-grained heading adjustments
+class _HeadingAdjustmentSlider extends StatefulWidget {
+  final Function(int degrees)? onAdjustHeading;
+  final VoidCallback? onHeadingAdjustmentSent;
+
+  const _HeadingAdjustmentSlider({
+    this.onAdjustHeading,
+    this.onHeadingAdjustmentSent,
+  });
+
+  @override
+  State<_HeadingAdjustmentSlider> createState() => _HeadingAdjustmentSliderState();
+}
+
+class _HeadingAdjustmentSliderState extends State<_HeadingAdjustmentSlider> {
+  double _sliderValue = 0.0;
+  bool _isDragging = false;
+
+  Future<void> _showConfirmationDialog(int degrees) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Confirm Heading Adjustment'),
+        content: Text(
+          'Adjust heading by ${degrees > 0 ? '+' : ''}$degrees°?',
+          style: const TextStyle(fontSize: 16),
         ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: ElevatedButton(
-            onPressed: () => onTack?.call('starboard'),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.green.withValues(alpha: 0.8),
-              padding: const EdgeInsets.symmetric(vertical: 12),
-            ),
-            child: const Text('TACK STBD'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('No'),
           ),
-        ),
-      ],
+          ElevatedButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.blue,
+            ),
+            child: const Text('Yes'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      widget.onAdjustHeading?.call(degrees);
+      // Notify that adjustment was sent
+      widget.onHeadingAdjustmentSent?.call();
+    }
+
+    // Reset slider to 0 regardless of choice
+    setState(() {
+      _sliderValue = 0.0;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text(
+                'Change Course',
+                style: TextStyle(
+                  fontSize: 11,
+                  color: Colors.white70,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              Text(
+                '${_sliderValue.round() > 0 ? '+' : ''}${_sliderValue.round()}°',
+                style: TextStyle(
+                  fontSize: 14,
+                  color: _sliderValue.round() == 0
+                      ? Colors.white70
+                      : (_sliderValue > 0 ? Colors.green : Colors.red),
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          SliderTheme(
+            data: SliderThemeData(
+              activeTrackColor: Colors.grey.withValues(alpha: 0.3),
+              inactiveTrackColor: Colors.grey.withValues(alpha: 0.3),
+              thumbColor: _sliderValue.round() == 0
+                  ? Colors.white
+                  : (_sliderValue > 0 ? Colors.green : Colors.red),
+              overlayColor: (_sliderValue > 0 ? Colors.green : Colors.red).withValues(alpha: 0.2),
+              trackHeight: 4,
+              thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 10),
+            ),
+            child: Slider(
+              value: _sliderValue,
+              min: -180,
+              max: 180,
+              divisions: 360,
+              onChanged: (value) {
+                setState(() {
+                  _sliderValue = value;
+                  _isDragging = true;
+                });
+              },
+              onChangeEnd: (value) {
+                if (value.round() != 0) {
+                  _showConfirmationDialog(value.round());
+                }
+                setState(() {
+                  _isDragging = false;
+                });
+              },
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -642,13 +967,13 @@ class _NoGoZoneVPainter extends CustomPainter {
 
   _NoGoZoneVPainter({
     required this.windDirection,
-    this.noGoAngle = 45.0,
+    required this.noGoAngle,
   });
 
   @override
   void paint(Canvas canvas, Size size) {
     final center = Offset(size.width / 2, size.height / 2);
-    final radius = size.width / 2 * 0.85;
+    final radius = math.min(size.width, size.height) / 2 * 0.95;
 
     final windRad = windDirection * math.pi / 180;
     final noGoRad = noGoAngle * math.pi / 180;
@@ -682,6 +1007,7 @@ class _NoGoZoneVPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_NoGoZoneVPainter oldDelegate) {
-    return oldDelegate.windDirection != windDirection;
+    return oldDelegate.windDirection != windDirection ||
+           oldDelegate.noGoAngle != noGoAngle;
   }
 }

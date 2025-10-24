@@ -485,7 +485,7 @@ class _WindCompassState extends State<WindCompass> {
     return pointers;
   }
 
-  /// Build custom painters (no-go zone)
+  /// Build custom painters (no-go zone and AWA indicators)
   List<CustomPainter> _buildCustomPainters(double primaryHeadingRadians, double primaryHeadingDegrees) {
     final painters = <CustomPainter>[];
 
@@ -501,16 +501,37 @@ class _WindCompassState extends State<WindCompass> {
     return painters;
   }
 
-  /// Build overlay with AWA display and wind shift indicator
+  /// Build overlay with AWA display and wind direction arrow
   Widget _buildOverlay(double primaryHeadingDegrees) {
+    // Calculate if AWA is in relevant range (polars + 30°)
+    bool showAWADisplay = false;
+    if (widget.showAWANumbers && (widget.windAngleApparent != null || widget.windDirectionApparentDegrees != null)) {
+      double awa;
+      if (widget.windAngleApparent != null) {
+        awa = widget.windAngleApparent!;
+      } else {
+        final windDirection = widget.windDirectionApparentDegrees!;
+        awa = windDirection - primaryHeadingDegrees;
+        while (awa > 180) awa -= 360;
+        while (awa < -180) awa += 360;
+      }
+
+      final currentTargetAWA = _getOptimalTargetAWA();
+      final absAWA = awa.abs();
+
+      // Show AWA display only when within optimal angle + 30° (upwind and reaching)
+      showAWADisplay = absAWA <= (currentTargetAWA + 30);
+    }
+
     return Stack(
       children: [
-        // AWA Performance Display
-        if (widget.showAWANumbers && widget.windDirectionApparentDegrees != null)
+        // AWA Performance Display - only show when relevant (polars + 30°)
+        if (showAWADisplay)
           _buildAWAPerformanceDisplay(primaryHeadingDegrees),
 
-        // Wind shift indicator
-        _buildWindShiftIndicator(),
+        // Wind direction arrow in center
+        if (widget.windDirectionTrueDegrees != null)
+          _buildWindDirectionArrow(widget.windDirectionTrueDegrees!),
       ],
     );
   }
@@ -560,6 +581,51 @@ class _WindCompassState extends State<WindCompass> {
 
   /// Build AWA performance display
   Widget _buildAWAPerformanceDisplay(double headingDegrees) {
+    // Check if we have wind data
+    if (widget.windAngleApparent == null && widget.windDirectionApparentDegrees == null) {
+      // No wind data - show placeholder
+      return Positioned(
+        top: 35,
+        left: 0,
+        right: 0,
+        child: Center(
+          child: GestureDetector(
+            onTap: _cycleMode,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.8),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.grey, width: 2),
+              ),
+              child: const Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    'AWA MODE',
+                    style: TextStyle(
+                      fontSize: 9,
+                      color: Colors.white38,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 1.2,
+                    ),
+                  ),
+                  SizedBox(height: 2),
+                  Text(
+                    'NO WIND DATA',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.white60,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
     double awa;
     if (widget.windAngleApparent != null) {
       awa = widget.windAngleApparent!;
@@ -803,61 +869,18 @@ class _WindCompassState extends State<WindCompass> {
     );
   }
 
-  /// Build wind shift indicator
-  Widget _buildWindShiftIndicator() {
-    final shift = _calculateWindShift();
-    if (shift == null || shift.abs() < 3) {
-      return const SizedBox.shrink();
-    }
-
-    final shiftType = _getShiftType(shift);
-    if (shiftType == null) {
-      return const SizedBox.shrink();
-    }
-
-    final isLift = shiftType == 'lift';
-    final shiftColor = isLift ? Colors.green : Colors.red;
-    final shiftIcon = isLift ? Icons.arrow_upward : Icons.arrow_downward;
-    final shiftLabel = isLift ? 'LIFT' : 'HEADER';
-
-    return Positioned(
-      right: 80,
-      top: 0,
-      bottom: 0,
+  /// Build wind direction arrow in center of compass
+  Widget _buildWindDirectionArrow(double windDirectionDegrees) {
+    return Positioned.fill(
       child: Center(
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
-          decoration: BoxDecoration(
-            color: Colors.black.withOpacity(0.7),
-            border: Border.all(color: shiftColor, width: 2),
-            borderRadius: BorderRadius.circular(6),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                shiftIcon,
-                color: shiftColor,
-                size: 24,
-              ),
-              const SizedBox(height: 2),
-              Text(
-                shiftLabel,
-                style: TextStyle(
-                  fontSize: 10,
-                  color: shiftColor,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              Text(
-                '${shift.abs().toStringAsFixed(0)}°',
-                style: TextStyle(
-                  fontSize: 14,
-                  color: shiftColor,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ],
+        child: Transform.rotate(
+          angle: (windDirectionDegrees - 90) * pi / 180, // Rotate to point at wind direction
+          child: SizedBox(
+            width: 120,
+            height: 120,
+            child: CustomPaint(
+              painter: _WindDirectionArrowPainter(),
+            ),
           ),
         ),
       ),
@@ -982,6 +1005,31 @@ class _WindCompassState extends State<WindCompass> {
     return diff;
   }
 
+  /// Get layline angles (only in laylines mode)
+  List<double>? _getLaylinesAngles() {
+    if (_currentMode != WindCompassMode.laylines || widget.windDirectionTrueDegrees == null) {
+      return null;
+    }
+    final twd = widget.windDirectionTrueDegrees!;
+    return [
+      _normalizeAngle(twd + widget.targetAWA), // Port layline
+      _normalizeAngle(twd - widget.targetAWA), // Starboard layline
+    ];
+  }
+
+  /// Get VMG optimal angles (only in VMG mode)
+  List<double>? _getVMGAngles() {
+    if (_currentMode != WindCompassMode.vmg || widget.windDirectionTrueDegrees == null) {
+      return null;
+    }
+    final twd = widget.windDirectionTrueDegrees!;
+    final optimalAWA = _getOptimalTargetAWA();
+    return [
+      _normalizeAngle(twd + optimalAWA), // Port tack optimal VMG
+      _normalizeAngle(twd - optimalAWA), // Starboard tack optimal VMG
+    ];
+  }
+
   @override
   Widget build(BuildContext context) {
     return BaseCompass(
@@ -992,6 +1040,10 @@ class _WindCompassState extends State<WindCompass> {
       cogDegrees: widget.cogDegrees,
       isSailingVessel: widget.isSailingVessel,
       apparentWindAngle: widget.windAngleApparent,
+      targetAWA: widget.targetAWA,
+      targetTolerance: widget.targetTolerance,
+      laylinesAngles: _getLaylinesAngles(),
+      vmgAngles: _getVMGAngles(),
       rangesBuilder: _buildSailingZones,
       pointersBuilder: _buildWindPointers,
       customPaintersBuilder: _buildCustomPainters,
@@ -1195,7 +1247,7 @@ class NoGoZoneVPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final center = Offset(size.width / 2, size.height / 2);
-    final radius = size.width / 2 * 0.85;
+    final radius = min(size.width, size.height) / 2 * 0.95;
 
     final windRad = windAngle * pi / 180;
     final noGoRad = noGoAngle * pi / 180;
@@ -1241,4 +1293,56 @@ class _WindSample {
   final DateTime timestamp;
 
   _WindSample(this.direction, this.timestamp);
+}
+
+/// Custom painter for wind direction arrow with shortened arrowhead
+class _WindDirectionArrowPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+    final paint = Paint()
+      ..color = Colors.blue.withOpacity(0.8)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 6
+      ..strokeCap = StrokeCap.round;
+
+    // Shadow paint
+    final shadowPaint = Paint()
+      ..color = Colors.black.withOpacity(0.3)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 6
+      ..strokeCap = StrokeCap.round
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4);
+
+    // Arrow shaft (vertical line pointing up)
+    final shaftStart = Offset(center.dx, size.height * 0.75);
+    final shaftEnd = Offset(center.dx, size.height * 0.15);
+
+    // Arrowhead arms - reduced by 1/3
+    // Original would be ~20px, now ~13px
+    final arrowheadLength = size.height * 0.11; // Shortened from 0.17
+    final arrowheadAngle = 25 * pi / 180; // 25 degrees
+
+    final leftArm = Offset(
+      shaftEnd.dx - (arrowheadLength * sin(arrowheadAngle)),
+      shaftEnd.dy + (arrowheadLength * cos(arrowheadAngle)),
+    );
+    final rightArm = Offset(
+      shaftEnd.dx + (arrowheadLength * sin(arrowheadAngle)),
+      shaftEnd.dy + (arrowheadLength * cos(arrowheadAngle)),
+    );
+
+    // Draw shadow
+    canvas.drawLine(shaftStart, shaftEnd, shadowPaint);
+    canvas.drawLine(shaftEnd, leftArm, shadowPaint);
+    canvas.drawLine(shaftEnd, rightArm, shadowPaint);
+
+    // Draw arrow
+    canvas.drawLine(shaftStart, shaftEnd, paint);
+    canvas.drawLine(shaftEnd, leftArm, paint);
+    canvas.drawLine(shaftEnd, rightArm, paint);
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }

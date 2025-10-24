@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../services/signalk_service.dart';
 import '../services/tool_registry.dart';
@@ -19,6 +20,7 @@ class DashboardScreen extends StatefulWidget {
 class _DashboardScreenState extends State<DashboardScreen> {
   final List<ToolInstance> _customTools = [];
   bool _showDebugInfo = false;
+  bool _isFullScreen = false;
 
   Future<void> _addTool() async {
     final result = await Navigator.of(context).push(
@@ -77,6 +79,25 @@ class _DashboardScreenState extends State<DashboardScreen> {
         ),
       ),
     );
+  }
+
+  void _toggleFullScreen() {
+    setState(() {
+      _isFullScreen = !_isFullScreen;
+      if (_isFullScreen) {
+        // Enter full-screen mode (hide system UI)
+        SystemChrome.setEnabledSystemUIMode(
+          SystemUiMode.immersiveSticky,
+          overlays: [],
+        );
+      } else {
+        // Exit full-screen mode (show system UI)
+        SystemChrome.setEnabledSystemUIMode(
+          SystemUiMode.manual,
+          overlays: SystemUiOverlay.values,
+        );
+      }
+    });
   }
 
   void _removeTool(String toolId) {
@@ -212,6 +233,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 ),
               );
             },
+          ),
+          IconButton(
+            icon: Icon(_isFullScreen ? Icons.fullscreen_exit : Icons.fullscreen),
+            onPressed: _toggleFullScreen,
+            tooltip: _isFullScreen ? 'Exit Full Screen' : 'Enter Full Screen',
           ),
           IconButton(
             icon: const Icon(Icons.settings),

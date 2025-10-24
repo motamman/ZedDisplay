@@ -78,7 +78,7 @@ class StyleConfig {
   Map<String, dynamic> toJson() => _$StyleConfigToJson(this);
 }
 
-/// Grid position for layout
+/// Grid position for layout (DEPRECATED - kept for backward compatibility)
 @JsonSerializable()
 class GridPosition {
   final int row;
@@ -109,6 +109,64 @@ class GridPosition {
       col: col ?? this.col,
       width: width ?? this.width,
       height: height ?? this.height,
+    );
+  }
+}
+
+/// Pixel-based position for layout (replaces GridPosition)
+@JsonSerializable()
+class PixelPosition {
+  final double x;        // X position in pixels
+  final double y;        // Y position in pixels
+  final double width;    // Width in pixels
+  final double height;   // Height in pixels
+
+  PixelPosition({
+    required this.x,
+    required this.y,
+    required this.width,
+    required this.height,
+  });
+
+  factory PixelPosition.fromJson(Map<String, dynamic> json) =>
+      _$PixelPositionFromJson(json);
+
+  Map<String, dynamic> toJson() => _$PixelPositionToJson(this);
+
+  PixelPosition copyWith({
+    double? x,
+    double? y,
+    double? width,
+    double? height,
+  }) {
+    return PixelPosition(
+      x: x ?? this.x,
+      y: y ?? this.y,
+      width: width ?? this.width,
+      height: height ?? this.height,
+    );
+  }
+
+  /// Check if position is within screen bounds
+  bool fitsInBounds(double screenWidth, double screenHeight) {
+    return x >= 0 &&
+           y >= 0 &&
+           (x + width) <= screenWidth &&
+           (y + height) <= screenHeight;
+  }
+
+  /// Clamp position to fit within screen bounds
+  PixelPosition clampToBounds(double screenWidth, double screenHeight) {
+    final clampedWidth = width.clamp(0, screenWidth).toDouble();
+    final clampedHeight = height.clamp(0, screenHeight).toDouble();
+    final clampedX = x.clamp(0, screenWidth - clampedWidth).toDouble();
+    final clampedY = y.clamp(0, screenHeight - clampedHeight).toDouble();
+
+    return PixelPosition(
+      x: clampedX,
+      y: clampedY,
+      width: clampedWidth,
+      height: clampedHeight,
     );
   }
 }

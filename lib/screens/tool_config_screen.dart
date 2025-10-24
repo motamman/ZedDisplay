@@ -83,6 +83,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
   // Autopilot-specific configuration
   bool _headingTrue = false;         // Use true vs magnetic heading
   bool _invertRudder = false;        // Invert rudder angle display
+  int _fadeDelaySeconds = 5;         // Seconds before controls fade
 
   // Size configuration
   int _toolWidth = 1;
@@ -139,6 +140,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
     _enableVMG = false;
     _headingTrue = false;
     _invertRudder = false;
+    _fadeDelaySeconds = 5;
     _toolWidth = 1;
     _toolHeight = 1;
   }
@@ -352,6 +354,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
       // Autopilot settings
       _headingTrue = style.customProperties!['headingTrue'] as bool? ?? false;
       _invertRudder = style.customProperties!['invertRudder'] as bool? ?? false;
+      _fadeDelaySeconds = style.customProperties!['fadeDelaySeconds'] as int? ?? 5;
       _enableVMG = style.customProperties!['enableVMG'] as bool? ?? false;
     }
 
@@ -586,6 +589,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
       customProperties = {
         'headingTrue': _headingTrue,
         'invertRudder': _invertRudder,
+        'fadeDelaySeconds': _fadeDelaySeconds,
         'enableVMG': _enableVMG,
       };
     } else {
@@ -853,8 +857,8 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
             ),
             const SizedBox(height: 16),
 
-            // Size Configuration
-            if (_selectedToolTypeId != null)
+            // Size Configuration (hide for autopilot and wind_compass - use pixel positioning)
+            if (_selectedToolTypeId != null && _selectedToolTypeId != 'autopilot' && _selectedToolTypeId != 'wind_compass')
               Card(
                 child: Padding(
                   padding: const EdgeInsets.all(16),
@@ -1158,7 +1162,9 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                          _selectedToolTypeId == 'polar_radar_chart' ||
                          _selectedToolTypeId == 'ais_polar_chart')
                             ? '5. Configure Style'
-                            : '4. Configure Style',
+                            : (_selectedToolTypeId == 'autopilot' || _selectedToolTypeId == 'wind_compass')
+                                ? '3. Configure Style'
+                                : '4. Configure Style',
                         style: Theme.of(context).textTheme.titleMedium,
                       ),
                       const SizedBox(height: 16),
@@ -1182,7 +1188,9 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                          _selectedToolTypeId == 'polar_radar_chart' ||
                          _selectedToolTypeId == 'ais_polar_chart')
                             ? '6. Preview'
-                            : '5. Preview',
+                            : (_selectedToolTypeId == 'autopilot' || _selectedToolTypeId == 'wind_compass')
+                                ? '4. Preview'
+                                : '5. Preview',
                         style: Theme.of(context).textTheme.titleMedium,
                       ),
                       const SizedBox(height: 16),
@@ -1228,6 +1236,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                               previewCustomProperties = {
                                 'headingTrue': _headingTrue,
                                 'invertRudder': _invertRudder,
+                                'fadeDelaySeconds': _fadeDelaySeconds,
                                 'enableVMG': _enableVMG,
                               };
                             } else {
@@ -1328,18 +1337,20 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
       ]);
     }
 
-    // Unit
-    widgets.addAll([
-      TextFormField(
-        decoration: const InputDecoration(
-          labelText: 'Unit (optional)',
-          border: OutlineInputBorder(),
+    // Unit (not applicable for autopilot or wind_compass)
+    if (_selectedToolTypeId != 'autopilot' && _selectedToolTypeId != 'wind_compass') {
+      widgets.addAll([
+        TextFormField(
+          decoration: const InputDecoration(
+            labelText: 'Unit (optional)',
+            border: OutlineInputBorder(),
+          ),
+          initialValue: _unit,
+          onChanged: (value) => _unit = value,
         ),
-        initialValue: _unit,
-        onChanged: (value) => _unit = value,
-      ),
-      const SizedBox(height: 16),
-    ]);
+        const SizedBox(height: 16),
+      ]);
+    }
 
     // Color (only if tool supports color customization)
     if (schema.allowsColorCustomization) {
@@ -1376,30 +1387,39 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
       ]);
     }
 
-    // Show/Hide Options
+    // Show/Hide Options (not applicable for autopilot or wind_compass)
+    if (_selectedToolTypeId != 'autopilot' && _selectedToolTypeId != 'wind_compass') {
+      widgets.addAll([
+        SwitchListTile(
+          title: const Text('Show Label'),
+          value: _showLabel,
+          onChanged: (value) {
+            setState(() => _showLabel = value);
+          },
+        ),
+        SwitchListTile(
+          title: const Text('Show Value'),
+          value: _showValue,
+          onChanged: (value) {
+            setState(() => _showValue = value);
+          },
+        ),
+        SwitchListTile(
+          title: const Text('Show Unit'),
+          value: _showUnit,
+          onChanged: (value) {
+            setState(() => _showUnit = value);
+          },
+        ),
+        const SizedBox(height: 16),
+      ]);
+    } else {
+      widgets.addAll([
+        const SizedBox(height: 16),
+      ]);
+    }
+
     widgets.addAll([
-      SwitchListTile(
-        title: const Text('Show Label'),
-        value: _showLabel,
-        onChanged: (value) {
-          setState(() => _showLabel = value);
-        },
-      ),
-      SwitchListTile(
-        title: const Text('Show Value'),
-        value: _showValue,
-        onChanged: (value) {
-          setState(() => _showValue = value);
-        },
-      ),
-      SwitchListTile(
-        title: const Text('Show Unit'),
-        value: _showUnit,
-        onChanged: (value) {
-          setState(() => _showUnit = value);
-        },
-      ),
-      const SizedBox(height: 16),
       DropdownButtonFormField<int?>(
         decoration: const InputDecoration(
           labelText: 'Data Staleness Threshold (TTL)',
@@ -1635,6 +1655,26 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
           label: '±${_targetTolerance.toStringAsFixed(0)}°',
           onChanged: (value) {
             setState(() => _targetTolerance = value);
+          },
+        ),
+        const SizedBox(height: 16),
+        // Fade delay slider
+        ListTile(
+          title: const Text('Control Fade Delay'),
+          subtitle: Text(
+            '${_fadeDelaySeconds}s - Seconds before controls fade after activity',
+            style: const TextStyle(fontSize: 12),
+          ),
+          contentPadding: EdgeInsets.zero,
+        ),
+        Slider(
+          value: _fadeDelaySeconds.toDouble(),
+          min: 3,
+          max: 30,
+          divisions: 27,
+          label: '${_fadeDelaySeconds}s',
+          onChanged: (value) {
+            setState(() => _fadeDelaySeconds = value.round());
           },
         ),
         const SizedBox(height: 8),

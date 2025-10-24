@@ -39,6 +39,8 @@ class _RealtimeSplineChartState extends State<RealtimeSplineChart> with Automati
   late List<List<_ChartData>> _seriesData;
   Timer? _updateTimer;
   DateTime? _startTime;
+  double _cachedMinY = 0;
+  double _cachedMaxY = 100;
 
   @override
   bool get wantKeepAlive => true; // Keep accumulated data points alive
@@ -48,6 +50,12 @@ class _RealtimeSplineChartState extends State<RealtimeSplineChart> with Automati
     super.initState();
     _seriesData = List.generate(widget.paths.length, (_) => []);
     _startTime = DateTime.now();
+
+    // Initialize range with defaults
+    final initialRange = _calculateYAxisRange();
+    _cachedMinY = initialRange.min;
+    _cachedMaxY = initialRange.max;
+
     _startRealTimeUpdates();
     WidgetsBinding.instance.addObserver(this);
   }
@@ -106,6 +114,11 @@ class _RealtimeSplineChartState extends State<RealtimeSplineChart> with Automati
           _seriesData[i] = newData;
         }
       }
+
+      // Recalculate Y-axis range after data update
+      final range = _calculateYAxisRange();
+      _cachedMinY = range.min;
+      _cachedMaxY = range.max;
     });
   }
 
@@ -244,9 +257,9 @@ class _RealtimeSplineChartState extends State<RealtimeSplineChart> with Automati
                   axisLine: const AxisLine(width: 1),
                   labelStyle: const TextStyle(fontSize: 10),
                   plotBands: _getPlotBands(),
-                  // Dynamic range based on actual data
-                  minimum: _calculateYAxisRange().min,
-                  maximum: _calculateYAxisRange().max,
+                  // Dynamic range based on actual data (cached to avoid double calculation)
+                  minimum: _cachedMinY,
+                  maximum: _cachedMaxY,
                 ),
                 series: List.generate(
                   widget.paths.length,
@@ -355,9 +368,9 @@ class _RealtimeSplineChartState extends State<RealtimeSplineChart> with Automati
       return (min: 0, max: 100);
     }
 
-    // Add 10% padding on each side for better visualization
+    // Add 15% padding on each side to prevent clipping
     final range = maxValue - minValue;
-    final padding = range * 0.1;
+    final padding = range > 0 ? range * 0.15 : 10.0; // Use 15% padding, or minimum 10 if range is 0
 
     return (
       min: minValue - padding,

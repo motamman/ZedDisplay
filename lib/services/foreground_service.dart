@@ -113,8 +113,9 @@ class _ForegroundTaskHandler extends TaskHandler {
   }
 
   @override
-  Future<void> onDestroy(DateTime timestamp) async {
+  Future<void> onDestroy(DateTime timestamp, bool isTimeout) async {
     // Called when the service is stopped
+    // isTimeout: true if service was stopped due to timeout, false otherwise
   }
 
   @override

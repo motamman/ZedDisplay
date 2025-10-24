@@ -10,8 +10,15 @@ DashboardScreen _$DashboardScreenFromJson(Map<String, dynamic> json) =>
     DashboardScreen(
       id: json['id'] as String,
       name: json['name'] as String,
-      placements: (json['placements'] as List<dynamic>)
-          .map((e) => ToolPlacement.fromJson(e as Map<String, dynamic>))
+      portraitPlacements: (json['portraitPlacements'] as List<dynamic>?)
+          ?.map((e) => ToolPlacement.fromJson(e as Map<String, dynamic>))
+          .toList(),
+      landscapePlacements: (json['landscapePlacements'] as List<dynamic>?)
+          ?.map((e) => ToolPlacement.fromJson(e as Map<String, dynamic>))
+          .toList(),
+      allowOverflow: json['allowOverflow'] as bool? ?? false,
+      placements: (json['placements'] as List<dynamic>?)
+          ?.map((e) => ToolPlacement.fromJson(e as Map<String, dynamic>))
           .toList(),
       order: (json['order'] as num?)?.toInt() ?? 0,
     );
@@ -20,6 +27,9 @@ Map<String, dynamic> _$DashboardScreenToJson(DashboardScreen instance) =>
     <String, dynamic>{
       'id': instance.id,
       'name': instance.name,
+      'portraitPlacements': instance.portraitPlacements,
+      'landscapePlacements': instance.landscapePlacements,
+      'allowOverflow': instance.allowOverflow,
       'placements': instance.placements,
       'order': instance.order,
     };

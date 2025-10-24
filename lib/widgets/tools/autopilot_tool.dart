@@ -541,6 +541,9 @@ class _AutopilotToolState extends State<AutopilotTool> {
     final targetAWA = widget.config.style.laylineAngle ?? 40.0;
     final targetTolerance = widget.config.style.targetTolerance ?? 3.0;
 
+    // Get fade delay from config
+    final fadeDelaySeconds = widget.config.style.customProperties?['fadeDelaySeconds'] as int? ?? 5;
+
     // Select the appropriate heading based on config
     final displayHeading = headingTrue ? _currentHeadingTrue : _currentHeading;
 
@@ -589,76 +592,16 @@ class _AutopilotToolState extends State<AutopilotTool> {
           isSailingVessel: _isSailingVessel,
           targetAWA: targetAWA,
           targetTolerance: targetTolerance,
+          fadeDelaySeconds: fadeDelaySeconds,
           onEngageDisengage: _handleEngageDisengage,
           onModeChange: _handleModeChange,
           onAdjustHeading: _handleAdjustHeading,
           onTack: _handleTack,
         ),
-        // Debug overlay button (only in debug mode)
-        if (kDebugMode)
-          Positioned(
-            top: 8,
-            right: 8,
-            child: IconButton(
-              icon: const Icon(Icons.bug_report, color: Colors.orange),
-              onPressed: _showDebugInfo,
-            ),
-          ),
       ],
     );
   }
 
-  /// Show debug information dialog
-  void _showDebugInfo() {
-    final autopilotPaths = widget.signalKService.latestData.keys
-        .where((k) => k.contains('autopilot') || k.contains('steering'))
-        .toList();
-
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Autopilot Debug Info'),
-        content: SingleChildScrollView(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text('Current Mode: $_mode', style: const TextStyle(fontWeight: FontWeight.bold)),
-              Text('Engaged: $_engaged', style: const TextStyle(fontWeight: FontWeight.bold)),
-              const Divider(),
-              const Text('Configured Paths:', style: TextStyle(fontWeight: FontWeight.bold)),
-              ...widget.config.dataSources.map((ds) => Text('  ${ds.path}')),
-              const Divider(),
-              const Text('Available Autopilot Paths:', style: TextStyle(fontWeight: FontWeight.bold)),
-              if (autopilotPaths.isEmpty)
-                const Text('  No autopilot paths found!', style: TextStyle(color: Colors.red))
-              else
-                ...autopilotPaths.map((path) {
-                  final data = widget.signalKService.getValue(path);
-                  return Text('  $path: ${data?.value}');
-                }),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Close'),
-          ),
-          TextButton(
-            onPressed: () {
-              _onSignalKUpdate();
-              Navigator.pop(context);
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Force refreshed')),
-              );
-            },
-            child: const Text('Force Refresh'),
-          ),
-        ],
-      ),
-    );
-  }
 }
 
 /// Builder for autopilot tools
@@ -682,6 +625,7 @@ class AutopilotToolBuilder extends ToolBuilder {
           'invertRudder',     // Boolean: invert rudder angle display
           'laylineAngle',     // Number: optimal close-hauled angle (degrees) - same as wind compass
           'targetTolerance',  // Number: acceptable deviation from target (degrees) - same as wind compass
+          'fadeDelaySeconds', // Number: seconds before controls fade (default: 5)
         ],
       ),
     );
@@ -705,6 +649,9 @@ class AutopilotToolBuilder extends ToolBuilder {
         primaryColor: '#FF0000', // Red for autopilot
         laylineAngle: 40.0,      // Default target AWA
         targetTolerance: 3.0,    // Default tolerance
+        customProperties: {
+          'fadeDelaySeconds': 5,  // Default fade delay in seconds
+        },
       ),
     );
   }

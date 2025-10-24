@@ -17,6 +17,12 @@ class BaseCompass extends StatefulWidget {
   // Sailing vessel configuration
   final bool isSailingVessel;
   final double? apparentWindAngle; // AWA in degrees (-180 to +180) for sail trim indicator
+  final double targetAWA; // Target AWA for optimal sailing (from polar)
+  final double targetTolerance; // Tolerance for target AWA
+
+  // Additional angle indicators
+  final List<double>? laylinesAngles; // Layline angles to show with purple arrows
+  final List<double>? vmgAngles; // VMG optimal angles to show with cyan arrows
 
   // Customization builders
   final List<GaugeRange> Function(double primaryHeadingDegrees)? rangesBuilder;
@@ -50,6 +56,10 @@ class BaseCompass extends StatefulWidget {
     this.cogDegrees,
     this.isSailingVessel = false,
     this.apparentWindAngle,
+    this.targetAWA = 40.0,
+    this.targetTolerance = 3.0,
+    this.laylinesAngles,
+    this.vmgAngles,
     this.rangesBuilder,
     this.pointersBuilder,
     this.customPaintersBuilder,
@@ -85,8 +95,125 @@ class _BaseCompassState extends State<BaseCompass> {
     return angle;
   }
 
+  /// Build angle indicators (for laylines, VMG, etc.) - simple arrows pointing outward
+  List<Widget> _buildAngleIndicators(
+    double width,
+    double height,
+    List<double> angles,
+    Color color,
+  ) {
+    final center = Offset(width / 2, height / 2);
+    final radius = min(width, height) / 2 * 0.95;
+
+    final indicators = <Widget>[];
+
+    for (final angle in angles) {
+      final angleRad = angle * pi / 180;
+      final x = center.dx + radius * sin(angleRad);
+      final y = center.dy - radius * cos(angleRad);
+
+      // Simple arrow pointing outward
+      indicators.add(
+        Positioned(
+          left: x - 10,
+          top: y - 10,
+          child: Transform.rotate(
+            angle: angleRad,
+            child: Icon(
+              Icons.navigation,
+              size: 20,
+              color: color,
+              shadows: const [
+                Shadow(color: Colors.white, blurRadius: 2),
+                Shadow(color: Colors.black, blurRadius: 4),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    return indicators;
+  }
+
+  /// Build AWA icon indicators using actual Flutter Icons
+  List<Widget> _buildAWAIconIndicators(
+    double width,
+    double height,
+    double awa,
+    double targetAWA,
+    double targetTolerance,
+  ) {
+    final absAWA = awa.abs();
+
+    // Only show performance indicators when within polar angle + 30° (upwind and reaching)
+    if (absAWA > targetAWA + 30) {
+      return [];
+    }
+
+    final center = Offset(width / 2, height / 2);
+    final radius = min(width, height) / 2 * 0.95;
+
+    // Determine performance color
+    final diff = absAWA - targetAWA;
+    Color performanceColor;
+    if (diff.abs() <= targetTolerance) {
+      performanceColor = Colors.green.shade600;
+    } else if (diff.abs() <= targetTolerance * 2) {
+      performanceColor = Colors.yellow.shade700;
+    } else {
+      performanceColor = Colors.red.shade600;
+    }
+
+    final indicators = <Widget>[];
+
+    // Determine if optimal, too high, or too low
+    final isOptimal = diff.abs() <= targetTolerance;
+    final isTooHigh = absAWA > targetAWA;
+
+    // Create simple arrow icon at port and starboard AWA positions
+    for (final angle in [awa, -awa]) {
+      final angleRad = angle * pi / 180;
+      final x = center.dx + radius * sin(angleRad);
+      final y = center.dy - radius * cos(angleRad);
+
+      // Arrow direction based on performance:
+      // - Optimal: point straight out (radial)
+      // - Too high: point counter-clockwise along rim (toward wind)
+      // - Too low: point clockwise along rim (away from wind)
+      final double rotationAngle;
+      if (isOptimal) {
+        rotationAngle = angleRad; // Point outward
+      } else {
+        final steerDirection = isTooHigh ? -pi / 2 : pi / 2;
+        rotationAngle = angleRad + steerDirection; // Point along rim
+      }
+
+      indicators.add(
+        Positioned(
+          left: x - 10, // Center icon
+          top: y - 10,
+          child: Transform.rotate(
+            angle: rotationAngle,
+            child: Icon(
+              Icons.navigation,
+              size: 20,
+              color: performanceColor,
+              shadows: const [
+                Shadow(color: Colors.white, blurRadius: 2),
+                Shadow(color: Colors.black, blurRadius: 4),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    return indicators;
+  }
+
   /// Build compass labels (N, S, E, W, degrees) as gauge annotations
-  List<GaugeAnnotation> _buildCompassLabels() {
+  List<GaugeAnnotation> _buildCompassLabels(double headingDegrees) {
     if (!widget.showCompassLabels) return [];
 
     final labels = <GaugeAnnotation>[];
@@ -125,12 +252,15 @@ class _BaseCompassState extends State<BaseCompass> {
 
       labels.add(
         GaugeAnnotation(
-          widget: Text(
-            label,
-            style: TextStyle(
-              color: labelColor,
-              fontSize: fontSize,
-              fontWeight: i == 0 || i % 90 == 0 ? FontWeight.bold : FontWeight.w500,
+          widget: Transform.rotate(
+            angle: (headingDegrees * pi / 180) + (pi / 2), // Counter-rotate by heading + 90° to align with vessel bow
+            child: Text(
+              label,
+              style: TextStyle(
+                color: labelColor,
+                fontSize: fontSize,
+                fontWeight: i == 0 || i % 90 == 0 ? FontWeight.bold : FontWeight.w500,
+              ),
             ),
           ),
           angle: i.toDouble(),
@@ -292,14 +422,14 @@ class _BaseCompassState extends State<BaseCompass> {
               )),
 
               // Sail trim indicator - LAYER 2.5 - for sailing vessels with wind data
+              // FIXED like vessel shadow - not rotating with compass
               if (widget.isSailingVessel && widget.apparentWindAngle != null)
                 Positioned.fill(
-                  child: Transform.rotate(
-                    angle: -primaryHeadingRadians - (pi / 2),
-                    child: CustomPaint(
-                      painter: SailTrimIndicatorPainter(
-                        apparentWindAngle: widget.apparentWindAngle!,
-                      ),
+                  child: CustomPaint(
+                    painter: SailTrimIndicatorPainter(
+                      apparentWindAngle: widget.apparentWindAngle!,
+                      targetAWA: widget.targetAWA,
+                      targetTolerance: widget.targetTolerance,
                     ),
                   ),
                 ),
@@ -342,11 +472,39 @@ class _BaseCompassState extends State<BaseCompass> {
                       pointers: widget.pointersBuilder?.call(primaryHeadingDegrees) ?? [],
 
                       // Compass labels
-                      annotations: _buildCompassLabels(),
+                      annotations: _buildCompassLabels(primaryHeadingDegrees),
                     ),
                   ],
                 ),
               ),
+
+              // AWA indicators using actual Icons - LAYER 3.5 - FIXED on rim (ABOVE compass)
+              if (widget.apparentWindAngle != null)
+                ..._buildAWAIconIndicators(
+                  constraints.maxWidth,
+                  constraints.maxHeight,
+                  widget.apparentWindAngle!,
+                  widget.targetAWA,
+                  widget.targetTolerance,
+                ),
+
+              // Layline indicators - LAYER 3.6 - purple arrows
+              if (widget.laylinesAngles != null)
+                ..._buildAngleIndicators(
+                  constraints.maxWidth,
+                  constraints.maxHeight,
+                  widget.laylinesAngles!,
+                  Colors.purple.shade400,
+                ),
+
+              // VMG indicators - LAYER 3.7 - cyan arrows
+              if (widget.vmgAngles != null)
+                ..._buildAngleIndicators(
+                  constraints.maxWidth,
+                  constraints.maxHeight,
+                  widget.vmgAngles!,
+                  Colors.cyan.shade400,
+                ),
 
               // Custom overlay (AWA displays, XTE, etc.) - LAYER 4
               if (widget.overlayBuilder != null)
@@ -461,18 +619,32 @@ class VesselShadowPainter extends CustomPainter {
     // Create boat shape pointing up
     final path = Path();
 
-    // Bow (front point)
-    path.moveTo(center.dx, center.dy - 60 * scale);
+    // Bow (front point) - extended forward
+    path.moveTo(center.dx, center.dy - 70 * scale);
 
-    // Port side (left)
-    path.lineTo(center.dx - 30 * scale, center.dy + 40 * scale);
+    // Port side (left) - curve inward toward stern (start curve further forward)
+    path.lineTo(center.dx - 30 * scale, center.dy + 5 * scale);
+    path.quadraticBezierTo(
+      center.dx - 28 * scale, center.dy + 30 * scale, // Control point
+      center.dx - 18 * scale, center.dy + 48 * scale, // End point (curves inward)
+    );
 
-    // Stern (back)
-    path.lineTo(center.dx - 16 * scale, center.dy + 50 * scale);
-    path.lineTo(center.dx + 16 * scale, center.dy + 50 * scale);
+    // Port side of stern - to rudder notch
+    path.lineTo(center.dx - 4 * scale, center.dy + 50 * scale);
 
-    // Starboard side (right)
-    path.lineTo(center.dx + 30 * scale, center.dy + 40 * scale);
+    // Rudder notch
+    path.lineTo(center.dx - 4 * scale, center.dy + 54 * scale); // Down into notch
+    path.lineTo(center.dx + 4 * scale, center.dy + 54 * scale); // Across notch
+    path.lineTo(center.dx + 4 * scale, center.dy + 50 * scale); // Back up
+
+    // Starboard side of stern
+    path.lineTo(center.dx + 18 * scale, center.dy + 48 * scale);
+
+    // Starboard side (right) - curve inward toward stern (start curve further forward)
+    path.quadraticBezierTo(
+      center.dx + 28 * scale, center.dy + 30 * scale, // Control point
+      center.dx + 30 * scale, center.dy + 5 * scale, // End point (curves inward)
+    );
 
     // Back to bow
     path.close();
@@ -501,9 +673,13 @@ class VesselShadowPainter extends CustomPainter {
 /// Shows a curved line on opposite side of vessel representing point of sail
 class SailTrimIndicatorPainter extends CustomPainter {
   final double apparentWindAngle; // AWA in degrees (-180 to +180)
+  final double targetAWA; // Target AWA from polar configuration
+  final double targetTolerance; // Tolerance from polar configuration
 
   SailTrimIndicatorPainter({
     required this.apparentWindAngle,
+    this.targetAWA = 40.0,
+    this.targetTolerance = 3.0,
   });
 
   @override
@@ -519,42 +695,58 @@ class SailTrimIndicatorPainter extends CustomPainter {
     // If wind from port (-), sail on starboard (+)
     final sailSide = apparentWindAngle > 0 ? -1.0 : 1.0;
 
-    // Check if in no-go zone (luffing) - typically < 40° or configurable target AWA
-    // For now, use 40° as standard no-go angle
-    final isLuffing = absAWA < 40;
+    // Check if in no-go zone (luffing) - below target minus 2x tolerance
+    final isLuffing = absAWA < (targetAWA - 2 * targetTolerance);
 
-    // Calculate sail position based on point of sail
-    // Close hauled (0-50°): close to vessel
-    // Close/beam reach (50-90°): medium distance
-    // Beam/broad reach (90-135°): further out
-    // Running (135-180°): furthest out
+    // Calculate sail position and color based on point of sail
+    // Color matches the compass rim zones - POLAR ZONES FIRST
     double sailDistance;
     Color sailColor;
 
-    if (absAWA < 50) {
-      // Close hauled - tight sail, close to vessel
+    if (isLuffing) {
+      // In no-go zone - grey/white like the no-go zone on compass
       sailDistance = 25 * scale;
-      sailColor = isLuffing ? Colors.red.withValues(alpha: 0.8) : Colors.green.withValues(alpha: 0.8);
+      sailColor = Colors.grey.withValues(alpha: 0.8);
+    } else if (absAWA >= (targetAWA - targetTolerance) && absAWA <= (targetAWA + targetTolerance)) {
+      // Optimal performance zone - green (target ± tolerance)
+      sailDistance = 25 * scale;
+      sailColor = Colors.green.withValues(alpha: 0.8);
+    } else if ((absAWA >= (targetAWA - 2 * targetTolerance) && absAWA < (targetAWA - targetTolerance)) ||
+               (absAWA > (targetAWA + targetTolerance) && absAWA <= (targetAWA + 2 * targetTolerance))) {
+      // Acceptable performance zone - yellow (on both sides of green)
+      sailDistance = 28 * scale;
+      sailColor = Colors.yellow.withValues(alpha: 0.7);
+    } else if (absAWA < 60) {
+      // Close hauled zone - match gradiated zone colors (port tack green, starboard tack red)
+      sailDistance = 28 * scale;
+      sailColor = (apparentWindAngle < 0 ? Colors.green : Colors.red).withValues(alpha: 0.6);
     } else if (absAWA < 90) {
       // Close to beam reach - sail easing out
       sailDistance = 35 * scale;
-      sailColor = Colors.yellow.withValues(alpha: 0.8);
-    } else if (absAWA < 135) {
-      // Beam to broad reach - sail well out
+      sailColor = (apparentWindAngle < 0 ? Colors.green : Colors.red).withValues(alpha: 0.4);
+    } else if (absAWA < 110) {
+      // Beam reach
       sailDistance = 45 * scale;
-      sailColor = Colors.orange.withValues(alpha: 0.8);
+      sailColor = (apparentWindAngle < 0 ? Colors.green : Colors.red).withValues(alpha: 0.25);
+    } else if (absAWA < 150) {
+      // Broad reach
+      sailDistance = 50 * scale;
+      sailColor = (apparentWindAngle < 0 ? Colors.green : Colors.red).withValues(alpha: 0.15);
     } else {
-      // Running - sail all the way out
+      // Dead downwind (150-180°) - grey zone, no performance data
       sailDistance = 55 * scale;
-      sailColor = Colors.red.withValues(alpha: 0.8);
+      sailColor = Colors.grey.withValues(alpha: 0.5);
     }
 
     // Draw curved sail line on the side opposite to wind
     final path = Path();
 
-    // Sail starts at bow area
-    final bowY = center.dy - 40 * scale;
-    path.moveTo(center.dx + (sailSide * 8 * scale), bowY);
+    // Mast position - MUST match vessel shadow exactly
+    // Vessel: bow at -70*scale, stern at +50*scale, total length 120*scale
+    // Typical sailboat mast is ~30% back from bow
+    // -70 + (120 * 0.30) = -34
+    final mastTopY = center.dy - 34 * scale; // Mast at 30% back from bow
+    path.moveTo(center.dx, mastTopY); // Start at mast top on centerline
 
     if (isLuffing) {
       // LUFFING MODE - create smooth wavy sail edge to show fluttering
@@ -568,7 +760,7 @@ class SailTrimIndicatorPainter extends CustomPainter {
 
       for (int i = 0; i <= steps; i++) {
         final t = i / steps;
-        final y = bowY + (totalHeight * t);
+        final y = mastTopY + (totalHeight * t);
 
         // Base distance varies along sail length (billows out in middle)
         double baseDistance;
@@ -596,47 +788,62 @@ class SailTrimIndicatorPainter extends CustomPainter {
         prevPoint = currentPoint;
       }
     } else {
-      // NORMAL MODE - smooth sail curve
-      // Curve out to max distance at mid-vessel
-      final midY = center.dy + 10 * scale;
+      // NORMAL MODE - single bold arc from mast top to boom end (the leech)
+      // This creates a triangular sail with the luff (mast), foot (boom), and curved leech
+
+      // mastTopY already defined above (-34*scale from center)
+      // Boom end should be near stern but not at rudder
+      // Stern deck ends at +48*scale, rudder extends to +50*scale
+      final boomEndY = center.dy + 35 * scale; // Boom near stern
+
+      // Calculate boom angle based on AWA (opposite side from wind)
+      // Close hauled (40°): boom at ~10° from centerline
+      // Beam reach (90°): boom at ~50° from centerline
+      // Broad reach (120°): boom at ~70° from centerline
+      // Running (150-180°): boom at ~85-90° from centerline (nearly perpendicular)
+      double boomAngle;
+      if (absAWA < 60) {
+        // Close hauled - tight to the boat
+        boomAngle = 10 + (absAWA - 40) * 0.5; // 10° at 40° AWA, up to 20° at 60° AWA
+      } else if (absAWA < 90) {
+        // Reaching - easing out
+        boomAngle = 20 + (absAWA - 60) * 1.0; // 20° to 50°
+      } else if (absAWA < 150) {
+        // Broad reach - letting out more
+        boomAngle = 50 + (absAWA - 90) * 0.583; // 50° to 85°
+      } else {
+        // Running - nearly perpendicular
+        boomAngle = 85 + (absAWA - 150) * 0.167; // 85° to 90°
+      }
+
+      // Calculate boom end position using the angle
+      final boomLength = 69 * scale; // Distance from mast top to boom end
+      final boomAngleRad = (boomAngle * sailSide) * pi / 180; // Convert to radians, apply side
+
+      final boomEndPoint = Offset(
+        center.dx + (sin(boomAngleRad) * boomLength),
+        boomEndY,
+      );
+
+      // Draw single smooth arc from mast top to boom end
+      // Control points create the sail's draft (belly)
+      // Max draft should be about 1/3 to 1/2 back from mast
+      // Make the sail belly out from the boom line
+      final sailBelly = sailDistance * 0.3; // How much the sail billows out
+
       final controlPoint1 = Offset(
-        center.dx + (sailSide * sailDistance * 0.5),
-        center.dy - 20 * scale,
+        center.dx + (sin(boomAngleRad) * boomLength * 0.3) + (sailSide * sailBelly * 0.5),
+        mastTopY + (boomEndY - mastTopY) * 0.25,
       );
       final controlPoint2 = Offset(
-        center.dx + (sailSide * sailDistance),
-        midY - 10 * scale,
-      );
-      final midPoint = Offset(
-        center.dx + (sailSide * sailDistance),
-        midY,
+        center.dx + (sin(boomAngleRad) * boomLength * 0.7) + (sailSide * sailBelly),
+        mastTopY + (boomEndY - mastTopY) * 0.7,
       );
 
       path.cubicTo(
         controlPoint1.dx, controlPoint1.dy,
         controlPoint2.dx, controlPoint2.dy,
-        midPoint.dx, midPoint.dy,
-      );
-
-      // Curve back toward stern
-      final sternY = center.dy + 40 * scale;
-      final controlPoint3 = Offset(
-        center.dx + (sailSide * sailDistance),
-        midY + 10 * scale,
-      );
-      final controlPoint4 = Offset(
-        center.dx + (sailSide * sailDistance * 0.5),
-        sternY - 5 * scale,
-      );
-      final sternPoint = Offset(
-        center.dx + (sailSide * 12 * scale),
-        sternY,
-      );
-
-      path.cubicTo(
-        controlPoint3.dx, controlPoint3.dy,
-        controlPoint4.dx, controlPoint4.dy,
-        sternPoint.dx, sternPoint.dy,
+        boomEndPoint.dx, boomEndPoint.dy,
       );
     }
 
@@ -644,27 +851,117 @@ class SailTrimIndicatorPainter extends CustomPainter {
     final paint = Paint()
       ..color = sailColor
       ..style = PaintingStyle.stroke
-      ..strokeWidth = isLuffing ? 2.5 : 3.5 // Thinner when luffing
+      ..strokeWidth = 3.5 // Same thickness for all sails
       ..strokeCap = StrokeCap.round;
 
     canvas.drawPath(path, paint);
 
-    // Draw semi-transparent fill to show sail area
+    // Draw the boom (straight line from mast top to boom end) - only in normal mode
+    if (!isLuffing) {
+      // Recalculate boom position using the same angle logic
+      final boomEndY = center.dy + 35 * scale;
+      final absAWA = apparentWindAngle.abs();
+
+      double boomAngle;
+      if (absAWA < 60) {
+        boomAngle = 10 + (absAWA - 40) * 0.5;
+      } else if (absAWA < 90) {
+        boomAngle = 20 + (absAWA - 60) * 1.0;
+      } else if (absAWA < 150) {
+        boomAngle = 50 + (absAWA - 90) * 0.583;
+      } else {
+        boomAngle = 85 + (absAWA - 150) * 0.167;
+      }
+
+      final boomLength = 69 * scale;
+      final boomAngleRad = (boomAngle * sailSide) * pi / 180;
+      final boomEndPoint = Offset(
+        center.dx + (sin(boomAngleRad) * boomLength),
+        boomEndY,
+      );
+
+      final boomPaint = Paint()
+        ..color = sailColor
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 3.5
+        ..strokeCap = StrokeCap.round;
+
+      // Draw boom as straight line from mast top to boom end (outer corner of sail)
+      canvas.drawLine(
+        Offset(center.dx, mastTopY),  // Start at mast top
+        boomEndPoint,                  // End at boom end (clew)
+        boomPaint,
+      );
+    }
+
+    // Draw semi-transparent fill to show sail area - only between boom and sail curve
     final fillPaint = Paint()
-      ..color = sailColor.withValues(alpha: isLuffing ? 0.1 : 0.2) // More transparent when luffing
+      ..color = sailColor.withValues(alpha: 0.2) // Same transparency for all sails
       ..style = PaintingStyle.fill;
 
-    // Create filled sail shape - close path back to vessel
-    final fillPath = Path.from(path);
-    // Line back along vessel side
-    fillPath.lineTo(center.dx + (sailSide * 8 * scale), bowY);
-    fillPath.close();
+    if (!isLuffing) {
+      // Create filled sail shape: curved sail edge from mast top to boom end,
+      // then straight boom line back to mast top
+      final fillPath = Path();
+      fillPath.moveTo(center.dx, mastTopY); // Start at mast top
 
-    canvas.drawPath(fillPath, fillPaint);
+      // Add the curved sail edge using the same angle-based calculation
+      final boomEndY = center.dy + 35 * scale;
+      final absAWA = apparentWindAngle.abs();
+
+      double boomAngle;
+      if (absAWA < 60) {
+        boomAngle = 10 + (absAWA - 40) * 0.5;
+      } else if (absAWA < 90) {
+        boomAngle = 20 + (absAWA - 60) * 1.0;
+      } else if (absAWA < 150) {
+        boomAngle = 50 + (absAWA - 90) * 0.583;
+      } else {
+        boomAngle = 85 + (absAWA - 150) * 0.167;
+      }
+
+      final boomLength = 69 * scale;
+      final boomAngleRad = (boomAngle * sailSide) * pi / 180;
+      final boomEndPoint = Offset(
+        center.dx + (sin(boomAngleRad) * boomLength),
+        boomEndY,
+      );
+
+      final sailBelly = sailDistance * 0.3;
+      final controlPoint1 = Offset(
+        center.dx + (sin(boomAngleRad) * boomLength * 0.3) + (sailSide * sailBelly * 0.5),
+        mastTopY + (boomEndY - mastTopY) * 0.25,
+      );
+      final controlPoint2 = Offset(
+        center.dx + (sin(boomAngleRad) * boomLength * 0.7) + (sailSide * sailBelly),
+        mastTopY + (boomEndY - mastTopY) * 0.7,
+      );
+
+      fillPath.cubicTo(
+        controlPoint1.dx, controlPoint1.dy,
+        controlPoint2.dx, controlPoint2.dy,
+        boomEndPoint.dx, boomEndPoint.dy,
+      );
+
+      // Close back to mast top (this creates the straight boom line)
+      fillPath.close();
+
+      canvas.drawPath(fillPath, fillPaint);
+    } else {
+      // Luffing mode - fill the luffing shape
+      final fillPath = Path.from(path);
+      final totalHeight = 80 * scale;
+      fillPath.lineTo(center.dx, mastTopY + totalHeight);
+      fillPath.close();
+      canvas.drawPath(fillPath, fillPaint);
+    }
   }
 
   @override
   bool shouldRepaint(SailTrimIndicatorPainter oldDelegate) {
-    return oldDelegate.apparentWindAngle != apparentWindAngle;
+    return oldDelegate.apparentWindAngle != apparentWindAngle ||
+           oldDelegate.targetAWA != targetAWA ||
+           oldDelegate.targetTolerance != targetTolerance;
   }
 }
+
