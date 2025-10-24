@@ -144,11 +144,17 @@ class _BaseCompassState extends State<BaseCompass> {
     double targetAWA,
     double targetTolerance,
   ) {
+    final absAWA = awa.abs();
+
+    // Only show performance indicators when within polar angle + 30° (upwind and reaching)
+    if (absAWA > targetAWA + 30) {
+      return [];
+    }
+
     final center = Offset(width / 2, height / 2);
     final radius = min(width, height) / 2 * 0.95;
 
     // Determine performance color
-    final absAWA = awa.abs();
     final diff = absAWA - targetAWA;
     Color performanceColor;
     if (diff.abs() <= targetTolerance) {
