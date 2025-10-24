@@ -503,14 +503,21 @@ class _WindCompassState extends State<WindCompass> {
 
   /// Build overlay with AWA display and wind shift indicator
   Widget _buildOverlay(double primaryHeadingDegrees) {
+    // Check if wind shift indicator should be shown
+    final shift = _calculateWindShift();
+    final shouldShowShift = shift != null && shift.abs() >= 3;
+    final shiftType = shouldShowShift ? _getShiftType(shift!) : null;
+    final showShiftIndicator = shiftType != null;
+
     return Stack(
       children: [
-        // AWA Performance Display
-        if (widget.showAWANumbers && widget.windDirectionApparentDegrees != null)
+        // AWA Performance Display - always show if enabled
+        if (widget.showAWANumbers)
           _buildAWAPerformanceDisplay(primaryHeadingDegrees),
 
-        // Wind shift indicator
-        _buildWindShiftIndicator(),
+        // Wind shift indicator - only add to Stack when actually visible
+        if (showShiftIndicator)
+          _buildWindShiftIndicatorWidget(shift!, shiftType!),
       ],
     );
   }
@@ -560,6 +567,51 @@ class _WindCompassState extends State<WindCompass> {
 
   /// Build AWA performance display
   Widget _buildAWAPerformanceDisplay(double headingDegrees) {
+    // Check if we have wind data
+    if (widget.windAngleApparent == null && widget.windDirectionApparentDegrees == null) {
+      // No wind data - show placeholder
+      return Positioned(
+        top: 35,
+        left: 0,
+        right: 0,
+        child: Center(
+          child: GestureDetector(
+            onTap: _cycleMode,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.8),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.grey, width: 2),
+              ),
+              child: const Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    'AWA MODE',
+                    style: TextStyle(
+                      fontSize: 9,
+                      color: Colors.white38,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 1.2,
+                    ),
+                  ),
+                  SizedBox(height: 2),
+                  Text(
+                    'NO WIND DATA',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.white60,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
     double awa;
     if (widget.windAngleApparent != null) {
       awa = widget.windAngleApparent!;
@@ -803,18 +855,8 @@ class _WindCompassState extends State<WindCompass> {
     );
   }
 
-  /// Build wind shift indicator
-  Widget _buildWindShiftIndicator() {
-    final shift = _calculateWindShift();
-    if (shift == null || shift.abs() < 3) {
-      return const SizedBox.shrink();
-    }
-
-    final shiftType = _getShiftType(shift);
-    if (shiftType == null) {
-      return const SizedBox.shrink();
-    }
-
+  /// Build wind shift indicator widget (when visible)
+  Widget _buildWindShiftIndicatorWidget(double shift, String shiftType) {
     final isLift = shiftType == 'lift';
     final shiftColor = isLift ? Colors.green : Colors.red;
     final shiftIcon = isLift ? Icons.arrow_upward : Icons.arrow_downward;
@@ -1197,7 +1239,7 @@ class NoGoZoneVPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final center = Offset(size.width / 2, size.height / 2);
-    final radius = size.width / 2 * 0.85;
+    final radius = min(size.width, size.height) / 2 * 0.95;
 
     final windRad = windAngle * pi / 180;
     final noGoRad = noGoAngle * pi / 180;

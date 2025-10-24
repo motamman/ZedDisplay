@@ -594,71 +594,10 @@ class _AutopilotToolState extends State<AutopilotTool> {
           onAdjustHeading: _handleAdjustHeading,
           onTack: _handleTack,
         ),
-        // Debug overlay button (only in debug mode)
-        if (kDebugMode)
-          Positioned(
-            top: 8,
-            right: 8,
-            child: IconButton(
-              icon: const Icon(Icons.bug_report, color: Colors.orange),
-              onPressed: _showDebugInfo,
-            ),
-          ),
       ],
     );
   }
 
-  /// Show debug information dialog
-  void _showDebugInfo() {
-    final autopilotPaths = widget.signalKService.latestData.keys
-        .where((k) => k.contains('autopilot') || k.contains('steering'))
-        .toList();
-
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Autopilot Debug Info'),
-        content: SingleChildScrollView(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text('Current Mode: $_mode', style: const TextStyle(fontWeight: FontWeight.bold)),
-              Text('Engaged: $_engaged', style: const TextStyle(fontWeight: FontWeight.bold)),
-              const Divider(),
-              const Text('Configured Paths:', style: TextStyle(fontWeight: FontWeight.bold)),
-              ...widget.config.dataSources.map((ds) => Text('  ${ds.path}')),
-              const Divider(),
-              const Text('Available Autopilot Paths:', style: TextStyle(fontWeight: FontWeight.bold)),
-              if (autopilotPaths.isEmpty)
-                const Text('  No autopilot paths found!', style: TextStyle(color: Colors.red))
-              else
-                ...autopilotPaths.map((path) {
-                  final data = widget.signalKService.getValue(path);
-                  return Text('  $path: ${data?.value}');
-                }),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Close'),
-          ),
-          TextButton(
-            onPressed: () {
-              _onSignalKUpdate();
-              Navigator.pop(context);
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Force refreshed')),
-              );
-            },
-            child: const Text('Force Refresh'),
-          ),
-        ],
-      ),
-    );
-  }
 }
 
 /// Builder for autopilot tools

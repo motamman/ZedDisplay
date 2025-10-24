@@ -227,6 +227,7 @@ class AutopilotWidget extends StatelessWidget {
     if (showWindIndicators && apparentWindAngle != null) {
       painters.add(_NoGoZoneVPainter(
         windDirection: _normalizeAngle(currentHeading + apparentWindAngle!),
+        noGoAngle: targetAWA,
       ));
     }
 
@@ -234,7 +235,52 @@ class AutopilotWidget extends StatelessWidget {
   }
 
   /// Build autopilot overlay (minimal - just shows mode/target info)
-  Widget _buildAutopilotOverlay(double primaryHeadingDegrees) {
+  /// Build heading display for top row (with orange dot)
+  Widget _buildHeadingLabel(double headingDegrees, bool isTrue) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.end,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              'HDG',
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.white,
+              ),
+            ),
+            const SizedBox(width: 4),
+            Container(
+              width: 12,
+              height: 12,
+              decoration: const BoxDecoration(
+                color: Colors.orange,
+                shape: BoxShape.circle,
+              ),
+            ),
+          ],
+        ),
+        Text(
+          '${headingDegrees.toStringAsFixed(0)}°${isTrue ? 'T' : 'M'}',
+          style: const TextStyle(
+            fontSize: 16,
+            color: Colors.white,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// Empty builder to hide heading labels inside compass
+  Widget _buildEmptyHeadingDisplay(double headingDegrees, bool isActive) {
+    return const SizedBox.shrink();
+  }
+
+  /// Build target info box
+  Widget _buildTargetInfoBox() {
     // Calculate heading error
     double error = currentHeading - targetHeading;
     while (error > 180) error -= 360;
@@ -249,69 +295,63 @@ class AutopilotWidget extends StatelessWidget {
       errorColor = Colors.red;
     }
 
-    return Stack(
-      children: [
-        // Mode and target info at bottom center (above SOG/COG area)
-        Positioned(
-          bottom: 70,
-          left: 0,
-          right: 0,
-          child: Center(
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-              decoration: BoxDecoration(
-                color: Colors.black.withValues(alpha: 0.8),
-                borderRadius: BorderRadius.circular(6),
-                border: Border.all(color: primaryColor, width: 2),
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    mode.toUpperCase(),
-                    style: const TextStyle(
-                      fontSize: 10,
-                      color: Colors.white60,
-                      fontWeight: FontWeight.bold,
-                      letterSpacing: 1.2,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Text(
-                        'TGT: ',
-                        style: TextStyle(
-                          fontSize: 11,
-                          color: Colors.white60,
-                        ),
-                      ),
-                      Text(
-                        '${targetHeading.toStringAsFixed(0)}°',
-                        style: TextStyle(
-                          fontSize: 16,
-                          color: primaryColor,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        '${error > 0 ? '+' : ''}${error.toStringAsFixed(1)}°',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: errorColor,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.8),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: primaryColor, width: 2),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            mode.toUpperCase(),
+            style: const TextStyle(
+              fontSize: 10,
+              color: Colors.white60,
+              fontWeight: FontWeight.bold,
+              letterSpacing: 1.2,
             ),
           ),
-        ),
+          const SizedBox(height: 2),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                'TGT: ',
+                style: TextStyle(
+                  fontSize: 11,
+                  color: Colors.white60,
+                ),
+              ),
+              Text(
+                '${targetHeading.toStringAsFixed(0)}°',
+                style: TextStyle(
+                  fontSize: 16,
+                  color: primaryColor,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                '${error > 0 ? '+' : ''}${error.toStringAsFixed(1)}°',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: errorColor,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
 
+  Widget _buildAutopilotOverlay(double primaryHeadingDegrees) {
+    return Stack(
+      children: [
         // XTE display (right side below heading display) if available and reasonable
         // Only show XTE if < 10nm (~18520m) to filter out bad data
         if (crossTrackError != null && crossTrackError!.abs() < 18520)
@@ -377,7 +417,29 @@ class AutopilotWidget extends StatelessWidget {
       padding: const EdgeInsets.all(16),
       child: Column(
         children: [
-          // Compass display
+          // Target info box and heading label aligned horizontally
+          SizedBox(
+            height: 60, // Fixed height to contain both elements
+            child: Stack(
+              children: [
+                // Target box centered
+                Align(
+                  alignment: Alignment.topCenter,
+                  child: _buildTargetInfoBox(),
+                ),
+                // Heading label on the right with spacing
+                Positioned(
+                  right: 16,
+                  top: 0,
+                  child: _buildHeadingLabel(currentHeading, headingTrue),
+                ),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 8),
+
+          // Compass display (without heading labels in corners)
           Expanded(
             flex: 3,
             child: BaseCompass(
@@ -393,8 +455,8 @@ class AutopilotWidget extends StatelessWidget {
               pointersBuilder: _buildAutopilotPointers,
               customPaintersBuilder: _buildCustomPainters,
               overlayBuilder: _buildAutopilotOverlay,
-              // Use default center display (current heading) - looks like wind compass
-              // Use default heading corner displays - looks like wind compass
+              magneticHeadingDisplayBuilder: _buildEmptyHeadingDisplay,
+              trueHeadingDisplayBuilder: _buildEmptyHeadingDisplay,
               allowHeadingModeToggle: false, // Autopilot uses one mode
             ),
           ),
@@ -411,13 +473,13 @@ class AutopilotWidget extends StatelessWidget {
 
           const SizedBox(height: 12),
 
-          // Heading adjustment buttons
-          if (engaged && (mode == 'Auto' || mode == 'Compass'))
+          // Heading adjustment buttons (for all vessels in Auto/Compass/Wind mode)
+          if (engaged && (mode == 'Auto' || mode == 'Compass' || mode == 'Wind'))
             _buildHeadingControls(),
 
           const SizedBox(height: 12),
 
-          // Tack buttons (only for sailing vessels)
+          // Tack buttons (only for sailing vessels in Auto/Wind mode)
           if (isSailingVessel && engaged && (mode == 'Auto' || mode == 'Wind'))
             _buildTackButtons(),
         ],
@@ -644,13 +706,13 @@ class _NoGoZoneVPainter extends CustomPainter {
 
   _NoGoZoneVPainter({
     required this.windDirection,
-    this.noGoAngle = 45.0,
+    required this.noGoAngle,
   });
 
   @override
   void paint(Canvas canvas, Size size) {
     final center = Offset(size.width / 2, size.height / 2);
-    final radius = size.width / 2 * 0.85;
+    final radius = math.min(size.width, size.height) / 2 * 0.95;
 
     final windRad = windDirection * math.pi / 180;
     final noGoRad = noGoAngle * math.pi / 180;
@@ -684,6 +746,7 @@ class _NoGoZoneVPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_NoGoZoneVPainter oldDelegate) {
-    return oldDelegate.windDirection != windDirection;
+    return oldDelegate.windDirection != windDirection ||
+           oldDelegate.noGoAngle != noGoAngle;
   }
 }

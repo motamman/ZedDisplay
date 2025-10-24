@@ -467,18 +467,32 @@ class VesselShadowPainter extends CustomPainter {
     // Create boat shape pointing up
     final path = Path();
 
-    // Bow (front point)
-    path.moveTo(center.dx, center.dy - 60 * scale);
+    // Bow (front point) - extended forward
+    path.moveTo(center.dx, center.dy - 70 * scale);
 
-    // Port side (left)
-    path.lineTo(center.dx - 30 * scale, center.dy + 40 * scale);
+    // Port side (left) - curve inward toward stern (start curve further forward)
+    path.lineTo(center.dx - 30 * scale, center.dy + 5 * scale);
+    path.quadraticBezierTo(
+      center.dx - 28 * scale, center.dy + 30 * scale, // Control point
+      center.dx - 18 * scale, center.dy + 48 * scale, // End point (curves inward)
+    );
 
-    // Stern (back)
-    path.lineTo(center.dx - 16 * scale, center.dy + 50 * scale);
-    path.lineTo(center.dx + 16 * scale, center.dy + 50 * scale);
+    // Port side of stern - to rudder notch
+    path.lineTo(center.dx - 4 * scale, center.dy + 50 * scale);
 
-    // Starboard side (right)
-    path.lineTo(center.dx + 30 * scale, center.dy + 40 * scale);
+    // Rudder notch
+    path.lineTo(center.dx - 4 * scale, center.dy + 54 * scale); // Down into notch
+    path.lineTo(center.dx + 4 * scale, center.dy + 54 * scale); // Across notch
+    path.lineTo(center.dx + 4 * scale, center.dy + 50 * scale); // Back up
+
+    // Starboard side of stern
+    path.lineTo(center.dx + 18 * scale, center.dy + 48 * scale);
+
+    // Starboard side (right) - curve inward toward stern (start curve further forward)
+    path.quadraticBezierTo(
+      center.dx + 28 * scale, center.dy + 30 * scale, // Control point
+      center.dx + 30 * scale, center.dy + 5 * scale, // End point (curves inward)
+    );
 
     // Back to bow
     path.close();
@@ -575,9 +589,9 @@ class SailTrimIndicatorPainter extends CustomPainter {
     // Draw curved sail line on the side opposite to wind
     final path = Path();
 
-    // Sail starts at bow area
-    final bowY = center.dy - 40 * scale;
-    path.moveTo(center.dx + (sailSide * 8 * scale), bowY);
+    // Sail starts at bow area - about 1/3 down from bow, centered on boat
+    final bowY = center.dy - 27 * scale; // 1/3 down from bow (bow is at -40, center at 0)
+    path.moveTo(center.dx, bowY); // Start at centerline of boat
 
     if (isLuffing) {
       // LUFFING MODE - create smooth wavy sail edge to show fluttering
