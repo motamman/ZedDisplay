@@ -296,16 +296,14 @@ class _BaseCompassState extends State<BaseCompass> {
               )),
 
               // Sail trim indicator - LAYER 2.5 - for sailing vessels with wind data
+              // FIXED like vessel shadow - not rotating with compass
               if (widget.isSailingVessel && widget.apparentWindAngle != null)
                 Positioned.fill(
-                  child: Transform.rotate(
-                    angle: -primaryHeadingRadians - (pi / 2),
-                    child: CustomPaint(
-                      painter: SailTrimIndicatorPainter(
-                        apparentWindAngle: widget.apparentWindAngle!,
-                        targetAWA: widget.targetAWA,
-                        targetTolerance: widget.targetTolerance,
-                      ),
+                  child: CustomPaint(
+                    painter: SailTrimIndicatorPainter(
+                      apparentWindAngle: widget.apparentWindAngle!,
+                      targetAWA: widget.targetAWA,
+                      targetTolerance: widget.targetTolerance,
                     ),
                   ),
                 ),
@@ -589,9 +587,12 @@ class SailTrimIndicatorPainter extends CustomPainter {
     // Draw curved sail line on the side opposite to wind
     final path = Path();
 
-    // Sail starts at bow area - about 1/3 down from bow, centered on boat
-    final bowY = center.dy - 27 * scale; // 1/3 down from bow (bow is at -40, center at 0)
-    path.moveTo(center.dx, bowY); // Start at centerline of boat
+    // Mast position - MUST match vessel shadow exactly
+    // Vessel: bow at -70*scale, stern at +50*scale, total length 120*scale
+    // Typical sailboat mast is ~30% back from bow
+    // -70 + (120 * 0.30) = -34
+    final mastTopY = center.dy - 34 * scale; // Mast at 30% back from bow
+    path.moveTo(center.dx, mastTopY); // Start at mast top on centerline
 
     if (isLuffing) {
       // LUFFING MODE - create smooth wavy sail edge to show fluttering
@@ -605,7 +606,7 @@ class SailTrimIndicatorPainter extends CustomPainter {
 
       for (int i = 0; i <= steps; i++) {
         final t = i / steps;
-        final y = bowY + (totalHeight * t);
+        final y = mastTopY + (totalHeight * t);
 
         // Base distance varies along sail length (billows out in middle)
         double baseDistance;
@@ -633,47 +634,41 @@ class SailTrimIndicatorPainter extends CustomPainter {
         prevPoint = currentPoint;
       }
     } else {
-      // NORMAL MODE - smooth sail curve
-      // Curve out to max distance at mid-vessel
-      final midY = center.dy + 10 * scale;
+      // NORMAL MODE - single bold arc from mast top to boom end (the leech)
+      // This creates a triangular sail with the luff (mast), foot (boom), and curved leech
+
+      // mastTopY already defined above (-34*scale from center)
+      // Boom end should be near stern but not at rudder
+      // Stern deck ends at +48*scale, rudder extends to +50*scale
+      final boomEndY = center.dy + 35 * scale; // Boom near stern
+
+      // Boom end position varies with point of sail:
+      // - Close hauled: ~65% of max distance
+      // - Reaching: ~75-85% of max distance
+      // - Running: ~90% of max distance
+      final boomEndDistance = sailDistance * (0.65 + (absAWA / 180.0) * 0.25);
+
+      final boomEndPoint = Offset(
+        center.dx + (sailSide * boomEndDistance),
+        boomEndY,
+      );
+
+      // Draw single smooth arc from mast top to boom end
+      // Control points create the sail's draft (belly)
+      // Max draft should be about 1/3 to 1/2 back from mast
       final controlPoint1 = Offset(
-        center.dx + (sailSide * sailDistance * 0.5),
-        center.dy - 20 * scale,
+        center.dx + (sailSide * sailDistance * 0.4),
+        mastTopY + (boomEndY - mastTopY) * 0.25,
       );
       final controlPoint2 = Offset(
-        center.dx + (sailSide * sailDistance),
-        midY - 10 * scale,
-      );
-      final midPoint = Offset(
-        center.dx + (sailSide * sailDistance),
-        midY,
+        center.dx + (sailSide * sailDistance * 0.9),
+        mastTopY + (boomEndY - mastTopY) * 0.7,
       );
 
       path.cubicTo(
         controlPoint1.dx, controlPoint1.dy,
         controlPoint2.dx, controlPoint2.dy,
-        midPoint.dx, midPoint.dy,
-      );
-
-      // Curve back toward stern
-      final sternY = center.dy + 40 * scale;
-      final controlPoint3 = Offset(
-        center.dx + (sailSide * sailDistance),
-        midY + 10 * scale,
-      );
-      final controlPoint4 = Offset(
-        center.dx + (sailSide * sailDistance * 0.5),
-        sternY - 5 * scale,
-      );
-      final sternPoint = Offset(
-        center.dx + (sailSide * 12 * scale),
-        sternY,
-      );
-
-      path.cubicTo(
-        controlPoint3.dx, controlPoint3.dy,
-        controlPoint4.dx, controlPoint4.dy,
-        sternPoint.dx, sternPoint.dy,
+        boomEndPoint.dx, boomEndPoint.dy,
       );
     }
 
@@ -691,10 +686,20 @@ class SailTrimIndicatorPainter extends CustomPainter {
       ..color = sailColor.withValues(alpha: 0.2) // Same transparency for all sails
       ..style = PaintingStyle.fill;
 
-    // Create filled sail shape - close path back to vessel
+    // Create filled sail shape - complete the triangle
     final fillPath = Path.from(path);
-    // Line back along vessel side
-    fillPath.lineTo(center.dx + (sailSide * 8 * scale), bowY);
+
+    if (!isLuffing) {
+      // Complete the sail triangle: boom end -> mast at boom -> mast at top -> arc (already drawn)
+      final boomEndY = center.dy + 35 * scale; // Must match boom position above
+      fillPath.lineTo(center.dx, boomEndY); // Line from boom end back to mast (foot of sail)
+      fillPath.lineTo(center.dx, mastTopY); // Line up the mast (luff of sail)
+    } else {
+      // Luffing mode - close back to centerline
+      final totalHeight = 80 * scale;
+      fillPath.lineTo(center.dx, mastTopY + totalHeight);
+      fillPath.lineTo(center.dx, mastTopY);
+    }
     fillPath.close();
 
     canvas.drawPath(fillPath, fillPaint);
