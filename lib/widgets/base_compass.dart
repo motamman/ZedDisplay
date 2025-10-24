@@ -787,26 +787,47 @@ class SailTrimIndicatorPainter extends CustomPainter {
       // Stern deck ends at +48*scale, rudder extends to +50*scale
       final boomEndY = center.dy + 35 * scale; // Boom near stern
 
-      // Boom end position varies with point of sail:
-      // - Close hauled: ~65% of max distance
-      // - Reaching: ~75-85% of max distance
-      // - Running: ~90% of max distance
-      final boomEndDistance = sailDistance * (0.65 + (absAWA / 180.0) * 0.25);
+      // Calculate boom angle based on AWA (opposite side from wind)
+      // Close hauled (40°): boom at ~10° from centerline
+      // Beam reach (90°): boom at ~50° from centerline
+      // Broad reach (120°): boom at ~70° from centerline
+      // Running (150-180°): boom at ~85-90° from centerline (nearly perpendicular)
+      double boomAngle;
+      if (absAWA < 60) {
+        // Close hauled - tight to the boat
+        boomAngle = 10 + (absAWA - 40) * 0.5; // 10° at 40° AWA, up to 20° at 60° AWA
+      } else if (absAWA < 90) {
+        // Reaching - easing out
+        boomAngle = 20 + (absAWA - 60) * 1.0; // 20° to 50°
+      } else if (absAWA < 150) {
+        // Broad reach - letting out more
+        boomAngle = 50 + (absAWA - 90) * 0.583; // 50° to 85°
+      } else {
+        // Running - nearly perpendicular
+        boomAngle = 85 + (absAWA - 150) * 0.167; // 85° to 90°
+      }
+
+      // Calculate boom end position using the angle
+      final boomLength = 69 * scale; // Distance from mast top to boom end
+      final boomAngleRad = (boomAngle * sailSide) * pi / 180; // Convert to radians, apply side
 
       final boomEndPoint = Offset(
-        center.dx + (sailSide * boomEndDistance),
+        center.dx + (sin(boomAngleRad) * boomLength),
         boomEndY,
       );
 
       // Draw single smooth arc from mast top to boom end
       // Control points create the sail's draft (belly)
       // Max draft should be about 1/3 to 1/2 back from mast
+      // Make the sail belly out from the boom line
+      final sailBelly = sailDistance * 0.3; // How much the sail billows out
+
       final controlPoint1 = Offset(
-        center.dx + (sailSide * sailDistance * 0.4),
+        center.dx + (sin(boomAngleRad) * boomLength * 0.3) + (sailSide * sailBelly * 0.5),
         mastTopY + (boomEndY - mastTopY) * 0.25,
       );
       final controlPoint2 = Offset(
-        center.dx + (sailSide * sailDistance * 0.9),
+        center.dx + (sin(boomAngleRad) * boomLength * 0.7) + (sailSide * sailBelly),
         mastTopY + (boomEndY - mastTopY) * 0.7,
       );
 
@@ -826,28 +847,105 @@ class SailTrimIndicatorPainter extends CustomPainter {
 
     canvas.drawPath(path, paint);
 
-    // Draw semi-transparent fill to show sail area
+    // Draw the boom (straight line from mast top to boom end) - only in normal mode
+    if (!isLuffing) {
+      // Recalculate boom position using the same angle logic
+      final boomEndY = center.dy + 35 * scale;
+      final absAWA = apparentWindAngle.abs();
+
+      double boomAngle;
+      if (absAWA < 60) {
+        boomAngle = 10 + (absAWA - 40) * 0.5;
+      } else if (absAWA < 90) {
+        boomAngle = 20 + (absAWA - 60) * 1.0;
+      } else if (absAWA < 150) {
+        boomAngle = 50 + (absAWA - 90) * 0.583;
+      } else {
+        boomAngle = 85 + (absAWA - 150) * 0.167;
+      }
+
+      final boomLength = 69 * scale;
+      final boomAngleRad = (boomAngle * sailSide) * pi / 180;
+      final boomEndPoint = Offset(
+        center.dx + (sin(boomAngleRad) * boomLength),
+        boomEndY,
+      );
+
+      final boomPaint = Paint()
+        ..color = sailColor
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 3.5
+        ..strokeCap = StrokeCap.round;
+
+      // Draw boom as straight line from mast top to boom end (outer corner of sail)
+      canvas.drawLine(
+        Offset(center.dx, mastTopY),  // Start at mast top
+        boomEndPoint,                  // End at boom end (clew)
+        boomPaint,
+      );
+    }
+
+    // Draw semi-transparent fill to show sail area - only between boom and sail curve
     final fillPaint = Paint()
       ..color = sailColor.withValues(alpha: 0.2) // Same transparency for all sails
       ..style = PaintingStyle.fill;
 
-    // Create filled sail shape - complete the triangle
-    final fillPath = Path.from(path);
-
     if (!isLuffing) {
-      // Complete the sail triangle: boom end -> mast at boom -> mast at top -> arc (already drawn)
-      final boomEndY = center.dy + 35 * scale; // Must match boom position above
-      fillPath.lineTo(center.dx, boomEndY); // Line from boom end back to mast (foot of sail)
-      fillPath.lineTo(center.dx, mastTopY); // Line up the mast (luff of sail)
+      // Create filled sail shape: curved sail edge from mast top to boom end,
+      // then straight boom line back to mast top
+      final fillPath = Path();
+      fillPath.moveTo(center.dx, mastTopY); // Start at mast top
+
+      // Add the curved sail edge using the same angle-based calculation
+      final boomEndY = center.dy + 35 * scale;
+      final absAWA = apparentWindAngle.abs();
+
+      double boomAngle;
+      if (absAWA < 60) {
+        boomAngle = 10 + (absAWA - 40) * 0.5;
+      } else if (absAWA < 90) {
+        boomAngle = 20 + (absAWA - 60) * 1.0;
+      } else if (absAWA < 150) {
+        boomAngle = 50 + (absAWA - 90) * 0.583;
+      } else {
+        boomAngle = 85 + (absAWA - 150) * 0.167;
+      }
+
+      final boomLength = 69 * scale;
+      final boomAngleRad = (boomAngle * sailSide) * pi / 180;
+      final boomEndPoint = Offset(
+        center.dx + (sin(boomAngleRad) * boomLength),
+        boomEndY,
+      );
+
+      final sailBelly = sailDistance * 0.3;
+      final controlPoint1 = Offset(
+        center.dx + (sin(boomAngleRad) * boomLength * 0.3) + (sailSide * sailBelly * 0.5),
+        mastTopY + (boomEndY - mastTopY) * 0.25,
+      );
+      final controlPoint2 = Offset(
+        center.dx + (sin(boomAngleRad) * boomLength * 0.7) + (sailSide * sailBelly),
+        mastTopY + (boomEndY - mastTopY) * 0.7,
+      );
+
+      fillPath.cubicTo(
+        controlPoint1.dx, controlPoint1.dy,
+        controlPoint2.dx, controlPoint2.dy,
+        boomEndPoint.dx, boomEndPoint.dy,
+      );
+
+      // Close back to mast top (this creates the straight boom line)
+      fillPath.close();
+
+      canvas.drawPath(fillPath, fillPaint);
     } else {
-      // Luffing mode - close back to centerline
+      // Luffing mode - fill the luffing shape
+      final fillPath = Path.from(path);
       final totalHeight = 80 * scale;
       fillPath.lineTo(center.dx, mastTopY + totalHeight);
-      fillPath.lineTo(center.dx, mastTopY);
+      fillPath.close();
+      canvas.drawPath(fillPath, fillPaint);
     }
-    fillPath.close();
-
-    canvas.drawPath(fillPath, fillPaint);
   }
 
   @override

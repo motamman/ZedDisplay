@@ -541,6 +541,9 @@ class _AutopilotToolState extends State<AutopilotTool> {
     final targetAWA = widget.config.style.laylineAngle ?? 40.0;
     final targetTolerance = widget.config.style.targetTolerance ?? 3.0;
 
+    // Get fade delay from config
+    final fadeDelaySeconds = widget.config.style.customProperties?['fadeDelaySeconds'] as int? ?? 5;
+
     // Select the appropriate heading based on config
     final displayHeading = headingTrue ? _currentHeadingTrue : _currentHeading;
 
@@ -589,6 +592,7 @@ class _AutopilotToolState extends State<AutopilotTool> {
           isSailingVessel: _isSailingVessel,
           targetAWA: targetAWA,
           targetTolerance: targetTolerance,
+          fadeDelaySeconds: fadeDelaySeconds,
           onEngageDisengage: _handleEngageDisengage,
           onModeChange: _handleModeChange,
           onAdjustHeading: _handleAdjustHeading,
@@ -621,6 +625,7 @@ class AutopilotToolBuilder extends ToolBuilder {
           'invertRudder',     // Boolean: invert rudder angle display
           'laylineAngle',     // Number: optimal close-hauled angle (degrees) - same as wind compass
           'targetTolerance',  // Number: acceptable deviation from target (degrees) - same as wind compass
+          'fadeDelaySeconds', // Number: seconds before controls fade (default: 5)
         ],
       ),
     );
@@ -644,6 +649,9 @@ class AutopilotToolBuilder extends ToolBuilder {
         primaryColor: '#FF0000', // Red for autopilot
         laylineAngle: 40.0,      // Default target AWA
         targetTolerance: 3.0,    // Default tolerance
+        customProperties: {
+          'fadeDelaySeconds': 5,  // Default fade delay in seconds
+        },
       ),
     );
   }

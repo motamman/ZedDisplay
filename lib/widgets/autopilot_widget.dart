@@ -1,11 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:syncfusion_flutter_gauges/gauges.dart';
 import 'dart:math' as math;
+import 'dart:async';
 import 'base_compass.dart';
 
 /// Full-featured autopilot control widget with compass display
 /// Built on BaseCompass for consistent styling with wind compass
-class AutopilotWidget extends StatelessWidget {
+class AutopilotWidget extends StatefulWidget {
   final double currentHeading; // Current heading in degrees (0-360)
   final double targetHeading; // Target autopilot heading
   final double rudderAngle; // Rudder angle (-35 to +35 degrees)
@@ -32,6 +33,9 @@ class AutopilotWidget extends StatelessWidget {
   final Function(int degrees)? onAdjustHeading;
   final Function(String direction)? onTack;
 
+  // Fade configuration
+  final int fadeDelaySeconds; // Seconds before controls fade after activity
+
   const AutopilotWidget({
     super.key,
     required this.currentHeading,
@@ -53,7 +57,57 @@ class AutopilotWidget extends StatelessWidget {
     this.onModeChange,
     this.onAdjustHeading,
     this.onTack,
+    this.fadeDelaySeconds = 5,
   });
+
+  @override
+  State<AutopilotWidget> createState() => _AutopilotWidgetState();
+}
+
+class _AutopilotWidgetState extends State<AutopilotWidget> {
+  Timer? _dimTimer;
+  double _controlsOpacity = 0.7;
+
+  @override
+  void dispose() {
+    _dimTimer?.cancel();
+    super.dispose();
+  }
+
+  void _onHeadingAdjustmentSent() {
+    // Cancel any existing timer
+    _dimTimer?.cancel();
+
+    // Reset opacity to normal (70%)
+    setState(() {
+      _controlsOpacity = 0.7;
+    });
+
+    // Start configurable timer to dim controls
+    _dimTimer = Timer(Duration(seconds: widget.fadeDelaySeconds), () {
+      setState(() {
+        _controlsOpacity = 0.1;
+      });
+    });
+  }
+
+  void _onScreenTap() {
+    // Cancel any existing timer
+    _dimTimer?.cancel();
+
+    // Restore normal opacity (70%)
+    setState(() {
+      _controlsOpacity = 0.7;
+    });
+  }
+
+  void _onCompassDoubleTap() {
+    // Double-tap on compass triggers disengage
+    if (widget.engaged) {
+      widget.onEngageDisengage?.call();
+      _onHeadingAdjustmentSent();
+    }
+  }
 
   /// Normalize angle to 0-360 range
   double _normalizeAngle(double angle) {
@@ -98,11 +152,11 @@ class AutopilotWidget extends StatelessWidget {
       }
     }
 
-    if (showWindIndicators && apparentWindAngle != null) {
+    if (widget.showWindIndicators && widget.apparentWindAngle != null) {
       // WIND MODE - USE EXACT SAME ZONES AS WIND COMPASS
-      final windDirection = _normalizeAngle(currentHeading + apparentWindAngle!);
-      final effectiveTargetAWA = targetAWA; // Use configured target AWA
-      final tolerance = targetTolerance; // Use configured tolerance
+      final windDirection = _normalizeAngle(widget.currentHeading + widget.apparentWindAngle!);
+      final effectiveTargetAWA = widget.targetAWA; // Use configured target AWA
+      final tolerance = widget.targetTolerance; // Use configured tolerance
 
       // PORT SIDE - Gradiated Red Zones (darker = more important)
       addRange(windDirection - 60, windDirection - effectiveTargetAWA, Colors.red.withValues(alpha: 0.6));
@@ -138,8 +192,8 @@ class AutopilotWidget extends StatelessWidget {
 
     } else {
       // HEADING MODE - Simple port/starboard zones
-      addRange(currentHeading - 180, currentHeading, Colors.red.withValues(alpha: 0.3));
-      addRange(currentHeading, currentHeading + 180, Colors.green.withValues(alpha: 0.3));
+      addRange(widget.currentHeading - 180, widget.currentHeading, Colors.red.withValues(alpha: 0.3));
+      addRange(widget.currentHeading, widget.currentHeading + 180, Colors.green.withValues(alpha: 0.3));
     }
 
     return zones;
@@ -150,32 +204,32 @@ class AutopilotWidget extends StatelessWidget {
     final pointers = <GaugePointer>[];
 
     // Determine which heading is primary (being used for compass rotation)
-    final usingTrueHeading = headingTrue;
+    final usingTrueHeading = widget.headingTrue;
 
     // Target heading marker (needle with rounded end) - drawn first (below)
     pointers.add(NeedlePointer(
-      value: targetHeading,
+      value: widget.targetHeading,
       needleLength: 0.92,
       needleStartWidth: 0,
       needleEndWidth: 10,
-      needleColor: primaryColor,
+      needleColor: widget.primaryColor,
       knobStyle: const KnobStyle(knobRadius: 0),
     ));
 
     // Rounded end for target heading indicator
     pointers.add(MarkerPointer(
-      value: targetHeading,
+      value: widget.targetHeading,
       markerType: MarkerType.circle,
       markerHeight: 16,
       markerWidth: 16,
-      color: primaryColor,
+      color: widget.primaryColor,
       markerOffset: -5,
     ));
 
     // Current heading indicator - only show dot (no needle) since vessel shadow shows direction
     // Rounded end for current heading indicator
     pointers.add(MarkerPointer(
-      value: currentHeading,
+      value: widget.currentHeading,
       markerType: MarkerType.circle,
       markerHeight: 11,
       markerWidth: 11,
@@ -184,11 +238,11 @@ class AutopilotWidget extends StatelessWidget {
     ));
 
     // WIND INDICATORS - only show in wind mode
-    if (showWindIndicators) {
+    if (widget.showWindIndicators) {
       // Apparent wind direction - primary (blue)
-      if (apparentWindDirection != null) {
+      if (widget.apparentWindDirection != null) {
         pointers.add(NeedlePointer(
-          value: apparentWindDirection!,
+          value: widget.apparentWindDirection!,
           needleLength: 0.95,
           needleStartWidth: 5,
           needleEndWidth: 0,
@@ -201,9 +255,9 @@ class AutopilotWidget extends StatelessWidget {
       }
 
       // True wind direction - secondary (green)
-      if (trueWindDirection != null) {
+      if (widget.trueWindDirection != null) {
         pointers.add(NeedlePointer(
-          value: trueWindDirection!,
+          value: widget.trueWindDirection!,
           needleLength: 0.75,
           needleStartWidth: 4,
           needleEndWidth: 0,
@@ -224,10 +278,10 @@ class AutopilotWidget extends StatelessWidget {
   List<CustomPainter> _buildCustomPainters(double primaryHeadingRadians, double primaryHeadingDegrees) {
     final painters = <CustomPainter>[];
 
-    if (showWindIndicators && apparentWindAngle != null) {
+    if (widget.showWindIndicators && widget.apparentWindAngle != null) {
       painters.add(_NoGoZoneVPainter(
-        windDirection: _normalizeAngle(currentHeading + apparentWindAngle!),
-        noGoAngle: targetAWA,
+        windDirection: _normalizeAngle(widget.currentHeading + widget.apparentWindAngle!),
+        noGoAngle: widget.targetAWA,
       ));
     }
 
@@ -282,7 +336,7 @@ class AutopilotWidget extends StatelessWidget {
   /// Build target info box
   Widget _buildTargetInfoBox() {
     // Calculate heading error
-    double error = currentHeading - targetHeading;
+    double error = widget.currentHeading - widget.targetHeading;
     while (error > 180) error -= 360;
     while (error < -180) error += 360;
 
@@ -300,13 +354,13 @@ class AutopilotWidget extends StatelessWidget {
       decoration: BoxDecoration(
         color: Colors.black.withValues(alpha: 0.8),
         borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: primaryColor, width: 2),
+        border: Border.all(color: widget.primaryColor, width: 2),
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           Text(
-            mode.toUpperCase(),
+            widget.mode.toUpperCase(),
             style: const TextStyle(
               fontSize: 10,
               color: Colors.white60,
@@ -326,10 +380,10 @@ class AutopilotWidget extends StatelessWidget {
                 ),
               ),
               Text(
-                '${targetHeading.toStringAsFixed(0)}°',
+                '${widget.targetHeading.toStringAsFixed(0)}°',
                 style: TextStyle(
                   fontSize: 16,
-                  color: primaryColor,
+                  color: widget.primaryColor,
                   fontWeight: FontWeight.bold,
                 ),
               ),
@@ -354,7 +408,7 @@ class AutopilotWidget extends StatelessWidget {
       children: [
         // XTE display (right side below heading display) if available and reasonable
         // Only show XTE if < 10nm (~18520m) to filter out bad data
-        if (crossTrackError != null && crossTrackError!.abs() < 18520)
+        if (widget.crossTrackError != null && widget.crossTrackError!.abs() < 18520)
           Positioned(
             right: 16,
             bottom: 100,
@@ -364,7 +418,7 @@ class AutopilotWidget extends StatelessWidget {
                 color: Colors.black.withValues(alpha: 0.8),
                 borderRadius: BorderRadius.circular(6),
                 border: Border.all(
-                  color: crossTrackError! >= 0 ? Colors.green : Colors.red,
+                  color: widget.crossTrackError! >= 0 ? Colors.green : Colors.red,
                   width: 2,
                 ),
               ),
@@ -382,9 +436,9 @@ class AutopilotWidget extends StatelessWidget {
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    crossTrackError!.abs() >= 1000
-                        ? '${(crossTrackError!.abs() / 1000).toStringAsFixed(2)}'
-                        : '${crossTrackError!.abs().toStringAsFixed(0)}',
+                    widget.crossTrackError!.abs() >= 1000
+                        ? '${(widget.crossTrackError!.abs() / 1000).toStringAsFixed(2)}'
+                        : '${widget.crossTrackError!.abs().toStringAsFixed(0)}',
                     style: const TextStyle(
                       fontSize: 16,
                       color: Colors.white,
@@ -392,10 +446,10 @@ class AutopilotWidget extends StatelessWidget {
                     ),
                   ),
                   Text(
-                    '${crossTrackError!.abs() >= 1000 ? 'km' : 'm'} ${crossTrackError! >= 0 ? 'STBD' : 'PORT'}',
+                    '${widget.crossTrackError!.abs() >= 1000 ? 'km' : 'm'} ${widget.crossTrackError! >= 0 ? 'STBD' : 'PORT'}',
                     style: TextStyle(
                       fontSize: 10,
-                      color: crossTrackError! >= 0 ? Colors.green : Colors.red,
+                      color: widget.crossTrackError! >= 0 ? Colors.green : Colors.red,
                       fontWeight: FontWeight.bold,
                     ),
                   ),
@@ -411,26 +465,30 @@ class AutopilotWidget extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     // Convert heading to radians for rotation
-    final headingRadians = currentHeading * math.pi / 180;
+    final headingRadians = widget.currentHeading * math.pi / 180;
 
-    return Container(
-      padding: const EdgeInsets.all(16),
-      child: Stack(
-        children: [
+    return GestureDetector(
+      onTap: _onScreenTap,
+      onDoubleTap: _onCompassDoubleTap,
+      behavior: HitTestBehavior.translucent,
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        child: Stack(
+          children: [
           // Compass with overlaid controls (85% size, centered)
           Center(
             child: FractionallySizedBox(
               widthFactor: 0.85,
               heightFactor: 0.85,
               child: BaseCompass(
-                headingTrueRadians: headingTrue ? headingRadians : null,
-                headingMagneticRadians: !headingTrue ? headingRadians : null,
-                headingTrueDegrees: headingTrue ? currentHeading : null,
-                headingMagneticDegrees: !headingTrue ? currentHeading : null,
-                isSailingVessel: isSailingVessel,
-                apparentWindAngle: apparentWindAngle,
-                targetAWA: targetAWA,
-                targetTolerance: targetTolerance,
+                headingTrueRadians: widget.headingTrue ? headingRadians : null,
+                headingMagneticRadians: !widget.headingTrue ? headingRadians : null,
+                headingTrueDegrees: widget.headingTrue ? widget.currentHeading : null,
+                headingMagneticDegrees: !widget.headingTrue ? widget.currentHeading : null,
+                isSailingVessel: widget.isSailingVessel,
+                apparentWindAngle: widget.apparentWindAngle,
+                targetAWA: widget.targetAWA,
+                targetTolerance: widget.targetTolerance,
                 rangesBuilder: _buildAutopilotZones,
                 pointersBuilder: _buildAutopilotPointers,
                 customPaintersBuilder: _buildCustomPainters,
@@ -453,28 +511,35 @@ class AutopilotWidget extends StatelessWidget {
           Positioned(
             right: 16,
             top: 16,
-            child: _buildHeadingLabel(currentHeading, headingTrue),
+            child: _buildHeadingLabel(widget.currentHeading, widget.headingTrue),
           ),
 
           // Tack Port button - left side, aligned with compass midline (only for sailing vessels in Auto/Wind mode)
-          if (isSailingVessel && engaged && (mode == 'Auto' || mode == 'Wind'))
+          if (widget.isSailingVessel && widget.engaged && (widget.mode == 'Auto' || widget.mode == 'Wind'))
             Positioned(
               left: 0,
               top: 0,
               bottom: 0,
-              child: Align(
-                alignment: Alignment.centerLeft,
-                child: SizedBox(
-                  width: 75,
-                  child: ElevatedButton(
-                    onPressed: () => onTack?.call('port'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.red.withValues(alpha: 0.6),
-                      padding: const EdgeInsets.symmetric(vertical: 8),
-                    ),
-                    child: const Text('TACK\nPORT',
-                      style: TextStyle(fontSize: 9),
-                      textAlign: TextAlign.center,
+              child: AnimatedOpacity(
+                opacity: _controlsOpacity,
+                duration: const Duration(milliseconds: 300),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: SizedBox(
+                    width: 75,
+                    child: ElevatedButton(
+                      onPressed: () {
+                        widget.onTack?.call('port');
+                        _onHeadingAdjustmentSent();
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.red.withValues(alpha: 0.6),
+                        padding: const EdgeInsets.symmetric(vertical: 8),
+                      ),
+                      child: const Text('TACK\nPORT',
+                        style: TextStyle(fontSize: 9),
+                        textAlign: TextAlign.center,
+                      ),
                     ),
                   ),
                 ),
@@ -482,24 +547,31 @@ class AutopilotWidget extends StatelessWidget {
             ),
 
           // Tack Starboard button - right side, aligned with compass midline (only for sailing vessels in Auto/Wind mode)
-          if (isSailingVessel && engaged && (mode == 'Auto' || mode == 'Wind'))
+          if (widget.isSailingVessel && widget.engaged && (widget.mode == 'Auto' || widget.mode == 'Wind'))
             Positioned(
               right: 0,
               top: 0,
               bottom: 0,
-              child: Align(
-                alignment: Alignment.centerRight,
-                child: SizedBox(
-                  width: 75,
-                  child: ElevatedButton(
-                    onPressed: () => onTack?.call('starboard'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.green.withValues(alpha: 0.6),
-                      padding: const EdgeInsets.symmetric(vertical: 8),
-                    ),
-                    child: const Text('TACK\nSTBD',
-                      style: TextStyle(fontSize: 9),
-                      textAlign: TextAlign.center,
+              child: AnimatedOpacity(
+                opacity: _controlsOpacity,
+                duration: const Duration(milliseconds: 300),
+                child: Align(
+                  alignment: Alignment.centerRight,
+                  child: SizedBox(
+                    width: 75,
+                    child: ElevatedButton(
+                      onPressed: () {
+                        widget.onTack?.call('starboard');
+                        _onHeadingAdjustmentSent();
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.green.withValues(alpha: 0.6),
+                        padding: const EdgeInsets.symmetric(vertical: 8),
+                      ),
+                      child: const Text('TACK\nSTBD',
+                        style: TextStyle(fontSize: 9),
+                        textAlign: TextAlign.center,
+                      ),
                     ),
                   ),
                 ),
@@ -511,43 +583,48 @@ class AutopilotWidget extends StatelessWidget {
             left: 0,
             right: 0,
             bottom: 0,
-            child: Container(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [
-                    Colors.black.withValues(alpha: 0.0),
-                    Colors.black.withValues(alpha: 0.7),
-                    Colors.black.withValues(alpha: 0.9),
+            child: AnimatedOpacity(
+              opacity: _controlsOpacity,
+              duration: const Duration(milliseconds: 300),
+              child: Container(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      Colors.black.withValues(alpha: 0.0),
+                      Colors.black.withValues(alpha: 0.7),
+                      Colors.black.withValues(alpha: 0.9),
+                    ],
+                  ),
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const SizedBox(height: 12),
+
+                    // Mode selector and engage/disengage
+                    _buildModeControls(context),
+
+                    const SizedBox(height: 10),
+
+                    // Heading adjustment buttons (for all vessels in Auto/Compass/Wind mode)
+                    if (widget.engaged && (widget.mode == 'Auto' || widget.mode == 'Compass' || widget.mode == 'Wind'))
+                      _buildHeadingControls(),
+
+                    const SizedBox(height: 10),
+
+                    // Rudder indicator
+                    _buildRudderIndicator(),
+
+                    const SizedBox(height: 12),
                   ],
                 ),
               ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const SizedBox(height: 12),
-
-                  // Mode selector and engage/disengage
-                  _buildModeControls(context),
-
-                  const SizedBox(height: 10),
-
-                  // Heading adjustment buttons (for all vessels in Auto/Compass/Wind mode)
-                  if (engaged && (mode == 'Auto' || mode == 'Compass' || mode == 'Wind'))
-                    _buildHeadingControls(),
-
-                  const SizedBox(height: 10),
-
-                  // Rudder indicator
-                  _buildRudderIndicator(),
-
-                  const SizedBox(height: 12),
-                ],
-              ),
             ),
           ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -574,7 +651,7 @@ class AutopilotWidget extends StatelessWidget {
               Expanded(
                 child: LayoutBuilder(
                   builder: (context, constraints) {
-                    final normalizedPosition = (rudderAngle + 35) / 70;
+                    final normalizedPosition = (widget.rudderAngle + 35) / 70;
                     final leftPosition = (constraints.maxWidth * normalizedPosition) - 4;
 
                     return Stack(
@@ -598,7 +675,7 @@ class AutopilotWidget extends StatelessWidget {
                             width: 8,
                             height: 30,
                             decoration: BoxDecoration(
-                              color: rudderAngle < 0 ? Colors.red : Colors.green,
+                              color: widget.rudderAngle < 0 ? Colors.red : Colors.green,
                               borderRadius: BorderRadius.circular(2),
                               boxShadow: [
                                 BoxShadow(
@@ -610,7 +687,7 @@ class AutopilotWidget extends StatelessWidget {
                           ),
                         ),
                         Text(
-                          '${rudderAngle.toStringAsFixed(0)}°',
+                          '${widget.rudderAngle.toStringAsFixed(0)}°',
                           style: const TextStyle(
                             fontSize: 12,
                             fontWeight: FontWeight.bold,
@@ -636,9 +713,12 @@ class AutopilotWidget extends StatelessWidget {
       children: [
         Expanded(
           child: OutlinedButton.icon(
-            onPressed: () => _showModeMenu(context),
+            onPressed: () {
+              _onScreenTap(); // Reset timer when opening menu
+              _showModeMenu(context);
+            },
             icon: const Icon(Icons.navigation, size: 18),
-            label: Text('Mode: $mode', style: const TextStyle(fontSize: 13)),
+            label: Text('Mode: ${widget.mode}', style: const TextStyle(fontSize: 13)),
             style: OutlinedButton.styleFrom(
               padding: const EdgeInsets.symmetric(vertical: 10),
               backgroundColor: Colors.black.withValues(alpha: 0.3),
@@ -648,13 +728,16 @@ class AutopilotWidget extends StatelessWidget {
         const SizedBox(width: 10),
         Expanded(
           child: ElevatedButton(
-            onPressed: onEngageDisengage,
+            onPressed: () {
+              widget.onEngageDisengage?.call();
+              _onHeadingAdjustmentSent();
+            },
             style: ElevatedButton.styleFrom(
-              backgroundColor: (engaged ? Colors.red : Colors.green).withValues(alpha: 0.7),
+              backgroundColor: (widget.engaged ? Colors.red : Colors.green).withValues(alpha: 0.7),
               padding: const EdgeInsets.symmetric(vertical: 10),
             ),
             child: Text(
-              engaged ? 'DISENGAGE' : 'ENGAGE',
+              widget.engaged ? 'DISENGAGE' : 'ENGAGE',
               style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
             ),
           ),
@@ -678,7 +761,7 @@ class AutopilotWidget extends StatelessWidget {
             const SizedBox(height: 16),
             _buildModeOption(context, 'Auto', 'Compass heading mode'),
             // Wind mode only for sailing vessels
-            if (isSailingVessel)
+            if (widget.isSailingVessel)
               _buildModeOption(context, 'Wind', 'Wind angle mode'),
             _buildModeOption(context, 'Route', 'Route following mode'),
             _buildModeOption(context, 'Standby', 'Autopilot standby'),
@@ -694,16 +777,17 @@ class AutopilotWidget extends StatelessWidget {
   }
 
   Widget _buildModeOption(BuildContext context, String modeOption, String description) {
-    final isSelected = mode == modeOption;
+    final isSelected = widget.mode == modeOption;
     return ListTile(
       leading: Icon(
         isSelected ? Icons.check_circle : Icons.radio_button_unchecked,
-        color: isSelected ? primaryColor : Colors.grey,
+        color: isSelected ? widget.primaryColor : Colors.grey,
       ),
       title: Text(modeOption),
       subtitle: Text(description, style: const TextStyle(fontSize: 12)),
       onTap: () {
-        onModeChange?.call(modeOption);
+        widget.onModeChange?.call(modeOption);
+        _onHeadingAdjustmentSent();
         Navigator.pop(context);
       },
     );
@@ -724,7 +808,8 @@ class AutopilotWidget extends StatelessWidget {
         ),
         const SizedBox(height: 12),
         _HeadingAdjustmentSlider(
-          onAdjustHeading: onAdjustHeading,
+          onAdjustHeading: widget.onAdjustHeading,
+          onHeadingAdjustmentSent: _onHeadingAdjustmentSent,
         ),
       ],
     );
@@ -735,7 +820,10 @@ class AutopilotWidget extends StatelessWidget {
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 3),
         child: ElevatedButton(
-          onPressed: () => onAdjustHeading?.call(degrees),
+          onPressed: () {
+            widget.onAdjustHeading?.call(degrees);
+            _onHeadingAdjustmentSent();
+          },
           style: ElevatedButton.styleFrom(
             padding: const EdgeInsets.symmetric(vertical: 10),
             backgroundColor: Colors.blue.withValues(alpha: 0.6),
@@ -751,9 +839,11 @@ class AutopilotWidget extends StatelessWidget {
 /// Stateful slider widget for fine-grained heading adjustments
 class _HeadingAdjustmentSlider extends StatefulWidget {
   final Function(int degrees)? onAdjustHeading;
+  final VoidCallback? onHeadingAdjustmentSent;
 
   const _HeadingAdjustmentSlider({
     this.onAdjustHeading,
+    this.onHeadingAdjustmentSent,
   });
 
   @override
@@ -791,6 +881,8 @@ class _HeadingAdjustmentSliderState extends State<_HeadingAdjustmentSlider> {
 
     if (confirmed == true) {
       widget.onAdjustHeading?.call(degrees);
+      // Notify that adjustment was sent
+      widget.onHeadingAdjustmentSent?.call();
     }
 
     // Reset slider to 0 regardless of choice
