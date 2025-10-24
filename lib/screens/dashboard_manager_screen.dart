@@ -73,11 +73,33 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen> {
   }
 
   Future<void> _addTool() async {
+    print('🔧 _addTool: START');
+
+    // Prevent opening tool config if already in placement mode
+    if (_toolBeingPlaced != null) {
+      print('⚠️ _addTool: Already in placement mode, ignoring');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Please place the current tool first!'),
+            backgroundColor: Colors.orange,
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+      return;
+    }
+
     final dashboardService = Provider.of<DashboardService>(context, listen: false);
     final toolService = Provider.of<ToolService>(context, listen: false);
     final activeScreen = dashboardService.currentLayout?.activeScreen;
 
-    if (activeScreen == null) return;
+    if (activeScreen == null) {
+      print('❌ _addTool: No active screen');
+      return;
+    }
+
+    print('🔧 _addTool: Opening ToolConfigScreen for screen ${activeScreen.id}');
 
     final result = await Navigator.of(context).push(
       MaterialPageRoute(
@@ -85,13 +107,20 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen> {
       ),
     );
 
+    print('🔧 _addTool: Got result: ${result.runtimeType}');
+    print('🔧 _addTool: Result content: $result');
+    print('🔧 _addTool: mounted = $mounted');
+
     if (result is Map<String, dynamic> && mounted) {
+      print('🔧 _addTool: Result is Map and mounted, processing...');
       try {
         final tool = result['tool'] as Tool;
         final width = result['width'] as int? ?? 1;
         final height = result['height'] as int? ?? 1;
 
-        // Create a placement for this tool with size
+        print('🔧 _addTool: Tool=${tool.id}, width=$width, height=$height');
+
+        // Create a placement for this tool with size (starting at center)
         final placement = toolService.createPlacement(
           toolId: tool.id,
           screenId: activeScreen.id,
@@ -99,21 +128,32 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen> {
           height: height,
         );
 
-        // Add placement to dashboard (this calls saveDashboard internally)
-        await dashboardService.addPlacementToActiveScreen(placement);
+        print('🔧 _addTool: Entering placement mode for drag-to-position');
 
-        // Explicitly save dashboard to ensure persistence
-        await dashboardService.saveDashboard();
+        // Enter placement mode - user will drag to position
+        setState(() {
+          _toolBeingPlaced = tool;
+          _placementBeingPlaced = placement;
+          _placingX = 0; // Start at 0,0
+          _placingY = 0;
+          _placingWidth = width * 100.0; // Initial pixel width (approximate)
+          _placingHeight = height * 100.0; // Initial pixel height (approximate)
+        });
 
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Tool "${tool.name}" added and saved'),
-              backgroundColor: Colors.green,
+            const SnackBar(
+              content: Text('Drag to position • Drag corner to resize • Release to place'),
+              backgroundColor: Colors.blue,
+              duration: Duration(seconds: 4),
             ),
           );
         }
-      } catch (e) {
+
+        print('✅ _addTool: Entered placement mode successfully');
+      } catch (e, stack) {
+        print('❌ _addTool: Error: $e');
+        print('❌ _addTool: Stack trace: $stack');
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -123,6 +163,8 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen> {
           );
         }
       }
+    } else {
+      print('❌ _addTool: Result is NOT Map or not mounted');
     }
   }
 
@@ -425,7 +467,15 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen> {
     return Scaffold(
       extendBody: _isFullScreen,
       extendBodyBehindAppBar: _isFullScreen,
-      appBar: (!_isFullScreen || _showAppBar) ? AppBar(
+      floatingActionButton: (_isFullScreen && !_showAppBar && _toolBeingPlaced == null)
+          ? FloatingActionButton.small(
+              onPressed: _showAppBarTemporarily,
+              backgroundColor: Colors.black.withValues(alpha: 0.6),
+              child: const Icon(Icons.arrow_upward, color: Colors.white),
+            )
+          : null,
+      floatingActionButtonLocation: FloatingActionButtonLocation.endTop,
+      appBar: (!_isFullScreen || _showAppBar || _toolBeingPlaced != null) ? AppBar(
         title: Consumer<DashboardService>(
           builder: (context, dashboardService, child) {
             final layout = dashboardService.currentLayout;
@@ -565,7 +615,7 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen> {
               // PageView with screens - full screen with wrap-around
               PageView.builder(
                 controller: _pageController,
-                physics: _isEditMode ? const NeverScrollableScrollPhysics() : null, // Disable swipe in edit mode
+                physics: (_isEditMode || _toolBeingPlaced != null) ? const NeverScrollableScrollPhysics() : null, // Disable swipe in edit mode OR placement mode
                 onPageChanged: (virtualIndex) {
                   final totalScreens = layout.screens.length;
                   if (totalScreens == 0) return;
@@ -686,26 +736,30 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen> {
         ? screen.portraitPlacements
         : screen.landscapePlacements;
 
-    if (placements.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.dashboard_customize, size: 64, color: Colors.grey[400]),
-            const SizedBox(height: 16),
-            Text(
-              'No tools on "${screen.name}"',
-              style: TextStyle(fontSize: 16, color: Colors.grey[600]),
-            ),
-            const SizedBox(height: 8),
-            ElevatedButton.icon(
-              onPressed: _showAddMenu,
-              icon: const Icon(Icons.add),
-              label: const Text('Add Your First Tool'),
-            ),
-          ],
-        ),
-      );
+    // IMPORTANT: Don't return early if screen is empty - we need to check for placement overlay!
+    Widget emptyScreenWidget = Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.dashboard_customize, size: 64, color: Colors.grey[400]),
+          const SizedBox(height: 16),
+          Text(
+            'No tools on "${screen.name}"',
+            style: TextStyle(fontSize: 16, color: Colors.grey[600]),
+          ),
+          const SizedBox(height: 8),
+          ElevatedButton.icon(
+            onPressed: _showAddMenu,
+            icon: const Icon(Icons.add),
+            label: const Text('Add Your First Tool'),
+          ),
+        ],
+      ),
+    );
+
+    // If empty AND no placement overlay, just return the empty screen widget
+    if (placements.isEmpty && _toolBeingPlaced == null) {
+      return emptyScreenWidget;
     }
 
     return LayoutBuilder(
@@ -719,8 +773,10 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen> {
         // Determine if we should allow scrolling
         final useScrolling = screen.allowOverflow;
 
-        // Build the content widget
-        Widget contentWidget = Stack(
+        // Build the content widget - use empty screen if no placements
+        Widget contentWidget = placements.isEmpty
+            ? emptyScreenWidget
+            : Stack(
           children: placements.map((placement) {
             final tool = toolService.getTool(placement.toolId);
 
@@ -797,7 +853,6 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen> {
                               child: GestureDetector(
                                 behavior: HitTestBehavior.opaque,
                                 onPanStart: (details) {
-                                  print('🟣 Move START for ${placement.toolId}');
                                   // Start moving
                                   setState(() {
                                     _movingWidgetId = placement.toolId;
@@ -806,7 +861,6 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen> {
                                   });
                                 },
                                 onPanUpdate: (details) {
-                                  print('🟣 Move UPDATE: dx=${details.delta.dx}, dy=${details.delta.dy}');
                                   // Update position in real-time
                                   setState(() {
                                     _movingX = (_movingX + details.delta.dx).clamp(0, screenWidth - width);
@@ -814,7 +868,6 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen> {
                                   });
                                 },
                                 onPanEnd: (details) {
-                                  print('🟣 Move END: final position $_movingX, $_movingY');
                                   // Save final position
                                   final dashboardService = Provider.of<DashboardService>(context, listen: false);
 
@@ -886,7 +939,6 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen> {
                               child: GestureDetector(
                                 behavior: HitTestBehavior.opaque,
                                 onPanStart: (details) {
-                                  print('🔵 Resize START for ${placement.toolId}');
                                   // Start resizing
                                   setState(() {
                                     _resizingWidgetId = placement.toolId;
@@ -895,7 +947,6 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen> {
                                   });
                                 },
                                 onPanUpdate: (details) {
-                                  print('🔵 Resize UPDATE: dx=${details.delta.dx}, dy=${details.delta.dy}');
                                   // Update widget size based on drag in real-time
                                   setState(() {
                                     _resizingWidth = (_resizingWidth + details.delta.dx).clamp(100.0, screenWidth - x);
@@ -903,7 +954,6 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen> {
                                   });
                                 },
                                 onPanEnd: (details) {
-                                  print('🔵 Resize END: final size $_resizingWidth x $_resizingHeight');
                                   // Save final size to placement
                                   final updatedPlacement = placement.copyWith(
                                     position: placement.position.copyWith(
@@ -1018,15 +1068,8 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen> {
                       ),
                     );
 
-                    // Add to correct orientation
-                    final isPortrait = orientation == Orientation.portrait;
-                    final updatedScreen = isPortrait
-                        ? screen.copyWith(
-                            portraitPlacements: [...screen.portraitPlacements, updatedPlacement],
-                          )
-                        : screen.copyWith(
-                            landscapePlacements: [...screen.landscapePlacements, updatedPlacement],
-                          );
+                    // Add to BOTH orientations so tool appears in portrait AND landscape
+                    final updatedScreen = screen.addPlacement(updatedPlacement);
 
                     await dashboardService.updateScreen(updatedScreen);
 
@@ -1054,32 +1097,49 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen> {
                       children: [
                         Container(
                           decoration: BoxDecoration(
-                            border: Border.all(color: Colors.blue, width: 3),
-                            borderRadius: BorderRadius.circular(8),
-                            color: Colors.blue.withValues(alpha: 0.2),
+                            border: Border.all(color: Colors.yellow, width: 6),
+                            borderRadius: BorderRadius.circular(12),
+                            color: Colors.yellow.withValues(alpha: 0.5),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withValues(alpha: 0.5),
+                                blurRadius: 20,
+                                spreadRadius: 5,
+                              ),
+                            ],
                           ),
-                          padding: const EdgeInsets.all(8),
+                          padding: const EdgeInsets.all(16),
                           child: Center(
                             child: Column(
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: [
-                                Icon(Icons.dashboard_customize, size: 48, color: Colors.blue[700]),
-                                const SizedBox(height: 8),
+                                Icon(Icons.pan_tool, size: 64, color: Colors.orange[900]),
+                                const SizedBox(height: 16),
                                 Text(
                                   _toolBeingPlaced!.name,
                                   style: TextStyle(
-                                    color: Colors.blue[700],
+                                    color: Colors.black,
                                     fontWeight: FontWeight.bold,
-                                    fontSize: 16,
+                                    fontSize: 24,
                                   ),
                                   textAlign: TextAlign.center,
                                 ),
-                                const SizedBox(height: 4),
+                                const SizedBox(height: 12),
                                 Text(
-                                  'Drag to position • Drag corner to resize',
+                                  'DRAG ME TO POSITION',
                                   style: TextStyle(
-                                    color: Colors.blue[600],
-                                    fontSize: 12,
+                                    color: Colors.red[900],
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 18,
+                                  ),
+                                  textAlign: TextAlign.center,
+                                ),
+                                const SizedBox(height: 8),
+                                Text(
+                                  'Drag corner to resize • Release to place',
+                                  style: TextStyle(
+                                    color: Colors.black87,
+                                    fontSize: 14,
                                   ),
                                   textAlign: TextAlign.center,
                                 ),

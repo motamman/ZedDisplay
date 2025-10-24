@@ -204,7 +204,12 @@ class DashboardService extends ChangeNotifier {
   /// Add a tool placement to the screen specified in the placement
   /// Note: Uses the placement's screenId to determine which screen to add to
   Future<void> addPlacementToActiveScreen(ToolPlacement placement) async {
-    if (_currentLayout == null) return;
+    if (_currentLayout == null) {
+      print('❌ addPlacementToActiveScreen: No current layout');
+      return;
+    }
+
+    print('📍 addPlacementToActiveScreen: Adding placement ${placement.toolId} to screen ${placement.screenId}');
 
     // Find the screen specified in the placement (not necessarily the active screen)
     final screen = _currentLayout!.screens.firstWhere(
@@ -212,11 +217,21 @@ class DashboardService extends ChangeNotifier {
       orElse: () => throw Exception('Screen not found: ${placement.screenId}'),
     );
 
+    print('📍 addPlacementToActiveScreen: Found screen ${screen.id}, current placements: portrait=${screen.portraitPlacements.length}, landscape=${screen.landscapePlacements.length}');
+
     final updatedScreen = screen.addPlacement(placement);
+
+    print('📍 addPlacementToActiveScreen: Updated screen placements: portrait=${updatedScreen.portraitPlacements.length}, landscape=${updatedScreen.landscapePlacements.length}');
+
     _currentLayout = _currentLayout!.updateScreen(updatedScreen);
+
+    print('📍 addPlacementToActiveScreen: Calling notifyListeners()');
     notifyListeners();
+
     await _updateSignalKSubscriptions();
     await saveDashboard();
+
+    print('✅ addPlacementToActiveScreen: Complete');
 
     // Increment tool usage count
     if (_toolService != null) {
