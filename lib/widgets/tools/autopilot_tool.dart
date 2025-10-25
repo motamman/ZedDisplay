@@ -6,6 +6,7 @@ import '../../models/tool_config.dart';
 import '../../services/signalk_service.dart';
 import '../../services/tool_registry.dart';
 import '../../utils/color_extensions.dart';
+import '../../utils/conversion_utils.dart';
 import '../../config/ui_constants.dart';
 import '../autopilot_widget.dart';
 
@@ -162,40 +163,35 @@ class _AutopilotToolState extends State<AutopilotTool> {
 
       // 3: Target heading (REQUIRED)
       if (dataSources.length > 3) {
-        final targetData = widget.signalKService.getValue(
+        final converted = ConversionUtils.getConvertedValue(
+          widget.signalKService,
           dataSources[3].path,
-          source: dataSources[3].source,
         );
-        if (targetData?.value != null) {
-          // Convert from radians (standard stream) to degrees
-          _targetHeading = _radiansToDegrees(targetData!.value as num);
+        if (converted != null) {
+          _targetHeading = converted;
         }
       }
 
-      // 4: Current heading (REQUIRED) - THIS IS THE KEY ONE!
+      // 4: Current heading (REQUIRED)
       if (dataSources.length > 4) {
-        final headingData = widget.signalKService.getValue(
+        final converted = ConversionUtils.getConvertedValue(
+          widget.signalKService,
           dataSources[4].path,
-          source: dataSources[4].source,
         );
-        if (headingData?.value != null) {
-          // Convert from radians (standard stream) to degrees
-          final newHeading = _radiansToDegrees(headingData!.value as num);
-          _currentHeading = newHeading;
+        if (converted != null) {
+          _currentHeading = converted;
         }
-        // Don't log missing data - normal during startup or when disconnected
       }
 
       // 5: Rudder angle (REQUIRED)
       if (dataSources.length > 5) {
-        final rudderData = widget.signalKService.getValue(
+        final converted = ConversionUtils.getConvertedValue(
+          widget.signalKService,
           dataSources[5].path,
-          source: dataSources[5].source,
         );
-        if (rudderData?.value != null) {
-          // Convert from radians (standard stream) to degrees
+        if (converted != null) {
           // Invert by default (positive rudder = turn right = card turns left visually)
-          _rudderAngle = -_radiansToDegrees(rudderData!.value as num);
+          _rudderAngle = -converted;
 
           // Apply additional invert rudder config if set (for double-negative = normal)
           final invertRudder = widget.config.style.customProperties?['invertRudder'] as bool? ?? false;
@@ -207,13 +203,12 @@ class _AutopilotToolState extends State<AutopilotTool> {
 
       // 6: Apparent wind angle (optional)
       if (dataSources.length > 6) {
-        final awaData = widget.signalKService.getValue(
+        final converted = ConversionUtils.getConvertedValue(
+          widget.signalKService,
           dataSources[6].path,
-          source: dataSources[6].source,
         );
-        if (awaData?.value != null) {
-          // Convert from radians (standard stream) to degrees
-          _apparentWindAngle = _radiansToDegrees(awaData!.value as num);
+        if (converted != null) {
+          _apparentWindAngle = converted;
         }
       }
 
@@ -230,17 +225,21 @@ class _AutopilotToolState extends State<AutopilotTool> {
 
       // Additional paths not in config but subscribed
       // True heading (optional)
-      final headingTrueData = widget.signalKService.getValue('navigation.headingTrue');
-      if (headingTrueData?.value != null) {
-        // Convert from radians (standard stream) to degrees
-        _currentHeadingTrue = _radiansToDegrees(headingTrueData!.value as num);
+      final convertedHeadingTrue = ConversionUtils.getConvertedValue(
+        widget.signalKService,
+        'navigation.headingTrue',
+      );
+      if (convertedHeadingTrue != null) {
+        _currentHeadingTrue = convertedHeadingTrue;
       }
 
       // True wind angle (optional)
-      final twaData = widget.signalKService.getValue('environment.wind.angleTrueWater');
-      if (twaData?.value != null) {
-        // Convert from radians (standard stream) to degrees
-        _trueWindAngle = _radiansToDegrees(twaData!.value as num);
+      final convertedTwa = ConversionUtils.getConvertedValue(
+        widget.signalKService,
+        'environment.wind.angleTrueWater',
+      );
+      if (convertedTwa != null) {
+        _trueWindAngle = convertedTwa;
       }
 
       // Vessel type (to determine if sailing)
@@ -258,11 +257,6 @@ class _AutopilotToolState extends State<AutopilotTool> {
         }
       }
     });
-  }
-
-  /// Convert radians to degrees
-  double _radiansToDegrees(num radians) {
-    return (radians * 180 / 3.14159265359) % 360;
   }
 
   /// Send V1 autopilot command via PUT request
