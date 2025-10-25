@@ -24,6 +24,7 @@ class ConversionTestTool extends StatefulWidget {
 class _ConversionTestToolState extends State<ConversionTestTool> {
   // Paths to test (hardcoded for this test tool)
   static const List<String> testPaths = [
+    'navigation.position',
     'navigation.headingTrue',
     'navigation.headingMagnetic',
     'environment.wind.directionTrue',
@@ -123,6 +124,7 @@ class _ConversionTestToolState extends State<ConversionTestTool> {
                 _buildRow('Target Unit', targetUnit ?? 'N/A'),
                 const Divider(height: 8),
                 _buildRow('Raw Value', dataPoint?.value?.toString() ?? '---'),
+                _buildRow('Value Type', dataPoint?.value?.runtimeType.toString() ?? '---'),
                 _buildRow('Calculated', calculatedValue != null
                     ? '${calculatedValue.toStringAsFixed(4)} ${conversionInfo?.symbol ?? ''}'
                     : '---'),

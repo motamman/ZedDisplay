@@ -46,6 +46,10 @@ dependencies:
   # Math expression evaluation
   math_expressions: ^2.6.0
 
+  # Maps
+  flutter_map: ^7.0.2
+  latlong2: ^0.9.1
+
   # Color picker
   flutter_colorpicker: ^1.1.0
 

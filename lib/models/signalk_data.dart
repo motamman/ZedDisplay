@@ -87,6 +87,9 @@ class SignalKDataPoint {
   final String? symbol;         // Unit symbol (e.g., "kn", "°C")
   final dynamic original;       // Original SI value
 
+  // Data source tracking
+  final bool fromGET;           // true if from REST GET, false if from WebSocket
+
   SignalKDataPoint({
     required this.path,
     required this.value,
@@ -96,6 +99,7 @@ class SignalKDataPoint {
     this.formatted,
     this.symbol,
     this.original,
+    this.fromGET = false,       // Default to WebSocket
   });
 
   /// Check if this data point has converted values from units-preference plugin

@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:syncfusion_flutter_charts/charts.dart';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:latlong2/latlong.dart';
 import 'dart:async';
 import 'dart:math' as math;
 import '../services/signalk_service.dart';
@@ -40,6 +42,7 @@ class _AISPolarChartState extends State<AISPolarChart>
   // Own position
   double? _ownLat;
   double? _ownLon;
+  DateTime? _lastPositionUpdate;
 
   // Range control
   bool _autoRange = true;
@@ -52,15 +55,43 @@ class _AISPolarChartState extends State<AISPolarChart>
   @override
   bool get wantKeepAlive => true;
 
+  bool _hasSubscribed = false;
+  bool _hasLoadedAIS = false;
+  bool _showMapView = false; // Toggle between polar chart and map view
+
   @override
   void initState() {
     super.initState();
     // Listen for SignalK service updates (fires on every WebSocket update)
     widget.signalKService.addListener(_onServiceUpdate);
+
+    // Subscribe to own vessel position - check if connected first
+    _subscribeIfConnected();
+
     // Load existing vessels from REST, then subscribe for real-time updates
-    widget.signalKService.loadAndSubscribeAISVessels();
+    // Only call once per widget instance
+    if (!_hasLoadedAIS) {
+      _hasLoadedAIS = true;
+      widget.signalKService.loadAndSubscribeAISVessels();
+    }
+
     // Fetch immediately on init
     _updateVesselData();
+  }
+
+  void _subscribeIfConnected() {
+    if (!_hasSubscribed && widget.signalKService.isConnected) {
+      widget.signalKService.subscribeToAutopilotPaths([widget.positionPath]);
+      _hasSubscribed = true;
+    }
+  }
+
+  void _onServiceUpdate() {
+    if (mounted) {
+      // Try to subscribe if we haven't yet (in case connection happened after init)
+      _subscribeIfConnected();
+      _updateVesselData();
+    }
   }
 
   @override
@@ -68,12 +99,6 @@ class _AISPolarChartState extends State<AISPolarChart>
     widget.signalKService.removeListener(_onServiceUpdate);
     _highlightTimer?.cancel();
     super.dispose();
-  }
-
-  void _onServiceUpdate() {
-    if (mounted) {
-      _updateVesselData();
-    }
   }
 
   void _highlightVessel(String mmsi) {
@@ -107,6 +132,7 @@ class _AISPolarChartState extends State<AISPolarChart>
         if (lat is num && lon is num) {
           _ownLat = lat.toDouble();
           _ownLon = lon.toDouble();
+          _lastPositionUpdate = positionData.timestamp;
 
           _vessels.clear();
           _fetchNearbyVessels();
@@ -138,6 +164,12 @@ class _AISPolarChartState extends State<AISPolarChart>
         final bearing = _calculateBearing(_ownLat!, _ownLon!, lat, lon);
         final distance = _calculateDistance(_ownLat!, _ownLon!, lat, lon);
 
+        // Check if vessel data is recent (< 3 minutes old)
+        final timestamp = vesselData['timestamp'] as DateTime?;
+        final fromGET = vesselData['fromGET'] as bool? ?? true;
+        final isLive = timestamp != null &&
+                       DateTime.now().difference(timestamp).inMinutes < 3;
+
         newVessels.add(_VesselPoint(
           name: name,
           mmsi: vesselId,
@@ -145,6 +177,8 @@ class _AISPolarChartState extends State<AISPolarChart>
           distance: distance,
           cog: cog,
           sog: sog,
+          isLive: isLive,
+          timestamp: timestamp,
         ));
       }
     }
@@ -268,12 +302,14 @@ class _AISPolarChartState extends State<AISPolarChart>
             const SizedBox(height: 16),
             Expanded(
               flex: 2,
-              child: Center(
-                child: AspectRatio(
-                  aspectRatio: 1.0,
-                  child: _buildRadarChart(vesselColor, isDark),
-                ),
-              ),
+              child: _showMapView
+                  ? _buildMapView(vesselColor, isDark)
+                  : Center(
+                      child: AspectRatio(
+                        aspectRatio: 1.0,
+                        child: _buildRadarChart(vesselColor, isDark),
+                      ),
+                    ),
             ),
             const SizedBox(height: 16),
             Expanded(
@@ -290,18 +326,35 @@ class _AISPolarChartState extends State<AISPolarChart>
     return Row(
       children: [
         Expanded(
-          child: Text(
-            widget.title,
-            style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                  fontWeight: FontWeight.bold,
-                ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                widget.title,
+                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+              ),
+              Text(
+                '${_vessels.length} vessels',
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: Colors.grey,
+                    ),
+              ),
+            ],
           ),
         ),
-        Text(
-          '${_vessels.length} vessels',
-          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: Colors.grey,
-              ),
+        // Map/Polar toggle
+        IconButton(
+          icon: Icon(_showMapView ? Icons.radar : Icons.map, size: 20),
+          onPressed: () {
+            setState(() {
+              _showMapView = !_showMapView;
+            });
+          },
+          tooltip: _showMapView ? 'Show Polar Chart' : 'Show Map',
+          padding: EdgeInsets.zero,
+          constraints: const BoxConstraints(),
         ),
         const SizedBox(width: 16),
         // Zoom out button
@@ -488,6 +541,121 @@ class _AISPolarChartState extends State<AISPolarChart>
     return series;
   }
 
+  /// Build map view with OpenStreetMap + OpenSeaMap overlay
+  Widget _buildMapView(Color vesselColor, bool isDark) {
+    if (_ownLat == null || _ownLon == null) {
+      return const Center(child: Text('Waiting for position...'));
+    }
+
+    // Calculate bounds to fit all vessels
+    double minLat = _ownLat!;
+    double maxLat = _ownLat!;
+    double minLon = _ownLon!;
+    double maxLon = _ownLon!;
+
+    for (final vessel in _vessels) {
+      final vesselData = widget.signalKService.getLiveAISVessels()[vessel.mmsi];
+      if (vesselData != null) {
+        final lat = vesselData['latitude'] as double?;
+        final lon = vesselData['longitude'] as double?;
+        if (lat != null && lon != null) {
+          minLat = math.min(minLat, lat);
+          maxLat = math.max(maxLat, lat);
+          minLon = math.min(minLon, lon);
+          maxLon = math.max(maxLon, lon);
+        }
+      }
+    }
+
+    // Add padding to bounds
+    final latPadding = (maxLat - minLat) * 0.1;
+    final lonPadding = (maxLon - minLon) * 0.1;
+
+    return FlutterMap(
+      options: MapOptions(
+        initialCenter: LatLng(_ownLat!, _ownLon!),
+        initialZoom: 12,
+        minZoom: 5,
+        maxZoom: 18,
+        initialCameraFit: CameraFit.bounds(
+          bounds: LatLngBounds(
+            LatLng(minLat - latPadding, minLon - lonPadding),
+            LatLng(maxLat + latPadding, maxLon + lonPadding),
+          ),
+          padding: const EdgeInsets.all(50),
+        ),
+      ),
+      children: [
+        // OpenStreetMap base layer
+        TileLayer(
+          urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+          userAgentPackageName: 'com.zennora.signalk',
+        ),
+        // OpenSeaMap overlay
+        TileLayer(
+          urlTemplate: 'https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png',
+          userAgentPackageName: 'com.zennora.signalk',
+        ),
+        // Vessel markers
+        MarkerLayer(
+          markers: [
+            // Own vessel (green)
+            Marker(
+              point: LatLng(_ownLat!, _ownLon!),
+              width: 12,
+              height: 12,
+              child: const Icon(
+                Icons.circle,
+                color: Colors.green,
+                size: 12,
+              ),
+            ),
+            // Other vessels
+            ..._vessels.map((vessel) {
+              final vesselData = widget.signalKService.getLiveAISVessels()[vessel.mmsi];
+              if (vesselData == null) return null;
+
+              final lat = vesselData['latitude'] as double?;
+              final lon = vesselData['longitude'] as double?;
+              if (lat == null || lon == null) return null;
+
+              // Get COG for rotation (in degrees)
+              final cog = vessel.cog ?? 0.0;
+              final isLive = vessel.isLive;
+
+              return Marker(
+                point: LatLng(lat, lon),
+                width: 20,
+                height: 20,
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    // Rotated navigation arrow
+                    Transform.rotate(
+                      angle: cog * math.pi / 180, // Convert degrees to radians
+                      child: const Icon(
+                        Icons.navigation,
+                        color: Colors.red,
+                        size: 16,
+                      ),
+                    ),
+                    // X overlay for non-live vessels
+                    if (!isLive)
+                      const Icon(
+                        Icons.close,
+                        color: Colors.white,
+                        size: 12,
+                      ),
+                  ],
+                ),
+              );
+            }).whereType<Marker>(),
+          ],
+        ),
+      ],
+    );
+  }
+
   /// Build compass label annotations
   List<CartesianChartAnnotation> _buildCompassAnnotations(double maxRange, bool isDark) {
     // 16 compass directions
@@ -589,9 +757,35 @@ class _AISPolarChartState extends State<AISPolarChart>
     final sortedVessels = List<_VesselPoint>.from(_vessels)
       ..sort((a, b) => a.distance.compareTo(b.distance));
 
-    return ListView.builder(
-      itemCount: sortedVessels.length,
-      itemBuilder: (context, index) {
+    // Calculate time since last update
+    String lastUpdateText = 'No data';
+    if (_lastPositionUpdate != null) {
+      final elapsed = DateTime.now().difference(_lastPositionUpdate!);
+      if (elapsed.inSeconds < 60) {
+        lastUpdateText = '${elapsed.inSeconds}s ago';
+      } else if (elapsed.inMinutes < 60) {
+        lastUpdateText = '${elapsed.inMinutes}m ago';
+      } else {
+        lastUpdateText = '${elapsed.inHours}h ago';
+      }
+    }
+
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(bottom: 8.0),
+          child: Text(
+            'Last update: $lastUpdateText',
+            style: TextStyle(
+              fontSize: 11,
+              color: isDark ? Colors.white70 : Colors.black54,
+            ),
+          ),
+        ),
+        Expanded(
+          child: ListView.builder(
+            itemCount: sortedVessels.length,
+            itemBuilder: (context, index) {
         final vessel = sortedVessels[index];
         final cpa = _calculateCPA(vessel);
 
@@ -603,11 +797,29 @@ class _AISPolarChartState extends State<AISPolarChart>
             color: Colors.grey,
             size: 20,
           ),
-          title: Text(
-            vessel.name ?? _extractMMSI(vessel.mmsi),
-            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
+          title: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  vessel.name ?? _extractMMSI(vessel.mmsi),
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w500,
+                    color: vessel.isLive ? Colors.green : Colors.orange,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              if (vessel.timestamp != null)
+                Text(
+                  _formatTimeSince(vessel.timestamp!),
+                  style: TextStyle(
+                    fontSize: 10,
+                    color: Colors.grey,
+                  ),
+                ),
+            ],
           ),
           subtitle: Row(
             children: [
@@ -648,6 +860,9 @@ class _AISPolarChartState extends State<AISPolarChart>
               : null,
         );
       },
+          ),
+        ),
+      ],
     );
   }
 
@@ -659,6 +874,18 @@ class _AISPolarChartState extends State<AISPolarChart>
       return parts.last; // Return the last part (the MMSI number)
     }
     return vesselId; // Return as-is if not in URN format
+  }
+
+  /// Format time since last update
+  String _formatTimeSince(DateTime timestamp) {
+    final elapsed = DateTime.now().difference(timestamp);
+    if (elapsed.inSeconds < 60) {
+      return '${elapsed.inSeconds}s';
+    } else if (elapsed.inMinutes < 60) {
+      return '${elapsed.inMinutes}m';
+    } else {
+      return '${elapsed.inHours}h';
+    }
   }
 
   /// Calculate Closest Point of Approach (simplified)
@@ -681,6 +908,8 @@ class _VesselPoint {
   final double distance; // Nautical miles
   final double? cog; // Course over ground in degrees
   final double? sog; // Speed over ground in knots
+  final bool isLive; // True if from WebSocket, false if from initial REST
+  final DateTime? timestamp; // Last update time
 
   _VesselPoint({
     this.name,
@@ -689,6 +918,8 @@ class _VesselPoint {
     required this.distance,
     this.cog,
     this.sog,
+    this.isLive = false,
+    this.timestamp,
   });
 }
 
