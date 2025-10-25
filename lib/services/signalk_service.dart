@@ -192,7 +192,8 @@ class SignalKService extends ChangeNotifier implements DataService {
     return headers;
   }
 
-  /// Discover WebSocket endpoint for DATA (always units-preference when authenticated)
+  /// Discover WebSocket endpoint - ALWAYS use standard SignalK stream
+  /// Client-side conversions are applied using formulas from /signalk/v1/conversions
   Future<String> _discoverWebSocketEndpoint() async {
     final wsProtocol = _useSecureConnection ? 'wss' : 'ws';
 
@@ -202,19 +203,12 @@ class SignalKService extends ChangeNotifier implements DataService {
       print('Server URL: $_serverUrl (secure: $_useSecureConnection)');
     }
 
-    // Use units-preference endpoint if authenticated (for unit conversions)
-    if (_authToken != null) {
-      final endpoint = '$wsProtocol://$_serverUrl/plugins/signalk-units-preference/stream';
-      if (kDebugMode) {
-        print('Using units-preference endpoint (authenticated): $endpoint');
-      }
-      return endpoint;
-    }
-
-    // Fallback to standard SignalK stream
-    final endpoint = '$wsProtocol://$_serverUrl/signalk/v1/stream?subscribe=self';
+    // ALWAYS use standard SignalK stream (no units-preference plugin)
+    // Conversions are applied client-side using formulas from /signalk/v1/conversions
+    final endpoint = '$wsProtocol://$_serverUrl/signalk/v1/stream';
     if (kDebugMode) {
-      print('Using standard endpoint (no auth): $endpoint');
+      print('Using standard SignalK stream: $endpoint');
+      print('Client-side conversions enabled via /signalk/v1/conversions');
     }
     return endpoint;
   }

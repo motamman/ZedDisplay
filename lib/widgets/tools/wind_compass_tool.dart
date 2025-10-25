@@ -3,6 +3,7 @@ import '../../models/tool_definition.dart';
 import '../../models/tool_config.dart';
 import '../../services/signalk_service.dart';
 import '../../services/tool_registry.dart';
+import '../../utils/conversion_utils.dart';
 import '../wind_compass.dart';
 
 /// Config-driven wind compass tool showing heading and wind direction
@@ -30,46 +31,41 @@ class WindCompassTool extends StatelessWidget {
     // 8: navigation.courseGreatCircle.nextPoint.bearingTrue (optional) - waypoint bearing in RADIANS
     // 9: navigation.courseGreatCircle.nextPoint.distance (optional) - waypoint distance in meters
 
-    // Get heading true (optional) - use original radians value for rotation
+    // Get heading true (optional) - need raw radians for rotation, converted for display
     double? headingTrueRadians;
     double? headingTrueDegrees;
     if (config.dataSources.isNotEmpty) {
-      final dataPoint = signalKService.getValue(config.dataSources[0].path);
-      headingTrueRadians = dataPoint?.original is num ? (dataPoint!.original as num).toDouble() : null;
-      headingTrueDegrees = signalKService.getConvertedValue(config.dataSources[0].path);
+      headingTrueRadians = ConversionUtils.getRawValue(signalKService, config.dataSources[0].path);
+      headingTrueDegrees = ConversionUtils.getConvertedValue(signalKService, config.dataSources[0].path);
     }
 
-    // Get heading magnetic (optional) - use original radians value for rotation
+    // Get heading magnetic (optional) - need raw radians for rotation, converted for display
     double? headingMagneticRadians;
     double? headingMagneticDegrees;
     if (config.dataSources.length > 1) {
-      final dataPoint = signalKService.getValue(config.dataSources[1].path);
-      headingMagneticRadians = dataPoint?.original is num ? (dataPoint!.original as num).toDouble() : null;
-      headingMagneticDegrees = signalKService.getConvertedValue(config.dataSources[1].path);
+      headingMagneticRadians = ConversionUtils.getRawValue(signalKService, config.dataSources[1].path);
+      headingMagneticDegrees = ConversionUtils.getConvertedValue(signalKService, config.dataSources[1].path);
     }
 
-    // Get wind direction true (optional) - use original radians value
+    // Get wind direction true (optional) - need raw radians for rotation, converted for display
     double? windDirectionTrueRadians;
     double? windDirectionTrueDegrees;
     if (config.dataSources.length > 2) {
-      final dataPoint = signalKService.getValue(config.dataSources[2].path);
-      windDirectionTrueRadians = dataPoint?.original is num ? (dataPoint!.original as num).toDouble() : null;
-      windDirectionTrueDegrees = signalKService.getConvertedValue(config.dataSources[2].path);
+      windDirectionTrueRadians = ConversionUtils.getRawValue(signalKService, config.dataSources[2].path);
+      windDirectionTrueDegrees = ConversionUtils.getConvertedValue(signalKService, config.dataSources[2].path);
     }
 
-    // Get wind angle apparent (relative to boat) - keep raw value AND convert to absolute direction
+    // Get wind angle apparent (relative to boat) - need raw for calculations
     double? windDirectionApparentRadians;
     double? windDirectionApparentDegrees;
-    double? windAngleApparent; // Raw AWA value (not converted to absolute)
+    double? windAngleApparent;
     if (config.dataSources.length > 3) {
-      final dataPoint = signalKService.getValue(config.dataSources[3].path);
-      final angleApparentRadians = dataPoint?.original is num ? (dataPoint!.original as num).toDouble() : null;
-      final angleApparentDegrees = signalKService.getConvertedValue(config.dataSources[3].path);
+      final angleApparentRadians = ConversionUtils.getRawValue(signalKService, config.dataSources[3].path);
+      final angleApparentDegrees = ConversionUtils.getConvertedValue(signalKService, config.dataSources[3].path);
 
-      // Store raw AWA value (degrees)
       windAngleApparent = angleApparentDegrees;
 
-      // Convert relative angle to absolute direction by adding to heading
+      // Convert relative angle to absolute direction
       if (angleApparentRadians != null && (headingTrueRadians != null || headingMagneticRadians != null)) {
         final heading = headingMagneticRadians ?? headingTrueRadians!;
         windDirectionApparentRadians = heading + angleApparentRadians;
@@ -80,46 +76,55 @@ class WindCompassTool extends StatelessWidget {
       }
     }
 
-    // Get wind speed true (optional)
+    // Get wind speed true (optional) - always use converted
     double? windSpeedTrue;
     String? windSpeedTrueFormatted;
     if (config.dataSources.length > 4) {
-      windSpeedTrue = signalKService.getConvertedValue(config.dataSources[4].path);
-      windSpeedTrueFormatted = signalKService.getValue(config.dataSources[4].path)?.formatted;
+      windSpeedTrue = ConversionUtils.getConvertedValue(signalKService, config.dataSources[4].path);
+      final rawSpeed = ConversionUtils.getRawValue(signalKService, config.dataSources[4].path);
+      if (rawSpeed != null) {
+        windSpeedTrueFormatted = ConversionUtils.formatValue(signalKService, config.dataSources[4].path, rawSpeed);
+      }
     }
 
-    // Get wind speed apparent (optional)
+    // Get wind speed apparent (optional) - always use converted
     double? windSpeedApparent;
     String? windSpeedApparentFormatted;
     if (config.dataSources.length > 5) {
-      windSpeedApparent = signalKService.getConvertedValue(config.dataSources[5].path);
-      windSpeedApparentFormatted = signalKService.getValue(config.dataSources[5].path)?.formatted;
+      windSpeedApparent = ConversionUtils.getConvertedValue(signalKService, config.dataSources[5].path);
+      final rawSpeed = ConversionUtils.getRawValue(signalKService, config.dataSources[5].path);
+      if (rawSpeed != null) {
+        windSpeedApparentFormatted = ConversionUtils.formatValue(signalKService, config.dataSources[5].path, rawSpeed);
+      }
     }
 
-    // Get speed over ground (optional)
+    // Get speed over ground (optional) - always use converted
     double? speedOverGround;
     String? sogFormatted;
     if (config.dataSources.length > 6) {
-      speedOverGround = signalKService.getConvertedValue(config.dataSources[6].path);
-      sogFormatted = signalKService.getValue(config.dataSources[6].path)?.formatted;
+      speedOverGround = ConversionUtils.getConvertedValue(signalKService, config.dataSources[6].path);
+      final rawSpeed = ConversionUtils.getRawValue(signalKService, config.dataSources[6].path);
+      if (rawSpeed != null) {
+        sogFormatted = ConversionUtils.formatValue(signalKService, config.dataSources[6].path, rawSpeed);
+      }
     }
 
-    // Get course over ground (optional)
+    // Get course over ground (optional) - always use converted
     double? cogDegrees;
     if (config.dataSources.length > 7) {
-      cogDegrees = signalKService.getConvertedValue(config.dataSources[7].path);
+      cogDegrees = ConversionUtils.getConvertedValue(signalKService, config.dataSources[7].path);
     }
 
-    // Get waypoint bearing (optional)
+    // Get waypoint bearing (optional) - always use converted
     double? waypointBearing;
     if (config.dataSources.length > 8) {
-      waypointBearing = signalKService.getConvertedValue(config.dataSources[8].path);
+      waypointBearing = ConversionUtils.getConvertedValue(signalKService, config.dataSources[8].path);
     }
 
-    // Get waypoint distance (optional)
+    // Get waypoint distance (optional) - always use converted
     double? waypointDistance;
     if (config.dataSources.length > 9) {
-      waypointDistance = signalKService.getConvertedValue(config.dataSources[9].path);
+      waypointDistance = ConversionUtils.getConvertedValue(signalKService, config.dataSources[9].path);
     }
 
     // Get style configuration
