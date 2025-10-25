@@ -74,6 +74,9 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
   // Slider-specific configuration
   int _sliderDecimalPlaces = 1;
 
+  // Dropdown-specific configuration
+  double _dropdownStepSize = 10.0;
+
   // Wind compass-specific configuration
   double _laylineAngle = 40.0;       // Target AWA angle in degrees
   double _targetTolerance = 3.0;     // Acceptable deviation from target in degrees
@@ -134,6 +137,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
     _aisMaxRangeNm = 5.0;
     _aisUpdateInterval = 10;
     _sliderDecimalPlaces = 1;
+    _dropdownStepSize = 10.0;
     _laylineAngle = 40.0;
     _targetTolerance = 3.0;
     _showAWANumbers = true;
@@ -369,6 +373,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
       final updateIntervalMs = style.customProperties!['updateInterval'] as int? ?? 10000;
       _aisUpdateInterval = (updateIntervalMs / 1000).round();
       _sliderDecimalPlaces = style.customProperties!['decimalPlaces'] as int? ?? 1;
+      _dropdownStepSize = (style.customProperties!['stepSize'] as num?)?.toDouble() ?? 10.0;
       // Wind compass settings
       _showAWANumbers = style.customProperties!['showAWANumbers'] as bool? ?? true;
       _enableVMG = style.customProperties!['enableVMG'] as bool? ?? false;
@@ -600,6 +605,11 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
     } else if (_selectedToolTypeId == 'slider' || _selectedToolTypeId == 'knob') {
       customProperties = {
         'decimalPlaces': _sliderDecimalPlaces,
+      };
+    } else if (_selectedToolTypeId == 'dropdown') {
+      customProperties = {
+        'decimalPlaces': _sliderDecimalPlaces,
+        'stepSize': _dropdownStepSize,
       };
     } else if (_selectedToolTypeId == 'wind_compass') {
       customProperties = {
@@ -878,7 +888,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
             ),
             const SizedBox(height: 16),
 
-            // Size Configuration (hide for gauges and specialized tools - use pixel positioning)
+            // Size Configuration (hide for gauges, controls, and specialized tools - use pixel positioning)
             if (_selectedToolTypeId != null &&
                 _selectedToolTypeId != 'autopilot' &&
                 _selectedToolTypeId != 'wind_compass' &&
@@ -886,7 +896,12 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                 _selectedToolTypeId != 'linear_gauge' &&
                 _selectedToolTypeId != 'compass' &&
                 _selectedToolTypeId != 'text_display' &&
-                _selectedToolTypeId != 'conversion_test')
+                _selectedToolTypeId != 'conversion_test' &&
+                _selectedToolTypeId != 'slider' &&
+                _selectedToolTypeId != 'knob' &&
+                _selectedToolTypeId != 'switch' &&
+                _selectedToolTypeId != 'checkbox' &&
+                _selectedToolTypeId != 'dropdown')
               Card(
                 child: Padding(
                   padding: const EdgeInsets.all(16),
@@ -1254,6 +1269,11 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                             } else if (_selectedToolTypeId == 'slider' || _selectedToolTypeId == 'knob') {
                               previewCustomProperties = {
                                 'decimalPlaces': _sliderDecimalPlaces,
+                              };
+                            } else if (_selectedToolTypeId == 'dropdown') {
+                              previewCustomProperties = {
+                                'decimalPlaces': _sliderDecimalPlaces,
+                                'stepSize': _dropdownStepSize,
                               };
                             } else if (_selectedToolTypeId == 'wind_compass') {
                               previewCustomProperties = {
@@ -1895,6 +1915,48 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
           onChanged: (value) {
             if (value != null) {
               setState(() => _sliderDecimalPlaces = value);
+            }
+          },
+        ),
+      ]);
+    }
+
+    // Dropdown-specific options
+    if (_selectedToolTypeId == 'dropdown') {
+      widgets.addAll([
+        const SizedBox(height: 16),
+        DropdownButtonFormField<int>(
+          decoration: const InputDecoration(
+            labelText: 'Decimal Places',
+            border: OutlineInputBorder(),
+            helperText: 'Number of decimal places to display',
+          ),
+          initialValue: _sliderDecimalPlaces,
+          items: const [
+            DropdownMenuItem(value: 0, child: Text('0 (e.g., 42)')),
+            DropdownMenuItem(value: 1, child: Text('1 (e.g., 42.5)')),
+            DropdownMenuItem(value: 2, child: Text('2 (e.g., 42.50)')),
+            DropdownMenuItem(value: 3, child: Text('3 (e.g., 42.500)')),
+          ],
+          onChanged: (value) {
+            if (value != null) {
+              setState(() => _sliderDecimalPlaces = value);
+            }
+          },
+        ),
+        const SizedBox(height: 16),
+        TextFormField(
+          decoration: const InputDecoration(
+            labelText: 'Step Size',
+            border: OutlineInputBorder(),
+            helperText: 'Increment between dropdown values',
+          ),
+          keyboardType: TextInputType.number,
+          initialValue: _dropdownStepSize.toString(),
+          onChanged: (value) {
+            final parsed = double.tryParse(value);
+            if (parsed != null && parsed > 0) {
+              setState(() => _dropdownStepSize = parsed);
             }
           },
         ),
