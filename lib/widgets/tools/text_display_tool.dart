@@ -5,6 +5,7 @@ import '../../services/signalk_service.dart';
 import '../../services/tool_registry.dart';
 import '../../utils/string_extensions.dart';
 import '../../utils/color_extensions.dart';
+import '../../utils/conversion_utils.dart';
 import '../../config/ui_constants.dart';
 
 /// Config-driven text display for large numeric values
@@ -26,26 +27,38 @@ class TextDisplayTool extends StatelessWidget {
     }
 
     final dataSource = config.dataSources.first;
-    final dataPoint = signalKService.getValue(dataSource.path, source: dataSource.source);
 
     // Get label from data source or derive from path
     final label = dataSource.label ?? dataSource.path.toReadableLabel();
 
-    // Use formatted string from plugin if available, otherwise format manually
-    String displayValue;
-    String displayUnit;
+    // Use client-side conversions
+    final rawValue = ConversionUtils.getRawValue(signalKService, dataSource.path);
+    final convertedValue = ConversionUtils.getConvertedValue(signalKService, dataSource.path);
 
-    if (dataPoint?.formatted != null) {
-      // Plugin provides pre-formatted value like "12.6 kn"
-      displayValue = dataPoint!.formatted!;
-      displayUnit = ''; // Unit is already in formatted string
+    // Format the display value
+    String displayValue;
+    String displayUnit = '';
+
+    if (rawValue != null && convertedValue != null) {
+      // Get formatted value with unit
+      final formatted = ConversionUtils.formatValue(
+        signalKService,
+        dataSource.path,
+        rawValue,
+        decimalPlaces: 1,
+      );
+      displayValue = formatted;
+      // Unit is already in formatted string, so leave displayUnit empty
     } else {
-      // Fallback: format manually
-      final numValue = dataPoint?.converted ?? (dataPoint?.value is num ? (dataPoint!.value as num).toDouble() : 0.0);
-      displayValue = numValue.toStringAsFixed(1);
-      displayUnit = config.style.unit ??
-                    signalKService.getUnitSymbol(dataSource.path) ??
-                    '';
+      // No data available
+      displayValue = '--';
+
+      // Get unit symbol from conversion info or style override
+      final availableUnits = signalKService.getAvailableUnits(dataSource.path);
+      final conversionInfo = availableUnits.isNotEmpty
+          ? signalKService.getConversionInfo(dataSource.path, availableUnits.first)
+          : null;
+      displayUnit = config.style.unit ?? conversionInfo?.symbol ?? '';
     }
 
     // Parse color from hex string
