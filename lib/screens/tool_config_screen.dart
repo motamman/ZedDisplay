@@ -150,14 +150,31 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
     final signalKService = Provider.of<SignalKService>(context, listen: false);
     final vesselId = signalKService.serverUrl;
 
-    final defaultConfig = registry.getDefaultConfig(toolTypeId, vesselId);
-    if (defaultConfig != null && defaultConfig.dataSources.isNotEmpty) {
-      _dataSources = List.from(defaultConfig.dataSources);
+    // Special handling for conversion_test - add default paths
+    if (toolTypeId == 'conversion_test') {
+      _dataSources = [
+        DataSource(path: 'navigation.position'),
+        DataSource(path: 'navigation.headingTrue'),
+        DataSource(path: 'navigation.headingMagnetic'),
+        DataSource(path: 'environment.wind.directionTrue'),
+        DataSource(path: 'environment.wind.angleApparent'),
+        DataSource(path: 'environment.wind.speedTrue'),
+        DataSource(path: 'environment.wind.speedApparent'),
+        DataSource(path: 'navigation.speedOverGround'),
+        DataSource(path: 'navigation.courseOverGroundTrue'),
+        DataSource(path: 'navigation.courseGreatCircle.nextPoint.bearingTrue'),
+        DataSource(path: 'navigation.courseGreatCircle.nextPoint.distance'),
+      ];
+    } else {
+      final defaultConfig = registry.getDefaultConfig(toolTypeId, vesselId);
+      if (defaultConfig != null && defaultConfig.dataSources.isNotEmpty) {
+        _dataSources = List.from(defaultConfig.dataSources);
 
-      // Also load default style if available
-      final style = defaultConfig.style;
-      if (style.primaryColor != null) {
-        _primaryColor = style.primaryColor;
+        // Also load default style if available
+        final style = defaultConfig.style;
+        if (style.primaryColor != null) {
+          _primaryColor = style.primaryColor;
+        }
       }
     }
 
@@ -169,6 +186,10 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
       case 'wind_compass':
         _toolWidth = 6;
         _toolHeight = 6;
+        break;
+      case 'conversion_test':
+        _toolWidth = 4;
+        _toolHeight = 8;
         break;
       default:
         // Keep current defaults for other tool types
@@ -857,8 +878,15 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
             ),
             const SizedBox(height: 16),
 
-            // Size Configuration (hide for autopilot and wind_compass - use pixel positioning)
-            if (_selectedToolTypeId != null && _selectedToolTypeId != 'autopilot' && _selectedToolTypeId != 'wind_compass')
+            // Size Configuration (hide for gauges and specialized tools - use pixel positioning)
+            if (_selectedToolTypeId != null &&
+                _selectedToolTypeId != 'autopilot' &&
+                _selectedToolTypeId != 'wind_compass' &&
+                _selectedToolTypeId != 'radial_gauge' &&
+                _selectedToolTypeId != 'linear_gauge' &&
+                _selectedToolTypeId != 'compass' &&
+                _selectedToolTypeId != 'text_display' &&
+                _selectedToolTypeId != 'conversion_test')
               Card(
                 child: Padding(
                   padding: const EdgeInsets.all(16),
@@ -1149,8 +1177,8 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
               ),
             const SizedBox(height: 16),
 
-            // Style Configuration
-            if (_selectedToolTypeId != null)
+            // Style Configuration (hide for conversion_test - it only needs paths)
+            if (_selectedToolTypeId != null && _selectedToolTypeId != 'conversion_test')
               Card(
                 child: Padding(
                   padding: const EdgeInsets.all(16),
@@ -1820,6 +1848,28 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
           value: _pointerOnly,
           onChanged: (value) {
             setState(() => _pointerOnly = value);
+          },
+        ),
+      ]);
+    }
+
+    // Text Display-specific options
+    if (_selectedToolTypeId == 'text_display') {
+      widgets.addAll([
+        const SizedBox(height: 16),
+        TextFormField(
+          decoration: const InputDecoration(
+            labelText: 'Font Size',
+            border: OutlineInputBorder(),
+            helperText: 'Size of the numeric display (default: 48)',
+          ),
+          keyboardType: TextInputType.number,
+          initialValue: _fontSize?.toString() ?? '48',
+          onChanged: (value) {
+            final parsed = double.tryParse(value);
+            if (parsed != null && parsed > 0) {
+              setState(() => _fontSize = parsed);
+            }
           },
         ),
       ]);

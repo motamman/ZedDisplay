@@ -22,8 +22,8 @@ class ConversionTestTool extends StatefulWidget {
 }
 
 class _ConversionTestToolState extends State<ConversionTestTool> {
-  // Paths to test (hardcoded for this test tool)
-  static const List<String> testPaths = [
+  /// Default paths for new conversion test tools
+  static const List<String> defaultPaths = [
     'navigation.position',
     'navigation.headingTrue',
     'navigation.headingMagnetic',
@@ -67,7 +67,10 @@ class _ConversionTestToolState extends State<ConversionTestTool> {
     // Subscribe to paths using STANDARD SignalK WebSocket ONLY
     // Path: ws://[server]/signalk/v1/stream
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      widget.signalKService.subscribeToAutopilotPaths(testPaths);
+      final paths = widget.config.dataSources.map((ds) => ds.path).toList();
+      if (paths.isNotEmpty) {
+        widget.signalKService.subscribeToAutopilotPaths(paths);
+      }
     });
   }
 
@@ -82,10 +85,19 @@ class _ConversionTestToolState extends State<ConversionTestTool> {
       );
     }
 
+    if (widget.config.dataSources.isEmpty) {
+      return const Center(
+        child: Text(
+          'No paths configured',
+          style: TextStyle(fontSize: 12),
+        ),
+      );
+    }
+
     return ListView.builder(
-      itemCount: testPaths.length,
+      itemCount: widget.config.dataSources.length,
       itemBuilder: (context, index) {
-        final path = testPaths[index];
+        final path = widget.config.dataSources[index].path;
         final dataPoint = widget.signalKService.getValue(path);
         final baseUnit = widget.signalKService.getBaseUnit(path);
         final availableUnits = widget.signalKService.getAvailableUnits(path);
@@ -185,9 +197,9 @@ class ConversionTestToolBuilder extends ToolBuilder {
       configSchema: ConfigSchema(
         allowsMinMax: false,
         allowsColorCustomization: false,
-        allowsMultiplePaths: false,
-        minPaths: 0,
-        maxPaths: 0,
+        allowsMultiplePaths: true,
+        minPaths: 1,
+        maxPaths: 20,
         styleOptions: const [],
       ),
     );
