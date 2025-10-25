@@ -17,6 +17,10 @@ class SignalKService extends ChangeNotifier implements DataService {
   WebSocketChannel? _channel;
   StreamSubscription? _subscription;
 
+  // Autopilot WebSocket (standard endpoint for autopilot data)
+  WebSocketChannel? _autopilotChannel;
+  StreamSubscription? _autopilotSubscription;
+
   // Separate notification WebSocket (standard endpoint)
   WebSocketChannel? _notificationChannel;
   StreamSubscription? _notificationSubscription;
@@ -34,6 +38,7 @@ class SignalKService extends ChangeNotifier implements DataService {
 
   // Active subscriptions - only paths currently needed by UI
   final Set<String> _activePaths = {};
+  final Set<String> _autopilotPaths = {}; // Separate tracking for autopilot paths
   String? _vesselContext;
 
   // Notifications
@@ -213,6 +218,71 @@ class SignalKService extends ChangeNotifier implements DataService {
     return '$wsProtocol://$_serverUrl/signalk/v1/stream?subscribe=none';
   }
 
+  /// Get autopilot WebSocket endpoint (always standard SignalK stream)
+  String _getAutopilotEndpoint() {
+    final wsProtocol = _useSecureConnection ? 'wss' : 'ws';
+    return '$wsProtocol://$_serverUrl/signalk/v1/stream';
+  }
+
+  /// Connect autopilot channel to standard SignalK stream
+  Future<void> _connectAutopilotChannel() async {
+    if (_autopilotChannel != null) {
+      if (kDebugMode) {
+        print('Autopilot channel already connected');
+      }
+      return;
+    }
+
+    try {
+      final wsUrl = _getAutopilotEndpoint();
+
+      if (kDebugMode) {
+        print('Connecting autopilot channel to standard stream: $wsUrl');
+      }
+
+      if (_authToken != null) {
+        final headers = <String, String>{
+          'Authorization': 'Bearer ${_authToken!.token}',
+        };
+        final socket = await WebSocket.connect(wsUrl, headers: headers);
+        socket.pingInterval = const Duration(seconds: 30);
+        _autopilotChannel = IOWebSocketChannel(socket);
+      } else {
+        _autopilotChannel = WebSocketChannel.connect(Uri.parse(wsUrl));
+      }
+
+      // Listen to autopilot messages (same handler as main channel for data)
+      _autopilotSubscription = _autopilotChannel!.stream.listen(
+        _handleMessage,
+        onError: (error) {
+          if (kDebugMode) {
+            print('Autopilot channel error: $error');
+          }
+        },
+        onDone: () {
+          if (kDebugMode) {
+            print('Autopilot channel disconnected');
+          }
+          _autopilotChannel = null;
+          _autopilotSubscription = null;
+        },
+      );
+
+      if (kDebugMode) {
+        print('Autopilot channel connected successfully');
+      }
+
+      // Send subscription for autopilot paths if any exist
+      await _sendAutopilotSubscription();
+    } catch (e) {
+      if (kDebugMode) {
+        print('Failed to connect autopilot channel: $e');
+      }
+      _autopilotChannel = null;
+      _autopilotSubscription = null;
+    }
+  }
+
   /// Send WebSocket authentication with token
   void _sendWebSocketAuth() {
     if (_authToken == null) return;
@@ -281,6 +351,18 @@ class SignalKService extends ChangeNotifier implements DataService {
       return;
     }
 
+    // Check if paths have actually changed
+    final pathsSet = Set<String>.from(paths);
+    final currentPathsSet = Set<String>.from(_activePaths);
+
+    if (pathsSet.length == currentPathsSet.length &&
+        pathsSet.containsAll(currentPathsSet)) {
+      if (kDebugMode) {
+        print('Template paths unchanged, skipping re-subscription');
+      }
+      return;
+    }
+
     // Clear old subscriptions and set new ones
     _activePaths.clear();
     _activePaths.addAll(paths);
@@ -298,6 +380,19 @@ class SignalKService extends ChangeNotifier implements DataService {
       // Verbose logging disabled - only log errors
 
       final data = jsonDecode(message);
+
+      // Handle plain string messages (server warnings/info)
+      if (data is String) {
+        if (kDebugMode) {
+          print('Server message: $data');
+        }
+        return;
+      }
+
+      // Must be a Map to process
+      if (data is! Map<String, dynamic>) {
+        return;
+      }
 
       // if (kDebugMode) {
       //   print('Decoded message keys: ${data.keys.toList()}');
@@ -411,9 +506,11 @@ class SignalKService extends ChangeNotifier implements DataService {
 
         notifyListeners();
       }
-    } catch (e) {
+    } catch (e, stackTrace) {
       if (kDebugMode) {
         print('Error parsing message: $e');
+        print('Stack trace: $stackTrace');
+        print('Raw message: $message');
       }
     }
   }
@@ -992,16 +1089,16 @@ class SignalKService extends ChangeNotifier implements DataService {
           'context': _vesselContext,
           'subscribe': pathsToSubscribe.map((path) => {
             'path': path,
-            'period': 1000,
+            'minPeriod': 500,   // Minimum 500ms between updates
             'format': 'delta',
-            'policy': 'instant',
+            'policy': 'instant',  // Send on change, but throttled by minPeriod
           }).toList(),
         };
 
         _channel?.sink.add(jsonEncode(dataSubscription));
 
         if (kDebugMode) {
-          print('Updated data subscription: ${pathsToSubscribe.length} active paths');
+          print('Updated data subscription: ${pathsToSubscribe.length} active paths (instant + minPeriod 500ms)');
         }
       }
 
@@ -1021,6 +1118,57 @@ class SignalKService extends ChangeNotifier implements DataService {
       };
 
       _channel?.sink.add(jsonEncode(subscription));
+    }
+  }
+
+  /// Subscribe to autopilot paths (uses standard SignalK stream)
+  Future<void> subscribeToAutopilotPaths(List<String> paths) async {
+    if (!_isConnected) {
+      if (kDebugMode) {
+        print('Cannot subscribe to autopilot paths: not connected');
+      }
+      return;
+    }
+
+    final newPaths = paths.where((p) => !_autopilotPaths.contains(p)).toList();
+    if (newPaths.isEmpty) {
+      if (kDebugMode) {
+        print('All autopilot paths already subscribed');
+      }
+      return;
+    }
+
+    _autopilotPaths.addAll(newPaths);
+
+    if (kDebugMode) {
+      print('Adding ${newPaths.length} autopilot paths (total: ${_autopilotPaths.length})');
+    }
+
+    // Connect autopilot channel if not already connected
+    if (_autopilotChannel == null) {
+      await _connectAutopilotChannel();
+    } else {
+      await _sendAutopilotSubscription();
+    }
+  }
+
+  /// Send autopilot subscription to standard SignalK stream
+  Future<void> _sendAutopilotSubscription() async {
+    if (_autopilotChannel == null || _autopilotPaths.isEmpty) return;
+
+    final subscription = {
+      'context': 'vessels.self',
+      'subscribe': _autopilotPaths.map((path) => {
+        'path': path,
+        'format': 'delta',
+        'policy': 'instant',  // Use 'instant' to only send updates when data changes (no period needed)
+      }).toList(),
+    };
+
+    _autopilotChannel?.sink.add(jsonEncode(subscription));
+
+    if (kDebugMode) {
+      print('Sent autopilot subscription: ${_autopilotPaths.length} paths to standard stream (instant policy)');
     }
   }
 
@@ -1289,7 +1437,14 @@ class SignalKService extends ChangeNotifier implements DataService {
       _isConnected = false;
       _latestData.clear();
       _activePaths.clear();
+      _autopilotPaths.clear();
       _vesselContext = null;
+
+      // Disconnect autopilot channel
+      await _autopilotSubscription?.cancel();
+      _autopilotSubscription = null;
+      await _autopilotChannel?.sink.close();
+      _autopilotChannel = null;
 
       // Also disconnect notification channel if it's connected
       await _disconnectNotificationChannel();
