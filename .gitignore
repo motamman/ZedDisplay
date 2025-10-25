@@ -45,6 +45,7 @@ app.*.map.json
 /android/app/profile
 /android/app/release
 /docs/*.md
+!/docs/public/
 
 # Project planning documents
 IMPLEMENTATION_PLAN.md
