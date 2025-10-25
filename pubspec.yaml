@@ -43,6 +43,9 @@ dependencies:
   # Date/time formatting
   intl: ^0.20.2
 
+  # Math expression evaluation
+  math_expressions: ^2.6.0
+
   # Color picker
   flutter_colorpicker: ^1.1.0
 

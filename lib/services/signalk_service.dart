@@ -36,6 +36,9 @@ class SignalKService extends ChangeNotifier implements DataService {
   // Data storage - keeps latest value for each path
   final Map<String, SignalKDataPoint> _latestData = {};
 
+  // Conversion data - unit conversion formulas from server
+  final Map<String, PathConversionData> _conversionsData = {};
+
   // Active subscriptions - only paths currently needed by UI
   final Set<String> _activePaths = {};
   final Set<String> _autopilotPaths = {}; // Separate tracking for autopilot paths
@@ -59,6 +62,7 @@ class SignalKService extends ChangeNotifier implements DataService {
   bool get isConnected => _isConnected;
   String? get errorMessage => _errorMessage;
   Map<String, SignalKDataPoint> get latestData => Map.unmodifiable(_latestData);
+  Map<String, PathConversionData> get conversionsData => Map.unmodifiable(_conversionsData);
   String get serverUrl => _serverUrl;
   bool get useSecureConnection => _useSecureConnection;
   bool get notificationsEnabled => _notificationsEnabled;
@@ -158,6 +162,9 @@ class SignalKService extends ChangeNotifier implements DataService {
       // Note: units-preference plugin does NOT use WebSocket-level authentication
       // The auth token is used only for HTTP requests to the API
       // The WebSocket connection is already authenticated at the HTTP upgrade level
+
+      // Fetch conversion formulas from server
+      await fetchConversions();
 
       // Subscribe to paths immediately
       await _sendSubscription();
@@ -937,6 +944,70 @@ class SignalKService extends ChangeNotifier implements DataService {
     return null;
   }
 
+  /// Fetch conversion formulas from SignalK server
+  /// Gets base units, categories, and conversion formulas for all paths
+  Future<void> fetchConversions() async {
+    final protocol = _useSecureConnection ? 'https' : 'http';
+
+    try {
+      final response = await http.get(
+        Uri.parse('$protocol://$_serverUrl/signalk/v1/conversions'),
+        headers: _getHeaders(),
+      ).timeout(const Duration(seconds: 10));
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body) as Map<String, dynamic>;
+
+        _conversionsData.clear();
+        data.forEach((path, conversionJson) {
+          if (conversionJson is Map<String, dynamic>) {
+            _conversionsData[path] = PathConversionData.fromJson(conversionJson);
+          }
+        });
+
+        if (kDebugMode) {
+          print('Fetched ${_conversionsData.length} path conversions from server');
+        }
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error fetching conversions: $e');
+      }
+    }
+  }
+
+  /// Get conversion data for a specific path
+  /// Returns null if no conversion data available for this path
+  PathConversionData? getConversionDataForPath(String path) {
+    return _conversionsData[path];
+  }
+
+  /// Get base unit for a specific path
+  /// Returns null if no conversion data or no base unit
+  String? getBaseUnit(String path) {
+    return _conversionsData[path]?.baseUnit;
+  }
+
+  /// Get available target units for a specific path
+  /// Returns empty list if no conversions available
+  List<String> getAvailableUnits(String path) {
+    final conversionData = _conversionsData[path];
+    if (conversionData == null) return [];
+    return conversionData.conversions.keys.toList();
+  }
+
+  /// Get conversion info for a specific path and target unit
+  /// Returns null if path or unit not found
+  ConversionInfo? getConversionInfo(String path, String targetUnit) {
+    return _conversionsData[path]?.conversions[targetUnit];
+  }
+
+  /// Get the category for a specific path (e.g., 'speed', 'angle', 'temperature')
+  /// Returns 'none' if no conversion data available
+  String getCategory(String path) {
+    return _conversionsData[path]?.category ?? 'none';
+  }
+
   /// Extract all paths from vessel data tree recursively
   /// Returns a list of path strings (e.g., 'navigation.speedOverGround')
   List<String> extractPathsFromTree(Map<String, dynamic> tree, [String prefix = '']) {
@@ -1436,6 +1507,7 @@ class SignalKService extends ChangeNotifier implements DataService {
 
       _isConnected = false;
       _latestData.clear();
+      _conversionsData.clear();
       _activePaths.clear();
       _autopilotPaths.clear();
       _vesselContext = null;
@@ -1485,4 +1557,61 @@ class SignalKNotification {
     required this.method,
     required this.timestamp,
   });
+}
+
+/// Conversion info for a specific unit
+class ConversionInfo {
+  final String formula;
+  final String inverseFormula;
+  final String symbol;
+  final String? dateFormat;
+  final bool? useLocalTime;
+
+  ConversionInfo({
+    required this.formula,
+    required this.inverseFormula,
+    required this.symbol,
+    this.dateFormat,
+    this.useLocalTime,
+  });
+
+  factory ConversionInfo.fromJson(Map<String, dynamic> json) {
+    return ConversionInfo(
+      formula: json['formula'] as String,
+      inverseFormula: json['inverseFormula'] as String,
+      symbol: json['symbol'] as String,
+      dateFormat: json['dateFormat'] as String?,
+      useLocalTime: json['useLocalTime'] as bool?,
+    );
+  }
+}
+
+/// Path conversion data from SignalK server
+class PathConversionData {
+  final String? baseUnit;
+  final String category;
+  final Map<String, ConversionInfo> conversions;
+
+  PathConversionData({
+    this.baseUnit,
+    required this.category,
+    required this.conversions,
+  });
+
+  factory PathConversionData.fromJson(Map<String, dynamic> json) {
+    final conversionsMap = <String, ConversionInfo>{};
+    final conversionsJson = json['conversions'] as Map<String, dynamic>? ?? {};
+
+    conversionsJson.forEach((key, value) {
+      if (value is Map<String, dynamic>) {
+        conversionsMap[key] = ConversionInfo.fromJson(value);
+      }
+    });
+
+    return PathConversionData(
+      baseUnit: json['baseUnit'] as String?,
+      category: json['category'] as String,
+      conversions: conversionsMap,
+    );
+  }
 }
