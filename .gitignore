@@ -45,6 +45,7 @@ app.*.map.json
 /android/app/profile
 /android/app/release
 /docs/*.md
+/docs/*.txt
 !/docs/public/
 
 # Project planning documents
