@@ -10,6 +10,7 @@ A customizable SignalK marine dashboard application to display real-time vessel 
 - **signalk-units-preference**: Must be installed to have base values converted. Without it many tools will not work.
 
 ### Optional
+- **signalk-derived-data**: Provides computed values like true wind, VMG, and other derived navigational data
 - **signalk-parquet**: Allows some tools to display historic data for selected paths
 - **signalk-rpi-monitor**: Required for RPi Monitor tool (CPU, GPU temperature, memory, storage monitoring)
 - **signalk-rpi-uptime**: Required for system uptime display in RPi Monitor tool 
