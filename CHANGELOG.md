@@ -7,6 +7,71 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Multi-Needle Compass Support**: Compass gauge now supports up to 4 needles for comparing multiple headings
+  - Compare heading, COG, autopilot target, or any other directional data on one display
+  - Color-coded needles with legend at bottom
+  - Secondary needles slightly shorter and semi-transparent for visual hierarchy
+  - Works with all compass styles (classic, arc, minimal, marine)
+- **Server Status Tool**: Real-time SignalK server monitoring and management dashboard
+  - Live server statistics display (uptime, delta rate, connected clients, available paths)
+  - Per-provider statistics with individual delta rates and counts
+  - Plugin management with interactive enable/disable controls (tap to toggle)
+  - Webapp listing with version information
+  - One-tap server restart functionality with confirmation dialog
+  - Auto-updating statistics every 5 seconds via WebSocket `serverevents=all` subscription
+  - Full authentication support for all server operations
+  - Scrollable plugin and webapp lists to accommodate any number of installed items
+  - Color-coded plugin status indicators (green = enabled, grey = disabled)
+  - New "System" tool category for server management tools
+- **RPi Monitor Tool**: Raspberry Pi system health monitoring dashboard
+  - Overall CPU utilization display with progress bar
+  - Per-core CPU utilization cards (up to 4 cores)
+  - CPU and GPU temperature monitoring with color-coded warnings
+    - Green: < 60°C
+    - Orange: 60-75°C
+    - Red: > 75°C
+  - Memory and storage utilization displays (if available)
+  - System uptime display with formatted output
+  - Integrates with signalk-rpi-monitor and signalk-rpi-uptime plugins
+  - Monitors paths: `environment.rpi.cpu.*`, `environment.rpi.gpu.temperature`, `environment.rpi.uptime`
+  - Automatic temperature conversion from Kelvin to Celsius
+
+### Enhanced
+- **Compass Gauge**: Major improvements to rendering and usability
+  - Custom compass labels that stay horizontal (no upside-down text)
+  - Better label positioning with configurable degree labels
+  - Removed "rose" style (redundant with classic style)
+  - Improved marine compass with counter-rotating labels that always stay readable
+  - Multi-needle support for comparing up to 4 headings simultaneously
+- **Text Display Tool**: Smart formatting for latitude and longitude
+  - Auto-detects lat/long fields by property name (contains 'lat' or 'lon')
+  - Formats as degrees, minutes, seconds with hemisphere (e.g., "37° 46' 29.64" N")
+  - Works with any numeric property containing 'lat' or 'lon' in the key
+  - Support for displaying object values (Map) with property breakdown
+- **Wind Compass**: Added fade effect to no-go zone based on point of sail
+  - No-go zone opacity decreases as apparent wind angle increases
+  - Full opacity when close-hauled (AWA < 60°)
+  - Linear fade when reaching (AWA 60-120°)
+  - Very faint when running downwind (AWA > 120°)
+- **Autopilot Tool**: Improved fading behavior
+  - Faded opacity increased from 10% to 20% for better visibility
+  - Double-tap to disengage now works anywhere on the screen, including over buttons
+- **Android File Sharing**: Enhanced dashboard file import
+  - ZedDisplay now properly opens .zedjson files shared from file managers
+  - Automatic navigation to Setup Management screen after import
+  - Proper intent handling via content:// URIs
+
+### Fixed
+- **Client-Side Unit Conversions**: All widgets now use ConversionUtils for unit conversions
+  - Fixed polar radar chart, radial bar chart, and real-time chart conversions
+  - Fixed historical chart distance conversions
+  - All internal values stored in SI units (meters, radians)
+  - Conversions applied only at display time
+- **AIS Distance Conversions**: Now uses `/signalk/v1/categories` endpoint for consistent distance units
+- **Tool Configuration UI**: Simplified data source addition from 3 dialogs to 2 dialogs
+- **Dashboard File Import**: Fixed Android intent handling for .zedjson files
+
 ### Refactoring & Code Quality
 - **Major Code Refactoring**: Eliminated ~1,130 lines of duplicate code across three phases
   - Phase 1: Created utility extensions for string formatting, color parsing, and data conversion

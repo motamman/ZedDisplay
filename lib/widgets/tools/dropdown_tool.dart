@@ -222,28 +222,7 @@ class DropdownToolBuilder extends ToolBuilder {
 
   @override
   ToolConfig? getDefaultConfig(String vesselId) {
-    return ToolConfig(
-      vesselId: vesselId,
-      dataSources: [
-        DataSource(
-          path: 'electrical.batteries.house.capacity.stateOfCharge',
-          label: 'Battery SOC',
-        ),
-      ],
-      style: StyleConfig(
-        minValue: 0,
-        maxValue: 100,
-        unit: '%',
-        primaryColor: '#2196F3',
-        showLabel: true,
-        showValue: true,
-        showUnit: true,
-        customProperties: {
-          'decimalPlaces': 0,
-          'stepSize': 10.0,
-        },
-      ),
-    );
+    return null;
   }
 
   @override

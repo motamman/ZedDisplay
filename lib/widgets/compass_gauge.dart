@@ -6,20 +6,25 @@ enum CompassStyle {
   classic,  // Full circle with needle (default)
   arc,      // 180° arc showing heading range
   minimal,  // Clean modern with simplified markings
-  rose,     // Traditional compass rose style
   marine,   // Card rotates, needle points up (traditional marine compass)
 }
 
 /// A compass widget for displaying heading/bearing
 /// Now powered by Syncfusion for professional appearance
+/// Supports up to 4 needles for comparing multiple headings
 class CompassGauge extends StatelessWidget {
-  final double heading; // In degrees (0-360)
+  final double heading; // Primary heading in degrees (0-360)
   final String label;
   final String? formattedValue;
   final Color primaryColor;
   final bool showTickLabels;
   final CompassStyle compassStyle;
   final bool showValue; // Show/hide the heading value display
+
+  // Additional headings for multi-needle display (up to 3 more)
+  final List<double>? additionalHeadings;
+  final List<String>? additionalLabels;
+  final List<Color>? additionalColors;
 
   const CompassGauge({
     super.key,
@@ -30,6 +35,9 @@ class CompassGauge extends StatelessWidget {
     this.showTickLabels = false,
     this.compassStyle = CompassStyle.classic,
     this.showValue = true,
+    this.additionalHeadings,
+    this.additionalLabels,
+    this.additionalColors,
   });
 
   @override
@@ -62,7 +70,7 @@ class CompassGauge extends StatelessWidget {
                 // Tick configuration
                 majorTickStyle: MajorTickStyle(
                   length: _getMajorTickLength(),
-                  thickness: compassStyle == CompassStyle.rose ? 3 : 2,
+                  thickness: 2,
                   color: compassStyle == CompassStyle.minimal
                       ? Colors.grey.withValues(alpha: 0.3)
                       : Colors.grey,
@@ -74,16 +82,8 @@ class CompassGauge extends StatelessWidget {
                   color: Colors.grey.withValues(alpha: 0.5),
                 ),
 
-                // Custom labels for cardinal directions
-                axisLabelStyle: GaugeTextStyle(
-                  color: Colors.grey,
-                  fontSize: compassStyle == CompassStyle.rose ? 18 : 16,
-                  fontWeight: compassStyle == CompassStyle.rose
-                      ? FontWeight.w900
-                      : FontWeight.bold,
-                ),
-                labelOffset: compassStyle == CompassStyle.rose ? 25 : 20,
-                onLabelCreated: (args) => _customizeLabel(args),
+                // Hide auto-generated labels - we'll use custom annotations instead
+                showLabels: false,
 
                 // Outer ring for visual boundary
                 ranges: _getRanges(),
@@ -91,8 +91,8 @@ class CompassGauge extends StatelessWidget {
                 // Heading pointer
                 pointers: _getPointers(),
 
-                // No annotations - we'll add the value on top
-                annotations: const [],
+                // Compass labels with counter-rotation to stay horizontal
+                annotations: _buildCompassLabels(),
               ),
             ],
           ),
@@ -120,15 +120,15 @@ class CompassGauge extends StatelessWidget {
                       children: [
                         Text(
                           formattedValue ?? '${heading.toStringAsFixed(0)}°',
-                          style: TextStyle(
-                            fontSize: compassStyle == CompassStyle.rose ? 36 : 32,
+                          style: const TextStyle(
+                            fontSize: 32,
                             fontWeight: FontWeight.bold,
                           ),
                         ),
                         Text(
                           _getCardinalDirection(heading),
                           style: TextStyle(
-                            fontSize: compassStyle == CompassStyle.rose ? 20 : 18,
+                            fontSize: 18,
                             fontWeight: FontWeight.w500,
                             color: primaryColor,
                           ),
@@ -139,8 +139,65 @@ class CompassGauge extends StatelessWidget {
                 ),
               ),
             ),
+
+          // Multi-needle legend at bottom
+          if (additionalHeadings != null && additionalHeadings!.isNotEmpty && additionalLabels != null)
+            Align(
+              alignment: Alignment.bottomCenter,
+              child: Padding(
+                padding: const EdgeInsets.only(bottom: 12.0),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withOpacity(0.5),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      // Primary needle
+                      _buildLegendItem(label, primaryColor),
+                      // Additional needles
+                      for (int i = 0; i < additionalHeadings!.length && i < 3; i++) ...[
+                        const SizedBox(width: 8),
+                        _buildLegendItem(
+                          additionalLabels![i],
+                          additionalColors != null && i < additionalColors!.length
+                              ? additionalColors![i]
+                              : Colors.blue,
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+            ),
         ],
       ),
+    );
+  }
+
+  Widget _buildLegendItem(String text, Color color) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 12,
+          height: 3,
+          decoration: BoxDecoration(
+            color: color,
+            borderRadius: BorderRadius.circular(1.5),
+          ),
+        ),
+        const SizedBox(width: 4),
+        Text(
+          text,
+          style: const TextStyle(
+            fontSize: 10,
+            color: Colors.white,
+          ),
+        ),
+      ],
     );
   }
 
@@ -166,8 +223,6 @@ class CompassGauge extends StatelessWidget {
     switch (compassStyle) {
       case CompassStyle.minimal:
         return 90; // Only cardinal directions
-      case CompassStyle.rose:
-        return 22.5; // 16 divisions
       default:
         return 30;
     }
@@ -175,8 +230,6 @@ class CompassGauge extends StatelessWidget {
 
   double _getMajorTickLength() {
     switch (compassStyle) {
-      case CompassStyle.rose:
-        return 15;
       case CompassStyle.minimal:
         return 8;
       default:
@@ -184,75 +237,77 @@ class CompassGauge extends StatelessWidget {
     }
   }
 
-  void _customizeLabel(AxisLabelCreatedArgs args) {
-    // Replace degree labels with cardinal directions
-    switch (args.text) {
-      case '0':
-        args.text = 'N';
-        args.labelStyle = GaugeTextStyle(
-          color: primaryColor,
-          fontSize: compassStyle == CompassStyle.rose ? 22 : 20,
-          fontWeight: FontWeight.bold,
-        );
-        break;
-      case '90':
-        args.text = 'E';
-        break;
-      case '180':
-        args.text = 'S';
-        break;
-      case '270':
-        args.text = 'W';
-        break;
-      case '45':
-        args.text = compassStyle == CompassStyle.rose ? 'NE' : '';
-        break;
-      case '135':
-        args.text = compassStyle == CompassStyle.rose ? 'SE' : '';
-        break;
-      case '225':
-        args.text = compassStyle == CompassStyle.rose ? 'SW' : '';
-        break;
-      case '315':
-        args.text = compassStyle == CompassStyle.rose ? 'NW' : '';
-        break;
-      case '22.5':
-      case '67.5':
-      case '112.5':
-      case '157.5':
-      case '202.5':
-      case '247.5':
-      case '292.5':
-      case '337.5':
-        // Intercardinal directions for rose style
-        args.text = compassStyle == CompassStyle.rose ? '•' : '';
-        args.labelStyle = const GaugeTextStyle(fontSize: 8);
-        break;
-      default:
-        if (showTickLabels) {
-          args.text = '${args.text}°';
-        } else {
-          args.text = ''; // Hide non-cardinal labels
-        }
+  /// Build compass labels (N, S, E, W, degrees) with proper rotation
+  /// Labels are counter-rotated by heading so they stay horizontal
+  List<GaugeAnnotation> _buildCompassLabels() {
+    final labels = <GaugeAnnotation>[];
+    const int interval = 30;
+
+    for (int i = 0; i < 360; i += interval) {
+      String labelText;
+      Color labelColor;
+      double fontSize;
+
+      switch (i) {
+        case 0:
+          labelText = 'N';
+          labelColor = primaryColor;
+          fontSize = 20;
+          break;
+        case 90:
+          labelText = 'E';
+          labelColor = Colors.grey;
+          fontSize = 16;
+          break;
+        case 180:
+          labelText = 'S';
+          labelColor = Colors.grey;
+          fontSize = 16;
+          break;
+        case 270:
+          labelText = 'W';
+          labelColor = Colors.grey;
+          fontSize = 16;
+          break;
+        default:
+          if (!showTickLabels) continue;
+          labelText = '$i°';
+          labelColor = Colors.grey.withOpacity(0.6);
+          fontSize = 14;
+      }
+
+      double labelAngle;
+      if (compassStyle == CompassStyle.arc) {
+        // Arc compresses 360° into 180° semicircle
+        // Gauge value i maps to screen position 180 + (i/2)
+        labelAngle = 180 + (i / 2);
+      } else {
+        // Full circle: add 270° offset to align N to top
+        labelAngle = (i + 270) % 360;
+      }
+
+      labels.add(
+        GaugeAnnotation(
+          widget: Text(
+            labelText,
+            style: TextStyle(
+              color: labelColor,
+              fontSize: fontSize,
+              fontWeight: i == 0 || i % 90 == 0 ? FontWeight.bold : FontWeight.w500,
+            ),
+          ),
+          angle: labelAngle,
+          positionFactor: 0.80,
+        ),
+      );
     }
+
+    return labels;
   }
 
   List<GaugeRange> _getRanges() {
     if (compassStyle == CompassStyle.minimal) {
       return [];
-    }
-
-    if (compassStyle == CompassStyle.rose) {
-      // Add quadrant shading for rose style
-      return [
-        GaugeRange(
-          startValue: 0,
-          endValue: 360,
-          color: Colors.grey.withValues(alpha: 0.1),
-          startWidth: 2,
-          endWidth: 2,
-        ),
-      ];
     }
 
     return [
@@ -267,28 +322,34 @@ class CompassGauge extends StatelessWidget {
   }
 
   List<GaugePointer> _getPointers() {
-    if (compassStyle == CompassStyle.rose) {
-      // Traditional compass needle style (larger needle)
-      return [
-        NeedlePointer(
-          value: heading,
-          needleLength: 0.75,
-          needleStartWidth: 8,
-          needleEndWidth: 2,
-          needleColor: primaryColor,
-          knobStyle: KnobStyle(
-            knobRadius: 0.1,
-            color: primaryColor,
-            borderColor: Colors.white,
-            borderWidth: 0.03,
+    final pointers = <GaugePointer>[];
+
+    // Add additional needles FIRST (drawn below primary needle)
+    if (additionalHeadings != null && additionalHeadings!.isNotEmpty) {
+      for (int i = 0; i < additionalHeadings!.length && i < 3; i++) {
+        final color = additionalColors != null && i < additionalColors!.length
+            ? additionalColors![i]
+            : Colors.blue;
+
+        pointers.add(
+          NeedlePointer(
+            value: additionalHeadings![i],
+            needleLength: 0.65, // Slightly shorter than primary
+            needleStartWidth: 0,
+            needleEndWidth: 8,
+            needleColor: color.withOpacity(0.8),
+            knobStyle: const KnobStyle(
+              knobRadius: 0, // No knob for secondary needles
+            ),
           ),
-        ),
-      ];
+        );
+      }
     }
 
+    // Add primary needle LAST (drawn on top)
     if (compassStyle == CompassStyle.minimal) {
       // Triangle marker
-      return [
+      pointers.add(
         MarkerPointer(
           value: heading,
           markerType: MarkerType.triangle,
@@ -297,25 +358,27 @@ class CompassGauge extends StatelessWidget {
           color: primaryColor,
           markerOffset: -10,
         ),
-      ];
+      );
+    } else {
+      // Classic needle
+      pointers.add(
+        NeedlePointer(
+          value: heading,
+          needleLength: 0.7,
+          needleStartWidth: 0,
+          needleEndWidth: 10,
+          needleColor: primaryColor,
+          knobStyle: KnobStyle(
+            knobRadius: 0.08,
+            color: primaryColor,
+            borderColor: primaryColor,
+            borderWidth: 0.02,
+          ),
+        ),
+      );
     }
 
-    // Classic needle
-    return [
-      NeedlePointer(
-        value: heading,
-        needleLength: 0.7,
-        needleStartWidth: 0,
-        needleEndWidth: 10,
-        needleColor: primaryColor,
-        knobStyle: KnobStyle(
-          knobRadius: 0.08,
-          color: primaryColor,
-          borderColor: primaryColor,
-          borderWidth: 0.02,
-        ),
-      ),
-    ];
+    return pointers;
   }
 
   String _getCardinalDirection(double degrees) {
@@ -357,14 +420,8 @@ class CompassGauge extends StatelessWidget {
                     color: Colors.grey.withValues(alpha: 0.5),
                   ),
 
-                  // Labels that rotate with the card
-                  axisLabelStyle: const GaugeTextStyle(
-                    color: Colors.grey,
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                  ),
-                  labelOffset: 20,
-                  onLabelCreated: (args) => _customizeMarineLabel(args),
+                  // Hide built-in labels - we'll use custom annotations that stay horizontal
+                  showLabels: false,
 
                   // Outer ring
                   ranges: [
@@ -380,13 +437,33 @@ class CompassGauge extends StatelessWidget {
                   // No pointer on the rotating card
                   pointers: const [],
 
-                  annotations: const [],
+                  // Custom annotations that counter-rotate to stay horizontal
+                  annotations: _buildMarineCompassLabels(),
                 ),
               ],
             ),
           ),
 
-          // Fixed needle pointing up (North) - drawn before value so it's underneath
+          // Fixed needles pointing up (North) - drawn before value so they're underneath
+          // Additional needles first (below primary)
+          if (additionalHeadings != null && additionalHeadings!.isNotEmpty)
+            for (int i = 0; i < additionalHeadings!.length && i < 3; i++)
+              Transform.rotate(
+                angle: (additionalHeadings![i] - heading) * 3.14159265359 / 180, // Rotate relative to primary heading
+                child: Center(
+                  child: CustomPaint(
+                    size: const Size(200, 200),
+                    painter: _MarineNeedlePainter(
+                      additionalColors != null && i < additionalColors!.length
+                          ? additionalColors![i]
+                          : Colors.blue,
+                      isSecondary: true,
+                    ),
+                  ),
+                ),
+              ),
+
+          // Primary needle last (on top)
           Center(
             child: CustomPaint(
               size: const Size(200, 200),
@@ -435,62 +512,122 @@ class CompassGauge extends StatelessWidget {
                 ),
               ),
             ),
+
+          // Multi-needle legend at bottom
+          if (additionalHeadings != null && additionalHeadings!.isNotEmpty && additionalLabels != null)
+            Align(
+              alignment: Alignment.bottomCenter,
+              child: Padding(
+                padding: const EdgeInsets.only(bottom: 12.0),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withOpacity(0.5),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      // Primary needle
+                      _buildLegendItem(label, primaryColor),
+                      // Additional needles
+                      for (int i = 0; i < additionalHeadings!.length && i < 3; i++) ...[
+                        const SizedBox(width: 8),
+                        _buildLegendItem(
+                          additionalLabels![i],
+                          additionalColors != null && i < additionalColors!.length
+                              ? additionalColors![i]
+                              : Colors.blue,
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+            ),
         ],
       ),
     );
   }
 
-  void _customizeMarineLabel(AxisLabelCreatedArgs args) {
-    // Replace degree labels with cardinal directions for marine compass
-    switch (args.text) {
-      case '0':
-        args.text = 'N';
-        args.labelStyle = GaugeTextStyle(
-          color: primaryColor,
-          fontSize: 22,
-          fontWeight: FontWeight.bold,
-        );
-        break;
-      case '90':
-        args.text = 'E';
-        break;
-      case '180':
-        args.text = 'S';
-        break;
-      case '270':
-        args.text = 'W';
-        break;
-      case '30':
-      case '60':
-      case '120':
-      case '150':
-      case '210':
-      case '240':
-      case '300':
-      case '330':
-        args.text = showTickLabels ? '${args.text}°' : '';
-        break;
-      default:
-        args.text = '';
+  /// Build marine compass labels that counter-rotate to stay horizontal
+  List<GaugeAnnotation> _buildMarineCompassLabels() {
+    final labels = <GaugeAnnotation>[];
+    const int interval = 30;
+
+    for (int i = 0; i < 360; i += interval) {
+      String labelText;
+      Color labelColor;
+      double fontSize;
+
+      switch (i) {
+        case 0:
+          labelText = 'N';
+          labelColor = primaryColor;
+          fontSize = 22;
+          break;
+        case 90:
+          labelText = 'E';
+          labelColor = Colors.grey;
+          fontSize = 18;
+          break;
+        case 180:
+          labelText = 'S';
+          labelColor = Colors.grey;
+          fontSize = 18;
+          break;
+        case 270:
+          labelText = 'W';
+          labelColor = Colors.grey;
+          fontSize = 18;
+          break;
+        default:
+          if (!showTickLabels) continue;
+          labelText = '$i°';
+          labelColor = Colors.grey.withOpacity(0.7);
+          fontSize = 16;
+      }
+
+      labels.add(
+        GaugeAnnotation(
+          widget: Transform.rotate(
+            angle: heading * 3.14159 / 180, // Counter-rotate by heading to keep label horizontal
+            child: Text(
+              labelText,
+              style: TextStyle(
+                color: labelColor,
+                fontSize: fontSize,
+                fontWeight: i % 90 == 0 ? FontWeight.bold : FontWeight.w500,
+              ),
+            ),
+          ),
+          angle: i.toDouble(),
+          positionFactor: 0.80,
+        ),
+      );
     }
+
+    return labels;
   }
 }
 
 /// Custom painter for the fixed marine compass needle
 class _MarineNeedlePainter extends CustomPainter {
   final Color color;
+  final bool isSecondary;
 
-  _MarineNeedlePainter(this.color);
+  _MarineNeedlePainter(this.color, {this.isSecondary = false});
 
   @override
   void paint(Canvas canvas, Size size) {
     final center = Offset(size.width / 2, size.height / 2);
     final radius = size.width / 2;
-    final northNeedleLength = radius * 0.8; // 4/5 of radius
-    final southTailLength = radius * 0.75; // 3/4 of radius
+    final northNeedleLength = radius * (isSecondary ? 0.7 : 0.8); // Shorter for secondary
+    final southTailLength = radius * (isSecondary ? 0.65 : 0.75); // Shorter for secondary
+    final needleWidth = isSecondary ? 6.0 : 8.0; // Narrower for secondary
 
     final paint = Paint()
-      ..color = color
+      ..color = isSecondary ? color.withOpacity(0.8) : color
       ..style = PaintingStyle.fill;
 
     final shadowPaint = Paint()
@@ -501,52 +638,56 @@ class _MarineNeedlePainter extends CustomPainter {
     // Draw needle pointing up (North)
     final needlePath = Path();
 
-    // North pointing needle (red)
+    // North pointing needle
     needlePath.moveTo(center.dx, center.dy - northNeedleLength);
-    needlePath.lineTo(center.dx - 8, center.dy);
+    needlePath.lineTo(center.dx - needleWidth, center.dy);
     needlePath.lineTo(center.dx, center.dy - 10);
-    needlePath.lineTo(center.dx + 8, center.dy);
+    needlePath.lineTo(center.dx + needleWidth, center.dy);
     needlePath.close();
 
     // Draw shadow
-    canvas.drawPath(needlePath, shadowPaint);
+    if (!isSecondary) {
+      canvas.drawPath(needlePath, shadowPaint);
+    }
 
     // Draw needle
     canvas.drawPath(needlePath, paint);
 
-    // South pointing tail (darker shade of primary color for better visibility)
+    // South pointing tail (darker shade for better visibility)
     final hslColor = HSLColor.fromColor(color);
     final darkerColor = hslColor.withLightness((hslColor.lightness - 0.3).clamp(0.0, 1.0)).toColor();
 
     final tailPaint = Paint()
-      ..color = darkerColor
+      ..color = isSecondary ? darkerColor.withOpacity(0.8) : darkerColor
       ..style = PaintingStyle.fill;
 
     final tailPath = Path();
     tailPath.moveTo(center.dx, center.dy + southTailLength);
-    tailPath.lineTo(center.dx - 6, center.dy);
-    tailPath.lineTo(center.dx + 6, center.dy);
+    tailPath.lineTo(center.dx - (needleWidth * 0.75), center.dy);
+    tailPath.lineTo(center.dx + (needleWidth * 0.75), center.dy);
     tailPath.close();
 
     canvas.drawPath(tailPath, tailPaint);
 
-    // Draw center knob
-    final knobPaint = Paint()
-      ..color = color
-      ..style = PaintingStyle.fill;
+    // Draw center knob (only for primary needle)
+    if (!isSecondary) {
+      final knobPaint = Paint()
+        ..color = color
+        ..style = PaintingStyle.fill;
 
-    canvas.drawCircle(center, 10, knobPaint);
+      canvas.drawCircle(center, 10, knobPaint);
 
-    final knobBorderPaint = Paint()
-      ..color = Colors.white
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 2;
+      final knobBorderPaint = Paint()
+        ..color = Colors.white
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2;
 
-    canvas.drawCircle(center, 10, knobBorderPaint);
+      canvas.drawCircle(center, 10, knobBorderPaint);
+    }
   }
 
   @override
   bool shouldRepaint(_MarineNeedlePainter oldDelegate) {
-    return color != oldDelegate.color;
+    return color != oldDelegate.color || isSecondary != oldDelegate.isSecondary;
   }
 }

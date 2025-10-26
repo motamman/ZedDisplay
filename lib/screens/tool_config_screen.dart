@@ -170,6 +170,20 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
         DataSource(path: 'navigation.courseGreatCircle.nextPoint.bearingTrue'),
         DataSource(path: 'navigation.courseGreatCircle.nextPoint.distance'),
       ];
+    } else if (toolTypeId == 'rpi_monitor') {
+      // Special handling for rpi_monitor - add default paths
+      _dataSources = [
+        DataSource(path: 'environment.rpi.cpu.utilisation', label: 'CPU Overall'),
+        DataSource(path: 'environment.rpi.cpu.core.1.utilisation', label: 'CPU Core 1'),
+        DataSource(path: 'environment.rpi.cpu.core.2.utilisation', label: 'CPU Core 2'),
+        DataSource(path: 'environment.rpi.cpu.core.3.utilisation', label: 'CPU Core 3'),
+        DataSource(path: 'environment.rpi.cpu.core.4.utilisation', label: 'CPU Core 4'),
+        DataSource(path: 'environment.rpi.cpu.temperature', label: 'CPU Temperature'),
+        DataSource(path: 'environment.rpi.gpu.temperature', label: 'GPU Temperature'),
+        DataSource(path: 'environment.rpi.memory.utilisation', label: 'Memory'),
+        DataSource(path: 'environment.rpi.storage.utilisation', label: 'Storage'),
+        DataSource(path: 'environment.rpi.uptime', label: 'Uptime'),
+      ];
     } else {
       final defaultConfig = registry.getDefaultConfig(toolTypeId, vesselId);
       if (defaultConfig != null && defaultConfig.dataSources.isNotEmpty) {
@@ -193,6 +207,8 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
         _toolHeight = 6;
         break;
       case 'conversion_test':
+      case 'server_manager':
+      case 'rpi_monitor':
         _toolWidth = 4;
         _toolHeight = 8;
         break;
@@ -239,9 +255,11 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
             return 1; // Green - Charts
           case def.ToolCategory.control:
             return 2; // Orange - Controls
+          case def.ToolCategory.system:
+            return 3; // Red - System tools
           case def.ToolCategory.compass:
           case def.ToolCategory.other:
-            return 3; // Purple - Instruments
+            return 4; // Purple - Instruments
         }
       }
 
@@ -269,6 +287,8 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
         return Colors.green;
       case def.ToolCategory.control:
         return Colors.orange;
+      case def.ToolCategory.system:
+        return Colors.red;
       case def.ToolCategory.compass:
       case def.ToolCategory.other:
         return Colors.purple;
@@ -872,7 +892,9 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                 _selectedToolTypeId != 'polar_radar_chart' &&
                 _selectedToolTypeId != 'ais_polar_chart' &&
                 _selectedToolTypeId != 'realtime_chart' &&
-                _selectedToolTypeId != 'radial_bar_chart')
+                _selectedToolTypeId != 'radial_bar_chart' &&
+                _selectedToolTypeId != 'server_manager' &&
+                _selectedToolTypeId != 'rpi_monitor')
               Card(
                 child: Padding(
                   padding: const EdgeInsets.all(16),
@@ -951,7 +973,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        '4. Polar Chart Settings',
+                        '3. Polar Chart Settings',
                         style: Theme.of(context).textTheme.titleMedium,
                       ),
                       const SizedBox(height: 16),
@@ -987,7 +1009,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        '4. AIS Chart Settings',
+                        '3. AIS Chart Settings',
                         style: Theme.of(context).textTheme.titleMedium,
                       ),
                       const SizedBox(height: 16),
@@ -1045,7 +1067,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        '4. Chart Settings',
+                        '3. Chart Settings',
                         style: Theme.of(context).textTheme.titleMedium,
                       ),
                       const SizedBox(height: 16),
@@ -1175,10 +1197,8 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                         (_selectedToolTypeId == 'historical_chart' ||
                          _selectedToolTypeId == 'polar_radar_chart' ||
                          _selectedToolTypeId == 'ais_polar_chart')
-                            ? '5. Configure Style'
-                            : (_selectedToolTypeId == 'autopilot' || _selectedToolTypeId == 'wind_compass')
-                                ? '3. Configure Style'
-                                : '4. Configure Style',
+                            ? '4. Configure Style'
+                            : '3. Configure Style',
                         style: Theme.of(context).textTheme.titleMedium,
                       ),
                       const SizedBox(height: 16),
@@ -1201,10 +1221,8 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                         (_selectedToolTypeId == 'historical_chart' ||
                          _selectedToolTypeId == 'polar_radar_chart' ||
                          _selectedToolTypeId == 'ais_polar_chart')
-                            ? '6. Preview'
-                            : (_selectedToolTypeId == 'autopilot' || _selectedToolTypeId == 'wind_compass')
-                                ? '4. Preview'
-                                : '5. Preview',
+                            ? '5. Preview'
+                            : '4. Preview',
                         style: Theme.of(context).textTheme.titleMedium,
                       ),
                       const SizedBox(height: 16),
