@@ -110,34 +110,31 @@ A customizable SignalK marine dashboard application to display real-time vessel 
 ## Screenshots
 
 ### Dashboard Views
-![Main Dashboard](docs/screenshots/dashboard.png)
+![Main Dashboard](docs/screenshots/generalGauges.jpg)
 *Main dashboard with multiple gauges and instruments*
 
-![Navigation Screen](docs/screenshots/navigation.png)
+![Navigation Screen](docs/screenshots/windCompass.jpg)
 *Navigation-focused screen with compass and wind data*
 
-![Engine Monitoring](docs/screenshots/engine.png)
-*Engine monitoring screen*
+![Autopilot Controller](docs/screenshots/autoPilot.jpg)
+*Autopilot with wind and route support*
+
+![AiS Monitoring](docs/screenshots/AISdisplay.jpg)
+*AIS and vessel tracking*
+
 
 ### Setup & Configuration
-![Dashboard Manager](docs/screenshots/dashboard-manager.png)
+![Dashboard Manager](docs/screenshots/setup.jpg)
 *Dashboard screen management*
 
-![Tool Configuration](docs/screenshots/tool-config.png)
+![Tool Configuration](docs/screenshots/editScreen.jpg)
 *Configuring a gauge tool*
 
-![Setup Management](docs/screenshots/setup-management.png)
+![Setup Management](docs/screenshots/addTool.jpg)
 *Managing and sharing dashboard setups*
 
-### Connection & Settings
-![Server List](docs/screenshots/server-list.png)
-*Saved server connections*
-
-![Settings](docs/screenshots/settings.png)
-*Settings screen*
-
-![Device Registration](docs/screenshots/device-registration.png)
-*SignalK device registration flow*
+![SignalK Monitor](docs/screenshots/skmanager.jpg)
+*Basic server and plugin monitor and manager*
 
 ## Getting Started
 
