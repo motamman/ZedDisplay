@@ -14,12 +14,10 @@ class ConversionUtils {
       Parser parser = Parser();
       Expression exp = parser.parse(formulaWithValue);
 
-      // Create context (empty since we already substituted the value)
-      ContextModel cm = ContextModel();
-
-      // Evaluate
-      double result = exp.evaluate(EvaluationType.REAL, cm);
-      return result;
+      // Evaluate using new RealEvaluator API (math_expressions v3.x)
+      // RealEvaluator.evaluate() takes only Expression, returns num
+      num result = RealEvaluator().evaluate(exp);
+      return result.toDouble();
     } catch (e) {
       // If evaluation fails, return null
       return null;

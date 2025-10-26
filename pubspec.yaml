@@ -44,10 +44,10 @@ dependencies:
   intl: ^0.20.2
 
   # Math expression evaluation
-  math_expressions: ^2.6.0
+  math_expressions: ^3.1.0
 
   # Maps
-  flutter_map: ^7.0.2
+  flutter_map: ^8.2.2
   latlong2: ^0.9.1
 
   # Color picker
