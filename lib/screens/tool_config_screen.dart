@@ -234,6 +234,8 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
             return toolDef.category == def.ToolCategory.chart;
           case 'controls':
             return toolDef.category == def.ToolCategory.control;
+          case 'system':
+            return toolDef.category == def.ToolCategory.system;
           case 'instruments':
             // Compass and other instruments
             return toolDef.category == def.ToolCategory.compass || toolDef.category == def.ToolCategory.other;
@@ -288,7 +290,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
       case def.ToolCategory.control:
         return Colors.orange;
       case def.ToolCategory.system:
-        return Colors.red;
+        return Colors.red.shade700;
       case def.ToolCategory.compass:
       case def.ToolCategory.other:
         return Colors.purple;
@@ -743,6 +745,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                         _buildCategoryButton('gauges', 'Gauges & Text', Colors.blue),
                         _buildCategoryButton('charts', 'Charts', Colors.green),
                         _buildCategoryButton('controls', 'Controls', Colors.orange),
+                        _buildCategoryButton('system', 'System', Colors.red.shade700),
                         _buildCategoryButton('instruments', 'Instruments', Colors.purple),
                       ],
                     ),
