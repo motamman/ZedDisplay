@@ -66,6 +66,51 @@ class _SettingsScreenState extends State<SettingsScreen> {
     await signalKService.setNotificationsEnabled(_notificationsEnabled);
   }
 
+  Future<void> _refreshConversions(SignalKService signalKService) async {
+    // Show loading dialog
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const AlertDialog(
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            CircularProgressIndicator(),
+            SizedBox(height: 16),
+            Text('Refreshing conversions...'),
+          ],
+        ),
+      ),
+    );
+
+    try {
+      // Reload conversions from server
+      await signalKService.loadConversions();
+
+      if (mounted) {
+        Navigator.of(context).pop(); // Dismiss loading dialog
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Conversions updated successfully'),
+            backgroundColor: Colors.green,
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        Navigator.of(context).pop(); // Dismiss loading dialog
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to refresh conversions: $e'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final signalKService = Provider.of<SignalKService>(context);
@@ -163,6 +208,30 @@ class _SettingsScreenState extends State<SettingsScreen> {
               },
             ),
           ),
+
+          const Divider(height: 32),
+
+          // Unit Conversions Section
+          if (signalKService.isConnected)
+            Card(
+              margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: ListTile(
+                leading: const Icon(Icons.published_with_changes, color: Colors.blue),
+                title: const Text(
+                  'Refresh Unit Conversions',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                subtitle: const Text(
+                  'Update conversion preferences from server',
+                  style: TextStyle(fontSize: 12),
+                ),
+                trailing: const Icon(Icons.refresh, size: 20),
+                onTap: () => _refreshConversions(signalKService),
+              ),
+            ),
 
           const Divider(height: 32),
 

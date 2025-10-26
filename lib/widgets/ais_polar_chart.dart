@@ -4,6 +4,8 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'dart:async';
 import 'dart:math' as math;
+import 'dart:convert';
+import 'package:http/http.dart' as http;
 import '../services/signalk_service.dart';
 import '../utils/conversion_utils.dart';
 
@@ -45,16 +47,20 @@ class _AISPolarChartState extends State<AISPolarChart>
   double? _ownLon;
   DateTime? _lastPositionUpdate;
 
-  // Range control
+  // Range control (stored in meters - SI unit)
   bool _autoRange = true;
-  double _manualRange = 5.0;
-  double _calculatedRange = 5.0;
+  double _manualRange = 9260.0; // ~5 nautical miles in meters as default
+  double _calculatedRange = 9260.0;
 
   // Highlighted vessel (for tap-to-highlight)
   String? _highlightedVesselMMSI;
 
   // Map controller for centering on own vessel
   final MapController _mapController = MapController();
+
+  // Distance conversion from categories endpoint
+  String? _distanceFormula;
+  String? _distanceSymbol;
 
   @override
   bool get wantKeepAlive => true;
@@ -80,8 +86,43 @@ class _AISPolarChartState extends State<AISPolarChart>
       widget.signalKService.loadAndSubscribeAISVessels();
     }
 
+    // Fetch distance conversion preferences
+    _fetchDistanceConversion();
+
     // Fetch immediately on init
     _updateVesselData();
+  }
+
+  /// Fetch distance conversion formula and symbol from categories endpoint
+  Future<void> _fetchDistanceConversion() async {
+    try {
+      final protocol = widget.signalKService.useSecureConnection ? 'https' : 'http';
+      final url = '$protocol://${widget.signalKService.serverUrl}/signalk/v1/categories';
+
+      final response = await http.get(Uri.parse(url)).timeout(
+        const Duration(seconds: 5),
+      );
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body) as Map<String, dynamic>;
+        final distance = data['distance'] as Map<String, dynamic>?;
+
+        if (distance != null && mounted) {
+          setState(() {
+            _distanceFormula = distance['formula'] as String?;
+            _distanceSymbol = distance['symbol'] as String?;
+          });
+        }
+      }
+    } catch (e) {
+      // Silently fail, fallback to meters
+      if (mounted) {
+        setState(() {
+          _distanceFormula = null;
+          _distanceSymbol = 'm';
+        });
+      }
+    }
   }
 
   void _subscribeIfConnected() {
@@ -204,10 +245,10 @@ class _AISPolarChartState extends State<AISPolarChart>
       _vessels.clear();
       _vessels.addAll(newVessels);
 
-      // Auto-calculate range if in auto mode
+      // Auto-calculate range if in auto mode (distances are now in meters)
       if (_autoRange && _vessels.isNotEmpty) {
         final maxDistance = _vessels.map((v) => v.distance).reduce((a, b) => a > b ? a : b);
-        _calculatedRange = (maxDistance * 1.2).clamp(1.0, 50.0); // 20% padding, min 1nm, max 50nm
+        _calculatedRange = maxDistance * 1.2; // 20% padding, auto-fit to farthest vessel
       }
     });
   }
@@ -217,26 +258,40 @@ class _AISPolarChartState extends State<AISPolarChart>
   }
 
   void _zoomIn() {
-    setState(() {
-      _autoRange = false;
-      _manualRange = (_manualRange / 1.5).clamp(0.5, 50.0);
-    });
+    if (_showMapView) {
+      // Map view: zoom in on map
+      final currentZoom = _mapController.camera.zoom;
+      _mapController.move(_mapController.camera.center, currentZoom + 1);
+    } else {
+      // Polar view: decrease range (in meters)
+      setState(() {
+        _autoRange = false;
+        _manualRange = (_manualRange / 1.5).clamp(50.0, double.infinity); // min 50m
+      });
+    }
   }
 
   void _zoomOut() {
-    setState(() {
-      _autoRange = false;
-      _manualRange = (_manualRange * 1.5).clamp(0.5, 50.0);
-    });
+    if (_showMapView) {
+      // Map view: zoom out on map
+      final currentZoom = _mapController.camera.zoom;
+      _mapController.move(_mapController.camera.center, currentZoom - 1);
+    } else {
+      // Polar view: increase range (in meters)
+      setState(() {
+        _autoRange = false;
+        _manualRange = (_manualRange * 1.5).clamp(50.0, double.infinity); // min 50m
+      });
+    }
   }
 
   void _toggleAutoRange() {
     setState(() {
       _autoRange = !_autoRange;
       if (_autoRange && _vessels.isNotEmpty) {
-        // Recalculate range when switching to auto
+        // Recalculate range when switching to auto (in meters)
         final maxDistance = _vessels.map((v) => v.distance).reduce((a, b) => a > b ? a : b);
-        _calculatedRange = (maxDistance * 1.2).clamp(1.0, 50.0);
+        _calculatedRange = maxDistance * 1.2; // 20% padding, auto-fit to farthest vessel
       }
     });
   }
@@ -271,9 +326,9 @@ class _AISPolarChartState extends State<AISPolarChart>
     return (bearing + 360) % 360; // Normalize to 0-360
   }
 
-  /// Calculate distance between two points (in nautical miles)
+  /// Calculate distance between two points (in meters - SI unit)
   double _calculateDistance(double lat1, double lon1, double lat2, double lon2) {
-    final R = 3440.065; // Earth radius in nautical miles
+    final R = 6371000.0; // Earth radius in meters
     final lat1Rad = lat1 * math.pi / 180;
     final lat2Rad = lat2 * math.pi / 180;
     final dLat = (lat2 - lat1) * math.pi / 180;
@@ -284,7 +339,23 @@ class _AISPolarChartState extends State<AISPolarChart>
         math.sin(dLon / 2) * math.sin(dLon / 2);
     final c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a));
 
-    return R * c;
+    return R * c; // Returns meters
+  }
+
+  /// Convert distance from meters to user's preferred unit using categories endpoint
+  double _convertDistance(double meters) {
+    if (_distanceFormula == null) {
+      return meters; // No conversion available, return raw meters
+    }
+
+    // Use the formula from categories endpoint
+    final converted = ConversionUtils.evaluateFormula(_distanceFormula!, meters);
+    return converted ?? meters; // Fallback to meters if evaluation fails
+  }
+
+  /// Get distance unit symbol from categories endpoint
+  String _getDistanceUnit() {
+    return _distanceSymbol ?? 'm'; // Default to meters if not loaded
   }
 
   @override
@@ -427,26 +498,28 @@ class _AISPolarChartState extends State<AISPolarChart>
                 padding: EdgeInsets.zero,
                 constraints: const BoxConstraints(),
               ),
-              const SizedBox(width: 4),
-              // Range display with auto indicator
-              InkWell(
-                onTap: _toggleAutoRange,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: _autoRange ? Colors.blue.withValues(alpha: 0.2) : Colors.grey.withValues(alpha: 0.2),
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  child: Text(
-                    '${_getDisplayRange().toStringAsFixed(1)} nm${_autoRange ? ' (auto)' : ''}',
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: _autoRange ? Colors.blue : Colors.grey,
-                          fontWeight: FontWeight.w500,
-                        ),
+              // Range display with auto indicator (only show in polar view)
+              if (!_showMapView) ...[
+                const SizedBox(width: 4),
+                InkWell(
+                  onTap: _toggleAutoRange,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: _autoRange ? Colors.blue.withValues(alpha: 0.2) : Colors.grey.withValues(alpha: 0.2),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Text(
+                      '${_convertDistance(_getDisplayRange()).toStringAsFixed(1)} ${_getDistanceUnit()}${_autoRange ? ' (auto)' : ''}',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: _autoRange ? Colors.blue : Colors.grey,
+                            fontWeight: FontWeight.w500,
+                          ),
+                    ),
                   ),
                 ),
-              ),
-              const SizedBox(width: 4),
+                const SizedBox(width: 4),
+              ],
               // Zoom in button
               IconButton(
                 icon: const Icon(Icons.zoom_in, size: 20),
@@ -777,13 +850,14 @@ class _AISPolarChartState extends State<AISPolarChart>
     return annotations;
   }
 
-  /// Build range labels on the circles
+  /// Build range labels on the circles (maxRange is in meters)
   List<CartesianChartAnnotation> _buildRangeLabels(double maxRange, bool isDark) {
     final annotations = <CartesianChartAnnotation>[];
 
     // Add distance labels at the top (North) of each circle
     for (int i = 1; i <= 4; i++) {
-      final range = maxRange / 4 * i;
+      final rangeMeters = maxRange / 4 * i;
+      final rangeConverted = _convertDistance(rangeMeters);
 
       annotations.add(CartesianChartAnnotation(
         widget: Container(
@@ -793,7 +867,7 @@ class _AISPolarChartState extends State<AISPolarChart>
             borderRadius: BorderRadius.circular(4),
           ),
           child: Text(
-            '${range.toStringAsFixed(1)}',
+            rangeConverted.toStringAsFixed(1),
             style: TextStyle(
               color: isDark ? Colors.white70 : Colors.black87,
               fontSize: 10,
@@ -803,7 +877,7 @@ class _AISPolarChartState extends State<AISPolarChart>
         ),
         coordinateUnit: CoordinateUnit.point,
         x: 0,
-        y: range,
+        y: rangeMeters,
       ));
     }
 
@@ -910,7 +984,7 @@ class _AISPolarChartState extends State<AISPolarChart>
           subtitle: Row(
             children: [
               Text(
-                '${vessel.distance.toStringAsFixed(1)}nm',
+                '${_convertDistance(vessel.distance).toStringAsFixed(1)}${_getDistanceUnit()}',
                 style: const TextStyle(fontSize: 11),
               ),
               const SizedBox(width: 8),
@@ -931,15 +1005,15 @@ class _AISPolarChartState extends State<AISPolarChart>
               ? Container(
                   padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                   decoration: BoxDecoration(
-                    color: cpa < 0.5 ? Colors.red.withValues(alpha: 0.2) : Colors.orange.withValues(alpha: 0.2),
+                    color: cpa < 926 ? Colors.red.withValues(alpha: 0.2) : Colors.orange.withValues(alpha: 0.2), // 926m = 0.5nm
                     borderRadius: BorderRadius.circular(4),
                   ),
                   child: Text(
-                    'CPA ${cpa.toStringAsFixed(2)}nm',
+                    'CPA ${_convertDistance(cpa).toStringAsFixed(2)}${_getDistanceUnit()}',
                     style: TextStyle(
                       fontSize: 11,
                       fontWeight: FontWeight.w600,
-                      color: cpa < 0.5 ? Colors.red : Colors.orange,
+                      color: cpa < 926 ? Colors.red : Colors.orange, // 926m = 0.5nm
                     ),
                   ),
                 )
