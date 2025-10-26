@@ -1,6 +1,9 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 import 'services/signalk_service.dart';
@@ -14,6 +17,7 @@ import 'services/notification_service.dart';
 import 'services/foreground_service.dart';
 import 'models/auth_token.dart';
 import 'screens/splash_screen.dart';
+import 'screens/setup_management_screen.dart';
 
 void main() async {
   // Ensure Flutter bindings are initialized
@@ -114,6 +118,9 @@ class _ZedDisplayAppState extends State<ZedDisplayApp> with WidgetsBindingObserv
   bool? _lastUseSecure;
   AuthToken? _lastToken;
   late ThemeMode _themeMode;
+  static const platform = MethodChannel('com.zennora.zed_display/intent');
+  bool _shouldShowSetupManagement = false;
+  final GlobalKey<NavigatorState> _navigatorKey = GlobalKey<NavigatorState>();
 
   @override
   void initState() {
@@ -129,6 +136,53 @@ class _ZedDisplayAppState extends State<ZedDisplayApp> with WidgetsBindingObserv
 
     // Listen to storage changes for theme updates
     widget.storageService.addListener(_onStorageChanged);
+
+    // Check for shared file (Android only)
+    if (!kIsWeb && Platform.isAndroid) {
+      _checkForSharedFile();
+    }
+  }
+
+  Future<void> _checkForSharedFile() async {
+    try {
+      final String? fileContent = await platform.invokeMethod('getSharedFileContent');
+      if (fileContent != null && mounted) {
+        await _loadSharedFile(fileContent);
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error checking for shared file: $e');
+      }
+    }
+  }
+
+  Future<void> _loadSharedFile(String content) async {
+    try {
+      // Validate JSON first
+      jsonDecode(content); // Will throw if invalid
+
+      // Load the setup (expects JSON string)
+      await widget.setupService.importSetup(content);
+
+      // Schedule navigation after SplashScreen completes (2500ms + buffer)
+      Future.delayed(const Duration(milliseconds: 3000), () {
+        if (mounted && _navigatorKey.currentState != null) {
+          _navigatorKey.currentState!.push(
+            MaterialPageRoute(
+              builder: (context) => const SetupManagementScreen(),
+            ),
+          );
+        }
+      });
+
+      if (kDebugMode) {
+        print('Successfully loaded shared dashboard file');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error loading shared file: $e');
+      }
+    }
   }
 
   ThemeMode _parseThemeMode(String mode) {
@@ -241,6 +295,7 @@ class _ZedDisplayAppState extends State<ZedDisplayApp> with WidgetsBindingObserv
         ChangeNotifierProvider.value(value: widget.setupService),
       ],
       child: MaterialApp(
+        navigatorKey: _navigatorKey,
         title: 'Zed Display',
         theme: ThemeData(
           colorScheme: ColorScheme.fromSeed(

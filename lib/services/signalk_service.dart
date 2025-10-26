@@ -1006,6 +1006,13 @@ class SignalKService extends ChangeNotifier implements DataService {
     }
   }
 
+  /// Manually reload conversions from server
+  /// Useful when user changes preferences on server and wants immediate update
+  Future<void> loadConversions() async {
+    await fetchConversions();
+    notifyListeners(); // Notify UI to update
+  }
+
   /// Get conversion data for a specific path
   /// Returns null if no conversion data available for this path
   PathConversionData? getConversionDataForPath(String path) {
