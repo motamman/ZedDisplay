@@ -973,7 +973,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        '4. Polar Chart Settings',
+                        '3. Polar Chart Settings',
                         style: Theme.of(context).textTheme.titleMedium,
                       ),
                       const SizedBox(height: 16),
@@ -1009,7 +1009,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        '4. AIS Chart Settings',
+                        '3. AIS Chart Settings',
                         style: Theme.of(context).textTheme.titleMedium,
                       ),
                       const SizedBox(height: 16),
@@ -1067,7 +1067,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        '4. Chart Settings',
+                        '3. Chart Settings',
                         style: Theme.of(context).textTheme.titleMedium,
                       ),
                       const SizedBox(height: 16),
@@ -1197,10 +1197,8 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                         (_selectedToolTypeId == 'historical_chart' ||
                          _selectedToolTypeId == 'polar_radar_chart' ||
                          _selectedToolTypeId == 'ais_polar_chart')
-                            ? '5. Configure Style'
-                            : (_selectedToolTypeId == 'autopilot' || _selectedToolTypeId == 'wind_compass')
-                                ? '3. Configure Style'
-                                : '4. Configure Style',
+                            ? '4. Configure Style'
+                            : '3. Configure Style',
                         style: Theme.of(context).textTheme.titleMedium,
                       ),
                       const SizedBox(height: 16),
@@ -1223,10 +1221,8 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                         (_selectedToolTypeId == 'historical_chart' ||
                          _selectedToolTypeId == 'polar_radar_chart' ||
                          _selectedToolTypeId == 'ais_polar_chart')
-                            ? '6. Preview'
-                            : (_selectedToolTypeId == 'autopilot' || _selectedToolTypeId == 'wind_compass')
-                                ? '4. Preview'
-                                : '5. Preview',
+                            ? '5. Preview'
+                            : '4. Preview',
                         style: Theme.of(context).textTheme.titleMedium,
                       ),
                       const SizedBox(height: 16),
