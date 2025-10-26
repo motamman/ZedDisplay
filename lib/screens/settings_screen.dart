@@ -451,11 +451,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
                 const Divider(height: 1),
                 ListTile(
-                  leading: const Icon(Icons.code, color: Colors.grey),
-                  title: const Text('GitHub Repository'),
-                  subtitle: const Text('View source code'),
+                  leading: const Icon(Icons.description, color: Colors.grey),
+                  title: const Text('README'),
+                  subtitle: const Text('Documentation and getting started'),
                   trailing: const Icon(Icons.open_in_new, size: 16),
-                  onTap: () => _launchUrl('https://github.com/motamman/ZedDisplay'),
+                  onTap: () => _launchUrl('https://github.com/motamman/ZedDisplay#readme'),
                 ),
                 ListTile(
                   leading: const Icon(Icons.bug_report, color: Colors.grey),
@@ -463,6 +463,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   subtitle: const Text('Submit bugs and feature requests'),
                   trailing: const Icon(Icons.open_in_new, size: 16),
                   onTap: () => _launchUrl('https://github.com/motamman/ZedDisplay/issues'),
+                ),
+                ListTile(
+                  leading: const Icon(Icons.code, color: Colors.grey),
+                  title: const Text('GitHub Repository'),
+                  subtitle: const Text('View source code'),
+                  trailing: const Icon(Icons.open_in_new, size: 16),
+                  onTap: () => _launchUrl('https://github.com/motamman/ZedDisplay'),
                 ),
                 ListTile(
                   leading: const Icon(Icons.email, color: Colors.grey),

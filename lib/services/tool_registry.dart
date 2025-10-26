@@ -22,6 +22,7 @@ import '../widgets/tools/wind_compass_tool.dart';
 import '../widgets/tools/conversion_test_tool.dart';
 import '../widgets/tools/server_manager_tool.dart';
 import '../widgets/tools/rpi_monitor_tool.dart';
+import '../widgets/tools/webview_tool.dart';
 
 /// Abstract builder for tool widgets
 abstract class ToolBuilder {
@@ -115,5 +116,6 @@ class ToolRegistry {
     register('conversion_test', ConversionTestToolBuilder());
     register('server_manager', ServerManagerToolBuilder());
     register('rpi_monitor', RpiMonitorToolBuilder());
+    // register('webview', WebViewToolBuilder()); // Hidden for now - uncomment to enable
   }
 }
