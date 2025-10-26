@@ -1,6 +1,4 @@
-# <img src="assets/icon.png" alt="SignalK Zed Display" width="72" height="72" style="vertical-align: middle; margin-right: 20px;"> SignalK Parquet Data Store
-
-# ZedDisplay
+# <img src="assets/icon.png" alt="ZedDisplay" width="72" height="72" style="vertical-align: middle; margin-right: 20px;"> ZedDisplay
 
 A customizable SignalK marine dashboard application to display real-time vessel data with configurable tools.
  
@@ -153,7 +151,7 @@ A customizable SignalK marine dashboard application to display real-time vessel 
 
 1. **Clone the repository**
    ```bash
-   git clone https://github.com/YOUR_USERNAME/ZedDisplay.git
+   git clone https://github.com/motamman/ZedDisplay.git
    cd ZedDisplay
    ```
 
