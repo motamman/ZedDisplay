@@ -8,6 +8,7 @@ import '../services/signalk_service.dart';
 import '../services/tool_registry.dart';
 import '../services/tool_service.dart';
 import '../widgets/config/path_selector.dart';
+import '../widgets/config/configure_data_source_dialog.dart';
 import '../widgets/config/source_selector.dart';
 
 /// Screen for configuring a tool
@@ -396,10 +397,8 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
   Future<void> _addDataSource() async {
     final signalKService = Provider.of<SignalKService>(context, listen: false);
     String? selectedPath;
-    String? selectedSource;
-    String? customLabel;
 
-    // Path selection dialog
+    // Step 1: Select path
     await showDialog(
       context: context,
       builder: (context) => PathSelectorDialog(
@@ -411,58 +410,25 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
       ),
     );
 
-    if (selectedPath == null) return;
+    if (selectedPath == null || !mounted) return;
 
-    // Source selection dialog (optional)
-    if (mounted) {
-      await showDialog(
-        context: context,
-        builder: (context) => SourceSelectorDialog(
-          signalKService: signalKService,
+    // Step 2: Configure source and label
+    final config = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (context) => ConfigureDataSourceDialog(
+        signalKService: signalKService,
+        path: selectedPath!,
+      ),
+    );
+
+    if (config != null && mounted) {
+      setState(() {
+        _dataSources.add(DataSource(
           path: selectedPath!,
-          currentSource: null,
-          onSelect: (source) {
-            selectedSource = source;
-          },
-        ),
-      );
-    }
-
-    // Label input dialog
-    if (mounted) {
-      await showDialog(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: const Text('Custom Label'),
-          content: TextField(
-            decoration: const InputDecoration(
-              labelText: 'Label (optional)',
-              helperText: 'Leave empty to auto-generate from path',
-            ),
-            autofocus: true,
-            onChanged: (value) => customLabel = value,
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('Cancel'),
-            ),
-            TextButton(
-              onPressed: () {
-                setState(() {
-                  _dataSources.add(DataSource(
-                    path: selectedPath!,
-                    source: selectedSource,
-                    label: customLabel?.trim().isEmpty == true ? null : customLabel,
-                  ));
-                });
-                Navigator.of(context).pop();
-              },
-              child: const Text('Add'),
-            ),
-          ],
-        ),
-      );
+          source: config['source'] as String?,
+          label: config['label'] as String?,
+        ));
+      });
     }
   }
 
