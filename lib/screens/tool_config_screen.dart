@@ -888,7 +888,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
             ),
             const SizedBox(height: 16),
 
-            // Size Configuration (hide for gauges, controls, and specialized tools - use pixel positioning)
+            // Size Configuration (hide for all tools - using pixel positioning instead of grid layout)
             if (_selectedToolTypeId != null &&
                 _selectedToolTypeId != 'autopilot' &&
                 _selectedToolTypeId != 'wind_compass' &&
@@ -901,7 +901,12 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                 _selectedToolTypeId != 'knob' &&
                 _selectedToolTypeId != 'switch' &&
                 _selectedToolTypeId != 'checkbox' &&
-                _selectedToolTypeId != 'dropdown')
+                _selectedToolTypeId != 'dropdown' &&
+                _selectedToolTypeId != 'historical_chart' &&
+                _selectedToolTypeId != 'polar_radar_chart' &&
+                _selectedToolTypeId != 'ais_polar_chart' &&
+                _selectedToolTypeId != 'realtime_chart' &&
+                _selectedToolTypeId != 'radial_bar_chart')
               Card(
                 child: Padding(
                   padding: const EdgeInsets.all(16),

@@ -46,7 +46,7 @@ class HistoricalDataService {
       'start': 'now',
       'duration': duration,
       'paths': pathsParam,
-      'convertUnits': 'true',
+      'convertUnits': 'false', // Get raw SI units for client-side conversion
       'convertTimesToLocal': 'true',
     };
 
@@ -119,7 +119,7 @@ class HistoricalDataService {
       'from': from.toIso8601String(),
       'to': to.toIso8601String(),
       'paths': pathsParam,
-      'convertUnits': 'true',
+      'convertUnits': 'false', // Get raw SI units for client-side conversion
       'convertTimesToLocal': 'true',
     };
 
@@ -162,7 +162,7 @@ class HistoricalDataService {
   /// Get available paths from the history API
   Future<List<String>> getAvailablePaths() async {
     final protocol = useSecureConnection ? 'https' : 'http';
-    final uri = Uri.parse('$protocol://$serverUrl/signalk/v1/history/paths?convertUnits=true&convertTimesToLocal=true');
+    final uri = Uri.parse('$protocol://$serverUrl/signalk/v1/history/paths');
 
     if (kDebugMode) {
       print('Fetching available paths from: $uri');
