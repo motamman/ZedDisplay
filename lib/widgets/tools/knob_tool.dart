@@ -7,6 +7,7 @@ import '../../services/signalk_service.dart';
 import '../../services/tool_registry.dart';
 import '../../utils/string_extensions.dart';
 import '../../utils/color_extensions.dart';
+import '../../utils/conversion_utils.dart';
 import 'mixins/control_tool_mixin.dart';
 import 'common/control_tool_layout.dart';
 
@@ -37,7 +38,6 @@ class _KnobToolState extends State<KnobTool> with ControlToolMixin {
     }
 
     final dataSource = widget.config.dataSources.first;
-    final dataPoint = widget.signalKService.getValue(dataSource.path, source: dataSource.source);
     final style = widget.config.style;
 
     // Get min/max values from style config
@@ -49,8 +49,8 @@ class _KnobToolState extends State<KnobTool> with ControlToolMixin {
     if (_currentKnobValue != null) {
       currentValue = _currentKnobValue!;
     } else {
-      // Use converted value if available (from units-preference plugin)
-      final convertedValue = widget.signalKService.getConvertedValue(dataSource.path);
+      // Use client-side conversions
+      final convertedValue = ConversionUtils.getConvertedValue(widget.signalKService, dataSource.path);
       if (convertedValue != null) {
         currentValue = convertedValue;
       } else {
@@ -69,8 +69,12 @@ class _KnobToolState extends State<KnobTool> with ControlToolMixin {
       fallback: Theme.of(context).colorScheme.primary
     ) ?? Theme.of(context).colorScheme.primary;
 
-    // Get unit
-    final unit = style.unit ?? dataPoint?.symbol ?? '';
+    // Get unit symbol from conversion info
+    final availableUnits = widget.signalKService.getAvailableUnits(dataSource.path);
+    final conversionInfo = availableUnits.isNotEmpty
+        ? widget.signalKService.getConversionInfo(dataSource.path, availableUnits.first)
+        : null;
+    final unit = style.unit ?? conversionInfo?.symbol ?? '';
 
     // Get decimal places from customProperties
     final decimalPlaces = style.customProperties?['decimalPlaces'] as int? ?? 1;

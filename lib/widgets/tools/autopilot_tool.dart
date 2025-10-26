@@ -6,6 +6,7 @@ import '../../models/tool_config.dart';
 import '../../services/signalk_service.dart';
 import '../../services/tool_registry.dart';
 import '../../utils/color_extensions.dart';
+import '../../utils/conversion_utils.dart';
 import '../../config/ui_constants.dart';
 import '../autopilot_widget.dart';
 
@@ -48,14 +49,6 @@ class _AutopilotToolState extends State<AutopilotTool> {
   double? _crossTrackError;
   bool _isSailingVessel = true; // Default to true to show wind options unless we know otherwise
 
-  // Adaptive polling - fast after commands, slow during monitoring
-  Timer? _pollingTimer;
-  DateTime? _lastCommandTime;
-  DateTime? _lastOptimisticUpdate; // Track when we did an optimistic UI update
-  static const Duration _fastPollingInterval = UIConstants.fastPolling;
-  static const Duration _slowPollingInterval = UIConstants.slowPolling;
-  static const Duration _fastPollingDuration = UIConstants.fastPollingDuration;
-  static const Duration _optimisticUpdateWindow = UIConstants.optimisticUpdateWindow;
 
   @override
   void initState() {
@@ -68,16 +61,12 @@ class _AutopilotToolState extends State<AutopilotTool> {
     Future.delayed(const Duration(milliseconds: 500), () {
       if (mounted) {
         _onSignalKUpdate();
-        // REST polling disabled - causes server overload and doesn't support sources
-        // WebSocket deltas are the primary and reliable data source
-        // _startPolling();
       }
     });
   }
 
   @override
   void dispose() {
-    _pollingTimer?.cancel();
     widget.signalKService.removeListener(_onSignalKUpdate);
     super.dispose();
   }
@@ -92,130 +81,21 @@ class _AutopilotToolState extends State<AutopilotTool> {
       'steering.autopilot.target.windAngleApparent',
       'navigation.headingTrue',
       'environment.wind.angleTrueWater',
-      'navigation.course.calcValues.bearingMagnetic',
-      'navigation.course.calcValues.bearingTrue',
-      'navigation.courseGreatCircle.nextPoint.position',
-      'navigation.course.calcValues.distance',
-      'navigation.course.calcValues.timeToGo',
-      'navigation.course.calcValues.estimatedTimeOfArrival',
+      // COMMENTED OUT - Expensive route calculations causing server CPU overload
+      // 'navigation.course.calcValues.bearingMagnetic',
+      // 'navigation.course.calcValues.bearingTrue',
+      // 'navigation.courseGreatCircle.nextPoint.position',
+      // 'navigation.course.calcValues.distance',
+      // 'navigation.course.calcValues.timeToGo',
+      // 'navigation.course.calcValues.estimatedTimeOfArrival',
       'design.aisShipType', // Vessel type to determine if sailing
     ];
 
     // Combine configured paths with additional paths (removing duplicates)
     final allPaths = {...configuredPaths, ...additionalPaths}.toList();
 
-    widget.signalKService.subscribeToPaths(allPaths);
-  }
-
-  /// Get the current polling interval based on recent command activity
-  Duration _getPollingInterval() {
-    if (_lastCommandTime == null) return _slowPollingInterval;
-
-    final timeSinceCommand = DateTime.now().difference(_lastCommandTime!);
-    if (timeSinceCommand < _fastPollingDuration) {
-      return _fastPollingInterval;
-    }
-    return _slowPollingInterval;
-  }
-
-  /// Notify that a command was sent (called by autopilot widget)
-  void onCommandSent() {
-    _lastCommandTime = DateTime.now();
-    // Restart polling with fast interval
-    _restartPolling();
-  }
-
-  /// Restart polling with current interval
-  void _restartPolling() {
-    _pollingTimer?.cancel();
-    _scheduleNextPoll();
-  }
-
-  /// Schedule the next poll
-  void _scheduleNextPoll() {
-    if (!mounted) return;
-
-    final interval = _getPollingInterval();
-    _pollingTimer = Timer(interval, () async {
-      if (!mounted) return;
-
-      try {
-        await _pollAutopilotState();
-      } catch (e) {
-        if (kDebugMode) {
-          print('Error polling autopilot state: $e');
-        }
-      }
-
-      // Schedule next poll
-      _scheduleNextPoll();
-    });
-  }
-
-  /// Start adaptive polling autopilot state via REST API as fallback
-  /// Polls every 5s after commands, 30s during normal monitoring
-  void _startPolling() {
-    if (kDebugMode) {
-      print('Started adaptive autopilot polling (5s after commands, 30s normally)');
-    }
-    _scheduleNextPoll();
-  }
-
-  /// Poll autopilot state from REST API
-  Future<void> _pollAutopilotState() async {
-    try {
-      // Use the SignalK service to fetch current autopilot state
-      // Wrap each call individually to handle timeouts gracefully
-      final stateValue = await widget.signalKService.getRestValue('steering.autopilot.state')
-          .timeout(const Duration(seconds: 8), onTimeout: () => null);
-
-      final targetValue = await widget.signalKService.getRestValue('steering.autopilot.target.headingMagnetic')
-          .timeout(const Duration(seconds: 8), onTimeout: () => null);
-
-      if (!mounted) return;
-
-      bool stateChanged = false;
-
-      setState(() {
-        // Update state if we got a value from REST API
-        if (stateValue != null) {
-          final rawMode = stateValue.toString();
-          final newMode = rawMode.isNotEmpty
-              ? rawMode[0].toUpperCase() + rawMode.substring(1).toLowerCase()
-              : 'Standby';
-
-          if (newMode != _mode) {
-            if (kDebugMode) {
-              print('📡 Autopilot state from REST API: $_mode -> $newMode');
-            }
-            _mode = newMode;
-            stateChanged = true;
-          }
-
-          // Update engaged status
-          final newEngaged = _mode.toLowerCase() != 'standby';
-          if (newEngaged != _engaged) {
-            _engaged = newEngaged;
-          stateChanged = true;
-        }
-      }
-
-      // Update target heading from REST API
-      if (targetValue != null && targetValue is num) {
-        _targetHeading = _radiansToDegrees(targetValue);
-      }
-    });
-
-    if (stateChanged && kDebugMode) {
-      print('State updated from REST polling: mode=$_mode, engaged=$_engaged');
-    }
-    } catch (e) {
-      // Silently ignore polling errors - WebSocket deltas are primary data source
-      // Only log in debug mode to avoid console spam
-      if (kDebugMode) {
-        print('Autopilot polling error (non-critical): $e');
-      }
-    }
+    // Use autopilot-specific subscription (standard SignalK stream, not units-preference)
+    widget.signalKService.subscribeToAutopilotPaths(allPaths);
   }
 
   /// Update local state from SignalK data
@@ -240,18 +120,12 @@ class _AutopilotToolState extends State<AutopilotTool> {
               ? rawMode[0].toUpperCase() + rawMode.substring(1).toLowerCase()
               : 'Standby';
 
-          // Ignore WebSocket updates for a few seconds after optimistic update
-          // This prevents stale deltas from undoing our optimistic UI
-          final shouldIgnoreWebSocket = _lastOptimisticUpdate != null &&
-              DateTime.now().difference(_lastOptimisticUpdate!) < _optimisticUpdateWindow;
-
-          if (newMode != _mode && !shouldIgnoreWebSocket) {
+          if (newMode != _mode) {
             if (kDebugMode) {
               print('🌊 Autopilot state from WebSocket delta: $_mode -> $newMode (raw: $rawMode)');
             }
             _mode = newMode;
           }
-          // Don't log ignored deltas - happens too frequently and floods console
         }
         // Don't log missing data - normal when autopilot is off or not configured
       }
@@ -289,40 +163,35 @@ class _AutopilotToolState extends State<AutopilotTool> {
 
       // 3: Target heading (REQUIRED)
       if (dataSources.length > 3) {
-        final targetData = widget.signalKService.getValue(
+        final converted = ConversionUtils.getConvertedValue(
+          widget.signalKService,
           dataSources[3].path,
-          source: dataSources[3].source,
         );
-        if (targetData?.value != null) {
-          // Value is already in degrees from units-preference plugin
-          _targetHeading = (targetData!.value as num).toDouble();
+        if (converted != null) {
+          _targetHeading = converted;
         }
       }
 
-      // 4: Current heading (REQUIRED) - THIS IS THE KEY ONE!
+      // 4: Current heading (REQUIRED)
       if (dataSources.length > 4) {
-        final headingData = widget.signalKService.getValue(
+        final converted = ConversionUtils.getConvertedValue(
+          widget.signalKService,
           dataSources[4].path,
-          source: 'can0.115', // HARDCODED FOR TESTING
         );
-        if (headingData?.value != null) {
-          // Value is already in degrees from units-preference plugin's converted field
-          final newHeading = (headingData!.value as num).toDouble();
-          _currentHeading = newHeading;
+        if (converted != null) {
+          _currentHeading = converted;
         }
-        // Don't log missing data - normal during startup or when disconnected
       }
 
       // 5: Rudder angle (REQUIRED)
       if (dataSources.length > 5) {
-        final rudderData = widget.signalKService.getValue(
+        final converted = ConversionUtils.getConvertedValue(
+          widget.signalKService,
           dataSources[5].path,
-          source: dataSources[5].source,
         );
-        if (rudderData?.value != null) {
-          // Value is already in degrees from units-preference plugin
+        if (converted != null) {
           // Invert by default (positive rudder = turn right = card turns left visually)
-          _rudderAngle = -(rudderData!.value as num).toDouble();
+          _rudderAngle = -converted;
 
           // Apply additional invert rudder config if set (for double-negative = normal)
           final invertRudder = widget.config.style.customProperties?['invertRudder'] as bool? ?? false;
@@ -334,13 +203,12 @@ class _AutopilotToolState extends State<AutopilotTool> {
 
       // 6: Apparent wind angle (optional)
       if (dataSources.length > 6) {
-        final awaData = widget.signalKService.getValue(
+        final converted = ConversionUtils.getConvertedValue(
+          widget.signalKService,
           dataSources[6].path,
-          source: dataSources[6].source,
         );
-        if (awaData?.value != null) {
-          // Value is already in degrees from units-preference plugin
-          _apparentWindAngle = (awaData!.value as num).toDouble();
+        if (converted != null) {
+          _apparentWindAngle = converted;
         }
       }
 
@@ -357,17 +225,21 @@ class _AutopilotToolState extends State<AutopilotTool> {
 
       // Additional paths not in config but subscribed
       // True heading (optional)
-      final headingTrueData = widget.signalKService.getValue('navigation.headingTrue');
-      if (headingTrueData?.value != null) {
-        // Value is already in degrees from units-preference plugin
-        _currentHeadingTrue = (headingTrueData!.value as num).toDouble();
+      final convertedHeadingTrue = ConversionUtils.getConvertedValue(
+        widget.signalKService,
+        'navigation.headingTrue',
+      );
+      if (convertedHeadingTrue != null) {
+        _currentHeadingTrue = convertedHeadingTrue;
       }
 
       // True wind angle (optional)
-      final twaData = widget.signalKService.getValue('environment.wind.angleTrueWater');
-      if (twaData?.value != null) {
-        // Value is already in degrees from units-preference plugin
-        _trueWindAngle = (twaData!.value as num).toDouble();
+      final convertedTwa = ConversionUtils.getConvertedValue(
+        widget.signalKService,
+        'environment.wind.angleTrueWater',
+      );
+      if (convertedTwa != null) {
+        _trueWindAngle = convertedTwa;
       }
 
       // Vessel type (to determine if sailing)
@@ -385,11 +257,6 @@ class _AutopilotToolState extends State<AutopilotTool> {
         }
       }
     });
-  }
-
-  /// Convert radians to degrees
-  double _radiansToDegrees(num radians) {
-    return (radians * 180 / 3.14159265359) % 360;
   }
 
   /// Send V1 autopilot command via PUT request
@@ -437,40 +304,18 @@ class _AutopilotToolState extends State<AutopilotTool> {
     if (_engaged) {
       // Disengage: set to standby
       await _sendV1Command('steering.autopilot.state', 'standby');
-      // Only update UI after command succeeds
-      if (mounted) {
-        setState(() {
-          _mode = 'Standby';
-          _engaged = false;
-          _lastOptimisticUpdate = DateTime.now(); // Block WebSocket for 3s
-        });
-      }
+      // UI will update when WebSocket delta confirms state change
     } else {
       // Engage: set to auto mode
       await _sendV1Command('steering.autopilot.state', 'auto');
-      // Only update UI after command succeeds
-      if (mounted) {
-        setState(() {
-          _mode = 'Auto';
-          _engaged = true;
-          _lastOptimisticUpdate = DateTime.now(); // Block WebSocket for 3s
-        });
-      }
+      // UI will update when WebSocket delta confirms state change
     }
   }
 
   /// Handle mode change
   void _handleModeChange(String mode) async {
     await _sendV1Command('steering.autopilot.state', mode.toLowerCase());
-    // Only update UI after command succeeds
-    if (mounted) {
-      setState(() {
-        final capitalizedMode = mode[0].toUpperCase() + mode.substring(1).toLowerCase();
-        _mode = capitalizedMode;
-        _engaged = mode.toLowerCase() != 'standby';
-        _lastOptimisticUpdate = DateTime.now(); // Block WebSocket for 3s
-      });
-    }
+    // UI will update when WebSocket delta confirms state change
   }
 
   /// Handle heading adjustment

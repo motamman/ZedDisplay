@@ -406,9 +406,9 @@ class _SetupManagementScreenState extends State<SetupManagementScreen> {
       // Export to JSON
       final jsonString = setupService.exportToJson(setup);
 
-      // Create a temporary file
+      // Create a temporary file with .zedjson extension
       final directory = await getTemporaryDirectory();
-      final file = File('${directory.path}/${setupRef.name.replaceAll(' ', '_')}.json');
+      final file = File('${directory.path}/${setupRef.name.replaceAll(' ', '_')}.zedjson');
       await file.writeAsString(jsonString);
 
       // Share the file
@@ -473,7 +473,7 @@ class _SetupManagementScreenState extends State<SetupManagementScreen> {
       try {
         final result = await FilePicker.platform.pickFiles(
           type: FileType.custom,
-          allowedExtensions: ['json'],
+          allowedExtensions: ['zedjson', 'json'],
           allowMultiple: false,
         );
 

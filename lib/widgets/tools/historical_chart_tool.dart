@@ -137,6 +137,7 @@ class _HistoricalChartToolState extends State<HistoricalChartTool> with Automati
         final chartSeries = ChartDataSeries.fromHistoricalData(
           response,
           dataSource.path,
+          signalKService: widget.signalKService,
         );
         if (kDebugMode) {
           if (chartSeries == null) {

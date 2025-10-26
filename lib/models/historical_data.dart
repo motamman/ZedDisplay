@@ -1,3 +1,6 @@
+import '../services/signalk_service.dart';
+import '../utils/conversion_utils.dart';
+
 /// Model classes for SignalK Historical Data from signalk-parquet History API
 class HistoricalDataResponse {
   final String context;
@@ -104,11 +107,12 @@ class ChartDataSeries {
     this.maxValue,
   });
 
-  /// Extract a series from historical data response
+  /// Extract a series from historical data response with optional client-side unit conversion
   static ChartDataSeries? fromHistoricalData(
     HistoricalDataResponse response,
     String path, {
     String method = 'average',
+    SignalKService? signalKService,
   }) {
     // Find the index of this path in the values array
     final valueIndex = response.values.indexWhere(
@@ -127,17 +131,23 @@ class ChartDataSeries {
       if (valueIndex < row.values.length) {
         final value = row.values[valueIndex];
         if (value is num) {
-          final doubleValue = value.toDouble();
+          final rawValue = value.toDouble();
+
+          // Apply client-side conversion if service is provided
+          final convertedValue = signalKService != null
+              ? ConversionUtils.convertValue(signalKService, path, rawValue) ?? rawValue
+              : rawValue;
+
           points.add(ChartDataPoint(
             timestamp: row.timestamp,
-            value: doubleValue,
+            value: convertedValue,
           ));
 
-          if (min == null || doubleValue < min) {
-            min = doubleValue;
+          if (min == null || convertedValue < min) {
+            min = convertedValue;
           }
-          if (max == null || doubleValue > max) {
-            max = doubleValue;
+          if (max == null || convertedValue > max) {
+            max = convertedValue;
           }
         }
       }

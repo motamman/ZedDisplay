@@ -103,10 +103,12 @@ class _HistoricalChartScreenState extends State<HistoricalChartScreen> {
       );
 
       final series = <ChartDataSeries>[];
+      final signalKService = context.read<SignalKService>();
       for (final path in _selectedPaths) {
         final chartSeries = ChartDataSeries.fromHistoricalData(
           response,
           path,
+          signalKService: signalKService,
         );
         if (chartSeries != null) {
           series.add(chartSeries);

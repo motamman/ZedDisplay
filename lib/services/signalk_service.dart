@@ -8,6 +8,7 @@ import 'package:web_socket_channel/io.dart';
 import 'package:http/http.dart' as http;
 import '../models/signalk_data.dart';
 import '../models/auth_token.dart';
+import '../utils/conversion_utils.dart';
 import 'zones_cache_service.dart';
 import 'interfaces/data_service.dart';
 
@@ -16,6 +17,10 @@ class SignalKService extends ChangeNotifier implements DataService {
   // Main data WebSocket (units-preference endpoint)
   WebSocketChannel? _channel;
   StreamSubscription? _subscription;
+
+  // Autopilot WebSocket (standard endpoint for autopilot data)
+  WebSocketChannel? _autopilotChannel;
+  StreamSubscription? _autopilotSubscription;
 
   // Separate notification WebSocket (standard endpoint)
   WebSocketChannel? _notificationChannel;
@@ -29,12 +34,20 @@ class SignalKService extends ChangeNotifier implements DataService {
   static const int _maxReconnectAttempts = 5;
   bool _intentionalDisconnect = false;
 
+  // AIS periodic refresh
+  Timer? _aisRefreshTimer;
+
   // Data storage - keeps latest value for each path
   final Map<String, SignalKDataPoint> _latestData = {};
 
+  // Conversion data - unit conversion formulas from server
+  final Map<String, PathConversionData> _conversionsData = {};
+
   // Active subscriptions - only paths currently needed by UI
   final Set<String> _activePaths = {};
+  final Set<String> _autopilotPaths = {}; // Separate tracking for autopilot paths
   String? _vesselContext;
+  bool _aisInitialLoadDone = false;
 
   // Notifications
   bool _notificationsEnabled = false;
@@ -54,6 +67,7 @@ class SignalKService extends ChangeNotifier implements DataService {
   bool get isConnected => _isConnected;
   String? get errorMessage => _errorMessage;
   Map<String, SignalKDataPoint> get latestData => Map.unmodifiable(_latestData);
+  Map<String, PathConversionData> get conversionsData => Map.unmodifiable(_conversionsData);
   String get serverUrl => _serverUrl;
   bool get useSecureConnection => _useSecureConnection;
   bool get notificationsEnabled => _notificationsEnabled;
@@ -154,6 +168,9 @@ class SignalKService extends ChangeNotifier implements DataService {
       // The auth token is used only for HTTP requests to the API
       // The WebSocket connection is already authenticated at the HTTP upgrade level
 
+      // Fetch conversion formulas from server
+      await fetchConversions();
+
       // Subscribe to paths immediately
       await _sendSubscription();
 
@@ -180,7 +197,8 @@ class SignalKService extends ChangeNotifier implements DataService {
     return headers;
   }
 
-  /// Discover WebSocket endpoint for DATA (always units-preference when authenticated)
+  /// Discover WebSocket endpoint - ALWAYS use standard SignalK stream
+  /// Client-side conversions are applied using formulas from /signalk/v1/conversions
   Future<String> _discoverWebSocketEndpoint() async {
     final wsProtocol = _useSecureConnection ? 'wss' : 'ws';
 
@@ -190,19 +208,12 @@ class SignalKService extends ChangeNotifier implements DataService {
       print('Server URL: $_serverUrl (secure: $_useSecureConnection)');
     }
 
-    // Use units-preference endpoint if authenticated (for unit conversions)
-    if (_authToken != null) {
-      final endpoint = '$wsProtocol://$_serverUrl/plugins/signalk-units-preference/stream';
-      if (kDebugMode) {
-        print('Using units-preference endpoint (authenticated): $endpoint');
-      }
-      return endpoint;
-    }
-
-    // Fallback to standard SignalK stream
-    final endpoint = '$wsProtocol://$_serverUrl/signalk/v1/stream?subscribe=self';
+    // ALWAYS use standard SignalK stream (no units-preference plugin)
+    // Conversions are applied client-side using formulas from /signalk/v1/conversions
+    final endpoint = '$wsProtocol://$_serverUrl/signalk/v1/stream';
     if (kDebugMode) {
-      print('Using standard endpoint (no auth): $endpoint');
+      print('Using standard SignalK stream: $endpoint');
+      print('Client-side conversions enabled via /signalk/v1/conversions');
     }
     return endpoint;
   }
@@ -211,6 +222,71 @@ class SignalKService extends ChangeNotifier implements DataService {
   String _getNotificationEndpoint() {
     final wsProtocol = _useSecureConnection ? 'wss' : 'ws';
     return '$wsProtocol://$_serverUrl/signalk/v1/stream?subscribe=none';
+  }
+
+  /// Get autopilot WebSocket endpoint (always standard SignalK stream)
+  String _getAutopilotEndpoint() {
+    final wsProtocol = _useSecureConnection ? 'wss' : 'ws';
+    return '$wsProtocol://$_serverUrl/signalk/v1/stream';
+  }
+
+  /// Connect autopilot channel to standard SignalK stream
+  Future<void> _connectAutopilotChannel() async {
+    if (_autopilotChannel != null) {
+      if (kDebugMode) {
+        print('Autopilot channel already connected');
+      }
+      return;
+    }
+
+    try {
+      final wsUrl = _getAutopilotEndpoint();
+
+      if (kDebugMode) {
+        print('Connecting autopilot channel to standard stream: $wsUrl');
+      }
+
+      if (_authToken != null) {
+        final headers = <String, String>{
+          'Authorization': 'Bearer ${_authToken!.token}',
+        };
+        final socket = await WebSocket.connect(wsUrl, headers: headers);
+        socket.pingInterval = const Duration(seconds: 30);
+        _autopilotChannel = IOWebSocketChannel(socket);
+      } else {
+        _autopilotChannel = WebSocketChannel.connect(Uri.parse(wsUrl));
+      }
+
+      // Listen to autopilot messages (same handler as main channel for data)
+      _autopilotSubscription = _autopilotChannel!.stream.listen(
+        _handleMessage,
+        onError: (error) {
+          if (kDebugMode) {
+            print('Autopilot channel error: $error');
+          }
+        },
+        onDone: () {
+          if (kDebugMode) {
+            print('Autopilot channel disconnected');
+          }
+          _autopilotChannel = null;
+          _autopilotSubscription = null;
+        },
+      );
+
+      if (kDebugMode) {
+        print('Autopilot channel connected successfully');
+      }
+
+      // Send subscription for autopilot paths if any exist
+      await _sendAutopilotSubscription();
+    } catch (e) {
+      if (kDebugMode) {
+        print('Failed to connect autopilot channel: $e');
+      }
+      _autopilotChannel = null;
+      _autopilotSubscription = null;
+    }
   }
 
   /// Send WebSocket authentication with token
@@ -281,6 +357,18 @@ class SignalKService extends ChangeNotifier implements DataService {
       return;
     }
 
+    // Check if paths have actually changed
+    final pathsSet = Set<String>.from(paths);
+    final currentPathsSet = Set<String>.from(_activePaths);
+
+    if (pathsSet.length == currentPathsSet.length &&
+        pathsSet.containsAll(currentPathsSet)) {
+      if (kDebugMode) {
+        print('Template paths unchanged, skipping re-subscription');
+      }
+      return;
+    }
+
     // Clear old subscriptions and set new ones
     _activePaths.clear();
     _activePaths.addAll(paths);
@@ -298,6 +386,19 @@ class SignalKService extends ChangeNotifier implements DataService {
       // Verbose logging disabled - only log errors
 
       final data = jsonDecode(message);
+
+      // Handle plain string messages (server warnings/info)
+      if (data is String) {
+        if (kDebugMode) {
+          print('Server message: $data');
+        }
+        return;
+      }
+
+      // Must be a Map to process
+      if (data is! Map<String, dynamic>) {
+        return;
+      }
 
       // if (kDebugMode) {
       //   print('Decoded message keys: ${data.keys.toList()}');
@@ -349,35 +450,45 @@ class SignalKService extends ChangeNotifier implements DataService {
           for (final value in updateValue.values) {
             SignalKDataPoint dataPoint;
 
-            // Check if value is from units-preference plugin (has converted format)
+            // Check if value is from units-preference plugin (has converted/original/formatted fields)
             if (value.value is Map<String, dynamic>) {
               final valueMap = value.value as Map<String, dynamic>;
 
-              // Extract values from plugin response
-              final convertedValue = valueMap['converted'];
-              final originalValue = valueMap['original'];
-              final formattedString = valueMap['formatted'] as String?;
-              final symbolString = valueMap['symbol'] as String?;
+              // Check if this is actually units-preference format (has converted/original keys)
+              // vs a regular object value like position {longitude, latitude}
+              final isUnitsPreference = valueMap.containsKey('converted') ||
+                                       valueMap.containsKey('original') ||
+                                       valueMap.containsKey('formatted');
 
-              // For numeric values, use converted number for charts/gauges
-              // For objects (like position), keep as-is
-              final numericValue = convertedValue is num ? convertedValue.toDouble() : null;
+              if (isUnitsPreference) {
+                // Units-preference format - extract converted values
+                final convertedValue = valueMap['converted'];
+                final originalValue = valueMap['original'];
+                final formattedString = valueMap['formatted'] as String?;
+                final symbolString = valueMap['symbol'] as String?;
 
-              dataPoint = SignalKDataPoint(
-                path: value.path,
-                value: numericValue ?? convertedValue ?? originalValue, // Prefer numeric converted, fallback to object/original
-                timestamp: updateValue.timestamp,
-                converted: numericValue, // Numeric converted value for charts/gauges
-                formatted: formattedString, // Display string like "12.6 kn" for labels
-                symbol: symbolString, // Unit symbol like "kn"
-                original: originalValue, // Raw SI value
-              );
+                // For numeric values, use converted number for charts/gauges
+                final numericValue = convertedValue is num ? convertedValue.toDouble() : null;
 
-              // if (kDebugMode && numericValue != null) {
-              //   print('${value.path}: original=$originalValue -> converted=$numericValue (formatted: $formattedString)');
-              // }
+                dataPoint = SignalKDataPoint(
+                  path: value.path,
+                  value: numericValue ?? convertedValue ?? originalValue,
+                  timestamp: updateValue.timestamp,
+                  converted: numericValue,
+                  formatted: formattedString,
+                  symbol: symbolString,
+                  original: originalValue,
+                );
+              } else {
+                // Regular object value (like position) - NOT units-preference format
+                dataPoint = SignalKDataPoint(
+                  path: value.path,
+                  value: valueMap, // Keep the object as-is
+                  timestamp: updateValue.timestamp,
+                );
+              }
             } else {
-              // Standard SignalK format (raw SI values, no conversion)
+              // Standard SignalK format - scalar value
               dataPoint = SignalKDataPoint(
                 path: value.path,
                 value: value.value,
@@ -411,9 +522,11 @@ class SignalKService extends ChangeNotifier implements DataService {
 
         notifyListeners();
       }
-    } catch (e) {
+    } catch (e, stackTrace) {
       if (kDebugMode) {
         print('Error parsing message: $e');
+        print('Stack trace: $stackTrace');
+        print('Raw message: $message');
       }
     }
   }
@@ -659,9 +772,23 @@ class SignalKService extends ChangeNotifier implements DataService {
         final lon = position['longitude'];
 
         if (lat is num && lon is num) {
-          // Get COG and SOG (already converted by units-preference)
-          final cog = _latestData['$vesselContext.navigation.courseOverGroundTrue']?.converted;
-          final sog = _latestData['$vesselContext.navigation.speedOverGround']?.converted;
+          // Get COG (raw value from standard stream)
+          final cogData = _latestData['$vesselContext.navigation.courseOverGroundTrue'];
+          double? cog;
+          if (cogData?.value is num) {
+            final rawCog = (cogData!.value as num).toDouble();
+            // Apply conversion using server formula (use path without vessel context)
+            cog = _convertValueForPath('navigation.courseOverGroundTrue', rawCog);
+          }
+
+          // Get SOG (raw value from standard stream)
+          final sogData = _latestData['$vesselContext.navigation.speedOverGround'];
+          double? sog;
+          if (sogData?.value is num) {
+            final rawSog = (sogData!.value as num).toDouble();
+            // Apply conversion using server formula (use path without vessel context)
+            sog = _convertValueForPath('navigation.speedOverGround', rawSog);
+          }
 
           // Get vessel name
           final name = _latestData['$vesselContext.name']?.value as String?;
@@ -672,6 +799,8 @@ class SignalKService extends ChangeNotifier implements DataService {
             'name': name,
             'cog': cog,
             'sog': sog,
+            'timestamp': positionData.timestamp,
+            'fromGET': positionData.fromGET, // Read from data point
           };
         }
       }
@@ -681,13 +810,13 @@ class SignalKService extends ChangeNotifier implements DataService {
   }
 
   /// Get all AIS vessels with their positions from REST API
-  /// Uses units-preference endpoint for converted units
+  /// Uses standard SignalK endpoint and applies client-side conversions
   Future<Map<String, Map<String, dynamic>>> getAllAISVessels() async {
     final vessels = <String, Map<String, dynamic>>{};
     final protocol = _useSecureConnection ? 'https' : 'http';
 
-    // Use units-preference converted endpoint
-    final endpoint = '$protocol://$_serverUrl/signalk/v1/vessels';
+    // Use standard SignalK vessels endpoint
+    final endpoint = '$protocol://$_serverUrl/signalk/v1/api/vessels';
 
     if (kDebugMode) {
       print('🌐 Fetching AIS vessels from: $endpoint');
@@ -707,20 +836,15 @@ class SignalKService extends ChangeNotifier implements DataService {
       }
 
       if (response.statusCode == 200) {
-        final data = jsonDecode(response.body) as Map<String, dynamic>;
-        final vesselsData = data['vessels'] as Map<String, dynamic>?;
+        // Response has vessels at root level, NOT wrapped in 'vessels' object
+        final vesselsData = jsonDecode(response.body) as Map<String, dynamic>;
 
         if (kDebugMode) {
-          print('🌐 Received ${vesselsData?.length ?? 0} vessel entries');
-        }
-
-        if (vesselsData == null) {
-          return vessels;
+          print('🌐 Received ${vesselsData.length} vessel entries');
         }
 
         for (final entry in vesselsData.entries) {
           final vesselId = entry.key;
-
           final vesselData = entry.value as Map<String, dynamic>?;
           if (vesselData != null) {
             // Get position (already in lat/lon format, no .value wrapper)
@@ -728,31 +852,41 @@ class SignalKService extends ChangeNotifier implements DataService {
             final position = navigation?['position'] as Map<String, dynamic>?;
 
             if (position != null) {
-              final lat = position['latitude'];
-              final lon = position['longitude'];
+              // GET response wraps lat/lon in 'value' field
+              final positionValue = position['value'] as Map<String, dynamic>?;
+              final lat = positionValue?['latitude'];
+              final lon = positionValue?['longitude'];
 
               if (lat is num && lon is num) {
-                // Get additional data
-                final name = vesselData['name'] as String?;
+                // Get vessel name - might be direct string or wrapped in {value: "name"}
+                String? name;
+                final nameData = vesselData['name'];
+                if (nameData is String) {
+                  name = nameData;
+                } else if (nameData is Map<String, dynamic>) {
+                  name = nameData['value'] as String?;
+                }
 
-                // Extract COG and SOG (already converted by units-preference)
-                final cogData = navigation?['courseOverGroundTrue'];
-                final sogData = navigation?['speedOverGround'];
+                // Extract COG and SOG - GET response has {value: X} wrapper
+                final cogData = navigation?['courseOverGroundTrue'] as Map<String, dynamic>?;
+                final sogData = navigation?['speedOverGround'] as Map<String, dynamic>?;
 
-                // Get converted values (units-preference format same as WebSocket)
+                // Get raw values and convert using formulas
                 double? cog;
                 double? sog;
 
-                if (cogData is Map<String, dynamic>) {
-                  cog = (cogData['converted'] as num?)?.toDouble();
-                } else if (cogData is num) {
-                  cog = cogData.toDouble();
+                if (cogData != null) {
+                  final rawCog = (cogData['value'] as num?)?.toDouble();
+                  if (rawCog != null) {
+                    cog = _convertValueForPath('navigation.courseOverGroundTrue', rawCog);
+                  }
                 }
 
-                if (sogData is Map<String, dynamic>) {
-                  sog = (sogData['converted'] as num?)?.toDouble();
-                } else if (sogData is num) {
-                  sog = sogData.toDouble();
+                if (sogData != null) {
+                  final rawSog = (sogData['value'] as num?)?.toDouble();
+                  if (rawSog != null) {
+                    sog = _convertValueForPath('navigation.speedOverGround', rawSog);
+                  }
                 }
 
                 vessels[vesselId] = {
@@ -838,6 +972,76 @@ class SignalKService extends ChangeNotifier implements DataService {
     }
 
     return null;
+  }
+
+  /// Fetch conversion formulas from SignalK server
+  /// Gets base units, categories, and conversion formulas for all paths
+  Future<void> fetchConversions() async {
+    final protocol = _useSecureConnection ? 'https' : 'http';
+
+    try {
+      final response = await http.get(
+        Uri.parse('$protocol://$_serverUrl/signalk/v1/conversions'),
+        headers: _getHeaders(),
+      ).timeout(const Duration(seconds: 10));
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body) as Map<String, dynamic>;
+
+        _conversionsData.clear();
+        data.forEach((path, conversionJson) {
+          if (conversionJson is Map<String, dynamic>) {
+            _conversionsData[path] = PathConversionData.fromJson(conversionJson);
+          }
+        });
+
+        if (kDebugMode) {
+          print('Fetched ${_conversionsData.length} path conversions from server');
+        }
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error fetching conversions: $e');
+      }
+    }
+  }
+
+  /// Get conversion data for a specific path
+  /// Returns null if no conversion data available for this path
+  PathConversionData? getConversionDataForPath(String path) {
+    return _conversionsData[path];
+  }
+
+  /// Get base unit for a specific path
+  /// Returns null if no conversion data or no base unit
+  String? getBaseUnit(String path) {
+    return _conversionsData[path]?.baseUnit;
+  }
+
+  /// Get available target units for a specific path
+  /// Returns empty list if no conversions available
+  List<String> getAvailableUnits(String path) {
+    final conversionData = _conversionsData[path];
+    if (conversionData == null) return [];
+    return conversionData.conversions.keys.toList();
+  }
+
+  /// Get conversion info for a specific path and target unit
+  /// Returns null if path or unit not found
+  ConversionInfo? getConversionInfo(String path, String targetUnit) {
+    return _conversionsData[path]?.conversions[targetUnit];
+  }
+
+  /// Get the category for a specific path (e.g., 'speed', 'angle', 'temperature')
+  /// Returns 'none' if no conversion data available
+  String getCategory(String path) {
+    return _conversionsData[path]?.category ?? 'none';
+  }
+
+  /// Internal helper to convert a value using the formula for this path
+  /// Returns converted value, or raw value if no conversion available
+  double? _convertValueForPath(String path, double rawValue) {
+    return ConversionUtils.convertValue(this, path, rawValue);
   }
 
   /// Extract all paths from vessel data tree recursively
@@ -978,59 +1182,95 @@ class SignalKService extends ChangeNotifier implements DataService {
   }
 
   /// Update subscription with current active paths
+  /// ALWAYS uses standard SignalK stream format (client-side conversions)
   Future<void> _updateSubscription() async {
     if (!_isConnected || _channel == null) return;
 
     final pathsToSubscribe = <String>[..._activePaths];
 
-    if (pathsToSubscribe.isEmpty && !_notificationsEnabled) return;
+    if (pathsToSubscribe.isEmpty) return;
 
-    if (_authToken != null && _vesselContext != null) {
-      // Units-preference plugin: subscribe to specific paths (data only)
-      if (pathsToSubscribe.isNotEmpty) {
-        final dataSubscription = {
-          'context': _vesselContext,
-          'subscribe': pathsToSubscribe.map((path) => {
-            'path': path,
-            'period': 1000,
-            'format': 'delta',
-            'policy': 'instant',
-          }).toList(),
-        };
+    // ALWAYS use standard SignalK subscription format
+    final subscription = {
+      'context': 'vessels.self',
+      'subscribe': pathsToSubscribe.map((path) => {
+        'path': path,
+        'period': 500,  // 500ms period
+        'format': 'delta',
+        'policy': 'instant',
+      }).toList(),
+    };
 
-        _channel?.sink.add(jsonEncode(dataSubscription));
+    _channel?.sink.add(jsonEncode(subscription));
 
-        if (kDebugMode) {
-          print('Updated data subscription: ${pathsToSubscribe.length} active paths');
-        }
+    if (kDebugMode) {
+      print('Updated subscription: ${pathsToSubscribe.length} paths to standard stream');
+    }
+  }
+
+  /// Subscribe to autopilot paths (uses standard SignalK stream)
+  Future<void> subscribeToAutopilotPaths(List<String> paths) async {
+    if (!_isConnected) {
+      if (kDebugMode) {
+        print('Cannot subscribe to autopilot paths: not connected');
       }
+      return;
+    }
 
-      // NOTE: Notifications are handled by separate WebSocket connection
+    final newPaths = paths.where((p) => !_autopilotPaths.contains(p)).toList();
+    if (newPaths.isEmpty) {
+      if (kDebugMode) {
+        print('All autopilot paths already subscribed');
+      }
+      return;
+    }
+
+    _autopilotPaths.addAll(newPaths);
+
+    if (kDebugMode) {
+      print('Adding ${newPaths.length} autopilot paths (total: ${_autopilotPaths.length})');
+    }
+
+    // Connect autopilot channel if not already connected
+    if (_autopilotChannel == null) {
+      await _connectAutopilotChannel();
     } else {
-      // Standard SignalK: use wildcard (fallback)
-      final subscription = {
-        'context': 'vessels.self',
-        'subscribe': [
-          {
-            'path': '*',
-            'period': 1000,
-            'format': 'delta',
-            'policy': 'instant',
-          }
-        ]
-      };
+      await _sendAutopilotSubscription();
+    }
+  }
 
-      _channel?.sink.add(jsonEncode(subscription));
+  /// Send autopilot subscription to standard SignalK stream
+  Future<void> _sendAutopilotSubscription() async {
+    if (_autopilotChannel == null || _autopilotPaths.isEmpty) return;
+
+    final subscription = {
+      'context': 'vessels.self',
+      'subscribe': _autopilotPaths.map((path) => {
+        'path': path,
+        'format': 'delta',
+        'policy': 'instant',  // Use 'instant' to only send updates when data changes (no period needed)
+      }).toList(),
+    };
+
+    _autopilotChannel?.sink.add(jsonEncode(subscription));
+
+    if (kDebugMode) {
+      print('Sent autopilot subscription: ${_autopilotPaths.length} paths to standard stream (instant policy)');
+      print('Autopilot paths: ${_autopilotPaths.join(", ")}');
     }
   }
 
   /// Load initial AIS vessel data and subscribe for updates
   /// Two-phase approach:
-  /// 1. Fetch all existing vessels via REST API
+  /// 1. Fetch all existing vessels via REST API (once only)
   /// 2. Subscribe for real-time updates only
   Future<void> loadAndSubscribeAISVessels() async {
-    // Phase 1: Get all current vessels from REST API
-    final vessels = await getAllAISVessels();
+    // Only do initial load once - set flag BEFORE await to prevent race condition
+    if (!_aisInitialLoadDone) {
+      _aisInitialLoadDone = true;
+
+      // Phase 1: Get all current vessels from REST API
+      final vessels = await getAllAISVessels();
 
     // Store vessels in cache with full context paths
     for (final entry in vessels.entries) {
@@ -1048,6 +1288,7 @@ class SignalKService extends ChangeNotifier implements DataService {
           path: 'navigation.position',
           value: position,
           timestamp: DateTime.now(),
+          fromGET: true,
         );
       }
 
@@ -1081,11 +1322,59 @@ class SignalKService extends ChangeNotifier implements DataService {
       }
     }
 
-    // Notify listeners that initial data is loaded
-    notifyListeners();
+      // Notify listeners that initial data is loaded
+      notifyListeners();
 
-    // Phase 2: Subscribe for real-time updates only
+      // Phase 2: Wait 10 seconds before subscribing to WebSocket updates
+      // This allows visualization of GET data (orange) before stream updates (green)
+      await Future.delayed(const Duration(seconds: 10));
+
+      // Start periodic refresh timer (every 5 minutes)
+      _startAISRefreshTimer();
+    }
+
+    // Subscribe for real-time updates
     subscribeToAllAISVessels();
+  }
+
+  /// Start periodic AIS refresh timer to update vessel names and new vessels
+  void _startAISRefreshTimer() {
+    _aisRefreshTimer?.cancel();
+    _aisRefreshTimer = Timer.periodic(const Duration(minutes: 5), (timer) async {
+      if (!_isConnected) {
+        timer.cancel();
+        return;
+      }
+
+      if (kDebugMode) {
+        print('🔄 Running periodic AIS GET refresh...');
+      }
+
+      // Fetch latest vessel data from REST API
+      final vessels = await getAllAISVessels();
+
+      // Update _latestData with new vessel info (names, etc.)
+      for (final entry in vessels.entries) {
+        final vesselId = entry.key;
+        final vesselData = entry.value;
+        final vesselContext = 'vessels.$vesselId';
+
+        // Only update if position exists in cache (vessel is active)
+        if (_latestData['$vesselContext.navigation.position'] != null) {
+          // Update name if available
+          if (vesselData['name'] != null) {
+            _latestData['$vesselContext.name'] = SignalKDataPoint(
+              path: 'name',
+              value: vesselData['name'],
+              timestamp: DateTime.now(),
+              fromGET: true,
+            );
+          }
+        }
+      }
+
+      notifyListeners();
+    });
   }
 
   /// Subscribe to all AIS vessels using wildcard subscription
@@ -1277,6 +1566,7 @@ class SignalKService extends ChangeNotifier implements DataService {
       // Mark as intentional disconnect to prevent auto-reconnect
       _intentionalDisconnect = true;
       _reconnectTimer?.cancel();
+      _aisRefreshTimer?.cancel();
       _reconnectAttempts = 0;
 
       // Disconnect main data channel
@@ -1288,8 +1578,17 @@ class SignalKService extends ChangeNotifier implements DataService {
 
       _isConnected = false;
       _latestData.clear();
+      _conversionsData.clear();
       _activePaths.clear();
+      _autopilotPaths.clear();
       _vesselContext = null;
+      _aisInitialLoadDone = false;
+
+      // Disconnect autopilot channel
+      await _autopilotSubscription?.cancel();
+      _autopilotSubscription = null;
+      await _autopilotChannel?.sink.close();
+      _autopilotChannel = null;
 
       // Also disconnect notification channel if it's connected
       await _disconnectNotificationChannel();
@@ -1330,4 +1629,61 @@ class SignalKNotification {
     required this.method,
     required this.timestamp,
   });
+}
+
+/// Conversion info for a specific unit
+class ConversionInfo {
+  final String formula;
+  final String inverseFormula;
+  final String symbol;
+  final String? dateFormat;
+  final bool? useLocalTime;
+
+  ConversionInfo({
+    required this.formula,
+    required this.inverseFormula,
+    required this.symbol,
+    this.dateFormat,
+    this.useLocalTime,
+  });
+
+  factory ConversionInfo.fromJson(Map<String, dynamic> json) {
+    return ConversionInfo(
+      formula: json['formula'] as String,
+      inverseFormula: json['inverseFormula'] as String,
+      symbol: json['symbol'] as String,
+      dateFormat: json['dateFormat'] as String?,
+      useLocalTime: json['useLocalTime'] as bool?,
+    );
+  }
+}
+
+/// Path conversion data from SignalK server
+class PathConversionData {
+  final String? baseUnit;
+  final String category;
+  final Map<String, ConversionInfo> conversions;
+
+  PathConversionData({
+    this.baseUnit,
+    required this.category,
+    required this.conversions,
+  });
+
+  factory PathConversionData.fromJson(Map<String, dynamic> json) {
+    final conversionsMap = <String, ConversionInfo>{};
+    final conversionsJson = json['conversions'] as Map<String, dynamic>? ?? {};
+
+    conversionsJson.forEach((key, value) {
+      if (value is Map<String, dynamic>) {
+        conversionsMap[key] = ConversionInfo.fromJson(value);
+      }
+    });
+
+    return PathConversionData(
+      baseUnit: json['baseUnit'] as String?,
+      category: json['category'] as String,
+      conversions: conversionsMap,
+    );
+  }
 }

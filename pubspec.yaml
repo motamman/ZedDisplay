@@ -1,7 +1,7 @@
 name: zed_display
 description: A SignalK data display app with gauges and charts
 publish_to: 'none'
-version: 0.2.5+6
+version: 0.3.0+7
 
 environment:
   sdk: '>=3.8.0 <4.0.0'
@@ -42,6 +42,13 @@ dependencies:
 
   # Date/time formatting
   intl: ^0.20.2
+
+  # Math expression evaluation
+  math_expressions: ^2.6.0
+
+  # Maps
+  flutter_map: ^7.0.2
+  latlong2: ^0.9.1
 
   # Color picker
   flutter_colorpicker: ^1.1.0

@@ -3,6 +3,7 @@ import 'package:syncfusion_flutter_charts/charts.dart';
 import 'dart:async';
 import '../services/signalk_service.dart';
 import '../models/zone_data.dart';
+import '../utils/conversion_utils.dart';
 
 /// A real-time spline chart that displays live data from up to 3 SignalK paths
 class RealtimeSplineChart extends StatefulWidget {
@@ -98,7 +99,8 @@ class _RealtimeSplineChartState extends State<RealtimeSplineChart> with Automati
 
       for (int i = 0; i < widget.paths.length; i++) {
         final path = widget.paths[i];
-        final value = widget.signalKService.getConvertedValue(path);
+        // Use client-side conversions
+        final value = ConversionUtils.getConvertedValue(widget.signalKService, path);
 
         if (value != null) {
           // Create new list with updated data (don't mutate existing)

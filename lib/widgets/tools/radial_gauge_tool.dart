@@ -5,6 +5,7 @@ import '../../services/signalk_service.dart';
 import '../../services/tool_registry.dart';
 import '../../utils/string_extensions.dart';
 import '../../utils/color_extensions.dart';
+import '../../utils/conversion_utils.dart';
 import 'mixins/zones_mixin.dart';
 import '../radial_gauge.dart';
 
@@ -46,8 +47,10 @@ class _RadialGaugeToolState extends State<RadialGaugeTool> with ZonesMixin {
     }
 
     final dataSource = widget.config.dataSources.first;
-    final dataPoint = widget.signalKService.getValue(dataSource.path);
-    final value = widget.signalKService.getConvertedValue(dataSource.path) ?? 0.0;
+
+    // Use client-side conversions
+    final rawValue = ConversionUtils.getRawValue(widget.signalKService, dataSource.path);
+    final value = ConversionUtils.getConvertedValue(widget.signalKService, dataSource.path) ?? 0.0;
 
     // Get style configuration
     final style = widget.config.style;
@@ -57,14 +60,25 @@ class _RadialGaugeToolState extends State<RadialGaugeTool> with ZonesMixin {
     // Get label from data source or style
     final label = dataSource.label ?? dataSource.path.toReadableLabel();
 
-    // Get formatted value from plugin if available
-    final formattedValue = dataPoint?.formatted;
+    // Get formatted value using client-side conversion
+    String? formattedValue;
+    if (rawValue != null) {
+      formattedValue = ConversionUtils.formatValue(
+        widget.signalKService,
+        dataSource.path,
+        rawValue,
+        decimalPlaces: 1,
+      );
+    }
 
-    // Get unit (prefer style override, fallback to server's unit)
-    // Only used if no formatted value
-    final unit = style.unit ??
-                 widget.signalKService.getUnitSymbol(dataSource.path) ??
-                 '';
+    // Get unit symbol from conversion info
+    final availableUnits = widget.signalKService.getAvailableUnits(dataSource.path);
+    final conversionInfo = availableUnits.isNotEmpty
+        ? widget.signalKService.getConversionInfo(dataSource.path, availableUnits.first)
+        : null;
+
+    // Get unit (prefer style override, fallback to conversion symbol)
+    final unit = style.unit ?? conversionInfo?.symbol ?? '';
 
     // Parse color from hex string
     final primaryColor = style.primaryColor?.toColor(

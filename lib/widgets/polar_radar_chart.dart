@@ -3,6 +3,7 @@ import 'package:fl_chart/fl_chart.dart';
 import 'dart:async';
 import 'dart:math' as math;
 import '../services/signalk_service.dart';
+import '../utils/conversion_utils.dart';
 
 /// A polar radar chart that displays velocity and angle data from SignalK
 ///
@@ -80,9 +81,10 @@ class _PolarRadarChartState extends State<PolarRadarChart>
 
   void _updateChartData() {
     setState(() {
-      // Read current angle and magnitude from SignalK
-      final angleValue = widget.signalKService.getConvertedValue(widget.anglePath);
-      final magnitudeValue = widget.signalKService.getConvertedValue(widget.magnitudePath);
+      // Read current angle and magnitude from SignalK using client-side conversions
+      // Angle: convert from radians to degrees for display and calculations
+      final angleValue = ConversionUtils.getConvertedValue(widget.signalKService, widget.anglePath);
+      final magnitudeValue = ConversionUtils.getConvertedValue(widget.signalKService, widget.magnitudePath);
 
       if (angleValue != null && magnitudeValue != null) {
         final now = DateTime.now();
@@ -197,18 +199,21 @@ class _PolarRadarChartState extends State<PolarRadarChart>
   }
 
   Widget _buildValueLabels(BuildContext context) {
-    // Get current values
-    final angleData = widget.signalKService.getValue(widget.anglePath);
-    final magnitudeData = widget.signalKService.getValue(widget.magnitudePath);
+    // Get current values using client-side conversions
+    final angleValue = ConversionUtils.getConvertedValue(widget.signalKService, widget.anglePath);
+    final magnitudeValue = ConversionUtils.getConvertedValue(widget.signalKService, widget.magnitudePath);
 
-    // Use formatted values if available, otherwise format the converted value
-    final angleValue = angleData?.value;
-    final angleDisplay = angleData?.formatted ??
-        (angleValue != null ? '${angleValue.toStringAsFixed(0)}°' : '--');
+    // Get unit symbols for display
+    final angleSymbol = widget.signalKService.getUnitSymbol(widget.anglePath) ?? '°';
+    final magnitudeSymbol = widget.signalKService.getUnitSymbol(widget.magnitudePath) ?? '';
 
-    final magnitudeValue = magnitudeData?.value;
-    final magnitudeDisplay = magnitudeData?.formatted ??
-        (magnitudeValue != null ? magnitudeValue.toStringAsFixed(1) : '--');
+    // Format display values with units
+    final angleDisplay = angleValue != null
+        ? '${angleValue.toStringAsFixed(0)}$angleSymbol'
+        : '--';
+    final magnitudeDisplay = magnitudeValue != null
+        ? '${magnitudeValue.toStringAsFixed(1)} $magnitudeSymbol'.trim()
+        : '--';
 
     // Use custom labels if provided, otherwise extract from paths
     final angleLabel = widget.angleLabel ?? () {

@@ -8,6 +8,7 @@ import '../services/signalk_service.dart';
 import '../services/tool_registry.dart';
 import '../services/tool_service.dart';
 import '../widgets/config/path_selector.dart';
+import '../widgets/config/configure_data_source_dialog.dart';
 import '../widgets/config/source_selector.dart';
 
 /// Screen for configuring a tool
@@ -74,6 +75,9 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
   // Slider-specific configuration
   int _sliderDecimalPlaces = 1;
 
+  // Dropdown-specific configuration
+  double _dropdownStepSize = 10.0;
+
   // Wind compass-specific configuration
   double _laylineAngle = 40.0;       // Target AWA angle in degrees
   double _targetTolerance = 3.0;     // Acceptable deviation from target in degrees
@@ -134,6 +138,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
     _aisMaxRangeNm = 5.0;
     _aisUpdateInterval = 10;
     _sliderDecimalPlaces = 1;
+    _dropdownStepSize = 10.0;
     _laylineAngle = 40.0;
     _targetTolerance = 3.0;
     _showAWANumbers = true;
@@ -150,14 +155,31 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
     final signalKService = Provider.of<SignalKService>(context, listen: false);
     final vesselId = signalKService.serverUrl;
 
-    final defaultConfig = registry.getDefaultConfig(toolTypeId, vesselId);
-    if (defaultConfig != null && defaultConfig.dataSources.isNotEmpty) {
-      _dataSources = List.from(defaultConfig.dataSources);
+    // Special handling for conversion_test - add default paths
+    if (toolTypeId == 'conversion_test') {
+      _dataSources = [
+        DataSource(path: 'navigation.position'),
+        DataSource(path: 'navigation.headingTrue'),
+        DataSource(path: 'navigation.headingMagnetic'),
+        DataSource(path: 'environment.wind.directionTrue'),
+        DataSource(path: 'environment.wind.angleApparent'),
+        DataSource(path: 'environment.wind.speedTrue'),
+        DataSource(path: 'environment.wind.speedApparent'),
+        DataSource(path: 'navigation.speedOverGround'),
+        DataSource(path: 'navigation.courseOverGroundTrue'),
+        DataSource(path: 'navigation.courseGreatCircle.nextPoint.bearingTrue'),
+        DataSource(path: 'navigation.courseGreatCircle.nextPoint.distance'),
+      ];
+    } else {
+      final defaultConfig = registry.getDefaultConfig(toolTypeId, vesselId);
+      if (defaultConfig != null && defaultConfig.dataSources.isNotEmpty) {
+        _dataSources = List.from(defaultConfig.dataSources);
 
-      // Also load default style if available
-      final style = defaultConfig.style;
-      if (style.primaryColor != null) {
-        _primaryColor = style.primaryColor;
+        // Also load default style if available
+        final style = defaultConfig.style;
+        if (style.primaryColor != null) {
+          _primaryColor = style.primaryColor;
+        }
       }
     }
 
@@ -169,6 +191,10 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
       case 'wind_compass':
         _toolWidth = 6;
         _toolHeight = 6;
+        break;
+      case 'conversion_test':
+        _toolWidth = 4;
+        _toolHeight = 8;
         break;
       default:
         // Keep current defaults for other tool types
@@ -348,6 +374,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
       final updateIntervalMs = style.customProperties!['updateInterval'] as int? ?? 10000;
       _aisUpdateInterval = (updateIntervalMs / 1000).round();
       _sliderDecimalPlaces = style.customProperties!['decimalPlaces'] as int? ?? 1;
+      _dropdownStepSize = (style.customProperties!['stepSize'] as num?)?.toDouble() ?? 10.0;
       // Wind compass settings
       _showAWANumbers = style.customProperties!['showAWANumbers'] as bool? ?? true;
       _enableVMG = style.customProperties!['enableVMG'] as bool? ?? false;
@@ -370,10 +397,8 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
   Future<void> _addDataSource() async {
     final signalKService = Provider.of<SignalKService>(context, listen: false);
     String? selectedPath;
-    String? selectedSource;
-    String? customLabel;
 
-    // Path selection dialog
+    // Step 1: Select path
     await showDialog(
       context: context,
       builder: (context) => PathSelectorDialog(
@@ -385,58 +410,25 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
       ),
     );
 
-    if (selectedPath == null) return;
+    if (selectedPath == null || !mounted) return;
 
-    // Source selection dialog (optional)
-    if (mounted) {
-      await showDialog(
-        context: context,
-        builder: (context) => SourceSelectorDialog(
-          signalKService: signalKService,
+    // Step 2: Configure source and label
+    final config = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (context) => ConfigureDataSourceDialog(
+        signalKService: signalKService,
+        path: selectedPath!,
+      ),
+    );
+
+    if (config != null && mounted) {
+      setState(() {
+        _dataSources.add(DataSource(
           path: selectedPath!,
-          currentSource: null,
-          onSelect: (source) {
-            selectedSource = source;
-          },
-        ),
-      );
-    }
-
-    // Label input dialog
-    if (mounted) {
-      await showDialog(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: const Text('Custom Label'),
-          content: TextField(
-            decoration: const InputDecoration(
-              labelText: 'Label (optional)',
-              helperText: 'Leave empty to auto-generate from path',
-            ),
-            autofocus: true,
-            onChanged: (value) => customLabel = value,
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('Cancel'),
-            ),
-            TextButton(
-              onPressed: () {
-                setState(() {
-                  _dataSources.add(DataSource(
-                    path: selectedPath!,
-                    source: selectedSource,
-                    label: customLabel?.trim().isEmpty == true ? null : customLabel,
-                  ));
-                });
-                Navigator.of(context).pop();
-              },
-              child: const Text('Add'),
-            ),
-          ],
-        ),
-      );
+          source: config['source'] as String?,
+          label: config['label'] as String?,
+        ));
+      });
     }
   }
 
@@ -579,6 +571,11 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
     } else if (_selectedToolTypeId == 'slider' || _selectedToolTypeId == 'knob') {
       customProperties = {
         'decimalPlaces': _sliderDecimalPlaces,
+      };
+    } else if (_selectedToolTypeId == 'dropdown') {
+      customProperties = {
+        'decimalPlaces': _sliderDecimalPlaces,
+        'stepSize': _dropdownStepSize,
       };
     } else if (_selectedToolTypeId == 'wind_compass') {
       customProperties = {
@@ -857,8 +854,25 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
             ),
             const SizedBox(height: 16),
 
-            // Size Configuration (hide for autopilot and wind_compass - use pixel positioning)
-            if (_selectedToolTypeId != null && _selectedToolTypeId != 'autopilot' && _selectedToolTypeId != 'wind_compass')
+            // Size Configuration (hide for all tools - using pixel positioning instead of grid layout)
+            if (_selectedToolTypeId != null &&
+                _selectedToolTypeId != 'autopilot' &&
+                _selectedToolTypeId != 'wind_compass' &&
+                _selectedToolTypeId != 'radial_gauge' &&
+                _selectedToolTypeId != 'linear_gauge' &&
+                _selectedToolTypeId != 'compass' &&
+                _selectedToolTypeId != 'text_display' &&
+                _selectedToolTypeId != 'conversion_test' &&
+                _selectedToolTypeId != 'slider' &&
+                _selectedToolTypeId != 'knob' &&
+                _selectedToolTypeId != 'switch' &&
+                _selectedToolTypeId != 'checkbox' &&
+                _selectedToolTypeId != 'dropdown' &&
+                _selectedToolTypeId != 'historical_chart' &&
+                _selectedToolTypeId != 'polar_radar_chart' &&
+                _selectedToolTypeId != 'ais_polar_chart' &&
+                _selectedToolTypeId != 'realtime_chart' &&
+                _selectedToolTypeId != 'radial_bar_chart')
               Card(
                 child: Padding(
                   padding: const EdgeInsets.all(16),
@@ -1149,8 +1163,8 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
               ),
             const SizedBox(height: 16),
 
-            // Style Configuration
-            if (_selectedToolTypeId != null)
+            // Style Configuration (hide for conversion_test - it only needs paths)
+            if (_selectedToolTypeId != null && _selectedToolTypeId != 'conversion_test')
               Card(
                 child: Padding(
                   padding: const EdgeInsets.all(16),
@@ -1226,6 +1240,11 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                             } else if (_selectedToolTypeId == 'slider' || _selectedToolTypeId == 'knob') {
                               previewCustomProperties = {
                                 'decimalPlaces': _sliderDecimalPlaces,
+                              };
+                            } else if (_selectedToolTypeId == 'dropdown') {
+                              previewCustomProperties = {
+                                'decimalPlaces': _sliderDecimalPlaces,
+                                'stepSize': _dropdownStepSize,
                               };
                             } else if (_selectedToolTypeId == 'wind_compass') {
                               previewCustomProperties = {
@@ -1825,6 +1844,28 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
       ]);
     }
 
+    // Text Display-specific options
+    if (_selectedToolTypeId == 'text_display') {
+      widgets.addAll([
+        const SizedBox(height: 16),
+        TextFormField(
+          decoration: const InputDecoration(
+            labelText: 'Font Size',
+            border: OutlineInputBorder(),
+            helperText: 'Size of the numeric display (default: 48)',
+          ),
+          keyboardType: TextInputType.number,
+          initialValue: _fontSize?.toString() ?? '48',
+          onChanged: (value) {
+            final parsed = double.tryParse(value);
+            if (parsed != null && parsed > 0) {
+              setState(() => _fontSize = parsed);
+            }
+          },
+        ),
+      ]);
+    }
+
     // Slider and Knob-specific options
     if (_selectedToolTypeId == 'slider' || _selectedToolTypeId == 'knob') {
       widgets.addAll([
@@ -1845,6 +1886,48 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
           onChanged: (value) {
             if (value != null) {
               setState(() => _sliderDecimalPlaces = value);
+            }
+          },
+        ),
+      ]);
+    }
+
+    // Dropdown-specific options
+    if (_selectedToolTypeId == 'dropdown') {
+      widgets.addAll([
+        const SizedBox(height: 16),
+        DropdownButtonFormField<int>(
+          decoration: const InputDecoration(
+            labelText: 'Decimal Places',
+            border: OutlineInputBorder(),
+            helperText: 'Number of decimal places to display',
+          ),
+          initialValue: _sliderDecimalPlaces,
+          items: const [
+            DropdownMenuItem(value: 0, child: Text('0 (e.g., 42)')),
+            DropdownMenuItem(value: 1, child: Text('1 (e.g., 42.5)')),
+            DropdownMenuItem(value: 2, child: Text('2 (e.g., 42.50)')),
+            DropdownMenuItem(value: 3, child: Text('3 (e.g., 42.500)')),
+          ],
+          onChanged: (value) {
+            if (value != null) {
+              setState(() => _sliderDecimalPlaces = value);
+            }
+          },
+        ),
+        const SizedBox(height: 16),
+        TextFormField(
+          decoration: const InputDecoration(
+            labelText: 'Step Size',
+            border: OutlineInputBorder(),
+            helperText: 'Increment between dropdown values',
+          ),
+          keyboardType: TextInputType.number,
+          initialValue: _dropdownStepSize.toString(),
+          onChanged: (value) {
+            final parsed = double.tryParse(value);
+            if (parsed != null && parsed > 0) {
+              setState(() => _dropdownStepSize = parsed);
             }
           },
         ),

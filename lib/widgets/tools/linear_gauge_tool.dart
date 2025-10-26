@@ -7,6 +7,7 @@ import '../../services/signalk_service.dart';
 import '../../services/tool_registry.dart';
 import '../../utils/string_extensions.dart';
 import '../../utils/color_extensions.dart';
+import '../../utils/conversion_utils.dart';
 import 'mixins/zones_mixin.dart';
 
 /// Available linear gauge styles
@@ -57,11 +58,9 @@ class _LinearGaugeToolState extends State<LinearGaugeTool> with ZonesMixin {
     final dataSource = widget.config.dataSources.first;
     final style = widget.config.style;
 
-    // Get data point (with source if specified)
-    final dataPoint = widget.signalKService.getValue(dataSource.path, source: dataSource.source);
-
-    // Get raw value from data point
-    final rawValue = dataPoint?.converted ?? (dataPoint?.value is num ? (dataPoint!.value as num).toDouble() : 0.0);
+    // Use client-side conversions
+    final rawSIValue = ConversionUtils.getRawValue(widget.signalKService, dataSource.path);
+    final convertedValue = ConversionUtils.getConvertedValue(widget.signalKService, dataSource.path);
 
     // Get style configuration
     final minValue = style.minValue ?? 0.0;
@@ -75,18 +74,32 @@ class _LinearGaugeToolState extends State<LinearGaugeTool> with ZonesMixin {
     );
 
     // If data is stale, show minimum value and "--" text
-    final value = isDataFresh ? rawValue : minValue;
+    final value = isDataFresh ? (convertedValue ?? 0.0) : minValue;
 
     // Get label from data source or derive from path
     final label = dataSource.label ?? dataSource.path.toReadableLabel();
 
-    // Get formatted value from plugin if available, or show "--" if stale
-    final formattedValue = isDataFresh ? dataPoint?.formatted : '--';
+    // Get formatted value using client-side conversion, or show "--" if stale
+    String? formattedValue;
+    if (isDataFresh && rawSIValue != null) {
+      formattedValue = ConversionUtils.formatValue(
+        widget.signalKService,
+        dataSource.path,
+        rawSIValue,
+        decimalPlaces: 1,
+      );
+    } else {
+      formattedValue = '--';
+    }
 
-    // Get unit (prefer style override, fallback to server's unit)
-    final unit = style.unit ??
-                widget.signalKService.getUnitSymbol(dataSource.path) ??
-                '';
+    // Get unit symbol from conversion info
+    final availableUnits = widget.signalKService.getAvailableUnits(dataSource.path);
+    final conversionInfo = availableUnits.isNotEmpty
+        ? widget.signalKService.getConversionInfo(dataSource.path, availableUnits.first)
+        : null;
+
+    // Get unit (prefer style override, fallback to conversion symbol)
+    final unit = style.unit ?? conversionInfo?.symbol ?? '';
 
     // Parse color from hex string
     final primaryColor = style.primaryColor?.toColor(

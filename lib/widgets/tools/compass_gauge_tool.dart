@@ -3,6 +3,7 @@ import '../../models/tool_definition.dart';
 import '../../models/tool_config.dart';
 import '../../services/signalk_service.dart';
 import '../../services/tool_registry.dart';
+import '../../utils/conversion_utils.dart';
 import '../compass_gauge.dart';
 import '../../utils/string_extensions.dart';
 import '../../utils/color_extensions.dart';
@@ -26,14 +27,24 @@ class CompassGaugeTool extends StatelessWidget {
     }
 
     final dataSource = config.dataSources.first;
-    final dataPoint = signalKService.getValue(dataSource.path);
-    final heading = signalKService.getConvertedValue(dataSource.path) ?? 0.0;
+
+    // Use client-side conversions
+    final rawValue = ConversionUtils.getRawValue(signalKService, dataSource.path);
+    final heading = ConversionUtils.getConvertedValue(signalKService, dataSource.path) ?? 0.0;
 
     // Get label from data source or style
     final label = dataSource.label ?? dataSource.path.toReadableLabel();
 
-    // Get formatted value from plugin if available
-    final formattedValue = dataPoint?.formatted;
+    // Get formatted value using client-side conversion
+    String? formattedValue;
+    if (rawValue != null) {
+      formattedValue = ConversionUtils.formatValue(
+        signalKService,
+        dataSource.path,
+        rawValue,
+        decimalPlaces: 1,
+      );
+    }
 
     // Parse color from hex string
     final primaryColor = config.style.primaryColor?.toColor(

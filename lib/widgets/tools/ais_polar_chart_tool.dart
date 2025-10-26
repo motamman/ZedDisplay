@@ -39,6 +39,7 @@ class AISPolarChartTool extends StatelessWidget {
     final title = config.style.customProperties?['title'] as String? ?? 'AIS Vessels';
 
     return AISPolarChart(
+      key: ValueKey('ais_chart_$positionPath'),
       signalKService: signalKService,
       positionPath: positionPath,
       title: title,

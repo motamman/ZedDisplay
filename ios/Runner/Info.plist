@@ -45,5 +45,45 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<!-- Document types for .zedjson files -->
+	<key>CFBundleDocumentTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>ZedDisplay Dashboard</string>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>LSHandlerRank</key>
+			<string>Owner</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>com.zennora.signalk.zedjson</string>
+			</array>
+		</dict>
+	</array>
+	<!-- UTI for .zedjson files -->
+	<key>UTExportedTypeDeclarations</key>
+	<array>
+		<dict>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.json</string>
+				<string>public.data</string>
+			</array>
+			<key>UTTypeDescription</key>
+			<string>ZedDisplay Dashboard</string>
+			<key>UTTypeIdentifier</key>
+			<string>com.zennora.signalk.zedjson</string>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>zedjson</string>
+				</array>
+				<key>public.mime-type</key>
+				<string>application/vnd.zennora.zeddisplay.dashboard+json</string>
+			</dict>
+		</dict>
+	</array>
 </dict>
 </plist>
