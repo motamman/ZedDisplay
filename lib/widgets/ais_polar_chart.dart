@@ -5,6 +5,7 @@ import 'package:latlong2/latlong.dart';
 import 'dart:async';
 import 'dart:math' as math;
 import '../services/signalk_service.dart';
+import '../utils/conversion_utils.dart';
 
 /// AIS Polar Chart that displays nearby vessels relative to own position
 ///
@@ -52,12 +53,16 @@ class _AISPolarChartState extends State<AISPolarChart>
   // Highlighted vessel (for tap-to-highlight)
   String? _highlightedVesselMMSI;
 
+  // Map controller for centering on own vessel
+  final MapController _mapController = MapController();
+
   @override
   bool get wantKeepAlive => true;
 
   bool _hasSubscribed = false;
   bool _hasLoadedAIS = false;
   bool _showMapView = false; // Toggle between polar chart and map view
+  bool _mapAutoFollow = true; // Auto-follow own vessel on map
 
   @override
   void initState() {
@@ -130,12 +135,23 @@ class _AISPolarChartState extends State<AISPolarChart>
         final lon = positionMap['longitude'];
 
         if (lat is num && lon is num) {
-          _ownLat = lat.toDouble();
-          _ownLon = lon.toDouble();
+          final newLat = lat.toDouble();
+          final newLon = lon.toDouble();
+
+          // Check if position changed
+          final positionChanged = _ownLat != newLat || _ownLon != newLon;
+
+          _ownLat = newLat;
+          _ownLon = newLon;
           _lastPositionUpdate = positionData.timestamp;
 
           _vessels.clear();
           _fetchNearbyVessels();
+
+          // Auto-follow if enabled and in map view
+          if (_mapAutoFollow && _showMapView && positionChanged) {
+            _centerMapOnSelf();
+          }
         }
       }
     });
@@ -221,6 +237,22 @@ class _AISPolarChartState extends State<AISPolarChart>
         // Recalculate range when switching to auto
         final maxDistance = _vessels.map((v) => v.distance).reduce((a, b) => a > b ? a : b);
         _calculatedRange = (maxDistance * 1.2).clamp(1.0, 50.0);
+      }
+    });
+  }
+
+  void _centerMapOnSelf() {
+    if (_ownLat != null && _ownLon != null) {
+      _mapController.move(LatLng(_ownLat!, _ownLon!), _mapController.camera.zoom);
+    }
+  }
+
+  void _toggleAutoFollow() {
+    setState(() {
+      _mapAutoFollow = !_mapAutoFollow;
+      // If enabling auto-follow, immediately center on vessel
+      if (_mapAutoFollow) {
+        _centerMapOnSelf();
       }
     });
   }
@@ -323,75 +355,108 @@ class _AISPolarChartState extends State<AISPolarChart>
   }
 
   Widget _buildHeader(BuildContext context) {
-    return Row(
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+        // Title and vessel count on first line
+        Row(
+          children: [
+            Text(
+              'AIS Display',
+              style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+            ),
+            const SizedBox(width: 12),
+            Text(
+              '${_vessels.length} vessels',
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: Colors.grey,
+                  ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        // Controls on second line
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(
             children: [
-              Text(
-                widget.title,
-                style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.bold,
-                    ),
+              // Map/Polar toggle
+              IconButton(
+                icon: Icon(_showMapView ? Icons.radar : Icons.map, size: 20),
+                onPressed: () {
+                  setState(() {
+                    _showMapView = !_showMapView;
+                  });
+                },
+                tooltip: _showMapView ? 'Show Polar Chart' : 'Show Map',
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(),
               ),
-              Text(
-                '${_vessels.length} vessels',
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: Colors.grey,
-                    ),
+              const SizedBox(width: 8),
+              // Center on self button (only show in map view)
+              if (_showMapView)
+                IconButton(
+                  icon: const Icon(Icons.my_location, size: 20),
+                  onPressed: _centerMapOnSelf,
+                  tooltip: 'Center on own vessel',
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                ),
+              if (_showMapView) const SizedBox(width: 8),
+              // Auto-follow toggle (only show in map view)
+              if (_showMapView)
+                IconButton(
+                  icon: Icon(
+                    _mapAutoFollow ? Icons.gps_fixed : Icons.gps_not_fixed,
+                    size: 20,
+                    color: _mapAutoFollow ? Colors.blue : null,
+                  ),
+                  onPressed: _toggleAutoFollow,
+                  tooltip: _mapAutoFollow ? 'Auto-follow enabled' : 'Auto-follow disabled',
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                ),
+              const SizedBox(width: 16),
+              // Zoom out button
+              IconButton(
+                icon: const Icon(Icons.zoom_out, size: 20),
+                onPressed: _zoomOut,
+                tooltip: 'Zoom Out',
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(),
+              ),
+              const SizedBox(width: 4),
+              // Range display with auto indicator
+              InkWell(
+                onTap: _toggleAutoRange,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: _autoRange ? Colors.blue.withValues(alpha: 0.2) : Colors.grey.withValues(alpha: 0.2),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text(
+                    '${_getDisplayRange().toStringAsFixed(1)} nm${_autoRange ? ' (auto)' : ''}',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: _autoRange ? Colors.blue : Colors.grey,
+                          fontWeight: FontWeight.w500,
+                        ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 4),
+              // Zoom in button
+              IconButton(
+                icon: const Icon(Icons.zoom_in, size: 20),
+                onPressed: _zoomIn,
+                tooltip: 'Zoom In',
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(),
               ),
             ],
           ),
-        ),
-        // Map/Polar toggle
-        IconButton(
-          icon: Icon(_showMapView ? Icons.radar : Icons.map, size: 20),
-          onPressed: () {
-            setState(() {
-              _showMapView = !_showMapView;
-            });
-          },
-          tooltip: _showMapView ? 'Show Polar Chart' : 'Show Map',
-          padding: EdgeInsets.zero,
-          constraints: const BoxConstraints(),
-        ),
-        const SizedBox(width: 16),
-        // Zoom out button
-        IconButton(
-          icon: const Icon(Icons.zoom_out, size: 20),
-          onPressed: _zoomOut,
-          tooltip: 'Zoom Out',
-          padding: EdgeInsets.zero,
-          constraints: const BoxConstraints(),
-        ),
-        const SizedBox(width: 4),
-        // Range display with auto indicator
-        InkWell(
-          onTap: _toggleAutoRange,
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-            decoration: BoxDecoration(
-              color: _autoRange ? Colors.blue.withValues(alpha: 0.2) : Colors.grey.withValues(alpha: 0.2),
-              borderRadius: BorderRadius.circular(4),
-            ),
-            child: Text(
-              '${_getDisplayRange().toStringAsFixed(1)} nm${_autoRange ? ' (auto)' : ''}',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: _autoRange ? Colors.blue : Colors.grey,
-                    fontWeight: FontWeight.w500,
-                  ),
-            ),
-          ),
-        ),
-        const SizedBox(width: 4),
-        // Zoom in button
-        IconButton(
-          icon: const Icon(Icons.zoom_in, size: 20),
-          onPressed: _zoomIn,
-          tooltip: 'Zoom In',
-          padding: EdgeInsets.zero,
-          constraints: const BoxConstraints(),
         ),
       ],
     );
@@ -547,6 +612,15 @@ class _AISPolarChartState extends State<AISPolarChart>
       return const Center(child: Text('Waiting for position...'));
     }
 
+    // Get own vessel heading/COG for arrow rotation (client-side conversion from radians to degrees)
+    // Prefer COG over heading, fallback to headingMagnetic
+    double? ownHeading;
+    final cogTrue = ConversionUtils.getConvertedValue(widget.signalKService, 'navigation.courseOverGroundTrue');
+    final cogMagnetic = ConversionUtils.getConvertedValue(widget.signalKService, 'navigation.courseOverGroundMagnetic');
+    final headingMagnetic = ConversionUtils.getConvertedValue(widget.signalKService, 'navigation.headingMagnetic');
+
+    ownHeading = cogTrue ?? cogMagnetic ?? headingMagnetic ?? 0.0;
+
     // Calculate bounds to fit all vessels
     double minLat = _ownLat!;
     double maxLat = _ownLat!;
@@ -572,6 +646,7 @@ class _AISPolarChartState extends State<AISPolarChart>
     final lonPadding = (maxLon - minLon) * 0.1;
 
     return FlutterMap(
+      mapController: _mapController,
       options: MapOptions(
         initialCenter: LatLng(_ownLat!, _ownLon!),
         initialZoom: 12,
@@ -584,6 +659,14 @@ class _AISPolarChartState extends State<AISPolarChart>
           ),
           padding: const EdgeInsets.all(50),
         ),
+        onPositionChanged: (position, hasGesture) {
+          // Disable auto-follow when user manually pans/drags the map
+          if (hasGesture && _mapAutoFollow) {
+            setState(() {
+              _mapAutoFollow = false;
+            });
+          }
+        },
       ),
       children: [
         // OpenStreetMap base layer
@@ -599,15 +682,18 @@ class _AISPolarChartState extends State<AISPolarChart>
         // Vessel markers
         MarkerLayer(
           markers: [
-            // Own vessel (green)
+            // Own vessel (green arrow, larger than others)
             Marker(
               point: LatLng(_ownLat!, _ownLon!),
-              width: 12,
-              height: 12,
-              child: const Icon(
-                Icons.circle,
-                color: Colors.green,
-                size: 12,
+              width: 24,
+              height: 24,
+              child: Transform.rotate(
+                angle: ownHeading * math.pi / 180, // Convert degrees to radians
+                child: const Icon(
+                  Icons.navigation,
+                  color: Colors.green,
+                  size: 20, // Larger than red arrows (16)
+                ),
               ),
             ),
             // Other vessels
