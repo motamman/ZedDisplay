@@ -120,7 +120,9 @@ class _ServerManagerToolState extends State<ServerManagerTool> {
   Future<void> _loadPlugins() async {
     if (!widget.signalKService.isConnected) return;
 
-    setState(() => _loadingPlugins = true);
+    if (mounted) {
+      setState(() => _loadingPlugins = true);
+    }
 
     try {
       final protocol = widget.signalKService.useSecureConnection ? 'https' : 'http';
@@ -137,14 +139,18 @@ class _ServerManagerToolState extends State<ServerManagerTool> {
         final data = jsonDecode(response.body) as Map<String, dynamic>;
         final plugins = data['plugins'] as List<dynamic>? ?? [];
 
-        setState(() {
-          _plugins = plugins.cast<Map<String, dynamic>>();
-          _loadingPlugins = false;
-        });
+        if (mounted) {
+          setState(() {
+            _plugins = plugins.cast<Map<String, dynamic>>();
+            _loadingPlugins = false;
+          });
+        }
       }
     } catch (e) {
       debugPrint('Error loading plugins: $e');
-      setState(() => _loadingPlugins = false);
+      if (mounted) {
+        setState(() => _loadingPlugins = false);
+      }
     }
   }
 
@@ -211,7 +217,9 @@ class _ServerManagerToolState extends State<ServerManagerTool> {
   Future<void> _loadWebapps() async {
     if (!widget.signalKService.isConnected) return;
 
-    setState(() => _loadingWebapps = true);
+    if (mounted) {
+      setState(() => _loadingWebapps = true);
+    }
 
     try {
       final protocol = widget.signalKService.useSecureConnection ? 'https' : 'http';
@@ -227,14 +235,18 @@ class _ServerManagerToolState extends State<ServerManagerTool> {
       if (response.statusCode == 200) {
         final webapps = jsonDecode(response.body) as List<dynamic>;
 
-        setState(() {
-          _webapps = webapps.cast<Map<String, dynamic>>();
-          _loadingWebapps = false;
-        });
+        if (mounted) {
+          setState(() {
+            _webapps = webapps.cast<Map<String, dynamic>>();
+            _loadingWebapps = false;
+          });
+        }
       }
     } catch (e) {
       debugPrint('Error loading webapps: $e');
-      setState(() => _loadingWebapps = false);
+      if (mounted) {
+        setState(() => _loadingWebapps = false);
+      }
     }
   }
 
@@ -443,9 +455,9 @@ class _ServerManagerToolState extends State<ServerManagerTool> {
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
+        color: color.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: color.withOpacity(0.3)),
+        border: Border.all(color: color.withValues(alpha: 0.3)),
       ),
       child: Row(
         children: [
@@ -594,7 +606,7 @@ class _ServerManagerToolState extends State<ServerManagerTool> {
                       Icon(
                         Icons.touch_app,
                         size: 14,
-                        color: theme.textTheme.bodySmall?.color?.withOpacity(0.5),
+                        color: theme.textTheme.bodySmall?.color?.withValues(alpha: 0.5),
                       ),
                     ],
                   ),

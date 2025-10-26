@@ -1,6 +1,8 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter_colorpicker/flutter_colorpicker.dart';
+import 'package:http/http.dart' as http;
 import '../models/tool_config.dart';
 import '../models/tool.dart';
 import '../models/tool_definition.dart' as def;
@@ -89,6 +91,11 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
   bool _invertRudder = false;        // Invert rudder angle display
   int _fadeDelaySeconds = 5;         // Seconds before controls fade
 
+  // WebView-specific configuration
+  String _webViewUrl = '';
+  List<Map<String, String>> _signalKWebApps = [];
+  bool _loadingWebApps = false;
+
   // Size configuration
   int _toolWidth = 1;
   int _toolHeight = 1;
@@ -146,6 +153,9 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
     _headingTrue = false;
     _invertRudder = false;
     _fadeDelaySeconds = 5;
+    _webViewUrl = '';
+    _signalKWebApps = [];
+    _loadingWebApps = false;
     _toolWidth = 1;
     _toolHeight = 1;
   }
@@ -209,6 +219,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
       case 'conversion_test':
       case 'server_manager':
       case 'rpi_monitor':
+      case 'webview':
         _toolWidth = 4;
         _toolHeight = 8;
         break;
@@ -234,6 +245,8 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
             return toolDef.category == def.ToolCategory.chart;
           case 'controls':
             return toolDef.category == def.ToolCategory.control;
+          case 'system':
+            return toolDef.category == def.ToolCategory.system;
           case 'instruments':
             // Compass and other instruments
             return toolDef.category == def.ToolCategory.compass || toolDef.category == def.ToolCategory.other;
@@ -288,7 +301,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
       case def.ToolCategory.control:
         return Colors.orange;
       case def.ToolCategory.system:
-        return Colors.red;
+        return Colors.red.shade700;
       case def.ToolCategory.compass:
       case def.ToolCategory.other:
         return Colors.purple;
@@ -403,6 +416,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
       _invertRudder = style.customProperties!['invertRudder'] as bool? ?? false;
       _fadeDelaySeconds = style.customProperties!['fadeDelaySeconds'] as int? ?? 5;
       _enableVMG = style.customProperties!['enableVMG'] as bool? ?? false;
+      _webViewUrl = style.customProperties!['url'] as String? ?? '';
     }
 
     // Load wind compass and autopilot settings from style
@@ -456,6 +470,66 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
     setState(() {
       _dataSources.removeAt(index);
     });
+  }
+
+  Future<void> _loadSignalKWebApps() async {
+    setState(() {
+      _loadingWebApps = true;
+    });
+
+    try {
+      final signalKService = Provider.of<SignalKService>(context, listen: false);
+      final serverUrl = signalKService.serverUrl;
+      final useSecure = signalKService.useSecureConnection;
+
+      if (serverUrl.isEmpty) {
+        throw Exception('Not connected to SignalK server');
+      }
+
+      final protocol = useSecure ? 'https' : 'http';
+      final url = Uri.parse('$protocol://$serverUrl/webapps');
+
+      final response = await http.get(url);
+
+      if (response.statusCode == 200) {
+        final List<dynamic> webapps = json.decode(response.body);
+
+        setState(() {
+          _signalKWebApps = webapps.map((app) {
+            final name = app['name'] as String? ?? 'Unknown';
+            final version = app['version'] as String? ?? '';
+            final description = app['description'] as String?;
+            final location = app['location'] as String? ?? '';
+
+            // Build full URL
+            final webappUrl = '$protocol://$serverUrl$location';
+
+            return {
+              'name': name,
+              'version': version,
+              'description': description ?? 'Version $version',
+              'url': webappUrl,
+            };
+          }).toList();
+          _loadingWebApps = false;
+        });
+      } else {
+        throw Exception('Failed to load webapps: ${response.statusCode}');
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _loadingWebApps = false;
+        });
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to load SignalK webapps: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
   }
 
   void _editDataSource(int index) async {
@@ -559,7 +633,9 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
 
   Future<void> _saveTool() async {
     if (!_formKey.currentState!.validate()) return;
-    if (_selectedToolTypeId == null || _dataSources.isEmpty) return;
+    // WebView and server_manager don't need data sources, other tools do
+    if (_selectedToolTypeId == null) return;
+    if (_selectedToolTypeId != 'webview' && _selectedToolTypeId != 'server_manager' && _dataSources.isEmpty) return;
 
     final toolService = Provider.of<ToolService>(context, listen: false);
 
@@ -608,6 +684,10 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
         'invertRudder': _invertRudder,
         'fadeDelaySeconds': _fadeDelaySeconds,
         'enableVMG': _enableVMG,
+      };
+    } else if (_selectedToolTypeId == 'webview') {
+      customProperties = {
+        'url': _webViewUrl,
       };
     } else {
       // Add gauge-specific properties
@@ -709,7 +789,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
         title: Text(widget.existingTool == null ? 'Add Tool' : 'Edit Tool'),
         actions: [
           TextButton.icon(
-            onPressed: _selectedToolTypeId != null && _dataSources.isNotEmpty
+            onPressed: _selectedToolTypeId != null && (_dataSources.isNotEmpty || _selectedToolTypeId == 'webview' || _selectedToolTypeId == 'server_manager')
                 ? _saveTool
                 : null,
             icon: const Icon(Icons.check),
@@ -743,6 +823,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                         _buildCategoryButton('gauges', 'Gauges & Text', Colors.blue),
                         _buildCategoryButton('charts', 'Charts', Colors.green),
                         _buildCategoryButton('controls', 'Controls', Colors.orange),
+                        _buildCategoryButton('system', 'System', Colors.red.shade700),
                         _buildCategoryButton('instruments', 'Instruments', Colors.purple),
                       ],
                     ),
@@ -768,8 +849,9 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
             ),
             const SizedBox(height: 16),
 
-            // Data Source Configuration
-            Card(
+            // Data Source Configuration (hide for webview and server_manager)
+            if (_selectedToolTypeId != 'webview' && _selectedToolTypeId != 'server_manager')
+              Card(
               child: Padding(
                 padding: const EdgeInsets.all(16),
                 child: Column(
@@ -820,16 +902,21 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                             }
                           }
 
+                          // Special display for webview
+                          final isWebView = _selectedToolTypeId == 'webview';
+
                           return Card(
                             child: ListTile(
                               leading: CircleAvatar(
-                                child: Text('${index + 1}'),
+                                child: isWebView
+                                    ? const Icon(Icons.web, size: 18)
+                                    : Text('${index + 1}'),
                               ),
-                              title: Text(ds.label ?? ds.path.split('.').last),
+                              title: Text(isWebView ? 'Web Page' : (ds.label ?? ds.path.split('.').last)),
                               subtitle: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Text(ds.path),
+                                  Text(isWebView ? (ds.label ?? 'No URL') : ds.path),
                                   if (roleLabel != null)
                                     Text(
                                       roleLabel,
@@ -894,7 +981,8 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                 _selectedToolTypeId != 'realtime_chart' &&
                 _selectedToolTypeId != 'radial_bar_chart' &&
                 _selectedToolTypeId != 'server_manager' &&
-                _selectedToolTypeId != 'rpi_monitor')
+                _selectedToolTypeId != 'rpi_monitor' &&
+                _selectedToolTypeId != 'webview')
               Card(
                 child: Padding(
                   padding: const EdgeInsets.all(16),
@@ -1185,8 +1273,8 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
               ),
             const SizedBox(height: 16),
 
-            // Style Configuration (hide for conversion_test - it only needs paths)
-            if (_selectedToolTypeId != null && _selectedToolTypeId != 'conversion_test')
+            // Style Configuration (hide for conversion_test, server_manager, and rpi_monitor)
+            if (_selectedToolTypeId != null && _selectedToolTypeId != 'conversion_test' && _selectedToolTypeId != 'server_manager' && _selectedToolTypeId != 'rpi_monitor')
               Card(
                 child: Padding(
                   padding: const EdgeInsets.all(16),
@@ -1194,11 +1282,13 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        (_selectedToolTypeId == 'historical_chart' ||
-                         _selectedToolTypeId == 'polar_radar_chart' ||
-                         _selectedToolTypeId == 'ais_polar_chart')
-                            ? '4. Configure Style'
-                            : '3. Configure Style',
+                        _selectedToolTypeId == 'webview'
+                            ? '2. Configure URL'
+                            : (_selectedToolTypeId == 'historical_chart' ||
+                                _selectedToolTypeId == 'polar_radar_chart' ||
+                                _selectedToolTypeId == 'ais_polar_chart')
+                                ? '4. Configure Style'
+                                : '3. Configure Style',
                         style: Theme.of(context).textTheme.titleMedium,
                       ),
                       const SizedBox(height: 16),
@@ -1209,8 +1299,8 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
               ),
             const SizedBox(height: 16),
 
-            // Preview
-            if (_selectedToolTypeId != null && _dataSources.isNotEmpty)
+            // Preview (hide for server_manager - it has too much content)
+            if (_selectedToolTypeId != null && (_dataSources.isNotEmpty || _selectedToolTypeId == 'webview') && _selectedToolTypeId != 'server_manager')
               Card(
                 child: Padding(
                   padding: const EdgeInsets.all(16),
@@ -1218,21 +1308,27 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        (_selectedToolTypeId == 'historical_chart' ||
-                         _selectedToolTypeId == 'polar_radar_chart' ||
-                         _selectedToolTypeId == 'ais_polar_chart')
-                            ? '5. Preview'
-                            : '4. Preview',
+                        _selectedToolTypeId == 'webview' || _selectedToolTypeId == 'rpi_monitor'
+                            ? '3. Preview'
+                            : (_selectedToolTypeId == 'historical_chart' ||
+                                _selectedToolTypeId == 'polar_radar_chart' ||
+                                _selectedToolTypeId == 'ais_polar_chart')
+                                ? '5. Preview'
+                                : '4. Preview',
                         style: Theme.of(context).textTheme.titleMedium,
                       ),
                       const SizedBox(height: 16),
-                      SizedBox(
+                      Container(
                         height: 200,
+                        decoration: BoxDecoration(
+                          border: Border.all(color: Colors.grey.shade300),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
                         child: Consumer<SignalKService>(
                           builder: (context, service, child) {
-                            // Build preview customProperties same as save
-                            final Map<String, dynamic>? previewCustomProperties;
-                            if (_selectedToolTypeId == 'historical_chart') {
+                                // Build preview customProperties same as save
+                                final Map<String, dynamic>? previewCustomProperties;
+                              if (_selectedToolTypeId == 'historical_chart') {
                               previewCustomProperties = {
                                 'duration': _chartDuration,
                                 'resolution': _chartResolution,
@@ -1276,6 +1372,10 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                                 'fadeDelaySeconds': _fadeDelaySeconds,
                                 'enableVMG': _enableVMG,
                               };
+                            } else if (_selectedToolTypeId == 'webview') {
+                              previewCustomProperties = {
+                                'url': _webViewUrl,
+                              };
                             } else {
                               final Map<String, dynamic> basePreviewProperties = {
                                 'divisions': _divisions,
@@ -1296,26 +1396,34 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                               previewCustomProperties = basePreviewProperties;
                             }
 
-                            return registry.buildTool(
-                              _selectedToolTypeId!,
-                              ToolConfig(
-                                dataSources: _dataSources,
-                                style: StyleConfig(
-                                  minValue: _minValue,
-                                  maxValue: _maxValue,
-                                  unit: _unit,
-                                  primaryColor: _primaryColor,
-                                  fontSize: _fontSize,
-                                  showLabel: _showLabel,
-                                  showValue: _showValue,
-                                  showUnit: _showUnit,
-                                  ttlSeconds: _ttlSeconds,
-                                  laylineAngle: (_selectedToolTypeId == 'wind_compass' || _selectedToolTypeId == 'autopilot') ? _laylineAngle : null,
-                                  targetTolerance: (_selectedToolTypeId == 'wind_compass' || _selectedToolTypeId == 'autopilot') ? _targetTolerance : null,
-                                  customProperties: previewCustomProperties,
+                            return FittedBox(
+                              fit: BoxFit.contain,
+                              alignment: Alignment.topCenter,
+                              child: SizedBox(
+                                width: 300,
+                                height: 300,
+                                child: registry.buildTool(
+                                  _selectedToolTypeId!,
+                                  ToolConfig(
+                                    dataSources: _dataSources,
+                                    style: StyleConfig(
+                                      minValue: _minValue,
+                                      maxValue: _maxValue,
+                                      unit: _unit,
+                                      primaryColor: _primaryColor,
+                                      fontSize: _fontSize,
+                                      showLabel: _showLabel,
+                                      showValue: _showValue,
+                                      showUnit: _showUnit,
+                                      ttlSeconds: _ttlSeconds,
+                                      laylineAngle: (_selectedToolTypeId == 'wind_compass' || _selectedToolTypeId == 'autopilot') ? _laylineAngle : null,
+                                      targetTolerance: (_selectedToolTypeId == 'wind_compass' || _selectedToolTypeId == 'autopilot') ? _targetTolerance : null,
+                                      customProperties: previewCustomProperties,
+                                    ),
+                                  ),
+                                  service,
                                 ),
                               ),
-                              service,
                             );
                           },
                         ),
@@ -1948,6 +2056,95 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
               setState(() => _dropdownStepSize = parsed);
             }
           },
+        ),
+      ]);
+    }
+
+    // WebView-specific options
+    if (_selectedToolTypeId == 'webview') {
+      // Load webapps on first display
+      if (_signalKWebApps.isEmpty && !_loadingWebApps) {
+        Future.microtask(() => _loadSignalKWebApps());
+      }
+
+      widgets.addAll([
+        const SizedBox(height: 16),
+        // Custom URL input (always shown)
+        TextFormField(
+          decoration: const InputDecoration(
+            labelText: 'Web Page URL',
+            border: OutlineInputBorder(),
+            hintText: 'Enter URL or select from SignalK webapps below',
+            helperText: 'Enter full URL or select from installed SignalK webapps',
+          ),
+          initialValue: _webViewUrl,
+          onChanged: (value) => _webViewUrl = value,
+          validator: (value) {
+            if (value == null || value.trim().isEmpty) {
+              return 'URL is required';
+            }
+            return null;
+          },
+        ),
+        const SizedBox(height: 16),
+        // SignalK webapps section
+        if (_loadingWebApps)
+          const Center(
+            child: Column(
+              children: [
+                CircularProgressIndicator(),
+                SizedBox(height: 8),
+                Text(
+                  'Loading SignalK webapps...',
+                  style: TextStyle(color: Colors.grey, fontSize: 12),
+                ),
+              ],
+            ),
+          )
+        else if (_signalKWebApps.isNotEmpty) ...[
+          const Divider(),
+          const SizedBox(height: 8),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text(
+                'Or select from SignalK webapps:',
+                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
+              ),
+              TextButton.icon(
+                onPressed: _loadSignalKWebApps,
+                icon: const Icon(Icons.refresh, size: 16),
+                label: const Text('Refresh'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: _signalKWebApps.map((app) {
+              final isSelected = _webViewUrl == app['url'];
+              return FilterChip(
+                label: Text(app['name'] ?? 'Unknown'),
+                selected: isSelected,
+                onSelected: (selected) {
+                  setState(() {
+                    _webViewUrl = selected ? app['url']! : '';
+                  });
+                },
+                tooltip: app['description'],
+                avatar: isSelected ? const Icon(Icons.check, size: 16) : null,
+              );
+            }).toList(),
+          ),
+        ],
+        const SizedBox(height: 8),
+        const Text(
+          'Examples:\n'
+          '• http://192.168.1.88:3000/@signalk/server-admin-ui\n'
+          '• https://windy.com\n'
+          '• http://192.168.1.88:3000/your-webapp',
+          style: TextStyle(fontSize: 11, color: Colors.grey),
         ),
       ]);
     }

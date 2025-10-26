@@ -337,7 +337,7 @@ class _PolarRadarChartState extends State<PolarRadarChart>
         tickCount: 4,
         radarTouchData: RadarTouchData(enabled: false),
         getTitle: (index, angle) {
-          if (!widget.showLabels) return RadarChartTitle(text: '');
+          if (!widget.showLabels) return const RadarChartTitle(text: '');
 
           // Labels for 8 compass directions
           final labels = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
@@ -365,8 +365,8 @@ class _PolarRadarChartState extends State<PolarRadarChart>
           ),
         ],
       ),
-      swapAnimationDuration: const Duration(milliseconds: 150),
-      swapAnimationCurve: Curves.easeInOut,
+      duration: const Duration(milliseconds: 150),
+      curve: Curves.easeInOut,
     );
   }
 
@@ -378,7 +378,7 @@ class _PolarRadarChartState extends State<PolarRadarChart>
     final values = List<double>.filled(8, 0.0);
 
     if (_dataHistory.isEmpty) {
-      return compassAngles.map((angle) => RadarEntry(value: 0)).toList();
+      return compassAngles.map((angle) => const RadarEntry(value: 0)).toList();
     }
 
     // Project recent data points onto compass directions

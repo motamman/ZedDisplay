@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.1+8] - 2025-10-26
+
+### Dependencies
+- **Major Updates**: Upgraded key dependencies to latest versions
+  - `flutter_map`: 7.0.2 → 8.2.2
+    - Added built-in tile caching for faster map loading
+    - Improved performance and package size reduction (3MB → 900KB)
+    - Enhanced multi-world support and anti-meridian handling
+  - `math_expressions`: 2.6.0 → 3.1.0
+    - Updated to new `RealEvaluator` API for type-safe expression evaluation
+    - Enhanced parser with mathematical constants support
+  - `build_runner`: 2.10.0 → 2.10.1
+- **Code Updates**: Updated `conversion_utils.dart` to use new math_expressions v3.x API
+  - Migrated from deprecated `evaluate()` to `RealEvaluator().evaluate()`
+  - Maintained full backward compatibility for all unit conversion functionality
+
 ### Added
 - **Multi-Needle Compass Support**: Compass gauge now supports up to 4 needles for comparing multiple headings
   - Compare heading, COG, autopilot target, or any other directional data on one display

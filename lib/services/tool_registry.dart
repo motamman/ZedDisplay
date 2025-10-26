@@ -115,5 +115,6 @@ class ToolRegistry {
     register('conversion_test', ConversionTestToolBuilder());
     register('server_manager', ServerManagerToolBuilder());
     register('rpi_monitor', RpiMonitorToolBuilder());
+    // register('webview', WebViewToolBuilder()); // Hidden for now - uncomment to enable
   }
 }

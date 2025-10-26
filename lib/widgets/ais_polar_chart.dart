@@ -223,7 +223,7 @@ class _AISPolarChartState extends State<AISPolarChart>
 
         // Check if vessel data is recent (< 3 minutes old)
         final timestamp = vesselData['timestamp'] as DateTime?;
-        final fromGET = vesselData['fromGET'] as bool? ?? true;
+        // final fromGET = vesselData['fromGET'] as bool? ?? true; // Unused for now
         final isLive = timestamp != null &&
                        DateTime.now().difference(timestamp).inMinutes < 3;
 
@@ -974,7 +974,7 @@ class _AISPolarChartState extends State<AISPolarChart>
               if (vessel.timestamp != null)
                 Text(
                   _formatTimeSince(vessel.timestamp!),
-                  style: TextStyle(
+                  style: const TextStyle(
                     fontSize: 10,
                     color: Colors.grey,
                   ),

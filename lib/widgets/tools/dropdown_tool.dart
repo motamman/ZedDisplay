@@ -107,8 +107,8 @@ class _DropdownToolState extends State<DropdownTool> with ControlToolMixin {
               ),
             )
           : null,
-      additionalWidgets: [
-        const SizedBox(height: 8),
+      additionalWidgets: const [
+        SizedBox(height: 8),
       ],
       controlWidget: Column(
         children: [

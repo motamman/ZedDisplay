@@ -122,7 +122,7 @@ class AutopilotCompass extends StatelessWidget {
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             // "Track" or mode label
-                            Text(
+                            const Text(
                               'Track',
                               style: TextStyle(
                                 fontSize: 14,
@@ -166,7 +166,7 @@ class AutopilotCompass extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
+                    const Text(
                       'HDG',
                       style: TextStyle(
                         fontSize: 12,
@@ -193,7 +193,7 @@ class AutopilotCompass extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
-                      Text(
+                      const Text(
                         'XTE',
                         style: TextStyle(
                           fontSize: 12,
@@ -252,8 +252,12 @@ class AutopilotCompass extends StatelessWidget {
 
   /// Normalize angle to 0-360 range
   double _normalizeAngle(double angle) {
-    while (angle < 0) angle += 360;
-    while (angle >= 360) angle -= 360;
+    while (angle < 0) {
+      angle += 360;
+    }
+    while (angle >= 360) {
+      angle -= 360;
+    }
     return angle;
   }
 

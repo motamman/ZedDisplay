@@ -253,9 +253,9 @@ class AutopilotWidget extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 2),
-                Text(
+                const Text(
                   'TARGET',
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.w300,
                     color: Colors.white70,
@@ -804,7 +804,7 @@ class _VesselShadowPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final center = Offset(size.width / 2, size.height / 2);
-    final scale = size.width / 200; // Scale for vessel size
+    final scale = math.min(size.width, size.height) / 200; // Scale based on smaller dimension to fit inside compass rim
 
     // Create boat shape pointing up
     final path = Path();

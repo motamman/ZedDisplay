@@ -18,14 +18,14 @@ class ZonesService {
     this.authToken,
   });
 
-  /// Get HTTP headers with authentication if available
-  Map<String, String> _getHeaders() {
-    final headers = <String, String>{};
-    if (authToken != null) {
-      headers['Authorization'] = 'Bearer ${authToken!.token}';
-    }
-    return headers;
-  }
+  /// Get HTTP headers with authentication if available (currently unused, kept for future)
+  // Map<String, String> _getHeaders() {
+  //   final headers = <String, String>{};
+  //   if (authToken != null) {
+  //     headers['Authorization'] = 'Bearer ${authToken!.token}';
+  //   }
+  //   return headers;
+  // }
 
   /// Fetch zones for a single path
   ///

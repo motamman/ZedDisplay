@@ -119,7 +119,6 @@ class _ZedDisplayAppState extends State<ZedDisplayApp> with WidgetsBindingObserv
   AuthToken? _lastToken;
   late ThemeMode _themeMode;
   static const platform = MethodChannel('com.zennora.zed_display/intent');
-  bool _shouldShowSetupManagement = false;
   final GlobalKey<NavigatorState> _navigatorKey = GlobalKey<NavigatorState>();
 
   @override

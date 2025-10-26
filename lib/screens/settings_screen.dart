@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:uuid/uuid.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../services/signalk_service.dart';
 import '../services/storage_service.dart';
 import '../services/auth_service.dart';
@@ -421,6 +422,62 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ),
                   ),
                 ],
+              ],
+            ),
+          ),
+
+          const Divider(height: 32),
+
+          // About Section
+          Card(
+            margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: Column(
+              children: [
+                const Padding(
+                  padding: EdgeInsets.all(16.0),
+                  child: Row(
+                    children: [
+                      Icon(Icons.info_outline, color: Colors.blue),
+                      SizedBox(width: 8),
+                      Text(
+                        'About ZedDisplay',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const Divider(height: 1),
+                ListTile(
+                  leading: const Icon(Icons.description, color: Colors.grey),
+                  title: const Text('README'),
+                  subtitle: const Text('Documentation and getting started'),
+                  trailing: const Icon(Icons.open_in_new, size: 16),
+                  onTap: () => _launchUrl('https://github.com/motamman/ZedDisplay#readme'),
+                ),
+                ListTile(
+                  leading: const Icon(Icons.bug_report, color: Colors.grey),
+                  title: const Text('Report Issues'),
+                  subtitle: const Text('Submit bugs and feature requests'),
+                  trailing: const Icon(Icons.open_in_new, size: 16),
+                  onTap: () => _launchUrl('https://github.com/motamman/ZedDisplay/issues'),
+                ),
+                ListTile(
+                  leading: const Icon(Icons.code, color: Colors.grey),
+                  title: const Text('GitHub Repository'),
+                  subtitle: const Text('View source code'),
+                  trailing: const Icon(Icons.open_in_new, size: 16),
+                  onTap: () => _launchUrl('https://github.com/motamman/ZedDisplay'),
+                ),
+                ListTile(
+                  leading: const Icon(Icons.email, color: Colors.grey),
+                  title: const Text('Contact'),
+                  subtitle: const Text('ZedDisplay@zennora.sv'),
+                  trailing: const Icon(Icons.open_in_new, size: 16),
+                  onTap: () => _launchUrl('mailto:ZedDisplay@zennora.sv'),
+                ),
               ],
             ),
           ),
@@ -1012,6 +1069,33 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ],
       ),
     );
+  }
+
+  /// Launch a URL in the default browser or app
+  Future<void> _launchUrl(String urlString) async {
+    final Uri url = Uri.parse(urlString);
+
+    try {
+      if (!await launchUrl(url, mode: LaunchMode.externalApplication)) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Could not open $urlString'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error opening link: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
   }
 
 }

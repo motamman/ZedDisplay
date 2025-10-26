@@ -29,8 +29,12 @@ class AutopilotCompass extends StatelessWidget {
 
   /// Normalize angle to 0-360 range
   double _normalizeAngle(double angle) {
-    while (angle < 0) angle += 360;
-    while (angle >= 360) angle -= 360;
+    while (angle < 0) {
+      angle += 360;
+    }
+    while (angle >= 360) {
+      angle -= 360;
+    }
     return angle;
   }
 
@@ -205,8 +209,12 @@ class AutopilotCompass extends StatelessWidget {
                       builder: (context) {
                         double error = primaryHeadingDegrees - targetHeading;
                         // Normalize to -180 to +180
-                        while (error > 180) error -= 360;
-                        while (error < -180) error += 360;
+                        while (error > 180) {
+                          error -= 360;
+                        }
+                        while (error < -180) {
+                          error += 360;
+                        }
 
                         Color errorColor;
                         if (error.abs() < 3) {
@@ -264,8 +272,8 @@ class AutopilotCompass extends StatelessWidget {
                     const SizedBox(height: 4),
                     Text(
                       crossTrackError!.abs() >= 1000
-                          ? '${(crossTrackError!.abs() / 1000).toStringAsFixed(2)}'
-                          : '${crossTrackError!.abs().toStringAsFixed(0)}',
+                          ? (crossTrackError!.abs() / 1000).toStringAsFixed(2)
+                          : crossTrackError!.abs().toStringAsFixed(0),
                       style: const TextStyle(
                         fontSize: 20,
                         color: Colors.white,

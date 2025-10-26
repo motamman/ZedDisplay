@@ -28,7 +28,6 @@ class KnobTool extends StatefulWidget {
 
 class _KnobToolState extends State<KnobTool> with ControlToolMixin {
   double? _currentKnobValue;
-  bool _isDragging = false;
 
   @override
   Widget build(BuildContext context) {
@@ -74,7 +73,7 @@ class _KnobToolState extends State<KnobTool> with ControlToolMixin {
     final conversionInfo = availableUnits.isNotEmpty
         ? widget.signalKService.getConversionInfo(dataSource.path, availableUnits.first)
         : null;
-    final unit = style.unit ?? conversionInfo?.symbol ?? '';
+    // final unit = style.unit ?? conversionInfo?.symbol ?? ''; // Unused for now
 
     // Get decimal places from customProperties
     final decimalPlaces = style.customProperties?['decimalPlaces'] as int? ?? 1;

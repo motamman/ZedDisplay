@@ -851,9 +851,9 @@ class _EditToolScreenState extends State<_EditToolScreen> {
             style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
           ),
           const SizedBox(height: 8),
-          Text(
+          const Text(
             'Data Paths:',
-            style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 12),
+            style: TextStyle(fontWeight: FontWeight.w500, fontSize: 12),
           ),
           ...config.dataSources.map((ds) {
             return Padding(

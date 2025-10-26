@@ -66,14 +66,14 @@ class WindsteerDemoTool extends StatelessWidget {
         Container(
           padding: const EdgeInsets.all(8),
           color: Colors.amber.withValues(alpha: 0.3),
-          child: Row(
+          child: const Row(
             children: [
-              const Icon(Icons.info_outline, size: 16),
-              const SizedBox(width: 8),
+              Icon(Icons.info_outline, size: 16),
+              SizedBox(width: 8),
               Expanded(
                 child: Text(
                   'Auto-configured with standard SignalK paths',
-                  style: const TextStyle(fontSize: 11),
+                  style: TextStyle(fontSize: 11),
                 ),
               ),
             ],
