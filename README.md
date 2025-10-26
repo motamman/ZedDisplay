@@ -357,6 +357,7 @@ For questions or issues:
 - [ ] AIS collision alerts using `notifications.danger.collision` (requires collision-detector plugin)
 - [ ] Weather forecast tool (display forecast data from SignalK weather plugins)
 - [x] Raspberry Pi health monitoring tool (completed - CPU, memory, temperature, uptime monitoring)
+- [ ] Manage overflows with dynamic sizing (improve responsive layout across all screen sizes)
 
 ### Wind Compass Improvements
 - [x] Target AWA mode with performance zones (completed)

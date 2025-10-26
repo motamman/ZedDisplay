@@ -633,9 +633,9 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
 
   Future<void> _saveTool() async {
     if (!_formKey.currentState!.validate()) return;
-    // WebView doesn't need data sources, other tools do
+    // WebView and server_manager don't need data sources, other tools do
     if (_selectedToolTypeId == null) return;
-    if (_selectedToolTypeId != 'webview' && _dataSources.isEmpty) return;
+    if (_selectedToolTypeId != 'webview' && _selectedToolTypeId != 'server_manager' && _dataSources.isEmpty) return;
 
     final toolService = Provider.of<ToolService>(context, listen: false);
 
@@ -789,7 +789,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
         title: Text(widget.existingTool == null ? 'Add Tool' : 'Edit Tool'),
         actions: [
           TextButton.icon(
-            onPressed: _selectedToolTypeId != null && (_dataSources.isNotEmpty || _selectedToolTypeId == 'webview')
+            onPressed: _selectedToolTypeId != null && (_dataSources.isNotEmpty || _selectedToolTypeId == 'webview' || _selectedToolTypeId == 'server_manager')
                 ? _saveTool
                 : null,
             icon: const Icon(Icons.check),
@@ -849,8 +849,8 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
             ),
             const SizedBox(height: 16),
 
-            // Data Source Configuration (hide for webview)
-            if (_selectedToolTypeId != 'webview')
+            // Data Source Configuration (hide for webview and server_manager)
+            if (_selectedToolTypeId != 'webview' && _selectedToolTypeId != 'server_manager')
               Card(
               child: Padding(
                 padding: const EdgeInsets.all(16),
@@ -1273,8 +1273,8 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
               ),
             const SizedBox(height: 16),
 
-            // Style Configuration (hide for conversion_test - it only needs paths)
-            if (_selectedToolTypeId != null && _selectedToolTypeId != 'conversion_test')
+            // Style Configuration (hide for conversion_test, server_manager, and rpi_monitor)
+            if (_selectedToolTypeId != null && _selectedToolTypeId != 'conversion_test' && _selectedToolTypeId != 'server_manager' && _selectedToolTypeId != 'rpi_monitor')
               Card(
                 child: Padding(
                   padding: const EdgeInsets.all(16),
@@ -1299,8 +1299,8 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
               ),
             const SizedBox(height: 16),
 
-            // Preview
-            if (_selectedToolTypeId != null && (_dataSources.isNotEmpty || _selectedToolTypeId == 'webview'))
+            // Preview (hide for server_manager - it has too much content)
+            if (_selectedToolTypeId != null && (_dataSources.isNotEmpty || _selectedToolTypeId == 'webview') && _selectedToolTypeId != 'server_manager')
               Card(
                 child: Padding(
                   padding: const EdgeInsets.all(16),
@@ -1308,7 +1308,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        _selectedToolTypeId == 'webview'
+                        _selectedToolTypeId == 'webview' || _selectedToolTypeId == 'rpi_monitor'
                             ? '3. Preview'
                             : (_selectedToolTypeId == 'historical_chart' ||
                                 _selectedToolTypeId == 'polar_radar_chart' ||
@@ -1318,13 +1318,17 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                         style: Theme.of(context).textTheme.titleMedium,
                       ),
                       const SizedBox(height: 16),
-                      SizedBox(
+                      Container(
                         height: 200,
+                        decoration: BoxDecoration(
+                          border: Border.all(color: Colors.grey.shade300),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
                         child: Consumer<SignalKService>(
                           builder: (context, service, child) {
-                            // Build preview customProperties same as save
-                            final Map<String, dynamic>? previewCustomProperties;
-                            if (_selectedToolTypeId == 'historical_chart') {
+                                // Build preview customProperties same as save
+                                final Map<String, dynamic>? previewCustomProperties;
+                              if (_selectedToolTypeId == 'historical_chart') {
                               previewCustomProperties = {
                                 'duration': _chartDuration,
                                 'resolution': _chartResolution,
@@ -1392,26 +1396,34 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                               previewCustomProperties = basePreviewProperties;
                             }
 
-                            return registry.buildTool(
-                              _selectedToolTypeId!,
-                              ToolConfig(
-                                dataSources: _dataSources,
-                                style: StyleConfig(
-                                  minValue: _minValue,
-                                  maxValue: _maxValue,
-                                  unit: _unit,
-                                  primaryColor: _primaryColor,
-                                  fontSize: _fontSize,
-                                  showLabel: _showLabel,
-                                  showValue: _showValue,
-                                  showUnit: _showUnit,
-                                  ttlSeconds: _ttlSeconds,
-                                  laylineAngle: (_selectedToolTypeId == 'wind_compass' || _selectedToolTypeId == 'autopilot') ? _laylineAngle : null,
-                                  targetTolerance: (_selectedToolTypeId == 'wind_compass' || _selectedToolTypeId == 'autopilot') ? _targetTolerance : null,
-                                  customProperties: previewCustomProperties,
+                            return FittedBox(
+                              fit: BoxFit.contain,
+                              alignment: Alignment.topCenter,
+                              child: SizedBox(
+                                width: 300,
+                                height: 300,
+                                child: registry.buildTool(
+                                  _selectedToolTypeId!,
+                                  ToolConfig(
+                                    dataSources: _dataSources,
+                                    style: StyleConfig(
+                                      minValue: _minValue,
+                                      maxValue: _maxValue,
+                                      unit: _unit,
+                                      primaryColor: _primaryColor,
+                                      fontSize: _fontSize,
+                                      showLabel: _showLabel,
+                                      showValue: _showValue,
+                                      showUnit: _showUnit,
+                                      ttlSeconds: _ttlSeconds,
+                                      laylineAngle: (_selectedToolTypeId == 'wind_compass' || _selectedToolTypeId == 'autopilot') ? _laylineAngle : null,
+                                      targetTolerance: (_selectedToolTypeId == 'wind_compass' || _selectedToolTypeId == 'autopilot') ? _targetTolerance : null,
+                                      customProperties: previewCustomProperties,
+                                    ),
+                                  ),
+                                  service,
                                 ),
                               ),
-                              service,
                             );
                           },
                         ),
