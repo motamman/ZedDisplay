@@ -57,6 +57,21 @@ A customizable SignalK marine dashboard application to display real-time vessel 
 - **Checkbox**: Checkbox for boolean SignalK paths with PUT support
 - **Dropdown**: Dropdown selector for sending numeric values to SignalK paths
 
+**System Tools**
+- **Server Status**: Real-time SignalK server monitoring and management
+  - Live server statistics (uptime, delta rate, connected clients, available paths)
+  - Per-provider statistics with delta rates
+  - Plugin management (view all plugins, enable/disable with tap)
+  - Webapp listing with versions
+  - Server restart functionality
+  - Auto-updates every 5 seconds
+- **RPi Monitor**: Raspberry Pi system health monitoring
+  - CPU utilization (overall and per-core)
+  - CPU and GPU temperature with color-coded warnings
+  - Memory and storage utilization
+  - System uptime display
+  - Requires signalk-rpi-monitor and signalk-rpi-uptime plugins
+
 ### 🔧 Tool Management
 - Create and save custom tool configurations
 - Import/export tool definitions
@@ -331,7 +346,7 @@ For questions or issues:
 - [ ] AIS collision avoidance using `vessels.<uuid>.navigation.closestApproach` (CPA/TCPA)
 - [ ] AIS collision alerts using `notifications.danger.collision` (requires collision-detector plugin)
 - [ ] Weather forecast tool (display forecast data from SignalK weather plugins)
-- [ ] Raspberry Pi manager/health tool (CPU, memory, temperature, disk usage monitoring)
+- [x] Raspberry Pi health monitoring tool (completed - CPU, memory, temperature, uptime monitoring)
 
 ### Wind Compass Improvements
 - [x] Target AWA mode with performance zones (completed)

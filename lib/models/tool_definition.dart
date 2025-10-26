@@ -9,6 +9,7 @@ enum ToolCategory {
   display,  // Text/numeric displays
   compass,  // Compass/directional displays
   control,  // Interactive controls (switches, buttons)
+  system,   // System management and monitoring
   other,
 }
 

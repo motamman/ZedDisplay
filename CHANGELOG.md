@@ -7,6 +7,55 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Server Status Tool**: Real-time SignalK server monitoring and management dashboard
+  - Live server statistics display (uptime, delta rate, connected clients, available paths)
+  - Per-provider statistics with individual delta rates and counts
+  - Plugin management with interactive enable/disable controls (tap to toggle)
+  - Webapp listing with version information
+  - One-tap server restart functionality with confirmation dialog
+  - Auto-updating statistics every 5 seconds via WebSocket `serverevents=all` subscription
+  - Full authentication support for all server operations
+  - Scrollable plugin and webapp lists to accommodate any number of installed items
+  - Color-coded plugin status indicators (green = enabled, grey = disabled)
+  - New "System" tool category for server management tools
+- **RPi Monitor Tool**: Raspberry Pi system health monitoring dashboard
+  - Overall CPU utilization display with progress bar
+  - Per-core CPU utilization cards (up to 4 cores)
+  - CPU and GPU temperature monitoring with color-coded warnings
+    - Green: < 60°C
+    - Orange: 60-75°C
+    - Red: > 75°C
+  - Memory and storage utilization displays (if available)
+  - System uptime display with formatted output
+  - Integrates with signalk-rpi-monitor and signalk-rpi-uptime plugins
+  - Monitors paths: `environment.rpi.cpu.*`, `environment.rpi.gpu.temperature`, `environment.rpi.uptime`
+  - Automatic temperature conversion from Kelvin to Celsius
+
+### Enhanced
+- **Wind Compass**: Added fade effect to no-go zone based on point of sail
+  - No-go zone opacity decreases as apparent wind angle increases
+  - Full opacity when close-hauled (AWA < 60°)
+  - Linear fade when reaching (AWA 60-120°)
+  - Very faint when running downwind (AWA > 120°)
+- **Autopilot Tool**: Improved fading behavior
+  - Faded opacity increased from 10% to 20% for better visibility
+  - Double-tap to disengage now works anywhere on the screen, including over buttons
+- **Android File Sharing**: Enhanced dashboard file import
+  - ZedDisplay now properly opens .zedjson files shared from file managers
+  - Automatic navigation to Setup Management screen after import
+  - Proper intent handling via content:// URIs
+
+### Fixed
+- **Client-Side Unit Conversions**: All widgets now use ConversionUtils for unit conversions
+  - Fixed polar radar chart, radial bar chart, and real-time chart conversions
+  - Fixed historical chart distance conversions
+  - All internal values stored in SI units (meters, radians)
+  - Conversions applied only at display time
+- **AIS Distance Conversions**: Now uses `/signalk/v1/categories` endpoint for consistent distance units
+- **Tool Configuration UI**: Simplified data source addition from 3 dialogs to 2 dialogs
+- **Dashboard File Import**: Fixed Android intent handling for .zedjson files
+
 ### Refactoring & Code Quality
 - **Major Code Refactoring**: Eliminated ~1,130 lines of duplicate code across three phases
   - Phase 1: Created utility extensions for string formatting, color parsing, and data conversion
