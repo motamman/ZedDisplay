@@ -328,6 +328,8 @@ For questions or issues:
 - [ ] Route planning and waypoint navigation
 - [ ] More chart types (bar charts, area charts)
 - [ ] AI integration
+- [ ] AIS collision avoidance using `vessels.<uuid>.navigation.closestApproach` (CPA/TCPA)
+- [ ] AIS collision alerts using `notifications.danger.collision` (requires collision-detector plugin)
 
 ### Wind Compass Improvements
 - [x] Target AWA mode with performance zones (completed)

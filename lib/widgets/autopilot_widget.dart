@@ -86,7 +86,7 @@ class _AutopilotWidgetState extends State<AutopilotWidget> {
     // Start configurable timer to dim controls
     _dimTimer = Timer(Duration(seconds: widget.fadeDelaySeconds), () {
       setState(() {
-        _controlsOpacity = 0.1;
+        _controlsOpacity = 0.2;
       });
     });
   }
@@ -467,11 +467,14 @@ class _AutopilotWidgetState extends State<AutopilotWidget> {
     // Convert heading to radians for rotation
     final headingRadians = widget.currentHeading * math.pi / 180;
 
+    // Wrap entire widget with double-tap handler to capture gestures even over buttons
     return GestureDetector(
-      onTap: _onScreenTap,
       onDoubleTap: _onCompassDoubleTap,
       behavior: HitTestBehavior.translucent,
-      child: Container(
+      child: GestureDetector(
+        onTap: _onScreenTap,
+        behavior: HitTestBehavior.translucent,
+        child: Container(
         padding: const EdgeInsets.all(16),
         child: Stack(
           children: [
@@ -625,6 +628,7 @@ class _AutopilotWidgetState extends State<AutopilotWidget> {
           ),
           ],
         ),
+      ),
       ),
     );
   }

@@ -1272,8 +1272,27 @@ class NoGoZoneVPainter extends CustomPainter {
     path.lineTo(center.dx, center.dy);
     path.close();
 
+    // Calculate apparent wind angle relative to heading
+    double awa = windAngle - headingAngle;
+    while (awa > 180) awa -= 360;
+    while (awa < -180) awa += 360;
+    awa = awa.abs();
+
+    // Fade opacity as AWA increases (moving from upwind to downwind)
+    // Full opacity at upwind (40°), fade out towards beam reach and beyond
+    double opacity;
+    if (awa < 60) {
+      opacity = 0.5; // Full opacity when close-hauled
+    } else if (awa < 120) {
+      // Linear fade from 60° to 120° (reaching)
+      opacity = 0.5 - ((awa - 60) / 60 * 0.4); // Fade from 0.5 to 0.1
+    } else {
+      // Very faint when running downwind
+      opacity = 0.1;
+    }
+
     final paint = Paint()
-      ..color = Colors.grey.withValues(alpha: 0.5)
+      ..color = Colors.grey.withValues(alpha: opacity)
       ..style = PaintingStyle.fill;
 
     canvas.drawPath(path, paint);
