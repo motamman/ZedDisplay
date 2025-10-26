@@ -614,7 +614,7 @@ class VesselShadowPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final center = Offset(size.width / 2, size.height / 2);
-    final scale = size.width / 200; // Scale based on size
+    final scale = min(size.width, size.height) / 200; // Scale based on smaller dimension to fit inside compass rim
 
     // Create boat shape pointing up
     final path = Path();
@@ -685,7 +685,7 @@ class SailTrimIndicatorPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final center = Offset(size.width / 2, size.height / 2);
-    final scale = size.width / 200;
+    final scale = min(size.width, size.height) / 200; // Scale based on smaller dimension to fit inside compass rim
 
     // Get absolute AWA
     final absAWA = apparentWindAngle.abs();
