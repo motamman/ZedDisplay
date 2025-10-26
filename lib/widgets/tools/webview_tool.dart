@@ -136,18 +136,18 @@ class _WebViewToolState extends State<WebViewTool> with AutomaticKeepAliveClient
     if (_currentUrl == null || _currentUrl!.isEmpty) {
       return Container(
         padding: const EdgeInsets.all(16),
-        child: Column(
+        child: const Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Icon(Icons.web, size: 48, color: Colors.grey),
-            const SizedBox(height: 16),
-            const Text(
+            Icon(Icons.web, size: 48, color: Colors.grey),
+            SizedBox(height: 16),
+            Text(
               'No URL configured',
               textAlign: TextAlign.center,
               style: TextStyle(color: Colors.grey),
             ),
-            const SizedBox(height: 8),
-            const Text(
+            SizedBox(height: 8),
+            Text(
               'Edit this tool to set a web page URL',
               textAlign: TextAlign.center,
               style: TextStyle(fontSize: 12, color: Colors.grey),
@@ -179,7 +179,7 @@ class _WebViewToolState extends State<WebViewTool> with AutomaticKeepAliveClient
         ),
         if (_isLoading)
           Container(
-            color: Colors.black.withOpacity(0.1),
+            color: Colors.black.withValues(alpha: 0.1),
             child: const Center(
               child: CircularProgressIndicator(),
             ),
@@ -191,10 +191,10 @@ class _WebViewToolState extends State<WebViewTool> with AutomaticKeepAliveClient
           right: 0,
           child: Container(
             decoration: BoxDecoration(
-              color: Colors.black.withOpacity(0.7),
+              color: Colors.black.withValues(alpha: 0.7),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.3),
+                  color: Colors.black.withValues(alpha: 0.3),
                   blurRadius: 4,
                 ),
               ],
@@ -269,7 +269,7 @@ class _WebViewToolState extends State<WebViewTool> with AutomaticKeepAliveClient
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
               decoration: BoxDecoration(
-                color: Colors.yellow.withOpacity(0.9),
+                color: Colors.yellow.withValues(alpha: 0.9),
                 borderRadius: BorderRadius.circular(12),
               ),
               child: const Row(

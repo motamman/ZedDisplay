@@ -174,7 +174,7 @@ class TextDisplayTool extends StatelessWidget {
                 ],
               ),
             );
-          }).toList(),
+          }),
         ],
       ),
     );

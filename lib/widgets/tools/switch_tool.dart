@@ -66,22 +66,22 @@ class _SwitchToolState extends State<SwitchTool> {
           color: currentValue ? activeColor : inactiveColor,
         ),
       ),
-      additionalWidgets: [
-        const SizedBox(height: 8),
+      additionalWidgets: const [
+        SizedBox(height: 8),
       ],
       controlWidget: Transform.scale(
         scale: UIConstants.switchScale,
         child: Switch(
           value: currentValue,
-          activeColor: activeColor,
+          activeThumbColor: activeColor,
           activeTrackColor: UIConstants.withMediumOpacity(activeColor),
           inactiveThumbColor: inactiveColor,
           inactiveTrackColor: UIConstants.withLightOpacity(inactiveColor),
           thumbIcon: WidgetStateProperty.resolveWith<Icon?>((states) {
             if (states.contains(WidgetState.selected)) {
-              return Icon(Icons.check, size: 16, color: Colors.white);
+              return const Icon(Icons.check, size: 16, color: Colors.white);
             }
-            return Icon(Icons.close, size: 16, color: Colors.white);
+            return const Icon(Icons.close, size: 16, color: Colors.white);
           }),
           onChanged: _isSending ? null : (value) => _toggleSwitch(value, dataSource.path),
         ),

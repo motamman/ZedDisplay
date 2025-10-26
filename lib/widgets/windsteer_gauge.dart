@@ -589,7 +589,7 @@ class _WindsteerPainter extends CustomPainter {
       ..strokeWidth = 3;
 
     // Draw line to waypoint
-    canvas.drawLine(Offset(0, 0), Offset(0, -length), waypointPaint);
+    canvas.drawLine(const Offset(0, 0), Offset(0, -length), waypointPaint);
 
     // Draw circle at waypoint position
     final circlePaint = Paint()

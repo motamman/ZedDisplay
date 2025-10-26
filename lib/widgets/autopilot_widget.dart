@@ -111,8 +111,12 @@ class _AutopilotWidgetState extends State<AutopilotWidget> {
 
   /// Normalize angle to 0-360 range
   double _normalizeAngle(double angle) {
-    while (angle < 0) angle += 360;
-    while (angle >= 360) angle -= 360;
+    while (angle < 0) {
+      angle += 360;
+    }
+    while (angle >= 360) {
+      angle -= 360;
+    }
     return angle;
   }
 
@@ -204,7 +208,7 @@ class _AutopilotWidgetState extends State<AutopilotWidget> {
     final pointers = <GaugePointer>[];
 
     // Determine which heading is primary (being used for compass rotation)
-    final usingTrueHeading = widget.headingTrue;
+    // final usingTrueHeading = widget.headingTrue; // Unused for now
 
     // Target heading marker (needle with rounded end) - drawn first (below)
     pointers.add(NeedlePointer(
@@ -337,8 +341,12 @@ class _AutopilotWidgetState extends State<AutopilotWidget> {
   Widget _buildTargetInfoBox() {
     // Calculate heading error
     double error = widget.currentHeading - widget.targetHeading;
-    while (error > 180) error -= 360;
-    while (error < -180) error += 360;
+    while (error > 180) {
+      error -= 360;
+    }
+    while (error < -180) {
+      error += 360;
+    }
 
     Color errorColor;
     if (error.abs() < 3) {
@@ -437,8 +445,8 @@ class _AutopilotWidgetState extends State<AutopilotWidget> {
                   const SizedBox(height: 2),
                   Text(
                     widget.crossTrackError!.abs() >= 1000
-                        ? '${(widget.crossTrackError!.abs() / 1000).toStringAsFixed(2)}'
-                        : '${widget.crossTrackError!.abs().toStringAsFixed(0)}',
+                        ? (widget.crossTrackError!.abs() / 1000).toStringAsFixed(2)
+                        : widget.crossTrackError!.abs().toStringAsFixed(0),
                     style: const TextStyle(
                       fontSize: 16,
                       color: Colors.white,

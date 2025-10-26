@@ -1120,7 +1120,7 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen> {
                                 const SizedBox(height: 16),
                                 Text(
                                   _toolBeingPlaced!.name,
-                                  style: TextStyle(
+                                  style: const TextStyle(
                                     color: Colors.black,
                                     fontWeight: FontWeight.bold,
                                     fontSize: 24,
@@ -1138,7 +1138,7 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen> {
                                   textAlign: TextAlign.center,
                                 ),
                                 const SizedBox(height: 8),
-                                Text(
+                                const Text(
                                   'Drag corner to resize • Release to place',
                                   style: TextStyle(
                                     color: Colors.black87,

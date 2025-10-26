@@ -47,7 +47,7 @@ class ForegroundTaskService {
       serviceId: 256,
       notificationTitle: 'SignalK Connected',
       notificationText: 'Monitoring for alerts',
-      notificationIcon: NotificationIcon(
+      notificationIcon: const NotificationIcon(
         metaDataName: 'com.zennora.signalk.zeddisplay.NOTIFICATION_ICON',
       ),
       callback: startCallback,

@@ -147,7 +147,7 @@ class _WindCompassState extends State<WindCompass> {
     _windHistory.add(_WindSample(windDirection, now));
 
     // Remove old samples
-    final cutoff = now.subtract(Duration(seconds: _windHistoryDuration));
+    final cutoff = now.subtract(const Duration(seconds: _windHistoryDuration));
     _windHistory.removeWhere((sample) => sample.timestamp.isBefore(cutoff));
 
     // Calculate baseline (average) wind direction
@@ -469,9 +469,9 @@ class _WindCompassState extends State<WindCompass> {
           Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text(
+              const Text(
                 'AWA: ',
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 12,
                   color: Colors.white70,
                 ),
@@ -614,9 +614,9 @@ class _WindCompassState extends State<WindCompass> {
         Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text(
+            const Text(
               'VMG: ',
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 12,
                 color: Colors.white70,
               ),
@@ -669,7 +669,7 @@ class _WindCompassState extends State<WindCompass> {
             'AWA: ${awa.abs().toStringAsFixed(0)}° (${awa > 0 ? "STBD" : "PORT"})',
             style: TextStyle(
               fontSize: 10,
-              color: Colors.white.withOpacity(0.5),
+              color: Colors.white.withValues(alpha: 0.5),
             ),
           ),
         ],
@@ -704,7 +704,7 @@ class _WindCompassState extends State<WindCompass> {
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
           decoration: BoxDecoration(
-            color: Colors.black.withOpacity(0.7),
+            color: Colors.black.withValues(alpha: 0.7),
             border: Border.all(color: shiftColor, width: 2),
             borderRadius: BorderRadius.circular(6),
           ),
@@ -1017,7 +1017,7 @@ class _WindCompassState extends State<WindCompass> {
                           needleStartWidth: 0,
                           needleEndWidth: 10,  // Twice as wide as dominant wind (5 * 2)
                           needleColor: Colors.yellow,
-                          knobStyle: KnobStyle(
+                          knobStyle: const KnobStyle(
                             knobRadius: 0,
                           ),
                         ),
@@ -1040,7 +1040,7 @@ class _WindCompassState extends State<WindCompass> {
                           needleStartWidth: 0,
                           needleEndWidth: 10,  // Twice as wide as dominant wind (5 * 2)
                           needleColor: Colors.orange,
-                          knobStyle: KnobStyle(
+                          knobStyle: const KnobStyle(
                             knobRadius: 0,
                           ),
                         ),
@@ -1063,7 +1063,7 @@ class _WindCompassState extends State<WindCompass> {
                           needleStartWidth: 0,
                           needleEndWidth: 6,
                           needleColor: Colors.white,
-                          knobStyle: KnobStyle(
+                          knobStyle: const KnobStyle(
                             knobRadius: 0,
                           ),
                         ),
@@ -1087,7 +1087,7 @@ class _WindCompassState extends State<WindCompass> {
                           needleStartWidth: 0,
                           needleEndWidth: 4,
                           needleColor: Colors.purple,
-                          knobStyle: KnobStyle(
+                          knobStyle: const KnobStyle(
                             knobRadius: 0,
                           ),
                         ),
@@ -1098,7 +1098,7 @@ class _WindCompassState extends State<WindCompass> {
                           needleStartWidth: 0,
                           needleEndWidth: 4,
                           needleColor: Colors.purple,
-                          knobStyle: KnobStyle(
+                          knobStyle: const KnobStyle(
                             knobRadius: 0,
                           ),
                         ),
@@ -1109,7 +1109,7 @@ class _WindCompassState extends State<WindCompass> {
                           needleStartWidth: 0,
                           needleEndWidth: 6,
                           needleColor: Colors.yellow,
-                          knobStyle: KnobStyle(
+                          knobStyle: const KnobStyle(
                             knobRadius: 0,
                           ),
                         ),
@@ -1124,7 +1124,7 @@ class _WindCompassState extends State<WindCompass> {
                           needleStartWidth: 5,
                           needleEndWidth: 0,
                           needleColor: Colors.blue,
-                          knobStyle: KnobStyle(
+                          knobStyle: const KnobStyle(
                             knobRadius: 0.03,
                             color: Colors.blue,
                           ),
@@ -1138,7 +1138,7 @@ class _WindCompassState extends State<WindCompass> {
                           needleStartWidth: 4,
                           needleEndWidth: 0,
                           needleColor: Colors.green,
-                          knobStyle: KnobStyle(
+                          knobStyle: const KnobStyle(
                             knobRadius: 0.025,
                             color: Colors.green,
                           ),
@@ -1195,7 +1195,7 @@ class _WindCompassState extends State<WindCompass> {
                   child: Container(
                     width: 20,
                     height: 20,
-                    decoration: BoxDecoration(
+                    decoration: const BoxDecoration(
                       color: Colors.white,
                       shape: BoxShape.circle,
                     ),
@@ -1224,7 +1224,7 @@ class _WindCompassState extends State<WindCompass> {
                             Container(
                               width: 12,
                               height: 12,
-                              decoration: BoxDecoration(
+                              decoration: const BoxDecoration(
                                 color: Colors.yellow,
                                 shape: BoxShape.circle,
                               ),
@@ -1281,7 +1281,7 @@ class _WindCompassState extends State<WindCompass> {
                             Container(
                               width: 12,
                               height: 12,
-                              decoration: BoxDecoration(
+                              decoration: const BoxDecoration(
                                 color: Colors.orange,
                                 shape: BoxShape.circle,
                               ),
@@ -1316,13 +1316,13 @@ class _WindCompassState extends State<WindCompass> {
                           Container(
                             width: 12,
                             height: 12,
-                            decoration: BoxDecoration(
+                            decoration: const BoxDecoration(
                               color: Colors.green,
                               shape: BoxShape.circle,
                             ),
                           ),
                           const SizedBox(width: 4),
-                          Text(
+                          const Text(
                             'TWD',
                             style: TextStyle(
                               fontSize: 12,
@@ -1333,7 +1333,7 @@ class _WindCompassState extends State<WindCompass> {
                       ),
                       Text(
                         '${widget.windDirectionTrueDegrees!.toStringAsFixed(0)}°',
-                        style: TextStyle(
+                        style: const TextStyle(
                           fontSize: 20,
                           color: Colors.white,
                           fontWeight: FontWeight.w500,
@@ -1344,7 +1344,7 @@ class _WindCompassState extends State<WindCompass> {
                         Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(
+                            const Text(
                               'TWS',
                               style: TextStyle(
                                 fontSize: 10,
@@ -1353,7 +1353,7 @@ class _WindCompassState extends State<WindCompass> {
                             ),
                             Text(
                               widget.windSpeedTrueFormatted ?? widget.windSpeedTrue!.toStringAsFixed(1),
-                              style: TextStyle(
+                              style: const TextStyle(
                                 fontSize: 16,
                                 color: Colors.white,
                                 fontWeight: FontWeight.w500,
@@ -1377,7 +1377,7 @@ class _WindCompassState extends State<WindCompass> {
                       Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Text(
+                          const Text(
                             'AWD',
                             style: TextStyle(
                               fontSize: 12,
@@ -1388,7 +1388,7 @@ class _WindCompassState extends State<WindCompass> {
                           Container(
                             width: 12,
                             height: 12,
-                            decoration: BoxDecoration(
+                            decoration: const BoxDecoration(
                               color: Colors.blue,
                               shape: BoxShape.circle,
                             ),
@@ -1397,7 +1397,7 @@ class _WindCompassState extends State<WindCompass> {
                       ),
                       Text(
                         '${widget.windDirectionApparentDegrees!.toStringAsFixed(0)}°',
-                        style: TextStyle(
+                        style: const TextStyle(
                           fontSize: 20,
                           color: Colors.white,
                           fontWeight: FontWeight.w500,
@@ -1408,7 +1408,7 @@ class _WindCompassState extends State<WindCompass> {
                         Column(
                           crossAxisAlignment: CrossAxisAlignment.end,
                           children: [
-                            Text(
+                            const Text(
                               'AWS',
                               style: TextStyle(
                                 fontSize: 10,
@@ -1417,7 +1417,7 @@ class _WindCompassState extends State<WindCompass> {
                             ),
                             Text(
                               widget.windSpeedApparentFormatted ?? widget.windSpeedApparent!.toStringAsFixed(1),
-                              style: TextStyle(
+                              style: const TextStyle(
                                 fontSize: 16,
                                 color: Colors.white,
                                 fontWeight: FontWeight.w500,
@@ -1442,7 +1442,7 @@ class _WindCompassState extends State<WindCompass> {
                       Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Text(
+                          const Text(
                             'SOG',
                             style: TextStyle(
                               fontSize: 12,
@@ -1475,13 +1475,13 @@ class _WindCompassState extends State<WindCompass> {
                               Container(
                                 width: 10,
                                 height: 10,
-                                decoration: BoxDecoration(
+                                decoration: const BoxDecoration(
                                   color: Colors.white,
                                   shape: BoxShape.circle,
                                 ),
                               ),
                               const SizedBox(width: 4),
-                              Text(
+                              const Text(
                                 'COG',
                                 style: TextStyle(
                                   fontSize: 12,

@@ -149,7 +149,7 @@ class _WindCompassState extends State<WindCompass> {
     _windHistory.add(_WindSample(windDirection, now));
 
     // Remove old samples
-    final cutoff = now.subtract(Duration(seconds: _windHistoryDuration));
+    final cutoff = now.subtract(const Duration(seconds: _windHistoryDuration));
     _windHistory.removeWhere((sample) => sample.timestamp.isBefore(cutoff));
 
     // Calculate baseline (average) wind direction
@@ -455,7 +455,7 @@ class _WindCompassState extends State<WindCompass> {
 
     // WIND INDICATORS
     // Apparent wind - primary
-    if (widget.windDirectionApparentDegrees != null)
+    if (widget.windDirectionApparentDegrees != null) {
       pointers.add(NeedlePointer(
         value: widget.windDirectionApparentDegrees!,
         needleLength: 0.95,
@@ -467,9 +467,10 @@ class _WindCompassState extends State<WindCompass> {
           color: Colors.blue,
         ),
       ));
+    }
 
     // True wind direction marker - secondary
-    if (widget.windDirectionTrueDegrees != null)
+    if (widget.windDirectionTrueDegrees != null) {
       pointers.add(NeedlePointer(
         value: widget.windDirectionTrueDegrees!,
         needleLength: 0.75,
@@ -481,6 +482,7 @@ class _WindCompassState extends State<WindCompass> {
           color: Colors.green,
         ),
       ));
+    }
 
     return pointers;
   }
@@ -512,8 +514,12 @@ class _WindCompassState extends State<WindCompass> {
       } else {
         final windDirection = widget.windDirectionApparentDegrees!;
         awa = windDirection - primaryHeadingDegrees;
-        while (awa > 180) awa -= 360;
-        while (awa < -180) awa += 360;
+        while (awa > 180) {
+          awa -= 360;
+        }
+        while (awa < -180) {
+          awa += 360;
+        }
       }
 
       final currentTargetAWA = _getOptimalTargetAWA();
@@ -861,7 +867,7 @@ class _WindCompassState extends State<WindCompass> {
             'AWA: ${awa.abs().toStringAsFixed(0)}° (${awa > 0 ? "STBD" : "PORT"})',
             style: TextStyle(
               fontSize: 10,
-              color: Colors.white.withOpacity(0.5),
+              color: Colors.white.withValues(alpha: 0.5),
             ),
           ),
         ],
@@ -1274,8 +1280,12 @@ class NoGoZoneVPainter extends CustomPainter {
 
     // Calculate apparent wind angle relative to heading
     double awa = windAngle - headingAngle;
-    while (awa > 180) awa -= 360;
-    while (awa < -180) awa += 360;
+    while (awa > 180) {
+      awa -= 360;
+    }
+    while (awa < -180) {
+      awa += 360;
+    }
     awa = awa.abs();
 
     // Fade opacity as AWA increases (moving from upwind to downwind)
@@ -1320,14 +1330,14 @@ class _WindDirectionArrowPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final center = Offset(size.width / 2, size.height / 2);
     final paint = Paint()
-      ..color = Colors.blue.withOpacity(0.8)
+      ..color = Colors.blue.withValues(alpha: 0.8)
       ..style = PaintingStyle.stroke
       ..strokeWidth = 6
       ..strokeCap = StrokeCap.round;
 
     // Shadow paint
     final shadowPaint = Paint()
-      ..color = Colors.black.withOpacity(0.3)
+      ..color = Colors.black.withValues(alpha: 0.3)
       ..style = PaintingStyle.stroke
       ..strokeWidth = 6
       ..strokeCap = StrokeCap.round

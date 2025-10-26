@@ -84,16 +84,16 @@ class BaseCompass extends StatefulWidget {
 class _BaseCompassState extends State<BaseCompass> {
   bool _useTrueHeading = false; // Default to magnetic
 
-  /// Normalize angle to 0-360 range
-  double _normalizeAngle(double angle) {
-    while (angle < 0) {
-      angle += 360;
-    }
-    while (angle >= 360) {
-      angle -= 360;
-    }
-    return angle;
-  }
+  /// Normalize angle to 0-360 range (currently unused, kept for future)
+  // double _normalizeAngle(double angle) {
+  //   while (angle < 0) {
+  //     angle += 360;
+  //   }
+  //   while (angle >= 360) {
+  //     angle -= 360;
+  //   }
+  //   return angle;
+  // }
 
   /// Build angle indicators (for laylines, VMG, etc.) - simple arrows pointing outward
   List<Widget> _buildAngleIndicators(

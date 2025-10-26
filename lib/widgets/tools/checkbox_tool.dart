@@ -66,8 +66,8 @@ class _CheckboxToolState extends State<CheckboxTool> {
           color: currentValue ? activeColor : inactiveColor,
         ),
       ),
-      additionalWidgets: [
-        const SizedBox(height: 8),
+      additionalWidgets: const [
+        SizedBox(height: 8),
       ],
       controlWidget: Transform.scale(
         scale: UIConstants.checkboxScale,

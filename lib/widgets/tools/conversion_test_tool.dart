@@ -22,20 +22,20 @@ class ConversionTestTool extends StatefulWidget {
 }
 
 class _ConversionTestToolState extends State<ConversionTestTool> {
-  /// Default paths for new conversion test tools
-  static const List<String> defaultPaths = [
-    'navigation.position',
-    'navigation.headingTrue',
-    'navigation.headingMagnetic',
-    'environment.wind.directionTrue',
-    'environment.wind.angleApparent',
-    'environment.wind.speedTrue',
-    'environment.wind.speedApparent',
-    'navigation.speedOverGround',
-    'navigation.courseOverGroundTrue',
-    'navigation.courseGreatCircle.nextPoint.bearingTrue',
-    'navigation.courseGreatCircle.nextPoint.distance',
-  ];
+  /// Default paths for new conversion test tools (kept for reference)
+  // static const List<String> defaultPaths = [
+  //   'navigation.position',
+  //   'navigation.headingTrue',
+  //   'navigation.headingMagnetic',
+  //   'environment.wind.directionTrue',
+  //   'environment.wind.angleApparent',
+  //   'environment.wind.speedTrue',
+  //   'environment.wind.speedApparent',
+  //   'navigation.speedOverGround',
+  //   'navigation.courseOverGroundTrue',
+  //   'navigation.courseGreatCircle.nextPoint.bearingTrue',
+  //   'navigation.courseGreatCircle.nextPoint.distance',
+  // ];
 
   /// Evaluate a math formula with a given value
   /// Formula example: "value * 1.94384" or "(value - 273.15) * 9/5 + 32"

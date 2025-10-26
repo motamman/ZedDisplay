@@ -253,9 +253,9 @@ class AutopilotWidget extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 2),
-                Text(
+                const Text(
                   'TARGET',
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.w300,
                     color: Colors.white70,

@@ -99,14 +99,14 @@ class _SliderToolState extends State<SliderTool> with ControlToolMixin {
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             Text(
-              '${minValue.toStringAsFixed(0)}',
+              minValue.toStringAsFixed(0),
               style: TextStyle(
                 fontSize: 12,
                 color: Colors.grey[600],
               ),
             ),
             Text(
-              '${maxValue.toStringAsFixed(0)}',
+              maxValue.toStringAsFixed(0),
               style: TextStyle(
                 fontSize: 12,
                 color: Colors.grey[600],
@@ -127,7 +127,7 @@ class _SliderToolState extends State<SliderTool> with ControlToolMixin {
             inactiveTrackColor: UIConstants.withLightOpacity(Colors.grey),
             thumbColor: primaryColor,
             thumbRadius: UIConstants.sliderThumbRadius,
-            overlayColor: UIConstants.withOpacity(primaryColor, UIConstants.veryLightOpacity),
+            overlayColor: primaryColor.withValues(alpha: UIConstants.veryLightOpacity),
             overlayRadius: UIConstants.sliderOverlayRadius,
             tooltipBackgroundColor: primaryColor,
           ),

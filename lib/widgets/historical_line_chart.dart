@@ -185,7 +185,6 @@ class HistoricalLineChart extends StatelessWidget {
         );
 
       case ChartStyle.area:
-      default:
         return SplineAreaSeries<_ChartPoint, DateTime>(
           name: _getSeriesLabel(seriesData),
           dataSource: dataPoints,

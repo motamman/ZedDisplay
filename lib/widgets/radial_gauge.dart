@@ -198,7 +198,6 @@ class RadialGauge extends StatelessWidget {
       case RadialGaugeStyle.threequarter:
         return (startAngle: 180, endAngle: 90); // 270 degrees from bottom
       case RadialGaugeStyle.arc:
-      default:
         return (startAngle: 135, endAngle: 45); // 270 degree arc
     }
   }

@@ -443,9 +443,9 @@ class _ServerManagerToolState extends State<ServerManagerTool> {
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
+        color: color.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: color.withOpacity(0.3)),
+        border: Border.all(color: color.withValues(alpha: 0.3)),
       ),
       child: Row(
         children: [
@@ -594,7 +594,7 @@ class _ServerManagerToolState extends State<ServerManagerTool> {
                       Icon(
                         Icons.touch_app,
                         size: 14,
-                        color: theme.textTheme.bodySmall?.color?.withOpacity(0.5),
+                        color: theme.textTheme.bodySmall?.color?.withValues(alpha: 0.5),
                       ),
                     ],
                   ),

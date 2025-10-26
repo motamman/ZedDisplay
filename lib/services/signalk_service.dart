@@ -64,11 +64,14 @@ class SignalKService extends ChangeNotifier implements DataService {
   ZonesCacheService? _zonesCache;
 
   // Getters
+  @override
   bool get isConnected => _isConnected;
   String? get errorMessage => _errorMessage;
   Map<String, SignalKDataPoint> get latestData => Map.unmodifiable(_latestData);
   Map<String, PathConversionData> get conversionsData => Map.unmodifiable(_conversionsData);
+  @override
   String get serverUrl => _serverUrl;
+  @override
   bool get useSecureConnection => _useSecureConnection;
   bool get notificationsEnabled => _notificationsEnabled;
   Stream<SignalKNotification> get notificationStream => _notificationController.stream;
@@ -289,21 +292,21 @@ class SignalKService extends ChangeNotifier implements DataService {
     }
   }
 
-  /// Send WebSocket authentication with token
-  void _sendWebSocketAuth() {
-    if (_authToken == null) return;
-
-    final authMessage = {
-      'requestId': '${DateTime.now().millisecondsSinceEpoch}',
-      'token': _authToken!.token,
-    };
-
-    _channel?.sink.add(jsonEncode(authMessage));
-
-    if (kDebugMode) {
-      print('Sent WebSocket authentication with token');
-    }
-  }
+  /// Send WebSocket authentication with token (currently unused, kept for future)
+  // void _sendWebSocketAuth() {
+  //   if (_authToken == null) return;
+  //
+  //   final authMessage = {
+  //     'requestId': '${DateTime.now().millisecondsSinceEpoch}',
+  //     'token': _authToken!.token,
+  //   };
+  //
+  //   _channel?.sink.add(jsonEncode(authMessage));
+  //
+  //   if (kDebugMode) {
+  //     print('Sent WebSocket authentication with token');
+  //   }
+  // }
 
   /// Initialize subscriptions after connection
   /// Call this with all paths from deployed templates
@@ -596,6 +599,7 @@ class SignalKService extends ChangeNotifier implements DataService {
   }
 
   /// Send PUT request to SignalK server
+  @override
   Future<void> sendPutRequest(String path, dynamic value) async {
     final protocol = _useSecureConnection ? 'https' : 'http';
 
@@ -622,6 +626,7 @@ class SignalKService extends ChangeNotifier implements DataService {
   }
 
   /// Get value for specific path, optionally from a specific source
+  @override
   SignalKDataPoint? getValue(String path, {String? source}) {
     if (source == null) {
       // No source specified, return default value
@@ -637,6 +642,7 @@ class SignalKService extends ChangeNotifier implements DataService {
 
   /// Check if data is fresh (within TTL threshold)
   /// Returns true if data is fresh, false if stale or missing
+  @override
   bool isDataFresh(String path, {String? source, int? ttlSeconds}) {
     if (ttlSeconds == null) {
       // No TTL check requested
@@ -718,12 +724,14 @@ class SignalKService extends ChangeNotifier implements DataService {
   }
 
   /// Get converted numeric value (already in user's preferred units)
+  @override
   double? getConvertedValue(String path) {
     final dataPoint = _latestData[path];
     return dataPoint?.converted ?? (dataPoint?.value is num ? (dataPoint!.value as num).toDouble() : null);
   }
 
   /// Get unit symbol for a path (e.g., "kn", "°C")
+  @override
   String? getUnitSymbol(String path) {
     final dataPoint = _latestData[path];
     return dataPoint?.symbol;

@@ -149,7 +149,7 @@ class CompassGauge extends StatelessWidget {
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                   decoration: BoxDecoration(
-                    color: Colors.black.withOpacity(0.5),
+                    color: Colors.black.withValues(alpha: 0.5),
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Row(
@@ -272,7 +272,7 @@ class CompassGauge extends StatelessWidget {
         default:
           if (!showTickLabels) continue;
           labelText = '$i°';
-          labelColor = Colors.grey.withOpacity(0.6);
+          labelColor = Colors.grey.withValues(alpha: 0.6);
           fontSize = 14;
       }
 
@@ -337,7 +337,7 @@ class CompassGauge extends StatelessWidget {
             needleLength: 0.65, // Slightly shorter than primary
             needleStartWidth: 0,
             needleEndWidth: 8,
-            needleColor: color.withOpacity(0.8),
+            needleColor: color.withValues(alpha: 0.8),
             knobStyle: const KnobStyle(
               knobRadius: 0, // No knob for secondary needles
             ),
@@ -522,7 +522,7 @@ class CompassGauge extends StatelessWidget {
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                   decoration: BoxDecoration(
-                    color: Colors.black.withOpacity(0.5),
+                    color: Colors.black.withValues(alpha: 0.5),
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Row(
@@ -584,7 +584,7 @@ class CompassGauge extends StatelessWidget {
         default:
           if (!showTickLabels) continue;
           labelText = '$i°';
-          labelColor = Colors.grey.withOpacity(0.7);
+          labelColor = Colors.grey.withValues(alpha: 0.7);
           fontSize = 16;
       }
 
@@ -627,7 +627,7 @@ class _MarineNeedlePainter extends CustomPainter {
     final needleWidth = isSecondary ? 6.0 : 8.0; // Narrower for secondary
 
     final paint = Paint()
-      ..color = isSecondary ? color.withOpacity(0.8) : color
+      ..color = isSecondary ? color.withValues(alpha: 0.8) : color
       ..style = PaintingStyle.fill;
 
     final shadowPaint = Paint()
@@ -658,7 +658,7 @@ class _MarineNeedlePainter extends CustomPainter {
     final darkerColor = hslColor.withLightness((hslColor.lightness - 0.3).clamp(0.0, 1.0)).toColor();
 
     final tailPaint = Paint()
-      ..color = isSecondary ? darkerColor.withOpacity(0.8) : darkerColor
+      ..color = isSecondary ? darkerColor.withValues(alpha: 0.8) : darkerColor
       ..style = PaintingStyle.fill;
 
     final tailPath = Path();
