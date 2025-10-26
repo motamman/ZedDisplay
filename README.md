@@ -330,6 +330,8 @@ For questions or issues:
 - [ ] AI integration
 - [ ] AIS collision avoidance using `vessels.<uuid>.navigation.closestApproach` (CPA/TCPA)
 - [ ] AIS collision alerts using `notifications.danger.collision` (requires collision-detector plugin)
+- [ ] Weather forecast tool (display forecast data from SignalK weather plugins)
+- [ ] Raspberry Pi manager/health tool (CPU, memory, temperature, disk usage monitoring)
 
 ### Wind Compass Improvements
 - [x] Target AWA mode with performance zones (completed)
