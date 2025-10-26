@@ -21,7 +21,7 @@ class CompassGaugeTool extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Get data from first data source
+    // Get data from data sources (up to 4)
     if (config.dataSources.isEmpty) {
       return const Center(child: Text('No data source configured'));
     }
@@ -56,6 +56,24 @@ class CompassGaugeTool extends StatelessWidget {
     final compassStyleStr = config.style.customProperties?['compassStyle'] as String? ?? 'classic';
     final compassStyle = _parseCompassStyle(compassStyleStr);
 
+    // Get additional headings (2-4) for multi-needle display
+    final additionalHeadings = <double>[];
+    final additionalLabels = <String>[];
+    final additionalColors = <Color>[
+      Colors.blue,
+      Colors.green,
+      Colors.orange,
+    ];
+
+    for (int i = 1; i < config.dataSources.length && i < 4; i++) {
+      final source = config.dataSources[i];
+      final value = ConversionUtils.getConvertedValue(signalKService, source.path);
+      if (value != null) {
+        additionalHeadings.add(value);
+        additionalLabels.add(source.label ?? source.path.toReadableLabel());
+      }
+    }
+
     return CompassGauge(
       heading: heading,
       label: config.style.showLabel == true ? label : '',
@@ -64,6 +82,9 @@ class CompassGaugeTool extends StatelessWidget {
       showTickLabels: showTickLabels,
       compassStyle: compassStyle,
       showValue: config.style.showValue ?? true,
+      additionalHeadings: additionalHeadings.isNotEmpty ? additionalHeadings : null,
+      additionalLabels: additionalLabels.isNotEmpty ? additionalLabels : null,
+      additionalColors: additionalHeadings.isNotEmpty ? additionalColors : null,
     );
   }
 
@@ -73,8 +94,6 @@ class CompassGaugeTool extends StatelessWidget {
         return CompassStyle.arc;
       case 'minimal':
         return CompassStyle.minimal;
-      case 'rose':
-        return CompassStyle.rose;
       case 'marine':
         return CompassStyle.marine;
       default:
@@ -90,19 +109,19 @@ class CompassGaugeBuilder extends ToolBuilder {
     return ToolDefinition(
       id: 'compass',
       name: 'Compass Gauge',
-      description: 'Circular compass display for heading/bearing values',
+      description: 'Circular compass display for heading/bearing values (supports up to 4 needles)',
       category: ToolCategory.gauge,
       configSchema: ConfigSchema(
         allowsMinMax: false,
         allowsColorCustomization: true,
-        allowsMultiplePaths: false,
+        allowsMultiplePaths: true,
         minPaths: 1,
-        maxPaths: 1,
+        maxPaths: 4,
         styleOptions: const [
           'primaryColor',
           'showLabel',
           'showValue',
-          'compassStyle', // 'classic', 'arc', 'minimal', 'rose', 'marine'
+          'compassStyle', // 'classic', 'arc', 'minimal', 'marine'
         ],
       ),
     );

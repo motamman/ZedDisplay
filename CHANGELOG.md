@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Multi-Needle Compass Support**: Compass gauge now supports up to 4 needles for comparing multiple headings
+  - Compare heading, COG, autopilot target, or any other directional data on one display
+  - Color-coded needles with legend at bottom
+  - Secondary needles slightly shorter and semi-transparent for visual hierarchy
+  - Works with all compass styles (classic, arc, minimal, marine)
 - **Server Status Tool**: Real-time SignalK server monitoring and management dashboard
   - Live server statistics display (uptime, delta rate, connected clients, available paths)
   - Per-provider statistics with individual delta rates and counts
@@ -33,6 +38,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Automatic temperature conversion from Kelvin to Celsius
 
 ### Enhanced
+- **Compass Gauge**: Major improvements to rendering and usability
+  - Custom compass labels that stay horizontal (no upside-down text)
+  - Better label positioning with configurable degree labels
+  - Removed "rose" style (redundant with classic style)
+  - Improved marine compass with counter-rotating labels that always stay readable
+  - Multi-needle support for comparing up to 4 headings simultaneously
+- **Text Display Tool**: Smart formatting for latitude and longitude
+  - Auto-detects lat/long fields by property name (contains 'lat' or 'lon')
+  - Formats as degrees, minutes, seconds with hemisphere (e.g., "37° 46' 29.64" N")
+  - Works with any numeric property containing 'lat' or 'lon' in the key
+  - Support for displaying object values (Map) with property breakdown
 - **Wind Compass**: Added fade effect to no-go zone based on point of sail
   - No-go zone opacity decreases as apparent wind angle increases
   - Full opacity when close-hauled (AWA < 60°)

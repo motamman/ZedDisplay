@@ -5,8 +5,14 @@
 A customizable SignalK marine dashboard application to display real-time vessel data with configurable tools.
  
 ## SignalK Dependencies
- - signalk-units-preference must me install to have base values converted. Without it many tools will not work.
- - signalk-parquet allows some tools to display historic data for selected paths. 
+
+### Required
+- **signalk-units-preference**: Must be installed to have base values converted. Without it many tools will not work.
+
+### Optional
+- **signalk-parquet**: Allows some tools to display historic data for selected paths
+- **signalk-rpi-monitor**: Required for RPi Monitor tool (CPU, GPU temperature, memory, storage monitoring)
+- **signalk-rpi-uptime**: Required for system uptime display in RPi Monitor tool 
 
 
 
@@ -29,8 +35,13 @@ A customizable SignalK marine dashboard application to display real-time vessel 
 **Display Tools**
 - **Radial Gauge**: Circular gauge with arc display for numeric values
 - **Linear Gauge**: Horizontal or vertical bar gauge for numeric values
-- **Compass Gauge**: Circular compass display for heading/bearing values
+- **Compass Gauge**: Circular compass display for heading/bearing values (supports up to 4 needles)
+  - Compare multiple headings on one display (heading, COG, autopilot target, etc.)
+  - Multiple styles: classic, arc, minimal, marine
+  - Custom labels that stay horizontal for easy reading
 - **Text Display**: Large numeric value display with label and unit
+  - Smart lat/long formatting (auto-detects and formats as degrees/minutes/seconds)
+  - Object value support (displays Map properties as key-value pairs)
 
 **Chart Tools**
 - **Historical Chart**: Line chart showing historical data for up to 3 paths
