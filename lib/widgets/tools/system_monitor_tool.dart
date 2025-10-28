@@ -5,10 +5,13 @@ import 'package:flutter/foundation.dart';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:battery_plus/battery_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:syncfusion_flutter_charts/charts.dart';
+import 'package:intl/intl.dart' as intl;
 import '../../models/tool_definition.dart';
 import '../../models/tool_config.dart';
 import '../../services/signalk_service.dart';
 import '../../services/tool_registry.dart';
+import '../../main.dart' as main;
 
 /// System monitor tool that tracks app and device performance
 class SystemMonitorTool extends StatefulWidget {
@@ -30,7 +33,6 @@ class _SystemMonitorToolState extends State<SystemMonitorTool> {
   final _deviceInfo = DeviceInfoPlugin();
 
   Timer? _updateTimer;
-  DateTime? _appStartTime;
 
   // System metrics
   int _batteryLevel = 0;
@@ -47,11 +49,16 @@ class _SystemMonitorToolState extends State<SystemMonitorTool> {
   int _peakMemoryMB = 0;
   String _lastExitStatus = 'Unknown';
 
+  // Memory history tracking
+  final List<_MemoryDataPoint> _memoryHistory = [];
+  int _chartDurationMinutes = 2; // Default 2 minutes
+  int get _maxHistoryPoints => (_chartDurationMinutes * 60) ~/ 2; // Points at 2s intervals
+
   @override
   void initState() {
     super.initState();
-    _appStartTime = DateTime.now();
     _loadDeviceInfo();
+    _loadChartDuration();
     _checkLastExit();
     _markAppRunning();
     _startMonitoring();
@@ -120,6 +127,33 @@ class _SystemMonitorToolState extends State<SystemMonitorTool> {
     }
   }
 
+  Future<void> _loadChartDuration() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final duration = prefs.getInt('system_monitor_chart_duration') ?? 2;
+      if (mounted) {
+        setState(() {
+          _chartDurationMinutes = duration;
+        });
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error loading chart duration: $e');
+      }
+    }
+  }
+
+  Future<void> _saveChartDuration(int minutes) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setInt('system_monitor_chart_duration', minutes);
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error saving chart duration: $e');
+      }
+    }
+  }
+
   Future<void> _markAppRunning() async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -170,10 +204,8 @@ class _SystemMonitorToolState extends State<SystemMonitorTool> {
       final level = await _battery.batteryLevel;
       final state = await _battery.batteryState;
 
-      // Update uptime
-      final uptime = _appStartTime != null
-          ? DateTime.now().difference(_appStartTime!)
-          : Duration.zero;
+      // Update uptime (using actual app start time from main.dart)
+      final uptime = DateTime.now().difference(main.appStartTime);
 
       // On Android, we can get memory info from /proc/meminfo
       int freeMem = 0;
@@ -227,6 +259,21 @@ class _SystemMonitorToolState extends State<SystemMonitorTool> {
             // Track peak memory
             if (appMem > _peakMemoryMB) {
               _peakMemoryMB = appMem;
+            }
+          }
+
+          // Add to memory history
+          if (totalMem > 0 && appMem > 0) {
+            _memoryHistory.add(_MemoryDataPoint(
+              timestamp: DateTime.now(),
+              totalMemoryMB: totalMem,
+              usedMemoryMB: totalMem - freeMem,
+              appMemoryMB: appMem,
+            ));
+
+            // Keep only last N points
+            if (_memoryHistory.length > _maxHistoryPoints) {
+              _memoryHistory.removeAt(0);
             }
           }
         });
@@ -314,7 +361,7 @@ class _SystemMonitorToolState extends State<SystemMonitorTool> {
                         if (_startMemoryMB > 0)
                           _buildMetric(
                             'Growth',
-                            '+${_appMemoryMB - _startMemoryMB} MB',
+                            '${_appMemoryMB >= _startMemoryMB ? '+' : ''}${_appMemoryMB - _startMemoryMB} MB',
                             valueColor: _appMemoryMB > _startMemoryMB * 2 ? Colors.orange : null,
                           ),
                       ] else
@@ -322,15 +369,63 @@ class _SystemMonitorToolState extends State<SystemMonitorTool> {
                     ],
                   ),
                   const Divider(),
+                  // Memory history chart
+                  if (_memoryHistory.length > 1)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 8.0),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(
+                                'Memory History',
+                                style: theme.textTheme.titleMedium?.copyWith(
+                                  fontWeight: FontWeight.bold,
+                                  color: theme.colorScheme.primary,
+                                ),
+                              ),
+                              DropdownButton<int>(
+                                value: _chartDurationMinutes,
+                                items: const [
+                                  DropdownMenuItem(value: 1, child: Text('1 min')),
+                                  DropdownMenuItem(value: 2, child: Text('2 min')),
+                                  DropdownMenuItem(value: 5, child: Text('5 min')),
+                                  DropdownMenuItem(value: 10, child: Text('10 min')),
+                                ],
+                                onChanged: (value) {
+                                  if (value != null) {
+                                    setState(() {
+                                      _chartDurationMinutes = value;
+                                      // Trim history if new duration is shorter
+                                      if (_memoryHistory.length > _maxHistoryPoints) {
+                                        _memoryHistory.removeRange(0, _memoryHistory.length - _maxHistoryPoints);
+                                      }
+                                    });
+                                    _saveChartDuration(value);
+                                  }
+                                },
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          SizedBox(
+                            height: 200,
+                            child: _buildMemoryChart(),
+                          ),
+                        ],
+                      ),
+                    ),
+                  if (_memoryHistory.length > 1)
+                    const Divider(),
                   _buildSection(
                     'App Runtime',
                     [
                       _buildMetric('Uptime', _formatDuration(_appUptime)),
                       _buildMetric(
                         'Started',
-                        _appStartTime != null
-                            ? _formatTime(_appStartTime!)
-                            : 'Unknown',
+                        _formatTime(main.appStartTime),
                       ),
                       _buildMetric(
                         'Last Exit',
@@ -430,6 +525,84 @@ class _SystemMonitorToolState extends State<SystemMonitorTool> {
   String _formatTime(DateTime time) {
     return '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}:${time.second.toString().padLeft(2, '0')}';
   }
+
+  Widget _buildMemoryChart() {
+    return SfCartesianChart(
+      plotAreaBorderWidth: 0,
+      primaryXAxis: DateTimeAxis(
+        majorGridLines: const MajorGridLines(width: 0),
+        axisLine: const AxisLine(width: 0),
+        labelStyle: const TextStyle(fontSize: 10),
+        intervalType: DateTimeIntervalType.seconds,
+        dateFormat: intl.DateFormat('mm:ss'),
+      ),
+      primaryYAxis: NumericAxis(
+        labelFormat: '{value} MB',
+        majorGridLines: MajorGridLines(
+          width: 1,
+          color: Colors.grey.withValues(alpha: 0.2),
+        ),
+        axisLine: const AxisLine(width: 0),
+        labelStyle: const TextStyle(fontSize: 10),
+      ),
+      legend: const Legend(
+        isVisible: true,
+        position: LegendPosition.bottom,
+        overflowMode: LegendItemOverflowMode.wrap,
+      ),
+      tooltipBehavior: TooltipBehavior(
+        enable: true,
+        format: 'point.seriesName: point.y MB',
+      ),
+      series: <CartesianSeries>[
+        // Total memory (base layer)
+        StackedAreaSeries<_MemoryDataPoint, DateTime>(
+          name: 'Total',
+          dataSource: _memoryHistory,
+          xValueMapper: (_MemoryDataPoint data, _) => data.timestamp,
+          yValueMapper: (_MemoryDataPoint data, _) => data.totalMemoryMB,
+          color: Colors.blue.withValues(alpha: 0.2),
+          borderColor: Colors.blue,
+          borderWidth: 2,
+        ),
+        // Used memory (stacked on top)
+        StackedAreaSeries<_MemoryDataPoint, DateTime>(
+          name: 'Used',
+          dataSource: _memoryHistory,
+          xValueMapper: (_MemoryDataPoint data, _) => data.timestamp,
+          yValueMapper: (_MemoryDataPoint data, _) => data.usedMemoryMB,
+          color: Colors.orange.withValues(alpha: 0.3),
+          borderColor: Colors.orange,
+          borderWidth: 2,
+        ),
+        // App memory (stacked on top)
+        StackedAreaSeries<_MemoryDataPoint, DateTime>(
+          name: 'App',
+          dataSource: _memoryHistory,
+          xValueMapper: (_MemoryDataPoint data, _) => data.timestamp,
+          yValueMapper: (_MemoryDataPoint data, _) => data.appMemoryMB,
+          color: Colors.green.withValues(alpha: 0.5),
+          borderColor: Colors.green,
+          borderWidth: 2,
+        ),
+      ],
+    );
+  }
+}
+
+/// Data point for memory history chart
+class _MemoryDataPoint {
+  final DateTime timestamp;
+  final int totalMemoryMB;
+  final int usedMemoryMB;
+  final int appMemoryMB;
+
+  _MemoryDataPoint({
+    required this.timestamp,
+    required this.totalMemoryMB,
+    required this.usedMemoryMB,
+    required this.appMemoryMB,
+  });
 }
 
 /// Builder for system monitor tool
