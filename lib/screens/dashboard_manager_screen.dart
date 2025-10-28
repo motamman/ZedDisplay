@@ -276,6 +276,95 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen> {
     });
   }
 
+  void _showScreenSelector(BuildContext context) {
+    final dashboardService = Provider.of<DashboardService>(context, listen: false);
+    final layout = dashboardService.currentLayout;
+
+    if (layout == null) return;
+
+    showModalBottomSheet(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'Select Screen',
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close),
+                    onPressed: () => Navigator.pop(context),
+                  ),
+                ],
+              ),
+            ),
+            const Divider(height: 1),
+            Flexible(
+              child: ListView.builder(
+                shrinkWrap: true,
+                itemCount: layout.screens.length,
+                itemBuilder: (context, index) {
+                  final screen = layout.screens[index];
+                  final isActive = index == layout.activeScreenIndex;
+
+                  return ListTile(
+                    leading: Icon(
+                      Icons.dashboard,
+                      color: isActive ? Theme.of(context).colorScheme.primary : null,
+                    ),
+                    title: Text(
+                      screen.name,
+                      style: TextStyle(
+                        fontWeight: isActive ? FontWeight.bold : FontWeight.normal,
+                        color: isActive ? Theme.of(context).colorScheme.primary : null,
+                      ),
+                    ),
+                    trailing: isActive ? const Icon(Icons.check, color: Colors.green) : null,
+                    onTap: () {
+                      Navigator.pop(context);
+
+                      // Calculate target virtual page
+                      final totalScreens = layout.screens.length;
+                      final currentActualIndex = _currentVirtualPage % totalScreens;
+
+                      // Determine direction and distance
+                      int targetVirtualPage;
+                      if (index == currentActualIndex) {
+                        targetVirtualPage = _currentVirtualPage;
+                      } else {
+                        // Move in the shortest direction
+                        final forwardDist = (index - currentActualIndex + totalScreens) % totalScreens;
+                        final backwardDist = (currentActualIndex - index + totalScreens) % totalScreens;
+
+                        if (forwardDist <= backwardDist) {
+                          targetVirtualPage = _currentVirtualPage + forwardDist;
+                        } else {
+                          targetVirtualPage = _currentVirtualPage - backwardDist;
+                        }
+                      }
+
+                      _pageController.animateToPage(
+                        targetVirtualPage,
+                        duration: const Duration(milliseconds: 300),
+                        curve: Curves.easeInOut,
+                      );
+                    },
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Future<void> _editTool(Tool tool, String placementToolId) async {
     final dashboardService = Provider.of<DashboardService>(context, listen: false);
     final activeScreen = dashboardService.currentLayout?.activeScreen;
@@ -476,82 +565,6 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen> {
           : null,
       floatingActionButtonLocation: FloatingActionButtonLocation.endTop,
       appBar: (!_isFullScreen || _showAppBar || _toolBeingPlaced != null) ? AppBar(
-        title: Consumer<DashboardService>(
-          builder: (context, dashboardService, child) {
-            final layout = dashboardService.currentLayout;
-            if (layout == null) return const Text('Dashboard');
-
-            final screens = layout.screens;
-            final activeScreenIndex = layout.activeScreenIndex;
-
-            if (screens.isEmpty) return const Text('Dashboard');
-
-            return DropdownButton<int>(
-              value: activeScreenIndex,
-              underline: const SizedBox(), // Remove underline
-              dropdownColor: Theme.of(context).colorScheme.surface,
-              isExpanded: false,
-              style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                color: Theme.of(context).colorScheme.onPrimary,
-              ),
-              icon: Icon(
-                Icons.arrow_drop_down,
-                color: Theme.of(context).colorScheme.onPrimary,
-              ),
-              selectedItemBuilder: (context) {
-                return screens.map((screen) {
-                  return ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 150),
-                    child: Text(
-                      screen.name,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                        color: Theme.of(context).colorScheme.onPrimary,
-                      ),
-                    ),
-                  );
-                }).toList();
-              },
-              items: screens.asMap().entries.map((entry) {
-                final index = entry.key;
-                final screen = entry.value;
-                return DropdownMenuItem<int>(
-                  value: index,
-                  child: Text(screen.name),
-                );
-              }).toList(),
-              onChanged: (newIndex) {
-                if (newIndex == null) return;
-
-                // Calculate target virtual page
-                final totalScreens = screens.length;
-                final currentActualIndex = _currentVirtualPage % totalScreens;
-
-                // Determine direction and distance
-                int targetVirtualPage;
-                if (newIndex == currentActualIndex) {
-                  targetVirtualPage = _currentVirtualPage;
-                } else {
-                  // Move in the shortest direction
-                  final forwardDist = (newIndex - currentActualIndex + totalScreens) % totalScreens;
-                  final backwardDist = (currentActualIndex - newIndex + totalScreens) % totalScreens;
-
-                  if (forwardDist <= backwardDist) {
-                    targetVirtualPage = _currentVirtualPage + forwardDist;
-                  } else {
-                    targetVirtualPage = _currentVirtualPage - backwardDist;
-                  }
-                }
-
-                _pageController.animateToPage(
-                  targetVirtualPage,
-                  duration: const Duration(milliseconds: 300),
-                  curve: Curves.easeInOut,
-                );
-              },
-            );
-          },
-        ),
         actions: [
           // Compact connection status indicator
           Consumer<SignalKService>(
@@ -708,62 +721,48 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen> {
                 },
               ),
 
-              // Floating page indicators (only show if multiple screens)
+              // Screen selector button (only show if multiple screens)
               if (layout.screens.length > 1)
                 Positioned(
                   bottom: 16,
                   left: 0,
                   right: 0,
                   child: Center(
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                      decoration: BoxDecoration(
-                        color: Colors.black.withValues(alpha: 0.6),
+                    child: Material(
+                      color: Colors.transparent,
+                      child: InkWell(
+                        onTap: () => _showScreenSelector(context),
                         borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: List.generate(
-                          layout.screens.length,
-                          (index) => GestureDetector(
-                            onTap: () {
-                              // Calculate the closest virtual page for the target index
-                              final totalScreens = layout.screens.length;
-                              final currentActualIndex = _currentVirtualPage % totalScreens;
-
-                              // Determine direction and distance
-                              int targetVirtualPage;
-                              if (index == currentActualIndex) {
-                                targetVirtualPage = _currentVirtualPage;
-                              } else {
-                                // Move in the shortest direction
-                                final forwardDist = (index - currentActualIndex + totalScreens) % totalScreens;
-                                final backwardDist = (currentActualIndex - index + totalScreens) % totalScreens;
-
-                                if (forwardDist <= backwardDist) {
-                                  targetVirtualPage = _currentVirtualPage + forwardDist;
-                                } else {
-                                  targetVirtualPage = _currentVirtualPage - backwardDist;
-                                }
-                              }
-
-                              _pageController.animateToPage(
-                                targetVirtualPage,
-                                duration: const Duration(milliseconds: 300),
-                                curve: Curves.easeInOut,
-                              );
-                            },
-                            child: Container(
-                              margin: const EdgeInsets.symmetric(horizontal: 3),
-                              width: layout.activeScreenIndex == index ? 8 : 6,
-                              height: layout.activeScreenIndex == index ? 8 : 6,
-                              decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                color: layout.activeScreenIndex == index
-                                    ? Colors.white
-                                    : Colors.white.withValues(alpha: 0.5),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withValues(alpha: 0.6),
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(
+                                Icons.dashboard,
+                                color: Colors.white,
+                                size: 18,
                               ),
-                            ),
+                              const SizedBox(width: 8),
+                              Text(
+                                layout.activeScreen?.name ?? 'Dashboard',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                              const SizedBox(width: 4),
+                              const Icon(
+                                Icons.arrow_drop_up,
+                                color: Colors.white,
+                                size: 20,
+                              ),
+                            ],
                           ),
                         ),
                       ),

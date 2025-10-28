@@ -3,11 +3,12 @@ import 'package:syncfusion_flutter_charts/charts.dart';
 import 'dart:async';
 import '../services/signalk_service.dart';
 import '../models/zone_data.dart';
+import '../models/tool_config.dart';
 import '../utils/conversion_utils.dart';
 
 /// A real-time spline chart that displays live data from up to 3 SignalK paths
 class RealtimeSplineChart extends StatefulWidget {
-  final List<String> paths;
+  final List<DataSource> dataSources;
   final SignalKService signalKService;
   final String title;
   final int maxDataPoints;
@@ -17,10 +18,12 @@ class RealtimeSplineChart extends StatefulWidget {
   final Color? primaryColor;
   final List<ZoneDefinition>? zones;
   final bool showZones;
+  final bool showMovingAverage;
+  final int movingAverageWindow;
 
   const RealtimeSplineChart({
     super.key,
-    required this.paths,
+    required this.dataSources,
     required this.signalKService,
     this.title = 'Live Data',
     this.maxDataPoints = 50,
@@ -30,6 +33,8 @@ class RealtimeSplineChart extends StatefulWidget {
     this.primaryColor,
     this.zones,
     this.showZones = true,
+    this.showMovingAverage = false,
+    this.movingAverageWindow = 5,
   });
 
   @override
@@ -38,6 +43,7 @@ class RealtimeSplineChart extends StatefulWidget {
 
 class _RealtimeSplineChartState extends State<RealtimeSplineChart> with AutomaticKeepAliveClientMixin, WidgetsBindingObserver {
   late List<List<_ChartData>> _seriesData;
+  late List<List<_ChartData>> _movingAverageData;
   Timer? _updateTimer;
   DateTime? _startTime;
   double _cachedMinY = 0;
@@ -49,7 +55,8 @@ class _RealtimeSplineChartState extends State<RealtimeSplineChart> with Automati
   @override
   void initState() {
     super.initState();
-    _seriesData = List.generate(widget.paths.length, (_) => []);
+    _seriesData = List.generate(widget.dataSources.length, (_) => []);
+    _movingAverageData = List.generate(widget.dataSources.length, (_) => []);
     _startTime = DateTime.now();
 
     // Initialize range with defaults
@@ -97,10 +104,10 @@ class _RealtimeSplineChartState extends State<RealtimeSplineChart> with Automati
       final now = DateTime.now();
       final timeValue = now.millisecondsSinceEpoch;
 
-      for (int i = 0; i < widget.paths.length; i++) {
-        final path = widget.paths[i];
+      for (int i = 0; i < widget.dataSources.length; i++) {
+        final dataSource = widget.dataSources[i];
         // Use client-side conversions
-        final value = ConversionUtils.getConvertedValue(widget.signalKService, path);
+        final value = ConversionUtils.getConvertedValue(widget.signalKService, dataSource.path);
 
         if (value != null) {
           // Create new list with updated data (don't mutate existing)
@@ -114,6 +121,31 @@ class _RealtimeSplineChartState extends State<RealtimeSplineChart> with Automati
 
           // Replace the list entirely to trigger chart update
           _seriesData[i] = newData;
+
+          // Calculate moving average if enabled
+          if (widget.showMovingAverage && newData.length >= widget.movingAverageWindow) {
+            // Calculate only the NEW moving average point using the last N points
+            double sum = 0;
+            for (int j = 0; j < widget.movingAverageWindow; j++) {
+              sum += newData[newData.length - 1 - j].value;
+            }
+            final avg = sum / widget.movingAverageWindow;
+
+            // Append to existing moving average
+            final currentMA = List<_ChartData>.from(_movingAverageData[i]);
+            currentMA.add(_ChartData(timeValue, avg));
+
+            // Trim old MA points to match the time window of the main data
+            // Remove from the front if needed
+            if (newData.isNotEmpty && currentMA.isNotEmpty) {
+              final oldestMainTime = newData.first.time;
+              while (currentMA.isNotEmpty && currentMA.first.time < oldestMainTime) {
+                currentMA.removeAt(0);
+              }
+            }
+
+            _movingAverageData[i] = currentMA;
+          }
         }
       }
 
@@ -122,6 +154,21 @@ class _RealtimeSplineChartState extends State<RealtimeSplineChart> with Automati
       _cachedMinY = range.min;
       _cachedMaxY = range.max;
     });
+  }
+
+  List<_ChartData> _calculateMovingAverage(List<_ChartData> data, int window) {
+    final result = <_ChartData>[];
+
+    for (int i = window - 1; i < data.length; i++) {
+      double sum = 0;
+      for (int j = 0; j < window; j++) {
+        sum += data[i - j].value;
+      }
+      final avg = sum / window;
+      result.add(_ChartData(data[i].time, avg));
+    }
+
+    return result;
   }
 
   @override
@@ -143,7 +190,7 @@ class _RealtimeSplineChartState extends State<RealtimeSplineChart> with Automati
       );
     }
 
-    if (widget.paths.isEmpty) {
+    if (widget.dataSources.isEmpty) {
       return Card(
         child: Center(
           child: Column(
@@ -162,7 +209,7 @@ class _RealtimeSplineChartState extends State<RealtimeSplineChart> with Automati
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     // Get unit from first path
-    final unit = widget.signalKService.getUnitSymbol(widget.paths.first);
+    final unit = widget.signalKService.getUnitSymbol(widget.dataSources.first.path);
 
     return Card(
       child: Padding(
@@ -215,7 +262,7 @@ class _RealtimeSplineChartState extends State<RealtimeSplineChart> with Automati
             Expanded(
               child: SfCartesianChart(
                 legend: Legend(
-                  isVisible: widget.showLegend && widget.paths.length > 1,
+                  isVisible: widget.showLegend && widget.dataSources.length > 1,
                   position: LegendPosition.bottom,
                   overflowMode: LegendItemOverflowMode.wrap,
                 ),
@@ -263,22 +310,44 @@ class _RealtimeSplineChartState extends State<RealtimeSplineChart> with Automati
                   minimum: _cachedMinY,
                   maximum: _cachedMaxY,
                 ),
-                series: List.generate(
-                  widget.paths.length,
-                  (index) => SplineSeries<_ChartData, int>(
-                    name: _getSeriesLabel(widget.paths[index]),
-                    dataSource: _seriesData[index],
-                    xValueMapper: (_ChartData data, _) => data.time,
-                    yValueMapper: (_ChartData data, _) => data.value,
-                    color: colors[index],
-                    width: 2,
-                    splineType: SplineType.natural,
-                    animationDuration: 0, // No animation for real-time updates
-                    markerSettings: const MarkerSettings(
-                      isVisible: false,
+                series: [
+                  // Main data series
+                  ...List.generate(
+                    widget.dataSources.length,
+                    (index) => SplineSeries<_ChartData, int>(
+                      name: _getSeriesLabel(widget.dataSources[index]),
+                      dataSource: _seriesData[index],
+                      xValueMapper: (_ChartData data, _) => data.time,
+                      yValueMapper: (_ChartData data, _) => data.value,
+                      color: colors[index],
+                      width: 2,
+                      splineType: SplineType.natural,
+                      animationDuration: 0, // No animation for real-time updates
+                      markerSettings: const MarkerSettings(
+                        isVisible: false,
+                      ),
                     ),
                   ),
-                ),
+                  // Moving average series (if enabled)
+                  if (widget.showMovingAverage)
+                    ...List.generate(
+                      widget.dataSources.length,
+                      (index) => SplineSeries<_ChartData, int>(
+                        name: '${_getSeriesLabel(widget.dataSources[index])} (MA${widget.movingAverageWindow})',
+                        dataSource: _movingAverageData[index],
+                        xValueMapper: (_ChartData data, _) => data.time,
+                        yValueMapper: (_ChartData data, _) => data.value,
+                        color: colors[index].withValues(alpha: 0.6),
+                        width: 2,
+                        dashArray: const <double>[5, 5], // Dashed line
+                        splineType: SplineType.natural,
+                        animationDuration: 0,
+                        markerSettings: const MarkerSettings(
+                          isVisible: false,
+                        ),
+                      ),
+                    ),
+                ],
               ),
             ),
           ],
@@ -303,11 +372,17 @@ class _RealtimeSplineChartState extends State<RealtimeSplineChart> with Automati
     return hslColor.withHue(newHue).toColor();
   }
 
-  String _getSeriesLabel(String path) {
-    final pathParts = path.split('.');
+  String _getSeriesLabel(DataSource dataSource) {
+    // Use custom label if provided
+    if (dataSource.label != null && dataSource.label!.isNotEmpty) {
+      return dataSource.label!;
+    }
+
+    // Otherwise, generate label from path
+    final pathParts = dataSource.path.split('.');
     final shortPath = pathParts.length > 2
         ? pathParts.sublist(pathParts.length - 2).join('.')
-        : path;
+        : dataSource.path;
     return shortPath;
   }
 

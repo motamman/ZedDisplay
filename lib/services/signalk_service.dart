@@ -26,6 +26,10 @@ class SignalKService extends ChangeNotifier implements DataService {
   WebSocketChannel? _notificationChannel;
   StreamSubscription? _notificationSubscription;
 
+  // Conversions WebSocket (real-time conversion updates)
+  WebSocketChannel? _conversionsChannel;
+  StreamSubscription? _conversionsSubscription;
+
   // Connection state
   bool _isConnected = false;
   String? _errorMessage;
@@ -171,8 +175,8 @@ class SignalKService extends ChangeNotifier implements DataService {
       // The auth token is used only for HTTP requests to the API
       // The WebSocket connection is already authenticated at the HTTP upgrade level
 
-      // Fetch conversion formulas from server
-      await fetchConversions();
+      // Connect to conversions WebSocket stream for real-time updates
+      await _connectConversionsChannel();
 
       // Subscribe to paths immediately
       await _sendSubscription();
@@ -233,7 +237,13 @@ class SignalKService extends ChangeNotifier implements DataService {
     return '$wsProtocol://$_serverUrl/signalk/v1/stream';
   }
 
-  /// Connect autopilot channel to standard SignalK stream
+  /// Get conversions WebSocket endpoint
+  String _getConversionsEndpoint() {
+    final wsProtocol = _useSecureConnection ? 'wss' : 'ws';
+    return '$wsProtocol://$_serverUrl/signalk/v1/conversions/stream';
+  }
+
+  /// Connect conversions channel for real-time conversion updates
   Future<void> _connectAutopilotChannel() async {
     if (_autopilotChannel != null) {
       if (kDebugMode) {
@@ -289,6 +299,133 @@ class SignalKService extends ChangeNotifier implements DataService {
       }
       _autopilotChannel = null;
       _autopilotSubscription = null;
+    }
+  }
+
+  /// Connect conversions channel for real-time conversion updates
+  Future<void> _connectConversionsChannel() async {
+    // Ensure main connection is established first
+    if (!_isConnected) {
+      if (kDebugMode) {
+        print('Cannot connect conversions channel: main connection not established');
+      }
+      return;
+    }
+
+    if (_conversionsChannel != null) {
+      if (kDebugMode) {
+        print('Conversions channel already connected');
+      }
+      return;
+    }
+
+    try {
+      final wsUrl = _getConversionsEndpoint();
+
+      if (kDebugMode) {
+        print('Attempting to connect conversions channel: $wsUrl');
+      }
+
+      if (_authToken != null) {
+        final headers = <String, String>{
+          'Authorization': 'Bearer ${_authToken!.token}',
+        };
+        final socket = await WebSocket.connect(wsUrl, headers: headers).timeout(
+          const Duration(seconds: 5),
+          onTimeout: () {
+            throw TimeoutException('Conversions WebSocket connection timeout');
+          },
+        );
+        socket.pingInterval = const Duration(seconds: 30);
+        _conversionsChannel = IOWebSocketChannel(socket);
+      } else {
+        _conversionsChannel = WebSocketChannel.connect(Uri.parse(wsUrl));
+      }
+
+      // Listen to conversion messages
+      _conversionsSubscription = _conversionsChannel!.stream.listen(
+        _handleConversionMessage,
+        onError: (error) {
+          if (kDebugMode) {
+            print('⚠️ Conversions channel error: $error');
+          }
+          // Don't crash - just cleanup
+          _conversionsChannel = null;
+          _conversionsSubscription = null;
+        },
+        onDone: () {
+          if (kDebugMode) {
+            print('Conversions channel disconnected');
+          }
+          _conversionsChannel = null;
+          _conversionsSubscription = null;
+        },
+      );
+
+      if (kDebugMode) {
+        print('✅ Conversions channel connected successfully');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('⚠️ Failed to connect conversions channel (will use HTTP fallback): $e');
+      }
+      // Clean up on error
+      _conversionsChannel = null;
+      _conversionsSubscription = null;
+      // Don't throw - this is optional, we have HTTP fallback
+    }
+  }
+
+  /// Handle incoming conversion data from WebSocket stream
+  void _handleConversionMessage(dynamic message) {
+    try {
+      final data = jsonDecode(message) as Map<String, dynamic>;
+      final type = data['type'] as String?;
+      final conversions = data['conversions'] as Map<String, dynamic>?;
+
+      if (conversions == null) {
+        if (kDebugMode) {
+          print('⚠️ Conversions message missing "conversions" field');
+        }
+        return;
+      }
+
+      // Handle different message types
+      if (type == 'full' || type == 'update') {
+        // Full snapshot or full update - replace all conversions
+        _conversionsData.clear();
+        conversions.forEach((path, conversionJson) {
+          if (conversionJson is Map<String, dynamic>) {
+            _conversionsData[path] = PathConversionData.fromJson(conversionJson);
+          }
+        });
+
+        if (kDebugMode) {
+          print('✅ Loaded ${_conversionsData.length} conversions from stream (type: $type)');
+        }
+      } else if (type == 'delta') {
+        // Partial update - only update specific paths
+        conversions.forEach((path, conversionJson) {
+          if (conversionJson is Map<String, dynamic>) {
+            _conversionsData[path] = PathConversionData.fromJson(conversionJson);
+          }
+        });
+
+        if (kDebugMode) {
+          print('✅ Updated ${conversions.length} conversion(s) from delta');
+        }
+      } else {
+        if (kDebugMode) {
+          print('⚠️ Unknown conversions message type: $type');
+        }
+      }
+
+      // Notify listeners that conversions have updated
+      notifyListeners();
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ Error parsing conversion message: $e');
+      }
     }
   }
 
@@ -1604,6 +1741,12 @@ class SignalKService extends ChangeNotifier implements DataService {
       _autopilotSubscription = null;
       await _autopilotChannel?.sink.close();
       _autopilotChannel = null;
+
+      // Disconnect conversions channel
+      await _conversionsSubscription?.cancel();
+      _conversionsSubscription = null;
+      await _conversionsChannel?.sink.close();
+      _conversionsChannel = null;
 
       // Also disconnect notification channel if it's connected
       await _disconnectNotificationChannel();

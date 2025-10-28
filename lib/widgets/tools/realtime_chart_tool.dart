@@ -111,27 +111,26 @@ class _RealtimeChartToolState extends State<RealtimeChartTool> {
       return const Center(child: Text('No data sources configured'));
     }
 
-    // Extract paths from data sources
-    final paths = widget.config.dataSources.map((ds) => ds.path).toList();
-
     // Get configuration from custom properties
     final maxDataPoints = widget.config.style.customProperties?['maxDataPoints'] as int? ?? 50;
     final updateIntervalMs = widget.config.style.customProperties?['updateInterval'] as int? ?? 500;
     final showLegend = widget.config.style.customProperties?['showLegend'] as bool? ?? true;
     final showGrid = widget.config.style.customProperties?['showGrid'] as bool? ?? true;
+    final showMovingAverage = widget.config.style.customProperties?['showMovingAverage'] as bool? ?? false;
+    final movingAverageWindow = widget.config.style.customProperties?['movingAverageWindow'] as int? ?? 5;
 
     // Parse primary color
     final primaryColor = widget.config.style.primaryColor?.toColor();
 
-    // Generate title from paths
+    // Generate title from data sources
     final title = widget.config.style.customProperties?['title'] as String? ??
-                  _generateTitle(paths);
+                  _generateTitle(widget.config.dataSources);
 
     // Check if zones should be shown (can be disabled via config)
     final showZones = widget.config.style.customProperties?['showZones'] as bool? ?? true;
 
     return RealtimeSplineChart(
-      paths: paths,
+      dataSources: widget.config.dataSources,
       signalKService: widget.signalKService,
       title: title,
       maxDataPoints: maxDataPoints,
@@ -141,17 +140,24 @@ class _RealtimeChartToolState extends State<RealtimeChartTool> {
       primaryColor: primaryColor,
       zones: _zones,
       showZones: showZones,
+      showMovingAverage: showMovingAverage,
+      movingAverageWindow: movingAverageWindow,
     );
   }
 
-  String _generateTitle(List<String> paths) {
-    if (paths.length == 1) {
-      final parts = paths[0].split('.');
+  String _generateTitle(List<DataSource> dataSources) {
+    if (dataSources.length == 1) {
+      // Use custom label if available
+      if (dataSources[0].label != null && dataSources[0].label!.isNotEmpty) {
+        return dataSources[0].label!;
+      }
+      // Otherwise generate from path
+      final parts = dataSources[0].path.split('.');
       return parts.length > 2
           ? parts.sublist(parts.length - 2).join('.')
-          : paths[0];
+          : dataSources[0].path;
     }
-    return 'Live Data (${paths.length} series)';
+    return 'Live Data (${dataSources.length} series)';
   }
 }
 
@@ -178,6 +184,8 @@ class RealtimeChartBuilder extends ToolBuilder {
           'showLegend',
           'showGrid',
           'showZones', // Show zone bands from SignalK metadata (default: true)
+          'showMovingAverage', // Show moving average line (default: false)
+          'movingAverageWindow', // Moving average window size in data points (default: 5)
         ],
       ),
     );

@@ -147,7 +147,16 @@ class _HistoricalChartToolState extends State<HistoricalChartTool> with Automati
           }
         }
         if (chartSeries != null && chartSeries.points.isNotEmpty) {
-          series.add(chartSeries);
+          // Create a new series with the custom label from dataSource
+          final seriesWithLabel = ChartDataSeries(
+            path: chartSeries.path,
+            method: chartSeries.method,
+            points: chartSeries.points,
+            minValue: chartSeries.minValue,
+            maxValue: chartSeries.maxValue,
+            label: dataSource.label,  // Add custom label
+          );
+          series.add(seriesWithLabel);
         }
       }
 
@@ -262,6 +271,8 @@ class _HistoricalChartToolState extends State<HistoricalChartTool> with Automati
           signalKService: widget.signalKService,
           chartStyle: chartStyle,
           primaryColor: primaryColor,
+          showMovingAverage: widget.config.style.customProperties?['showMovingAverage'] as bool? ?? false,
+          movingAverageWindow: widget.config.style.customProperties?['movingAverageWindow'] as int? ?? 5,
         ),
         // Refresh button in top-right corner
         Positioned(
@@ -348,6 +359,8 @@ class HistoricalChartBuilder extends ToolBuilder {
           'primaryColor',
           'secondaryColor',
           'showLabel',
+          'showMovingAverage', // Show moving average line (default: false)
+          'movingAverageWindow', // Moving average window size in data points (default: 5)
         ],
       ),
     );
