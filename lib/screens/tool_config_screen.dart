@@ -1,14 +1,13 @@
-import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter_colorpicker/flutter_colorpicker.dart';
-import 'package:http/http.dart' as http;
 import '../models/tool_config.dart';
 import '../models/tool.dart';
 import '../models/tool_definition.dart' as def;
 import '../services/signalk_service.dart';
 import '../services/tool_registry.dart';
 import '../services/tool_service.dart';
+import '../services/tool_config_service.dart';
 import '../widgets/config/path_selector.dart';
 import '../widgets/config/configure_data_source_dialog.dart';
 import '../widgets/config/source_selector.dart';
@@ -488,42 +487,13 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
 
     try {
       final signalKService = Provider.of<SignalKService>(context, listen: false);
-      final serverUrl = signalKService.serverUrl;
-      final useSecure = signalKService.useSecureConnection;
+      final webapps = await ToolConfigService.loadSignalKWebApps(signalKService);
 
-      if (serverUrl.isEmpty) {
-        throw Exception('Not connected to SignalK server');
-      }
-
-      final protocol = useSecure ? 'https' : 'http';
-      final url = Uri.parse('$protocol://$serverUrl/webapps');
-
-      final response = await http.get(url);
-
-      if (response.statusCode == 200) {
-        final List<dynamic> webapps = json.decode(response.body);
-
+      if (mounted) {
         setState(() {
-          _signalKWebApps = webapps.map((app) {
-            final name = app['name'] as String? ?? 'Unknown';
-            final version = app['version'] as String? ?? '';
-            final description = app['description'] as String?;
-            final location = app['location'] as String? ?? '';
-
-            // Build full URL
-            final webappUrl = '$protocol://$serverUrl$location';
-
-            return {
-              'name': name,
-              'version': version,
-              'description': description ?? 'Version $version',
-              'url': webappUrl,
-            };
-          }).toList();
+          _signalKWebApps = webapps;
           _loadingWebApps = false;
         });
-      } else {
-        throw Exception('Failed to load webapps: ${response.statusCode}');
       }
     } catch (e) {
       if (mounted) {
@@ -648,101 +618,49 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
 
     final toolService = Provider.of<ToolService>(context, listen: false);
 
-    // Create tool config with tool-specific properties
-    final Map<String, dynamic>? customProperties;
-    if (_selectedToolTypeId == 'historical_chart') {
-      customProperties = {
-        'duration': _chartDuration,
-        'resolution': _chartResolution,
-        'showLegend': _chartShowLegend,
-        'showGrid': _chartShowGrid,
-        'autoRefresh': _chartAutoRefresh,
-        'refreshInterval': _chartRefreshInterval,
-        'chartStyle': _chartStyle,
-        'showMovingAverage': _chartShowMovingAverage,
-        'movingAverageWindow': _chartMovingAverageWindow,
-      };
-    } else if (_selectedToolTypeId == 'realtime_chart') {
-      customProperties = {
-        'title': _chartTitle,
-        'showMovingAverage': _chartShowMovingAverage,
-        'movingAverageWindow': _chartMovingAverageWindow,
-      };
-    } else if (_selectedToolTypeId == 'polar_radar_chart') {
-      customProperties = {
-        'historySeconds': _polarHistorySeconds,
-        'showLabels': true,
-        'showGrid': true,
-      };
-    } else if (_selectedToolTypeId == 'ais_polar_chart') {
-      customProperties = {
-        'maxRangeNm': _aisMaxRangeNm,
-        'updateInterval': _aisUpdateInterval * 1000, // Convert to milliseconds
-        'showLabels': true,
-        'showGrid': true,
-      };
-    } else if (_selectedToolTypeId == 'slider' || _selectedToolTypeId == 'knob') {
-      customProperties = {
-        'decimalPlaces': _sliderDecimalPlaces,
-      };
-    } else if (_selectedToolTypeId == 'dropdown') {
-      customProperties = {
-        'decimalPlaces': _sliderDecimalPlaces,
-        'stepSize': _dropdownStepSize,
-      };
-    } else if (_selectedToolTypeId == 'wind_compass') {
-      customProperties = {
-        'showAWANumbers': _showAWANumbers,
-        'enableVMG': _enableVMG,
-      };
-    } else if (_selectedToolTypeId == 'autopilot') {
-      customProperties = {
-        'headingTrue': _headingTrue,
-        'invertRudder': _invertRudder,
-        'fadeDelaySeconds': _fadeDelaySeconds,
-        'enableVMG': _enableVMG,
-      };
-    } else if (_selectedToolTypeId == 'webview') {
-      customProperties = {
-        'url': _webViewUrl,
-      };
-    } else {
-      // Add gauge-specific properties
-      final Map<String, dynamic> baseProperties = {
-        'divisions': _divisions,
-        'orientation': _orientation,
-        'showTickLabels': _showTickLabels,
-        'pointerOnly': _pointerOnly,
-      };
-
-      // Add style variant based on tool type
-      if (_selectedToolTypeId == 'radial_gauge') {
-        baseProperties['gaugeStyle'] = _gaugeStyle;
-      } else if (_selectedToolTypeId == 'linear_gauge') {
-        baseProperties['gaugeStyle'] = _linearGaugeStyle;
-      } else if (_selectedToolTypeId == 'compass') {
-        baseProperties['compassStyle'] = _compassStyle;
-      }
-
-      customProperties = baseProperties;
-    }
-
-    final config = ToolConfig(
+    // Use service to build the config
+    final config = ToolConfigService.buildToolConfig(
       dataSources: _dataSources,
-      style: StyleConfig(
-        minValue: _minValue,
-        maxValue: _maxValue,
-        unit: _unit?.trim().isEmpty == true ? null : _unit,
-        primaryColor: _primaryColor,
-        fontSize: _fontSize,
-        showLabel: _showLabel,
-        showValue: _showValue,
-        showUnit: _showUnit,
-        ttlSeconds: _ttlSeconds,
-        laylineAngle: (_selectedToolTypeId == 'wind_compass' || _selectedToolTypeId == 'autopilot') ? _laylineAngle : null,
-        targetTolerance: (_selectedToolTypeId == 'wind_compass' || _selectedToolTypeId == 'autopilot') ? _targetTolerance : null,
-        customProperties: customProperties,
-      ),
+      toolTypeId: _selectedToolTypeId!,
+      minValue: _minValue,
+      maxValue: _maxValue,
+      unit: _unit,
+      primaryColor: _primaryColor,
+      fontSize: _fontSize,
+      showLabel: _showLabel,
+      showValue: _showValue,
+      showUnit: _showUnit,
+      ttlSeconds: _ttlSeconds,
+      laylineAngle: _laylineAngle,
+      targetTolerance: _targetTolerance,
+      chartDuration: _chartDuration,
+      chartResolution: _chartResolution,
+      chartShowLegend: _chartShowLegend,
+      chartShowGrid: _chartShowGrid,
+      chartAutoRefresh: _chartAutoRefresh,
+      chartRefreshInterval: _chartRefreshInterval,
+      chartStyle: _chartStyle,
+      chartShowMovingAverage: _chartShowMovingAverage,
+      chartMovingAverageWindow: _chartMovingAverageWindow,
+      chartTitle: _chartTitle,
+      polarHistorySeconds: _polarHistorySeconds,
+      aisMaxRangeNm: _aisMaxRangeNm,
+      aisUpdateInterval: _aisUpdateInterval,
+      sliderDecimalPlaces: _sliderDecimalPlaces,
+      dropdownStepSize: _dropdownStepSize,
+      showAWANumbers: _showAWANumbers,
+      enableVMG: _enableVMG,
+      headingTrue: _headingTrue,
+      invertRudder: _invertRudder,
+      fadeDelaySeconds: _fadeDelaySeconds,
+      webViewUrl: _webViewUrl,
+      divisions: _divisions,
+      orientation: _orientation,
+      showTickLabels: _showTickLabels,
+      pointerOnly: _pointerOnly,
+      gaugeStyle: _gaugeStyle,
+      linearGaugeStyle: _linearGaugeStyle,
+      compassStyle: _compassStyle,
     );
 
     final Tool tool;
@@ -1438,83 +1356,50 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                         ),
                         child: Consumer<SignalKService>(
                           builder: (context, service, child) {
-                                // Build preview customProperties same as save
-                                final Map<String, dynamic>? previewCustomProperties;
-                              if (_selectedToolTypeId == 'historical_chart') {
-                              previewCustomProperties = {
-                                'duration': _chartDuration,
-                                'resolution': _chartResolution,
-                                'showLegend': _chartShowLegend,
-                                'showGrid': _chartShowGrid,
-                                'autoRefresh': _chartAutoRefresh,
-                                'refreshInterval': _chartRefreshInterval,
-                                'chartStyle': _chartStyle,
-                                'showMovingAverage': _chartShowMovingAverage,
-                                'movingAverageWindow': _chartMovingAverageWindow,
-                              };
-                            } else if (_selectedToolTypeId == 'realtime_chart') {
-                              previewCustomProperties = {
-                                'title': _chartTitle,
-                                'showMovingAverage': _chartShowMovingAverage,
-                                'movingAverageWindow': _chartMovingAverageWindow,
-                              };
-                            } else if (_selectedToolTypeId == 'polar_radar_chart') {
-                              previewCustomProperties = {
-                                'historySeconds': _polarHistorySeconds,
-                                'showLabels': true,
-                                'showGrid': true,
-                              };
-                            } else if (_selectedToolTypeId == 'ais_polar_chart') {
-                              previewCustomProperties = {
-                                'maxRangeNm': _aisMaxRangeNm,
-                                'updateInterval': _aisUpdateInterval * 1000, // Convert to milliseconds
-                                'showLabels': true,
-                                'showGrid': true,
-                              };
-                            } else if (_selectedToolTypeId == 'slider' || _selectedToolTypeId == 'knob') {
-                              previewCustomProperties = {
-                                'decimalPlaces': _sliderDecimalPlaces,
-                              };
-                            } else if (_selectedToolTypeId == 'dropdown') {
-                              previewCustomProperties = {
-                                'decimalPlaces': _sliderDecimalPlaces,
-                                'stepSize': _dropdownStepSize,
-                              };
-                            } else if (_selectedToolTypeId == 'wind_compass') {
-                              previewCustomProperties = {
-                                'showAWANumbers': _showAWANumbers,
-                                'enableVMG': _enableVMG,
-                              };
-                            } else if (_selectedToolTypeId == 'autopilot') {
-                              previewCustomProperties = {
-                                'headingTrue': _headingTrue,
-                                'invertRudder': _invertRudder,
-                                'fadeDelaySeconds': _fadeDelaySeconds,
-                                'enableVMG': _enableVMG,
-                              };
-                            } else if (_selectedToolTypeId == 'webview') {
-                              previewCustomProperties = {
-                                'url': _webViewUrl,
-                              };
-                            } else {
-                              final Map<String, dynamic> basePreviewProperties = {
-                                'divisions': _divisions,
-                                'orientation': _orientation,
-                                'showTickLabels': _showTickLabels,
-                                'pointerOnly': _pointerOnly,
-                              };
-
-                              // Add gauge style to preview
-                              if (_selectedToolTypeId == 'radial_gauge') {
-                                basePreviewProperties['gaugeStyle'] = _gaugeStyle;
-                              } else if (_selectedToolTypeId == 'linear_gauge') {
-                                basePreviewProperties['gaugeStyle'] = _linearGaugeStyle;
-                              } else if (_selectedToolTypeId == 'compass') {
-                                basePreviewProperties['compassStyle'] = _compassStyle;
-                              }
-
-                              previewCustomProperties = basePreviewProperties;
-                            }
+                            // Use service to build preview config
+                            final previewConfig = ToolConfigService.buildToolConfig(
+                              dataSources: _dataSources,
+                              toolTypeId: _selectedToolTypeId!,
+                              minValue: _minValue,
+                              maxValue: _maxValue,
+                              unit: _unit,
+                              primaryColor: _primaryColor,
+                              fontSize: _fontSize,
+                              showLabel: _showLabel,
+                              showValue: _showValue,
+                              showUnit: _showUnit,
+                              ttlSeconds: _ttlSeconds,
+                              laylineAngle: _laylineAngle,
+                              targetTolerance: _targetTolerance,
+                              chartDuration: _chartDuration,
+                              chartResolution: _chartResolution,
+                              chartShowLegend: _chartShowLegend,
+                              chartShowGrid: _chartShowGrid,
+                              chartAutoRefresh: _chartAutoRefresh,
+                              chartRefreshInterval: _chartRefreshInterval,
+                              chartStyle: _chartStyle,
+                              chartShowMovingAverage: _chartShowMovingAverage,
+                              chartMovingAverageWindow: _chartMovingAverageWindow,
+                              chartTitle: _chartTitle,
+                              polarHistorySeconds: _polarHistorySeconds,
+                              aisMaxRangeNm: _aisMaxRangeNm,
+                              aisUpdateInterval: _aisUpdateInterval,
+                              sliderDecimalPlaces: _sliderDecimalPlaces,
+                              dropdownStepSize: _dropdownStepSize,
+                              showAWANumbers: _showAWANumbers,
+                              enableVMG: _enableVMG,
+                              headingTrue: _headingTrue,
+                              invertRudder: _invertRudder,
+                              fadeDelaySeconds: _fadeDelaySeconds,
+                              webViewUrl: _webViewUrl,
+                              divisions: _divisions,
+                              orientation: _orientation,
+                              showTickLabels: _showTickLabels,
+                              pointerOnly: _pointerOnly,
+                              gaugeStyle: _gaugeStyle,
+                              linearGaugeStyle: _linearGaugeStyle,
+                              compassStyle: _compassStyle,
+                            );
 
                             return FittedBox(
                               fit: BoxFit.contain,
@@ -1524,23 +1409,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                                 height: 300,
                                 child: registry.buildTool(
                                   _selectedToolTypeId!,
-                                  ToolConfig(
-                                    dataSources: _dataSources,
-                                    style: StyleConfig(
-                                      minValue: _minValue,
-                                      maxValue: _maxValue,
-                                      unit: _unit,
-                                      primaryColor: _primaryColor,
-                                      fontSize: _fontSize,
-                                      showLabel: _showLabel,
-                                      showValue: _showValue,
-                                      showUnit: _showUnit,
-                                      ttlSeconds: _ttlSeconds,
-                                      laylineAngle: (_selectedToolTypeId == 'wind_compass' || _selectedToolTypeId == 'autopilot') ? _laylineAngle : null,
-                                      targetTolerance: (_selectedToolTypeId == 'wind_compass' || _selectedToolTypeId == 'autopilot') ? _targetTolerance : null,
-                                      customProperties: previewCustomProperties,
-                                    ),
-                                  ),
+                                  previewConfig,
                                   service,
                                 ),
                               ),
