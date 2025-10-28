@@ -44,8 +44,7 @@ class SignalKService extends ChangeNotifier implements DataService {
   // Data cache cleanup
   Timer? _cacheCleanupTimer;
 
-  // Data storage - keeps latest value for each path
-  final Map<String, SignalKDataPoint> _latestData = {};
+  // Data storage - moved to _DataCacheManager
   UnmodifiableMapView<String, SignalKDataPoint>? _latestDataView;
 
   // Conversion data - unit conversion formulas from server
@@ -88,7 +87,7 @@ class SignalKService extends ChangeNotifier implements DataService {
   bool get isConnected => _isConnected;
   String? get errorMessage => _errorMessage;
   Map<String, SignalKDataPoint> get latestData {
-    _latestDataView ??= UnmodifiableMapView(_latestData);
+    _latestDataView ??= UnmodifiableMapView(_dataCache.internalDataMap);
     return _latestDataView!;
   }
   Map<String, PathConversionData> get conversionsData {
@@ -637,16 +636,16 @@ class SignalKService extends ChangeNotifier implements DataService {
             }
 
             // Store at default path (for self vessel and backward compatibility)
-            _latestData[value.path] = dataPoint;
+            _dataCache.internalDataMap[value.path] = dataPoint;
 
             // ALSO store with full vessel context for multi-vessel support (AIS)
             final contextPath = '${update.context}.${value.path}';
-            _latestData[contextPath] = dataPoint;
+            _dataCache.internalDataMap[contextPath] = dataPoint;
 
             // ALSO store at source-specific path if source is provided
             if (source != null) {
               final sourceKey = '${value.path}@$source';
-              _latestData[sourceKey] = dataPoint;
+              _dataCache.internalDataMap[sourceKey] = dataPoint;
               // if (kDebugMode && (value.path.contains('heading') || value.path.contains('autopilot'))) {
               //   print('📍 ALSO stored ${value.path} from source $source at SOURCE-SPECIFIC key: $sourceKey = ${dataPoint.value}');
               // }
@@ -767,36 +766,14 @@ class SignalKService extends ChangeNotifier implements DataService {
   /// Get value for specific path, optionally from a specific source
   @override
   SignalKDataPoint? getValue(String path, {String? source}) {
-    if (source == null) {
-      // No source specified, return default value
-      return _latestData[path];
-    }
-
-    // Source specified, construct source-specific path
-    final sourceKey = '$path@$source';
-    final result = _latestData[sourceKey];
-
-    return result ?? _latestData[path]; // Fallback to default if source not found
+    return _dataCache.getValue(path, source: source);
   }
 
   /// Check if data is fresh (within TTL threshold)
   /// Returns true if data is fresh, false if stale or missing
   @override
   bool isDataFresh(String path, {String? source, int? ttlSeconds}) {
-    if (ttlSeconds == null) {
-      // No TTL check requested
-      return true;
-    }
-
-    final dataPoint = getValue(path, source: source);
-    if (dataPoint == null) {
-      // No data available
-      return false;
-    }
-
-    final now = DateTime.now();
-    final age = now.difference(dataPoint.timestamp);
-    return age.inSeconds <= ttlSeconds;
+    return _dataCache.isDataFresh(path, source: source, ttlSeconds: ttlSeconds);
   }
 
   /// Get value for specific path directly from REST API
@@ -833,17 +810,13 @@ class SignalKService extends ChangeNotifier implements DataService {
 
   /// Get numeric value for specific path (returns null if not numeric)
   double? getNumericValue(String path) {
-    final dataPoint = _latestData[path];
-    if (dataPoint?.value is num) {
-      return (dataPoint!.value as num).toDouble();
-    }
-    return null;
+    return _dataCache.getNumericValue(path);
   }
 
   /// Get formatted value string from units-preference plugin
   /// Returns pre-formatted string like "10.0 kn" or falls back to raw value
   String getFormattedValue(String path) {
-    final dataPoint = _latestData[path];
+    final dataPoint = _dataCache.internalDataMap[path];
 
     if (dataPoint == null) {
       return '---';
@@ -865,14 +838,13 @@ class SignalKService extends ChangeNotifier implements DataService {
   /// Get converted numeric value (already in user's preferred units)
   @override
   double? getConvertedValue(String path) {
-    final dataPoint = _latestData[path];
-    return dataPoint?.converted ?? (dataPoint?.value is num ? (dataPoint!.value as num).toDouble() : null);
+    return _dataCache.getConvertedValue(path);
   }
 
   /// Get unit symbol for a path (e.g., "kn", "°C")
   @override
   String? getUnitSymbol(String path) {
-    final dataPoint = _latestData[path];
+    final dataPoint = _dataCache.internalDataMap[path];
 
     // First try to get symbol from data point (units-preference plugin)
     if (dataPoint?.symbol != null) {
@@ -899,7 +871,7 @@ class SignalKService extends ChangeNotifier implements DataService {
     // Scan _latestData for vessel context keys
     final vesselContexts = <String>{};
 
-    for (final key in _latestData.keys) {
+    for (final key in _dataCache.internalDataMap.keys) {
       if (key.startsWith('vessels.') && !key.startsWith('vessels.self')) {
         // Extract vessel context from key like "vessels.urn:mrn:imo:mmsi:123456789.navigation.position"
         final parts = key.split('.');
@@ -927,7 +899,7 @@ class SignalKService extends ChangeNotifier implements DataService {
       }
 
       // Get position
-      final positionData = _latestData['$vesselContext.navigation.position'];
+      final positionData = _dataCache.internalDataMap['$vesselContext.navigation.position'];
       if (positionData?.value is Map<String, dynamic>) {
         final position = positionData!.value as Map<String, dynamic>;
         final lat = position['latitude'];
@@ -935,7 +907,7 @@ class SignalKService extends ChangeNotifier implements DataService {
 
         if (lat is num && lon is num) {
           // Get COG (raw value from standard stream)
-          final cogData = _latestData['$vesselContext.navigation.courseOverGroundTrue'];
+          final cogData = _dataCache.internalDataMap['$vesselContext.navigation.courseOverGroundTrue'];
           double? cog;
           if (cogData?.value is num) {
             final rawCog = (cogData!.value as num).toDouble();
@@ -944,7 +916,7 @@ class SignalKService extends ChangeNotifier implements DataService {
           }
 
           // Get SOG (raw value from standard stream)
-          final sogData = _latestData['$vesselContext.navigation.speedOverGround'];
+          final sogData = _dataCache.internalDataMap['$vesselContext.navigation.speedOverGround'];
           double? sog;
           if (sogData?.value is num) {
             final rawSog = (sogData!.value as num).toDouble();
@@ -953,7 +925,7 @@ class SignalKService extends ChangeNotifier implements DataService {
           }
 
           // Get vessel name
-          final name = _latestData['$vesselContext.name']?.value as String?;
+          final name = _dataCache.internalDataMap['$vesselContext.name']?.value as String?;
 
           vessels[vesselId] = {
             'latitude': lat.toDouble(),
@@ -1452,7 +1424,7 @@ class SignalKService extends ChangeNotifier implements DataService {
           'latitude': vesselData['latitude'],
           'longitude': vesselData['longitude'],
         };
-        _latestData['$vesselContext.navigation.position'] = SignalKDataPoint(
+        _dataCache.internalDataMap['$vesselContext.navigation.position'] = SignalKDataPoint(
           path: 'navigation.position',
           value: position,
           timestamp: DateTime.now(),
@@ -1462,7 +1434,7 @@ class SignalKService extends ChangeNotifier implements DataService {
 
       // Store COG
       if (vesselData['cog'] != null) {
-        _latestData['$vesselContext.navigation.courseOverGroundTrue'] = SignalKDataPoint(
+        _dataCache.internalDataMap['$vesselContext.navigation.courseOverGroundTrue'] = SignalKDataPoint(
           path: 'navigation.courseOverGroundTrue',
           value: vesselData['cog'],
           timestamp: DateTime.now(),
@@ -1472,7 +1444,7 @@ class SignalKService extends ChangeNotifier implements DataService {
 
       // Store SOG
       if (vesselData['sog'] != null) {
-        _latestData['$vesselContext.navigation.speedOverGround'] = SignalKDataPoint(
+        _dataCache.internalDataMap['$vesselContext.navigation.speedOverGround'] = SignalKDataPoint(
           path: 'navigation.speedOverGround',
           value: vesselData['sog'],
           timestamp: DateTime.now(),
@@ -1482,7 +1454,7 @@ class SignalKService extends ChangeNotifier implements DataService {
 
       // Store name
       if (vesselData['name'] != null) {
-        _latestData['$vesselContext.name'] = SignalKDataPoint(
+        _dataCache.internalDataMap['$vesselContext.name'] = SignalKDataPoint(
           path: 'name',
           value: vesselData['name'],
           timestamp: DateTime.now(),
@@ -1528,10 +1500,10 @@ class SignalKService extends ChangeNotifier implements DataService {
         final vesselContext = 'vessels.$vesselId';
 
         // Only update if position exists in cache (vessel is active)
-        if (_latestData['$vesselContext.navigation.position'] != null) {
+        if (_dataCache.internalDataMap['$vesselContext.navigation.position'] != null) {
           // Update name if available
           if (vesselData['name'] != null) {
-            _latestData['$vesselContext.name'] = SignalKDataPoint(
+            _dataCache.internalDataMap['$vesselContext.name'] = SignalKDataPoint(
               path: 'name',
               value: vesselData['name'],
               timestamp: DateTime.now(),
@@ -1547,59 +1519,14 @@ class SignalKService extends ChangeNotifier implements DataService {
 
   /// Start periodic cache cleanup to prevent unbounded memory growth
   void _startCacheCleanup() {
-    _cacheCleanupTimer?.cancel();
-    _cacheCleanupTimer = Timer.periodic(const Duration(minutes: 5), (timer) {
-      if (!_isConnected) {
-        timer.cancel();
-        return;
-      }
-
-      _pruneStaleData();
-    });
+    _dataCache.startCacheCleanup();
   }
 
   /// Remove stale data from cache to prevent memory leaks
-  ///
-  /// This prevents unbounded growth of the _latestData map, especially
-  /// from AIS vessel data that accumulates over time.
-  ///
-  /// Pruning rules:
-  /// - Own vessel data (vessels.self.*): Never pruned
-  /// - Active paths (subscribed): Never pruned
-  /// - AIS vessel data (vessels.*): Prune if older than 10 minutes
-  /// - Other data: Prune if older than 15 minutes
   void _pruneStaleData() {
-    final now = DateTime.now();
-    final beforeSize = _latestData.length;
-
-    _latestData.removeWhere((key, dataPoint) {
-      // Never prune own vessel data or actively subscribed paths
-      if (key.startsWith('vessels.self') || _activePaths.contains(key)) {
-        return false;
-      }
-
-      // AIS vessel data - prune if older than 10 minutes
-      if (key.startsWith('vessels.')) {
-        final age = now.difference(dataPoint.timestamp);
-        return age.inMinutes > 10;
-      }
-
-      // Other data - prune if older than 15 minutes
-      final age = now.difference(dataPoint.timestamp);
-      return age.inMinutes > 15;
-    });
-
-    final afterSize = _latestData.length;
-    final removed = beforeSize - afterSize;
-
-    if (removed > 0) {
-      // Invalidate cache view after pruning
-      _latestDataView = null;
-
-      if (kDebugMode) {
-        print('🧹 Cache pruned: removed $removed stale entries ($beforeSize → $afterSize)');
-      }
-    }
+    _dataCache.pruneStaleData();
+    // Invalidate cache view after pruning
+    _latestDataView = null;
   }
 
   /// Subscribe to all AIS vessels using wildcard subscription
@@ -1803,7 +1730,7 @@ class SignalKService extends ChangeNotifier implements DataService {
       _channel = null;
 
       _isConnected = false;
-      _latestData.clear();
+      _dataCache.internalDataMap.clear();
       _latestDataView = null;
       _conversionsData.clear();
       _conversionsDataView = null;
@@ -1843,6 +1770,7 @@ class SignalKService extends ChangeNotifier implements DataService {
   @override
   void dispose() {
     disconnect();
+    _dataCache.dispose();
     _notificationController.close();
     super.dispose();
   }
