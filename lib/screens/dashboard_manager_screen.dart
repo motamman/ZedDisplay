@@ -11,7 +11,7 @@ import '../models/dashboard_screen.dart';
 import '../models/tool.dart';
 import '../models/tool_placement.dart';
 import 'tool_config_screen.dart';
-import 'template_library_screen.dart';
+// Removed: template_library_screen import (deprecated)
 import 'settings_screen.dart';
 
 /// Main dashboard screen with multi-screen support using PageView
@@ -168,59 +168,8 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen> {
     }
   }
 
-  Future<void> _browseTemplates() async {
-    final dashboardService = Provider.of<DashboardService>(context, listen: false);
-    final toolService = Provider.of<ToolService>(context, listen: false);
-    final activeScreen = dashboardService.currentLayout?.activeScreen;
-
-    if (activeScreen == null) return;
-
-    final result = await Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (context) => const TemplateLibraryScreen(),
-      ),
-    );
-
-    if (result is Map<String, dynamic> && mounted) {
-      try {
-        final tool = result['tool'] as Tool;
-        final width = result['width'] as int? ?? 1;
-        final height = result['height'] as int? ?? 1;
-
-        // Create a placement for this tool with size
-        final placement = toolService.createPlacement(
-          toolId: tool.id,
-          screenId: activeScreen.id,
-          width: width,
-          height: height,
-        );
-
-        // Add placement to dashboard (this calls saveDashboard internally)
-        await dashboardService.addPlacementToActiveScreen(placement);
-
-        // Explicitly save dashboard to ensure persistence
-        await dashboardService.saveDashboard();
-
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Tool "${tool.name}" added and saved'),
-              backgroundColor: Colors.green,
-            ),
-          );
-        }
-      } catch (e) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Error adding tool: $e'),
-              backgroundColor: Colors.red,
-            ),
-          );
-        }
-      }
-    }
-  }
+  // Removed: _browseTemplates() - deprecated template system
+  // Use "Add Tool" button to add tools from the tool library
 
   void _showAddMenu() {
     showModalBottomSheet(
@@ -238,15 +187,8 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen> {
                 _addTool();
               },
             ),
-            ListTile(
-              leading: const Icon(Icons.collections_bookmark),
-              title: const Text('Browse Tools'),
-              subtitle: const Text('Use saved tools'),
-              onTap: () {
-                Navigator.pop(context);
-                _browseTemplates();
-              },
-            ),
+            // Removed: "Browse Tools" menu item - deprecated template system
+            // Tools can be added via "Add Tool" button above
           ],
         ),
       ),

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:syncfusion_flutter_gauges/gauges.dart';
 import 'base_compass.dart';
 import '../utils/angle_utils.dart';
+import '../utils/compass_zone_builder.dart';
 
 /// Display mode for wind compass
 enum WindCompassMode {
@@ -260,77 +261,16 @@ class _WindCompassState extends State<WindCompass> {
     final primaryWindDegrees = widget.windDirectionApparentDegrees ?? widget.windDirectionTrueDegrees;
     if (primaryWindDegrees == null) return [];
 
-    final zones = <GaugeRange>[];
     final effectiveTargetAWA = _getOptimalTargetAWA();
 
-    // Helper to add a range, splitting if it crosses 0°
-    void addRange(double start, double end, Color color, {double width = 25}) {
-      final startNorm = AngleUtils.normalize(start);
-      final endNorm = AngleUtils.normalize(end);
+    final builder = CompassZoneBuilder();
+    builder.addSailingZones(
+      windDirection: primaryWindDegrees,
+      targetAWA: effectiveTargetAWA,
+      targetTolerance: widget.targetTolerance,
+    );
 
-      if (startNorm < endNorm) {
-        zones.add(GaugeRange(
-          startValue: startNorm,
-          endValue: endNorm,
-          color: color,
-          startWidth: width,
-          endWidth: width,
-        ));
-      } else {
-        // Crosses 0°: split into two ranges
-        zones.add(GaugeRange(
-          startValue: startNorm,
-          endValue: 360,
-          color: color,
-          startWidth: width,
-          endWidth: width,
-        ));
-        zones.add(GaugeRange(
-          startValue: 0,
-          endValue: endNorm,
-          color: color,
-          startWidth: width,
-          endWidth: width,
-        ));
-      }
-    }
-
-    // PORT SIDE - Gradiated Red Zones
-    addRange(primaryWindDegrees - 60, primaryWindDegrees - effectiveTargetAWA, Colors.red.withValues(alpha: 0.6));
-    addRange(primaryWindDegrees - 90, primaryWindDegrees - 60, Colors.red.withValues(alpha: 0.4));
-    addRange(primaryWindDegrees - 110, primaryWindDegrees - 90, Colors.red.withValues(alpha: 0.25));
-    addRange(primaryWindDegrees - 150, primaryWindDegrees - 110, Colors.red.withValues(alpha: 0.15));
-
-    // No-go zone
-    addRange(primaryWindDegrees - effectiveTargetAWA, primaryWindDegrees + effectiveTargetAWA, Colors.white.withValues(alpha: 0.3));
-
-    // STARBOARD SIDE - Gradiated Green Zones
-    addRange(primaryWindDegrees + effectiveTargetAWA, primaryWindDegrees + 60, Colors.green.withValues(alpha: 0.6));
-    addRange(primaryWindDegrees + 60, primaryWindDegrees + 90, Colors.green.withValues(alpha: 0.4));
-    addRange(primaryWindDegrees + 90, primaryWindDegrees + 110, Colors.green.withValues(alpha: 0.25));
-    addRange(primaryWindDegrees + 110, primaryWindDegrees + 150, Colors.green.withValues(alpha: 0.15));
-
-    // PERFORMANCE ZONES
-    final target = effectiveTargetAWA;
-    final tolerance = widget.targetTolerance;
-
-    // PORT SIDE PERFORMANCE ZONES
-    addRange(primaryWindDegrees - target - tolerance, primaryWindDegrees - target + tolerance,
-             Colors.green.withValues(alpha: 0.8), width: 15);
-    addRange(primaryWindDegrees - target - (2 * tolerance), primaryWindDegrees - target - tolerance,
-             Colors.yellow.withValues(alpha: 0.7), width: 15);
-    addRange(primaryWindDegrees - target + tolerance, primaryWindDegrees - target + (2 * tolerance),
-             Colors.yellow.withValues(alpha: 0.7), width: 15);
-
-    // STARBOARD SIDE PERFORMANCE ZONES
-    addRange(primaryWindDegrees + target - tolerance, primaryWindDegrees + target + tolerance,
-             Colors.green.withValues(alpha: 0.8), width: 15);
-    addRange(primaryWindDegrees + target - (2 * tolerance), primaryWindDegrees + target - tolerance,
-             Colors.yellow.withValues(alpha: 0.7), width: 15);
-    addRange(primaryWindDegrees + target + tolerance, primaryWindDegrees + target + (2 * tolerance),
-             Colors.yellow.withValues(alpha: 0.7), width: 15);
-
-    return zones;
+    return builder.zones;
   }
 
   /// Build wind pointers

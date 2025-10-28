@@ -7,7 +7,7 @@ import '../models/tool_instance.dart';
 import '../widgets/radial_gauge.dart';
 import '../widgets/compass_gauge.dart';
 import 'tool_config_screen.dart';
-import 'template_library_screen.dart';
+// Removed: template_library_screen import (deprecated)
 import 'settings_screen.dart';
 
 class DashboardScreen extends StatefulWidget {
@@ -36,19 +36,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
-  Future<void> _browseTemplates() async {
-    final result = await Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (context) => const TemplateLibraryScreen(),
-      ),
-    );
-
-    if (result is ToolInstance) {
-      setState(() {
-        _customTools.add(result);
-      });
-    }
-  }
+  // Removed: _browseTemplates() - deprecated template system
 
   void _showAddMenu() {
     showModalBottomSheet(
@@ -66,15 +54,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 _addTool();
               },
             ),
-            ListTile(
-              leading: const Icon(Icons.collections_bookmark),
-              title: const Text('Browse Templates'),
-              subtitle: const Text('Use pre-configured tool templates'),
-              onTap: () {
-                Navigator.pop(context);
-                _browseTemplates();
-              },
-            ),
+            // Removed: "Browse Templates" menu item - deprecated
           ],
         ),
       ),
@@ -106,20 +86,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
     });
   }
 
+  // Removed: _saveAsTemplate() - deprecated template system
   // Note: This is a test screen, not used in production
   // The real dashboard is DashboardManagerScreen
-  Future<void> _saveAsTemplate(ToolInstance toolInstance) async {
-    // This feature is not implemented in the new architecture
-    // Tools are managed directly in the ToolService
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Feature not available in this test screen'),
-          backgroundColor: Colors.orange,
-        ),
-      );
-    }
-  }
 
   // Test method for vessel ID
   void _testGetVesselId(BuildContext context, SignalKService service) async {
@@ -347,22 +316,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                     tool.config,
                                     service,
                                   ),
-                                  // Save as Template button
-                                  Positioned(
-                                    top: 4,
-                                    left: 4,
-                                    child: IconButton(
-                                      icon: const Icon(Icons.bookmark_add, size: 16),
-                                      onPressed: () => _saveAsTemplate(tool),
-                                      style: IconButton.styleFrom(
-                                        backgroundColor: Colors.blue.withValues(alpha: 0.7),
-                                        foregroundColor: Colors.white,
-                                        padding: const EdgeInsets.all(4),
-                                        minimumSize: const Size(24, 24),
-                                      ),
-                                      tooltip: 'Save as Template',
-                                    ),
-                                  ),
+                                  // Removed: "Save as Template" button - deprecated
                                   // Delete button
                                   Positioned(
                                     top: 4,

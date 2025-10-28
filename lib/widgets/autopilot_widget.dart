@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'dart:async';
 import 'base_compass.dart';
 import '../utils/angle_utils.dart';
+import '../utils/compass_zone_builder.dart';
 
 /// Full-featured autopilot control widget with compass display
 /// Built on BaseCompass for consistent styling with wind compass
@@ -114,85 +115,23 @@ class _AutopilotWidgetState extends State<AutopilotWidget> {
 
   /// Build autopilot zones - SAME STYLE AS WIND COMPASS
   List<GaugeRange> _buildAutopilotZones(double primaryHeadingDegrees) {
-    final zones = <GaugeRange>[];
-
-    // Helper to add a range, splitting if it crosses 0°
-    void addRange(double start, double end, Color color, {double width = 25}) {
-      final startNorm = AngleUtils.normalize(start);
-      final endNorm = AngleUtils.normalize(end);
-
-      if (startNorm < endNorm) {
-        zones.add(GaugeRange(
-          startValue: startNorm,
-          endValue: endNorm,
-          color: color,
-          startWidth: width,
-          endWidth: width,
-        ));
-      } else {
-        // Crosses 0°: split into two ranges
-        zones.add(GaugeRange(
-          startValue: startNorm,
-          endValue: 360,
-          color: color,
-          startWidth: width,
-          endWidth: width,
-        ));
-        zones.add(GaugeRange(
-          startValue: 0,
-          endValue: endNorm,
-          color: color,
-          startWidth: width,
-          endWidth: width,
-        ));
-      }
-    }
+    final builder = CompassZoneBuilder();
 
     if (widget.showWindIndicators && widget.apparentWindAngle != null) {
       // WIND MODE - USE EXACT SAME ZONES AS WIND COMPASS
       final windDirection = AngleUtils.normalize(widget.currentHeading + widget.apparentWindAngle!);
-      final effectiveTargetAWA = widget.targetAWA; // Use configured target AWA
-      final tolerance = widget.targetTolerance; // Use configured tolerance
 
-      // PORT SIDE - Gradiated Red Zones (darker = more important)
-      addRange(windDirection - 60, windDirection - effectiveTargetAWA, Colors.red.withValues(alpha: 0.6));
-      addRange(windDirection - 90, windDirection - 60, Colors.red.withValues(alpha: 0.4));
-      addRange(windDirection - 110, windDirection - 90, Colors.red.withValues(alpha: 0.25));
-      addRange(windDirection - 150, windDirection - 110, Colors.red.withValues(alpha: 0.15));
-
-      // No-go zone (wind ± targetAWA)
-      addRange(windDirection - effectiveTargetAWA, windDirection + effectiveTargetAWA, Colors.white.withValues(alpha: 0.3));
-
-      // STARBOARD SIDE - Gradiated Green Zones (darker = more important)
-      addRange(windDirection + effectiveTargetAWA, windDirection + 60, Colors.green.withValues(alpha: 0.6));
-      addRange(windDirection + 60, windDirection + 90, Colors.green.withValues(alpha: 0.4));
-      addRange(windDirection + 90, windDirection + 110, Colors.green.withValues(alpha: 0.25));
-      addRange(windDirection + 110, windDirection + 150, Colors.green.withValues(alpha: 0.15));
-
-      // PERFORMANCE ZONES - layer on top with narrower width to show as inner rings
-      // PORT SIDE PERFORMANCE ZONES
-      addRange(windDirection - effectiveTargetAWA - tolerance, windDirection - effectiveTargetAWA + tolerance,
-               Colors.green.withValues(alpha: 0.8), width: 15);
-      addRange(windDirection - effectiveTargetAWA - (2 * tolerance), windDirection - effectiveTargetAWA - tolerance,
-               Colors.yellow.withValues(alpha: 0.7), width: 15);
-      addRange(windDirection - effectiveTargetAWA + tolerance, windDirection - effectiveTargetAWA + (2 * tolerance),
-               Colors.yellow.withValues(alpha: 0.7), width: 15);
-
-      // STARBOARD SIDE PERFORMANCE ZONES
-      addRange(windDirection + effectiveTargetAWA - tolerance, windDirection + effectiveTargetAWA + tolerance,
-               Colors.green.withValues(alpha: 0.8), width: 15);
-      addRange(windDirection + effectiveTargetAWA - (2 * tolerance), windDirection + effectiveTargetAWA - tolerance,
-               Colors.yellow.withValues(alpha: 0.7), width: 15);
-      addRange(windDirection + effectiveTargetAWA + tolerance, windDirection + effectiveTargetAWA + (2 * tolerance),
-               Colors.yellow.withValues(alpha: 0.7), width: 15);
-
+      builder.addSailingZones(
+        windDirection: windDirection,
+        targetAWA: widget.targetAWA,
+        targetTolerance: widget.targetTolerance,
+      );
     } else {
       // HEADING MODE - Simple port/starboard zones
-      addRange(widget.currentHeading - 180, widget.currentHeading, Colors.red.withValues(alpha: 0.3));
-      addRange(widget.currentHeading, widget.currentHeading + 180, Colors.green.withValues(alpha: 0.3));
+      builder.addHeadingZones(currentHeading: widget.currentHeading);
     }
 
-    return zones;
+    return builder.zones;
   }
 
   /// Build autopilot pointers (target, current heading, wind)
