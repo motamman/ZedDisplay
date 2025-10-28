@@ -1995,3 +1995,185 @@ class _ConversionManager {
     _conversionsData.clear();
   }
 }
+
+/// Internal manager for notification system
+/// Handles notification WebSocket and notification processing
+class _NotificationManager {
+  // Notification WebSocket
+  WebSocketChannel? _notificationChannel;
+  StreamSubscription? _notificationSubscription;
+
+  // Notification state
+  bool _notificationsEnabled = false;
+  final StreamController<SignalKNotification> _notificationController =
+      StreamController<SignalKNotification>.broadcast();
+  final Map<String, String> _lastNotificationState = {};
+
+  // Dependencies injected via function getters
+  final AuthToken? Function() getAuthToken;
+  final String Function() getNotificationEndpoint;
+
+  _NotificationManager({
+    required this.getAuthToken,
+    required this.getNotificationEndpoint,
+  });
+
+  // Getters
+  bool get notificationsEnabled => _notificationsEnabled;
+  Stream<SignalKNotification> get notificationStream => _notificationController.stream;
+
+  /// Enable or disable notifications
+  Future<void> setNotificationsEnabled(bool enabled) async {
+    if (_notificationsEnabled == enabled) {
+      return;
+    }
+
+    _notificationsEnabled = enabled;
+
+    if (enabled) {
+      await connectNotificationChannel();
+    } else {
+      await disconnectNotificationChannel();
+    }
+  }
+
+  /// Connect to notification WebSocket
+  Future<void> connectNotificationChannel() async {
+    final authToken = getAuthToken();
+    if (authToken == null) {
+      return;
+    }
+
+    try {
+      final wsUrl = getNotificationEndpoint();
+
+      final headers = <String, String>{
+        'Authorization': 'Bearer ${authToken.token}',
+      };
+
+      final socket = await WebSocket.connect(wsUrl, headers: headers);
+      socket.pingInterval = const Duration(seconds: 30);
+      _notificationChannel = IOWebSocketChannel(socket);
+
+      _notificationSubscription = _notificationChannel!.stream.listen(
+        handleNotificationMessage,
+        onError: (error) {
+          if (kDebugMode) {
+            print('❌ Notification WebSocket error: $error');
+          }
+        },
+        onDone: () {},
+      );
+
+      await Future.delayed(const Duration(milliseconds: 100));
+      subscribeToNotifications();
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ Error connecting notification channel: $e');
+      }
+    }
+  }
+
+  /// Disconnect notification WebSocket
+  Future<void> disconnectNotificationChannel() async {
+    try {
+      await _notificationSubscription?.cancel();
+      _notificationSubscription = null;
+
+      await _notificationChannel?.sink.close();
+      _notificationChannel = null;
+
+      _lastNotificationState.clear();
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ Error disconnecting notification channel: $e');
+      }
+    }
+  }
+
+  /// Subscribe to notifications on the notification channel
+  void subscribeToNotifications() {
+    if (_notificationChannel == null) return;
+
+    final subscription = {
+      'context': 'vessels.self',
+      'subscribe': [
+        {
+          'path': 'notifications.*',
+          'format': 'delta',
+          'policy': 'instant',
+        }
+      ]
+    };
+
+    _notificationChannel?.sink.add(jsonEncode(subscription));
+  }
+
+  /// Handle messages from notification WebSocket
+  void handleNotificationMessage(dynamic message) {
+    try {
+      final data = jsonDecode(message);
+
+      if (data is! Map<String, dynamic>) {
+        return;
+      }
+
+      if (data['updates'] != null) {
+        final update = SignalKUpdate.fromJson(data);
+
+        for (final updateValue in update.updates) {
+          for (final value in updateValue.values) {
+            if (value.path.startsWith('notifications.')) {
+              handleNotification(value.path, value.value, updateValue.timestamp);
+            }
+          }
+        }
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ Error parsing notification message: $e');
+      }
+    }
+  }
+
+  /// Handle incoming notification
+  void handleNotification(String path, dynamic value, DateTime timestamp) {
+    try {
+      final key = path.replaceFirst('notifications.', '');
+
+      if (value is Map<String, dynamic>) {
+        final state = value['state'] as String?;
+        final message = value['message'] as String?;
+        final method = value['method'] as List?;
+
+        if (state != null && message != null) {
+          final lastState = _lastNotificationState[key];
+          if (lastState == state) {
+            return;
+          }
+
+          _lastNotificationState[key] = state;
+
+          final notification = SignalKNotification(
+            key: key,
+            state: state,
+            message: message,
+            method: method?.map((e) => e.toString()).toList() ?? [],
+            timestamp: timestamp,
+          );
+
+          _notificationController.add(notification);
+        }
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ Error processing notification: $e');
+      }
+    }
+  }
+
+  Future<void> dispose() async {
+    await disconnectNotificationChannel();
+    await _notificationController.close();
+  }
+}
