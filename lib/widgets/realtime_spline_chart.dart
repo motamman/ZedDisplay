@@ -124,8 +124,27 @@ class _RealtimeSplineChartState extends State<RealtimeSplineChart> with Automati
 
           // Calculate moving average if enabled
           if (widget.showMovingAverage && newData.length >= widget.movingAverageWindow) {
-            final movingAvg = _calculateMovingAverage(newData, widget.movingAverageWindow);
-            _movingAverageData[i] = movingAvg;
+            // Calculate only the NEW moving average point using the last N points
+            double sum = 0;
+            for (int j = 0; j < widget.movingAverageWindow; j++) {
+              sum += newData[newData.length - 1 - j].value;
+            }
+            final avg = sum / widget.movingAverageWindow;
+
+            // Append to existing moving average
+            final currentMA = List<_ChartData>.from(_movingAverageData[i]);
+            currentMA.add(_ChartData(timeValue, avg));
+
+            // Trim old MA points to match the time window of the main data
+            // Remove from the front if needed
+            if (newData.isNotEmpty && currentMA.isNotEmpty) {
+              final oldestMainTime = newData.first.time;
+              while (currentMA.isNotEmpty && currentMA.first.time < oldestMainTime) {
+                currentMA.removeAt(0);
+              }
+            }
+
+            _movingAverageData[i] = currentMA;
           }
         }
       }

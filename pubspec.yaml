@@ -75,6 +75,11 @@ dependencies:
   # WebView for embedding web pages
   webview_flutter: ^4.11.2
 
+  # System monitoring
+  device_info_plus: ^11.2.0
+  battery_plus: ^7.0.0
+  shared_preferences: ^2.2.2
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

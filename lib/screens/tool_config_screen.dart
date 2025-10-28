@@ -639,9 +639,9 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
 
   Future<void> _saveTool() async {
     if (!_formKey.currentState!.validate()) return;
-    // WebView and server_manager don't need data sources, other tools do
+    // WebView, server_manager, and system_monitor don't need data sources, other tools do
     if (_selectedToolTypeId == null) return;
-    if (_selectedToolTypeId != 'webview' && _selectedToolTypeId != 'server_manager' && _dataSources.isEmpty) return;
+    if (_selectedToolTypeId != 'webview' && _selectedToolTypeId != 'server_manager' && _selectedToolTypeId != 'system_monitor' && _dataSources.isEmpty) return;
 
     final toolService = Provider.of<ToolService>(context, listen: false);
 
@@ -802,7 +802,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
         title: Text(widget.existingTool == null ? 'Add Tool' : 'Edit Tool'),
         actions: [
           TextButton.icon(
-            onPressed: _selectedToolTypeId != null && (_dataSources.isNotEmpty || _selectedToolTypeId == 'webview' || _selectedToolTypeId == 'server_manager')
+            onPressed: _selectedToolTypeId != null && (_dataSources.isNotEmpty || _selectedToolTypeId == 'webview' || _selectedToolTypeId == 'server_manager' || _selectedToolTypeId == 'system_monitor')
                 ? _saveTool
                 : null,
             icon: const Icon(Icons.check),
@@ -862,8 +862,8 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
             ),
             const SizedBox(height: 16),
 
-            // Data Source Configuration (hide for webview and server_manager)
-            if (_selectedToolTypeId != 'webview' && _selectedToolTypeId != 'server_manager')
+            // Data Source Configuration (hide for webview, server_manager, and system_monitor)
+            if (_selectedToolTypeId != 'webview' && _selectedToolTypeId != 'server_manager' && _selectedToolTypeId != 'system_monitor')
               Card(
               child: Padding(
                 padding: const EdgeInsets.all(16),
@@ -995,6 +995,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                 _selectedToolTypeId != 'radial_bar_chart' &&
                 _selectedToolTypeId != 'server_manager' &&
                 _selectedToolTypeId != 'rpi_monitor' &&
+                _selectedToolTypeId != 'system_monitor' &&
                 _selectedToolTypeId != 'webview')
               Card(
                 child: Padding(
@@ -1367,8 +1368,8 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
               ),
             const SizedBox(height: 16),
 
-            // Style Configuration (hide for conversion_test, server_manager, and rpi_monitor)
-            if (_selectedToolTypeId != null && _selectedToolTypeId != 'conversion_test' && _selectedToolTypeId != 'server_manager' && _selectedToolTypeId != 'rpi_monitor')
+            // Style Configuration (hide for conversion_test, server_manager, rpi_monitor, and system_monitor)
+            if (_selectedToolTypeId != null && _selectedToolTypeId != 'conversion_test' && _selectedToolTypeId != 'server_manager' && _selectedToolTypeId != 'rpi_monitor' && _selectedToolTypeId != 'system_monitor')
               Card(
                 child: Padding(
                   padding: const EdgeInsets.all(16),
@@ -1402,13 +1403,15 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        _selectedToolTypeId == 'webview' || _selectedToolTypeId == 'rpi_monitor'
-                            ? '3. Preview'
-                            : (_selectedToolTypeId == 'historical_chart' ||
-                                _selectedToolTypeId == 'polar_radar_chart' ||
-                                _selectedToolTypeId == 'ais_polar_chart')
-                                ? '5. Preview'
-                                : '4. Preview',
+                        _selectedToolTypeId == 'server_manager' || _selectedToolTypeId == 'system_monitor'
+                            ? '2. Preview'
+                            : (_selectedToolTypeId == 'webview' || _selectedToolTypeId == 'rpi_monitor')
+                                ? '3. Preview'
+                                : (_selectedToolTypeId == 'historical_chart' ||
+                                    _selectedToolTypeId == 'polar_radar_chart' ||
+                                    _selectedToolTypeId == 'ais_polar_chart')
+                                    ? '5. Preview'
+                                    : '4. Preview',
                         style: Theme.of(context).textTheme.titleMedium,
                       ),
                       const SizedBox(height: 16),

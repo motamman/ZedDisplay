@@ -565,27 +565,6 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen> {
           : null,
       floatingActionButtonLocation: FloatingActionButtonLocation.endTop,
       appBar: (!_isFullScreen || _showAppBar || _toolBeingPlaced != null) ? AppBar(
-        title: Consumer<DashboardService>(
-          builder: (context, dashboardService, child) {
-            final layout = dashboardService.currentLayout;
-            if (layout == null) return const Text('Dashboard');
-
-            final screens = layout.screens;
-            final activeScreenIndex = layout.activeScreenIndex;
-
-            if (screens.isEmpty) return const Text('Dashboard');
-
-            final activeScreen = screens[activeScreenIndex];
-
-            return Text(
-              activeScreen.name,
-              overflow: TextOverflow.ellipsis,
-              style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                color: Theme.of(context).colorScheme.onPrimary,
-              ),
-            );
-          },
-        ),
         actions: [
           // Compact connection status indicator
           Consumer<SignalKService>(
