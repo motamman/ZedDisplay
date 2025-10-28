@@ -1953,3 +1953,119 @@ class _DataCacheManager {
     _latestData.clear();
   }
 }
+
+/// Internal manager for unit conversion operations
+/// Handles conversions data and conversion-related methods
+class _ConversionManager {
+  // Conversion data - unit conversion formulas from server
+  final Map<String, PathConversionData> _conversionsData = {};
+
+  // Dependencies injected via function getters
+  final String Function() getServerUrl;
+  final bool Function() useSecureConnection;
+  final Map<String, String> Function() getHeaders;
+
+  _ConversionManager({
+    required this.getServerUrl,
+    required this.useSecureConnection,
+    required this.getHeaders,
+  });
+
+  // Direct access to internal map
+  Map<String, PathConversionData> get internalDataMap => _conversionsData;
+
+  /// Fetch conversions from server REST API
+  Future<void> fetchConversions() async {
+    final protocol = useSecureConnection() ? 'https' : 'http';
+    final serverUrl = getServerUrl();
+
+    try {
+      final response = await http.get(
+        Uri.parse('$protocol://$serverUrl/signalk/v1/conversions'),
+        headers: getHeaders(),
+      ).timeout(const Duration(seconds: 10));
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body) as Map<String, dynamic>;
+
+        _conversionsData.clear();
+        data.forEach((path, conversionJson) {
+          if (conversionJson is Map<String, dynamic>) {
+            _conversionsData[path] = PathConversionData.fromJson(conversionJson);
+          }
+        });
+
+        if (kDebugMode) {
+          print('Fetched ${_conversionsData.length} path conversions from server');
+        }
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error fetching conversions: $e');
+      }
+    }
+  }
+
+  /// Handle conversion WebSocket message
+  void handleConversionMessage(dynamic message) {
+    try {
+      final data = jsonDecode(message) as Map<String, dynamic>;
+      final type = data['type'] as String?;
+      final conversions = data['conversions'] as Map<String, dynamic>?;
+
+      if (conversions == null) {
+        if (kDebugMode) {
+          print('⚠️ Conversions message missing "conversions" field');
+        }
+        return;
+      }
+
+      if (type == 'full' || type == 'update') {
+        _conversionsData.clear();
+        conversions.forEach((path, conversionJson) {
+          if (conversionJson is Map<String, dynamic>) {
+            _conversionsData[path] = PathConversionData.fromJson(conversionJson);
+          }
+        });
+        if (kDebugMode) {
+          print('✅ Loaded ${_conversionsData.length} conversions from stream (type: $type)');
+        }
+      } else if (type == 'delta') {
+        conversions.forEach((path, conversionJson) {
+          if (conversionJson is Map<String, dynamic>) {
+            _conversionsData[path] = PathConversionData.fromJson(conversionJson);
+          }
+        });
+        if (kDebugMode) {
+          print('✅ Updated ${conversions.length} conversion(s) from delta');
+        }
+      } else {
+        if (kDebugMode) {
+          print('⚠️ Unknown conversions message type: $type');
+        }
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ Error parsing conversion message: $e');
+      }
+    }
+  }
+
+  PathConversionData? getConversionDataForPath(String path) => _conversionsData[path];
+  String? getBaseUnit(String path) => _conversionsData[path]?.baseUnit;
+  String getCategory(String path) => _conversionsData[path]?.category ?? 'none';
+
+  List<String> getAvailableUnits(String path) {
+    final conversionData = _conversionsData[path];
+    if (conversionData == null) return [];
+    return conversionData.conversions.keys.toList();
+  }
+
+  ConversionInfo? getConversionInfo(String path, String targetUnit) {
+    return _conversionsData[path]?.conversions[targetUnit];
+  }
+
+  void dispose() {
+    _conversionsData.clear();
+  }
+}
