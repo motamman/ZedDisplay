@@ -20,6 +20,7 @@ class RealtimeSplineChart extends StatefulWidget {
   final bool showZones;
   final bool showMovingAverage;
   final int movingAverageWindow;
+  final bool showValue;
 
   const RealtimeSplineChart({
     super.key,
@@ -35,6 +36,7 @@ class RealtimeSplineChart extends StatefulWidget {
     this.showZones = true,
     this.showMovingAverage = false,
     this.movingAverageWindow = 5,
+    this.showValue = true,
   });
 
   @override
@@ -260,9 +262,25 @@ class _RealtimeSplineChartState extends State<RealtimeSplineChart> with Automati
             ),
             const SizedBox(height: 16),
             Expanded(
-              child: SfCartesianChart(
+              child: Row(
+                children: [
+                  // Vertical unit label (rotated 90 degrees)
+                  if (unit != null && unit.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(right: 8.0),
+                      child: RotatedBox(
+                        quarterTurns: 3, // 90 degrees counter-clockwise
+                        child: Text(
+                          unit,
+                          style: const TextStyle(fontSize: 12),
+                        ),
+                      ),
+                    ),
+                  // Chart
+                  Expanded(
+                    child: SfCartesianChart(
                 legend: Legend(
-                  isVisible: widget.showLegend && widget.dataSources.length > 1,
+                  isVisible: widget.showLegend,
                   position: LegendPosition.bottom,
                   overflowMode: LegendItemOverflowMode.wrap,
                 ),
@@ -298,7 +316,7 @@ class _RealtimeSplineChartState extends State<RealtimeSplineChart> with Automati
                   desiredIntervals: 5,
                 ),
                 primaryYAxis: NumericAxis(
-                  labelFormat: unit != null ? '{value} $unit' : '{value}',
+                  labelFormat: '{value}',
                   majorGridLines: MajorGridLines(
                     width: widget.showGrid ? 1 : 0,
                     color: Colors.grey.withValues(alpha: 0.2),
@@ -315,7 +333,7 @@ class _RealtimeSplineChartState extends State<RealtimeSplineChart> with Automati
                   ...List.generate(
                     widget.dataSources.length,
                     (index) => SplineSeries<_ChartData, int>(
-                      name: _getSeriesLabel(widget.dataSources[index]),
+                      name: _getSeriesLabelWithValue(widget.dataSources[index], index),
                       dataSource: _seriesData[index],
                       xValueMapper: (_ChartData data, _) => data.time,
                       yValueMapper: (_ChartData data, _) => data.value,
@@ -333,7 +351,7 @@ class _RealtimeSplineChartState extends State<RealtimeSplineChart> with Automati
                     ...List.generate(
                       widget.dataSources.length,
                       (index) => SplineSeries<_ChartData, int>(
-                        name: '${_getSeriesLabel(widget.dataSources[index])} (MA${widget.movingAverageWindow})',
+                        name: '${_getSeriesLabelWithValue(widget.dataSources[index], index, isMovingAverage: true)} (MA${widget.movingAverageWindow})',
                         dataSource: _movingAverageData[index],
                         xValueMapper: (_ChartData data, _) => data.time,
                         yValueMapper: (_ChartData data, _) => data.value,
@@ -350,6 +368,9 @@ class _RealtimeSplineChartState extends State<RealtimeSplineChart> with Automati
                 ],
               ),
             ),
+          ],
+        ),
+      ),
           ],
         ),
       ),
@@ -384,6 +405,31 @@ class _RealtimeSplineChartState extends State<RealtimeSplineChart> with Automati
         ? pathParts.sublist(pathParts.length - 2).join('.')
         : dataSource.path;
     return shortPath;
+  }
+
+  String _getSeriesLabelWithValue(DataSource dataSource, int index, {bool isMovingAverage = false}) {
+    // Get base label
+    final baseLabel = _getSeriesLabel(dataSource);
+
+    // If showValue is disabled, return just the base label
+    if (!widget.showValue) {
+      return baseLabel;
+    }
+
+    // Get the appropriate data source (main or moving average)
+    final data = isMovingAverage ? _movingAverageData[index] : _seriesData[index];
+
+    // If no data yet, return just the base label
+    if (data.isEmpty) {
+      return baseLabel;
+    }
+
+    // Get current value and unit
+    final currentValue = data.last.value.toStringAsFixed(1);
+    final unit = widget.signalKService.getUnitSymbol(dataSource.path);
+
+    // Return label with value and unit
+    return '$baseLabel ($currentValue${unit != null && unit.isNotEmpty ? ' $unit' : ''})';
   }
 
   /// Convert zone definitions to plot bands for the chart
