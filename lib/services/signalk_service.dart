@@ -72,6 +72,17 @@ class SignalKService extends ChangeNotifier implements DataService {
   // Zones cache service
   ZonesCacheService? _zonesCache;
 
+  // Internal managers
+  late final _DataCacheManager _dataCache;
+
+  // Constructor
+  SignalKService() {
+    _dataCache = _DataCacheManager(
+      getActivePaths: () => _activePaths,
+      isConnected: () => _isConnected,
+    );
+  }
+
   // Getters
   @override
   bool get isConnected => _isConnected;
