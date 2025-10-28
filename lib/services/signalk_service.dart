@@ -47,8 +47,7 @@ class SignalKService extends ChangeNotifier implements DataService {
   // Data storage - moved to _DataCacheManager
   UnmodifiableMapView<String, SignalKDataPoint>? _latestDataView;
 
-  // Conversion data - unit conversion formulas from server
-  final Map<String, PathConversionData> _conversionsData = {};
+  // Conversion data - moved to _ConversionManager
   UnmodifiableMapView<String, PathConversionData>? _conversionsDataView;
 
   // Active subscriptions - only paths currently needed by UI
@@ -73,12 +72,18 @@ class SignalKService extends ChangeNotifier implements DataService {
 
   // Internal managers
   late final _DataCacheManager _dataCache;
+  late final _ConversionManager _conversionManager;
 
   // Constructor
   SignalKService() {
     _dataCache = _DataCacheManager(
       getActivePaths: () => _activePaths,
       isConnected: () => _isConnected,
+    );
+    _conversionManager = _ConversionManager(
+      getServerUrl: () => _serverUrl,
+      useSecureConnection: () => _useSecureConnection,
+      getHeaders: () => _getHeaders(),
     );
   }
 
@@ -91,7 +96,7 @@ class SignalKService extends ChangeNotifier implements DataService {
     return _latestDataView!;
   }
   Map<String, PathConversionData> get conversionsData {
-    _conversionsDataView ??= UnmodifiableMapView(_conversionsData);
+    _conversionsDataView ??= UnmodifiableMapView(_conversionManager.internalDataMap);
     return _conversionsDataView!;
   }
   @override
@@ -377,56 +382,10 @@ class SignalKService extends ChangeNotifier implements DataService {
 
   /// Handle incoming conversion data from WebSocket stream
   void _handleConversionMessage(dynamic message) {
-    try {
-      final data = jsonDecode(message) as Map<String, dynamic>;
-      final type = data['type'] as String?;
-      final conversions = data['conversions'] as Map<String, dynamic>?;
-
-      if (conversions == null) {
-        if (kDebugMode) {
-          print('⚠️ Conversions message missing "conversions" field');
-        }
-        return;
-      }
-
-      // Handle different message types
-      if (type == 'full' || type == 'update') {
-        // Full snapshot or full update - replace all conversions
-        _conversionsData.clear();
-        conversions.forEach((path, conversionJson) {
-          if (conversionJson is Map<String, dynamic>) {
-            _conversionsData[path] = PathConversionData.fromJson(conversionJson);
-          }
-        });
-
-        if (kDebugMode) {
-          print('✅ Loaded ${_conversionsData.length} conversions from stream (type: $type)');
-        }
-      } else if (type == 'delta') {
-        // Partial update - only update specific paths
-        conversions.forEach((path, conversionJson) {
-          if (conversionJson is Map<String, dynamic>) {
-            _conversionsData[path] = PathConversionData.fromJson(conversionJson);
-          }
-        });
-
-        if (kDebugMode) {
-          print('✅ Updated ${conversions.length} conversion(s) from delta');
-        }
-      } else {
-        if (kDebugMode) {
-          print('⚠️ Unknown conversions message type: $type');
-        }
-      }
-
-      // Invalidate cache and notify listeners that conversions have updated
-      _conversionsDataView = null;
-      notifyListeners();
-    } catch (e) {
-      if (kDebugMode) {
-        print('❌ Error parsing conversion message: $e');
-      }
-    }
+    _conversionManager.handleConversionMessage(message);
+    // Invalidate cache and notify listeners that conversions have updated
+    _conversionsDataView = null;
+    notifyListeners();
   }
 
   /// Send WebSocket authentication with token (currently unused, kept for future)
@@ -1111,36 +1070,9 @@ class SignalKService extends ChangeNotifier implements DataService {
   /// Fetch conversion formulas from SignalK server
   /// Gets base units, categories, and conversion formulas for all paths
   Future<void> fetchConversions() async {
-    final protocol = _useSecureConnection ? 'https' : 'http';
-
-    try {
-      final response = await http.get(
-        Uri.parse('$protocol://$_serverUrl/signalk/v1/conversions'),
-        headers: _getHeaders(),
-      ).timeout(const Duration(seconds: 10));
-
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body) as Map<String, dynamic>;
-
-        _conversionsData.clear();
-        data.forEach((path, conversionJson) {
-          if (conversionJson is Map<String, dynamic>) {
-            _conversionsData[path] = PathConversionData.fromJson(conversionJson);
-          }
-        });
-
-        // Invalidate cache when conversions update
-        _conversionsDataView = null;
-
-        if (kDebugMode) {
-          print('Fetched ${_conversionsData.length} path conversions from server');
-        }
-      }
-    } catch (e) {
-      if (kDebugMode) {
-        print('Error fetching conversions: $e');
-      }
-    }
+    await _conversionManager.fetchConversions();
+    // Invalidate cache when conversions update
+    _conversionsDataView = null;
   }
 
   /// Manually reload conversions from server
@@ -1151,35 +1083,28 @@ class SignalKService extends ChangeNotifier implements DataService {
   }
 
   /// Get conversion data for a specific path
-  /// Returns null if no conversion data available for this path
   PathConversionData? getConversionDataForPath(String path) {
-    return _conversionsData[path];
+    return _conversionManager.getConversionDataForPath(path);
   }
 
   /// Get base unit for a specific path
-  /// Returns null if no conversion data or no base unit
   String? getBaseUnit(String path) {
-    return _conversionsData[path]?.baseUnit;
+    return _conversionManager.getBaseUnit(path);
   }
 
   /// Get available target units for a specific path
-  /// Returns empty list if no conversions available
   List<String> getAvailableUnits(String path) {
-    final conversionData = _conversionsData[path];
-    if (conversionData == null) return [];
-    return conversionData.conversions.keys.toList();
+    return _conversionManager.getAvailableUnits(path);
   }
 
   /// Get conversion info for a specific path and target unit
-  /// Returns null if path or unit not found
   ConversionInfo? getConversionInfo(String path, String targetUnit) {
-    return _conversionsData[path]?.conversions[targetUnit];
+    return _conversionManager.getConversionInfo(path, targetUnit);
   }
 
-  /// Get the category for a specific path (e.g., 'speed', 'angle', 'temperature')
-  /// Returns 'none' if no conversion data available
+  /// Get the category for a specific path
   String getCategory(String path) {
-    return _conversionsData[path]?.category ?? 'none';
+    return _conversionManager.getCategory(path);
   }
 
   /// Internal helper to convert a value using the formula for this path
@@ -1732,7 +1657,7 @@ class SignalKService extends ChangeNotifier implements DataService {
       _isConnected = false;
       _dataCache.internalDataMap.clear();
       _latestDataView = null;
-      _conversionsData.clear();
+      _conversionManager.internalDataMap.clear();
       _conversionsDataView = null;
       _activePaths.clear();
       _autopilotPaths.clear();
@@ -1771,6 +1696,7 @@ class SignalKService extends ChangeNotifier implements DataService {
   void dispose() {
     disconnect();
     _dataCache.dispose();
+    _conversionManager.dispose();
     _notificationController.close();
     super.dispose();
   }
