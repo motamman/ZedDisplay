@@ -1910,3 +1910,107 @@ class PathConversionData {
     );
   }
 }
+
+/// Internal manager for data caching and cleanup
+/// Handles _latestData map, cache pruning, and data access methods
+class _DataCacheManager {
+  // Data storage - keeps latest value for each path
+  final Map<String, SignalKDataPoint> _latestData = {};
+  Timer? _cacheCleanupTimer;
+
+  // Dependencies injected via function getters for dynamic access
+  final Set<String> Function() getActivePaths;
+  final bool Function() isConnected;
+
+  _DataCacheManager({
+    required this.getActivePaths,
+    required this.isConnected,
+  });
+
+  // Direct access to internal map for SignalKService
+  Map<String, SignalKDataPoint> get internalDataMap => _latestData;
+
+  /// Get value for specific path, optionally from a specific source
+  SignalKDataPoint? getValue(String path, {String? source}) {
+    if (source == null) {
+      return _latestData[path];
+    }
+    final sourceKey = '$path@$source';
+    final result = _latestData[sourceKey];
+    return result ?? _latestData[path];
+  }
+
+  /// Check if data is fresh (within TTL threshold)
+  bool isDataFresh(String path, {String? source, int? ttlSeconds}) {
+    if (ttlSeconds == null) {
+      return true;
+    }
+    final dataPoint = getValue(path, source: source);
+    if (dataPoint == null) {
+      return false;
+    }
+    final now = DateTime.now();
+    final age = now.difference(dataPoint.timestamp);
+    return age.inSeconds <= ttlSeconds;
+  }
+
+  /// Get numeric value for specific path
+  double? getNumericValue(String path) {
+    final dataPoint = _latestData[path];
+    if (dataPoint?.value is num) {
+      return (dataPoint!.value as num).toDouble();
+    }
+    return null;
+  }
+
+  /// Get converted numeric value (already in user's preferred units)
+  double? getConvertedValue(String path) {
+    final dataPoint = _latestData[path];
+    return dataPoint?.converted ?? (dataPoint?.value is num ? (dataPoint!.value as num).toDouble() : null);
+  }
+
+  /// Start periodic cache cleanup to prevent unbounded memory growth
+  void startCacheCleanup() {
+    _cacheCleanupTimer?.cancel();
+    _cacheCleanupTimer = Timer.periodic(const Duration(minutes: 5), (timer) {
+      if (!isConnected()) {
+        timer.cancel();
+        return;
+      }
+      pruneStaleData();
+    });
+  }
+
+  /// Remove stale data from cache to prevent memory leaks
+  void pruneStaleData() {
+    final now = DateTime.now();
+    final beforeSize = _latestData.length;
+    final activePaths = getActivePaths();
+
+    _latestData.removeWhere((key, dataPoint) {
+      // Never prune own vessel data or actively subscribed paths
+      if (key.startsWith('vessels.self') || activePaths.contains(key)) {
+        return false;
+      }
+      // AIS vessel data - prune if older than 10 minutes
+      if (key.startsWith('vessels.')) {
+        final age = now.difference(dataPoint.timestamp);
+        return age.inMinutes > 10;
+      }
+      // Other data - prune if older than 15 minutes
+      final age = now.difference(dataPoint.timestamp);
+      return age.inMinutes > 15;
+    });
+
+    final afterSize = _latestData.length;
+    final removed = beforeSize - afterSize;
+    if (removed > 0 && kDebugMode) {
+      print('Cache pruned: removed $removed stale entries, $afterSize remaining');
+    }
+  }
+
+  void dispose() {
+    _cacheCleanupTimer?.cancel();
+    _latestData.clear();
+  }
+}
