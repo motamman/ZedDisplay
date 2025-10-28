@@ -3,6 +3,7 @@ import 'package:syncfusion_flutter_gauges/gauges.dart';
 import 'dart:math' as math;
 import 'dart:async';
 import 'base_compass.dart';
+import '../utils/angle_utils.dart';
 
 /// Full-featured autopilot control widget with compass display
 /// Built on BaseCompass for consistent styling with wind compass
@@ -109,16 +110,7 @@ class _AutopilotWidgetState extends State<AutopilotWidget> {
     }
   }
 
-  /// Normalize angle to 0-360 range
-  double _normalizeAngle(double angle) {
-    while (angle < 0) {
-      angle += 360;
-    }
-    while (angle >= 360) {
-      angle -= 360;
-    }
-    return angle;
-  }
+  // Removed: _normalizeAngle - now using AngleUtils.normalize()
 
   /// Build autopilot zones - SAME STYLE AS WIND COMPASS
   List<GaugeRange> _buildAutopilotZones(double primaryHeadingDegrees) {
@@ -126,8 +118,8 @@ class _AutopilotWidgetState extends State<AutopilotWidget> {
 
     // Helper to add a range, splitting if it crosses 0°
     void addRange(double start, double end, Color color, {double width = 25}) {
-      final startNorm = _normalizeAngle(start);
-      final endNorm = _normalizeAngle(end);
+      final startNorm = AngleUtils.normalize(start);
+      final endNorm = AngleUtils.normalize(end);
 
       if (startNorm < endNorm) {
         zones.add(GaugeRange(
@@ -158,7 +150,7 @@ class _AutopilotWidgetState extends State<AutopilotWidget> {
 
     if (widget.showWindIndicators && widget.apparentWindAngle != null) {
       // WIND MODE - USE EXACT SAME ZONES AS WIND COMPASS
-      final windDirection = _normalizeAngle(widget.currentHeading + widget.apparentWindAngle!);
+      final windDirection = AngleUtils.normalize(widget.currentHeading + widget.apparentWindAngle!);
       final effectiveTargetAWA = widget.targetAWA; // Use configured target AWA
       final tolerance = widget.targetTolerance; // Use configured tolerance
 
@@ -284,7 +276,7 @@ class _AutopilotWidgetState extends State<AutopilotWidget> {
 
     if (widget.showWindIndicators && widget.apparentWindAngle != null) {
       painters.add(_NoGoZoneVPainter(
-        windDirection: _normalizeAngle(widget.currentHeading + widget.apparentWindAngle!),
+        windDirection: AngleUtils.normalize(widget.currentHeading + widget.apparentWindAngle!),
         noGoAngle: widget.targetAWA,
       ));
     }

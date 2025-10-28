@@ -2,6 +2,7 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:syncfusion_flutter_gauges/gauges.dart';
 import 'base_compass.dart';
+import '../utils/angle_utils.dart';
 
 /// Display mode for wind compass
 enum WindCompassMode {
@@ -243,16 +244,7 @@ class _WindCompassState extends State<WindCompass> {
     }
   }
 
-  /// Normalize angle to 0-360 range
-  double _normalizeAngle(double angle) {
-    while (angle < 0) {
-      angle += 360;
-    }
-    while (angle >= 360) {
-      angle -= 360;
-    }
-    return angle;
-  }
+  // Removed: _normalizeAngle - now using AngleUtils.normalize()
 
   /// Get optimal target AWA based on current wind speed (if VMG mode enabled)
   double _getOptimalTargetAWA() {
@@ -273,8 +265,8 @@ class _WindCompassState extends State<WindCompass> {
 
     // Helper to add a range, splitting if it crosses 0°
     void addRange(double start, double end, Color color, {double width = 25}) {
-      final startNorm = _normalizeAngle(start);
-      final endNorm = _normalizeAngle(end);
+      final startNorm = AngleUtils.normalize(start);
+      final endNorm = AngleUtils.normalize(end);
 
       if (startNorm < endNorm) {
         zones.add(GaugeRange(
@@ -426,7 +418,7 @@ class _WindCompassState extends State<WindCompass> {
     if (_currentMode == WindCompassMode.laylines && widget.waypointBearing != null && widget.windDirectionTrueDegrees != null) {
       // Port layline
       pointers.add(NeedlePointer(
-        value: _normalizeAngle(widget.windDirectionTrueDegrees! + widget.targetAWA),
+        value: AngleUtils.normalize(widget.windDirectionTrueDegrees! + widget.targetAWA),
         needleLength: 0.85,
         needleStartWidth: 0,
         needleEndWidth: 4,
@@ -435,7 +427,7 @@ class _WindCompassState extends State<WindCompass> {
       ));
       // Starboard layline
       pointers.add(NeedlePointer(
-        value: _normalizeAngle(widget.windDirectionTrueDegrees! - widget.targetAWA),
+        value: AngleUtils.normalize(widget.windDirectionTrueDegrees! - widget.targetAWA),
         needleLength: 0.85,
         needleStartWidth: 0,
         needleEndWidth: 4,
@@ -910,8 +902,8 @@ class _WindCompassState extends State<WindCompass> {
 
     final twd = widget.windDirectionTrueDegrees ?? navigationCourse;
 
-    final portLayline = _normalizeAngle(twd + widget.targetAWA);
-    final stbdLayline = _normalizeAngle(twd - widget.targetAWA);
+    final portLayline = AngleUtils.normalize(twd + widget.targetAWA);
+    final stbdLayline = AngleUtils.normalize(twd - widget.targetAWA);
 
     final waypointBearing = widget.waypointBearing!;
 
@@ -989,9 +981,9 @@ class _WindCompassState extends State<WindCompass> {
   }
 
   bool _isAngleBetween(double angle, double start, double end) {
-    angle = _normalizeAngle(angle);
-    start = _normalizeAngle(start);
-    end = _normalizeAngle(end);
+    angle = AngleUtils.normalize(angle);
+    start = AngleUtils.normalize(start);
+    end = AngleUtils.normalize(end);
 
     if (start <= end) {
       return angle >= start && angle <= end;
@@ -1018,8 +1010,8 @@ class _WindCompassState extends State<WindCompass> {
     }
     final twd = widget.windDirectionTrueDegrees!;
     return [
-      _normalizeAngle(twd + widget.targetAWA), // Port layline
-      _normalizeAngle(twd - widget.targetAWA), // Starboard layline
+      AngleUtils.normalize(twd + widget.targetAWA), // Port layline
+      AngleUtils.normalize(twd - widget.targetAWA), // Starboard layline
     ];
   }
 
@@ -1031,8 +1023,8 @@ class _WindCompassState extends State<WindCompass> {
     final twd = widget.windDirectionTrueDegrees!;
     final optimalAWA = _getOptimalTargetAWA();
     return [
-      _normalizeAngle(twd + optimalAWA), // Port tack optimal VMG
-      _normalizeAngle(twd - optimalAWA), // Starboard tack optimal VMG
+      AngleUtils.normalize(twd + optimalAWA), // Port tack optimal VMG
+      AngleUtils.normalize(twd - optimalAWA), // Starboard tack optimal VMG
     ];
   }
 

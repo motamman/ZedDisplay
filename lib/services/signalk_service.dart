@@ -1,7 +1,7 @@
 import 'dart:async';
+import 'dart:collection';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:web_socket_channel/io.dart';
@@ -41,11 +41,16 @@ class SignalKService extends ChangeNotifier implements DataService {
   // AIS periodic refresh
   Timer? _aisRefreshTimer;
 
+  // Data cache cleanup
+  Timer? _cacheCleanupTimer;
+
   // Data storage - keeps latest value for each path
   final Map<String, SignalKDataPoint> _latestData = {};
+  UnmodifiableMapView<String, SignalKDataPoint>? _latestDataView;
 
   // Conversion data - unit conversion formulas from server
   final Map<String, PathConversionData> _conversionsData = {};
+  UnmodifiableMapView<String, PathConversionData>? _conversionsDataView;
 
   // Active subscriptions - only paths currently needed by UI
   final Set<String> _activePaths = {};
@@ -71,8 +76,14 @@ class SignalKService extends ChangeNotifier implements DataService {
   @override
   bool get isConnected => _isConnected;
   String? get errorMessage => _errorMessage;
-  Map<String, SignalKDataPoint> get latestData => Map.unmodifiable(_latestData);
-  Map<String, PathConversionData> get conversionsData => Map.unmodifiable(_conversionsData);
+  Map<String, SignalKDataPoint> get latestData {
+    _latestDataView ??= UnmodifiableMapView(_latestData);
+    return _latestDataView!;
+  }
+  Map<String, PathConversionData> get conversionsData {
+    _conversionsDataView ??= UnmodifiableMapView(_conversionsData);
+    return _conversionsDataView!;
+  }
   @override
   String get serverUrl => _serverUrl;
   @override
@@ -163,6 +174,9 @@ class SignalKService extends ChangeNotifier implements DataService {
 
       // Subscribe to paths immediately
       await _sendSubscription();
+
+      // Start periodic cache cleanup to prevent memory growth
+      _startCacheCleanup();
 
       // Auto-connect notification channel if notifications are enabled
       if (_notificationsEnabled && _authToken != null) {
@@ -395,7 +409,8 @@ class SignalKService extends ChangeNotifier implements DataService {
         }
       }
 
-      // Notify listeners that conversions have updated
+      // Invalidate cache and notify listeners that conversions have updated
+      _conversionsDataView = null;
       notifyListeners();
     } catch (e) {
       if (kDebugMode) {
@@ -634,6 +649,8 @@ class SignalKService extends ChangeNotifier implements DataService {
           }
         }
 
+        // Invalidate cache when data changes
+        _latestDataView = null;
         notifyListeners();
       }
     } catch (e, stackTrace) {
@@ -1129,6 +1146,9 @@ class SignalKService extends ChangeNotifier implements DataService {
           }
         });
 
+        // Invalidate cache when conversions update
+        _conversionsDataView = null;
+
         if (kDebugMode) {
           print('Fetched ${_conversionsData.length} path conversions from server');
         }
@@ -1514,6 +1534,63 @@ class SignalKService extends ChangeNotifier implements DataService {
     });
   }
 
+  /// Start periodic cache cleanup to prevent unbounded memory growth
+  void _startCacheCleanup() {
+    _cacheCleanupTimer?.cancel();
+    _cacheCleanupTimer = Timer.periodic(const Duration(minutes: 5), (timer) {
+      if (!_isConnected) {
+        timer.cancel();
+        return;
+      }
+
+      _pruneStaleData();
+    });
+  }
+
+  /// Remove stale data from cache to prevent memory leaks
+  ///
+  /// This prevents unbounded growth of the _latestData map, especially
+  /// from AIS vessel data that accumulates over time.
+  ///
+  /// Pruning rules:
+  /// - Own vessel data (vessels.self.*): Never pruned
+  /// - Active paths (subscribed): Never pruned
+  /// - AIS vessel data (vessels.*): Prune if older than 10 minutes
+  /// - Other data: Prune if older than 15 minutes
+  void _pruneStaleData() {
+    final now = DateTime.now();
+    final beforeSize = _latestData.length;
+
+    _latestData.removeWhere((key, dataPoint) {
+      // Never prune own vessel data or actively subscribed paths
+      if (key.startsWith('vessels.self') || _activePaths.contains(key)) {
+        return false;
+      }
+
+      // AIS vessel data - prune if older than 10 minutes
+      if (key.startsWith('vessels.')) {
+        final age = now.difference(dataPoint.timestamp);
+        return age.inMinutes > 10;
+      }
+
+      // Other data - prune if older than 15 minutes
+      final age = now.difference(dataPoint.timestamp);
+      return age.inMinutes > 15;
+    });
+
+    final afterSize = _latestData.length;
+    final removed = beforeSize - afterSize;
+
+    if (removed > 0) {
+      // Invalidate cache view after pruning
+      _latestDataView = null;
+
+      if (kDebugMode) {
+        print('🧹 Cache pruned: removed $removed stale entries ($beforeSize → $afterSize)');
+      }
+    }
+  }
+
   /// Subscribe to all AIS vessels using wildcard subscription
   /// Requires units-preference plugin with wildcard support
   void subscribeToAllAISVessels() {
@@ -1704,6 +1781,7 @@ class SignalKService extends ChangeNotifier implements DataService {
       _intentionalDisconnect = true;
       _reconnectTimer?.cancel();
       _aisRefreshTimer?.cancel();
+      _cacheCleanupTimer?.cancel();
       _reconnectAttempts = 0;
 
       // Disconnect main data channel
@@ -1715,7 +1793,9 @@ class SignalKService extends ChangeNotifier implements DataService {
 
       _isConnected = false;
       _latestData.clear();
+      _latestDataView = null;
       _conversionsData.clear();
+      _conversionsDataView = null;
       _activePaths.clear();
       _autopilotPaths.clear();
       _vesselContext = null;
