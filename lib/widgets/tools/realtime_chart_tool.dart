@@ -142,6 +142,7 @@ class _RealtimeChartToolState extends State<RealtimeChartTool> {
       showZones: showZones,
       showMovingAverage: showMovingAverage,
       movingAverageWindow: movingAverageWindow,
+      showValue: widget.config.style.showValue ?? true,
     );
   }
 
@@ -179,6 +180,7 @@ class RealtimeChartBuilder extends ToolBuilder {
         styleOptions: const [
           'primaryColor',
           'showLabel',
+          'showValue', // Show current value in unit label (default: true)
           'maxDataPoints', // Number of data points to display (default: 50)
           'updateInterval', // Update interval in milliseconds (default: 500)
           'showLegend',

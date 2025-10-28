@@ -76,9 +76,6 @@ class StorageService extends ChangeNotifier {
       await _dashboardsBox.put(layout.id, json);
       notifyListeners();
 
-      if (kDebugMode) {
-        print('Dashboard saved: ${layout.id}');
-      }
     } catch (e) {
       if (kDebugMode) {
         print('Error saving dashboard: $e');

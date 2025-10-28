@@ -118,31 +118,17 @@ class SignalKService extends ChangeNotifier implements DataService {
 
       // Connect to WebSocket with authentication headers if we have a token
       if (_authToken != null) {
-        if (kDebugMode) {
-          print('Connecting with Authorization header to: $wsUrl');
-          print('Token: ${_authToken!.token.substring(0, min(20, _authToken!.token.length))}...');
-          print('🔑 FULL TOKEN FOR TESTING: ${_authToken!.token}');
-        }
-
         final headers = <String, String>{
           'Authorization': 'Bearer ${_authToken!.token}',
         };
 
         try {
           // Use dart:io WebSocket.connect which supports headers
-          if (kDebugMode) {
-            print('Connecting to WebSocket URL: $wsUrl');
-          }
-
           // Pass the URL string directly - don't parse and re-stringify
           final socket = await WebSocket.connect(wsUrl, headers: headers);
           // Keep connection alive with ping frames every 30 seconds
           socket.pingInterval = const Duration(seconds: 30);
           _channel = IOWebSocketChannel(socket);
-
-          if (kDebugMode) {
-            print('WebSocket connection established successfully');
-          }
         } catch (e) {
           if (kDebugMode) {
             print('WebSocket.connect failed: $e');
@@ -167,9 +153,6 @@ class SignalKService extends ChangeNotifier implements DataService {
       _intentionalDisconnect = false;
       notifyListeners();
 
-      if (kDebugMode) {
-        print('Connected to SignalK server: $wsUrl');
-      }
 
       // Note: units-preference plugin does NOT use WebSocket-level authentication
       // The auth token is used only for HTTP requests to the API
@@ -211,17 +194,9 @@ class SignalKService extends ChangeNotifier implements DataService {
 
     // Use the server URL as-is - don't add default ports
     // Many servers are behind reverse proxies and don't need explicit ports
-    if (kDebugMode) {
-      print('Server URL: $_serverUrl (secure: $_useSecureConnection)');
-    }
-
     // ALWAYS use standard SignalK stream (no units-preference plugin)
     // Conversions are applied client-side using formulas from /signalk/v1/conversions
     final endpoint = '$wsProtocol://$_serverUrl/signalk/v1/stream';
-    if (kDebugMode) {
-      print('Using standard SignalK stream: $endpoint');
-      print('Client-side conversions enabled via /signalk/v1/conversions');
-    }
     return endpoint;
   }
 
@@ -468,7 +443,6 @@ class SignalKService extends ChangeNotifier implements DataService {
         'subscribe': [
           {
             'path': '*',
-            'period': 1000,
             'format': 'delta',
             'policy': 'instant',
           }
@@ -871,7 +845,22 @@ class SignalKService extends ChangeNotifier implements DataService {
   @override
   String? getUnitSymbol(String path) {
     final dataPoint = _latestData[path];
-    return dataPoint?.symbol;
+
+    // First try to get symbol from data point (units-preference plugin)
+    if (dataPoint?.symbol != null) {
+      return dataPoint!.symbol;
+    }
+
+    // Fallback: get symbol from conversions data (standard stream with client-side conversions)
+    final availableUnits = getAvailableUnits(path);
+    if (availableUnits.isEmpty) {
+      return null;
+    }
+
+    // Get the first/preferred conversion for this path
+    final unit = availableUnits.first;
+    final conversionInfo = getConversionInfo(path, unit);
+    return conversionInfo?.symbol;
   }
 
   /// Get live AIS vessel data from WebSocket cache
@@ -1347,7 +1336,6 @@ class SignalKService extends ChangeNotifier implements DataService {
       'context': 'vessels.self',
       'subscribe': pathsToSubscribe.map((path) => {
         'path': path,
-        'period': 500,  // 500ms period
         'format': 'delta',
         'policy': 'instant',
       }).toList(),
@@ -1355,9 +1343,6 @@ class SignalKService extends ChangeNotifier implements DataService {
 
     _channel?.sink.add(jsonEncode(subscription));
 
-    if (kDebugMode) {
-      print('Updated subscription: ${pathsToSubscribe.length} paths to standard stream');
-    }
   }
 
   /// Subscribe to autopilot paths (uses standard SignalK stream)
@@ -1538,9 +1523,9 @@ class SignalKService extends ChangeNotifier implements DataService {
     final aisSubscription = {
       'context': 'vessels.*',
       'subscribe': [
-        {'path': 'navigation.position', 'period': 2000, 'format': 'delta', 'policy': 'instant', 'minPeriod': 500},
-        {'path': 'navigation.courseOverGroundTrue', 'period': 2000, 'format': 'delta', 'policy': 'instant', 'minPeriod': 500},
-        {'path': 'navigation.speedOverGround', 'period': 2000, 'format': 'delta', 'policy': 'instant', 'minPeriod': 500},
+        {'path': 'navigation.position', 'format': 'delta', 'policy': 'instant'},
+        {'path': 'navigation.courseOverGroundTrue', 'format': 'delta', 'policy': 'instant'},
+        {'path': 'navigation.speedOverGround', 'format': 'delta', 'policy': 'instant'},
         {'path': 'name', 'period': 60000, 'format': 'delta', 'policy': 'ideal'},
       ],
     };

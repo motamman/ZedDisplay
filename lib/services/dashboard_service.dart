@@ -105,9 +105,6 @@ class DashboardService extends ChangeNotifier {
       await _storageService.saveDashboard(_currentLayout!);
       await _storageService.saveActiveDashboardId(_currentLayout!.id);
 
-      if (kDebugMode) {
-        print('Dashboard saved: ${_currentLayout!.id}');
-      }
     } catch (e) {
       if (kDebugMode) {
         print('Error saving dashboard: $e');

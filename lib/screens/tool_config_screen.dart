@@ -68,6 +68,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
   int _chartRefreshInterval = 60;
   bool _chartShowMovingAverage = false;
   int _chartMovingAverageWindow = 5;
+  String _chartTitle = '';
 
   // Polar chart-specific configuration
   int _polarHistorySeconds = 60;
@@ -145,6 +146,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
     _chartRefreshInterval = 60;
     _chartShowMovingAverage = false;
     _chartMovingAverageWindow = 5;
+    _chartTitle = '';
     _polarHistorySeconds = 60;
     _aisMaxRangeNm = 5.0;
     _aisUpdateInterval = 10;
@@ -407,6 +409,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
       _chartRefreshInterval = style.customProperties!['refreshInterval'] as int? ?? 60;
       _chartShowMovingAverage = style.customProperties!['showMovingAverage'] as bool? ?? false;
       _chartMovingAverageWindow = style.customProperties!['movingAverageWindow'] as int? ?? 5;
+      _chartTitle = style.customProperties!['title'] as String? ?? '';
       _polarHistorySeconds = style.customProperties!['historySeconds'] as int? ?? 60;
       _aisMaxRangeNm = (style.customProperties!['maxRangeNm'] as num?)?.toDouble() ?? 5.0;
       // Convert milliseconds back to seconds for UI
@@ -661,6 +664,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
       };
     } else if (_selectedToolTypeId == 'realtime_chart') {
       customProperties = {
+        'title': _chartTitle,
         'showMovingAverage': _chartShowMovingAverage,
         'movingAverageWindow': _chartMovingAverageWindow,
       };
@@ -1330,6 +1334,17 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                         style: Theme.of(context).textTheme.titleMedium,
                       ),
                       const SizedBox(height: 16),
+                      TextField(
+                        decoration: const InputDecoration(
+                          labelText: 'Chart Title',
+                          hintText: 'Enter custom chart title (optional)',
+                          border: OutlineInputBorder(),
+                          helperText: 'Leave empty to auto-generate from data sources',
+                        ),
+                        controller: TextEditingController(text: _chartTitle),
+                        onChanged: (value) => _chartTitle = value,
+                      ),
+                      const SizedBox(height: 16),
                       SwitchListTile(
                         title: const Text('Show Moving Average'),
                         subtitle: const Text('Display smoothed trend line'),
@@ -1439,6 +1454,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                               };
                             } else if (_selectedToolTypeId == 'realtime_chart') {
                               previewCustomProperties = {
+                                'title': _chartTitle,
                                 'showMovingAverage': _chartShowMovingAverage,
                                 'movingAverageWindow': _chartMovingAverageWindow,
                               };
