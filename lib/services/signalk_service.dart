@@ -22,10 +22,6 @@ class SignalKService extends ChangeNotifier implements DataService {
   WebSocketChannel? _autopilotChannel;
   StreamSubscription? _autopilotSubscription;
 
-  // Separate notification WebSocket (standard endpoint)
-  WebSocketChannel? _notificationChannel;
-  StreamSubscription? _notificationSubscription;
-
   // Conversions WebSocket (real-time conversion updates)
   WebSocketChannel? _conversionsChannel;
   StreamSubscription? _conversionsSubscription;
@@ -56,12 +52,6 @@ class SignalKService extends ChangeNotifier implements DataService {
   String? _vesselContext;
   bool _aisInitialLoadDone = false;
 
-  // Notifications
-  bool _notificationsEnabled = false;
-  final StreamController<SignalKNotification> _notificationController =
-      StreamController<SignalKNotification>.broadcast();
-  final Map<String, String> _lastNotificationState = {}; // Track last state per notification key
-
   // Configuration
   String _serverUrl = 'localhost:3000';
   bool _useSecureConnection = false;
@@ -73,6 +63,7 @@ class SignalKService extends ChangeNotifier implements DataService {
   // Internal managers
   late final _DataCacheManager _dataCache;
   late final _ConversionManager _conversionManager;
+  late final _NotificationManager _notificationManager;
 
   // Constructor
   SignalKService() {
@@ -84,6 +75,10 @@ class SignalKService extends ChangeNotifier implements DataService {
       getServerUrl: () => _serverUrl,
       useSecureConnection: () => _useSecureConnection,
       getHeaders: () => _getHeaders(),
+    );
+    _notificationManager = _NotificationManager(
+      getAuthToken: () => _authToken,
+      getNotificationEndpoint: () => _getNotificationEndpoint(),
     );
   }
 
@@ -103,8 +98,8 @@ class SignalKService extends ChangeNotifier implements DataService {
   String get serverUrl => _serverUrl;
   @override
   bool get useSecureConnection => _useSecureConnection;
-  bool get notificationsEnabled => _notificationsEnabled;
-  Stream<SignalKNotification> get notificationStream => _notificationController.stream;
+  bool get notificationsEnabled => _notificationManager.notificationsEnabled;
+  Stream<SignalKNotification> get notificationStream => _notificationManager.notificationStream;
   AuthToken? get authToken => _authToken;
   ZonesCacheService? get zonesCache => _zonesCache;
 
@@ -194,8 +189,8 @@ class SignalKService extends ChangeNotifier implements DataService {
       _startCacheCleanup();
 
       // Auto-connect notification channel if notifications are enabled
-      if (_notificationsEnabled && _authToken != null) {
-        await _connectNotificationChannel();
+      if (_notificationManager.notificationsEnabled && _authToken != null) {
+        await _notificationManager.connectNotificationChannel();
       }
     } catch (e) {
       _errorMessage = 'Connection failed: $e';
@@ -1475,166 +1470,8 @@ class SignalKService extends ChangeNotifier implements DataService {
 
   /// Enable or disable notifications (manages separate WebSocket connection)
   Future<void> setNotificationsEnabled(bool enabled) async {
-    if (_notificationsEnabled == enabled) {
-      return;
-    }
-
-    _notificationsEnabled = enabled;
-
-    if (enabled) {
-      // Connect notification WebSocket
-      await _connectNotificationChannel();
-    } else {
-      // Disconnect notification WebSocket
-      await _disconnectNotificationChannel();
-    }
-
+    await _notificationManager.setNotificationsEnabled(enabled);
     notifyListeners();
-  }
-
-  /// Connect to notification WebSocket (separate from data connection)
-  Future<void> _connectNotificationChannel() async {
-    if (_authToken == null) {
-      return;
-    }
-
-    try {
-      final wsUrl = _getNotificationEndpoint();
-
-      final headers = <String, String>{
-        'Authorization': 'Bearer ${_authToken!.token}',
-      };
-
-      final socket = await WebSocket.connect(wsUrl, headers: headers);
-      // Keep connection alive with ping frames every 30 seconds
-      socket.pingInterval = const Duration(seconds: 30);
-      _notificationChannel = IOWebSocketChannel(socket);
-
-      // Listen to incoming messages on notification channel
-      _notificationSubscription = _notificationChannel!.stream.listen(
-        _handleNotificationMessage,
-        onError: (error) {
-          if (kDebugMode) {
-            print('❌ Notification WebSocket error: $error');
-          }
-        },
-        onDone: () {
-          // Connection closed
-        },
-      );
-
-      // Subscribe to notifications
-      await Future.delayed(const Duration(milliseconds: 100));
-      _subscribeToNotifications();
-    } catch (e) {
-      if (kDebugMode) {
-        print('❌ Error connecting notification channel: $e');
-      }
-    }
-  }
-
-  /// Disconnect notification WebSocket
-  Future<void> _disconnectNotificationChannel() async {
-    try {
-      await _notificationSubscription?.cancel();
-      _notificationSubscription = null;
-
-      await _notificationChannel?.sink.close();
-      _notificationChannel = null;
-
-      // Clear notification state tracking
-      _lastNotificationState.clear();
-    } catch (e) {
-      if (kDebugMode) {
-        print('❌ Error disconnecting notification channel: $e');
-      }
-    }
-  }
-
-  /// Subscribe to notifications on the notification channel
-  void _subscribeToNotifications() {
-    if (_notificationChannel == null) return;
-
-    final subscription = {
-      'context': 'vessels.self',
-      'subscribe': [
-        {
-          'path': 'notifications.*',
-          'format': 'delta',
-          'policy': 'instant',
-        }
-      ]
-    };
-
-    _notificationChannel?.sink.add(jsonEncode(subscription));
-  }
-
-  /// Handle messages from notification WebSocket
-  void _handleNotificationMessage(dynamic message) {
-    try {
-      final data = jsonDecode(message);
-
-      // Skip non-Map messages
-      if (data is! Map<String, dynamic>) {
-        return;
-      }
-
-      // Process delta updates for notifications
-      if (data['updates'] != null) {
-        final update = SignalKUpdate.fromJson(data);
-
-        for (final updateValue in update.updates) {
-          for (final value in updateValue.values) {
-            if (value.path.startsWith('notifications.')) {
-              _handleNotification(value.path, value.value, updateValue.timestamp);
-            }
-          }
-        }
-      }
-    } catch (e) {
-      if (kDebugMode) {
-        print('❌ Error parsing notification message: $e');
-      }
-    }
-  }
-
-  /// Handle incoming notification
-  void _handleNotification(String path, dynamic value, DateTime timestamp) {
-    try {
-      // Extract notification key from path (e.g., "notifications.mob" -> "mob")
-      final key = path.replaceFirst('notifications.', '');
-
-      if (value is Map<String, dynamic>) {
-        final state = value['state'] as String?;
-        final message = value['message'] as String?;
-        final method = value['method'] as List?;
-
-        if (state != null && message != null) {
-          // Deduplicate: only emit if state changed for this notification key
-          final lastState = _lastNotificationState[key];
-          if (lastState == state) {
-            return;
-          }
-
-          // Update last state
-          _lastNotificationState[key] = state;
-
-          final notification = SignalKNotification(
-            key: key,
-            state: state,
-            message: message,
-            method: method?.map((e) => e.toString()).toList() ?? [],
-            timestamp: timestamp,
-          );
-
-          _notificationController.add(notification);
-        }
-      }
-    } catch (e) {
-      if (kDebugMode) {
-        print('❌ Error handling notification: $e');
-      }
-    }
   }
 
   /// Disconnect from server
@@ -1677,7 +1514,7 @@ class SignalKService extends ChangeNotifier implements DataService {
       _conversionsChannel = null;
 
       // Also disconnect notification channel if it's connected
-      await _disconnectNotificationChannel();
+      await _notificationManager.disconnectNotificationChannel();
 
       if (kDebugMode) {
         print('Disconnected and cleaned up WebSocket channels');
@@ -1697,7 +1534,7 @@ class SignalKService extends ChangeNotifier implements DataService {
     disconnect();
     _dataCache.dispose();
     _conversionManager.dispose();
-    _notificationController.close();
+    _notificationManager.dispose();
     super.dispose();
   }
 }
