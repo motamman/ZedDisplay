@@ -98,6 +98,7 @@ class ChartDataSeries {
   final List<ChartDataPoint> points;
   final double? minValue;
   final double? maxValue;
+  final String? label;  // Custom label for the series
 
   ChartDataSeries({
     required this.path,
@@ -105,6 +106,7 @@ class ChartDataSeries {
     required this.points,
     this.minValue,
     this.maxValue,
+    this.label,
   });
 
   /// Extract a series from historical data response with optional client-side unit conversion

@@ -66,6 +66,8 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
   bool _chartShowGrid = true;
   bool _chartAutoRefresh = false;
   int _chartRefreshInterval = 60;
+  bool _chartShowMovingAverage = false;
+  int _chartMovingAverageWindow = 5;
 
   // Polar chart-specific configuration
   int _polarHistorySeconds = 60;
@@ -141,6 +143,8 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
     _chartShowGrid = true;
     _chartAutoRefresh = false;
     _chartRefreshInterval = 60;
+    _chartShowMovingAverage = false;
+    _chartMovingAverageWindow = 5;
     _polarHistorySeconds = 60;
     _aisMaxRangeNm = 5.0;
     _aisUpdateInterval = 10;
@@ -401,6 +405,8 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
       _chartShowGrid = style.customProperties!['showGrid'] as bool? ?? true;
       _chartAutoRefresh = style.customProperties!['autoRefresh'] as bool? ?? false;
       _chartRefreshInterval = style.customProperties!['refreshInterval'] as int? ?? 60;
+      _chartShowMovingAverage = style.customProperties!['showMovingAverage'] as bool? ?? false;
+      _chartMovingAverageWindow = style.customProperties!['movingAverageWindow'] as int? ?? 5;
       _polarHistorySeconds = style.customProperties!['historySeconds'] as int? ?? 60;
       _aisMaxRangeNm = (style.customProperties!['maxRangeNm'] as num?)?.toDouble() ?? 5.0;
       // Convert milliseconds back to seconds for UI
@@ -650,6 +656,13 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
         'autoRefresh': _chartAutoRefresh,
         'refreshInterval': _chartRefreshInterval,
         'chartStyle': _chartStyle,
+        'showMovingAverage': _chartShowMovingAverage,
+        'movingAverageWindow': _chartMovingAverageWindow,
+      };
+    } else if (_selectedToolTypeId == 'realtime_chart') {
+      customProperties = {
+        'showMovingAverage': _chartShowMovingAverage,
+        'movingAverageWindow': _chartMovingAverageWindow,
       };
     } else if (_selectedToolTypeId == 'polar_radar_chart') {
       customProperties = {
@@ -1267,6 +1280,87 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                             },
                           ),
                         ),
+                      const Divider(),
+                      SwitchListTile(
+                        title: const Text('Show Moving Average'),
+                        subtitle: const Text('Display smoothed trend line'),
+                        value: _chartShowMovingAverage,
+                        onChanged: (value) {
+                          setState(() => _chartShowMovingAverage = value);
+                        },
+                      ),
+                      if (_chartShowMovingAverage)
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          child: DropdownButtonFormField<int>(
+                            decoration: const InputDecoration(
+                              labelText: 'Moving Average Window',
+                              border: OutlineInputBorder(),
+                              helperText: 'Number of data points to average',
+                            ),
+                            value: _chartMovingAverageWindow,
+                            items: const [
+                              DropdownMenuItem(value: 3, child: Text('3 points')),
+                              DropdownMenuItem(value: 5, child: Text('5 points')),
+                              DropdownMenuItem(value: 10, child: Text('10 points')),
+                              DropdownMenuItem(value: 15, child: Text('15 points')),
+                              DropdownMenuItem(value: 20, child: Text('20 points')),
+                            ],
+                            onChanged: (value) {
+                              if (value != null) {
+                                setState(() => _chartMovingAverageWindow = value);
+                              }
+                            },
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+            if (_selectedToolTypeId == 'realtime_chart')
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '3. Chart Settings',
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                      const SizedBox(height: 16),
+                      SwitchListTile(
+                        title: const Text('Show Moving Average'),
+                        subtitle: const Text('Display smoothed trend line'),
+                        value: _chartShowMovingAverage,
+                        onChanged: (value) {
+                          setState(() => _chartShowMovingAverage = value);
+                        },
+                      ),
+                      if (_chartShowMovingAverage)
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          child: DropdownButtonFormField<int>(
+                            decoration: const InputDecoration(
+                              labelText: 'Moving Average Window',
+                              border: OutlineInputBorder(),
+                              helperText: 'Number of data points to average',
+                            ),
+                            value: _chartMovingAverageWindow,
+                            items: const [
+                              DropdownMenuItem(value: 3, child: Text('3 points')),
+                              DropdownMenuItem(value: 5, child: Text('5 points')),
+                              DropdownMenuItem(value: 10, child: Text('10 points')),
+                              DropdownMenuItem(value: 15, child: Text('15 points')),
+                              DropdownMenuItem(value: 20, child: Text('20 points')),
+                            ],
+                            onChanged: (value) {
+                              if (value != null) {
+                                setState(() => _chartMovingAverageWindow = value);
+                              }
+                            },
+                          ),
+                        ),
                     ],
                   ),
                 ),
@@ -1337,6 +1431,13 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                                 'autoRefresh': _chartAutoRefresh,
                                 'refreshInterval': _chartRefreshInterval,
                                 'chartStyle': _chartStyle,
+                                'showMovingAverage': _chartShowMovingAverage,
+                                'movingAverageWindow': _chartMovingAverageWindow,
+                              };
+                            } else if (_selectedToolTypeId == 'realtime_chart') {
+                              previewCustomProperties = {
+                                'showMovingAverage': _chartShowMovingAverage,
+                                'movingAverageWindow': _chartMovingAverageWindow,
                               };
                             } else if (_selectedToolTypeId == 'polar_radar_chart') {
                               previewCustomProperties = {
