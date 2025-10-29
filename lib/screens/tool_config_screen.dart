@@ -54,54 +54,14 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
   bool _showValue = true;
   bool _showUnit = true;
   int? _ttlSeconds; // Data staleness threshold
+
+  // NOTE: Tool-specific variables (chart, gauge, compass, etc.) are now handled
+  // by their respective configurators in lib/screens/tool_config/configurators/
+  // Only common configuration remains here (min/max, color, show/hide, ttl)
+
+  // Old compass tool support (for 'compass' tool type - not wind_compass or autopilot)
   bool _showTickLabels = false;
-  bool _pointerOnly = false; // Show only pointer, no filled bar/arc
-  int _divisions = 10;
-  String _orientation = 'horizontal';
-  String _gaugeStyle = 'arc'; // For radial gauge: arc, full, half, threequarter
-  String _linearGaugeStyle = 'bar'; // For linear gauge: bar, thermometer, step, bullet
-  String _compassStyle = 'classic'; // For compass: classic, arc, minimal, rose
-  String _chartStyle = 'area'; // For historical chart: area, line, column, stepLine
-
-  // Chart-specific configuration
-  String _chartDuration = '1h';
-  int? _chartResolution; // null means auto
-  bool _chartShowLegend = true;
-  bool _chartShowGrid = true;
-  bool _chartAutoRefresh = false;
-  int _chartRefreshInterval = 60;
-  bool _chartShowMovingAverage = false;
-  int _chartMovingAverageWindow = 5;
-  String _chartTitle = '';
-
-  // Polar chart-specific configuration
-  int _polarHistorySeconds = 60;
-
-  // AIS polar chart-specific configuration
-  double _aisMaxRangeNm = 5.0;
-  int _aisUpdateInterval = 10;
-
-  // Slider-specific configuration
-  int _sliderDecimalPlaces = 1;
-
-  // Dropdown-specific configuration
-  double _dropdownStepSize = 10.0;
-
-  // Wind compass-specific configuration
-  double _laylineAngle = 40.0;       // Target AWA angle in degrees
-  double _targetTolerance = 3.0;     // Acceptable deviation from target in degrees
-  bool _showAWANumbers = true;       // Show numeric AWA display
-  bool _enableVMG = false;           // Enable VMG optimization with polar data
-
-  // Autopilot-specific configuration
-  bool _headingTrue = false;         // Use true vs magnetic heading
-  bool _invertRudder = false;        // Invert rudder angle display
-  int _fadeDelaySeconds = 5;         // Seconds before controls fade
-
-  // WebView-specific configuration
-  String _webViewUrl = '';
-  List<Map<String, String>> _signalKWebApps = [];
-  bool _loadingWebApps = false;
+  String _compassStyle = 'classic';
 
   // Size configuration
   int _toolWidth = 1;
@@ -124,6 +84,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
 
   /// Reset all form fields to default values
   void _resetFormFields() {
+    // Reset common configuration
     _dataSources = [];
     _minValue = null;
     _maxValue = null;
@@ -134,40 +95,17 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
     _showValue = true;
     _showUnit = true;
     _ttlSeconds = null;
+
+    // Reset old compass tool support
     _showTickLabels = false;
-    _pointerOnly = false;
-    _divisions = 10;
-    _orientation = 'horizontal';
-    _gaugeStyle = 'arc';
-    _linearGaugeStyle = 'bar';
     _compassStyle = 'classic';
-    _chartStyle = 'area';
-    _chartDuration = '1h';
-    _chartResolution = null;
-    _chartShowLegend = true;
-    _chartShowGrid = true;
-    _chartAutoRefresh = false;
-    _chartRefreshInterval = 60;
-    _chartShowMovingAverage = false;
-    _chartMovingAverageWindow = 5;
-    _chartTitle = '';
-    _polarHistorySeconds = 60;
-    _aisMaxRangeNm = 5.0;
-    _aisUpdateInterval = 10;
-    _sliderDecimalPlaces = 1;
-    _dropdownStepSize = 10.0;
-    _laylineAngle = 40.0;
-    _targetTolerance = 3.0;
-    _showAWANumbers = true;
-    _enableVMG = false;
-    _headingTrue = false;
-    _invertRudder = false;
-    _fadeDelaySeconds = 5;
-    _webViewUrl = '';
-    _signalKWebApps = [];
-    _loadingWebApps = false;
+
+    // Reset size
     _toolWidth = 1;
     _toolHeight = 1;
+
+    // NOTE: Tool-specific fields are reset by their configurators
+    // The configurator's reset() method is called when created
   }
 
   void _loadDefaultsForToolType(String toolTypeId) {
@@ -400,6 +338,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
     _configurator = ToolConfiguratorFactory.create(tool.toolTypeId);
     _configurator?.loadFromTool(tool);
 
+    // Load common configuration from style
     final style = tool.config.style;
     _minValue = style.minValue;
     _maxValue = style.maxValue;
@@ -410,47 +349,12 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
     _showValue = style.showValue ?? true;
     _showUnit = style.showUnit ?? true;
     _ttlSeconds = style.ttlSeconds;
+
+    // Old compass tool support (for 'compass' tool type)
     _showTickLabels = style.customProperties?['showTickLabels'] as bool? ?? false;
-    _pointerOnly = style.customProperties?['pointerOnly'] as bool? ?? false;
-    _divisions = style.customProperties?['divisions'] as int? ?? 10;
-    _orientation = style.customProperties?['orientation'] as String? ?? 'horizontal';
-    _gaugeStyle = style.customProperties?['gaugeStyle'] as String? ?? 'arc';
-    _linearGaugeStyle = style.customProperties?['gaugeStyle'] as String? ?? 'bar';
     _compassStyle = style.customProperties?['compassStyle'] as String? ?? 'classic';
-    _chartStyle = style.customProperties?['chartStyle'] as String? ?? 'area';
 
-    // Load chart-specific settings from customProperties
-    if (style.customProperties != null) {
-      _chartDuration = style.customProperties!['duration'] as String? ?? '1h';
-      _chartResolution = style.customProperties!['resolution'] as int?; // null = auto
-      _chartShowLegend = style.customProperties!['showLegend'] as bool? ?? true;
-      _chartShowGrid = style.customProperties!['showGrid'] as bool? ?? true;
-      _chartAutoRefresh = style.customProperties!['autoRefresh'] as bool? ?? false;
-      _chartRefreshInterval = style.customProperties!['refreshInterval'] as int? ?? 60;
-      _chartShowMovingAverage = style.customProperties!['showMovingAverage'] as bool? ?? false;
-      _chartMovingAverageWindow = style.customProperties!['movingAverageWindow'] as int? ?? 5;
-      _chartTitle = style.customProperties!['title'] as String? ?? '';
-      _polarHistorySeconds = style.customProperties!['historySeconds'] as int? ?? 60;
-      _aisMaxRangeNm = (style.customProperties!['maxRangeNm'] as num?)?.toDouble() ?? 5.0;
-      // Convert milliseconds back to seconds for UI
-      final updateIntervalMs = style.customProperties!['updateInterval'] as int? ?? 10000;
-      _aisUpdateInterval = (updateIntervalMs / 1000).round();
-      _sliderDecimalPlaces = style.customProperties!['decimalPlaces'] as int? ?? 1;
-      _dropdownStepSize = (style.customProperties!['stepSize'] as num?)?.toDouble() ?? 10.0;
-      // Wind compass settings
-      _showAWANumbers = style.customProperties!['showAWANumbers'] as bool? ?? true;
-      _enableVMG = style.customProperties!['enableVMG'] as bool? ?? false;
-      // Autopilot settings
-      _headingTrue = style.customProperties!['headingTrue'] as bool? ?? false;
-      _invertRudder = style.customProperties!['invertRudder'] as bool? ?? false;
-      _fadeDelaySeconds = style.customProperties!['fadeDelaySeconds'] as int? ?? 5;
-      _enableVMG = style.customProperties!['enableVMG'] as bool? ?? false;
-      _webViewUrl = style.customProperties!['url'] as String? ?? '';
-    }
-
-    // Load wind compass and autopilot settings from style
-    _laylineAngle = style.laylineAngle ?? 40.0;
-    _targetTolerance = style.targetTolerance ?? 3.0;
+    // NOTE: Tool-specific config is loaded by configurator's loadFromTool() method above
 
     // Size is managed in placements, not tools
     _toolWidth = 1;
@@ -501,36 +405,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
     });
   }
 
-  Future<void> _loadSignalKWebApps() async {
-    setState(() {
-      _loadingWebApps = true;
-    });
-
-    try {
-      final signalKService = Provider.of<SignalKService>(context, listen: false);
-      final webapps = await ToolConfigService.loadSignalKWebApps(signalKService);
-
-      if (mounted) {
-        setState(() {
-          _signalKWebApps = webapps;
-          _loadingWebApps = false;
-        });
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          _loadingWebApps = false;
-        });
-
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to load SignalK webapps: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    }
-  }
+  // NOTE: _loadSignalKWebApps() method removed - WebViewConfigurator handles this now
 
   void _editDataSource(int index) async {
     final dataSource = _dataSources[index];
@@ -642,7 +517,8 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
     // Get configurator config if available
     final configuratorConfig = _configurator?.getConfig();
 
-    // Use service to build the config
+    // Build config with common properties + defaults for tool-specific ones
+    // Tool-specific properties will be overridden by configurator merge below
     var config = ToolConfigService.buildToolConfig(
       dataSources: _dataSources,
       toolTypeId: _selectedToolTypeId!,
@@ -655,35 +531,36 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
       showValue: _showValue,
       showUnit: _showUnit,
       ttlSeconds: _ttlSeconds,
-      laylineAngle: _laylineAngle,
-      targetTolerance: _targetTolerance,
-      chartDuration: _chartDuration,
-      chartResolution: _chartResolution,
-      chartShowLegend: _chartShowLegend,
-      chartShowGrid: _chartShowGrid,
-      chartAutoRefresh: _chartAutoRefresh,
-      chartRefreshInterval: _chartRefreshInterval,
-      chartStyle: _chartStyle,
-      chartShowMovingAverage: _chartShowMovingAverage,
-      chartMovingAverageWindow: _chartMovingAverageWindow,
-      chartTitle: _chartTitle,
-      polarHistorySeconds: _polarHistorySeconds,
-      aisMaxRangeNm: _aisMaxRangeNm,
-      aisUpdateInterval: _aisUpdateInterval,
-      sliderDecimalPlaces: _sliderDecimalPlaces,
-      dropdownStepSize: _dropdownStepSize,
-      showAWANumbers: _showAWANumbers,
-      enableVMG: _enableVMG,
-      headingTrue: _headingTrue,
-      invertRudder: _invertRudder,
-      fadeDelaySeconds: _fadeDelaySeconds,
-      webViewUrl: _webViewUrl,
-      divisions: _divisions,
-      orientation: _orientation,
+      // Tool-specific: Use defaults, configurator will override
+      laylineAngle: 40.0,
+      targetTolerance: 3.0,
+      chartDuration: '1h',
+      chartResolution: null,
+      chartShowLegend: true,
+      chartShowGrid: true,
+      chartAutoRefresh: false,
+      chartRefreshInterval: 60,
+      chartStyle: 'area',
+      chartShowMovingAverage: false,
+      chartMovingAverageWindow: 5,
+      chartTitle: '',
+      polarHistorySeconds: 60,
+      aisMaxRangeNm: 5.0,
+      aisUpdateInterval: 10,
+      sliderDecimalPlaces: 1,
+      dropdownStepSize: 10.0,
+      showAWANumbers: true,
+      enableVMG: false,
+      headingTrue: false,
+      invertRudder: false,
+      fadeDelaySeconds: 5,
+      webViewUrl: '',
+      divisions: 10,
+      orientation: 'horizontal',
       showTickLabels: _showTickLabels,
-      pointerOnly: _pointerOnly,
-      gaugeStyle: _gaugeStyle,
-      linearGaugeStyle: _linearGaugeStyle,
+      pointerOnly: false,
+      gaugeStyle: 'arc',
+      linearGaugeStyle: 'bar',
       compassStyle: _compassStyle,
     );
 
@@ -1035,316 +912,6 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
             const SizedBox(height: 16),
 
             // Chart-specific Configuration
-            if (_selectedToolTypeId == 'polar_radar_chart')
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        '3. Polar Chart Settings',
-                        style: Theme.of(context).textTheme.titleMedium,
-                      ),
-                      const SizedBox(height: 16),
-                      DropdownButtonFormField<int>(
-                        decoration: const InputDecoration(
-                          labelText: 'Time Window',
-                          border: OutlineInputBorder(),
-                          helperText: 'How much historical data to show',
-                        ),
-                        initialValue: _polarHistorySeconds,
-                        items: const [
-                          DropdownMenuItem(value: 30, child: Text('30 seconds')),
-                          DropdownMenuItem(value: 60, child: Text('1 minute')),
-                          DropdownMenuItem(value: 120, child: Text('2 minutes')),
-                          DropdownMenuItem(value: 300, child: Text('5 minutes')),
-                          DropdownMenuItem(value: 600, child: Text('10 minutes')),
-                        ],
-                        onChanged: (value) {
-                          if (value != null) {
-                            setState(() => _polarHistorySeconds = value);
-                          }
-                        },
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            if (_selectedToolTypeId == 'ais_polar_chart')
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        '3. AIS Chart Settings',
-                        style: Theme.of(context).textTheme.titleMedium,
-                      ),
-                      const SizedBox(height: 16),
-                      DropdownButtonFormField<double>(
-                        decoration: const InputDecoration(
-                          labelText: 'Maximum Range',
-                          border: OutlineInputBorder(),
-                          helperText: 'Display vessels within this range (0 = auto)',
-                        ),
-                        initialValue: _aisMaxRangeNm,
-                        items: const [
-                          DropdownMenuItem(value: 0.0, child: Text('Auto (fit all vessels)')),
-                          DropdownMenuItem(value: 1.0, child: Text('1 nautical mile')),
-                          DropdownMenuItem(value: 2.0, child: Text('2 nautical miles')),
-                          DropdownMenuItem(value: 5.0, child: Text('5 nautical miles')),
-                          DropdownMenuItem(value: 10.0, child: Text('10 nautical miles')),
-                          DropdownMenuItem(value: 20.0, child: Text('20 nautical miles')),
-                        ],
-                        onChanged: (value) {
-                          if (value != null) {
-                            setState(() => _aisMaxRangeNm = value);
-                          }
-                        },
-                      ),
-                      const SizedBox(height: 16),
-                      DropdownButtonFormField<int>(
-                        decoration: const InputDecoration(
-                          labelText: 'Update Interval',
-                          border: OutlineInputBorder(),
-                          helperText: 'How often to refresh vessel data',
-                        ),
-                        initialValue: _aisUpdateInterval,
-                        items: const [
-                          DropdownMenuItem(value: 5, child: Text('5 seconds')),
-                          DropdownMenuItem(value: 10, child: Text('10 seconds')),
-                          DropdownMenuItem(value: 15, child: Text('15 seconds')),
-                          DropdownMenuItem(value: 30, child: Text('30 seconds')),
-                          DropdownMenuItem(value: 60, child: Text('1 minute')),
-                        ],
-                        onChanged: (value) {
-                          if (value != null) {
-                            setState(() => _aisUpdateInterval = value);
-                          }
-                        },
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            if (_selectedToolTypeId == 'historical_chart')
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        '3. Chart Settings',
-                        style: Theme.of(context).textTheme.titleMedium,
-                      ),
-                      const SizedBox(height: 16),
-                      DropdownButtonFormField<String>(
-                        decoration: const InputDecoration(
-                          labelText: 'Time Duration',
-                          border: OutlineInputBorder(),
-                        ),
-                        initialValue: _chartDuration,
-                        items: const [
-                          DropdownMenuItem(value: '15m', child: Text('15 minutes')),
-                          DropdownMenuItem(value: '30m', child: Text('30 minutes')),
-                          DropdownMenuItem(value: '1h', child: Text('1 hour')),
-                          DropdownMenuItem(value: '2h', child: Text('2 hours')),
-                          DropdownMenuItem(value: '6h', child: Text('6 hours')),
-                          DropdownMenuItem(value: '12h', child: Text('12 hours')),
-                          DropdownMenuItem(value: '1d', child: Text('1 day')),
-                          DropdownMenuItem(value: '2d', child: Text('2 days')),
-                        ],
-                        onChanged: (value) {
-                          if (value != null) {
-                            setState(() => _chartDuration = value);
-                          }
-                        },
-                      ),
-                      const SizedBox(height: 16),
-                      DropdownButtonFormField<int?>(
-                        decoration: const InputDecoration(
-                          labelText: 'Data Resolution',
-                          border: OutlineInputBorder(),
-                          helperText: 'Auto lets the server optimize for the timeframe',
-                        ),
-                        initialValue: _chartResolution,
-                        items: const [
-                          DropdownMenuItem(value: null, child: Text('Auto (Recommended)')),
-                          DropdownMenuItem(value: 30000, child: Text('30 seconds')),
-                          DropdownMenuItem(value: 60000, child: Text('1 minute')),
-                          DropdownMenuItem(value: 300000, child: Text('5 minutes')),
-                          DropdownMenuItem(value: 600000, child: Text('10 minutes')),
-                        ],
-                        onChanged: (value) {
-                          setState(() => _chartResolution = value);
-                        },
-                      ),
-                      const SizedBox(height: 16),
-                      SwitchListTile(
-                        title: const Text('Show Legend'),
-                        value: _chartShowLegend,
-                        onChanged: (value) {
-                          setState(() => _chartShowLegend = value);
-                        },
-                      ),
-                      SwitchListTile(
-                        title: const Text('Show Grid'),
-                        value: _chartShowGrid,
-                        onChanged: (value) {
-                          setState(() => _chartShowGrid = value);
-                        },
-                      ),
-                      const SizedBox(height: 16),
-                      DropdownButtonFormField<String>(
-                        decoration: const InputDecoration(
-                          labelText: 'Chart Style',
-                          border: OutlineInputBorder(),
-                          helperText: 'Visual style of the chart',
-                        ),
-                        initialValue: _chartStyle,
-                        items: const [
-                          DropdownMenuItem(value: 'area', child: Text('Area (filled spline)')),
-                          DropdownMenuItem(value: 'line', child: Text('Line (spline only)')),
-                          DropdownMenuItem(value: 'column', child: Text('Column (vertical bars)')),
-                          DropdownMenuItem(value: 'stepLine', child: Text('Step Line (stepped)')),
-                        ],
-                        onChanged: (value) {
-                          if (value != null) {
-                            setState(() => _chartStyle = value);
-                          }
-                        },
-                      ),
-                      const Divider(),
-                      SwitchListTile(
-                        title: const Text('Auto Refresh'),
-                        subtitle: const Text('Automatically reload data'),
-                        value: _chartAutoRefresh,
-                        onChanged: (value) {
-                          setState(() => _chartAutoRefresh = value);
-                        },
-                      ),
-                      if (_chartAutoRefresh)
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 16),
-                          child: DropdownButtonFormField<int>(
-                            decoration: const InputDecoration(
-                              labelText: 'Refresh Interval',
-                              border: OutlineInputBorder(),
-                            ),
-                            initialValue: _chartRefreshInterval,
-                            items: const [
-                              DropdownMenuItem(value: 30, child: Text('30 seconds')),
-                              DropdownMenuItem(value: 60, child: Text('1 minute')),
-                              DropdownMenuItem(value: 120, child: Text('2 minutes')),
-                              DropdownMenuItem(value: 300, child: Text('5 minutes')),
-                              DropdownMenuItem(value: 600, child: Text('10 minutes')),
-                            ],
-                            onChanged: (value) {
-                              if (value != null) {
-                                setState(() => _chartRefreshInterval = value);
-                              }
-                            },
-                          ),
-                        ),
-                      const Divider(),
-                      SwitchListTile(
-                        title: const Text('Show Moving Average'),
-                        subtitle: const Text('Display smoothed trend line'),
-                        value: _chartShowMovingAverage,
-                        onChanged: (value) {
-                          setState(() => _chartShowMovingAverage = value);
-                        },
-                      ),
-                      if (_chartShowMovingAverage)
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 16),
-                          child: DropdownButtonFormField<int>(
-                            decoration: const InputDecoration(
-                              labelText: 'Moving Average Window',
-                              border: OutlineInputBorder(),
-                              helperText: 'Number of data points to average',
-                            ),
-                            value: _chartMovingAverageWindow,
-                            items: const [
-                              DropdownMenuItem(value: 3, child: Text('3 points')),
-                              DropdownMenuItem(value: 5, child: Text('5 points')),
-                              DropdownMenuItem(value: 10, child: Text('10 points')),
-                              DropdownMenuItem(value: 15, child: Text('15 points')),
-                              DropdownMenuItem(value: 20, child: Text('20 points')),
-                            ],
-                            onChanged: (value) {
-                              if (value != null) {
-                                setState(() => _chartMovingAverageWindow = value);
-                              }
-                            },
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-              ),
-            if (_selectedToolTypeId == 'realtime_chart')
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        '3. Chart Settings',
-                        style: Theme.of(context).textTheme.titleMedium,
-                      ),
-                      const SizedBox(height: 16),
-                      TextField(
-                        decoration: const InputDecoration(
-                          labelText: 'Chart Title',
-                          hintText: 'Enter custom chart title (optional)',
-                          border: OutlineInputBorder(),
-                          helperText: 'Leave empty to auto-generate from data sources',
-                        ),
-                        controller: TextEditingController(text: _chartTitle),
-                        onChanged: (value) => _chartTitle = value,
-                      ),
-                      const SizedBox(height: 16),
-                      SwitchListTile(
-                        title: const Text('Show Moving Average'),
-                        subtitle: const Text('Display smoothed trend line'),
-                        value: _chartShowMovingAverage,
-                        onChanged: (value) {
-                          setState(() => _chartShowMovingAverage = value);
-                        },
-                      ),
-                      if (_chartShowMovingAverage)
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 16),
-                          child: DropdownButtonFormField<int>(
-                            decoration: const InputDecoration(
-                              labelText: 'Moving Average Window',
-                              border: OutlineInputBorder(),
-                              helperText: 'Number of data points to average',
-                            ),
-                            value: _chartMovingAverageWindow,
-                            items: const [
-                              DropdownMenuItem(value: 3, child: Text('3 points')),
-                              DropdownMenuItem(value: 5, child: Text('5 points')),
-                              DropdownMenuItem(value: 10, child: Text('10 points')),
-                              DropdownMenuItem(value: 15, child: Text('15 points')),
-                              DropdownMenuItem(value: 20, child: Text('20 points')),
-                            ],
-                            onChanged: (value) {
-                              if (value != null) {
-                                setState(() => _chartMovingAverageWindow = value);
-                              }
-                            },
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-              ),
             const SizedBox(height: 16),
 
             // Style Configuration (hide for conversion_test, server_manager, rpi_monitor, and system_monitor)
@@ -1416,35 +983,36 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                               showValue: _showValue,
                               showUnit: _showUnit,
                               ttlSeconds: _ttlSeconds,
-                              laylineAngle: _laylineAngle,
-                              targetTolerance: _targetTolerance,
-                              chartDuration: _chartDuration,
-                              chartResolution: _chartResolution,
-                              chartShowLegend: _chartShowLegend,
-                              chartShowGrid: _chartShowGrid,
-                              chartAutoRefresh: _chartAutoRefresh,
-                              chartRefreshInterval: _chartRefreshInterval,
-                              chartStyle: _chartStyle,
-                              chartShowMovingAverage: _chartShowMovingAverage,
-                              chartMovingAverageWindow: _chartMovingAverageWindow,
-                              chartTitle: _chartTitle,
-                              polarHistorySeconds: _polarHistorySeconds,
-                              aisMaxRangeNm: _aisMaxRangeNm,
-                              aisUpdateInterval: _aisUpdateInterval,
-                              sliderDecimalPlaces: _sliderDecimalPlaces,
-                              dropdownStepSize: _dropdownStepSize,
-                              showAWANumbers: _showAWANumbers,
-                              enableVMG: _enableVMG,
-                              headingTrue: _headingTrue,
-                              invertRudder: _invertRudder,
-                              fadeDelaySeconds: _fadeDelaySeconds,
-                              webViewUrl: _webViewUrl,
-                              divisions: _divisions,
-                              orientation: _orientation,
+                              // Tool-specific: defaults (configurator values not used in preview)
+                              laylineAngle: 40.0,
+                              targetTolerance: 3.0,
+                              chartDuration: '1h',
+                              chartResolution: null,
+                              chartShowLegend: true,
+                              chartShowGrid: true,
+                              chartAutoRefresh: false,
+                              chartRefreshInterval: 60,
+                              chartStyle: 'area',
+                              chartShowMovingAverage: false,
+                              chartMovingAverageWindow: 5,
+                              chartTitle: '',
+                              polarHistorySeconds: 60,
+                              aisMaxRangeNm: 5.0,
+                              aisUpdateInterval: 10,
+                              sliderDecimalPlaces: 1,
+                              dropdownStepSize: 10.0,
+                              showAWANumbers: true,
+                              enableVMG: false,
+                              headingTrue: false,
+                              invertRudder: false,
+                              fadeDelaySeconds: 5,
+                              webViewUrl: '',
+                              divisions: 10,
+                              orientation: 'horizontal',
                               showTickLabels: _showTickLabels,
-                              pointerOnly: _pointerOnly,
-                              gaugeStyle: _gaugeStyle,
-                              linearGaugeStyle: _linearGaugeStyle,
+                              pointerOnly: false,
+                              gaugeStyle: 'arc',
+                              linearGaugeStyle: 'bar',
                               compassStyle: _compassStyle,
                             );
 
@@ -1638,569 +1206,8 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
       return widgets;
     }
 
-    // Otherwise, use the old tool-specific UI below
-
-    // Compass-specific options
-    if (_selectedToolTypeId == 'compass') {
-      widgets.addAll([
-        const SizedBox(height: 16),
-        DropdownButtonFormField<String>(
-          decoration: const InputDecoration(
-            labelText: 'Compass Style',
-            border: OutlineInputBorder(),
-            helperText: 'Visual style of the compass',
-          ),
-          initialValue: _compassStyle,
-          items: const [
-            DropdownMenuItem(value: 'classic', child: Text('Classic (full circle with needle)')),
-            DropdownMenuItem(value: 'arc', child: Text('Arc (180° semicircle)')),
-            DropdownMenuItem(value: 'minimal', child: Text('Minimal (clean modern)')),
-            DropdownMenuItem(value: 'rose', child: Text('Rose (traditional compass rose)')),
-            DropdownMenuItem(value: 'marine', child: Text('Marine (rotating card, fixed needle)')),
-          ],
-          onChanged: (value) {
-            if (value != null) {
-              setState(() => _compassStyle = value);
-            }
-          },
-        ),
-        const SizedBox(height: 8),
-        SwitchListTile(
-          title: const Text('Show Tick Labels'),
-          subtitle: const Text('Display degree values'),
-          value: _showTickLabels,
-          onChanged: (value) {
-            setState(() => _showTickLabels = value);
-          },
-        ),
-      ]);
-    }
-
-    // Wind compass-specific options
-    if (_selectedToolTypeId == 'wind_compass') {
-      widgets.addAll([
-        const SizedBox(height: 16),
-        const Text(
-          'Performance Sailing Settings',
-          style: TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-        const SizedBox(height: 8),
-        // Target AWA slider
-        ListTile(
-          title: const Text('Target AWA Angle'),
-          subtitle: Text(
-            '${_laylineAngle.toStringAsFixed(0)}° - Optimal close-hauled angle for your boat',
-            style: const TextStyle(fontSize: 12),
-          ),
-          contentPadding: EdgeInsets.zero,
-        ),
-        Slider(
-          value: _laylineAngle,
-          min: 30,
-          max: 50,
-          divisions: 20,
-          label: '${_laylineAngle.toStringAsFixed(0)}°',
-          onChanged: (value) {
-            setState(() => _laylineAngle = value);
-          },
-        ),
-        const SizedBox(height: 8),
-        // Target tolerance slider
-        ListTile(
-          title: const Text('Target Tolerance'),
-          subtitle: Text(
-            '±${_targetTolerance.toStringAsFixed(0)}° - Acceptable deviation (green zone)',
-            style: const TextStyle(fontSize: 12),
-          ),
-          contentPadding: EdgeInsets.zero,
-        ),
-        Slider(
-          value: _targetTolerance,
-          min: 1,
-          max: 10,
-          divisions: 9,
-          label: '±${_targetTolerance.toStringAsFixed(0)}°',
-          onChanged: (value) {
-            setState(() => _targetTolerance = value);
-          },
-        ),
-        const SizedBox(height: 8),
-        // Show AWA Numbers toggle
-        SwitchListTile(
-          title: const Text('Show AWA Numbers'),
-          subtitle: const Text('Display numeric AWA with performance feedback'),
-          value: _showAWANumbers,
-          onChanged: (value) {
-            setState(() => _showAWANumbers = value);
-          },
-        ),
-        // Enable VMG toggle
-        SwitchListTile(
-          title: const Text('Enable VMG Optimization'),
-          subtitle: const Text('Use polar-based dynamic target AWA (varies with wind speed)'),
-          value: _enableVMG,
-          onChanged: (value) {
-            setState(() => _enableVMG = value);
-          },
-        ),
-        if (_enableVMG)
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.blue.withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Colors.blue.withValues(alpha: 0.3)),
-              ),
-              child: const Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'VMG Mode Active',
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      color: Colors.blue,
-                    ),
-                  ),
-                  SizedBox(height: 4),
-                  Text(
-                    'Target AWA will dynamically adjust based on true wind speed using built-in polar data. Manual target angle is overridden.',
-                    style: TextStyle(fontSize: 12),
-                  ),
-                ],
-              ),
-            ),
-          ),
-      ]);
-    }
-
-    // Autopilot-specific options
-    if (_selectedToolTypeId == 'autopilot') {
-      widgets.addAll([
-        const SizedBox(height: 16),
-        const Text(
-          'Autopilot Display Settings',
-          style: TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-        const SizedBox(height: 8),
-        SwitchListTile(
-          title: const Text('Use True Heading'),
-          subtitle: const Text('Display true heading instead of magnetic'),
-          value: _headingTrue,
-          onChanged: (value) {
-            setState(() => _headingTrue = value);
-          },
-        ),
-        SwitchListTile(
-          title: const Text('Invert Rudder Display'),
-          subtitle: const Text('Reverse rudder angle visualization (for non-standard sensor polarity)'),
-          value: _invertRudder,
-          onChanged: (value) {
-            setState(() => _invertRudder = value);
-          },
-        ),
-        const SizedBox(height: 16),
-        const Text(
-          'Performance Sailing Settings (Wind Mode)',
-          style: TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-        const SizedBox(height: 8),
-        // Target AWA slider
-        ListTile(
-          title: const Text('Target AWA Angle'),
-          subtitle: Text(
-            '${_laylineAngle.toStringAsFixed(0)}° - Optimal close-hauled angle for your boat',
-            style: const TextStyle(fontSize: 12),
-          ),
-          contentPadding: EdgeInsets.zero,
-        ),
-        Slider(
-          value: _laylineAngle,
-          min: 30,
-          max: 50,
-          divisions: 20,
-          label: '${_laylineAngle.toStringAsFixed(0)}°',
-          onChanged: (value) {
-            setState(() => _laylineAngle = value);
-          },
-        ),
-        const SizedBox(height: 8),
-        // Target tolerance slider
-        ListTile(
-          title: const Text('Target Tolerance'),
-          subtitle: Text(
-            '±${_targetTolerance.toStringAsFixed(0)}° - Acceptable deviation (green zone)',
-            style: const TextStyle(fontSize: 12),
-          ),
-          contentPadding: EdgeInsets.zero,
-        ),
-        Slider(
-          value: _targetTolerance,
-          min: 1,
-          max: 10,
-          divisions: 9,
-          label: '±${_targetTolerance.toStringAsFixed(0)}°',
-          onChanged: (value) {
-            setState(() => _targetTolerance = value);
-          },
-        ),
-        const SizedBox(height: 16),
-        // Fade delay slider
-        ListTile(
-          title: const Text('Control Fade Delay'),
-          subtitle: Text(
-            '${_fadeDelaySeconds}s - Seconds before controls fade after activity',
-            style: const TextStyle(fontSize: 12),
-          ),
-          contentPadding: EdgeInsets.zero,
-        ),
-        Slider(
-          value: _fadeDelaySeconds.toDouble(),
-          min: 3,
-          max: 30,
-          divisions: 27,
-          label: '${_fadeDelaySeconds}s',
-          onChanged: (value) {
-            setState(() => _fadeDelaySeconds = value.round());
-          },
-        ),
-        const SizedBox(height: 8),
-        // Enable VMG toggle
-        SwitchListTile(
-          title: const Text('Enable VMG Optimization'),
-          subtitle: const Text('Use polar-based dynamic target AWA (varies with wind speed)'),
-          value: _enableVMG,
-          onChanged: (value) {
-            setState(() => _enableVMG = value);
-          },
-        ),
-      ]);
-    }
-
-    // Radial gauge-specific options
-    if (_selectedToolTypeId == 'radial_gauge') {
-      widgets.addAll([
-        const SizedBox(height: 16),
-        DropdownButtonFormField<String>(
-          decoration: const InputDecoration(
-            labelText: 'Gauge Style',
-            border: OutlineInputBorder(),
-            helperText: 'Visual style of the gauge',
-          ),
-          initialValue: _gaugeStyle,
-          items: const [
-            DropdownMenuItem(value: 'arc', child: Text('Arc (270° default)')),
-            DropdownMenuItem(value: 'full', child: Text('Full Circle (360° with needle)')),
-            DropdownMenuItem(value: 'half', child: Text('Half Circle (180° semicircle)')),
-            DropdownMenuItem(value: 'threequarter', child: Text('Three Quarter (270° from bottom)')),
-          ],
-          onChanged: (value) {
-            if (value != null) {
-              setState(() => _gaugeStyle = value);
-            }
-          },
-        ),
-        const SizedBox(height: 16),
-        TextFormField(
-          decoration: const InputDecoration(
-            labelText: 'Divisions (tick marks)',
-            border: OutlineInputBorder(),
-            helperText: 'Number of major divisions on the gauge',
-          ),
-          keyboardType: TextInputType.number,
-          initialValue: _divisions.toString(),
-          onChanged: (value) {
-            final parsed = int.tryParse(value);
-            if (parsed != null && parsed > 0) {
-              setState(() => _divisions = parsed);
-            }
-          },
-        ),
-        const SizedBox(height: 8),
-        SwitchListTile(
-          title: const Text('Show Tick Labels'),
-          subtitle: const Text('Display numeric values at tick marks'),
-          value: _showTickLabels,
-          onChanged: (value) {
-            setState(() => _showTickLabels = value);
-          },
-        ),
-        SwitchListTile(
-          title: const Text('Pointer Only Mode'),
-          subtitle: const Text('Show needle pointer without filled arc'),
-          value: _pointerOnly,
-          onChanged: (value) {
-            setState(() => _pointerOnly = value);
-          },
-        ),
-      ]);
-    }
-
-    // Linear gauge orientation
-    if (_selectedToolTypeId == 'linear_gauge') {
-      widgets.addAll([
-        const SizedBox(height: 16),
-        DropdownButtonFormField<String>(
-          decoration: const InputDecoration(
-            labelText: 'Gauge Style',
-            border: OutlineInputBorder(),
-            helperText: 'Visual style of the linear gauge',
-          ),
-          initialValue: _linearGaugeStyle,
-          items: const [
-            DropdownMenuItem(value: 'bar', child: Text('Bar (filled bar)')),
-            DropdownMenuItem(value: 'thermometer', child: Text('Thermometer (rounded top)')),
-            DropdownMenuItem(value: 'step', child: Text('Step (segmented levels)')),
-            DropdownMenuItem(value: 'bullet', child: Text('Bullet Chart (thin bar with marker)')),
-          ],
-          onChanged: (value) {
-            if (value != null) {
-              setState(() => _linearGaugeStyle = value);
-            }
-          },
-        ),
-        const SizedBox(height: 16),
-        DropdownButtonFormField<String>(
-          decoration: const InputDecoration(
-            labelText: 'Orientation',
-            border: OutlineInputBorder(),
-          ),
-          initialValue: _orientation,
-          items: const [
-            DropdownMenuItem(value: 'horizontal', child: Text('Horizontal')),
-            DropdownMenuItem(value: 'vertical', child: Text('Vertical')),
-          ],
-          onChanged: (value) {
-            if (value != null) {
-              setState(() => _orientation = value);
-            }
-          },
-        ),
-        const SizedBox(height: 16),
-        TextFormField(
-          decoration: const InputDecoration(
-            labelText: 'Divisions (tick marks)',
-            border: OutlineInputBorder(),
-            helperText: 'Number of major divisions on the gauge',
-          ),
-          keyboardType: TextInputType.number,
-          initialValue: _divisions.toString(),
-          onChanged: (value) {
-            final parsed = int.tryParse(value);
-            if (parsed != null && parsed > 0) {
-              setState(() => _divisions = parsed);
-            }
-          },
-        ),
-        const SizedBox(height: 8),
-        SwitchListTile(
-          title: const Text('Show Tick Labels'),
-          subtitle: const Text('Display numeric values at tick marks'),
-          value: _showTickLabels,
-          onChanged: (value) {
-            setState(() => _showTickLabels = value);
-          },
-        ),
-        SwitchListTile(
-          title: const Text('Pointer Only Mode'),
-          subtitle: const Text('Show triangle pointer without filled bar'),
-          value: _pointerOnly,
-          onChanged: (value) {
-            setState(() => _pointerOnly = value);
-          },
-        ),
-      ]);
-    }
-
-    // Text Display-specific options
-    if (_selectedToolTypeId == 'text_display') {
-      widgets.addAll([
-        const SizedBox(height: 16),
-        TextFormField(
-          decoration: const InputDecoration(
-            labelText: 'Font Size',
-            border: OutlineInputBorder(),
-            helperText: 'Size of the numeric display (default: 48)',
-          ),
-          keyboardType: TextInputType.number,
-          initialValue: _fontSize?.toString() ?? '48',
-          onChanged: (value) {
-            final parsed = double.tryParse(value);
-            if (parsed != null && parsed > 0) {
-              setState(() => _fontSize = parsed);
-            }
-          },
-        ),
-      ]);
-    }
-
-    // Slider and Knob-specific options
-    if (_selectedToolTypeId == 'slider' || _selectedToolTypeId == 'knob') {
-      widgets.addAll([
-        const SizedBox(height: 16),
-        DropdownButtonFormField<int>(
-          decoration: const InputDecoration(
-            labelText: 'Decimal Places',
-            border: OutlineInputBorder(),
-            helperText: 'Number of decimal places to display',
-          ),
-          initialValue: _sliderDecimalPlaces,
-          items: const [
-            DropdownMenuItem(value: 0, child: Text('0 (e.g., 42)')),
-            DropdownMenuItem(value: 1, child: Text('1 (e.g., 42.5)')),
-            DropdownMenuItem(value: 2, child: Text('2 (e.g., 42.50)')),
-            DropdownMenuItem(value: 3, child: Text('3 (e.g., 42.500)')),
-          ],
-          onChanged: (value) {
-            if (value != null) {
-              setState(() => _sliderDecimalPlaces = value);
-            }
-          },
-        ),
-      ]);
-    }
-
-    // Dropdown-specific options
-    if (_selectedToolTypeId == 'dropdown') {
-      widgets.addAll([
-        const SizedBox(height: 16),
-        DropdownButtonFormField<int>(
-          decoration: const InputDecoration(
-            labelText: 'Decimal Places',
-            border: OutlineInputBorder(),
-            helperText: 'Number of decimal places to display',
-          ),
-          initialValue: _sliderDecimalPlaces,
-          items: const [
-            DropdownMenuItem(value: 0, child: Text('0 (e.g., 42)')),
-            DropdownMenuItem(value: 1, child: Text('1 (e.g., 42.5)')),
-            DropdownMenuItem(value: 2, child: Text('2 (e.g., 42.50)')),
-            DropdownMenuItem(value: 3, child: Text('3 (e.g., 42.500)')),
-          ],
-          onChanged: (value) {
-            if (value != null) {
-              setState(() => _sliderDecimalPlaces = value);
-            }
-          },
-        ),
-        const SizedBox(height: 16),
-        TextFormField(
-          decoration: const InputDecoration(
-            labelText: 'Step Size',
-            border: OutlineInputBorder(),
-            helperText: 'Increment between dropdown values',
-          ),
-          keyboardType: TextInputType.number,
-          initialValue: _dropdownStepSize.toString(),
-          onChanged: (value) {
-            final parsed = double.tryParse(value);
-            if (parsed != null && parsed > 0) {
-              setState(() => _dropdownStepSize = parsed);
-            }
-          },
-        ),
-      ]);
-    }
-
-    // WebView-specific options
-    if (_selectedToolTypeId == 'webview') {
-      // Load webapps on first display
-      if (_signalKWebApps.isEmpty && !_loadingWebApps) {
-        Future.microtask(() => _loadSignalKWebApps());
-      }
-
-      widgets.addAll([
-        const SizedBox(height: 16),
-        // Custom URL input (always shown)
-        TextFormField(
-          decoration: const InputDecoration(
-            labelText: 'Web Page URL',
-            border: OutlineInputBorder(),
-            hintText: 'Enter URL or select from SignalK webapps below',
-            helperText: 'Enter full URL or select from installed SignalK webapps',
-          ),
-          initialValue: _webViewUrl,
-          onChanged: (value) => _webViewUrl = value,
-          validator: (value) {
-            if (value == null || value.trim().isEmpty) {
-              return 'URL is required';
-            }
-            return null;
-          },
-        ),
-        const SizedBox(height: 16),
-        // SignalK webapps section
-        if (_loadingWebApps)
-          const Center(
-            child: Column(
-              children: [
-                CircularProgressIndicator(),
-                SizedBox(height: 8),
-                Text(
-                  'Loading SignalK webapps...',
-                  style: TextStyle(color: Colors.grey, fontSize: 12),
-                ),
-              ],
-            ),
-          )
-        else if (_signalKWebApps.isNotEmpty) ...[
-          const Divider(),
-          const SizedBox(height: 8),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Text(
-                'Or select from SignalK webapps:',
-                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
-              ),
-              TextButton.icon(
-                onPressed: _loadSignalKWebApps,
-                icon: const Icon(Icons.refresh, size: 16),
-                label: const Text('Refresh'),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: _signalKWebApps.map((app) {
-              final isSelected = _webViewUrl == app['url'];
-              return FilterChip(
-                label: Text(app['name'] ?? 'Unknown'),
-                selected: isSelected,
-                onSelected: (selected) {
-                  setState(() {
-                    _webViewUrl = selected ? app['url']! : '';
-                  });
-                },
-                tooltip: app['description'],
-                avatar: isSelected ? const Icon(Icons.check, size: 16) : null,
-              );
-            }).toList(),
-          ),
-        ],
-        const SizedBox(height: 8),
-        const Text(
-          'Examples:\n'
-          '• http://192.168.1.88:3000/@signalk/server-admin-ui\n'
-          '• https://windy.com\n'
-          '• http://192.168.1.88:3000/your-webapp',
-          style: TextStyle(fontSize: 11, color: Colors.grey),
-        ),
-      ]);
-    }
-
+    // Fallback: All tools should have configurators now
+    // If we reach here, just return common config widgets
     return widgets;
   }
 }

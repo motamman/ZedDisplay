@@ -23,6 +23,7 @@ class ToolConfiguratorFactory {
 
       // Charts
       case 'historical_chart':
+      case 'realtime_chart':
         return ChartConfigurator();
 
       // Compasses and Instruments
@@ -65,6 +66,7 @@ class ToolConfiguratorFactory {
       'radial_gauge',
       'linear_gauge',
       'historical_chart',
+      'realtime_chart',
       'wind_compass',
       'autopilot',
       'polar_radar_chart',
