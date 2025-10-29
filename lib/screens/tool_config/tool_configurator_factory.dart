@@ -1,6 +1,7 @@
 import 'base_tool_configurator.dart';
 import 'configurators/chart_configurator.dart';
 import 'configurators/gauge_configurator.dart';
+import 'configurators/compass_configurator.dart';
 
 /// Factory for creating tool-specific configurators
 ///
@@ -23,8 +24,7 @@ class ToolConfiguratorFactory {
       // Compasses and Instruments
       case 'wind_compass':
       case 'autopilot':
-        // TODO: return CompassConfigurator(toolTypeId);
-        return null;
+        return CompassConfigurator(toolTypeId);
 
       // Polar Charts
       case 'polar_radar_chart':
