@@ -357,6 +357,18 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
           if (_selectedToolTypeId != toolId) {
             _resetFormFields();
             _selectedToolTypeId = toolId;
+
+            // Create tool-specific configurator
+            final signalKService = Provider.of<SignalKService>(context, listen: false);
+            _configurator = ToolConfiguratorFactory.create(toolId);
+            _configurator?.loadDefaults(signalKService);
+
+            // Set default size from configurator if available
+            if (_configurator != null) {
+              _toolWidth = _configurator!.defaultSize.width.toInt();
+              _toolHeight = _configurator!.defaultSize.height.toInt();
+            }
+
             _loadDefaultsForToolType(toolId);
           }
         });
@@ -383,6 +395,10 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
     final tool = widget.existingTool!;
     _selectedToolTypeId = tool.toolTypeId;
     _dataSources = List.from(tool.config.dataSources);
+
+    // Create and load tool-specific configurator
+    _configurator = ToolConfiguratorFactory.create(tool.toolTypeId);
+    _configurator?.loadFromTool(tool);
 
     final style = tool.config.style;
     _minValue = style.minValue;
@@ -623,8 +639,11 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
 
     final toolService = Provider.of<ToolService>(context, listen: false);
 
+    // Get configurator config if available
+    final configuratorConfig = _configurator?.getConfig();
+
     // Use service to build the config
-    final config = ToolConfigService.buildToolConfig(
+    var config = ToolConfigService.buildToolConfig(
       dataSources: _dataSources,
       toolTypeId: _selectedToolTypeId!,
       minValue: _minValue,
@@ -667,6 +686,28 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
       linearGaugeStyle: _linearGaugeStyle,
       compassStyle: _compassStyle,
     );
+
+    // Merge configurator's custom properties if available
+    if (configuratorConfig != null && configuratorConfig.style.customProperties != null) {
+      config = ToolConfig(
+        dataSources: config.dataSources,
+        style: StyleConfig(
+          minValue: config.style.minValue,
+          maxValue: config.style.maxValue,
+          unit: config.style.unit,
+          primaryColor: config.style.primaryColor,
+          fontSize: config.style.fontSize,
+          showLabel: config.style.showLabel,
+          showValue: config.style.showValue,
+          showUnit: config.style.showUnit,
+          ttlSeconds: config.style.ttlSeconds,
+          customProperties: {
+            ...?config.style.customProperties,
+            ...configuratorConfig.style.customProperties!,
+          },
+        ),
+      );
+    }
 
     final Tool tool;
 
@@ -1325,6 +1366,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                         style: Theme.of(context).textTheme.titleMedium,
                       ),
                       const SizedBox(height: 16),
+                      // Always show common configuration, then tool-specific
                       ..._buildStyleOptions(),
                     ],
                   ),
@@ -1581,6 +1623,22 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
         },
       ),
     ]);
+
+    // If we have a configurator, use it for tool-specific options
+    if (_configurator != null) {
+      widgets.addAll([
+        const SizedBox(height: 16),
+        const Divider(),
+        const SizedBox(height: 16),
+        _configurator!.buildConfigUI(
+          context,
+          Provider.of<SignalKService>(context, listen: false),
+        ),
+      ]);
+      return widgets;
+    }
+
+    // Otherwise, use the old tool-specific UI below
 
     // Compass-specific options
     if (_selectedToolTypeId == 'compass') {
