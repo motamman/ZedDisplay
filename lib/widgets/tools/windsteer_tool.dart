@@ -110,7 +110,6 @@ class WindsteerTool extends StatelessWidget {
     // Get style configuration
     final style = config.style;
     final laylineAngle = style.laylineAngle ?? 40.0;
-    final targetTolerance = style.targetTolerance ?? 3.0;
     final showLaylines = style.showLaylines ?? true;
     final showTrueWind = style.showTrueWind ?? true;
     final showCOG = style.showCOG ?? false;

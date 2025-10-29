@@ -67,6 +67,7 @@ class SignalKService extends ChangeNotifier implements DataService {
     _dataCache = _DataCacheManager(
       getActivePaths: () => _activePaths,
       isConnected: () => _isConnected,
+      onCacheChanged: () => _latestDataView = null,
     );
     _conversionManager = _ConversionManager(
       getServerUrl: () => _serverUrl,
@@ -1167,14 +1168,6 @@ class SignalKService extends ChangeNotifier implements DataService {
   void _startCacheCleanup() {
     _dataCache.startCacheCleanup();
   }
-
-  /// Remove stale data from cache to prevent memory leaks
-  void _pruneStaleData() {
-    _dataCache.pruneStaleData();
-    // Invalidate cache view after pruning
-    _latestDataView = null;
-  }
-
   /// Subscribe to all AIS vessels using wildcard subscription
   /// Requires units-preference plugin with wildcard support
   void subscribeToAllAISVessels() {
@@ -1336,10 +1329,12 @@ class _DataCacheManager {
   // Dependencies injected via function getters for dynamic access
   final Set<String> Function() getActivePaths;
   final bool Function() isConnected;
+  final void Function()? onCacheChanged;
 
   _DataCacheManager({
     required this.getActivePaths,
     required this.isConnected,
+    this.onCacheChanged,
   });
 
   // Direct access to internal map for SignalKService
@@ -1419,8 +1414,12 @@ class _DataCacheManager {
 
     final afterSize = _latestData.length;
     final removed = beforeSize - afterSize;
-    if (removed > 0 && kDebugMode) {
-      print('Cache pruned: removed $removed stale entries, $afterSize remaining');
+    if (removed > 0) {
+      if (kDebugMode) {
+        print('Cache pruned: removed $removed stale entries, $afterSize remaining');
+      }
+      // Notify parent to invalidate cached views
+      onCacheChanged?.call();
     }
   }
 

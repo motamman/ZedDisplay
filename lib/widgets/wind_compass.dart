@@ -133,7 +133,6 @@ class _WindCompassState extends State<WindCompass> {
   // Wind shift tracking
   final List<_WindSample> _windHistory = [];
   static const int _windHistoryDuration = 30; // Track last 30 seconds
-  double? _baselineWindDirection; // Average wind direction for comparison
 
   @override
   void didUpdateWidget(WindCompass oldWidget) {
@@ -153,99 +152,11 @@ class _WindCompassState extends State<WindCompass> {
     // Remove old samples
     final cutoff = now.subtract(const Duration(seconds: _windHistoryDuration));
     _windHistory.removeWhere((sample) => sample.timestamp.isBefore(cutoff));
-
-    // Calculate baseline (average) wind direction
-    if (_windHistory.length >= 5) {
-      _baselineWindDirection = _calculateAverageWindDirection();
-    }
-  }
-
-  /// Calculate average wind direction handling 0°/360° wraparound
-  double _calculateAverageWindDirection() {
-    if (_windHistory.isEmpty) return 0;
-
-    // Use vector averaging to handle wraparound
-    double sumSin = 0;
-    double sumCos = 0;
-
-    for (var sample in _windHistory) {
-      final radians = sample.direction * pi / 180;
-      sumSin += sin(radians);
-      sumCos += cos(radians);
-    }
-
-    final avgRadians = atan2(sumSin / _windHistory.length, sumCos / _windHistory.length);
-    double avgDegrees = avgRadians * 180 / pi;
-
-    if (avgDegrees < 0) avgDegrees += 360;
-
-    return avgDegrees;
   }
 
   /// Calculate wind shift from baseline
-  double? _calculateWindShift() {
-    if (_baselineWindDirection == null || widget.windDirectionTrueDegrees == null) {
-      return null;
-    }
-
-    double shift = widget.windDirectionTrueDegrees! - _baselineWindDirection!;
-
-    // Normalize to -180 to +180 range
-    while (shift > 180) {
-      shift -= 360;
-    }
-    while (shift < -180) {
-      shift += 360;
-    }
-
-    return shift;
-  }
-
-  /// Determine if wind shift is a lift or header
-  String? _getShiftType(double shift) {
-    if (shift.abs() < 3) {
-      return null; // Shift too small to matter
-    }
-
-    // Calculate AWA to determine tack
-    double? awa;
-    if (widget.windAngleApparent != null) {
-      awa = widget.windAngleApparent!;
-    } else if (widget.windDirectionApparentDegrees != null) {
-      final headingDegrees = widget.headingMagneticDegrees ?? widget.headingTrueDegrees;
-      if (headingDegrees != null) {
-        double tempAwa = widget.windDirectionApparentDegrees! - headingDegrees;
-        while (tempAwa > 180) {
-          tempAwa -= 360;
-        }
-        while (tempAwa < -180) {
-          tempAwa += 360;
-        }
-        awa = tempAwa;
-      }
-    }
-
-    if (awa == null) {
-      return null;
-    }
-
-    // Only show lift/header when sailing upwind (AWA < 90°)
-    if (awa.abs() > 90) {
-      return null;
-    }
-
-    final isPortTack = awa < 0;
-
-    // Port tack: clockwise shift (+) = lift, counter-clockwise (-) = header
-    // Starboard tack: counter-clockwise (-) = lift, clockwise (+) = header
-    if (isPortTack) {
-      return shift > 0 ? 'lift' : 'header';
-    } else {
-      return shift < 0 ? 'lift' : 'header';
-    }
-  }
-
   // Removed: _normalizeAngle - now using AngleUtils.normalize()
+  // Removed: _calculateWindShift and _getShiftType - unused methods
 
   /// Get optimal target AWA based on current wind speed (if VMG mode enabled)
   double _getOptimalTargetAWA() {

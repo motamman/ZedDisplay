@@ -47,7 +47,6 @@ class _RealtimeSplineChartState extends State<RealtimeSplineChart> with Automati
   late List<List<_ChartData>> _seriesData;
   late List<List<_ChartData>> _movingAverageData;
   Timer? _updateTimer;
-  DateTime? _startTime;
   double _cachedMinY = 0;
   double _cachedMaxY = 100;
 
@@ -59,7 +58,6 @@ class _RealtimeSplineChartState extends State<RealtimeSplineChart> with Automati
     super.initState();
     _seriesData = List.generate(widget.dataSources.length, (_) => []);
     _movingAverageData = List.generate(widget.dataSources.length, (_) => []);
-    _startTime = DateTime.now();
 
     // Initialize range with defaults
     final initialRange = _calculateYAxisRange();
@@ -156,21 +154,6 @@ class _RealtimeSplineChartState extends State<RealtimeSplineChart> with Automati
       _cachedMinY = range.min;
       _cachedMaxY = range.max;
     });
-  }
-
-  List<_ChartData> _calculateMovingAverage(List<_ChartData> data, int window) {
-    final result = <_ChartData>[];
-
-    for (int i = window - 1; i < data.length; i++) {
-      double sum = 0;
-      for (int j = 0; j < window; j++) {
-        sum += data[i - j].value;
-      }
-      final avg = sum / window;
-      result.add(_ChartData(data[i].time, avg));
-    }
-
-    return result;
   }
 
   @override
