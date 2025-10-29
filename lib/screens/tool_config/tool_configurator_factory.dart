@@ -1,4 +1,5 @@
 import 'base_tool_configurator.dart';
+import 'configurators/chart_configurator.dart';
 
 /// Factory for creating tool-specific configurators
 ///
@@ -17,8 +18,7 @@ class ToolConfiguratorFactory {
 
       // Charts
       case 'historical_chart':
-        // TODO: return ChartConfigurator();
-        return null;
+        return ChartConfigurator();
 
       // Compasses and Instruments
       case 'wind_compass':
