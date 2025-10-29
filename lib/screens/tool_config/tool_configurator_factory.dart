@@ -2,6 +2,10 @@ import 'base_tool_configurator.dart';
 import 'configurators/chart_configurator.dart';
 import 'configurators/gauge_configurator.dart';
 import 'configurators/compass_configurator.dart';
+import 'configurators/control_configurator.dart';
+import 'configurators/polar_chart_configurator.dart';
+import 'configurators/webview_configurator.dart';
+import 'configurators/system_configurator.dart';
 
 /// Factory for creating tool-specific configurators
 ///
@@ -29,28 +33,25 @@ class ToolConfiguratorFactory {
       // Polar Charts
       case 'polar_radar_chart':
       case 'ais_polar_chart':
-        // TODO: return PolarChartConfigurator(toolTypeId);
-        return null;
+        return PolarChartConfigurator(toolTypeId);
 
       // Controls
       case 'slider':
+      case 'knob':
       case 'dropdown':
       case 'switch':
       case 'button':
-        // TODO: return ControlConfigurator(toolTypeId);
-        return null;
+        return ControlConfigurator(toolTypeId);
 
       // System Tools
       case 'conversion_test':
       case 'rpi_monitor':
       case 'server_manager':
-        // TODO: return SystemConfigurator(toolTypeId);
-        return null;
+        return SystemConfigurator(toolTypeId);
 
       // WebView
       case 'webview':
-        // TODO: return WebViewConfigurator();
-        return null;
+        return WebViewConfigurator();
 
       // No custom configurator - use default UI
       default:
@@ -69,6 +70,7 @@ class ToolConfiguratorFactory {
       'polar_radar_chart',
       'ais_polar_chart',
       'slider',
+      'knob',
       'dropdown',
       'switch',
       'button',
