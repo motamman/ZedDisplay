@@ -24,11 +24,16 @@ class DropdownTool extends StatefulWidget {
   State<DropdownTool> createState() => _DropdownToolState();
 }
 
-class _DropdownToolState extends State<DropdownTool> with ControlToolMixin {
+class _DropdownToolState extends State<DropdownTool> with ControlToolMixin, AutomaticKeepAliveClientMixin {
   double? _currentSelectedValue;
 
   @override
+  bool get wantKeepAlive => true;
+
+  @override
   Widget build(BuildContext context) {
+    super.build(context);
+
     // Get data from first data source
     if (widget.config.dataSources.isEmpty) {
       return const Center(child: Text('No data source configured'));

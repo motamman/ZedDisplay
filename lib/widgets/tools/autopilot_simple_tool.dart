@@ -24,12 +24,15 @@ class AutopilotSimpleTool extends StatefulWidget {
   State<AutopilotSimpleTool> createState() => _AutopilotSimpleToolState();
 }
 
-class _AutopilotSimpleToolState extends State<AutopilotSimpleTool> {
+class _AutopilotSimpleToolState extends State<AutopilotSimpleTool> with AutomaticKeepAliveClientMixin {
   // Autopilot state from SignalK
   double _currentHeading = 0;
   double _targetHeading = 0;
   String _mode = 'Standby';
   bool _engaged = false;
+
+  @override
+  bool get wantKeepAlive => true;
 
   @override
   void initState() {
@@ -163,6 +166,8 @@ class _AutopilotSimpleToolState extends State<AutopilotSimpleTool> {
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
+
     if (widget.config.dataSources.length < 5) {
       return const Center(
         child: Text(

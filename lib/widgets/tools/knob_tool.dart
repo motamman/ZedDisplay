@@ -26,11 +26,16 @@ class KnobTool extends StatefulWidget {
   State<KnobTool> createState() => _KnobToolState();
 }
 
-class _KnobToolState extends State<KnobTool> with ControlToolMixin {
+class _KnobToolState extends State<KnobTool> with ControlToolMixin, AutomaticKeepAliveClientMixin {
   double? _currentKnobValue;
 
   @override
+  bool get wantKeepAlive => true;
+
+  @override
   Widget build(BuildContext context) {
+    super.build(context);
+
     // Get data from first data source
     if (widget.config.dataSources.isEmpty) {
       return const Center(child: Text('No data source configured'));

@@ -33,7 +33,10 @@ class LinearGaugeTool extends StatefulWidget {
   State<LinearGaugeTool> createState() => _LinearGaugeToolState();
 }
 
-class _LinearGaugeToolState extends State<LinearGaugeTool> with ZonesMixin {
+class _LinearGaugeToolState extends State<LinearGaugeTool> with ZonesMixin, AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
+
   @override
   void initState() {
     super.initState();
@@ -50,6 +53,8 @@ class _LinearGaugeToolState extends State<LinearGaugeTool> with ZonesMixin {
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
+
     // Get data from first data source
     if (widget.config.dataSources.isEmpty) {
       return const Center(child: Text('No data source configured'));

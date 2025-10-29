@@ -28,11 +28,16 @@ class SliderTool extends StatefulWidget {
   State<SliderTool> createState() => _SliderToolState();
 }
 
-class _SliderToolState extends State<SliderTool> with ControlToolMixin {
+class _SliderToolState extends State<SliderTool> with ControlToolMixin, AutomaticKeepAliveClientMixin {
   double? _currentSliderValue;
 
   @override
+  bool get wantKeepAlive => true;
+
+  @override
   Widget build(BuildContext context) {
+    super.build(context);
+
     // Get data from first data source
     if (widget.config.dataSources.isEmpty) {
       return const Center(child: Text('No data source configured'));
