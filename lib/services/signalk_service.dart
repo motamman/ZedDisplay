@@ -714,7 +714,7 @@ class SignalKService extends ChangeNotifier implements DataService {
         body: jsonEncode({'value': value}),
       );
 
-      if (response.statusCode != 200) {
+      if (response.statusCode != 200 && response.statusCode != 202) {
         throw Exception('PUT request failed: ${response.statusCode}');
       }
     } catch (e) {
