@@ -11,6 +11,8 @@ import '../services/tool_config_service.dart';
 import '../widgets/config/path_selector.dart';
 import '../widgets/config/configure_data_source_dialog.dart';
 import '../widgets/config/source_selector.dart';
+import 'tool_config/base_tool_configurator.dart';
+import 'tool_config/tool_configurator_factory.dart';
 
 /// Screen for configuring a tool
 class ToolConfigScreen extends StatefulWidget {
@@ -33,6 +35,9 @@ class ToolConfigScreen extends StatefulWidget {
 
 class _ToolConfigScreenState extends State<ToolConfigScreen> {
   final _formKey = GlobalKey<FormState>();
+
+  // Tool-specific configurator (handles tool-specific UI and config)
+  ToolConfigurator? _configurator;
 
   // Configuration state
   String? _selectedToolTypeId;
