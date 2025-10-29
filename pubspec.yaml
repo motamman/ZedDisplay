@@ -93,7 +93,6 @@ flutter:
 
   assets:
     - assets/
-    - assets/splash.mp4
 
 flutter_launcher_icons:
   android: true
