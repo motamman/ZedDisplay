@@ -168,32 +168,8 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen> {
     }
   }
 
-  // Removed: _browseTemplates() - deprecated template system
-  // Use "Add Tool" button to add tools from the tool library
-
-  void _showAddMenu() {
-    showModalBottomSheet(
-      context: context,
-      builder: (context) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: const Icon(Icons.add_circle_outline),
-              title: const Text('Create Tool'),
-              subtitle: const Text('Configure a tool from scratch'),
-              onTap: () {
-                Navigator.pop(context);
-                _addTool();
-              },
-            ),
-            // Removed: "Browse Tools" menu item - deprecated template system
-            // Tools can be added via "Add Tool" button above
-          ],
-        ),
-      ),
-    );
-  }
+  // Removed: _browseTemplates() and _showAddMenu() - deprecated
+  // "+" button now goes directly to tool configuration
 
   void _toggleFullScreen() {
     setState(() {
@@ -537,7 +513,7 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen> {
           ),
           IconButton(
             icon: const Icon(Icons.add),
-            onPressed: _showAddMenu,
+            onPressed: _addTool,
             tooltip: 'Add Tool',
           ),
           IconButton(
@@ -757,7 +733,7 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen> {
           ),
           const SizedBox(height: 8),
           ElevatedButton.icon(
-            onPressed: _showAddMenu,
+            onPressed: _addTool,
             icon: const Icon(Icons.add),
             label: const Text('Add Your First Tool'),
           ),
