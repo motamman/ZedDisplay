@@ -58,7 +58,11 @@ class _SourceSelectorDialogState extends State<SourceSelectorDialog> {
 
     return Dialog(
       child: Container(
-        constraints: const BoxConstraints(maxWidth: 500, maxHeight: 600),
+        constraints: const BoxConstraints(
+          maxWidth: 600,
+          maxHeight: 800,
+          minWidth: 500,
+        ),
         child: Column(
           children: [
             // Header
@@ -209,6 +213,7 @@ class _SourceSelectorDialogState extends State<SourceSelectorDialog> {
           final isSelected = widget.currentSource == sourceId;
 
           return ListTile(
+            dense: true,
             leading: Icon(
               isSelected ? Icons.check_circle : (isActive ? Icons.star : Icons.circle_outlined),
               color: isSelected ? Theme.of(context).colorScheme.primary : (isActive ? Colors.orange : Colors.grey),
@@ -216,10 +221,11 @@ class _SourceSelectorDialogState extends State<SourceSelectorDialog> {
             title: Text(
               sourceId,
               style: TextStyle(
-                fontSize: 13,
+                fontSize: 12,
                 fontFamily: 'monospace',
                 fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
               ),
+              overflow: TextOverflow.ellipsis,
             ),
             subtitle: Column(
               crossAxisAlignment: CrossAxisAlignment.start,

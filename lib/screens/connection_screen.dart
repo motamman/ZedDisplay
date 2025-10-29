@@ -8,6 +8,7 @@ import '../services/storage_service.dart';
 import '../models/server_connection.dart';
 import 'dashboard_manager_screen.dart';
 import 'device_registration_screen.dart';
+import 'settings_screen.dart';
 
 class ConnectionScreen extends StatefulWidget {
   const ConnectionScreen({super.key});
@@ -264,21 +265,44 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
                   ],
                 )
               else
-                ElevatedButton(
-                  onPressed: _isConnecting ? null : () => _connect(),
-                  style: ElevatedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                  ),
-                  child: _isConnecting
-                      ? const SizedBox(
-                          height: 20,
-                          width: 20,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Text(
-                          'Connect',
-                          style: TextStyle(fontSize: 18),
-                        ),
+                Column(
+                  children: [
+                    ElevatedButton(
+                      onPressed: _isConnecting ? null : () => _connect(),
+                      style: ElevatedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                      ),
+                      child: _isConnecting
+                          ? const SizedBox(
+                              height: 20,
+                              width: 20,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Text(
+                              'Connect',
+                              style: TextStyle(fontSize: 18),
+                            ),
+                    ),
+                    const SizedBox(height: 12),
+                    OutlinedButton.icon(
+                      onPressed: _isConnecting
+                          ? null
+                          : () {
+                              Navigator.of(context).push(
+                                MaterialPageRoute(
+                                  builder: (context) => const SettingsScreen(
+                                    showConnections: true,
+                                  ),
+                                ),
+                              );
+                            },
+                      icon: const Icon(Icons.list),
+                      label: const Text('Other Connections'),
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                      ),
+                    ),
+                  ],
                 ),
               const SizedBox(height: 16),
               const Text(

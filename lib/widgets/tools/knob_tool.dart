@@ -68,13 +68,6 @@ class _KnobToolState extends State<KnobTool> with ControlToolMixin {
       fallback: Theme.of(context).colorScheme.primary
     ) ?? Theme.of(context).colorScheme.primary;
 
-    // Get unit symbol from conversion info
-    final availableUnits = widget.signalKService.getAvailableUnits(dataSource.path);
-    final conversionInfo = availableUnits.isNotEmpty
-        ? widget.signalKService.getConversionInfo(dataSource.path, availableUnits.first)
-        : null;
-    // final unit = style.unit ?? conversionInfo?.symbol ?? ''; // Unused for now
-
     // Get decimal places from customProperties
     final decimalPlaces = style.customProperties?['decimalPlaces'] as int? ?? 1;
 

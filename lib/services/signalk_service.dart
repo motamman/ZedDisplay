@@ -1,7 +1,7 @@
 import 'dart:async';
+import 'dart:collection';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:web_socket_channel/io.dart';
@@ -22,10 +22,6 @@ class SignalKService extends ChangeNotifier implements DataService {
   WebSocketChannel? _autopilotChannel;
   StreamSubscription? _autopilotSubscription;
 
-  // Separate notification WebSocket (standard endpoint)
-  WebSocketChannel? _notificationChannel;
-  StreamSubscription? _notificationSubscription;
-
   // Conversions WebSocket (real-time conversion updates)
   WebSocketChannel? _conversionsChannel;
   StreamSubscription? _conversionsSubscription;
@@ -38,26 +34,19 @@ class SignalKService extends ChangeNotifier implements DataService {
   static const int _maxReconnectAttempts = 5;
   bool _intentionalDisconnect = false;
 
-  // AIS periodic refresh
-  Timer? _aisRefreshTimer;
+  // Data cache cleanup
+  Timer? _cacheCleanupTimer;
 
-  // Data storage - keeps latest value for each path
-  final Map<String, SignalKDataPoint> _latestData = {};
+  // Data storage - moved to _DataCacheManager
+  UnmodifiableMapView<String, SignalKDataPoint>? _latestDataView;
 
-  // Conversion data - unit conversion formulas from server
-  final Map<String, PathConversionData> _conversionsData = {};
+  // Conversion data - moved to _ConversionManager
+  UnmodifiableMapView<String, PathConversionData>? _conversionsDataView;
 
   // Active subscriptions - only paths currently needed by UI
   final Set<String> _activePaths = {};
   final Set<String> _autopilotPaths = {}; // Separate tracking for autopilot paths
   String? _vesselContext;
-  bool _aisInitialLoadDone = false;
-
-  // Notifications
-  bool _notificationsEnabled = false;
-  final StreamController<SignalKNotification> _notificationController =
-      StreamController<SignalKNotification>.broadcast();
-  final Map<String, String> _lastNotificationState = {}; // Track last state per notification key
 
   // Configuration
   String _serverUrl = 'localhost:3000';
@@ -67,18 +56,58 @@ class SignalKService extends ChangeNotifier implements DataService {
   // Zones cache service
   ZonesCacheService? _zonesCache;
 
+  // Internal managers
+  late final _DataCacheManager _dataCache;
+  late final _ConversionManager _conversionManager;
+  late final _NotificationManager _notificationManager;
+  late final _AISManager _aisManager;
+
+  // Constructor
+  SignalKService() {
+    _dataCache = _DataCacheManager(
+      getActivePaths: () => _activePaths,
+      isConnected: () => _isConnected,
+      onCacheChanged: () => _latestDataView = null,
+    );
+    _conversionManager = _ConversionManager(
+      getServerUrl: () => _serverUrl,
+      useSecureConnection: () => _useSecureConnection,
+      getHeaders: () => _getHeaders(),
+    );
+    _notificationManager = _NotificationManager(
+      getAuthToken: () => _authToken,
+      getNotificationEndpoint: () => _getNotificationEndpoint(),
+    );
+    _aisManager = _AISManager(
+      getServerUrl: () => _serverUrl,
+      useSecureConnection: () => _useSecureConnection,
+      getHeaders: () => _getHeaders(),
+      isConnected: () => _isConnected,
+      getChannel: () => _channel,
+      getVesselContext: () => _vesselContext,
+      getDataCache: () => _dataCache.internalDataMap,
+      convertValueForPath: (path, value) => _convertValueForPath(path, value),
+    );
+  }
+
   // Getters
   @override
   bool get isConnected => _isConnected;
   String? get errorMessage => _errorMessage;
-  Map<String, SignalKDataPoint> get latestData => Map.unmodifiable(_latestData);
-  Map<String, PathConversionData> get conversionsData => Map.unmodifiable(_conversionsData);
+  Map<String, SignalKDataPoint> get latestData {
+    _latestDataView ??= UnmodifiableMapView(_dataCache.internalDataMap);
+    return _latestDataView!;
+  }
+  Map<String, PathConversionData> get conversionsData {
+    _conversionsDataView ??= UnmodifiableMapView(_conversionManager.internalDataMap);
+    return _conversionsDataView!;
+  }
   @override
   String get serverUrl => _serverUrl;
   @override
   bool get useSecureConnection => _useSecureConnection;
-  bool get notificationsEnabled => _notificationsEnabled;
-  Stream<SignalKNotification> get notificationStream => _notificationController.stream;
+  bool get notificationsEnabled => _notificationManager.notificationsEnabled;
+  Stream<SignalKNotification> get notificationStream => _notificationManager.notificationStream;
   AuthToken? get authToken => _authToken;
   ZonesCacheService? get zonesCache => _zonesCache;
 
@@ -164,9 +193,12 @@ class SignalKService extends ChangeNotifier implements DataService {
       // Subscribe to paths immediately
       await _sendSubscription();
 
+      // Start periodic cache cleanup to prevent memory growth
+      _startCacheCleanup();
+
       // Auto-connect notification channel if notifications are enabled
-      if (_notificationsEnabled && _authToken != null) {
-        await _connectNotificationChannel();
+      if (_notificationManager.notificationsEnabled && _authToken != null) {
+        await _notificationManager.connectNotificationChannel();
       }
     } catch (e) {
       _errorMessage = 'Connection failed: $e';
@@ -353,55 +385,10 @@ class SignalKService extends ChangeNotifier implements DataService {
 
   /// Handle incoming conversion data from WebSocket stream
   void _handleConversionMessage(dynamic message) {
-    try {
-      final data = jsonDecode(message) as Map<String, dynamic>;
-      final type = data['type'] as String?;
-      final conversions = data['conversions'] as Map<String, dynamic>?;
-
-      if (conversions == null) {
-        if (kDebugMode) {
-          print('⚠️ Conversions message missing "conversions" field');
-        }
-        return;
-      }
-
-      // Handle different message types
-      if (type == 'full' || type == 'update') {
-        // Full snapshot or full update - replace all conversions
-        _conversionsData.clear();
-        conversions.forEach((path, conversionJson) {
-          if (conversionJson is Map<String, dynamic>) {
-            _conversionsData[path] = PathConversionData.fromJson(conversionJson);
-          }
-        });
-
-        if (kDebugMode) {
-          print('✅ Loaded ${_conversionsData.length} conversions from stream (type: $type)');
-        }
-      } else if (type == 'delta') {
-        // Partial update - only update specific paths
-        conversions.forEach((path, conversionJson) {
-          if (conversionJson is Map<String, dynamic>) {
-            _conversionsData[path] = PathConversionData.fromJson(conversionJson);
-          }
-        });
-
-        if (kDebugMode) {
-          print('✅ Updated ${conversions.length} conversion(s) from delta');
-        }
-      } else {
-        if (kDebugMode) {
-          print('⚠️ Unknown conversions message type: $type');
-        }
-      }
-
-      // Notify listeners that conversions have updated
-      notifyListeners();
-    } catch (e) {
-      if (kDebugMode) {
-        print('❌ Error parsing conversion message: $e');
-      }
-    }
+    _conversionManager.handleConversionMessage(message);
+    // Invalidate cache and notify listeners that conversions have updated
+    _conversionsDataView = null;
+    notifyListeners();
   }
 
   /// Send WebSocket authentication with token (currently unused, kept for future)
@@ -611,16 +598,16 @@ class SignalKService extends ChangeNotifier implements DataService {
             }
 
             // Store at default path (for self vessel and backward compatibility)
-            _latestData[value.path] = dataPoint;
+            _dataCache.internalDataMap[value.path] = dataPoint;
 
             // ALSO store with full vessel context for multi-vessel support (AIS)
             final contextPath = '${update.context}.${value.path}';
-            _latestData[contextPath] = dataPoint;
+            _dataCache.internalDataMap[contextPath] = dataPoint;
 
             // ALSO store at source-specific path if source is provided
             if (source != null) {
               final sourceKey = '${value.path}@$source';
-              _latestData[sourceKey] = dataPoint;
+              _dataCache.internalDataMap[sourceKey] = dataPoint;
               // if (kDebugMode && (value.path.contains('heading') || value.path.contains('autopilot'))) {
               //   print('📍 ALSO stored ${value.path} from source $source at SOURCE-SPECIFIC key: $sourceKey = ${dataPoint.value}');
               // }
@@ -634,6 +621,8 @@ class SignalKService extends ChangeNotifier implements DataService {
           }
         }
 
+        // Invalidate cache when data changes
+        _latestDataView = null;
         notifyListeners();
       }
     } catch (e, stackTrace) {
@@ -739,36 +728,14 @@ class SignalKService extends ChangeNotifier implements DataService {
   /// Get value for specific path, optionally from a specific source
   @override
   SignalKDataPoint? getValue(String path, {String? source}) {
-    if (source == null) {
-      // No source specified, return default value
-      return _latestData[path];
-    }
-
-    // Source specified, construct source-specific path
-    final sourceKey = '$path@$source';
-    final result = _latestData[sourceKey];
-
-    return result ?? _latestData[path]; // Fallback to default if source not found
+    return _dataCache.getValue(path, source: source);
   }
 
   /// Check if data is fresh (within TTL threshold)
   /// Returns true if data is fresh, false if stale or missing
   @override
   bool isDataFresh(String path, {String? source, int? ttlSeconds}) {
-    if (ttlSeconds == null) {
-      // No TTL check requested
-      return true;
-    }
-
-    final dataPoint = getValue(path, source: source);
-    if (dataPoint == null) {
-      // No data available
-      return false;
-    }
-
-    final now = DateTime.now();
-    final age = now.difference(dataPoint.timestamp);
-    return age.inSeconds <= ttlSeconds;
+    return _dataCache.isDataFresh(path, source: source, ttlSeconds: ttlSeconds);
   }
 
   /// Get value for specific path directly from REST API
@@ -805,17 +772,13 @@ class SignalKService extends ChangeNotifier implements DataService {
 
   /// Get numeric value for specific path (returns null if not numeric)
   double? getNumericValue(String path) {
-    final dataPoint = _latestData[path];
-    if (dataPoint?.value is num) {
-      return (dataPoint!.value as num).toDouble();
-    }
-    return null;
+    return _dataCache.getNumericValue(path);
   }
 
   /// Get formatted value string from units-preference plugin
   /// Returns pre-formatted string like "10.0 kn" or falls back to raw value
   String getFormattedValue(String path) {
-    final dataPoint = _latestData[path];
+    final dataPoint = _dataCache.internalDataMap[path];
 
     if (dataPoint == null) {
       return '---';
@@ -837,14 +800,13 @@ class SignalKService extends ChangeNotifier implements DataService {
   /// Get converted numeric value (already in user's preferred units)
   @override
   double? getConvertedValue(String path) {
-    final dataPoint = _latestData[path];
-    return dataPoint?.converted ?? (dataPoint?.value is num ? (dataPoint!.value as num).toDouble() : null);
+    return _dataCache.getConvertedValue(path);
   }
 
   /// Get unit symbol for a path (e.g., "kn", "°C")
   @override
   String? getUnitSymbol(String path) {
-    final dataPoint = _latestData[path];
+    final dataPoint = _dataCache.internalDataMap[path];
 
     // First try to get symbol from data point (units-preference plugin)
     if (dataPoint?.symbol != null) {
@@ -866,186 +828,13 @@ class SignalKService extends ChangeNotifier implements DataService {
   /// Get live AIS vessel data from WebSocket cache
   /// Returns vessel data populated by vessels.* wildcard subscription
   Map<String, Map<String, dynamic>> getLiveAISVessels() {
-    final vessels = <String, Map<String, dynamic>>{};
-
-    // Scan _latestData for vessel context keys
-    final vesselContexts = <String>{};
-
-    for (final key in _latestData.keys) {
-      if (key.startsWith('vessels.') && !key.startsWith('vessels.self')) {
-        // Extract vessel context from key like "vessels.urn:mrn:imo:mmsi:123456789.navigation.position"
-        final parts = key.split('.');
-        if (parts.length >= 2) {
-          // Find where the path starts - look for known path prefixes
-          for (final pathPrefix in ['navigation', 'name', 'mmsi', 'communication']) {
-            final prefixIndex = parts.indexOf(pathPrefix);
-            if (prefixIndex > 1) {
-              final vesselContext = parts.sublist(0, prefixIndex).join('.');
-              vesselContexts.add(vesselContext);
-              break;
-            }
-          }
-        }
-      }
-    }
-
-    // For each vessel context, extract position, COG, SOG, and name
-    for (final vesselContext in vesselContexts) {
-      final vesselId = vesselContext.substring('vessels.'.length);
-
-      // Skip self vessel
-      if (vesselContext == _vesselContext || vesselContext.contains('self')) {
-        continue;
-      }
-
-      // Get position
-      final positionData = _latestData['$vesselContext.navigation.position'];
-      if (positionData?.value is Map<String, dynamic>) {
-        final position = positionData!.value as Map<String, dynamic>;
-        final lat = position['latitude'];
-        final lon = position['longitude'];
-
-        if (lat is num && lon is num) {
-          // Get COG (raw value from standard stream)
-          final cogData = _latestData['$vesselContext.navigation.courseOverGroundTrue'];
-          double? cog;
-          if (cogData?.value is num) {
-            final rawCog = (cogData!.value as num).toDouble();
-            // Apply conversion using server formula (use path without vessel context)
-            cog = _convertValueForPath('navigation.courseOverGroundTrue', rawCog);
-          }
-
-          // Get SOG (raw value from standard stream)
-          final sogData = _latestData['$vesselContext.navigation.speedOverGround'];
-          double? sog;
-          if (sogData?.value is num) {
-            final rawSog = (sogData!.value as num).toDouble();
-            // Apply conversion using server formula (use path without vessel context)
-            sog = _convertValueForPath('navigation.speedOverGround', rawSog);
-          }
-
-          // Get vessel name
-          final name = _latestData['$vesselContext.name']?.value as String?;
-
-          vessels[vesselId] = {
-            'latitude': lat.toDouble(),
-            'longitude': lon.toDouble(),
-            'name': name,
-            'cog': cog,
-            'sog': sog,
-            'timestamp': positionData.timestamp,
-            'fromGET': positionData.fromGET, // Read from data point
-          };
-        }
-      }
-    }
-
-    return vessels;
+    return _aisManager.getLiveAISVessels();
   }
 
   /// Get all AIS vessels with their positions from REST API
   /// Uses standard SignalK endpoint and applies client-side conversions
   Future<Map<String, Map<String, dynamic>>> getAllAISVessels() async {
-    final vessels = <String, Map<String, dynamic>>{};
-    final protocol = _useSecureConnection ? 'https' : 'http';
-
-    // Use standard SignalK vessels endpoint
-    final endpoint = '$protocol://$_serverUrl/signalk/v1/api/vessels';
-
-    if (kDebugMode) {
-      print('🌐 Fetching AIS vessels from: $endpoint');
-    }
-
-    try {
-      final response = await http.get(
-        Uri.parse(endpoint),
-        headers: _getHeaders(),
-      ).timeout(const Duration(seconds: 5));
-
-      if (kDebugMode) {
-        print('🌐 Response status: ${response.statusCode}');
-        if (response.statusCode != 200) {
-          print('🌐 Response body: ${response.body}');
-        }
-      }
-
-      if (response.statusCode == 200) {
-        // Response has vessels at root level, NOT wrapped in 'vessels' object
-        final vesselsData = jsonDecode(response.body) as Map<String, dynamic>;
-
-        if (kDebugMode) {
-          print('🌐 Received ${vesselsData.length} vessel entries');
-        }
-
-        for (final entry in vesselsData.entries) {
-          final vesselId = entry.key;
-          final vesselData = entry.value as Map<String, dynamic>?;
-          if (vesselData != null) {
-            // Get position (already in lat/lon format, no .value wrapper)
-            final navigation = vesselData['navigation'] as Map<String, dynamic>?;
-            final position = navigation?['position'] as Map<String, dynamic>?;
-
-            if (position != null) {
-              // GET response wraps lat/lon in 'value' field
-              final positionValue = position['value'] as Map<String, dynamic>?;
-              final lat = positionValue?['latitude'];
-              final lon = positionValue?['longitude'];
-
-              if (lat is num && lon is num) {
-                // Get vessel name - might be direct string or wrapped in {value: "name"}
-                String? name;
-                final nameData = vesselData['name'];
-                if (nameData is String) {
-                  name = nameData;
-                } else if (nameData is Map<String, dynamic>) {
-                  name = nameData['value'] as String?;
-                }
-
-                // Extract COG and SOG - GET response has {value: X} wrapper
-                final cogData = navigation?['courseOverGroundTrue'] as Map<String, dynamic>?;
-                final sogData = navigation?['speedOverGround'] as Map<String, dynamic>?;
-
-                // Get raw values and convert using formulas
-                double? cog;
-                double? sog;
-
-                if (cogData != null) {
-                  final rawCog = (cogData['value'] as num?)?.toDouble();
-                  if (rawCog != null) {
-                    cog = _convertValueForPath('navigation.courseOverGroundTrue', rawCog);
-                  }
-                }
-
-                if (sogData != null) {
-                  final rawSog = (sogData['value'] as num?)?.toDouble();
-                  if (rawSog != null) {
-                    sog = _convertValueForPath('navigation.speedOverGround', rawSog);
-                  }
-                }
-
-                vessels[vesselId] = {
-                  'latitude': lat.toDouble(),
-                  'longitude': lon.toDouble(),
-                  'name': name,
-                  'cog': cog,
-                  'sog': sog,
-                };
-              }
-            }
-          }
-        }
-      }
-    } catch (e) {
-      if (kDebugMode) {
-        print('🌐 Error fetching AIS vessels: $e');
-      }
-    }
-
-    if (kDebugMode) {
-      print('🌐 Returning ${vessels.length} vessels with position data');
-    }
-
-    return vessels;
+    return _aisManager.getAllAISVessels();
   }
 
   /// Fetch vessel self ID from SignalK server
@@ -1111,33 +900,9 @@ class SignalKService extends ChangeNotifier implements DataService {
   /// Fetch conversion formulas from SignalK server
   /// Gets base units, categories, and conversion formulas for all paths
   Future<void> fetchConversions() async {
-    final protocol = _useSecureConnection ? 'https' : 'http';
-
-    try {
-      final response = await http.get(
-        Uri.parse('$protocol://$_serverUrl/signalk/v1/conversions'),
-        headers: _getHeaders(),
-      ).timeout(const Duration(seconds: 10));
-
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body) as Map<String, dynamic>;
-
-        _conversionsData.clear();
-        data.forEach((path, conversionJson) {
-          if (conversionJson is Map<String, dynamic>) {
-            _conversionsData[path] = PathConversionData.fromJson(conversionJson);
-          }
-        });
-
-        if (kDebugMode) {
-          print('Fetched ${_conversionsData.length} path conversions from server');
-        }
-      }
-    } catch (e) {
-      if (kDebugMode) {
-        print('Error fetching conversions: $e');
-      }
-    }
+    await _conversionManager.fetchConversions();
+    // Invalidate cache when conversions update
+    _conversionsDataView = null;
   }
 
   /// Manually reload conversions from server
@@ -1148,35 +913,28 @@ class SignalKService extends ChangeNotifier implements DataService {
   }
 
   /// Get conversion data for a specific path
-  /// Returns null if no conversion data available for this path
   PathConversionData? getConversionDataForPath(String path) {
-    return _conversionsData[path];
+    return _conversionManager.getConversionDataForPath(path);
   }
 
   /// Get base unit for a specific path
-  /// Returns null if no conversion data or no base unit
   String? getBaseUnit(String path) {
-    return _conversionsData[path]?.baseUnit;
+    return _conversionManager.getBaseUnit(path);
   }
 
   /// Get available target units for a specific path
-  /// Returns empty list if no conversions available
   List<String> getAvailableUnits(String path) {
-    final conversionData = _conversionsData[path];
-    if (conversionData == null) return [];
-    return conversionData.conversions.keys.toList();
+    return _conversionManager.getAvailableUnits(path);
   }
 
   /// Get conversion info for a specific path and target unit
-  /// Returns null if path or unit not found
   ConversionInfo? getConversionInfo(String path, String targetUnit) {
-    return _conversionsData[path]?.conversions[targetUnit];
+    return _conversionManager.getConversionInfo(path, targetUnit);
   }
 
-  /// Get the category for a specific path (e.g., 'speed', 'angle', 'temperature')
-  /// Returns 'none' if no conversion data available
+  /// Get the category for a specific path
   String getCategory(String path) {
-    return _conversionsData[path]?.category ?? 'none';
+    return _conversionManager.getCategory(path);
   }
 
   /// Internal helper to convert a value using the formula for this path
@@ -1402,299 +1160,24 @@ class SignalKService extends ChangeNotifier implements DataService {
   /// 1. Fetch all existing vessels via REST API (once only)
   /// 2. Subscribe for real-time updates only
   Future<void> loadAndSubscribeAISVessels() async {
-    // Only do initial load once - set flag BEFORE await to prevent race condition
-    if (!_aisInitialLoadDone) {
-      _aisInitialLoadDone = true;
-
-      // Phase 1: Get all current vessels from REST API
-      final vessels = await getAllAISVessels();
-
-    // Store vessels in cache with full context paths
-    for (final entry in vessels.entries) {
-      final vesselId = entry.key;
-      final vesselData = entry.value;
-      final vesselContext = 'vessels.$vesselId';
-
-      // Store position
-      if (vesselData['latitude'] != null && vesselData['longitude'] != null) {
-        final position = {
-          'latitude': vesselData['latitude'],
-          'longitude': vesselData['longitude'],
-        };
-        _latestData['$vesselContext.navigation.position'] = SignalKDataPoint(
-          path: 'navigation.position',
-          value: position,
-          timestamp: DateTime.now(),
-          fromGET: true,
-        );
-      }
-
-      // Store COG
-      if (vesselData['cog'] != null) {
-        _latestData['$vesselContext.navigation.courseOverGroundTrue'] = SignalKDataPoint(
-          path: 'navigation.courseOverGroundTrue',
-          value: vesselData['cog'],
-          timestamp: DateTime.now(),
-          converted: vesselData['cog'], // Already in user units from REST
-        );
-      }
-
-      // Store SOG
-      if (vesselData['sog'] != null) {
-        _latestData['$vesselContext.navigation.speedOverGround'] = SignalKDataPoint(
-          path: 'navigation.speedOverGround',
-          value: vesselData['sog'],
-          timestamp: DateTime.now(),
-          converted: vesselData['sog'], // Already in user units from REST
-        );
-      }
-
-      // Store name
-      if (vesselData['name'] != null) {
-        _latestData['$vesselContext.name'] = SignalKDataPoint(
-          path: 'name',
-          value: vesselData['name'],
-          timestamp: DateTime.now(),
-        );
-      }
-    }
-
-      // Notify listeners that initial data is loaded
-      notifyListeners();
-
-      // Phase 2: Wait 10 seconds before subscribing to WebSocket updates
-      // This allows visualization of GET data (orange) before stream updates (green)
-      await Future.delayed(const Duration(seconds: 10));
-
-      // Start periodic refresh timer (every 5 minutes)
-      _startAISRefreshTimer();
-    }
-
-    // Subscribe for real-time updates
-    subscribeToAllAISVessels();
+    await _aisManager.loadAndSubscribeAISVessels();
+    notifyListeners();
   }
 
-  /// Start periodic AIS refresh timer to update vessel names and new vessels
-  void _startAISRefreshTimer() {
-    _aisRefreshTimer?.cancel();
-    _aisRefreshTimer = Timer.periodic(const Duration(minutes: 5), (timer) async {
-      if (!_isConnected) {
-        timer.cancel();
-        return;
-      }
-
-      if (kDebugMode) {
-        print('🔄 Running periodic AIS GET refresh...');
-      }
-
-      // Fetch latest vessel data from REST API
-      final vessels = await getAllAISVessels();
-
-      // Update _latestData with new vessel info (names, etc.)
-      for (final entry in vessels.entries) {
-        final vesselId = entry.key;
-        final vesselData = entry.value;
-        final vesselContext = 'vessels.$vesselId';
-
-        // Only update if position exists in cache (vessel is active)
-        if (_latestData['$vesselContext.navigation.position'] != null) {
-          // Update name if available
-          if (vesselData['name'] != null) {
-            _latestData['$vesselContext.name'] = SignalKDataPoint(
-              path: 'name',
-              value: vesselData['name'],
-              timestamp: DateTime.now(),
-              fromGET: true,
-            );
-          }
-        }
-      }
-
-      notifyListeners();
-    });
+  /// Start periodic cache cleanup to prevent unbounded memory growth
+  void _startCacheCleanup() {
+    _dataCache.startCacheCleanup();
   }
-
   /// Subscribe to all AIS vessels using wildcard subscription
   /// Requires units-preference plugin with wildcard support
   void subscribeToAllAISVessels() {
-    if (_channel == null) return;
-
-    // Subscribe to all vessels with wildcard context (vessels.*)
-    final aisSubscription = {
-      'context': 'vessels.*',
-      'subscribe': [
-        {'path': 'navigation.position', 'format': 'delta', 'policy': 'instant'},
-        {'path': 'navigation.courseOverGroundTrue', 'format': 'delta', 'policy': 'instant'},
-        {'path': 'navigation.speedOverGround', 'format': 'delta', 'policy': 'instant'},
-        {'path': 'name', 'period': 60000, 'format': 'delta', 'policy': 'ideal'},
-      ],
-    };
-
-    _channel?.sink.add(jsonEncode(aisSubscription));
+    _aisManager.subscribeToAllAISVessels();
   }
 
   /// Enable or disable notifications (manages separate WebSocket connection)
   Future<void> setNotificationsEnabled(bool enabled) async {
-    if (_notificationsEnabled == enabled) {
-      return;
-    }
-
-    _notificationsEnabled = enabled;
-
-    if (enabled) {
-      // Connect notification WebSocket
-      await _connectNotificationChannel();
-    } else {
-      // Disconnect notification WebSocket
-      await _disconnectNotificationChannel();
-    }
-
+    await _notificationManager.setNotificationsEnabled(enabled);
     notifyListeners();
-  }
-
-  /// Connect to notification WebSocket (separate from data connection)
-  Future<void> _connectNotificationChannel() async {
-    if (_authToken == null) {
-      return;
-    }
-
-    try {
-      final wsUrl = _getNotificationEndpoint();
-
-      final headers = <String, String>{
-        'Authorization': 'Bearer ${_authToken!.token}',
-      };
-
-      final socket = await WebSocket.connect(wsUrl, headers: headers);
-      // Keep connection alive with ping frames every 30 seconds
-      socket.pingInterval = const Duration(seconds: 30);
-      _notificationChannel = IOWebSocketChannel(socket);
-
-      // Listen to incoming messages on notification channel
-      _notificationSubscription = _notificationChannel!.stream.listen(
-        _handleNotificationMessage,
-        onError: (error) {
-          if (kDebugMode) {
-            print('❌ Notification WebSocket error: $error');
-          }
-        },
-        onDone: () {
-          // Connection closed
-        },
-      );
-
-      // Subscribe to notifications
-      await Future.delayed(const Duration(milliseconds: 100));
-      _subscribeToNotifications();
-    } catch (e) {
-      if (kDebugMode) {
-        print('❌ Error connecting notification channel: $e');
-      }
-    }
-  }
-
-  /// Disconnect notification WebSocket
-  Future<void> _disconnectNotificationChannel() async {
-    try {
-      await _notificationSubscription?.cancel();
-      _notificationSubscription = null;
-
-      await _notificationChannel?.sink.close();
-      _notificationChannel = null;
-
-      // Clear notification state tracking
-      _lastNotificationState.clear();
-    } catch (e) {
-      if (kDebugMode) {
-        print('❌ Error disconnecting notification channel: $e');
-      }
-    }
-  }
-
-  /// Subscribe to notifications on the notification channel
-  void _subscribeToNotifications() {
-    if (_notificationChannel == null) return;
-
-    final subscription = {
-      'context': 'vessels.self',
-      'subscribe': [
-        {
-          'path': 'notifications.*',
-          'format': 'delta',
-          'policy': 'instant',
-        }
-      ]
-    };
-
-    _notificationChannel?.sink.add(jsonEncode(subscription));
-  }
-
-  /// Handle messages from notification WebSocket
-  void _handleNotificationMessage(dynamic message) {
-    try {
-      final data = jsonDecode(message);
-
-      // Skip non-Map messages
-      if (data is! Map<String, dynamic>) {
-        return;
-      }
-
-      // Process delta updates for notifications
-      if (data['updates'] != null) {
-        final update = SignalKUpdate.fromJson(data);
-
-        for (final updateValue in update.updates) {
-          for (final value in updateValue.values) {
-            if (value.path.startsWith('notifications.')) {
-              _handleNotification(value.path, value.value, updateValue.timestamp);
-            }
-          }
-        }
-      }
-    } catch (e) {
-      if (kDebugMode) {
-        print('❌ Error parsing notification message: $e');
-      }
-    }
-  }
-
-  /// Handle incoming notification
-  void _handleNotification(String path, dynamic value, DateTime timestamp) {
-    try {
-      // Extract notification key from path (e.g., "notifications.mob" -> "mob")
-      final key = path.replaceFirst('notifications.', '');
-
-      if (value is Map<String, dynamic>) {
-        final state = value['state'] as String?;
-        final message = value['message'] as String?;
-        final method = value['method'] as List?;
-
-        if (state != null && message != null) {
-          // Deduplicate: only emit if state changed for this notification key
-          final lastState = _lastNotificationState[key];
-          if (lastState == state) {
-            return;
-          }
-
-          // Update last state
-          _lastNotificationState[key] = state;
-
-          final notification = SignalKNotification(
-            key: key,
-            state: state,
-            message: message,
-            method: method?.map((e) => e.toString()).toList() ?? [],
-            timestamp: timestamp,
-          );
-
-          _notificationController.add(notification);
-        }
-      }
-    } catch (e) {
-      if (kDebugMode) {
-        print('❌ Error handling notification: $e');
-      }
-    }
   }
 
   /// Disconnect from server
@@ -1703,7 +1186,8 @@ class SignalKService extends ChangeNotifier implements DataService {
       // Mark as intentional disconnect to prevent auto-reconnect
       _intentionalDisconnect = true;
       _reconnectTimer?.cancel();
-      _aisRefreshTimer?.cancel();
+      _aisManager.dispose();
+      _cacheCleanupTimer?.cancel();
       _reconnectAttempts = 0;
 
       // Disconnect main data channel
@@ -1714,12 +1198,13 @@ class SignalKService extends ChangeNotifier implements DataService {
       _channel = null;
 
       _isConnected = false;
-      _latestData.clear();
-      _conversionsData.clear();
+      _dataCache.internalDataMap.clear();
+      _latestDataView = null;
+      _conversionManager.internalDataMap.clear();
+      _conversionsDataView = null;
       _activePaths.clear();
       _autopilotPaths.clear();
       _vesselContext = null;
-      _aisInitialLoadDone = false;
 
       // Disconnect autopilot channel
       await _autopilotSubscription?.cancel();
@@ -1734,7 +1219,7 @@ class SignalKService extends ChangeNotifier implements DataService {
       _conversionsChannel = null;
 
       // Also disconnect notification channel if it's connected
-      await _disconnectNotificationChannel();
+      await _notificationManager.disconnectNotificationChannel();
 
       if (kDebugMode) {
         print('Disconnected and cleaned up WebSocket channels');
@@ -1752,7 +1237,10 @@ class SignalKService extends ChangeNotifier implements DataService {
   @override
   void dispose() {
     disconnect();
-    _notificationController.close();
+    _dataCache.dispose();
+    _conversionManager.dispose();
+    _notificationManager.dispose();
+    _aisManager.dispose();
     super.dispose();
   }
 }
@@ -1828,5 +1316,741 @@ class PathConversionData {
       category: json['category'] as String,
       conversions: conversionsMap,
     );
+  }
+}
+
+/// Internal manager for data caching and cleanup
+/// Handles _latestData map, cache pruning, and data access methods
+class _DataCacheManager {
+  // Data storage - keeps latest value for each path
+  final Map<String, SignalKDataPoint> _latestData = {};
+  Timer? _cacheCleanupTimer;
+
+  // Dependencies injected via function getters for dynamic access
+  final Set<String> Function() getActivePaths;
+  final bool Function() isConnected;
+  final void Function()? onCacheChanged;
+
+  _DataCacheManager({
+    required this.getActivePaths,
+    required this.isConnected,
+    this.onCacheChanged,
+  });
+
+  // Direct access to internal map for SignalKService
+  Map<String, SignalKDataPoint> get internalDataMap => _latestData;
+
+  /// Get value for specific path, optionally from a specific source
+  SignalKDataPoint? getValue(String path, {String? source}) {
+    if (source == null) {
+      return _latestData[path];
+    }
+    final sourceKey = '$path@$source';
+    final result = _latestData[sourceKey];
+    return result ?? _latestData[path];
+  }
+
+  /// Check if data is fresh (within TTL threshold)
+  bool isDataFresh(String path, {String? source, int? ttlSeconds}) {
+    if (ttlSeconds == null) {
+      return true;
+    }
+    final dataPoint = getValue(path, source: source);
+    if (dataPoint == null) {
+      return false;
+    }
+    final now = DateTime.now();
+    final age = now.difference(dataPoint.timestamp);
+    return age.inSeconds <= ttlSeconds;
+  }
+
+  /// Get numeric value for specific path
+  double? getNumericValue(String path) {
+    final dataPoint = _latestData[path];
+    if (dataPoint?.value is num) {
+      return (dataPoint!.value as num).toDouble();
+    }
+    return null;
+  }
+
+  /// Get converted numeric value (already in user's preferred units)
+  double? getConvertedValue(String path) {
+    final dataPoint = _latestData[path];
+    return dataPoint?.converted ?? (dataPoint?.value is num ? (dataPoint!.value as num).toDouble() : null);
+  }
+
+  /// Start periodic cache cleanup to prevent unbounded memory growth
+  void startCacheCleanup() {
+    _cacheCleanupTimer?.cancel();
+    _cacheCleanupTimer = Timer.periodic(const Duration(minutes: 5), (timer) {
+      if (!isConnected()) {
+        timer.cancel();
+        return;
+      }
+      pruneStaleData();
+    });
+  }
+
+  /// Remove stale data from cache to prevent memory leaks
+  void pruneStaleData() {
+    final now = DateTime.now();
+    final beforeSize = _latestData.length;
+    final activePaths = getActivePaths();
+
+    _latestData.removeWhere((key, dataPoint) {
+      // Never prune own vessel data or actively subscribed paths
+      if (key.startsWith('vessels.self') || activePaths.contains(key)) {
+        return false;
+      }
+      // AIS vessel data - prune if older than 10 minutes
+      if (key.startsWith('vessels.')) {
+        final age = now.difference(dataPoint.timestamp);
+        return age.inMinutes > 10;
+      }
+      // Other data - prune if older than 15 minutes
+      final age = now.difference(dataPoint.timestamp);
+      return age.inMinutes > 15;
+    });
+
+    final afterSize = _latestData.length;
+    final removed = beforeSize - afterSize;
+    if (removed > 0) {
+      if (kDebugMode) {
+        print('Cache pruned: removed $removed stale entries, $afterSize remaining');
+      }
+      // Notify parent to invalidate cached views
+      onCacheChanged?.call();
+    }
+  }
+
+  void dispose() {
+    _cacheCleanupTimer?.cancel();
+    _latestData.clear();
+  }
+}
+
+/// Internal manager for unit conversion operations
+/// Handles conversions data and conversion-related methods
+class _ConversionManager {
+  // Conversion data - unit conversion formulas from server
+  final Map<String, PathConversionData> _conversionsData = {};
+
+  // Dependencies injected via function getters
+  final String Function() getServerUrl;
+  final bool Function() useSecureConnection;
+  final Map<String, String> Function() getHeaders;
+
+  _ConversionManager({
+    required this.getServerUrl,
+    required this.useSecureConnection,
+    required this.getHeaders,
+  });
+
+  // Direct access to internal map
+  Map<String, PathConversionData> get internalDataMap => _conversionsData;
+
+  /// Fetch conversions from server REST API
+  Future<void> fetchConversions() async {
+    final protocol = useSecureConnection() ? 'https' : 'http';
+    final serverUrl = getServerUrl();
+
+    try {
+      final response = await http.get(
+        Uri.parse('$protocol://$serverUrl/signalk/v1/conversions'),
+        headers: getHeaders(),
+      ).timeout(const Duration(seconds: 10));
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body) as Map<String, dynamic>;
+
+        _conversionsData.clear();
+        data.forEach((path, conversionJson) {
+          if (conversionJson is Map<String, dynamic>) {
+            _conversionsData[path] = PathConversionData.fromJson(conversionJson);
+          }
+        });
+
+        if (kDebugMode) {
+          print('Fetched ${_conversionsData.length} path conversions from server');
+        }
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error fetching conversions: $e');
+      }
+    }
+  }
+
+  /// Handle conversion WebSocket message
+  void handleConversionMessage(dynamic message) {
+    try {
+      final data = jsonDecode(message) as Map<String, dynamic>;
+      final type = data['type'] as String?;
+      final conversions = data['conversions'] as Map<String, dynamic>?;
+
+      if (conversions == null) {
+        if (kDebugMode) {
+          print('⚠️ Conversions message missing "conversions" field');
+        }
+        return;
+      }
+
+      if (type == 'full' || type == 'update') {
+        _conversionsData.clear();
+        conversions.forEach((path, conversionJson) {
+          if (conversionJson is Map<String, dynamic>) {
+            _conversionsData[path] = PathConversionData.fromJson(conversionJson);
+          }
+        });
+        if (kDebugMode) {
+          print('✅ Loaded ${_conversionsData.length} conversions from stream (type: $type)');
+        }
+      } else if (type == 'delta') {
+        conversions.forEach((path, conversionJson) {
+          if (conversionJson is Map<String, dynamic>) {
+            _conversionsData[path] = PathConversionData.fromJson(conversionJson);
+          }
+        });
+        if (kDebugMode) {
+          print('✅ Updated ${conversions.length} conversion(s) from delta');
+        }
+      } else {
+        if (kDebugMode) {
+          print('⚠️ Unknown conversions message type: $type');
+        }
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ Error parsing conversion message: $e');
+      }
+    }
+  }
+
+  PathConversionData? getConversionDataForPath(String path) => _conversionsData[path];
+  String? getBaseUnit(String path) => _conversionsData[path]?.baseUnit;
+  String getCategory(String path) => _conversionsData[path]?.category ?? 'none';
+
+  List<String> getAvailableUnits(String path) {
+    final conversionData = _conversionsData[path];
+    if (conversionData == null) return [];
+    return conversionData.conversions.keys.toList();
+  }
+
+  ConversionInfo? getConversionInfo(String path, String targetUnit) {
+    return _conversionsData[path]?.conversions[targetUnit];
+  }
+
+  void dispose() {
+    _conversionsData.clear();
+  }
+}
+
+/// Internal manager for notification system
+/// Handles notification WebSocket and notification processing
+class _NotificationManager {
+  // Notification WebSocket
+  WebSocketChannel? _notificationChannel;
+  StreamSubscription? _notificationSubscription;
+
+  // Notification state
+  bool _notificationsEnabled = false;
+  final StreamController<SignalKNotification> _notificationController =
+      StreamController<SignalKNotification>.broadcast();
+  final Map<String, String> _lastNotificationState = {};
+
+  // Dependencies injected via function getters
+  final AuthToken? Function() getAuthToken;
+  final String Function() getNotificationEndpoint;
+
+  _NotificationManager({
+    required this.getAuthToken,
+    required this.getNotificationEndpoint,
+  });
+
+  // Getters
+  bool get notificationsEnabled => _notificationsEnabled;
+  Stream<SignalKNotification> get notificationStream => _notificationController.stream;
+
+  /// Enable or disable notifications
+  Future<void> setNotificationsEnabled(bool enabled) async {
+    if (_notificationsEnabled == enabled) {
+      return;
+    }
+
+    _notificationsEnabled = enabled;
+
+    if (enabled) {
+      await connectNotificationChannel();
+    } else {
+      await disconnectNotificationChannel();
+    }
+  }
+
+  /// Connect to notification WebSocket
+  Future<void> connectNotificationChannel() async {
+    final authToken = getAuthToken();
+    if (authToken == null) {
+      return;
+    }
+
+    try {
+      final wsUrl = getNotificationEndpoint();
+
+      final headers = <String, String>{
+        'Authorization': 'Bearer ${authToken.token}',
+      };
+
+      final socket = await WebSocket.connect(wsUrl, headers: headers);
+      socket.pingInterval = const Duration(seconds: 30);
+      _notificationChannel = IOWebSocketChannel(socket);
+
+      _notificationSubscription = _notificationChannel!.stream.listen(
+        handleNotificationMessage,
+        onError: (error) {
+          if (kDebugMode) {
+            print('❌ Notification WebSocket error: $error');
+          }
+        },
+        onDone: () {},
+      );
+
+      await Future.delayed(const Duration(milliseconds: 100));
+      subscribeToNotifications();
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ Error connecting notification channel: $e');
+      }
+    }
+  }
+
+  /// Disconnect notification WebSocket
+  Future<void> disconnectNotificationChannel() async {
+    try {
+      await _notificationSubscription?.cancel();
+      _notificationSubscription = null;
+
+      await _notificationChannel?.sink.close();
+      _notificationChannel = null;
+
+      _lastNotificationState.clear();
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ Error disconnecting notification channel: $e');
+      }
+    }
+  }
+
+  /// Subscribe to notifications on the notification channel
+  void subscribeToNotifications() {
+    if (_notificationChannel == null) return;
+
+    final subscription = {
+      'context': 'vessels.self',
+      'subscribe': [
+        {
+          'path': 'notifications.*',
+          'format': 'delta',
+          'policy': 'instant',
+        }
+      ]
+    };
+
+    _notificationChannel?.sink.add(jsonEncode(subscription));
+  }
+
+  /// Handle messages from notification WebSocket
+  void handleNotificationMessage(dynamic message) {
+    try {
+      final data = jsonDecode(message);
+
+      if (data is! Map<String, dynamic>) {
+        return;
+      }
+
+      if (data['updates'] != null) {
+        final update = SignalKUpdate.fromJson(data);
+
+        for (final updateValue in update.updates) {
+          for (final value in updateValue.values) {
+            if (value.path.startsWith('notifications.')) {
+              handleNotification(value.path, value.value, updateValue.timestamp);
+            }
+          }
+        }
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ Error parsing notification message: $e');
+      }
+    }
+  }
+
+  /// Handle incoming notification
+  void handleNotification(String path, dynamic value, DateTime timestamp) {
+    try {
+      final key = path.replaceFirst('notifications.', '');
+
+      if (value is Map<String, dynamic>) {
+        final state = value['state'] as String?;
+        final message = value['message'] as String?;
+        final method = value['method'] as List?;
+
+        if (state != null && message != null) {
+          final lastState = _lastNotificationState[key];
+          if (lastState == state) {
+            return;
+          }
+
+          _lastNotificationState[key] = state;
+
+          final notification = SignalKNotification(
+            key: key,
+            state: state,
+            message: message,
+            method: method?.map((e) => e.toString()).toList() ?? [],
+            timestamp: timestamp,
+          );
+
+          _notificationController.add(notification);
+        }
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ Error processing notification: $e');
+      }
+    }
+  }
+
+  Future<void> dispose() async {
+    await disconnectNotificationChannel();
+    await _notificationController.close();
+  }
+}
+
+/// Internal manager for AIS vessel tracking
+/// Handles vessel data fetching, caching, and periodic refresh
+class _AISManager {
+  // Fields
+  Timer? _aisRefreshTimer;
+  bool _aisInitialLoadDone = false;
+
+  // Dependencies (inject as function getters)
+  final String Function() getServerUrl;
+  final bool Function() useSecureConnection;
+  final Map<String, String> Function() getHeaders;
+  final bool Function() isConnected;
+  final WebSocketChannel? Function() getChannel;
+  final String? Function() getVesselContext;
+  final Map<String, SignalKDataPoint> Function() getDataCache;
+  final double? Function(String, double) convertValueForPath;
+
+  _AISManager({
+    required this.getServerUrl,
+    required this.useSecureConnection,
+    required this.getHeaders,
+    required this.isConnected,
+    required this.getChannel,
+    required this.getVesselContext,
+    required this.getDataCache,
+    required this.convertValueForPath,
+  });
+
+  /// Get live AIS vessel data from WebSocket cache
+  /// Returns vessel data populated by vessels.* wildcard subscription
+  Map<String, Map<String, dynamic>> getLiveAISVessels() {
+    final vessels = <String, Map<String, dynamic>>{};
+    final dataCache = getDataCache();
+
+    // Scan data cache for vessel context keys
+    final vesselContexts = <String>{};
+
+    for (final key in dataCache.keys) {
+      if (key.startsWith('vessels.') && !key.startsWith('vessels.self')) {
+        // Extract vessel context from key like "vessels.urn:mrn:imo:mmsi:123456789.navigation.position"
+        final parts = key.split('.');
+        if (parts.length >= 2) {
+          // Find where the path starts - look for known path prefixes
+          for (final pathPrefix in ['navigation', 'name', 'mmsi', 'communication']) {
+            final prefixIndex = parts.indexOf(pathPrefix);
+            if (prefixIndex > 1) {
+              final vesselContext = parts.sublist(0, prefixIndex).join('.');
+              vesselContexts.add(vesselContext);
+              break;
+            }
+          }
+        }
+      }
+    }
+
+    // For each vessel context, extract position, COG, SOG, and name
+    for (final vesselContext in vesselContexts) {
+      final vesselId = vesselContext.substring('vessels.'.length);
+
+      // Skip self vessel
+      final currentVesselContext = getVesselContext();
+      if (vesselContext == currentVesselContext || vesselContext.contains('self')) {
+        continue;
+      }
+
+      // Get position
+      final positionData = dataCache['$vesselContext.navigation.position'];
+      if (positionData?.value is Map<String, dynamic>) {
+        final position = positionData!.value as Map<String, dynamic>;
+        final lat = position['latitude'];
+        final lon = position['longitude'];
+
+        if (lat is num && lon is num) {
+          // Get COG
+          final cogData = dataCache['$vesselContext.navigation.courseOverGroundTrue'];
+          double? cog;
+          if (cogData?.value is num) {
+            final rawCog = (cogData!.value as num).toDouble();
+            cog = convertValueForPath('navigation.courseOverGroundTrue', rawCog);
+          }
+
+          // Get SOG
+          final sogData = dataCache['$vesselContext.navigation.speedOverGround'];
+          double? sog;
+          if (sogData?.value is num) {
+            final rawSog = (sogData!.value as num).toDouble();
+            sog = convertValueForPath('navigation.speedOverGround', rawSog);
+          }
+
+          // Get vessel name
+          final name = dataCache['$vesselContext.name']?.value as String?;
+
+          vessels[vesselId] = {
+            'latitude': lat.toDouble(),
+            'longitude': lon.toDouble(),
+            'name': name,
+            'cog': cog,
+            'sog': sog,
+            'timestamp': positionData.timestamp,
+            'fromGET': positionData.fromGET,
+          };
+        }
+      }
+    }
+
+    return vessels;
+  }
+
+  /// Get all AIS vessels with their positions from REST API
+  /// Uses standard SignalK endpoint and applies client-side conversions
+  Future<Map<String, Map<String, dynamic>>> getAllAISVessels() async {
+    final vessels = <String, Map<String, dynamic>>{};
+    final protocol = useSecureConnection() ? 'https' : 'http';
+
+    // Use standard SignalK vessels endpoint
+    final endpoint = '$protocol://${getServerUrl()}/signalk/v1/api/vessels';
+
+    if (kDebugMode) {
+      print('🌐 Fetching AIS vessels from: $endpoint');
+    }
+
+    try {
+      final response = await http.get(
+        Uri.parse(endpoint),
+        headers: getHeaders(),
+      ).timeout(const Duration(seconds: 5));
+
+      if (kDebugMode) {
+        print('🌐 Response status: ${response.statusCode}');
+        if (response.statusCode != 200) {
+          print('🌐 Response body: ${response.body}');
+        }
+      }
+
+      if (response.statusCode == 200) {
+        // Response has vessels at root level, NOT wrapped in 'vessels' object
+        final vesselsData = jsonDecode(response.body) as Map<String, dynamic>;
+
+        if (kDebugMode) {
+          print('🌐 Received ${vesselsData.length} vessel entries');
+        }
+
+        for (final entry in vesselsData.entries) {
+          final vesselId = entry.key;
+          final vesselData = entry.value as Map<String, dynamic>?;
+          if (vesselData != null) {
+            final navigation = vesselData['navigation'] as Map<String, dynamic>?;
+            final position = navigation?['position'] as Map<String, dynamic>?;
+
+            if (position != null) {
+              final positionValue = position['value'] as Map<String, dynamic>?;
+              final lat = positionValue?['latitude'];
+              final lon = positionValue?['longitude'];
+
+              if (lat is num && lon is num) {
+                String? name;
+                final nameData = vesselData['name'];
+                if (nameData is String) {
+                  name = nameData;
+                } else if (nameData is Map<String, dynamic>) {
+                  name = nameData['value'] as String?;
+                }
+
+                final cogData = navigation?['courseOverGroundTrue'] as Map<String, dynamic>?;
+                final sogData = navigation?['speedOverGround'] as Map<String, dynamic>?;
+
+                double? cog;
+                double? sog;
+
+                if (cogData != null) {
+                  final rawCog = (cogData['value'] as num?)?.toDouble();
+                  if (rawCog != null) {
+                    cog = convertValueForPath('navigation.courseOverGroundTrue', rawCog);
+                  }
+                }
+
+                if (sogData != null) {
+                  final rawSog = (sogData['value'] as num?)?.toDouble();
+                  if (rawSog != null) {
+                    sog = convertValueForPath('navigation.speedOverGround', rawSog);
+                  }
+                }
+
+                vessels[vesselId] = {
+                  'latitude': lat.toDouble(),
+                  'longitude': lon.toDouble(),
+                  'name': name,
+                  'cog': cog,
+                  'sog': sog,
+                };
+              }
+            }
+          }
+        }
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('🌐 Error fetching AIS vessels: $e');
+      }
+    }
+
+    if (kDebugMode) {
+      print('🌐 Returning ${vessels.length} vessels with position data');
+    }
+
+    return vessels;
+  }
+
+  /// Load AIS vessels and subscribe for updates
+  Future<void> loadAndSubscribeAISVessels() async {
+    if (!_aisInitialLoadDone) {
+      _aisInitialLoadDone = true;
+      final vessels = await getAllAISVessels();
+      final dataCache = getDataCache();
+      for (final entry in vessels.entries) {
+        final vesselId = entry.key;
+        final vesselData = entry.value;
+        final vesselContext = 'vessels.$vesselId';
+
+        if (vesselData['latitude'] != null && vesselData['longitude'] != null) {
+          dataCache['$vesselContext.navigation.position'] = SignalKDataPoint(
+            path: 'navigation.position',
+            value: {
+              'latitude': vesselData['latitude'],
+              'longitude': vesselData['longitude'],
+            },
+            timestamp: DateTime.now(),
+            fromGET: true,
+          );
+        }
+
+        // Store COG
+        if (vesselData['cog'] != null) {
+          dataCache['$vesselContext.navigation.courseOverGroundTrue'] = SignalKDataPoint(
+            path: 'navigation.courseOverGroundTrue',
+            value: vesselData['cog'],
+            timestamp: DateTime.now(),
+            converted: vesselData['cog'],
+          );
+        }
+
+        // Store SOG
+        if (vesselData['sog'] != null) {
+          dataCache['$vesselContext.navigation.speedOverGround'] = SignalKDataPoint(
+            path: 'navigation.speedOverGround',
+            value: vesselData['sog'],
+            timestamp: DateTime.now(),
+            converted: vesselData['sog'],
+          );
+        }
+
+        // Store name
+        if (vesselData['name'] != null) {
+          dataCache['$vesselContext.name'] = SignalKDataPoint(
+            path: 'name',
+            value: vesselData['name'],
+            timestamp: DateTime.now(),
+          );
+        }
+      }
+
+      await Future.delayed(const Duration(seconds: 10));
+      startAISRefreshTimer();
+    }
+
+    subscribeToAllAISVessels();
+  }
+
+  /// Start periodic AIS refresh timer
+  void startAISRefreshTimer() {
+    _aisRefreshTimer?.cancel();
+    _aisRefreshTimer = Timer.periodic(const Duration(minutes: 5), (timer) async {
+      if (!isConnected()) {
+        timer.cancel();
+        return;
+      }
+
+      if (kDebugMode) {
+        print('🔄 Running periodic AIS GET refresh...');
+      }
+
+      final vessels = await getAllAISVessels();
+      final dataCache = getDataCache();
+
+      for (final entry in vessels.entries) {
+        final vesselId = entry.key;
+        final vesselData = entry.value;
+        final vesselContext = 'vessels.$vesselId';
+
+        if (dataCache['$vesselContext.navigation.position'] != null) {
+          if (vesselData['name'] != null) {
+            dataCache['$vesselContext.name'] = SignalKDataPoint(
+              path: 'name',
+              value: vesselData['name'],
+              timestamp: DateTime.now(),
+              fromGET: true,
+            );
+          }
+        }
+      }
+    });
+  }
+
+  /// Subscribe to all AIS vessels using wildcard subscription
+  void subscribeToAllAISVessels() {
+    final channel = getChannel();
+    if (channel == null) return;
+
+    final aisSubscription = {
+      'context': 'vessels.*',
+      'subscribe': [
+        {'path': 'navigation.position', 'format': 'delta', 'policy': 'instant'},
+        {'path': 'navigation.courseOverGroundTrue', 'format': 'delta', 'policy': 'instant'},
+        {'path': 'navigation.speedOverGround', 'format': 'delta', 'policy': 'instant'},
+        {'path': 'name', 'period': 60000, 'format': 'delta', 'policy': 'ideal'},
+      ],
+    };
+
+    channel.sink.add(jsonEncode(aisSubscription));
+  }
+
+  void dispose() {
+    _aisRefreshTimer?.cancel();
+    _aisRefreshTimer = null;
+    _aisInitialLoadDone = false;
   }
 }

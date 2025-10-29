@@ -2,6 +2,8 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:syncfusion_flutter_gauges/gauges.dart';
 import 'base_compass.dart';
+import '../utils/angle_utils.dart';
+import '../utils/compass_zone_builder.dart';
 
 /// Display mode for wind compass
 enum WindCompassMode {
@@ -131,7 +133,6 @@ class _WindCompassState extends State<WindCompass> {
   // Wind shift tracking
   final List<_WindSample> _windHistory = [];
   static const int _windHistoryDuration = 30; // Track last 30 seconds
-  double? _baselineWindDirection; // Average wind direction for comparison
 
   @override
   void didUpdateWidget(WindCompass oldWidget) {
@@ -151,108 +152,11 @@ class _WindCompassState extends State<WindCompass> {
     // Remove old samples
     final cutoff = now.subtract(const Duration(seconds: _windHistoryDuration));
     _windHistory.removeWhere((sample) => sample.timestamp.isBefore(cutoff));
-
-    // Calculate baseline (average) wind direction
-    if (_windHistory.length >= 5) {
-      _baselineWindDirection = _calculateAverageWindDirection();
-    }
-  }
-
-  /// Calculate average wind direction handling 0°/360° wraparound
-  double _calculateAverageWindDirection() {
-    if (_windHistory.isEmpty) return 0;
-
-    // Use vector averaging to handle wraparound
-    double sumSin = 0;
-    double sumCos = 0;
-
-    for (var sample in _windHistory) {
-      final radians = sample.direction * pi / 180;
-      sumSin += sin(radians);
-      sumCos += cos(radians);
-    }
-
-    final avgRadians = atan2(sumSin / _windHistory.length, sumCos / _windHistory.length);
-    double avgDegrees = avgRadians * 180 / pi;
-
-    if (avgDegrees < 0) avgDegrees += 360;
-
-    return avgDegrees;
   }
 
   /// Calculate wind shift from baseline
-  double? _calculateWindShift() {
-    if (_baselineWindDirection == null || widget.windDirectionTrueDegrees == null) {
-      return null;
-    }
-
-    double shift = widget.windDirectionTrueDegrees! - _baselineWindDirection!;
-
-    // Normalize to -180 to +180 range
-    while (shift > 180) {
-      shift -= 360;
-    }
-    while (shift < -180) {
-      shift += 360;
-    }
-
-    return shift;
-  }
-
-  /// Determine if wind shift is a lift or header
-  String? _getShiftType(double shift) {
-    if (shift.abs() < 3) {
-      return null; // Shift too small to matter
-    }
-
-    // Calculate AWA to determine tack
-    double? awa;
-    if (widget.windAngleApparent != null) {
-      awa = widget.windAngleApparent!;
-    } else if (widget.windDirectionApparentDegrees != null) {
-      final headingDegrees = widget.headingMagneticDegrees ?? widget.headingTrueDegrees;
-      if (headingDegrees != null) {
-        double tempAwa = widget.windDirectionApparentDegrees! - headingDegrees;
-        while (tempAwa > 180) {
-          tempAwa -= 360;
-        }
-        while (tempAwa < -180) {
-          tempAwa += 360;
-        }
-        awa = tempAwa;
-      }
-    }
-
-    if (awa == null) {
-      return null;
-    }
-
-    // Only show lift/header when sailing upwind (AWA < 90°)
-    if (awa.abs() > 90) {
-      return null;
-    }
-
-    final isPortTack = awa < 0;
-
-    // Port tack: clockwise shift (+) = lift, counter-clockwise (-) = header
-    // Starboard tack: counter-clockwise (-) = lift, clockwise (+) = header
-    if (isPortTack) {
-      return shift > 0 ? 'lift' : 'header';
-    } else {
-      return shift < 0 ? 'lift' : 'header';
-    }
-  }
-
-  /// Normalize angle to 0-360 range
-  double _normalizeAngle(double angle) {
-    while (angle < 0) {
-      angle += 360;
-    }
-    while (angle >= 360) {
-      angle -= 360;
-    }
-    return angle;
-  }
+  // Removed: _normalizeAngle - now using AngleUtils.normalize()
+  // Removed: _calculateWindShift and _getShiftType - unused methods
 
   /// Get optimal target AWA based on current wind speed (if VMG mode enabled)
   double _getOptimalTargetAWA() {
@@ -268,77 +172,16 @@ class _WindCompassState extends State<WindCompass> {
     final primaryWindDegrees = widget.windDirectionApparentDegrees ?? widget.windDirectionTrueDegrees;
     if (primaryWindDegrees == null) return [];
 
-    final zones = <GaugeRange>[];
     final effectiveTargetAWA = _getOptimalTargetAWA();
 
-    // Helper to add a range, splitting if it crosses 0°
-    void addRange(double start, double end, Color color, {double width = 25}) {
-      final startNorm = _normalizeAngle(start);
-      final endNorm = _normalizeAngle(end);
+    final builder = CompassZoneBuilder();
+    builder.addSailingZones(
+      windDirection: primaryWindDegrees,
+      targetAWA: effectiveTargetAWA,
+      targetTolerance: widget.targetTolerance,
+    );
 
-      if (startNorm < endNorm) {
-        zones.add(GaugeRange(
-          startValue: startNorm,
-          endValue: endNorm,
-          color: color,
-          startWidth: width,
-          endWidth: width,
-        ));
-      } else {
-        // Crosses 0°: split into two ranges
-        zones.add(GaugeRange(
-          startValue: startNorm,
-          endValue: 360,
-          color: color,
-          startWidth: width,
-          endWidth: width,
-        ));
-        zones.add(GaugeRange(
-          startValue: 0,
-          endValue: endNorm,
-          color: color,
-          startWidth: width,
-          endWidth: width,
-        ));
-      }
-    }
-
-    // PORT SIDE - Gradiated Red Zones
-    addRange(primaryWindDegrees - 60, primaryWindDegrees - effectiveTargetAWA, Colors.red.withValues(alpha: 0.6));
-    addRange(primaryWindDegrees - 90, primaryWindDegrees - 60, Colors.red.withValues(alpha: 0.4));
-    addRange(primaryWindDegrees - 110, primaryWindDegrees - 90, Colors.red.withValues(alpha: 0.25));
-    addRange(primaryWindDegrees - 150, primaryWindDegrees - 110, Colors.red.withValues(alpha: 0.15));
-
-    // No-go zone
-    addRange(primaryWindDegrees - effectiveTargetAWA, primaryWindDegrees + effectiveTargetAWA, Colors.white.withValues(alpha: 0.3));
-
-    // STARBOARD SIDE - Gradiated Green Zones
-    addRange(primaryWindDegrees + effectiveTargetAWA, primaryWindDegrees + 60, Colors.green.withValues(alpha: 0.6));
-    addRange(primaryWindDegrees + 60, primaryWindDegrees + 90, Colors.green.withValues(alpha: 0.4));
-    addRange(primaryWindDegrees + 90, primaryWindDegrees + 110, Colors.green.withValues(alpha: 0.25));
-    addRange(primaryWindDegrees + 110, primaryWindDegrees + 150, Colors.green.withValues(alpha: 0.15));
-
-    // PERFORMANCE ZONES
-    final target = effectiveTargetAWA;
-    final tolerance = widget.targetTolerance;
-
-    // PORT SIDE PERFORMANCE ZONES
-    addRange(primaryWindDegrees - target - tolerance, primaryWindDegrees - target + tolerance,
-             Colors.green.withValues(alpha: 0.8), width: 15);
-    addRange(primaryWindDegrees - target - (2 * tolerance), primaryWindDegrees - target - tolerance,
-             Colors.yellow.withValues(alpha: 0.7), width: 15);
-    addRange(primaryWindDegrees - target + tolerance, primaryWindDegrees - target + (2 * tolerance),
-             Colors.yellow.withValues(alpha: 0.7), width: 15);
-
-    // STARBOARD SIDE PERFORMANCE ZONES
-    addRange(primaryWindDegrees + target - tolerance, primaryWindDegrees + target + tolerance,
-             Colors.green.withValues(alpha: 0.8), width: 15);
-    addRange(primaryWindDegrees + target - (2 * tolerance), primaryWindDegrees + target - tolerance,
-             Colors.yellow.withValues(alpha: 0.7), width: 15);
-    addRange(primaryWindDegrees + target + tolerance, primaryWindDegrees + target + (2 * tolerance),
-             Colors.yellow.withValues(alpha: 0.7), width: 15);
-
-    return zones;
+    return builder.zones;
   }
 
   /// Build wind pointers
@@ -426,7 +269,7 @@ class _WindCompassState extends State<WindCompass> {
     if (_currentMode == WindCompassMode.laylines && widget.waypointBearing != null && widget.windDirectionTrueDegrees != null) {
       // Port layline
       pointers.add(NeedlePointer(
-        value: _normalizeAngle(widget.windDirectionTrueDegrees! + widget.targetAWA),
+        value: AngleUtils.normalize(widget.windDirectionTrueDegrees! + widget.targetAWA),
         needleLength: 0.85,
         needleStartWidth: 0,
         needleEndWidth: 4,
@@ -435,7 +278,7 @@ class _WindCompassState extends State<WindCompass> {
       ));
       // Starboard layline
       pointers.add(NeedlePointer(
-        value: _normalizeAngle(widget.windDirectionTrueDegrees! - widget.targetAWA),
+        value: AngleUtils.normalize(widget.windDirectionTrueDegrees! - widget.targetAWA),
         needleLength: 0.85,
         needleStartWidth: 0,
         needleEndWidth: 4,
@@ -910,8 +753,8 @@ class _WindCompassState extends State<WindCompass> {
 
     final twd = widget.windDirectionTrueDegrees ?? navigationCourse;
 
-    final portLayline = _normalizeAngle(twd + widget.targetAWA);
-    final stbdLayline = _normalizeAngle(twd - widget.targetAWA);
+    final portLayline = AngleUtils.normalize(twd + widget.targetAWA);
+    final stbdLayline = AngleUtils.normalize(twd - widget.targetAWA);
 
     final waypointBearing = widget.waypointBearing!;
 
@@ -989,9 +832,9 @@ class _WindCompassState extends State<WindCompass> {
   }
 
   bool _isAngleBetween(double angle, double start, double end) {
-    angle = _normalizeAngle(angle);
-    start = _normalizeAngle(start);
-    end = _normalizeAngle(end);
+    angle = AngleUtils.normalize(angle);
+    start = AngleUtils.normalize(start);
+    end = AngleUtils.normalize(end);
 
     if (start <= end) {
       return angle >= start && angle <= end;
@@ -1018,8 +861,8 @@ class _WindCompassState extends State<WindCompass> {
     }
     final twd = widget.windDirectionTrueDegrees!;
     return [
-      _normalizeAngle(twd + widget.targetAWA), // Port layline
-      _normalizeAngle(twd - widget.targetAWA), // Starboard layline
+      AngleUtils.normalize(twd + widget.targetAWA), // Port layline
+      AngleUtils.normalize(twd - widget.targetAWA), // Starboard layline
     ];
   }
 
@@ -1031,8 +874,8 @@ class _WindCompassState extends State<WindCompass> {
     final twd = widget.windDirectionTrueDegrees!;
     final optimalAWA = _getOptimalTargetAWA();
     return [
-      _normalizeAngle(twd + optimalAWA), // Port tack optimal VMG
-      _normalizeAngle(twd - optimalAWA), // Starboard tack optimal VMG
+      AngleUtils.normalize(twd + optimalAWA), // Port tack optimal VMG
+      AngleUtils.normalize(twd - optimalAWA), // Starboard tack optimal VMG
     ];
   }
 

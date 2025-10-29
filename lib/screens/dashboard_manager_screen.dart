@@ -11,7 +11,7 @@ import '../models/dashboard_screen.dart';
 import '../models/tool.dart';
 import '../models/tool_placement.dart';
 import 'tool_config_screen.dart';
-import 'template_library_screen.dart';
+// Removed: template_library_screen import (deprecated)
 import 'settings_screen.dart';
 
 /// Main dashboard screen with multi-screen support using PageView
@@ -168,90 +168,8 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen> {
     }
   }
 
-  Future<void> _browseTemplates() async {
-    final dashboardService = Provider.of<DashboardService>(context, listen: false);
-    final toolService = Provider.of<ToolService>(context, listen: false);
-    final activeScreen = dashboardService.currentLayout?.activeScreen;
-
-    if (activeScreen == null) return;
-
-    final result = await Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (context) => const TemplateLibraryScreen(),
-      ),
-    );
-
-    if (result is Map<String, dynamic> && mounted) {
-      try {
-        final tool = result['tool'] as Tool;
-        final width = result['width'] as int? ?? 1;
-        final height = result['height'] as int? ?? 1;
-
-        // Create a placement for this tool with size
-        final placement = toolService.createPlacement(
-          toolId: tool.id,
-          screenId: activeScreen.id,
-          width: width,
-          height: height,
-        );
-
-        // Add placement to dashboard (this calls saveDashboard internally)
-        await dashboardService.addPlacementToActiveScreen(placement);
-
-        // Explicitly save dashboard to ensure persistence
-        await dashboardService.saveDashboard();
-
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Tool "${tool.name}" added and saved'),
-              backgroundColor: Colors.green,
-            ),
-          );
-        }
-      } catch (e) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Error adding tool: $e'),
-              backgroundColor: Colors.red,
-            ),
-          );
-        }
-      }
-    }
-  }
-
-  void _showAddMenu() {
-    showModalBottomSheet(
-      context: context,
-      builder: (context) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: const Icon(Icons.add_circle_outline),
-              title: const Text('Create Tool'),
-              subtitle: const Text('Configure a tool from scratch'),
-              onTap: () {
-                Navigator.pop(context);
-                _addTool();
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.collections_bookmark),
-              title: const Text('Browse Tools'),
-              subtitle: const Text('Use saved tools'),
-              onTap: () {
-                Navigator.pop(context);
-                _browseTemplates();
-              },
-            ),
-          ],
-        ),
-      ),
-    );
-  }
+  // Removed: _browseTemplates() and _showAddMenu() - deprecated
+  // "+" button now goes directly to tool configuration
 
   void _toggleFullScreen() {
     setState(() {
@@ -576,26 +494,33 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen> {
                   size: 22,
                 ),
                 onPressed: () {
-                  // Show connection details on tap
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text(
-                        service.isConnected
-                            ? 'Connected to ${service.serverUrl}'
-                            : 'Not connected - tap Settings to connect',
+                  if (service.isConnected) {
+                    // Show connection details on tap
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('Connected to ${service.serverUrl}'),
+                        duration: const Duration(seconds: 2),
+                        backgroundColor: Colors.green,
                       ),
-                      duration: const Duration(seconds: 2),
-                      backgroundColor: service.isConnected ? Colors.green : Colors.red,
-                    ),
-                  );
+                    );
+                  } else {
+                    // Navigate to settings to connect (with connections expanded)
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (context) => const SettingsScreen(
+                          showConnections: true,
+                        ),
+                      ),
+                    );
+                  }
                 },
-                tooltip: service.isConnected ? 'Connected' : 'Disconnected',
+                tooltip: service.isConnected ? 'Connected to ${service.serverUrl}' : 'Tap to connect',
               );
             },
           ),
           IconButton(
             icon: const Icon(Icons.add),
-            onPressed: _showAddMenu,
+            onPressed: _addTool,
             tooltip: 'Add Tool',
           ),
           IconButton(
@@ -678,7 +603,9 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen> {
                       onPressed: () {
                         Navigator.of(context).push(
                           MaterialPageRoute(
-                            builder: (context) => const SettingsScreen(),
+                            builder: (context) => const SettingsScreen(
+                              showConnections: true,
+                            ),
                           ),
                         );
                       },
@@ -815,7 +742,7 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen> {
           ),
           const SizedBox(height: 8),
           ElevatedButton.icon(
-            onPressed: _showAddMenu,
+            onPressed: _addTool,
             icon: const Icon(Icons.add),
             label: const Text('Add Your First Tool'),
           ),

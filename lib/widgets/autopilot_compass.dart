@@ -2,6 +2,7 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:syncfusion_flutter_gauges/gauges.dart';
 import 'base_compass.dart';
+import '../utils/angle_utils.dart';
 
 /// Autopilot-style compass gauge with rotating card display
 /// Built on BaseCompass with autopilot-specific features
@@ -27,24 +28,8 @@ class AutopilotCompass extends StatelessWidget {
     this.showTarget = false,
   });
 
-  /// Normalize angle to 0-360 range
-  double _normalizeAngle(double angle) {
-    while (angle < 0) {
-      angle += 360;
-    }
-    while (angle >= 360) {
-      angle -= 360;
-    }
-    return angle;
-  }
-
-  /// Get cardinal direction from heading
-  String _getCardinalDirection(double degrees) {
-    const directions = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE',
-                       'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
-    final index = ((degrees + 11.25) / 22.5).floor() % 16;
-    return directions[index];
-  }
+  // Removed: _normalizeAngle - now using AngleUtils.normalize()
+  // Removed: _getCardinalDirection - now using AngleUtils.toCompassPoint()
 
   /// Build autopilot zones (port/starboard)
   List<GaugeRange> _buildAutopilotZones(double primaryHeadingDegrees) {
@@ -52,8 +37,8 @@ class AutopilotCompass extends StatelessWidget {
 
     // Helper to add a range, splitting if it crosses 0°
     void addRange(double start, double end, Color color, {double width = 30}) {
-      final startNorm = _normalizeAngle(start);
-      final endNorm = _normalizeAngle(end);
+      final startNorm = AngleUtils.normalize(start);
+      final endNorm = AngleUtils.normalize(end);
 
       if (startNorm < endNorm) {
         zones.add(GaugeRange(
@@ -123,7 +108,7 @@ class AutopilotCompass extends StatelessWidget {
 
     // Apparent wind angle indicator (if provided)
     if (apparentWindAngle != null) {
-      final awaDirection = _normalizeAngle(primaryHeadingDegrees + apparentWindAngle!);
+      final awaDirection = AngleUtils.normalize(primaryHeadingDegrees + apparentWindAngle!);
       pointers.add(NeedlePointer(
         value: awaDirection,
         needleLength: 0.85,
@@ -158,7 +143,7 @@ class AutopilotCompass extends StatelessWidget {
                 border: Border.all(color: Colors.white30, width: 1),
               ),
               child: Text(
-                _getCardinalDirection(primaryHeadingDegrees),
+                AngleUtils.toCompassPoint(primaryHeadingDegrees),
                 style: const TextStyle(
                   fontSize: 16,
                   color: Colors.white,

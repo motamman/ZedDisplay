@@ -191,10 +191,10 @@ A customizable SignalK marine dashboard application to display real-time vessel 
    - Give it a name (e.g., "Navigation", "Engine")
 
 3. **Add Tools to Your Screen**
-   - Long-press on a screen to add tools
+   - Tap the "+" button to add tools
    - Choose a tool type (gauge, chart, compass, etc.)
    - Configure the data source and styling
-   - Position it on the grid
+   - Tool automatically places on the screen (can be moved/resized in edit mode)
 
 4. **Save Your Setup**
    - Go to Settings → Dashboard Setups
@@ -262,10 +262,15 @@ lib/
 SignalK Server (WebSocket)
     ↓
 SignalKService (WebSocket handler)
+    ├── DataCacheManager (TTL-based caching & pruning)
+    ├── ConversionManager (Unit conversions)
+    ├── NotificationManager (Alert processing)
+    └── AISManager (Vessel tracking)
     ↓
 DashboardService (Data distribution)
     ↓
 Tool Components (Display layer)
+    └── Tool Configurators (Strategy pattern)
 ```
 
 ### Storage
@@ -312,6 +317,20 @@ dart run build_runner build --delete-conflicting-outputs
 ## Configuration
 
 The app includes a configuration system for sensitive data (see `CONFIG_SETUP.md`), though it's currently not required. This infrastructure is ready for future use with API keys or other configuration values.
+
+## Developer Documentation
+
+### Creating Custom Tools
+See the comprehensive guide: [`docs/public/creating-new-tools-guide.md`](docs/public/creating-new-tools-guide.md)
+
+This 900+ line guide covers:
+- Tool architecture and the Strategy pattern
+- Step-by-step tool creation (with examples)
+- Tool configurators and the configuration system
+- Best practices and testing
+- Troubleshooting common issues
+
+Perfect for developers wanting to add new tool types to ZedDisplay!
 
 ## Contributing
 

@@ -7,6 +7,113 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0+9] - 2025-10-29
+
+### Major Code Refactoring & Cleanup
+- **Comprehensive Code Review**: Completed major cleanup reducing codebase by ~5,000 lines (14%)
+  - Eliminated 2,765 lines of dead code (_old.dart files)
+  - Removed 1,349 lines of deprecated template system
+  - Refactored tool_config_screen.dart from 2,170 lines to 1,300 lines (40% reduction)
+  - Cleaned up 138 lines from dashboard_manager_screen.dart
+  - Achieved 0 errors, 0 warnings compilation status
+
+### Architecture Improvements
+- **SignalK Service Refactoring**: Split monolithic service into organized managers
+  - Created `_DataCacheManager` with TTL-based cache pruning (fixes unbounded memory growth)
+  - Created `_ConversionManager` for unit conversion handling
+  - Created `_NotificationManager` for notification processing
+  - Created `_AISManager` for AIS vessel tracking with automatic stale data pruning
+  - Service now 2,057 lines, well-organized with clear separation of concerns
+  - Added cache invalidation callbacks for proper view updates
+
+- **Tool Configuration System Refactoring**: Implemented Strategy pattern for tool-specific configuration
+  - Created `BaseToolConfigurator` abstract class (36 lines)
+  - Created `ToolConfiguratorFactory` for configurator instantiation (85 lines)
+  - Implemented 7 specialized configurators totaling 1,482 lines:
+    - `ChartConfigurator` for historical_chart and realtime_chart (290 lines)
+    - `GaugeConfigurator` for radial_gauge and linear_gauge (207 lines)
+    - `CompassConfigurator` for wind_compass and autopilot (269 lines)
+    - `PolarChartConfigurator` for polar_radar_chart and ais_polar_chart (187 lines)
+    - `ControlConfigurator` for slider, knob, dropdown, switch, button (168 lines)
+    - `SystemConfigurator` for conversion_test, rpi_monitor, server_manager (152 lines)
+    - `WebViewConfigurator` for webview (209 lines)
+  - Each tool type now has isolated, maintainable configuration logic
+  - Easy to extend with new tool types
+
+### New Utilities
+- **AngleUtils** (`lib/utils/angle_utils.dart`): Centralized angle normalization and manipulation
+  - Eliminated duplicate angle normalization code across 7 files
+  - Provides `normalize()`, `difference()`, `interpolate()`, and `toRadians()/toDegrees()`
+  - Reduced code duplication and improved consistency
+
+- **CompassZoneBuilder** (`lib/utils/compass_zone_builder.dart`): Shared zone rendering for compass widgets
+  - Extracted common zone building logic from wind_compass and autopilot widgets
+  - Provides consistent visual styling across all compass-based tools
+  - Simplified maintenance of compass visualizations
+
+### Performance & Memory Improvements
+- **Memory Management**: Fixed unbounded data growth issues
+  - AIS data now pruned after 10 minutes of inactivity
+  - General data pruned after 15 minutes for non-subscribed paths
+  - Automatic cleanup runs every 5 minutes
+  - Own vessel data and actively subscribed paths never pruned
+
+- **Map Performance**: Replaced `Map.unmodifiable()` with `UnmodifiableMapView`
+  - Zero-copy view creation instead of full map copying
+  - Significant performance improvement in hot paths
+  - Proper cache invalidation when data is pruned
+
+### User Experience Improvements
+- **Simplified Tool Addition**: Removed unnecessary menu click
+  - "+" button now opens tool configuration directly (was: + → menu → Create Tool)
+  - One-click access to tool creation instead of two
+
+- **Improved Connection Management**: Enhanced connection and reconnection flows
+  - Cloud icon (when disconnected) now navigates directly to Settings
+  - Added "Other Connections" button on Connection Screen
+  - Saved connections list auto-expands when navigating from connection buttons
+  - Clicking saved connection now navigates to Dashboard (not back to Connection Screen)
+  - Fixed navigation stack to prevent returning to Connection Screen after connecting
+
+- **Auto-Placement**: Tools now auto-place on dashboard after configuration
+  - Smart positioning: centers new tools or finds next available spot
+  - Automatic collision detection for both portrait and landscape
+  - Removed 158 lines of drag-and-drop placement overlay code
+  - Users can still move/resize in edit mode if needed
+
+### Documentation
+- **Developer Guide**: Created comprehensive tool creation guide
+  - 911-line guide in `docs/public/creating-new-tools-guide.md`
+  - Documents new Strategy pattern for tool configurators
+  - Includes 3 complete examples (simple display, multi-source, control)
+  - Step-by-step instructions with code samples
+  - Best practices, testing checklist, and troubleshooting
+
+- **Code Review Documentation**: Updated comprehensive code review
+  - Documents all completed refactoring phases
+  - Before/after metrics for all improvements
+  - Production-ready status confirmation
+
+### Code Quality
+- **Warnings Cleanup**: Eliminated all 8 compiler warnings
+  - Fixed unused `_pruneStaleData` with proper cache callback integration
+  - Removed unused variables and methods across multiple files
+  - Clean compilation: 0 errors, 0 warnings, 30 info suggestions
+
+- **Dead Code Removal**: Deleted obsolete code throughout codebase
+  - Removed all `*_old.dart` backup files (2,765 lines)
+  - Removed deprecated template system (1,349 lines)
+  - Cleaned up unused wind shift calculation methods
+  - Removed redundant placement mode code
+
+### Technical Improvements
+- Improved code maintainability with Strategy pattern
+- Better separation of concerns in service layer
+- Enhanced testability with isolated configurators
+- Consistent error handling throughout
+- Foundation for easier future tool development
+- Extensible architecture for adding new tool types
+
 ## [0.3.1+8] - 2025-10-26
 
 ### Dependencies
