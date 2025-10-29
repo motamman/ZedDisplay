@@ -1,5 +1,6 @@
 import 'base_tool_configurator.dart';
 import 'configurators/chart_configurator.dart';
+import 'configurators/gauge_configurator.dart';
 
 /// Factory for creating tool-specific configurators
 ///
@@ -13,8 +14,7 @@ class ToolConfiguratorFactory {
       // Gauges
       case 'radial_gauge':
       case 'linear_gauge':
-        // TODO: return GaugeConfigurator(toolTypeId);
-        return null;
+        return GaugeConfigurator(toolTypeId);
 
       // Charts
       case 'historical_chart':
