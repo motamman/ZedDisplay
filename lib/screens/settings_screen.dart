@@ -10,19 +10,22 @@ import '../services/foreground_service.dart';
 import '../services/notification_service.dart';
 import '../models/server_connection.dart';
 import 'connection_screen.dart';
+import 'dashboard_manager_screen.dart';
 import 'device_registration_screen.dart';
 import 'setup_management_screen.dart';
 
 /// Settings screen with connection management
 class SettingsScreen extends StatefulWidget {
-  const SettingsScreen({super.key});
+  final bool showConnections;
+
+  const SettingsScreen({super.key, this.showConnections = false});
 
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  bool _showConnections = false;
+  late bool _showConnections;
   bool _notificationsEnabled = false;
 
   // In-app notification level filters
@@ -40,6 +43,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   void initState() {
     super.initState();
+    _showConnections = widget.showConnections;
     _loadNotificationsPreference();
   }
 
@@ -775,13 +779,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
         }
 
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Connected to ${connection.name}'),
-              backgroundColor: Colors.green,
+          // Navigate to dashboard, replacing entire navigation stack
+          Navigator.of(context).pushAndRemoveUntil(
+            MaterialPageRoute(
+              builder: (context) => const DashboardManagerScreen(),
             ),
+            (route) => false, // Remove all previous routes
           );
-          Navigator.of(context).pop();
+
+          // Show success message
+          Future.delayed(const Duration(milliseconds: 500), () {
+            if (context.mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('Connected to ${connection.name}'),
+                  backgroundColor: Colors.green,
+                ),
+              );
+            }
+          });
         }
       } else {
         // No saved token, start device registration

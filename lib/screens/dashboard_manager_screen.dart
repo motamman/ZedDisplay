@@ -494,20 +494,27 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen> {
                   size: 22,
                 ),
                 onPressed: () {
-                  // Show connection details on tap
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text(
-                        service.isConnected
-                            ? 'Connected to ${service.serverUrl}'
-                            : 'Not connected - tap Settings to connect',
+                  if (service.isConnected) {
+                    // Show connection details on tap
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('Connected to ${service.serverUrl}'),
+                        duration: const Duration(seconds: 2),
+                        backgroundColor: Colors.green,
                       ),
-                      duration: const Duration(seconds: 2),
-                      backgroundColor: service.isConnected ? Colors.green : Colors.red,
-                    ),
-                  );
+                    );
+                  } else {
+                    // Navigate to settings to connect (with connections expanded)
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (context) => const SettingsScreen(
+                          showConnections: true,
+                        ),
+                      ),
+                    );
+                  }
                 },
-                tooltip: service.isConnected ? 'Connected' : 'Disconnected',
+                tooltip: service.isConnected ? 'Connected to ${service.serverUrl}' : 'Tap to connect',
               );
             },
           ),
@@ -596,7 +603,9 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen> {
                       onPressed: () {
                         Navigator.of(context).push(
                           MaterialPageRoute(
-                            builder: (context) => const SettingsScreen(),
+                            builder: (context) => const SettingsScreen(
+                              showConnections: true,
+                            ),
                           ),
                         );
                       },
