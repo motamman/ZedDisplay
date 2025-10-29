@@ -24,11 +24,16 @@ class CheckboxTool extends StatefulWidget {
   State<CheckboxTool> createState() => _CheckboxToolState();
 }
 
-class _CheckboxToolState extends State<CheckboxTool> {
+class _CheckboxToolState extends State<CheckboxTool> with AutomaticKeepAliveClientMixin {
   bool _isSending = false;
 
   @override
+  bool get wantKeepAlive => true;
+
+  @override
   Widget build(BuildContext context) {
+    super.build(context);
+
     // Get data from first data source
     if (widget.config.dataSources.isEmpty) {
       return const Center(child: Text('No data source configured'));

@@ -28,7 +28,7 @@ class SystemMonitorTool extends StatefulWidget {
   State<SystemMonitorTool> createState() => _SystemMonitorToolState();
 }
 
-class _SystemMonitorToolState extends State<SystemMonitorTool> {
+class _SystemMonitorToolState extends State<SystemMonitorTool> with AutomaticKeepAliveClientMixin {
   final _battery = Battery();
   final _deviceInfo = DeviceInfoPlugin();
 
@@ -53,6 +53,9 @@ class _SystemMonitorToolState extends State<SystemMonitorTool> {
   final List<_MemoryDataPoint> _memoryHistory = [];
   int _chartDurationMinutes = 2; // Default 2 minutes
   int get _maxHistoryPoints => (_chartDurationMinutes * 60) ~/ 2; // Points at 2s intervals
+
+  @override
+  bool get wantKeepAlive => true;
 
   @override
   void initState() {
@@ -287,6 +290,8 @@ class _SystemMonitorToolState extends State<SystemMonitorTool> {
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
+
     final theme = Theme.of(context);
 
     return Card(

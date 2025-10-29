@@ -24,9 +24,12 @@ class RealtimeChartTool extends StatefulWidget {
   State<RealtimeChartTool> createState() => _RealtimeChartToolState();
 }
 
-class _RealtimeChartToolState extends State<RealtimeChartTool> {
+class _RealtimeChartToolState extends State<RealtimeChartTool> with AutomaticKeepAliveClientMixin {
   ZonesService? _zonesService;
   List<ZoneDefinition>? _zones;
+
+  @override
+  bool get wantKeepAlive => true;
 
   @override
   void initState() {
@@ -107,6 +110,8 @@ class _RealtimeChartToolState extends State<RealtimeChartTool> {
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
+
     if (widget.config.dataSources.isEmpty) {
       return const Center(child: Text('No data sources configured'));
     }

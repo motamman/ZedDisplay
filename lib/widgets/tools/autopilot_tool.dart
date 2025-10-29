@@ -36,7 +36,7 @@ class AutopilotTool extends StatefulWidget {
   State<AutopilotTool> createState() => _AutopilotToolState();
 }
 
-class _AutopilotToolState extends State<AutopilotTool> {
+class _AutopilotToolState extends State<AutopilotTool> with AutomaticKeepAliveClientMixin {
   // Autopilot state from SignalK
   double _currentHeading = 0;
   double _currentHeadingTrue = 0;
@@ -49,6 +49,8 @@ class _AutopilotToolState extends State<AutopilotTool> {
   double? _crossTrackError;
   bool _isSailingVessel = true; // Default to true to show wind options unless we know otherwise
 
+  @override
+  bool get wantKeepAlive => true;
 
   @override
   void initState() {
@@ -358,6 +360,8 @@ class _AutopilotToolState extends State<AutopilotTool> {
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
+
     // Check minimum configuration
     if (widget.config.dataSources.length < 6) {
       return const Center(

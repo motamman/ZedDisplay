@@ -24,7 +24,10 @@ class RadialGaugeTool extends StatefulWidget {
   State<RadialGaugeTool> createState() => _RadialGaugeToolState();
 }
 
-class _RadialGaugeToolState extends State<RadialGaugeTool> with ZonesMixin {
+class _RadialGaugeToolState extends State<RadialGaugeTool> with ZonesMixin, AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
+
   @override
   void initState() {
     super.initState();
@@ -41,6 +44,8 @@ class _RadialGaugeToolState extends State<RadialGaugeTool> with ZonesMixin {
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
+
     // Get data from first data source
     if (widget.config.dataSources.isEmpty) {
       return const Center(child: Text('No data source configured'));
