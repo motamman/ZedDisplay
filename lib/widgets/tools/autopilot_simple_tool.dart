@@ -3,13 +3,18 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../../models/tool_definition.dart';
 import '../../models/tool_config.dart';
+import '../../models/autopilot_errors.dart';
 import '../../services/signalk_service.dart';
+import '../../services/autopilot_state_verifier.dart';
 import '../../services/tool_registry.dart';
 import '../../utils/color_extensions.dart';
 import '../../config/ui_constants.dart';
 
 /// Simple Autopilot control tool - text-based display with controls
 /// No compass visualization - just heading, target, mode, and buttons
+///
+/// **IMPORTANT**: Currently supports V1 API only (plugin-based via PUT requests)
+/// V2 API support (REST-based with instance discovery) is planned for future release.
 class AutopilotSimpleTool extends StatefulWidget {
   final ToolConfig config;
   final SignalKService signalKService;
@@ -120,14 +125,56 @@ class _AutopilotSimpleToolState extends State<AutopilotSimpleTool> with Automati
     }
 
     try {
+      // Send command via PUT request
       await widget.signalKService.sendPutRequest(path, value);
 
+      // Show pending feedback
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Command sent: $value'),
-            backgroundColor: Colors.green,
+            content: Text('Sending command...'),
+            backgroundColor: Colors.orange,
+            duration: const Duration(seconds: 5),
+          ),
+        );
+      }
+
+      // Verify state change via WebSocket
+      final verifier = AutopilotStateVerifier(widget.signalKService);
+      final verified = await verifier.verifyChange(
+        path: path,
+        expectedValue: value,
+      );
+
+      if (kDebugMode) {
+        print('Autopilot command ${verified ? "verified" : "timed out"}');
+      }
+
+      // Show final result
+      if (mounted) {
+        ScaffoldMessenger.of(context).clearSnackBars();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(verified
+                ? 'Command successful'
+                : 'Command sent but not confirmed - may still be processing'),
+            backgroundColor: verified ? Colors.green : Colors.orange,
             duration: UIConstants.snackBarShort,
+          ),
+        );
+      }
+    } on AutopilotException catch (e) {
+      if (kDebugMode) {
+        print('Autopilot error: ${e.message}');
+      }
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).clearSnackBars();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(e.getUserFriendlyMessage()),
+            backgroundColor: Colors.red,
+            duration: UIConstants.snackBarLong,
           ),
         );
       }
@@ -137,6 +184,7 @@ class _AutopilotSimpleToolState extends State<AutopilotSimpleTool> with Automati
       }
 
       if (mounted) {
+        ScaffoldMessenger.of(context).clearSnackBars();
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Command failed: $e'),

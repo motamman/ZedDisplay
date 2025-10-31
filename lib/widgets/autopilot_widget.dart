@@ -3,6 +3,7 @@ import 'package:syncfusion_flutter_gauges/gauges.dart';
 import 'dart:math' as math;
 import 'dart:async';
 import 'base_compass.dart';
+import 'route_info_panel.dart';
 import '../utils/angle_utils.dart';
 import '../utils/compass_zone_builder.dart';
 
@@ -29,11 +30,25 @@ class AutopilotWidget extends StatefulWidget {
   final double targetAWA; // Optimal close-hauled angle (degrees)
   final double targetTolerance; // Acceptable deviation from target (degrees)
 
+  // Route navigation data
+  final LatLon? nextWaypoint;
+  final DateTime? eta;
+  final double? distanceToWaypoint;
+  final Duration? timeToWaypoint;
+  final bool onlyShowXTEWhenNear;
+
   // Callbacks
   final VoidCallback? onEngageDisengage;
   final Function(String mode)? onModeChange;
   final Function(int degrees)? onAdjustHeading;
   final Function(String direction)? onTack;
+  final Function(String direction)? onGybe;
+  final VoidCallback? onAdvanceWaypoint;
+  final VoidCallback? onDodgeToggle;
+
+  // API version and V2 features
+  final bool isV2Api; // Whether using V2 API (enables V2-only features)
+  final bool dodgeActive; // Whether dodge mode is currently active
 
   // Fade configuration
   final int fadeDelaySeconds; // Seconds before controls fade after activity
@@ -55,10 +70,20 @@ class AutopilotWidget extends StatefulWidget {
     this.isSailingVessel = true,
     this.targetAWA = 40.0,
     this.targetTolerance = 3.0,
+    this.nextWaypoint,
+    this.eta,
+    this.distanceToWaypoint,
+    this.timeToWaypoint,
+    this.onlyShowXTEWhenNear = true,
     this.onEngageDisengage,
     this.onModeChange,
     this.onAdjustHeading,
     this.onTack,
+    this.onGybe,
+    this.onAdvanceWaypoint,
+    this.onDodgeToggle,
+    this.isV2Api = false,
+    this.dodgeActive = false,
     this.fadeDelaySeconds = 5,
   });
 
@@ -520,6 +545,60 @@ class _AutopilotWidgetState extends State<AutopilotWidget> {
               ),
             ),
 
+          // Route info panel - middle area (only in route/nav mode with route data, hidden during dodge)
+          if ((widget.mode.toLowerCase() == 'route' || widget.mode.toLowerCase() == 'nav') &&
+              widget.nextWaypoint != null &&
+              !widget.dodgeActive)
+            Positioned(
+              bottom: 160,
+              left: 20,
+              right: 20,
+              child: AnimatedOpacity(
+                opacity: _controlsOpacity,
+                duration: const Duration(milliseconds: 300),
+                child: RouteInfoPanel(
+                  nextWaypoint: widget.nextWaypoint,
+                  eta: widget.eta,
+                  distanceToWaypoint: widget.distanceToWaypoint,
+                  timeToWaypoint: widget.timeToWaypoint,
+                  crossTrackError: widget.crossTrackError,
+                  onlyShowXTEWhenNear: widget.onlyShowXTEWhenNear,
+                ),
+              ),
+            ),
+
+          // Dodge mode indicator (top center when active)
+          if (widget.dodgeActive)
+            Positioned(
+              top: 20,
+              left: 0,
+              right: 0,
+              child: Center(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: Colors.orange.withOpacity(0.9),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.warning, color: Colors.white, size: 20),
+                      SizedBox(width: 8),
+                      Text(
+                        'DODGE MODE ACTIVE',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 14,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+
           // Controls overlay - bottom third of compass
           Positioned(
             left: 0,
@@ -553,6 +632,20 @@ class _AutopilotWidgetState extends State<AutopilotWidget> {
                     // Heading adjustment buttons (for all vessels in Auto/Compass/Wind mode)
                     if (widget.engaged && (widget.mode == 'Auto' || widget.mode == 'Compass' || widget.mode == 'Wind'))
                       _buildHeadingControls(),
+
+                    // Gybe buttons (V2 only, sailing vessels, wind mode for downwind sailing)
+                    if (widget.isV2Api && widget.isSailingVessel && widget.engaged && widget.mode == 'Wind')
+                      _buildGybeControls(),
+
+                    // Dodge mode toggle (V2 only, route/nav mode)
+                    if (widget.isV2Api && widget.engaged && (widget.mode.toLowerCase() == 'route' || widget.mode.toLowerCase() == 'nav'))
+                      _buildDodgeModeToggle(),
+
+                    // Advance waypoint button (only in route/nav mode, hidden during dodge)
+                    if (widget.engaged &&
+                        (widget.mode.toLowerCase() == 'route' || widget.mode.toLowerCase() == 'nav') &&
+                        !widget.dodgeActive)
+                      _buildAdvanceWaypointButton(),
 
                     const SizedBox(height: 10),
 
@@ -767,6 +860,71 @@ class _AutopilotWidgetState extends State<AutopilotWidget> {
             backgroundColor: Colors.blue.withValues(alpha: 0.6),
           ),
           child: Text(label, style: const TextStyle(fontSize: 13)),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAdvanceWaypointButton() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      child: ElevatedButton.icon(
+        onPressed: widget.onAdvanceWaypoint,
+        icon: const Icon(Icons.skip_next),
+        label: const Text('ADVANCE WAYPOINT'),
+        style: ElevatedButton.styleFrom(
+          backgroundColor: Colors.blue.withValues(alpha: 0.6),
+          padding: const EdgeInsets.symmetric(vertical: 12),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildGybeControls() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      child: Row(
+        children: [
+          Expanded(
+            child: ElevatedButton.icon(
+              onPressed: () => widget.onGybe?.call('port'),
+              icon: const Icon(Icons.directions_boat, size: 16),
+              label: const Text('GYBE PORT'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.purple.withValues(alpha: 0.6),
+                padding: const EdgeInsets.symmetric(vertical: 10),
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: ElevatedButton.icon(
+              onPressed: () => widget.onGybe?.call('starboard'),
+              icon: const Icon(Icons.directions_boat, size: 16),
+              label: const Text('GYBE STBD'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.purple.withValues(alpha: 0.6),
+                padding: const EdgeInsets.symmetric(vertical: 10),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDodgeModeToggle() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      child: ElevatedButton.icon(
+        onPressed: widget.onDodgeToggle,
+        icon: Icon(widget.dodgeActive ? Icons.cancel : Icons.edit_road),
+        label: Text(widget.dodgeActive ? 'DEACTIVATE DODGE' : 'ACTIVATE DODGE'),
+        style: ElevatedButton.styleFrom(
+          backgroundColor: widget.dodgeActive
+              ? Colors.orange.withValues(alpha: 0.8)
+              : Colors.blue.withValues(alpha: 0.6),
+          padding: const EdgeInsets.symmetric(vertical: 12),
         ),
       ),
     );

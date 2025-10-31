@@ -3,15 +3,25 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../../models/tool_definition.dart';
 import '../../models/tool_config.dart';
+import '../../models/autopilot_errors.dart';
+import '../../models/autopilot_config.dart';
+import '../../models/autopilot_v2_models.dart';
 import '../../services/signalk_service.dart';
+import '../../services/autopilot_state_verifier.dart';
+import '../../services/autopilot_v2_api.dart';
+import '../../services/autopilot_api_detector.dart';
 import '../../services/tool_registry.dart';
 import '../../utils/color_extensions.dart';
 import '../../utils/conversion_utils.dart';
 import '../../config/ui_constants.dart';
 import '../autopilot_widget.dart';
+import '../route_info_panel.dart';
+import '../countdown_confirmation_overlay.dart';
 
 /// Autopilot control tool - subscribes to SignalK paths and displays autopilot controls
-/// Supports both V1 (plugin-based) and V2 (REST API-based) autopilot systems
+///
+/// Supports both V1 (plugin-based PUT requests) and V2 (REST API with instance discovery).
+/// Automatically detects available API version and uses V2 when available, falling back to V1.
 ///
 /// Expected data sources (in order):
 /// 0: steering.autopilot.state (REQUIRED)
@@ -37,6 +47,17 @@ class AutopilotTool extends StatefulWidget {
 }
 
 class _AutopilotToolState extends State<AutopilotTool> with AutomaticKeepAliveClientMixin {
+  // Autopilot configuration
+  AutopilotConfig _autopilotConfig = const AutopilotConfig();
+
+  // API version and V2 support
+  String? _apiVersion; // 'v1' or 'v2'
+  AutopilotV2Api? _v2Api;
+  String? _selectedInstanceId;
+  List<AutopilotInstance>? _availableInstances;
+  AutopilotInfo? _v2Info;
+  bool _dodgeActive = false; // V2 only - dodge mode state
+
   // Autopilot state from SignalK
   double _currentHeading = 0;
   double _currentHeadingTrue = 0;
@@ -49,6 +70,12 @@ class _AutopilotToolState extends State<AutopilotTool> with AutomaticKeepAliveCl
   double? _crossTrackError;
   bool _isSailingVessel = true; // Default to true to show wind options unless we know otherwise
 
+  // Route navigation data
+  LatLon? _nextWaypoint;
+  DateTime? _eta;
+  double? _distanceToWaypoint;  // meters
+  Duration? _timeToWaypoint;
+
   @override
   bool get wantKeepAlive => true;
 
@@ -57,7 +84,9 @@ class _AutopilotToolState extends State<AutopilotTool> with AutomaticKeepAliveCl
     super.initState();
     // Subscribe to SignalK data updates
     widget.signalKService.addListener(_onSignalKUpdate);
-    _subscribeToAutopilotPaths();
+
+    // Detect API version and initialize
+    _detectAndInitializeApi();
 
     // Do an initial update after a short delay to let subscriptions settle
     Future.delayed(const Duration(milliseconds: 500), () {
@@ -65,6 +94,81 @@ class _AutopilotToolState extends State<AutopilotTool> with AutomaticKeepAliveCl
         _onSignalKUpdate();
       }
     });
+  }
+
+  /// Detect API version and initialize appropriate API client
+  Future<void> _detectAndInitializeApi() async {
+    try {
+      final detector = AutopilotApiDetector(
+        baseUrl: widget.signalKService.serverUrl,
+        authToken: widget.signalKService.authToken?.token,
+      );
+
+      final apiVersion = await detector.detectApiVersion();
+
+      if (!mounted) return;
+
+      setState(() {
+        _apiVersion = apiVersion.version;
+
+        if (apiVersion.isV2) {
+          _availableInstances = apiVersion.v2Instances;
+
+          // Use default instance or first available
+          final defaultInstance = apiVersion.defaultInstance;
+          _selectedInstanceId = defaultInstance?.id;
+
+          if (_selectedInstanceId != null) {
+            _v2Api = AutopilotV2Api(
+              baseUrl: widget.signalKService.serverUrl,
+              authToken: widget.signalKService.authToken?.token,
+            );
+
+            _initializeV2Api();
+          }
+        } else {
+          // V1 API - existing implementation
+          _subscribeToAutopilotPaths();
+        }
+      });
+    } catch (e) {
+      if (kDebugMode) {
+        print('API detection failed: $e');
+      }
+      // Fall back to V1
+      setState(() {
+        _apiVersion = 'v1';
+      });
+      _subscribeToAutopilotPaths();
+    }
+  }
+
+  /// Initialize V2 API by fetching autopilot info
+  Future<void> _initializeV2Api() async {
+    if (_v2Api == null || _selectedInstanceId == null) return;
+
+    try {
+      // Get autopilot info and capabilities
+      final info = await _v2Api!.getAutopilotInfo(_selectedInstanceId!);
+
+      if (!mounted) return;
+
+      setState(() {
+        _v2Info = info;
+        _engaged = info.engaged;
+        _mode = info.mode ?? 'Standby';
+        if (info.target != null) {
+          _targetHeading = info.target!;
+        }
+      });
+
+      // Still subscribe to WebSocket for real-time updates
+      _subscribeToAutopilotPaths();
+    } catch (e) {
+      if (kDebugMode) {
+        print('V2 API initialization failed: $e');
+      }
+    }
   }
 
   @override
@@ -83,15 +187,20 @@ class _AutopilotToolState extends State<AutopilotTool> with AutomaticKeepAliveCl
       'steering.autopilot.target.windAngleApparent',
       'navigation.headingTrue',
       'environment.wind.angleTrueWater',
-      // COMMENTED OUT - Expensive route calculations causing server CPU overload
-      // 'navigation.course.calcValues.bearingMagnetic',
-      // 'navigation.course.calcValues.bearingTrue',
-      // 'navigation.courseGreatCircle.nextPoint.position',
-      // 'navigation.course.calcValues.distance',
-      // 'navigation.course.calcValues.timeToGo',
-      // 'navigation.course.calcValues.estimatedTimeOfArrival',
       'design.aisShipType', // Vessel type to determine if sailing
     ];
+
+    // Optionally include route calculation paths (can be CPU-intensive on server)
+    if (_autopilotConfig.enableRouteCalculations) {
+      additionalPaths.addAll([
+        'navigation.course.calcValues.bearingMagnetic',
+        'navigation.course.calcValues.bearingTrue',
+        'navigation.courseGreatCircle.nextPoint.position',
+        'navigation.course.calcValues.distance',
+        'navigation.course.calcValues.timeToGo',
+        'navigation.course.calcValues.estimatedTimeOfArrival',
+      ]);
+    }
 
     // Combine configured paths with additional paths (removing duplicates)
     final allPaths = {...configuredPaths, ...additionalPaths}.toList();
@@ -258,29 +367,113 @@ class _AutopilotToolState extends State<AutopilotTool> with AutomaticKeepAliveCl
           _isSailingVessel = vesselType == 36;
         }
       }
+
+      // Route navigation data (only if enabled)
+      if (_autopilotConfig.enableRouteCalculations) {
+        // Next waypoint position
+        final nextWptData = widget.signalKService.getValue('navigation.courseGreatCircle.nextPoint.position');
+        if (nextWptData?.value != null && nextWptData!.value is Map) {
+          _nextWaypoint = LatLon.fromJson(nextWptData.value as Map<String, dynamic>);
+        }
+
+        // Distance to waypoint (meters)
+        final distanceData = widget.signalKService.getValue('navigation.course.calcValues.distance');
+        if (distanceData?.value != null) {
+          _distanceToWaypoint = (distanceData!.value as num).toDouble();
+        }
+
+        // Time to waypoint (seconds)
+        final timeData = widget.signalKService.getValue('navigation.course.calcValues.timeToGo');
+        if (timeData?.value != null) {
+          final seconds = (timeData!.value as num).toInt();
+          _timeToWaypoint = Duration(seconds: seconds);
+        }
+
+        // ETA (ISO 8601 string)
+        final etaData = widget.signalKService.getValue('navigation.course.calcValues.estimatedTimeOfArrival');
+        if (etaData?.value != null) {
+          try {
+            _eta = DateTime.parse(etaData!.value.toString());
+          } catch (e) {
+            if (kDebugMode) {
+              print('Failed to parse ETA: $e');
+            }
+          }
+        }
+      }
     });
   }
 
-  /// Send V1 autopilot command via PUT request
-  Future<void> _sendV1Command(String path, dynamic value) async {
+  /// Unified command sending that works with both V1 and V2 APIs
+  Future<void> _sendCommand({
+    required String description,
+    required Future<void> Function() v1Command,
+    required Future<void> Function() v2Command,
+    String? verifyPath,
+    dynamic verifyValue,
+  }) async {
     if (kDebugMode) {
-      print('Sending autopilot command: $path = $value');
+      print('Sending autopilot command ($_apiVersion): $description');
     }
 
     try {
-      await widget.signalKService.sendPutRequest(path, value);
-
-      if (kDebugMode) {
-        print('Autopilot command sent successfully');
+      // Send command via appropriate API
+      if (_apiVersion == 'v2' && _v2Api != null && _selectedInstanceId != null) {
+        await v2Command();
+      } else {
+        await v1Command();
       }
 
-      // Show success feedback briefly
+      // Show pending feedback
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Command sent: $value'),
-            backgroundColor: Colors.green,
+            content: Text('Sending command...'),
+            backgroundColor: Colors.orange,
+            duration: const Duration(seconds: 5),
+          ),
+        );
+      }
+
+      // Verify state change via WebSocket (if verification path provided)
+      bool verified = true;
+      if (verifyPath != null && verifyValue != null) {
+        final verifier = AutopilotStateVerifier(widget.signalKService);
+        verified = await verifier.verifyChange(
+          path: verifyPath,
+          expectedValue: verifyValue,
+        );
+
+        if (kDebugMode) {
+          print('Autopilot command ${verified ? "verified" : "timed out"}');
+        }
+      }
+
+      // Show final result
+      if (mounted) {
+        ScaffoldMessenger.of(context).clearSnackBars();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(verified
+                ? 'Command successful'
+                : 'Command sent but not confirmed - may still be processing'),
+            backgroundColor: verified ? Colors.green : Colors.orange,
             duration: UIConstants.snackBarShort,
+          ),
+        );
+      }
+    } on AutopilotException catch (e) {
+      if (kDebugMode) {
+        print('Autopilot error: ${e.message}');
+      }
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).clearSnackBars();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(e.getUserFriendlyMessage()),
+            backgroundColor: Colors.red,
+            duration: UIConstants.snackBarLong,
           ),
         );
       }
@@ -290,9 +483,10 @@ class _AutopilotToolState extends State<AutopilotTool> with AutomaticKeepAliveCl
       }
 
       if (mounted) {
+        ScaffoldMessenger.of(context).clearSnackBars();
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Autopilot command failed: $e'),
+            content: Text('Command failed: $e'),
             backgroundColor: Colors.red,
             duration: UIConstants.snackBarLong,
           ),
@@ -301,60 +495,205 @@ class _AutopilotToolState extends State<AutopilotTool> with AutomaticKeepAliveCl
     }
   }
 
-  /// Handle engage/disengage
+  /// Handle engage/disengage (works with both V1 and V2)
   void _handleEngageDisengage() async {
-    if (_engaged) {
-      // Disengage: set to standby
-      await _sendV1Command('steering.autopilot.state', 'standby');
-      // UI will update when WebSocket delta confirms state change
-    } else {
-      // Engage: set to auto mode
-      await _sendV1Command('steering.autopilot.state', 'auto');
-      // UI will update when WebSocket delta confirms state change
-    }
+    await _sendCommand(
+      description: _engaged ? 'Disengage' : 'Engage',
+      v1Command: () async {
+        await widget.signalKService.sendPutRequest(
+          'steering.autopilot.state',
+          _engaged ? 'standby' : 'auto',
+        );
+      },
+      v2Command: () async {
+        if (_engaged) {
+          await _v2Api!.disengage(_selectedInstanceId!);
+        } else {
+          await _v2Api!.engage(_selectedInstanceId!);
+        }
+      },
+      verifyPath: 'steering.autopilot.state',
+      verifyValue: _engaged ? 'standby' : 'auto',
+    );
   }
 
-  /// Handle mode change
+  /// Handle mode change (works with both V1 and V2)
   void _handleModeChange(String mode) async {
-    await _sendV1Command('steering.autopilot.state', mode.toLowerCase());
-    // UI will update when WebSocket delta confirms state change
+    await _sendCommand(
+      description: 'Mode change to $mode',
+      v1Command: () async {
+        await widget.signalKService.sendPutRequest(
+          'steering.autopilot.state',
+          mode.toLowerCase(),
+        );
+      },
+      v2Command: () async {
+        await _v2Api!.setMode(_selectedInstanceId!, mode.toLowerCase());
+      },
+      verifyPath: 'steering.autopilot.state',
+      verifyValue: mode.toLowerCase(),
+    );
   }
 
-  /// Handle heading adjustment
+  /// Handle heading adjustment (works with both V1 and V2)
   void _handleAdjustHeading(int degrees) {
-    _sendV1Command('steering.autopilot.actions.adjustHeading', degrees);
-    // No verification needed for heading adjustments
+    _sendCommand(
+      description: 'Adjust heading ${degrees > 0 ? "+" : ""}$degrees°',
+      v1Command: () async {
+        await widget.signalKService.sendPutRequest(
+          'steering.autopilot.actions.adjustHeading',
+          degrees,
+        );
+      },
+      v2Command: () async {
+        await _v2Api!.adjustTarget(_selectedInstanceId!, degrees);
+      },
+      verifyPath: null, // Don't verify heading adjustments
+      verifyValue: null,
+    );
   }
 
-  /// Handle tack with confirmation
+  /// Handle tack with countdown confirmation (works with both V1 and V2)
   void _handleTack(String direction) async {
-    // Show confirmation dialog for tacking
-    final confirmed = await showDialog<bool>(
+    final directionLabel = direction == 'port' ? 'Port' : 'Starboard';
+
+    // Show countdown confirmation
+    final confirmed = await showCountdownConfirmation(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Text('Confirm Tack ${direction == 'port' ? 'to Port' : 'to Starboard'}'),
-        content: Text(
-          'Are you sure you want to tack to ${direction == 'port' ? 'port' : 'starboard'}?\n\n'
-          'This will initiate an autopilot tack maneuver.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: direction == 'port' ? Colors.red : Colors.green,
-            ),
-            child: Text('Tack ${direction == 'port' ? 'Port' : 'Starboard'}'),
-          ),
-        ],
-      ),
+      title: 'Tack to $directionLabel?',
+      action: 'Tack $directionLabel',
+      countdownSeconds: _autopilotConfig.confirmationCountdownSeconds,
     );
 
-    if (confirmed == true) {
-      _sendV1Command('steering.autopilot.actions.tack', direction);
+    if (!confirmed) return;
+
+    await _sendCommand(
+      description: 'Tack $directionLabel',
+      v1Command: () async {
+        await widget.signalKService.sendPutRequest(
+          'steering.autopilot.actions.tack',
+          direction,
+        );
+      },
+      v2Command: () async {
+        await _v2Api!.tack(_selectedInstanceId!, direction);
+      },
+      verifyPath: null, // Tacking doesn't have a simple verification path
+      verifyValue: null,
+    );
+  }
+
+  /// Handle advance waypoint with countdown confirmation (V1 only - route management)
+  void _handleAdvanceWaypoint() async {
+    // Show countdown confirmation
+    final confirmed = await showCountdownConfirmation(
+      context: context,
+      title: 'Advance to Next Waypoint?',
+      action: 'Advance Waypoint',
+      countdownSeconds: _autopilotConfig.confirmationCountdownSeconds,
+    );
+
+    if (!confirmed) return;
+
+    await _sendCommand(
+      description: 'Advance Waypoint',
+      v1Command: () async {
+        await widget.signalKService.sendPutRequest(
+          'steering.autopilot.actions.advanceWaypoint',
+          1,
+        );
+      },
+      v2Command: () async {
+        // V2 API doesn't have a standard advance waypoint endpoint yet
+        // Fall back to V1 method
+        await widget.signalKService.sendPutRequest(
+          'steering.autopilot.actions.advanceWaypoint',
+          1,
+        );
+      },
+      verifyPath: null,
+      verifyValue: null,
+    );
+  }
+
+  /// Handle gybe with countdown confirmation (V2 only)
+  void _handleGybe(String direction) async {
+    // Check if V2 API is available
+    if (_apiVersion != 'v2') {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Gybe support requires V2 API'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+      return;
+    }
+
+    final directionLabel = direction == 'port' ? 'Port' : 'Starboard';
+
+    // Show countdown confirmation
+    final confirmed = await showCountdownConfirmation(
+      context: context,
+      title: 'Gybe to $directionLabel?',
+      action: 'Gybe $directionLabel',
+      countdownSeconds: _autopilotConfig.confirmationCountdownSeconds,
+    );
+
+    if (!confirmed) return;
+
+    await _sendCommand(
+      description: 'Gybe $directionLabel',
+      v1Command: () async {
+        throw UnsupportedError('Gybe not available in V1');
+      },
+      v2Command: () async {
+        await _v2Api!.gybe(_selectedInstanceId!, direction);
+      },
+      verifyPath: null,
+      verifyValue: null,
+    );
+  }
+
+  /// Handle dodge mode toggle (V2 only)
+  void _handleDodgeToggle() async {
+    // Check if V2 API is available
+    if (_apiVersion != 'v2') {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Dodge mode requires V2 API'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+      return;
+    }
+
+    final newState = !_dodgeActive;
+
+    await _sendCommand(
+      description: newState ? 'Activate dodge mode' : 'Deactivate dodge mode',
+      v1Command: () async {
+        throw UnsupportedError('Dodge mode not available in V1');
+      },
+      v2Command: () async {
+        if (newState) {
+          await _v2Api!.activateDodge(_selectedInstanceId!);
+        } else {
+          await _v2Api!.deactivateDodge(_selectedInstanceId!);
+        }
+      },
+      verifyPath: null,
+      verifyValue: null,
+    );
+
+    // Update local state
+    if (mounted) {
+      setState(() {
+        _dodgeActive = newState;
+      });
     }
   }
 
@@ -441,11 +780,21 @@ class _AutopilotToolState extends State<AutopilotTool> with AutomaticKeepAliveCl
           isSailingVessel: _isSailingVessel,
           targetAWA: targetAWA,
           targetTolerance: targetTolerance,
+          nextWaypoint: _nextWaypoint,
+          eta: _eta,
+          distanceToWaypoint: _distanceToWaypoint,
+          timeToWaypoint: _timeToWaypoint,
+          onlyShowXTEWhenNear: _autopilotConfig.onlyShowXTEWhenNear,
           fadeDelaySeconds: fadeDelaySeconds,
+          isV2Api: _apiVersion == 'v2',
+          dodgeActive: _dodgeActive,
           onEngageDisengage: _handleEngageDisengage,
           onModeChange: _handleModeChange,
           onAdjustHeading: _handleAdjustHeading,
           onTack: _handleTack,
+          onGybe: _handleGybe,
+          onAdvanceWaypoint: _handleAdvanceWaypoint,
+          onDodgeToggle: _handleDodgeToggle,
         ),
       ],
     );

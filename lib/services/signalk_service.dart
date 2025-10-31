@@ -108,6 +108,12 @@ class SignalKService extends ChangeNotifier implements DataService {
   bool get useSecureConnection => _useSecureConnection;
   bool get notificationsEnabled => _notificationManager.notificationsEnabled;
   Stream<SignalKNotification> get notificationStream => _notificationManager.notificationStream;
+
+  /// Get recent notifications (last 10 seconds by default)
+  List<SignalKNotification> getRecentNotifications({Duration maxAge = const Duration(seconds: 10)}) {
+    return _notificationManager.getRecentNotifications(maxAge: maxAge);
+  }
+
   AuthToken? get authToken => _authToken;
   ZonesCacheService? get zonesCache => _zonesCache;
 
@@ -729,6 +735,11 @@ class SignalKService extends ChangeNotifier implements DataService {
   @override
   SignalKDataPoint? getValue(String path, {String? source}) {
     return _dataCache.getValue(path, source: source);
+  }
+
+  /// Get the raw value for a path (convenience method)
+  dynamic getPathValue(String path, {String? source}) {
+    return getValue(path, source: source)?.value;
   }
 
   /// Check if data is fresh (within TTL threshold)
@@ -1558,6 +1569,9 @@ class _NotificationManager {
       StreamController<SignalKNotification>.broadcast();
   final Map<String, String> _lastNotificationState = {};
 
+  // Recent notifications cache (last 10 seconds)
+  final List<SignalKNotification> _recentNotifications = [];
+
   // Dependencies injected via function getters
   final AuthToken? Function() getAuthToken;
   final String Function() getNotificationEndpoint;
@@ -1570,6 +1584,13 @@ class _NotificationManager {
   // Getters
   bool get notificationsEnabled => _notificationsEnabled;
   Stream<SignalKNotification> get notificationStream => _notificationController.stream;
+
+  /// Get recent notifications (last 10 seconds)
+  List<SignalKNotification> getRecentNotifications({Duration maxAge = const Duration(seconds: 10)}) {
+    final cutoff = DateTime.now().subtract(maxAge);
+    _recentNotifications.removeWhere((n) => n.timestamp.isBefore(cutoff));
+    return List.unmodifiable(_recentNotifications);
+  }
 
   /// Enable or disable notifications
   Future<void> setNotificationsEnabled(bool enabled) async {
@@ -1712,6 +1733,7 @@ class _NotificationManager {
           );
 
           _notificationController.add(notification);
+          _recentNotifications.add(notification);
         }
       }
     } catch (e) {

@@ -564,8 +564,8 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
       compassStyle: _compassStyle,
     );
 
-    // Merge configurator's custom properties if available
-    if (configuratorConfig != null && configuratorConfig.style.customProperties != null) {
+    // Merge configurator's config if available
+    if (configuratorConfig != null) {
       config = ToolConfig(
         dataSources: config.dataSources,
         style: StyleConfig(
@@ -578,9 +578,12 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
           showValue: config.style.showValue,
           showUnit: config.style.showUnit,
           ttlSeconds: config.style.ttlSeconds,
+          // Merge configurator's style fields (compass/autopilot)
+          laylineAngle: configuratorConfig.style.laylineAngle ?? config.style.laylineAngle,
+          targetTolerance: configuratorConfig.style.targetTolerance ?? config.style.targetTolerance,
           customProperties: {
             ...?config.style.customProperties,
-            ...configuratorConfig.style.customProperties!,
+            ...?configuratorConfig.style.customProperties,
           },
         ),
       );

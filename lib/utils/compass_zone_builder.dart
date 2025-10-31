@@ -165,7 +165,10 @@ class CompassZoneBuilder {
     ], Colors.green);
 
     // PERFORMANCE ZONES - Narrow bands showing optimal target AWA
-    // PORT SIDE
+    // Both sides show: Yellow (outer) | Green (optimal center) | Yellow (outer)
+
+    // PORT SIDE - Yellow | Green | Yellow
+    // Center green (optimal)
     addGradiatedZones(windDirection, [
       GradiatedZone(
         startOffset: -targetAWA - targetTolerance,
@@ -173,6 +176,10 @@ class CompassZoneBuilder {
         opacity: 0.8,
         width: 15,
       ),
+    ], Colors.green);
+
+    // Outer yellow zones (acceptable)
+    addGradiatedZones(windDirection, [
       GradiatedZone(
         startOffset: -targetAWA - (2 * targetTolerance),
         endOffset: -targetAWA - targetTolerance,
@@ -185,9 +192,10 @@ class CompassZoneBuilder {
         opacity: 0.7,
         width: 15,
       ),
-    ], Colors.green);
+    ], Colors.yellow);
 
-    // STARBOARD SIDE
+    // STARBOARD SIDE - Yellow | Green | Yellow
+    // Center green (optimal)
     addGradiatedZones(windDirection, [
       GradiatedZone(
         startOffset: targetAWA - targetTolerance,
@@ -195,6 +203,10 @@ class CompassZoneBuilder {
         opacity: 0.8,
         width: 15,
       ),
+    ], Colors.green);
+
+    // Outer yellow zones (acceptable)
+    addGradiatedZones(windDirection, [
       GradiatedZone(
         startOffset: targetAWA - (2 * targetTolerance),
         endOffset: targetAWA - targetTolerance,
