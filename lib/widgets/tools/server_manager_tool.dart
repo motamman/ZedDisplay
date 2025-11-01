@@ -155,21 +155,61 @@ class _ServerManagerToolState extends State<ServerManagerTool> {
   }
 
   Future<void> _togglePlugin(String pluginId, bool currentlyEnabled) async {
-    if (!widget.signalKService.isConnected) return;
+    debugPrint('🔄 Toggling plugin: $pluginId, current state: $currentlyEnabled');
+
+    if (!widget.signalKService.isConnected) {
+      debugPrint('❌ Not connected to SignalK');
+      return;
+    }
+
+    // Optimistically update UI immediately
+    setState(() {
+      final index = _plugins.indexWhere((p) => p['id'] == pluginId);
+      if (index != -1) {
+        // Create a new mutable map since JSON maps are unmodifiable
+        _plugins[index] = Map<String, dynamic>.from(_plugins[index])
+          ..['enabled'] = !currentlyEnabled;
+      }
+    });
 
     try {
       final protocol = widget.signalKService.useSecureConnection ? 'https' : 'http';
-      final configUrl = '$protocol://${widget.signalKService.serverUrl}/plugins/$pluginId/config';
+      final configUrl = '$protocol://${widget.signalKService.serverUrl}/skServer/plugins/$pluginId/config';
 
       final headers = <String, String>{
         'Content-Type': 'application/json',
       };
+
+      // Use bearer token for authentication
       if (widget.signalKService.authToken != null) {
         headers['Authorization'] = 'Bearer ${widget.signalKService.authToken!.token}';
       }
 
       // Get current config
+      debugPrint('📥 Getting config from: $configUrl');
       final getResponse = await http.get(Uri.parse(configUrl), headers: headers);
+      debugPrint('📥 GET response: ${getResponse.statusCode}');
+
+      if (getResponse.statusCode == 401) {
+        // Revert optimistic update
+        if (mounted) {
+          setState(() {
+            final index = _plugins.indexWhere((p) => p['id'] == pluginId);
+            if (index != -1) {
+              _plugins[index] = Map<String, dynamic>.from(_plugins[index])
+                ..['enabled'] = currentlyEnabled;
+            }
+          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Not authorized. Token needs admin permissions.'),
+              backgroundColor: Colors.red,
+              duration: Duration(seconds: 3),
+            ),
+          );
+        }
+        return;
+      }
 
       if (getResponse.statusCode == 200) {
         final config = jsonDecode(getResponse.body) as Map<String, dynamic>;
@@ -178,11 +218,13 @@ class _ServerManagerToolState extends State<ServerManagerTool> {
         config['enabled'] = !currentlyEnabled;
 
         // Save updated config
+        debugPrint('📤 Sending POST with enabled=${config['enabled']}');
         final postResponse = await http.post(
           Uri.parse(configUrl),
           headers: headers,
           body: jsonEncode(config),
         );
+        debugPrint('📤 POST response: ${postResponse.statusCode}');
 
         if (mounted) {
           if (postResponse.statusCode == 200) {
@@ -195,10 +237,34 @@ class _ServerManagerToolState extends State<ServerManagerTool> {
                 ),
               ),
             );
-            // Reload plugins after a short delay
+            // Reload plugins after a short delay to confirm server state
             await Future.delayed(const Duration(milliseconds: 1500));
             _loadPlugins();
+          } else if (postResponse.statusCode == 401) {
+            // Revert optimistic update on auth failure
+            setState(() {
+              final index = _plugins.indexWhere((p) => p['id'] == pluginId);
+              if (index != -1) {
+                _plugins[index] = Map<String, dynamic>.from(_plugins[index])
+                  ..['enabled'] = currentlyEnabled;
+              }
+            });
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Not authorized. Token needs admin permissions.'),
+                backgroundColor: Colors.red,
+                duration: Duration(seconds: 3),
+              ),
+            );
           } else {
+            // Revert optimistic update on failure
+            setState(() {
+              final index = _plugins.indexWhere((p) => p['id'] == pluginId);
+              if (index != -1) {
+                _plugins[index] = Map<String, dynamic>.from(_plugins[index])
+                  ..['enabled'] = currentlyEnabled;
+              }
+            });
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(content: Text('Failed to toggle plugin: ${postResponse.statusCode}')),
             );
@@ -206,7 +272,15 @@ class _ServerManagerToolState extends State<ServerManagerTool> {
         }
       }
     } catch (e) {
+      // Revert optimistic update on error
       if (mounted) {
+        setState(() {
+          final index = _plugins.indexWhere((p) => p['id'] == pluginId);
+          if (index != -1) {
+            _plugins[index] = Map<String, dynamic>.from(_plugins[index])
+              ..['enabled'] = currentlyEnabled;
+          }
+        });
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Error toggling plugin: $e')),
         );
@@ -330,65 +404,77 @@ class _ServerManagerToolState extends State<ServerManagerTool> {
     final theme = Theme.of(context);
 
     return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          return SizedBox(
+            height: constraints.maxHeight,
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
             // Header with restart button
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(
                   'Server Status',
-                  style: theme.textTheme.titleLarge?.copyWith(
+                  style: theme.textTheme.titleMedium?.copyWith(
                     fontWeight: FontWeight.bold,
                   ),
                 ),
                 ElevatedButton.icon(
                   onPressed: _restartServer,
-                  icon: const Icon(Icons.restart_alt, size: 18),
-                  label: const Text('Restart'),
+                  icon: const Icon(Icons.restart_alt, size: 16),
+                  label: const Text('Restart', style: TextStyle(fontSize: 12)),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.orange,
                     foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                   ),
                 ),
               ],
             ),
 
-            const SizedBox(height: 16),
+            const SizedBox(height: 8),
 
             // Server Statistics
             _buildStatisticsSection(theme),
 
-            const SizedBox(height: 16),
+            const SizedBox(height: 8),
 
-            // Provider Statistics
-            if (_providerStats.isNotEmpty) ...[
-              _buildProviderStatsSection(theme),
-              const SizedBox(height: 16),
-            ],
+                  // Providers section - full width
+                  SizedBox(
+                    height: 120,
+                    child: _buildScrollableProvidersSection(theme),
+                  ),
 
-            // Plugins and Webapps in scrollable area
-            Expanded(
-              child: SingleChildScrollView(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // Plugins Section
-                    _buildPluginsSection(theme),
+                  const SizedBox(height: 8),
 
-                    const SizedBox(height: 16),
+                  // Plugins and Webapps - half width each, below providers
+                  Expanded(
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // Plugins Section - left half
+                        Expanded(
+                          child: _buildScrollablePluginsSection(theme),
+                        ),
 
-                    // Webapps Section
-                    _buildWebappsSection(theme),
-                  ],
-                ),
+                        const SizedBox(width: 8),
+
+                        // Webapps Section - right half
+                        Expanded(
+                          child: _buildScrollableWebappsSection(theme),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
               ),
             ),
-          ],
-        ),
+          );
+        },
       ),
     );
   }
@@ -399,11 +485,11 @@ class _ServerManagerToolState extends State<ServerManagerTool> {
       children: [
         Text(
           'Statistics',
-          style: theme.textTheme.titleMedium?.copyWith(
+          style: theme.textTheme.titleSmall?.copyWith(
             fontWeight: FontWeight.bold,
           ),
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: 6),
         Row(
           children: [
             Expanded(
@@ -414,7 +500,7 @@ class _ServerManagerToolState extends State<ServerManagerTool> {
                 Colors.blue,
               ),
             ),
-            const SizedBox(width: 8),
+            const SizedBox(width: 6),
             Expanded(
               child: _buildStatCard(
                 'Delta Rate',
@@ -425,7 +511,7 @@ class _ServerManagerToolState extends State<ServerManagerTool> {
             ),
           ],
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: 6),
         Row(
           children: [
             Expanded(
@@ -436,7 +522,7 @@ class _ServerManagerToolState extends State<ServerManagerTool> {
                 Colors.purple,
               ),
             ),
-            const SizedBox(width: 8),
+            const SizedBox(width: 6),
             Expanded(
               child: _buildStatCard(
                 'Clients',
@@ -453,16 +539,16 @@ class _ServerManagerToolState extends State<ServerManagerTool> {
 
   Widget _buildStatCard(String label, String value, IconData icon, Color color) {
     return Container(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.all(8),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(6),
         border: Border.all(color: color.withValues(alpha: 0.3)),
       ),
       child: Row(
         children: [
-          Icon(icon, color: color, size: 24),
-          const SizedBox(width: 8),
+          Icon(icon, color: color, size: 20),
+          const SizedBox(width: 6),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -470,7 +556,7 @@ class _ServerManagerToolState extends State<ServerManagerTool> {
                 Text(
                   label,
                   style: TextStyle(
-                    fontSize: 11,
+                    fontSize: 10,
                     color: color,
                     fontWeight: FontWeight.w500,
                   ),
@@ -478,7 +564,7 @@ class _ServerManagerToolState extends State<ServerManagerTool> {
                 Text(
                   value,
                   style: TextStyle(
-                    fontSize: 16,
+                    fontSize: 14,
                     fontWeight: FontWeight.bold,
                     color: color,
                   ),
@@ -497,11 +583,11 @@ class _ServerManagerToolState extends State<ServerManagerTool> {
       children: [
         Text(
           'Providers',
-          style: theme.textTheme.titleMedium?.copyWith(
+          style: theme.textTheme.titleSmall?.copyWith(
             fontWeight: FontWeight.bold,
           ),
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: 4),
         ..._providerStats.entries.map((entry) {
           final stats = entry.value as Map<String, dynamic>;
           final deltaRate = (stats['deltaRate'] as num?)?.toDouble() ?? 0;
@@ -542,6 +628,218 @@ class _ServerManagerToolState extends State<ServerManagerTool> {
           );
         }),
       ],
+    );
+  }
+
+  Widget _buildScrollableProvidersSection(ThemeData theme) {
+    return Container(
+      decoration: BoxDecoration(
+        border: Border.all(color: Colors.grey.withOpacity(0.3)),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Column(
+        children: [
+          // Header
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: Colors.blue.withOpacity(0.1),
+              borderRadius: const BorderRadius.only(
+                topLeft: Radius.circular(6),
+                topRight: Radius.circular(6),
+              ),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.dns, size: 14, color: Colors.blue),
+                const SizedBox(width: 8),
+                Text(
+                  'Data Providers (${_providerStats.length})',
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          // Scrollable list
+          Expanded(
+            child: _providerStats.isEmpty
+                ? const Center(
+                    child: Text('No providers', style: TextStyle(fontSize: 10)),
+                  )
+                : ListView.builder(
+                    padding: const EdgeInsets.all(6),
+                    itemCount: _providerStats.length,
+                    itemBuilder: (context, index) {
+                      final entry = _providerStats.entries.elementAt(index);
+                      final stats = entry.value as Map<String, dynamic>;
+                      final deltaRate = (stats['deltaRate'] as num?)?.toDouble() ?? 0;
+                      final deltaCount = (stats['deltaCount'] as num?)?.toInt() ?? 0;
+
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 4),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 8),
+                          decoration: BoxDecoration(
+                            color: Colors.blue.withOpacity(0.05),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                flex: 3,
+                                child: Text(
+                                  entry.key,
+                                  style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w500),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              SizedBox(
+                                width: 60,
+                                child: Text(
+                                  '${deltaRate.toStringAsFixed(1)}/s',
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    color: theme.textTheme.bodySmall?.color,
+                                  ),
+                                  textAlign: TextAlign.right,
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              SizedBox(
+                                width: 70,
+                                child: Text(
+                                  '$deltaCount deltas',
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    color: theme.textTheme.bodySmall?.color,
+                                  ),
+                                  textAlign: TextAlign.right,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildScrollablePluginsSection(ThemeData theme) {
+    return Container(
+      decoration: BoxDecoration(
+        border: Border.all(color: Colors.grey.withOpacity(0.3)),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Column(
+        children: [
+          // Compact header
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+            decoration: BoxDecoration(
+              color: Colors.grey.withOpacity(0.1),
+              borderRadius: const BorderRadius.only(
+                topLeft: Radius.circular(6),
+                topRight: Radius.circular(6),
+              ),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.extension, size: 14, color: Colors.green),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    'Plugins (${_plugins.length})',
+                    style: const TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+                if (_loadingPlugins)
+                  const SizedBox(
+                    width: 12,
+                    height: 12,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                else
+                  InkWell(
+                    onTap: _loadPlugins,
+                    child: const Icon(Icons.refresh, size: 14),
+                  ),
+              ],
+            ),
+          ),
+          // Scrollable list
+          Expanded(
+            child: _plugins.isEmpty && !_loadingPlugins
+                ? const Center(
+                    child: Padding(
+                      padding: EdgeInsets.all(12),
+                      child: Text('No plugins loaded', style: TextStyle(fontSize: 10)),
+                    ),
+                  )
+                : ListView.builder(
+                    padding: const EdgeInsets.all(6),
+                    itemCount: _plugins.length,
+                    itemBuilder: (context, index) {
+                      final plugin = _plugins[index];
+                      final id = plugin['id'] as String? ?? 'Unknown';
+                      final name = plugin['name'] as String? ?? id;
+                      final enabled = plugin['enabled'] as bool? ?? false;
+
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 2),
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color: enabled
+                                ? Colors.green.withOpacity(0.1)
+                                : Colors.grey.withOpacity(0.05),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 8),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: InkWell(
+                                    onTap: () => _togglePlugin(id, enabled),
+                                    child: Text(
+                                      name,
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        fontWeight: enabled ? FontWeight.w500 : FontWeight.normal,
+                                      ),
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Transform.scale(
+                                  scale: 0.8,
+                                  child: Switch(
+                                    value: enabled,
+                                    onChanged: (_) => _togglePlugin(id, enabled),
+                                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -615,6 +913,105 @@ class _ServerManagerToolState extends State<ServerManagerTool> {
             );
           }),
       ],
+    );
+  }
+
+  Widget _buildScrollableWebappsSection(ThemeData theme) {
+    return Container(
+      decoration: BoxDecoration(
+        border: Border.all(color: Colors.grey.withOpacity(0.3)),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Column(
+        children: [
+          // Compact header
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+            decoration: BoxDecoration(
+              color: Colors.grey.withOpacity(0.1),
+              borderRadius: const BorderRadius.only(
+                topLeft: Radius.circular(6),
+                topRight: Radius.circular(6),
+              ),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.web, size: 14, color: Colors.purple),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    'Webapps (${_webapps.length})',
+                    style: const TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+                if (_loadingWebapps)
+                  const SizedBox(
+                    width: 12,
+                    height: 12,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                else
+                  InkWell(
+                    onTap: _loadWebapps,
+                    child: const Icon(Icons.refresh, size: 14),
+                  ),
+              ],
+            ),
+          ),
+          // Scrollable list
+          Expanded(
+            child: _webapps.isEmpty && !_loadingWebapps
+                ? const Center(
+                    child: Padding(
+                      padding: EdgeInsets.all(12),
+                      child: Text('No webapps found', style: TextStyle(fontSize: 10)),
+                    ),
+                  )
+                : ListView.builder(
+                    padding: const EdgeInsets.all(6),
+                    itemCount: _webapps.length,
+                    itemBuilder: (context, index) {
+                      final webapp = _webapps[index];
+                      final name = webapp['name'] as String? ?? 'Unknown';
+                      final version = webapp['version'] as String? ?? '';
+
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 2),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 8),
+                          decoration: BoxDecoration(
+                            color: Colors.purple.withOpacity(0.05),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  name,
+                                  style: const TextStyle(fontSize: 11),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Text(
+                                version,
+                                style: TextStyle(
+                                  fontSize: 9,
+                                  color: theme.textTheme.bodySmall?.color,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+          ),
+        ],
+      ),
     );
   }
 
