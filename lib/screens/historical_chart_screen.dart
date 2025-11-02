@@ -53,6 +53,7 @@ class _HistoricalChartScreenState extends State<HistoricalChartScreen> {
       _historicalService = HistoricalDataService(
         serverUrl: signalkService.serverUrl,
         useSecureConnection: signalkService.useSecureConnection,
+        authToken: signalkService.authToken,
       );
       _loadAvailablePaths();
     }
