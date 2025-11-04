@@ -346,12 +346,6 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 This project is licensed under the MIT License - see the LICENSE file for details.
 
-## Acknowledgments
-
-- [SignalK](https://signalk.org/) - Open source marine data standard
-- [Syncfusion](https://www.syncfusion.com/flutter-widgets) - Beautiful charts and gauges
-- Flutter team for an amazing framework
-
 ## Support
 
 For questions or issues:
@@ -386,4 +380,4 @@ For questions or issues:
 
 ---
 
-**Built with ❤️ for the marine community**
+
