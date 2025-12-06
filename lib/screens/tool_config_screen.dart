@@ -164,6 +164,14 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
         _toolWidth = 6;
         _toolHeight = 6;
         break;
+      case 'gnss_status':
+        _toolWidth = 4;
+        _toolHeight = 4;
+        break;
+      case 'attitude_indicator':
+        _toolWidth = 3;
+        _toolHeight = 3;
+        break;
       case 'conversion_test':
       case 'server_manager':
       case 'rpi_monitor':
@@ -878,7 +886,9 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                 _selectedToolTypeId != 'server_manager' &&
                 _selectedToolTypeId != 'rpi_monitor' &&
                 _selectedToolTypeId != 'system_monitor' &&
-                _selectedToolTypeId != 'webview')
+                _selectedToolTypeId != 'webview' &&
+                _selectedToolTypeId != 'gnss_status' &&
+                _selectedToolTypeId != 'attitude_indicator')
               Card(
                 child: Padding(
                   padding: const EdgeInsets.all(16),

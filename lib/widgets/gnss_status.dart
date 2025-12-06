@@ -528,11 +528,11 @@ class GnssStatus extends StatelessWidget {
     final fix = fixType!.toLowerCase();
 
     if (fix.contains('rtk') && fix.contains('fixed')) {
-      return _FixQuality(Colors.green, 1.0, 'Excellent');
+      return _FixQuality(primaryColor, 1.0, 'Excellent');
     } else if (fix.contains('rtk')) {
-      return _FixQuality(Colors.green.shade400, 0.9, 'Very Good');
+      return _FixQuality(primaryColor.withOpacity(0.8), 0.9, 'Very Good');
     } else if (fix.contains('dgnss') || fix.contains('dgps')) {
-      return _FixQuality(Colors.green, 0.8, 'Good');
+      return _FixQuality(primaryColor, 0.8, 'Good');
     } else if (fix.contains('3d') || fix.contains('gps')) {
       return _FixQuality(Colors.orange, 0.6, 'Standard');
     } else if (fix.contains('2d')) {
@@ -540,8 +540,8 @@ class GnssStatus extends StatelessWidget {
     } else {
       // Calculate from HDOP if available
       if (hdop != null) {
-        if (hdop! < 1) return _FixQuality(Colors.green, 0.9, 'Excellent');
-        if (hdop! < 2) return _FixQuality(Colors.green, 0.7, 'Good');
+        if (hdop! < 1) return _FixQuality(primaryColor, 0.9, 'Excellent');
+        if (hdop! < 2) return _FixQuality(primaryColor, 0.7, 'Good');
         if (hdop! < 5) return _FixQuality(Colors.orange, 0.5, 'Moderate');
         return _FixQuality(Colors.red, 0.3, 'Poor');
       }
@@ -550,16 +550,16 @@ class GnssStatus extends StatelessWidget {
   }
 
   Color _getDopColor(double dop) {
-    if (dop < 1) return Colors.green;
-    if (dop < 2) return Colors.green.shade400;
+    if (dop < 1) return primaryColor;
+    if (dop < 2) return primaryColor.withOpacity(0.8);
     if (dop < 5) return Colors.orange;
     if (dop < 10) return Colors.orange.shade700;
     return Colors.red;
   }
 
   Color _getAccuracyColor(double accuracy) {
-    if (accuracy < 1) return Colors.green;
-    if (accuracy < 3) return Colors.green.shade400;
+    if (accuracy < 1) return primaryColor;
+    if (accuracy < 3) return primaryColor.withOpacity(0.8);
     if (accuracy < 10) return Colors.orange;
     if (accuracy < 25) return Colors.orange.shade700;
     return Colors.red;
