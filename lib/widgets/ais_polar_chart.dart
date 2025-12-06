@@ -17,7 +17,9 @@ import '../utils/conversion_utils.dart';
 /// - Compass-style display with 8 cardinal directions
 class AISPolarChart extends StatefulWidget {
   final SignalKService signalKService;
-  final String positionPath; // Path to own position (default: navigation.position)
+  final String positionPath; // Path to own position
+  final String cogPath;      // Path to own COG for CPA calculation
+  final String sogPath;      // Path to own SOG for CPA calculation
   final String title;
   final Color? vesselColor;
   final bool showLabels;
@@ -27,6 +29,8 @@ class AISPolarChart extends StatefulWidget {
     super.key,
     required this.signalKService,
     this.positionPath = 'navigation.position',
+    this.cogPath = 'navigation.courseOverGroundTrue',
+    this.sogPath = 'navigation.speedOverGround',
     this.title = 'AIS Vessels',
     this.vesselColor,
     this.showLabels = true,
@@ -946,80 +950,96 @@ class _AISPolarChartState extends State<AISPolarChart>
           child: ListView.builder(
             itemCount: sortedVessels.length,
             itemBuilder: (context, index) {
-        final vessel = sortedVessels[index];
-        final cpa = _calculateCPA(vessel);
+              final vessel = sortedVessels[index];
+              final cpaTcpa = _calculateCPATCPA(vessel);
+              final cpa = cpaTcpa?.cpa;
+              final tcpa = cpaTcpa?.tcpa;
 
-        return ListTile(
-          dense: true,
-          onTap: () => _highlightVessel(vessel.mmsi),
-          leading: const Icon(
-            Icons.navigation,
-            color: Colors.grey,
-            size: 20,
-          ),
-          title: Row(
-            children: [
-              Expanded(
-                child: Text(
-                  vessel.name ?? _extractMMSI(vessel.mmsi),
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w500,
-                    color: vessel.isLive ? Colors.green : Colors.orange,
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
+              return ListTile(
+                dense: true,
+                onTap: () => _highlightVessel(vessel.mmsi),
+                leading: const Icon(
+                  Icons.navigation,
+                  color: Colors.grey,
+                  size: 20,
                 ),
-              ),
-              if (vessel.timestamp != null)
-                Text(
-                  _formatTimeSince(vessel.timestamp!),
-                  style: const TextStyle(
-                    fontSize: 10,
-                    color: Colors.grey,
-                  ),
-                ),
-            ],
-          ),
-          subtitle: Row(
-            children: [
-              Text(
-                '${_convertDistance(vessel.distance).toStringAsFixed(1)}${_getDistanceUnit()}',
-                style: const TextStyle(fontSize: 11),
-              ),
-              const SizedBox(width: 8),
-              if (vessel.cog != null)
-                Text(
-                  'COG ${vessel.cog!.toStringAsFixed(0)}°',
-                  style: const TextStyle(fontSize: 11),
-                ),
-              const SizedBox(width: 8),
-              if (vessel.sog != null)
-                Text(
-                  'SOG ${vessel.sog!.toStringAsFixed(1)}kn',
-                  style: const TextStyle(fontSize: 11),
-                ),
-            ],
-          ),
-          trailing: cpa != null
-              ? Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                  decoration: BoxDecoration(
-                    color: cpa < 926 ? Colors.red.withValues(alpha: 0.2) : Colors.orange.withValues(alpha: 0.2), // 926m = 0.5nm
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  child: Text(
-                    'CPA ${_convertDistance(cpa).toStringAsFixed(2)}${_getDistanceUnit()}',
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w600,
-                      color: cpa < 926 ? Colors.red : Colors.orange, // 926m = 0.5nm
+                title: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        vessel.name ?? _extractMMSI(vessel.mmsi),
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w500,
+                          color: vessel.isLive ? Colors.green : Colors.orange,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     ),
-                  ),
-                )
-              : null,
-        );
-      },
+                    if (vessel.timestamp != null)
+                      Text(
+                        _formatTimeSince(vessel.timestamp!),
+                        style: const TextStyle(
+                          fontSize: 10,
+                          color: Colors.grey,
+                        ),
+                      ),
+                  ],
+                ),
+                subtitle: Row(
+                  children: [
+                    Text(
+                      '${_convertDistance(vessel.distance).toStringAsFixed(1)}${_getDistanceUnit()}',
+                      style: const TextStyle(fontSize: 11),
+                    ),
+                    const SizedBox(width: 8),
+                    if (vessel.cog != null)
+                      Text(
+                        'COG ${vessel.cog!.toStringAsFixed(0)}°',
+                        style: const TextStyle(fontSize: 11),
+                      ),
+                    const SizedBox(width: 8),
+                    if (vessel.sog != null)
+                      Text(
+                        'SOG ${vessel.sog!.toStringAsFixed(1)}kn',
+                        style: const TextStyle(fontSize: 11),
+                      ),
+                  ],
+                ),
+                trailing: cpa != null
+                    ? Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: cpa < 926 ? Colors.red.withValues(alpha: 0.2) : Colors.orange.withValues(alpha: 0.2), // 926m = 0.5nm
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: [
+                            Text(
+                              'CPA ${_convertDistance(cpa).toStringAsFixed(2)}${_getDistanceUnit()}',
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                                color: cpa < 926 ? Colors.red : Colors.orange, // 926m = 0.5nm
+                              ),
+                            ),
+                            if (tcpa != null && tcpa.isFinite && tcpa > 0)
+                              Text(
+                                'TCPA ${_formatTCPA(tcpa)}',
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  color: cpa < 926 ? Colors.red : Colors.orange,
+                                ),
+                              ),
+                          ],
+                        ),
+                      )
+                    : null,
+              );
+            },
           ),
         ),
       ],
@@ -1048,16 +1068,82 @@ class _AISPolarChartState extends State<AISPolarChart>
     }
   }
 
-  /// Calculate Closest Point of Approach (simplified)
-  double? _calculateCPA(_VesselPoint vessel) {
-    // Need own vessel COG and SOG for proper CPA calculation
-    // For now, return current distance as approximation
-    // TODO: Get own vessel COG/SOG and calculate proper CPA
+  /// Format TCPA (time to closest point of approach) in seconds
+  String _formatTCPA(double tcpaSeconds) {
+    if (tcpaSeconds < 60) {
+      return '${tcpaSeconds.toStringAsFixed(0)}s';
+    } else if (tcpaSeconds < 3600) {
+      final minutes = tcpaSeconds / 60;
+      return '${minutes.toStringAsFixed(1)}m';
+    } else {
+      final hours = tcpaSeconds / 3600;
+      return '${hours.toStringAsFixed(1)}h';
+    }
+  }
+
+  /// Calculate Closest Point of Approach and Time to CPA
+  /// Returns (cpa: distance in meters, tcpa: time in seconds)
+  ({double cpa, double tcpa})? _calculateCPATCPA(_VesselPoint vessel) {
     if (vessel.cog == null || vessel.sog == null) return null;
 
-    // Simplified: just return current distance for now
-    // A proper CPA calculation would need relative motion
-    return vessel.distance;
+    // Get own vessel COG (in degrees) and SOG (raw SI = m/s) using configured paths
+    final ownCog = ConversionUtils.getConvertedValue(
+      widget.signalKService, widget.cogPath
+    );
+    // Use raw SI value for SOG (m/s) to ensure consistent units for calculation
+    final ownSogMs = ConversionUtils.getRawValue(
+      widget.signalKService, widget.sogPath
+    );
+
+    if (ownCog == null || ownSogMs == null) return null;
+
+    // Get target vessel SOG in m/s (raw SI value from service)
+    final vesselData = widget.signalKService.getLiveAISVessels()[vessel.mmsi];
+    final targetSogMs = vesselData?['sogRaw'] as double?;
+    if (targetSogMs == null) return null;
+
+    // Own vessel velocity components (m/s)
+    final ownVx = ownSogMs * math.sin(ownCog * math.pi / 180);
+    final ownVy = ownSogMs * math.cos(ownCog * math.pi / 180);
+
+    // Target vessel velocity components (m/s)
+    final targetVx = targetSogMs * math.sin(vessel.cog! * math.pi / 180);
+    final targetVy = targetSogMs * math.cos(vessel.cog! * math.pi / 180);
+
+    // Relative velocity (target relative to own)
+    final relVx = targetVx - ownVx;
+    final relVy = targetVy - ownVy;
+    final relSpeedSq = relVx * relVx + relVy * relVy;
+
+    if (relSpeedSq < 0.0001) {
+      // Vessels moving parallel, CPA is current distance
+      return (cpa: vessel.distance, tcpa: double.infinity);
+    }
+
+    // Current relative position (target relative to own) in meters
+    final bearingRad = vessel.bearing * math.pi / 180;
+    final relX = vessel.distance * math.sin(bearingRad);
+    final relY = vessel.distance * math.cos(bearingRad);
+
+    // Time to CPA (dot product method)
+    final tcpa = -(relX * relVx + relY * relVy) / relSpeedSq;
+
+    if (tcpa < 0) {
+      // CPA is in the past, vessels diverging
+      return (cpa: vessel.distance, tcpa: 0);
+    }
+
+    // Position at CPA
+    final cpaX = relX + relVx * tcpa;
+    final cpaY = relY + relVy * tcpa;
+    final cpa = math.sqrt(cpaX * cpaX + cpaY * cpaY);
+
+    return (cpa: cpa, tcpa: tcpa);
+  }
+
+  /// Get CPA distance only (for backward compatibility)
+  double? _calculateCPA(_VesselPoint vessel) {
+    return _calculateCPATCPA(vessel)?.cpa;
   }
 }
 

@@ -128,6 +128,7 @@ class GnssStatusTool extends StatelessWidget {
     // Get position (index 7)
     double? latitude;
     double? longitude;
+    DateTime? dataTimestamp;
     final posData = signalKService.getValue(_getPath(7));
     if (posData?.value is Map) {
       final pos = posData!.value as Map<String, dynamic>;
@@ -137,6 +138,8 @@ class GnssStatusTool extends StatelessWidget {
       if (pos['longitude'] is num) {
         longitude = (pos['longitude'] as num).toDouble();
       }
+      // Use position timestamp as the data age indicator
+      dataTimestamp = posData.timestamp;
     }
 
     // Get satellitesInView (index 8) - detailed satellite list
@@ -160,6 +163,7 @@ class GnssStatusTool extends StatelessWidget {
       verticalAccuracy: verticalAccuracy,
       latitude: latitude,
       longitude: longitude,
+      dataTimestamp: dataTimestamp,
       showSkyView: showSkyView,
       showAccuracyCircle: showAccuracyCircle,
       primaryColor: primaryColor,

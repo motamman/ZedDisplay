@@ -57,6 +57,9 @@ class GnssStatus extends StatelessWidget {
   /// Current longitude
   final double? longitude;
 
+  /// Timestamp of last GNSS data update
+  final DateTime? dataTimestamp;
+
   /// Whether to show the sky view visualization
   final bool showSkyView;
 
@@ -78,6 +81,7 @@ class GnssStatus extends StatelessWidget {
     this.verticalAccuracy,
     this.latitude,
     this.longitude,
+    this.dataTimestamp,
     this.showSkyView = true,
     this.showAccuracyCircle = true,
     this.primaryColor = Colors.green,
@@ -185,6 +189,12 @@ class GnssStatus extends StatelessWidget {
           ),
         ),
 
+        // Data age indicator
+        if (dataTimestamp != null) ...[
+          _buildDataAgeIndicator(isDark),
+          const SizedBox(width: 8),
+        ],
+
         // Satellite count
         if (satellitesInView != null)
           Container(
@@ -216,6 +226,46 @@ class GnssStatus extends StatelessWidget {
             ),
           ),
       ],
+    );
+  }
+
+  /// Build data age indicator showing freshness of GNSS data
+  Widget _buildDataAgeIndicator(bool isDark) {
+    if (dataTimestamp == null) return const SizedBox.shrink();
+
+    final age = DateTime.now().difference(dataTimestamp!);
+    Color color;
+    String label;
+
+    if (age.inSeconds < 5) {
+      color = Colors.green;
+      label = 'LIVE';
+    } else if (age.inSeconds < 30) {
+      color = Colors.orange;
+      label = '${age.inSeconds}s';
+    } else if (age.inMinutes < 5) {
+      color = Colors.red;
+      label = '${age.inMinutes}m';
+    } else {
+      color = Colors.grey;
+      label = 'STALE';
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.15),
+        borderRadius: BorderRadius.circular(4),
+        border: Border.all(color: color.withValues(alpha: 0.3)),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontSize: 10,
+          fontWeight: FontWeight.bold,
+          color: color,
+        ),
+      ),
     );
   }
 

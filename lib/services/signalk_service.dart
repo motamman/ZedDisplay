@@ -1833,9 +1833,10 @@ class _AISManager {
           // Get SOG
           final sogData = dataCache['$vesselContext.navigation.speedOverGround'];
           double? sog;
+          double? sogRaw;
           if (sogData?.value is num) {
-            final rawSog = (sogData!.value as num).toDouble();
-            sog = convertValueForPath('navigation.speedOverGround', rawSog);
+            sogRaw = (sogData!.value as num).toDouble();
+            sog = convertValueForPath('navigation.speedOverGround', sogRaw);
           }
 
           // Get vessel name
@@ -1847,6 +1848,7 @@ class _AISManager {
             'name': name,
             'cog': cog,
             'sog': sog,
+            'sogRaw': sogRaw, // Raw SI value (m/s) for CPA calculations
             'timestamp': positionData.timestamp,
             'fromGET': positionData.fromGET,
           };
@@ -1917,6 +1919,7 @@ class _AISManager {
 
                 double? cog;
                 double? sog;
+                double? sogRaw;
 
                 if (cogData != null) {
                   final rawCog = (cogData['value'] as num?)?.toDouble();
@@ -1926,9 +1929,9 @@ class _AISManager {
                 }
 
                 if (sogData != null) {
-                  final rawSog = (sogData['value'] as num?)?.toDouble();
-                  if (rawSog != null) {
-                    sog = convertValueForPath('navigation.speedOverGround', rawSog);
+                  sogRaw = (sogData['value'] as num?)?.toDouble();
+                  if (sogRaw != null) {
+                    sog = convertValueForPath('navigation.speedOverGround', sogRaw);
                   }
                 }
 
@@ -1938,6 +1941,7 @@ class _AISManager {
                   'name': name,
                   'cog': cog,
                   'sog': sog,
+                  'sogRaw': sogRaw, // Raw SI value (m/s) for CPA calculations
                 };
               }
             }
