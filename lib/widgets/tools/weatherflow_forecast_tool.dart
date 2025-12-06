@@ -26,8 +26,13 @@ class WeatherFlowForecastTool extends StatelessWidget {
     'environment.outside.tempest.observations.windAvg',             // 3: current wind speed
     'environment.outside.tempest.observations.windGust',            // 4: current wind gust
     'environment.outside.tempest.observations.windDirection',       // 5: current wind direction
-    'environment.outside.tempest.forecast.hourly',                  // 6: forecast base path
+    'environment.outside.tempest.forecast.hourly',                  // 6: hourly forecast base path
+    'environment.outside.tempest.forecast.daily',                   // 7: daily forecast base path
   ];
+
+  // Sun/Moon paths from derived-data
+  static const _sunlightBasePath = 'environment.sunlight.times';
+  static const _moonBasePath = 'environment.moon';
 
   /// Get path at index, using default if not configured
   String _getPath(int index) {
@@ -58,14 +63,30 @@ class WeatherFlowForecastTool extends StatelessWidget {
     final currentWindGust = ConversionUtils.getConvertedValue(signalKService, _getPath(4));
     final currentWindDirection = ConversionUtils.getConvertedValue(signalKService, _getPath(5));
 
+    // Get rain data
+    const rainLastHourPath = 'environment.outside.tempest.observations.precipTotal1h';
+    const rainTodayPath = 'environment.outside.tempest.observations.localDailyRainAccumulation';
+    final rainLastHour = ConversionUtils.getConvertedValue(signalKService, rainLastHourPath);
+    final rainToday = ConversionUtils.getConvertedValue(signalKService, rainTodayPath);
+
     // Get unit symbols from SignalK service
     final tempUnit = signalKService.getUnitSymbol(_getPath(0)) ?? '°C';
     final pressureUnit = signalKService.getUnitSymbol(_getPath(2)) ?? 'hPa';
     final windUnit = signalKService.getUnitSymbol(_getPath(3)) ?? 'kts';
+    final rainUnit = signalKService.getUnitSymbol(rainLastHourPath) ?? 'mm';
 
     // Get hourly forecasts
-    final forecastBasePath = _getPath(6);
-    final hourlyForecasts = _getHourlyForecasts(forecastBasePath, hoursToShow);
+    final hourlyBasePath = _getPath(6);
+    final hourlyForecasts = _getHourlyForecasts(hourlyBasePath, hoursToShow);
+
+    // Get daily forecasts
+    final dailyBasePath = _getPath(7);
+    final daysToShow = style.customProperties?['daysToShow'] as int? ?? 7;
+    final dailyForecasts = _getDailyForecasts(dailyBasePath, daysToShow);
+
+    // Get sun/moon times from derived-data
+    final sunMoonTimes = _getSunMoonTimes();
+    final showSunMoonArc = style.customProperties?['showSunMoonArc'] as bool? ?? true;
 
     return WeatherFlowForecast(
       currentTemp: currentTemp,
@@ -74,13 +95,20 @@ class WeatherFlowForecastTool extends StatelessWidget {
       currentWindSpeed: currentWindSpeed,
       currentWindGust: currentWindGust,
       currentWindDirection: currentWindDirection,
+      rainLastHour: rainLastHour,
+      rainToday: rainToday,
       tempUnit: tempUnit,
       pressureUnit: pressureUnit,
       windUnit: windUnit,
+      rainUnit: rainUnit,
       hourlyForecasts: hourlyForecasts,
+      dailyForecasts: dailyForecasts,
       hoursToShow: hoursToShow,
+      daysToShow: daysToShow,
       primaryColor: primaryColor,
       showCurrentConditions: showCurrentConditions,
+      sunMoonTimes: sunMoonTimes,
+      showSunMoonArc: showSunMoonArc,
     );
   }
 
@@ -91,6 +119,45 @@ class WeatherFlowForecastTool extends StatelessWidget {
       return data!.value as String;
     }
     return null;
+  }
+
+  /// Get DateTime value from SignalK path (ISO string format)
+  DateTime? _getDateTimeValue(String path) {
+    final data = signalKService.getValue(path);
+    if (data?.value is String) {
+      return DateTime.tryParse(data!.value as String);
+    }
+    return null;
+  }
+
+  /// Get numeric value from SignalK path
+  double? _getNumericValue(String path) {
+    final data = signalKService.getValue(path);
+    if (data?.value is num) {
+      return (data!.value as num).toDouble();
+    }
+    return null;
+  }
+
+  /// Build SunMoonTimes from SignalK derived-data
+  SunMoonTimes _getSunMoonTimes() {
+    return SunMoonTimes(
+      sunrise: _getDateTimeValue('$_sunlightBasePath.sunrise'),
+      sunset: _getDateTimeValue('$_sunlightBasePath.sunset'),
+      dawn: _getDateTimeValue('$_sunlightBasePath.dawn'),
+      dusk: _getDateTimeValue('$_sunlightBasePath.dusk'),
+      nauticalDawn: _getDateTimeValue('$_sunlightBasePath.nauticalDawn'),
+      nauticalDusk: _getDateTimeValue('$_sunlightBasePath.nauticalDusk'),
+      solarNoon: _getDateTimeValue('$_sunlightBasePath.solarNoon'),
+      goldenHour: _getDateTimeValue('$_sunlightBasePath.goldenHour'),
+      goldenHourEnd: _getDateTimeValue('$_sunlightBasePath.goldenHourEnd'),
+      night: _getDateTimeValue('$_sunlightBasePath.night'),
+      nightEnd: _getDateTimeValue('$_sunlightBasePath.nightEnd'),
+      moonrise: _getDateTimeValue('$_moonBasePath.times.rise'),
+      moonset: _getDateTimeValue('$_moonBasePath.times.set'),
+      moonPhase: _getNumericValue('$_moonBasePath.phase'),
+      moonAngle: _getNumericValue('$_moonBasePath.angle'),
+    );
   }
 
   /// Build list of hourly forecasts from indexed SignalK paths
@@ -127,6 +194,63 @@ class WeatherFlowForecastTool extends StatelessWidget {
 
     return forecasts;
   }
+
+  /// Build list of daily forecasts from indexed SignalK paths
+  List<DailyForecast> _getDailyForecasts(String basePath, int count) {
+    final forecasts = <DailyForecast>[];
+
+    // Get temperature conversion formula from observations path
+    final tempPath = _getPath(0);
+    final availableUnits = signalKService.getAvailableUnits(tempPath);
+    String? tempFormula;
+    if (availableUnits.isNotEmpty) {
+      final conversionInfo = signalKService.getConversionInfo(tempPath, availableUnits.first);
+      tempFormula = conversionInfo?.formula;
+    }
+
+    for (int i = 0; i < count && i < 10; i++) {
+      // Get raw temp values and apply conversion manually
+      final rawTempHigh = _getNumericValue('$basePath.airTempHigh.$i');
+      final rawTempLow = _getNumericValue('$basePath.airTempLow.$i');
+
+      double? tempHigh = rawTempHigh;
+      double? tempLow = rawTempLow;
+      if (tempFormula != null) {
+        if (rawTempHigh != null) {
+          tempHigh = ConversionUtils.evaluateFormula(tempFormula, rawTempHigh);
+        }
+        if (rawTempLow != null) {
+          tempLow = ConversionUtils.evaluateFormula(tempFormula, rawTempLow);
+        }
+      }
+
+      final conditions = _getStringValue('$basePath.conditions.$i');
+      final icon = _getStringValue('$basePath.icon.$i');
+      final precipProb = ConversionUtils.getConvertedValue(signalKService, '$basePath.precipProbability.$i');
+      final precipIcon = _getStringValue('$basePath.precipIcon.$i');
+
+      // Get sunrise/sunset ISO times
+      final sunrise = _getDateTimeValue('$basePath.sunriseIso.$i');
+      final sunset = _getDateTimeValue('$basePath.sunsetIso.$i');
+
+      // Only add if we have at least high temp or conditions
+      if (tempHigh != null || conditions != null) {
+        forecasts.add(DailyForecast(
+          dayIndex: i,
+          tempHigh: tempHigh,
+          tempLow: tempLow,
+          conditions: conditions,
+          icon: icon,
+          precipProbability: precipProb,
+          precipIcon: precipIcon,
+          sunrise: sunrise,
+          sunset: sunset,
+        ));
+      }
+    }
+
+    return forecasts;
+  }
 }
 
 /// Builder for WeatherFlow forecast tool
@@ -143,11 +267,13 @@ class WeatherFlowForecastToolBuilder extends ToolBuilder {
         allowsColorCustomization: true,
         allowsMultiplePaths: true,
         minPaths: 0,
-        maxPaths: 7,
+        maxPaths: 8,
         styleOptions: const [
           'primaryColor',
           'hoursToShow',
+          'daysToShow',
           'showCurrentConditions',
+          'showSunMoonArc',
         ],
       ),
     );
@@ -164,13 +290,16 @@ class WeatherFlowForecastToolBuilder extends ToolBuilder {
         DataSource(path: 'environment.outside.tempest.observations.windAvg', label: 'Wind Speed'),
         DataSource(path: 'environment.outside.tempest.observations.windGust', label: 'Wind Gust'),
         DataSource(path: 'environment.outside.tempest.observations.windDirection', label: 'Wind Dir'),
-        DataSource(path: 'environment.outside.tempest.forecast.hourly', label: 'Forecast'),
+        DataSource(path: 'environment.outside.tempest.forecast.hourly', label: 'Hourly Forecast'),
+        DataSource(path: 'environment.outside.tempest.forecast.daily', label: 'Daily Forecast'),
       ],
       style: StyleConfig(
         primaryColor: '#2196F3',
         customProperties: {
           'hoursToShow': 12,
+          'daysToShow': 7,
           'showCurrentConditions': true,
+          'showSunMoonArc': true,
         },
       ),
     );
