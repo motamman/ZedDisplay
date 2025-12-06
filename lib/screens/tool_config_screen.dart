@@ -63,6 +63,10 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
   bool _showTickLabels = false;
   String _compassStyle = 'classic';
 
+  // WeatherFlow forecast options
+  int _hoursToShow = 12;
+  bool _showCurrentConditions = true;
+
   // Size configuration
   int _toolWidth = 1;
   int _toolHeight = 1;
@@ -99,6 +103,10 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
     // Reset old compass tool support
     _showTickLabels = false;
     _compassStyle = 'classic';
+
+    // Reset WeatherFlow forecast options
+    _hoursToShow = 12;
+    _showCurrentConditions = true;
 
     // Reset size
     _toolWidth = 1;
@@ -171,6 +179,10 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
       case 'attitude_indicator':
         _toolWidth = 3;
         _toolHeight = 3;
+        break;
+      case 'weatherflow_forecast':
+        _toolWidth = 4;
+        _toolHeight = 4;
         break;
       case 'conversion_test':
       case 'server_manager':
@@ -361,6 +373,10 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
     // Old compass tool support (for 'compass' tool type)
     _showTickLabels = style.customProperties?['showTickLabels'] as bool? ?? false;
     _compassStyle = style.customProperties?['compassStyle'] as String? ?? 'classic';
+
+    // WeatherFlow forecast options
+    _hoursToShow = style.customProperties?['hoursToShow'] as int? ?? 12;
+    _showCurrentConditions = style.customProperties?['showCurrentConditions'] as bool? ?? true;
 
     // NOTE: Tool-specific config is loaded by configurator's loadFromTool() method above
 
@@ -592,6 +608,32 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
           customProperties: {
             ...?config.style.customProperties,
             ...?configuratorConfig.style.customProperties,
+            // WeatherFlow forecast options
+            if (_selectedToolTypeId == 'weatherflow_forecast') ...{
+              'hoursToShow': _hoursToShow,
+              'showCurrentConditions': _showCurrentConditions,
+            },
+          },
+        ),
+      );
+    } else if (_selectedToolTypeId == 'weatherflow_forecast') {
+      // Handle weatherflow_forecast without configurator
+      config = ToolConfig(
+        dataSources: config.dataSources,
+        style: StyleConfig(
+          minValue: config.style.minValue,
+          maxValue: config.style.maxValue,
+          unit: config.style.unit,
+          primaryColor: config.style.primaryColor,
+          fontSize: config.style.fontSize,
+          showLabel: config.style.showLabel,
+          showValue: config.style.showValue,
+          showUnit: config.style.showUnit,
+          ttlSeconds: config.style.ttlSeconds,
+          customProperties: {
+            ...?config.style.customProperties,
+            'hoursToShow': _hoursToShow,
+            'showCurrentConditions': _showCurrentConditions,
           },
         ),
       );
@@ -888,7 +930,8 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                 _selectedToolTypeId != 'system_monitor' &&
                 _selectedToolTypeId != 'webview' &&
                 _selectedToolTypeId != 'gnss_status' &&
-                _selectedToolTypeId != 'attitude_indicator')
+                _selectedToolTypeId != 'attitude_indicator' &&
+                _selectedToolTypeId != 'weatherflow_forecast')
               Card(
                 child: Padding(
                   padding: const EdgeInsets.all(16),
@@ -976,7 +1019,11 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                                 _selectedToolTypeId == 'polar_radar_chart' ||
                                 _selectedToolTypeId == 'ais_polar_chart')
                                 ? '4. Configure Style'
-                                : '3. Configure Style',
+                                : (_selectedToolTypeId == 'gnss_status' ||
+                                    _selectedToolTypeId == 'attitude_indicator' ||
+                                    _selectedToolTypeId == 'weatherflow_forecast')
+                                    ? '2. Configure Style'
+                                    : '3. Configure Style',
                         style: Theme.of(context).textTheme.titleMedium,
                       ),
                       const SizedBox(height: 16),
@@ -1005,7 +1052,11 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                                     _selectedToolTypeId == 'polar_radar_chart' ||
                                     _selectedToolTypeId == 'ais_polar_chart')
                                     ? '5. Preview'
-                                    : '4. Preview',
+                                    : (_selectedToolTypeId == 'gnss_status' ||
+                                        _selectedToolTypeId == 'attitude_indicator' ||
+                                        _selectedToolTypeId == 'weatherflow_forecast')
+                                        ? '3. Preview'
+                                        : '4. Preview',
                         style: Theme.of(context).textTheme.titleMedium,
                       ),
                       const SizedBox(height: 16),
@@ -1133,8 +1184,8 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
       ]);
     }
 
-    // Unit (not applicable for autopilot or wind_compass)
-    if (_selectedToolTypeId != 'autopilot' && _selectedToolTypeId != 'wind_compass') {
+    // Unit (not applicable for autopilot, wind_compass, or weatherflow_forecast)
+    if (_selectedToolTypeId != 'autopilot' && _selectedToolTypeId != 'wind_compass' && _selectedToolTypeId != 'weatherflow_forecast') {
       widgets.addAll([
         TextFormField(
           decoration: const InputDecoration(
@@ -1183,8 +1234,8 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
       ]);
     }
 
-    // Show/Hide Options (not applicable for autopilot or wind_compass)
-    if (_selectedToolTypeId != 'autopilot' && _selectedToolTypeId != 'wind_compass') {
+    // Show/Hide Options (not applicable for autopilot, wind_compass, or weatherflow_forecast)
+    if (_selectedToolTypeId != 'autopilot' && _selectedToolTypeId != 'wind_compass' && _selectedToolTypeId != 'weatherflow_forecast') {
       widgets.addAll([
         SwitchListTile(
           title: const Text('Show Label'),
@@ -1238,6 +1289,47 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
         },
       ),
     ]);
+
+    // WeatherFlow forecast specific options
+    if (_selectedToolTypeId == 'weatherflow_forecast') {
+      widgets.addAll([
+        const SizedBox(height: 16),
+        const Divider(),
+        const SizedBox(height: 16),
+        Text(
+          'Forecast Options',
+          style: Theme.of(context).textTheme.titleSmall,
+        ),
+        const SizedBox(height: 12),
+        DropdownButtonFormField<int>(
+          decoration: const InputDecoration(
+            labelText: 'Hours to Show',
+            border: OutlineInputBorder(),
+            helperText: 'Number of forecast hours to display',
+          ),
+          value: _hoursToShow,
+          items: const [
+            DropdownMenuItem(value: 6, child: Text('6 hours')),
+            DropdownMenuItem(value: 12, child: Text('12 hours')),
+            DropdownMenuItem(value: 24, child: Text('24 hours')),
+            DropdownMenuItem(value: 48, child: Text('48 hours')),
+            DropdownMenuItem(value: 72, child: Text('72 hours')),
+          ],
+          onChanged: (value) {
+            setState(() => _hoursToShow = value ?? 12);
+          },
+        ),
+        const SizedBox(height: 12),
+        SwitchListTile(
+          title: const Text('Show Current Conditions'),
+          subtitle: const Text('Display current temperature, humidity, pressure, and wind'),
+          value: _showCurrentConditions,
+          onChanged: (value) {
+            setState(() => _showCurrentConditions = value);
+          },
+        ),
+      ]);
+    }
 
     // If we have a configurator, use it for tool-specific options
     if (_configurator != null) {

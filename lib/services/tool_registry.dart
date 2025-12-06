@@ -25,6 +25,7 @@ import '../widgets/tools/rpi_monitor_tool.dart';
 import '../widgets/tools/system_monitor_tool.dart';
 import '../widgets/tools/attitude_indicator_tool.dart';
 import '../widgets/tools/gnss_status_tool.dart';
+import '../widgets/tools/weatherflow_forecast_tool.dart';
 
 /// Abstract builder for tool widgets
 abstract class ToolBuilder {
@@ -121,6 +122,7 @@ class ToolRegistry {
     register('system_monitor', SystemMonitorBuilder());
     register('attitude_indicator', AttitudeIndicatorToolBuilder());
     register('gnss_status', GnssStatusToolBuilder());
+    register('weatherflow_forecast', WeatherFlowForecastToolBuilder());
     // register('webview', WebViewToolBuilder()); // Hidden for now - uncomment to enable
   }
 }
