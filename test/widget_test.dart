@@ -9,6 +9,7 @@ import 'package:zed_display/services/auth_service.dart';
 import 'package:zed_display/services/setup_service.dart';
 import 'package:zed_display/services/notification_service.dart';
 import 'package:zed_display/services/foreground_service.dart';
+import 'package:zed_display/services/crew_service.dart';
 
 void main() {
   late StorageService storageService;
@@ -19,6 +20,7 @@ void main() {
   late SetupService setupService;
   late NotificationService notificationService;
   late ForegroundTaskService foregroundService;
+  late CrewService crewService;
 
   setUp(() async {
     // Initialize storage service for tests
@@ -39,6 +41,10 @@ void main() {
 
     // Initialize SignalK service
     signalKService = SignalKService();
+
+    // Initialize crew service
+    crewService = CrewService(signalKService, storageService);
+    await crewService.initialize();
 
     // Initialize dashboard service
     dashboardService = DashboardService(
@@ -76,6 +82,7 @@ void main() {
       setupService: setupService,
       notificationService: notificationService,
       foregroundService: foregroundService,
+      crewService: crewService,
     ));
 
     // Verify that the app launches
@@ -92,6 +99,7 @@ void main() {
       setupService: setupService,
       notificationService: notificationService,
       foregroundService: foregroundService,
+      crewService: crewService,
     ));
 
     // Verify services are initialized
