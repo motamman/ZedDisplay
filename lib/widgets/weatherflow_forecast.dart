@@ -282,13 +282,16 @@ class WeatherFlowForecast extends StatelessWidget {
 
     final forecasts = hourlyForecasts.take(hoursToShow).toList();
 
-    return ListView.builder(
-      scrollDirection: Axis.horizontal,
-      itemCount: forecasts.length,
-      itemBuilder: (context, index) {
-        final forecast = forecasts[index];
-        return _buildHourCard(context, forecast, isDark);
-      },
+    return SizedBox(
+      height: 95,
+      child: ListView.builder(
+        scrollDirection: Axis.horizontal,
+        itemCount: forecasts.length,
+        itemBuilder: (context, index) {
+          final forecast = forecasts[index];
+          return _buildHourCard(context, forecast, isDark);
+        },
+      ),
     );
   }
 
@@ -311,9 +314,9 @@ class WeatherFlowForecast extends StatelessWidget {
             : '$dayAbbrev ${forecastTime.hour.toString().padLeft(2, '0')}:00';
 
     return Container(
-      width: 56,
+      width: 58,
       margin: const EdgeInsets.only(right: 4),
-      padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 2),
+      padding: const EdgeInsets.symmetric(vertical: 2, horizontal: 3),
       decoration: BoxDecoration(
         color: isDark
             ? Colors.white.withValues(alpha: 0.05)
@@ -326,7 +329,8 @@ class WeatherFlowForecast extends StatelessWidget {
         ),
       ),
       child: Column(
-        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+        mainAxisAlignment: MainAxisAlignment.center,
+        mainAxisSize: MainAxisSize.min,
         children: [
           // Hour
           Text(
@@ -339,7 +343,7 @@ class WeatherFlowForecast extends StatelessWidget {
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
           ),
-
+          const SizedBox(height: 3),
           // Wind direction arrow + speed combined
           if (windDir != null || windSpeed != null)
             Row(
@@ -367,7 +371,7 @@ class WeatherFlowForecast extends StatelessWidget {
             )
           else
             const SizedBox(height: 12),
-
+          const SizedBox(height: 3),
           // Weather icon from SVG asset
           SizedBox(
             width: 20,
@@ -383,17 +387,16 @@ class WeatherFlowForecast extends StatelessWidget {
               ),
             ),
           ),
-
+          const SizedBox(height: 2),
           // Temperature
           Text(
             temp != null ? '${temp.toStringAsFixed(0)}°' : '--',
             style: TextStyle(
-              fontSize: 14,
+              fontSize: 13,
               fontWeight: FontWeight.bold,
               color: isDark ? Colors.white : Colors.black87,
             ),
           ),
-
           // Precipitation probability
           if (precipProb != null && precipProb > 0)
             Row(
