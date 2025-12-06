@@ -787,6 +787,9 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                               case 7:
                                 roleLabel = 'Position (lat/lon object)';
                                 break;
+                              case 8:
+                                roleLabel = 'Satellite details (positions & SNR for sky view)';
+                                break;
                             }
                           } else if (_selectedToolTypeId == 'attitude_indicator') {
                             if (index == 0) {

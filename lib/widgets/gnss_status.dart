@@ -1,9 +1,36 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
+/// Individual satellite data
+class SatelliteInfo {
+  final int prn;
+  final double? elevation; // radians
+  final double? azimuth;   // radians
+  final double? snr;       // dB
+
+  SatelliteInfo({
+    required this.prn,
+    this.elevation,
+    this.azimuth,
+    this.snr,
+  });
+
+  /// Get color based on SNR strength
+  Color get snrColor {
+    if (snr == null) return Colors.grey;
+    if (snr! >= 30) return Colors.green;        // Excellent
+    if (snr! >= 20) return Colors.lightGreen;   // Good
+    if (snr! >= 10) return Colors.orange;       // Weak
+    return Colors.red;                           // Very weak
+  }
+}
+
 /// GNSS Status widget showing satellite info, fix quality, and accuracy
 class GnssStatus extends StatelessWidget {
-  /// Number of satellites in view
+  /// Detailed satellite list with positions and SNR
+  final List<SatelliteInfo>? satellites;
+
+  /// Number of satellites in view (fallback if satellites list not provided)
   final int? satellitesInView;
 
   /// Fix type (e.g., 'DGNSS', 'GPS', 'RTK', 'No Fix')
@@ -41,6 +68,7 @@ class GnssStatus extends StatelessWidget {
 
   const GnssStatus({
     super.key,
+    this.satellites,
     this.satellitesInView,
     this.fixType,
     this.hdop,
@@ -210,7 +238,8 @@ class GnssStatus extends StatelessWidget {
             height: size,
             child: CustomPaint(
               painter: _SkyViewPainter(
-                satelliteCount: satellitesInView ?? 0,
+                satellites: satellites,
+                satelliteCount: satellitesInView ?? satellites?.length ?? 0,
                 fixColor: fixQuality.color,
                 isDark: isDark,
               ),
@@ -547,11 +576,13 @@ class _FixQuality {
 
 /// Painter for the satellite sky view
 class _SkyViewPainter extends CustomPainter {
+  final List<SatelliteInfo>? satellites;
   final int satelliteCount;
   final Color fixColor;
   final bool isDark;
 
   _SkyViewPainter({
+    this.satellites,
     required this.satelliteCount,
     required this.fixColor,
     required this.isDark,
@@ -560,7 +591,7 @@ class _SkyViewPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final center = Offset(size.width / 2, size.height / 2);
-    final radius = math.min(size.width, size.height) / 2 - 4;
+    final radius = math.min(size.width, size.height) / 2 - 16;
 
     // Draw concentric circles (elevation rings at 0°, 30°, 60°, 90°)
     final ringPaint = Paint()
@@ -611,36 +642,41 @@ class _SkyViewPainter extends CustomPainter {
       );
     }
 
-    // Draw simulated satellites (distributed around sky)
-    if (satelliteCount > 0) {
-      final satPaint = Paint()
-        ..color = fixColor
-        ..style = PaintingStyle.fill;
-
+    // Draw satellites with REAL positions and SNR color coding
+    if (satellites != null && satellites!.isNotEmpty) {
       final satBorderPaint = Paint()
         ..color = Colors.white
         ..style = PaintingStyle.stroke
         ..strokeWidth = 1;
 
-      // Use golden angle for nice distribution
-      const goldenAngle = 2.39996322972865; // ~137.5 degrees in radians
+      for (final sat in satellites!) {
+        // Skip satellites without position data
+        if (sat.elevation == null || sat.azimuth == null) continue;
 
-      for (int i = 0; i < satelliteCount; i++) {
-        // Distribute satellites with varying elevations
-        final elevation = 0.3 + (i % 3) * 0.25; // 30%, 55%, 80% from center
-        final azimuth = i * goldenAngle;
+        // Convert elevation (radians, 0=horizon, pi/2=zenith) to radius
+        // Zenith (90°) = center, Horizon (0°) = edge
+        final elevationRatio = 1.0 - (sat.elevation! / (math.pi / 2));
+        final satRadius = radius * elevationRatio.clamp(0.0, 1.0);
 
-        final satRadius = radius * elevation;
-        final x = center.dx + satRadius * math.cos(azimuth);
-        final y = center.dy + satRadius * math.sin(azimuth);
+        // Azimuth: 0 = North, increases clockwise
+        // Canvas: 0 = East, increases counter-clockwise
+        // So we need: canvasAngle = -azimuth + pi/2 (rotate and flip)
+        final canvasAngle = -sat.azimuth! + math.pi / 2;
 
-        // Draw satellite dot
-        canvas.drawCircle(Offset(x, y), 4, satPaint);
-        canvas.drawCircle(Offset(x, y), 4, satBorderPaint);
+        final x = center.dx + satRadius * math.cos(canvasAngle);
+        final y = center.dy - satRadius * math.sin(canvasAngle);
+
+        // Draw satellite dot with SNR-based color
+        final satPaint = Paint()
+          ..color = sat.snrColor
+          ..style = PaintingStyle.fill;
+
+        canvas.drawCircle(Offset(x, y), 5, satPaint);
+        canvas.drawCircle(Offset(x, y), 5, satBorderPaint);
       }
     }
 
-    // Center dot
+    // Center dot (your position)
     final centerPaint = Paint()
       ..color = isDark ? Colors.white : Colors.black87
       ..style = PaintingStyle.fill;
@@ -650,7 +686,8 @@ class _SkyViewPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_SkyViewPainter oldDelegate) {
-    return satelliteCount != oldDelegate.satelliteCount ||
+    return satellites != oldDelegate.satellites ||
+        satelliteCount != oldDelegate.satelliteCount ||
         fixColor != oldDelegate.fixColor ||
         isDark != oldDelegate.isDark;
   }

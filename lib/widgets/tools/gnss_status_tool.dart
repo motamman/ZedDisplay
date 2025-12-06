@@ -20,14 +20,15 @@ class GnssStatusTool extends StatelessWidget {
   // Default paths (only paths that commonly exist)
   // Optional paths (indexes 3-6) may not exist on all systems
   static const _defaultPaths = [
-    'navigation.gnss.satellites',        // 0: required
-    'navigation.gnss.methodQuality',     // 1: required
-    'navigation.gnss.horizontalDilution', // 2: required (HDOP)
-    '',  // 3: optional - verticalDilution (VDOP) - may not exist
-    '',  // 4: optional - positionDilution (PDOP) - may not exist
-    '',  // 5: optional - horizontalAccuracy - may not exist
-    '',  // 6: optional - verticalAccuracy - may not exist
-    'navigation.position',               // 7: required
+    'navigation.gnss.satellites',        // 0: satellite count
+    'navigation.gnss.methodQuality',     // 1: fix type
+    'navigation.gnss.horizontalDilution', // 2: HDOP
+    '',  // 3: optional - verticalDilution (VDOP)
+    '',  // 4: optional - positionDilution (PDOP)
+    '',  // 5: optional - horizontalAccuracy
+    '',  // 6: optional - verticalAccuracy
+    'navigation.position',               // 7: position
+    'navigation.gnss.satellitesInView',  // 8: detailed satellite list with positions/SNR
   ];
 
   /// Get path at index, using default if not configured
@@ -138,7 +139,18 @@ class GnssStatusTool extends StatelessWidget {
       }
     }
 
+    // Get satellitesInView (index 8) - detailed satellite list
+    List<SatelliteInfo>? satellites;
+    final satInViewPath = _getPath(8);
+    if (satInViewPath.isNotEmpty) {
+      final satInViewData = signalKService.getValue(satInViewPath);
+      if (satInViewData?.value != null) {
+        satellites = _parseSatellitesInView(satInViewData!.value);
+      }
+    }
+
     return GnssStatus(
+      satellites: satellites,
       satellitesInView: satellitesInView,
       fixType: fixType,
       hdop: hdop,
@@ -152,6 +164,58 @@ class GnssStatusTool extends StatelessWidget {
       showAccuracyCircle: showAccuracyCircle,
       primaryColor: primaryColor,
     );
+  }
+
+  /// Parse satellitesInView from SignalK data
+  /// Structure: { satellites: [...], count: N, ... }
+  List<SatelliteInfo> _parseSatellitesInView(dynamic data) {
+    final satellites = <SatelliteInfo>[];
+
+    if (data is Map) {
+      // Get satellites array from the value object
+      final satList = data['satellites'];
+      if (satList is List) {
+        for (final sat in satList) {
+          if (sat is Map) {
+            final prn = (sat['id'] is num ? (sat['id'] as num).toInt() : null) ??
+                        (sat['PRNnumber'] is num ? (sat['PRNnumber'] as num).toInt() : null) ?? 0;
+            final elevation = sat['elevation'] is num ? (sat['elevation'] as num).toDouble() : null;
+            final azimuth = sat['azimuth'] is num ? (sat['azimuth'] as num).toDouble() : null;
+            final snr = sat['SNR'] is num ? (sat['SNR'] as num).toDouble() : null;
+
+            if (prn > 0) {
+              satellites.add(SatelliteInfo(
+                prn: prn,
+                elevation: elevation,
+                azimuth: azimuth,
+                snr: snr,
+              ));
+            }
+          }
+        }
+      }
+    } else if (data is List) {
+      // Direct list format (fallback)
+      for (final sat in data) {
+        if (sat is Map) {
+          final prn = sat['PRNnumber'] as int? ?? sat['id'] as int? ?? 0;
+          final elevation = sat['elevation'] is num ? (sat['elevation'] as num).toDouble() : null;
+          final azimuth = sat['azimuth'] is num ? (sat['azimuth'] as num).toDouble() : null;
+          final snr = sat['SNRatio'] is num ? (sat['SNRatio'] as num).toDouble() : null;
+
+          if (prn > 0) {
+            satellites.add(SatelliteInfo(
+              prn: prn,
+              elevation: elevation,
+              azimuth: azimuth,
+              snr: snr,
+            ));
+          }
+        }
+      }
+    }
+
+    return satellites;
   }
 }
 
@@ -169,7 +233,7 @@ class GnssStatusToolBuilder extends ToolBuilder {
         allowsColorCustomization: true,
         allowsMultiplePaths: true,
         minPaths: 0,
-        maxPaths: 8,
+        maxPaths: 9,
         styleOptions: const [
           'primaryColor',
           'showSkyView',
@@ -184,14 +248,15 @@ class GnssStatusToolBuilder extends ToolBuilder {
     return ToolConfig(
       vesselId: vesselId,
       dataSources: [
-        DataSource(path: 'navigation.gnss.satellites', label: 'Satellites'),
+        DataSource(path: 'navigation.gnss.satellites', label: 'Sat Count'),
         DataSource(path: 'navigation.gnss.methodQuality', label: 'Fix Type'),
         DataSource(path: 'navigation.gnss.horizontalDilution', label: 'HDOP'),
-        DataSource(path: '', label: 'VDOP (optional)'),        // May not exist
-        DataSource(path: '', label: 'PDOP (optional)'),        // May not exist
-        DataSource(path: '', label: 'H Accuracy (optional)'),  // May not exist
-        DataSource(path: '', label: 'V Accuracy (optional)'),  // May not exist
+        DataSource(path: '', label: 'VDOP (optional)'),
+        DataSource(path: '', label: 'PDOP (optional)'),
+        DataSource(path: '', label: 'H Accuracy (optional)'),
+        DataSource(path: '', label: 'V Accuracy (optional)'),
         DataSource(path: 'navigation.position', label: 'Position'),
+        DataSource(path: 'navigation.gnss.satellitesInView', label: 'Sat Details'),
       ],
       style: StyleConfig(
         customProperties: {
