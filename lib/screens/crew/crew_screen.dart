@@ -7,6 +7,7 @@ import '../../widgets/crew/crew_list.dart';
 import '../../widgets/crew/file_list.dart';
 import 'crew_profile_screen.dart';
 import 'chat_screen.dart';
+import 'intercom_screen.dart';
 
 /// Main crew screen with crew list and profile access
 class CrewScreen extends StatelessWidget {
@@ -20,6 +21,14 @@ class CrewScreen extends StatelessWidget {
           appBar: AppBar(
             title: const Text('Crew'),
             actions: [
+              // Intercom button
+              IconButton(
+                icon: const Icon(Icons.radio),
+                onPressed: crewService.hasProfile
+                    ? () => _openIntercom(context)
+                    : null,
+                tooltip: 'Voice Intercom',
+              ),
               // Files button
               IconButton(
                 icon: const Icon(Icons.folder_shared),
@@ -173,6 +182,14 @@ class CrewScreen extends StatelessWidget {
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (context) => const FilesScreen(),
+      ),
+    );
+  }
+
+  void _openIntercom(BuildContext context) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => const IntercomScreen(),
       ),
     );
   }

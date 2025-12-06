@@ -45,6 +45,9 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<!-- Microphone permission for voice intercom -->
+	<key>NSMicrophoneUsageDescription</key>
+	<string>ZedDisplay needs microphone access for crew voice intercom</string>
 	<!-- Document types for .zedjson files -->
 	<key>CFBundleDocumentTypes</key>
 	<array>

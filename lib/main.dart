@@ -18,6 +18,7 @@ import 'services/foreground_service.dart';
 import 'services/crew_service.dart';
 import 'services/messaging_service.dart';
 import 'services/file_share_service.dart';
+import 'services/intercom_service.dart';
 import 'models/auth_token.dart';
 import 'screens/splash_screen.dart';
 import 'screens/setup_management_screen.dart';
@@ -63,6 +64,10 @@ void main() async {
   final fileShareService = FileShareService(signalKService, storageService, crewService);
   await fileShareService.initialize();
 
+  // Initialize intercom service
+  final intercomService = IntercomService(signalKService, storageService, crewService);
+  await intercomService.initialize();
+
   // Auto-enable notifications if they were enabled before
   final notificationsEnabled = storageService.getNotificationsEnabled();
   if (notificationsEnabled) {
@@ -105,6 +110,7 @@ void main() async {
     crewService: crewService,
     messagingService: messagingService,
     fileShareService: fileShareService,
+    intercomService: intercomService,
   ));
 }
 
@@ -120,6 +126,7 @@ class ZedDisplayApp extends StatefulWidget {
   final CrewService crewService;
   final MessagingService messagingService;
   final FileShareService fileShareService;
+  final IntercomService intercomService;
 
   const ZedDisplayApp({
     super.key,
@@ -134,6 +141,7 @@ class ZedDisplayApp extends StatefulWidget {
     required this.crewService,
     required this.messagingService,
     required this.fileShareService,
+    required this.intercomService,
   });
 
   @override
@@ -322,6 +330,7 @@ class _ZedDisplayAppState extends State<ZedDisplayApp> with WidgetsBindingObserv
         ChangeNotifierProvider.value(value: widget.crewService),
         ChangeNotifierProvider.value(value: widget.messagingService),
         ChangeNotifierProvider.value(value: widget.fileShareService),
+        ChangeNotifierProvider.value(value: widget.intercomService),
       ],
       child: MaterialApp(
         navigatorKey: _navigatorKey,

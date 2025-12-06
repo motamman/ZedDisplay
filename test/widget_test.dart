@@ -12,6 +12,7 @@ import 'package:zed_display/services/foreground_service.dart';
 import 'package:zed_display/services/crew_service.dart';
 import 'package:zed_display/services/messaging_service.dart';
 import 'package:zed_display/services/file_share_service.dart';
+import 'package:zed_display/services/intercom_service.dart';
 
 void main() {
   late StorageService storageService;
@@ -25,6 +26,7 @@ void main() {
   late CrewService crewService;
   late MessagingService messagingService;
   late FileShareService fileShareService;
+  late IntercomService intercomService;
 
   setUp(() async {
     // Initialize storage service for tests
@@ -57,6 +59,10 @@ void main() {
     // Initialize file share service
     fileShareService = FileShareService(signalKService, storageService, crewService);
     await fileShareService.initialize();
+
+    // Initialize intercom service
+    intercomService = IntercomService(signalKService, storageService, crewService);
+    await intercomService.initialize();
 
     // Initialize dashboard service
     dashboardService = DashboardService(
@@ -97,6 +103,7 @@ void main() {
       crewService: crewService,
       messagingService: messagingService,
       fileShareService: fileShareService,
+      intercomService: intercomService,
     ));
 
     // Verify that the app launches
@@ -116,6 +123,7 @@ void main() {
       crewService: crewService,
       messagingService: messagingService,
       fileShareService: fileShareService,
+      intercomService: intercomService,
     ));
 
     // Verify services are initialized
