@@ -11,7 +11,8 @@ A customizable SignalK marine dashboard application to display real-time vessel 
 - **signalk-derived-data**: Provides computed values like true wind, VMG, and other derived navigational data
 - **signalk-parquet**: Allows some tools to display historic data for selected paths
 - **signalk-rpi-monitor**: Required for RPi Monitor tool (CPU, GPU temperature, memory, storage monitoring)
-- **signalk-rpi-uptime**: Required for system uptime display in RPi Monitor tool 
+- **signalk-rpi-uptime**: Required for system uptime display in RPi Monitor tool
+- **signalk-weatherflow-api**: Required for WeatherFlow Forecast tool (weather data from Tempest stations) 
 
 
 
@@ -41,6 +42,12 @@ A customizable SignalK marine dashboard application to display real-time vessel 
 - **Text Display**: Large numeric value display with label and unit
   - Smart lat/long formatting (auto-detects and formats as degrees/minutes/seconds)
   - Object value support (displays Map properties as key-value pairs)
+- **WeatherFlow Forecast**: Weather forecast from WeatherFlow Tempest station
+  - Current conditions (temperature, humidity, pressure, wind)
+  - Hourly forecast with weather icons, temperature, precipitation probability
+  - Wind direction arrows and speed for each forecast hour
+  - Configurable hours to display (up to 72 hours)
+  - Requires signalk-weatherflow-api plugin
 
 **Chart Tools**
 - **Historical Chart**: Line chart showing historical data for up to 3 paths
@@ -59,6 +66,16 @@ A customizable SignalK marine dashboard application to display real-time vessel 
   - Tap display to cycle between modes
   - Shows heading (true/magnetic), wind direction (true/apparent), SOG, and COG
 - **Autopilot**: Full autopilot control with compass display, mode selection, and tacking
+- **Attitude Indicator**: Aircraft-style artificial horizon display
+  - Shows vessel pitch and roll in real-time
+  - Configurable color scheme
+  - Visual horizon line with degree markings
+- **GNSS Status**: GPS/GNSS satellite and fix quality display
+  - Fix type indicator (No Fix, 2D, 3D, GNSS, DGNSS, RTK Float, RTK Fixed)
+  - Satellite count and signal quality
+  - Horizontal/vertical dilution of precision (HDOP/VDOP)
+  - Data age indicator (LIVE/stale status)
+  - Detailed satellite information (PRN, elevation, azimuth, SNR)
 
 **Control Tools**
 - **Switch**: Toggle switch for boolean SignalK paths with PUT support
@@ -365,7 +382,7 @@ For questions or issues:
 - [ ] AI integration
 - [ ] AIS collision avoidance using `vessels.<uuid>.navigation.closestApproach` (CPA/TCPA)
 - [ ] AIS collision alerts using `notifications.danger.collision` (requires collision-detector plugin)
-- [ ] Weather forecast tool (display forecast data from SignalK weather plugins)
+- [x] Weather forecast tool (completed - WeatherFlow Tempest integration)
 - [x] Raspberry Pi health monitoring tool (completed - CPU, memory, temperature, uptime monitoring)
 - [ ] Manage overflows with dynamic sizing (improve responsive layout across all screen sizes)
 
