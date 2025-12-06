@@ -785,31 +785,35 @@ class _AISPolarChartState extends State<AISPolarChart>
               // Get COG for rotation (in degrees)
               final cog = vessel.cog ?? 0.0;
               final isLive = vessel.isLive;
+              final isHighlighted = vessel.mmsi == _highlightedVesselMMSI;
 
               return Marker(
                 point: LatLng(lat, lon),
-                width: 20,
-                height: 20,
-                child: Stack(
-                  alignment: Alignment.center,
-                  children: [
-                    // Rotated navigation arrow
-                    Transform.rotate(
-                      angle: cog * math.pi / 180, // Convert degrees to radians
-                      child: const Icon(
-                        Icons.navigation,
-                        color: Colors.red,
-                        size: 16,
+                width: isHighlighted ? 32 : 20,
+                height: isHighlighted ? 32 : 20,
+                child: GestureDetector(
+                  onTap: () => _highlightVessel(vessel.mmsi),
+                  child: Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      // Rotated navigation arrow
+                      Transform.rotate(
+                        angle: cog * math.pi / 180, // Convert degrees to radians
+                        child: Icon(
+                          Icons.navigation,
+                          color: isHighlighted ? Colors.green : Colors.red,
+                          size: isHighlighted ? 28 : 16,
+                        ),
                       ),
-                    ),
-                    // X overlay for non-live vessels
-                    if (!isLive)
-                      const Icon(
-                        Icons.close,
-                        color: Colors.white,
-                        size: 12,
-                      ),
-                  ],
+                      // X overlay for non-live vessels
+                      if (!isLive)
+                        const Icon(
+                          Icons.close,
+                          color: Colors.white,
+                          size: 12,
+                        ),
+                    ],
+                  ),
                 ),
               );
             }).whereType<Marker>(),
@@ -1084,31 +1088,38 @@ class _AISPolarChartState extends State<AISPolarChart>
   /// Calculate Closest Point of Approach and Time to CPA
   /// Returns (cpa: distance in meters, tcpa: time in seconds)
   ({double cpa, double tcpa})? _calculateCPATCPA(_VesselPoint vessel) {
-    if (vessel.cog == null || vessel.sog == null) return null;
+    // Get target vessel SOG in m/s (raw SI value from service)
+    final vesselData = widget.signalKService.getLiveAISVessels()[vessel.mmsi];
+    final targetSogMs = vesselData?['sogRaw'] as double? ?? 0.0;
 
     // Get own vessel COG (in degrees) and SOG (raw SI = m/s) using configured paths
+    // If own vessel is stationary (no data), treat as velocity (0, 0)
     final ownCog = ConversionUtils.getConvertedValue(
       widget.signalKService, widget.cogPath
     );
-    // Use raw SI value for SOG (m/s) to ensure consistent units for calculation
     final ownSogMs = ConversionUtils.getRawValue(
       widget.signalKService, widget.sogPath
-    );
-
-    if (ownCog == null || ownSogMs == null) return null;
-
-    // Get target vessel SOG in m/s (raw SI value from service)
-    final vesselData = widget.signalKService.getLiveAISVessels()[vessel.mmsi];
-    final targetSogMs = vesselData?['sogRaw'] as double?;
-    if (targetSogMs == null) return null;
+    ) ?? 0.0;
 
     // Own vessel velocity components (m/s)
-    final ownVx = ownSogMs * math.sin(ownCog * math.pi / 180);
-    final ownVy = ownSogMs * math.cos(ownCog * math.pi / 180);
+    // If COG is null but SOG > 0, we can't calculate (unknown direction)
+    // If SOG is 0, COG doesn't matter - vessel is stationary
+    double ownVx = 0.0;
+    double ownVy = 0.0;
+    if (ownSogMs > 0.01) {
+      if (ownCog == null) return null; // Moving but no direction
+      ownVx = ownSogMs * math.sin(ownCog * math.pi / 180);
+      ownVy = ownSogMs * math.cos(ownCog * math.pi / 180);
+    }
 
     // Target vessel velocity components (m/s)
-    final targetVx = targetSogMs * math.sin(vessel.cog! * math.pi / 180);
-    final targetVy = targetSogMs * math.cos(vessel.cog! * math.pi / 180);
+    // If target is stationary or has no COG, treat as velocity (0, 0)
+    double targetVx = 0.0;
+    double targetVy = 0.0;
+    if (targetSogMs > 0.01 && vessel.cog != null) {
+      targetVx = targetSogMs * math.sin(vessel.cog! * math.pi / 180);
+      targetVy = targetSogMs * math.cos(vessel.cog! * math.pi / 180);
+    }
 
     // Relative velocity (target relative to own)
     final relVx = targetVx - ownVx;
@@ -1141,10 +1152,6 @@ class _AISPolarChartState extends State<AISPolarChart>
     return (cpa: cpa, tcpa: tcpa);
   }
 
-  /// Get CPA distance only (for backward compatibility)
-  double? _calculateCPA(_VesselPoint vessel) {
-    return _calculateCPATCPA(vessel)?.cpa;
-  }
 }
 
 class _VesselPoint {
