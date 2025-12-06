@@ -51,6 +51,17 @@ class IntercomPanel extends StatelessWidget {
               onPTTEnd: () => intercomService.stopPTT(),
             ),
 
+            // Stop button (visible when transmitting as fallback)
+            if (intercomService.isPTTActive)
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: TextButton.icon(
+                  onPressed: () => intercomService.stopPTT(),
+                  icon: const Icon(Icons.stop, color: Colors.red),
+                  label: const Text('TAP TO STOP', style: TextStyle(color: Colors.red)),
+                ),
+              ),
+
             const SizedBox(height: 16),
 
             // Controls row
@@ -298,22 +309,31 @@ class _PTTButton extends StatefulWidget {
 }
 
 class _PTTButtonState extends State<_PTTButton> {
+  bool _isPressed = false;
+
+  void _startTransmit() {
+    if (!_isPressed && widget.isEnabled) {
+      _isPressed = true;
+      HapticFeedback.heavyImpact();
+      widget.onPTTStart();
+    }
+  }
+
+  void _stopTransmit() {
+    if (_isPressed) {
+      _isPressed = false;
+      HapticFeedback.lightImpact();
+      widget.onPTTEnd();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
-      onTapDown: widget.isEnabled
-          ? (_) {
-              HapticFeedback.heavyImpact();
-              widget.onPTTStart();
-            }
-          : null,
-      onTapUp: widget.isEnabled
-          ? (_) {
-              HapticFeedback.lightImpact();
-              widget.onPTTEnd();
-            }
-          : null,
-      onTapCancel: widget.isEnabled ? widget.onPTTEnd : null,
+      onTapDown: widget.isEnabled ? (_) => _startTransmit() : null,
+      onTapUp: widget.isEnabled ? (_) => _stopTransmit() : null,
+      onTapCancel: widget.isEnabled ? _stopTransmit : null,
+      onPanEnd: widget.isEnabled ? (_) => _stopTransmit() : null,  // Also stop on drag end
       child: Container(
         width: 120,
         height: 120,
