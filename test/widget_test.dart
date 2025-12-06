@@ -10,6 +10,8 @@ import 'package:zed_display/services/setup_service.dart';
 import 'package:zed_display/services/notification_service.dart';
 import 'package:zed_display/services/foreground_service.dart';
 import 'package:zed_display/services/crew_service.dart';
+import 'package:zed_display/services/messaging_service.dart';
+import 'package:zed_display/services/file_share_service.dart';
 
 void main() {
   late StorageService storageService;
@@ -21,6 +23,8 @@ void main() {
   late NotificationService notificationService;
   late ForegroundTaskService foregroundService;
   late CrewService crewService;
+  late MessagingService messagingService;
+  late FileShareService fileShareService;
 
   setUp(() async {
     // Initialize storage service for tests
@@ -45,6 +49,14 @@ void main() {
     // Initialize crew service
     crewService = CrewService(signalKService, storageService);
     await crewService.initialize();
+
+    // Initialize messaging service
+    messagingService = MessagingService(signalKService, storageService, crewService);
+    await messagingService.initialize();
+
+    // Initialize file share service
+    fileShareService = FileShareService(signalKService, storageService, crewService);
+    await fileShareService.initialize();
 
     // Initialize dashboard service
     dashboardService = DashboardService(
@@ -83,6 +95,8 @@ void main() {
       notificationService: notificationService,
       foregroundService: foregroundService,
       crewService: crewService,
+      messagingService: messagingService,
+      fileShareService: fileShareService,
     ));
 
     // Verify that the app launches
@@ -100,6 +114,8 @@ void main() {
       notificationService: notificationService,
       foregroundService: foregroundService,
       crewService: crewService,
+      messagingService: messagingService,
+      fileShareService: fileShareService,
     ));
 
     // Verify services are initialized

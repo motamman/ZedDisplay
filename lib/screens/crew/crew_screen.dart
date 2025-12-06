@@ -2,8 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../models/crew_member.dart';
 import '../../services/crew_service.dart';
+import '../../services/messaging_service.dart';
 import '../../widgets/crew/crew_list.dart';
+import '../../widgets/crew/file_list.dart';
 import 'crew_profile_screen.dart';
+import 'chat_screen.dart';
 
 /// Main crew screen with crew list and profile access
 class CrewScreen extends StatelessWidget {
@@ -11,12 +14,59 @@ class CrewScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Consumer<CrewService>(
-      builder: (context, crewService, child) {
+    return Consumer2<CrewService, MessagingService>(
+      builder: (context, crewService, messagingService, child) {
         return Scaffold(
           appBar: AppBar(
             title: const Text('Crew'),
             actions: [
+              // Files button
+              IconButton(
+                icon: const Icon(Icons.folder_shared),
+                onPressed: crewService.hasProfile
+                    ? () => _openFiles(context)
+                    : null,
+                tooltip: 'Shared Files',
+              ),
+              // Chat button with unread badge
+              Stack(
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.chat),
+                    onPressed: crewService.hasProfile
+                        ? () => _openChat(context)
+                        : null,
+                    tooltip: 'Crew Chat',
+                  ),
+                  if (messagingService.unreadCount > 0)
+                    Positioned(
+                      right: 4,
+                      top: 4,
+                      child: Container(
+                        padding: const EdgeInsets.all(4),
+                        decoration: const BoxDecoration(
+                          color: Colors.red,
+                          shape: BoxShape.circle,
+                        ),
+                        constraints: const BoxConstraints(
+                          minWidth: 18,
+                          minHeight: 18,
+                        ),
+                        child: Text(
+                          messagingService.unreadCount > 99
+                              ? '99+'
+                              : '${messagingService.unreadCount}',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
               // Profile button
               IconButton(
                 icon: crewService.hasProfile
@@ -107,6 +157,22 @@ class CrewScreen extends StatelessWidget {
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (context) => const CrewProfileScreen(),
+      ),
+    );
+  }
+
+  void _openChat(BuildContext context) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => const ChatScreen(),
+      ),
+    );
+  }
+
+  void _openFiles(BuildContext context) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => const FilesScreen(),
       ),
     );
   }
