@@ -417,13 +417,17 @@ class SignalKService extends ChangeNotifier implements DataService {
   /// Call this with all paths from deployed templates
   Future<void> _sendSubscription() async {
     try {
-      // For units-preference plugin, get vessel context
-      if (_authToken != null) {
-        final vesselId = await getVesselSelfId();
-        _vesselContext = vesselId != null ? 'vessels.$vesselId' : 'vessels.self';
+      // Always get vessel context for self-vessel filtering (used by AIS)
+      final vesselId = await getVesselSelfId();
+      _vesselContext = vesselId != null ? 'vessels.$vesselId' : 'vessels.self';
 
+      if (kDebugMode) {
+        print('Vessel context: $_vesselContext');
+      }
+
+      // For units-preference plugin, wait for template paths
+      if (_authToken != null) {
         if (kDebugMode) {
-          print('Vessel context: $_vesselContext');
           print('Waiting for template paths to subscribe...');
         }
         // Don't subscribe yet - wait for setActiveTemplatePaths() to be called
@@ -848,31 +852,35 @@ class SignalKService extends ChangeNotifier implements DataService {
     return _aisManager.getAllAISVessels();
   }
 
-  /// Fetch vessel self ID from SignalK server
+  /// Fetch vessel self ID from SignalK server using the /self endpoint
+  /// Returns the vessel identifier (e.g., "urn:mrn:signalk:uuid:..." or "urn:mrn:imo:mmsi:...")
   Future<String?> getVesselSelfId() async {
     final protocol = _useSecureConnection ? 'https' : 'http';
 
     try {
+      // Use the proper SignalK /self endpoint which returns the self vessel reference
       final response = await http.get(
-        Uri.parse('$protocol://$_serverUrl/signalk/v1/api/vessels'),
+        Uri.parse('$protocol://$_serverUrl/signalk/v1/api/self'),
         headers: _getHeaders(),
       ).timeout(const Duration(seconds: 5));
 
       if (response.statusCode == 200) {
-        final data = jsonDecode(response.body) as Map<String, dynamic>;
+        // Response is a JSON string like "vessels.urn:mrn:imo:mmsi:367780840"
+        final selfRef = response.body.replaceAll('"', '').trim();
 
-        // Get the first vessel key (usually the self vessel)
-        if (data.isNotEmpty) {
-          final vesselId = data.keys.first;
-          if (kDebugMode) {
-            print('Vessel self ID: $vesselId');
-          }
-          return vesselId;
+        // Extract vessel ID (remove "vessels." prefix if present)
+        final vesselId = selfRef.startsWith('vessels.')
+            ? selfRef.substring('vessels.'.length)
+            : selfRef;
+
+        if (kDebugMode) {
+          print('Vessel self ID from /self endpoint: $vesselId');
         }
+        return vesselId;
       }
     } catch (e) {
       if (kDebugMode) {
-        print('Error fetching vessel ID: $e');
+        print('Error fetching vessel self ID: $e');
       }
     }
 
@@ -1766,6 +1774,9 @@ class _AISManager {
   final Map<String, SignalKDataPoint> Function() getDataCache;
   final double? Function(String, double) convertValueForPath;
 
+  // Cached self vessel ID for filtering
+  String? _cachedSelfVesselId;
+
   _AISManager({
     required this.getServerUrl,
     required this.useSecureConnection,
@@ -1808,9 +1819,10 @@ class _AISManager {
     for (final vesselContext in vesselContexts) {
       final vesselId = vesselContext.substring('vessels.'.length);
 
-      // Skip self vessel
-      final currentVesselContext = getVesselContext();
-      if (vesselContext == currentVesselContext || vesselContext.contains('self')) {
+      // Skip self vessel - use cached ID or fall back to getVesselContext()
+      final selfVesselId = _cachedSelfVesselId;
+      final selfContext = selfVesselId != null ? 'vessels.$selfVesselId' : getVesselContext();
+      if (vesselContext == selfContext || vesselId == selfVesselId || vesselContext.contains('self')) {
         continue;
       }
 
@@ -1893,8 +1905,42 @@ class _AISManager {
           print('🌐 Received ${vesselsData.length} vessel entries');
         }
 
+        // Fetch self vessel ID directly from /self endpoint
+        String? selfVesselId;
+        try {
+          final selfResponse = await http.get(
+            Uri.parse('$protocol://${getServerUrl()}/signalk/v1/api/self'),
+            headers: getHeaders(),
+          ).timeout(const Duration(seconds: 5));
+
+          if (selfResponse.statusCode == 200) {
+            final selfRef = selfResponse.body.replaceAll('"', '').trim();
+            selfVesselId = selfRef.startsWith('vessels.')
+                ? selfRef.substring('vessels.'.length)
+                : selfRef;
+            // Cache for use by getLiveAISVessels()
+            _cachedSelfVesselId = selfVesselId;
+            if (kDebugMode) {
+              print('🌐 Self vessel ID: $selfVesselId');
+            }
+          }
+        } catch (e) {
+          if (kDebugMode) {
+            print('🌐 Error fetching self: $e');
+          }
+        }
+
         for (final entry in vesselsData.entries) {
           final vesselId = entry.key;
+
+          // Skip self vessel - check both the literal 'self' key and the actual vessel ID
+          if (vesselId == 'self' || vesselId == selfVesselId) {
+            if (kDebugMode) {
+              print('🌐 Skipping self vessel: $vesselId');
+            }
+            continue;
+          }
+
           final vesselData = entry.value as Map<String, dynamic>?;
           if (vesselData != null) {
             final navigation = vesselData['navigation'] as Map<String, dynamic>?;
