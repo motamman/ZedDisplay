@@ -1421,6 +1421,10 @@ class _DataCacheManager {
       if (key.startsWith('vessels.self') || activePaths.contains(key)) {
         return false;
       }
+      // Never prune environment data (weather, sun/moon, etc.) - updates infrequently
+      if (key.startsWith('environment.')) {
+        return false;
+      }
       // AIS vessel data - prune if older than 10 minutes
       if (key.startsWith('vessels.')) {
         final age = now.difference(dataPoint.timestamp);

@@ -156,6 +156,7 @@ class WeatherFlowForecastTool extends StatelessWidget {
       moonrise: _getDateTimeValue('$_moonBasePath.times.rise'),
       moonset: _getDateTimeValue('$_moonBasePath.times.set'),
       moonPhase: _getNumericValue('$_moonBasePath.phase'),
+      moonFraction: _getNumericValue('$_moonBasePath.fraction'),
       moonAngle: _getNumericValue('$_moonBasePath.angle'),
     );
   }

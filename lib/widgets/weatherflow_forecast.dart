@@ -17,7 +17,8 @@ class SunMoonTimes {
   final DateTime? nightEnd;
   final DateTime? moonrise;
   final DateTime? moonset;
-  final double? moonPhase; // 0-1 (0=new, 0.5=full)
+  final double? moonPhase; // 0-1 (0=new, 0.5=full) - determines which side is lit
+  final double? moonFraction; // 0-1 illumination fraction - how much is lit
   final double? moonAngle; // radians
 
   const SunMoonTimes({
@@ -35,6 +36,7 @@ class SunMoonTimes {
     this.moonrise,
     this.moonset,
     this.moonPhase,
+    this.moonFraction,
     this.moonAngle,
   });
 }
@@ -1082,7 +1084,7 @@ class _SunMoonArc extends StatelessWidget {
                   color: Colors.blueGrey.shade300,
                   size: 10,
                 ),
-                _buildMoonIcon(times.moonPhase),
+                _buildMoonIcon(times.moonPhase, times.moonFraction),
               ],
             ),
           ),
@@ -1101,7 +1103,7 @@ class _SunMoonArc extends StatelessWidget {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                _buildMoonIcon(times.moonPhase),
+                _buildMoonIcon(times.moonPhase, times.moonFraction),
                 Icon(
                   Icons.arrow_downward,
                   color: Colors.blueGrey.shade300,
@@ -1114,20 +1116,16 @@ class _SunMoonArc extends StatelessWidget {
       }
     }
 
-    // "Now" indicator at center (always at 50%)
+    // "Now" indicator at center (always at 50%) - above the baseline
     final nowX = width * 0.5; // Center of arc
+    final baseY = height - 10; // Baseline position (same as painter)
     children.add(
       Positioned(
         left: nowX - 12,
-        bottom: 0,
+        top: baseY - 20, // Position above baseline
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Container(
-              width: 2,
-              height: 8,
-              color: Colors.red,
-            ),
             const Text(
               'now',
               style: TextStyle(
@@ -1135,6 +1133,11 @@ class _SunMoonArc extends StatelessWidget {
                 color: Colors.red,
                 fontWeight: FontWeight.bold,
               ),
+            ),
+            Container(
+              width: 2,
+              height: 10,
+              color: Colors.red,
             ),
           ],
         ),
@@ -1144,19 +1147,23 @@ class _SunMoonArc extends StatelessWidget {
     return Stack(clipBehavior: Clip.none, children: children);
   }
 
-  Widget _buildMoonIcon(double? phase) {
+  Widget _buildMoonIcon(double? phase, double? fraction) {
     return CustomPaint(
       size: const Size(16, 16),
-      painter: _MoonPhasePainter(phase: phase ?? 0.5),
+      painter: _MoonPhasePainter(
+        phase: phase ?? 0.5,
+        fraction: fraction ?? 0.5,
+      ),
     );
   }
 }
 
 /// Custom painter for moon phase showing illumination
 class _MoonPhasePainter extends CustomPainter {
-  final double phase; // 0 = new, 0.5 = full, 1 = new again
+  final double phase; // 0-1: determines which side is lit (< 0.5 = waxing/right, > 0.5 = waning/left)
+  final double fraction; // 0-1: illumination fraction (0 = new, 1 = full)
 
-  _MoonPhasePainter({required this.phase});
+  _MoonPhasePainter({required this.phase, required this.fraction});
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -1174,68 +1181,65 @@ class _MoonPhasePainter extends CustomPainter {
       ..color = Colors.grey.shade200
       ..style = PaintingStyle.fill;
 
-    // Calculate illumination based on phase
-    // phase 0 = new moon (0% illuminated)
-    // phase 0.25 = first quarter (50% illuminated, right side)
-    // phase 0.5 = full moon (100% illuminated)
-    // phase 0.75 = last quarter (50% illuminated, left side)
-
-    final path = Path();
-
-    if (phase < 0.01 || phase > 0.99) {
+    if (fraction < 0.01) {
       // New moon - no illumination
       return;
-    } else if ((phase - 0.5).abs() < 0.01) {
+    } else if (fraction > 0.99) {
       // Full moon - full illumination
       canvas.drawCircle(center, radius, lightPaint);
-    } else {
-      // Partial illumination - the terminator (shadow line) is an ellipse
-      // Start with a half circle
-      if (phase < 0.5) {
-        // Waxing: illuminated from right
-        path.addArc(
-          Rect.fromCircle(center: center, radius: radius),
-          -math.pi / 2,
-          math.pi,
-        );
-
-        // Add the terminator curve
-        final terminatorWidth = radius * (1 - 2 * phase); // varies from radius to -radius
-        path.arcTo(
-          Rect.fromCenter(
-            center: center,
-            width: terminatorWidth.abs() * 2,
-            height: radius * 2,
-          ),
-          math.pi / 2,
-          terminatorWidth >= 0 ? math.pi : -math.pi,
-          false,
-        );
-      } else {
-        // Waning: illuminated from left
-        path.addArc(
-          Rect.fromCircle(center: center, radius: radius),
-          math.pi / 2,
-          math.pi,
-        );
-
-        // Add the terminator curve
-        final terminatorWidth = radius * (2 * phase - 1); // varies from -radius to radius
-        path.arcTo(
-          Rect.fromCenter(
-            center: center,
-            width: terminatorWidth.abs() * 2,
-            height: radius * 2,
-          ),
-          -math.pi / 2,
-          terminatorWidth >= 0 ? math.pi : -math.pi,
-          false,
-        );
-      }
-
-      path.close();
-      canvas.drawPath(path, lightPaint);
+      return;
     }
+
+    // Use phase to determine which side is lit
+    // phase < 0.5 = waxing (right side lit)
+    // phase >= 0.5 = waning (left side lit)
+    final bool isWaxing = phase < 0.5;
+
+    // Use fraction directly for illumination amount
+    // fraction 0 = new, 0.5 = half, 1 = full
+    // Flip so higher fraction = more light
+    final termWidth = radius * (2.0 * fraction - 1.0);
+    final isGibbous = fraction > 0.5;
+
+    // Build the illuminated area path
+    final path = Path();
+
+    if (isWaxing) {
+      // Waxing: right side is lit first
+      path.moveTo(center.dx, center.dy - radius);
+      // Draw right semicircle (clockwise from top to bottom)
+      path.arcToPoint(
+        Offset(center.dx, center.dy + radius),
+        radius: Radius.circular(radius),
+        clockwise: true,
+      );
+      // Draw terminator back to top
+      // For gibbous: expand into dark side (clockwise), for crescent: contract (ccw)
+      path.arcToPoint(
+        Offset(center.dx, center.dy - radius),
+        radius: Radius.elliptical(termWidth.abs().clamp(0.1, radius), radius),
+        clockwise: isGibbous,
+      );
+    } else {
+      // Waning: left side is lit
+      path.moveTo(center.dx, center.dy - radius);
+      // Draw left semicircle (counter-clockwise from top to bottom)
+      path.arcToPoint(
+        Offset(center.dx, center.dy + radius),
+        radius: Radius.circular(radius),
+        clockwise: false,
+      );
+      // Draw terminator back to top
+      // For gibbous: expand into dark side (ccw), for crescent: contract (clockwise)
+      path.arcToPoint(
+        Offset(center.dx, center.dy - radius),
+        radius: Radius.elliptical(termWidth.abs().clamp(0.1, radius), radius),
+        clockwise: !isGibbous,
+      );
+    }
+
+    path.close();
+    canvas.drawPath(path, lightPaint);
 
     // Draw outline
     final outlinePaint = Paint()
@@ -1247,7 +1251,7 @@ class _MoonPhasePainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _MoonPhasePainter oldDelegate) {
-    return oldDelegate.phase != phase;
+    return oldDelegate.phase != phase || oldDelegate.fraction != fraction;
   }
 }
 
@@ -1358,21 +1362,19 @@ class _SunMoonArcPainter extends CustomPainter {
   }
 
   void _drawTimeLabels(Canvas canvas, Size size, DateTime arcStart, DateTime arcEnd, double baseY) {
-    final textStyle = TextStyle(
-      fontSize: 8,
-      color: isDark ? Colors.white54 : Colors.black45,
-    );
-
     const arcDuration = 1440.0; // 24 hours in minutes
 
-    // Helper to draw time label
-    void drawLabel(DateTime? time, String label, double yOffset) {
+    // Helper to draw colored time label
+    void drawColoredLabel(DateTime? time, String label, Color color, double yOffset) {
       if (time == null) return;
       final progress = time.difference(arcStart).inMinutes / arcDuration;
       if (progress < 0 || progress > 1) return;
 
       final x = size.width * (0.05 + progress * 0.9);
-      final textSpan = TextSpan(text: label, style: textStyle);
+      final textSpan = TextSpan(
+        text: label,
+        style: TextStyle(fontSize: 8, color: color, fontWeight: FontWeight.w500),
+      );
       final textPainter = TextPainter(
         text: textSpan,
         textDirection: TextDirection.ltr,
@@ -1381,23 +1383,48 @@ class _SunMoonArcPainter extends CustomPainter {
       textPainter.paint(canvas, Offset(x - textPainter.width / 2, baseY + yOffset));
     }
 
-    // Draw relative time markers at edges
-    drawLabel(arcStart, '-12h', 2);
-    drawLabel(arcEnd.subtract(const Duration(minutes: 1)), '+12h', 2);
+    // Draw relative time markers at edges (neutral color)
+    final neutralColor = isDark ? Colors.white54 : Colors.black45;
+    drawColoredLabel(arcStart, '-12h', neutralColor, 2);
+    drawColoredLabel(arcEnd.subtract(const Duration(minutes: 1)), '+12h', neutralColor, 2);
 
-    // Draw sunrise/sunset times if within range
+    // Draw sunrise time (amber)
     if (times.sunrise != null) {
       final progress = times.sunrise!.difference(arcStart).inMinutes / arcDuration;
       if (progress >= 0 && progress <= 1) {
-        final timeStr = '${times.sunrise!.hour.toString().padLeft(2, '0')}:${times.sunrise!.minute.toString().padLeft(2, '0')}';
-        drawLabel(times.sunrise, timeStr, 2);
+        final local = times.sunrise!.toLocal();
+        final timeStr = '${local.hour.toString().padLeft(2, '0')}:${local.minute.toString().padLeft(2, '0')}';
+        drawColoredLabel(times.sunrise, timeStr, Colors.amber, 2);
       }
     }
+
+    // Draw sunset time (deep orange)
     if (times.sunset != null) {
       final progress = times.sunset!.difference(arcStart).inMinutes / arcDuration;
       if (progress >= 0 && progress <= 1) {
-        final timeStr = '${times.sunset!.hour.toString().padLeft(2, '0')}:${times.sunset!.minute.toString().padLeft(2, '0')}';
-        drawLabel(times.sunset, timeStr, 2);
+        final local = times.sunset!.toLocal();
+        final timeStr = '${local.hour.toString().padLeft(2, '0')}:${local.minute.toString().padLeft(2, '0')}';
+        drawColoredLabel(times.sunset, timeStr, Colors.deepOrange, 2);
+      }
+    }
+
+    // Draw moonrise time (blueGrey)
+    if (times.moonrise != null) {
+      final progress = times.moonrise!.difference(arcStart).inMinutes / arcDuration;
+      if (progress >= 0 && progress <= 1) {
+        final local = times.moonrise!.toLocal();
+        final timeStr = '${local.hour.toString().padLeft(2, '0')}:${local.minute.toString().padLeft(2, '0')}';
+        drawColoredLabel(times.moonrise, timeStr, Colors.blueGrey.shade300, 2);
+      }
+    }
+
+    // Draw moonset time (blueGrey)
+    if (times.moonset != null) {
+      final progress = times.moonset!.difference(arcStart).inMinutes / arcDuration;
+      if (progress >= 0 && progress <= 1) {
+        final local = times.moonset!.toLocal();
+        final timeStr = '${local.hour.toString().padLeft(2, '0')}:${local.minute.toString().padLeft(2, '0')}';
+        drawColoredLabel(times.moonset, timeStr, Colors.blueGrey.shade300, 2);
       }
     }
   }
