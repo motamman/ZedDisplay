@@ -749,7 +749,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                         itemBuilder: (context, index) {
                           final ds = _dataSources[index];
 
-                          // Add role labels for polar chart
+                          // Add role labels for tools with multiple indexed paths
                           String? roleLabel;
                           if (_selectedToolTypeId == 'polar_radar_chart') {
                             if (index == 0) {
@@ -760,6 +760,37 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                           } else if (_selectedToolTypeId == 'ais_polar_chart') {
                             if (index == 0) {
                               roleLabel = 'Own Position (default: navigation.position)';
+                            }
+                          } else if (_selectedToolTypeId == 'gnss_status') {
+                            switch (index) {
+                              case 0:
+                                roleLabel = 'Satellites in view count';
+                                break;
+                              case 1:
+                                roleLabel = 'Fix type / method quality';
+                                break;
+                              case 2:
+                                roleLabel = 'HDOP (Horizontal Dilution of Precision)';
+                                break;
+                              case 3:
+                                roleLabel = 'VDOP - optional, leave empty if not available';
+                                break;
+                              case 4:
+                                roleLabel = 'PDOP - optional, leave empty if not available';
+                                break;
+                              case 5:
+                                roleLabel = 'Horizontal accuracy - optional';
+                                break;
+                              case 6:
+                                roleLabel = 'Vertical accuracy - optional';
+                                break;
+                              case 7:
+                                roleLabel = 'Position (lat/lon object)';
+                                break;
+                            }
+                          } else if (_selectedToolTypeId == 'attitude_indicator') {
+                            if (index == 0) {
+                              roleLabel = 'Attitude object (contains roll, pitch, yaw)';
                             }
                           }
 

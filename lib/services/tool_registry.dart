@@ -23,6 +23,8 @@ import '../widgets/tools/conversion_test_tool.dart';
 import '../widgets/tools/server_manager_tool.dart';
 import '../widgets/tools/rpi_monitor_tool.dart';
 import '../widgets/tools/system_monitor_tool.dart';
+import '../widgets/tools/attitude_indicator_tool.dart';
+import '../widgets/tools/gnss_status_tool.dart';
 
 /// Abstract builder for tool widgets
 abstract class ToolBuilder {
@@ -117,6 +119,8 @@ class ToolRegistry {
     register('server_manager', ServerManagerToolBuilder());
     register('rpi_monitor', RpiMonitorToolBuilder());
     register('system_monitor', SystemMonitorBuilder());
+    register('attitude_indicator', AttitudeIndicatorToolBuilder());
+    register('gnss_status', GnssStatusToolBuilder());
     // register('webview', WebViewToolBuilder()); // Hidden for now - uncomment to enable
   }
 }
