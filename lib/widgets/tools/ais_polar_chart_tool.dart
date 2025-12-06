@@ -11,6 +11,7 @@ import '../ais_polar_chart.dart';
 /// This tool visualizes nearby AIS vessels in polar coordinates:
 /// - Own vessel at center (0,0)
 /// - Other vessels plotted at relative bearing and distance
+/// - CPA/TCPA calculations using own vessel COG and SOG
 class AISPolarChartTool extends StatelessWidget {
   final ToolConfig config;
   final SignalKService signalKService;
@@ -21,16 +22,31 @@ class AISPolarChartTool extends StatelessWidget {
     required this.signalKService,
   });
 
+  // Default paths for AIS chart
+  static const _defaultPaths = [
+    'navigation.position',              // 0: own position
+    'navigation.courseOverGroundTrue',  // 1: own COG for CPA calculation
+    'navigation.speedOverGround',       // 2: own SOG for CPA calculation
+  ];
+
+  /// Get path at index, using default if not configured
+  String _getPath(int index) {
+    if (config.dataSources.length > index && config.dataSources[index].path.isNotEmpty) {
+      return config.dataSources[index].path;
+    }
+    return _defaultPaths[index];
+  }
+
   @override
   Widget build(BuildContext context) {
     // Get configuration from custom properties
     final showLabels = config.style.customProperties?['showLabels'] as bool? ?? true;
     final showGrid = config.style.customProperties?['showGrid'] as bool? ?? true;
 
-    // Get position path from data sources (default to navigation.position)
-    final positionPath = config.dataSources.isNotEmpty
-        ? config.dataSources[0].path
-        : 'navigation.position';
+    // Get paths from data sources (with defaults)
+    final positionPath = _getPath(0);
+    final cogPath = _getPath(1);
+    final sogPath = _getPath(2);
 
     // Parse vessel color
     final vesselColor = config.style.primaryColor?.toColor();
@@ -42,6 +58,8 @@ class AISPolarChartTool extends StatelessWidget {
       key: ValueKey('ais_chart_$positionPath'),
       signalKService: signalKService,
       positionPath: positionPath,
+      cogPath: cogPath,
+      sogPath: sogPath,
       title: title,
       vesselColor: vesselColor,
       showLabels: showLabels,
@@ -57,14 +75,14 @@ class AISPolarChartBuilder extends ToolBuilder {
     return ToolDefinition(
       id: 'ais_polar_chart',
       name: 'AIS Polar Chart',
-      description: 'Display nearby AIS vessels on polar chart relative to own position',
+      description: 'Display nearby AIS vessels on polar chart with CPA/TCPA calculations',
       category: ToolCategory.chart,
       configSchema: ConfigSchema(
         allowsMinMax: false,
         allowsColorCustomization: true,
-        allowsMultiplePaths: false,
+        allowsMultiplePaths: true,
         minPaths: 1,
-        maxPaths: 1,
+        maxPaths: 3,
         styleOptions: const [
           'primaryColor',      // Vessel color
           'title',             // Chart title
@@ -89,6 +107,8 @@ class AISPolarChartBuilder extends ToolBuilder {
       vesselId: vesselId,
       dataSources: [
         DataSource(path: 'navigation.position', label: 'Own Position'),
+        DataSource(path: 'navigation.courseOverGroundTrue', label: 'Own COG'),
+        DataSource(path: 'navigation.speedOverGround', label: 'Own SOG'),
       ],
       style: StyleConfig(
         customProperties: {

@@ -71,6 +71,7 @@ class _HistoricalChartToolState extends State<HistoricalChartTool> with Automati
       _historicalService = HistoricalDataService(
         serverUrl: widget.signalKService.serverUrl,
         useSecureConnection: widget.signalKService.useSecureConnection,
+        authToken: widget.signalKService.authToken,
       );
       _loadData();
       _setupAutoRefresh();

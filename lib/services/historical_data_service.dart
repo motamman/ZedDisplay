@@ -3,15 +3,18 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import '../models/historical_data.dart';
+import '../models/auth_token.dart';
 
 /// Service to fetch historical data from signalk-parquet History API
 class HistoricalDataService {
   final String serverUrl;
   final bool useSecureConnection;
+  final AuthToken? authToken;
 
   HistoricalDataService({
     required this.serverUrl,
     this.useSecureConnection = false,
+    this.authToken,
   });
 
   /// Fetch historical data for specified paths
@@ -63,7 +66,12 @@ class HistoricalDataService {
     }
 
     try {
-      final response = await http.get(uri).timeout(
+      final headers = <String, String>{};
+      if (authToken != null) {
+        headers['Authorization'] = 'Bearer ${authToken!.token}';
+      }
+
+      final response = await http.get(uri, headers: headers).timeout(
         const Duration(seconds: 30),
       );
 
@@ -136,7 +144,12 @@ class HistoricalDataService {
     }
 
     try {
-      final response = await http.get(uri).timeout(
+      final headers = <String, String>{};
+      if (authToken != null) {
+        headers['Authorization'] = 'Bearer ${authToken!.token}';
+      }
+
+      final response = await http.get(uri, headers: headers).timeout(
         const Duration(seconds: 30),
       );
 
@@ -169,7 +182,12 @@ class HistoricalDataService {
     }
 
     try {
-      final response = await http.get(uri).timeout(
+      final headers = <String, String>{};
+      if (authToken != null) {
+        headers['Authorization'] = 'Bearer ${authToken!.token}';
+      }
+
+      final response = await http.get(uri, headers: headers).timeout(
         const Duration(seconds: 10),
       );
 
@@ -202,7 +220,12 @@ class HistoricalDataService {
     }
 
     try {
-      final response = await http.get(uri).timeout(
+      final headers = <String, String>{};
+      if (authToken != null) {
+        headers['Authorization'] = 'Bearer ${authToken!.token}';
+      }
+
+      final response = await http.get(uri, headers: headers).timeout(
         const Duration(seconds: 10),
       );
 
