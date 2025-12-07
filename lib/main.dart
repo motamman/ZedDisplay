@@ -18,6 +18,7 @@ import 'services/foreground_service.dart';
 import 'services/crew_service.dart';
 import 'services/messaging_service.dart';
 import 'services/file_share_service.dart';
+import 'services/file_server_service.dart';
 import 'services/intercom_service.dart';
 import 'models/auth_token.dart';
 import 'screens/splash_screen.dart';
@@ -61,8 +62,11 @@ void main() async {
   final messagingService = MessagingService(signalKService, storageService, crewService);
   await messagingService.initialize();
 
+  // Initialize file server service (for serving shared files over HTTP)
+  final fileServerService = FileServerService();
+
   // Initialize file share service
-  final fileShareService = FileShareService(signalKService, storageService, crewService);
+  final fileShareService = FileShareService(signalKService, storageService, crewService, fileServerService);
   await fileShareService.initialize();
 
   // Initialize intercom service

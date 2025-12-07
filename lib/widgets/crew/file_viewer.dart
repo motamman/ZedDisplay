@@ -3,7 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:share_plus/share_plus.dart' show ShareParams, SharePlus, XFile;
-import 'package:url_launcher/url_launcher.dart';
+import 'package:open_filex/open_filex.dart';
 import '../../models/shared_file.dart';
 import '../../services/file_share_service.dart';
 
@@ -287,7 +287,7 @@ class _FileViewerState extends State<FileViewer> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         // Download/Open button
-        if (!hasLocal && (file.isEmbedded || file.requiresDownload))
+        if (!hasLocal)
           FilledButton.icon(
             onPressed: _isDownloading ? null : _downloadFile,
             icon: _isDownloading
@@ -299,7 +299,7 @@ class _FileViewerState extends State<FileViewer> {
                 : const Icon(Icons.download),
             label: Text(_isDownloading ? 'Downloading...' : 'Download'),
           )
-        else if (hasLocal)
+        else
           FilledButton.icon(
             onPressed: _openFile,
             icon: const Icon(Icons.open_in_new),
@@ -356,12 +356,23 @@ class _FileViewerState extends State<FileViewer> {
     if (_localPath == null) return;
 
     try {
-      final uri = Uri.file(_localPath!);
-      if (await canLaunchUrl(uri)) {
-        await launchUrl(uri);
-      } else {
-        // Fallback to share
-        await _shareFile();
+      final result = await OpenFilex.open(_localPath!);
+
+      if (result.type != ResultType.done) {
+        if (mounted) {
+          // Show error or fallback to share
+          if (result.type == ResultType.noAppToOpen) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('No app available to open this file type')),
+            );
+            // Offer to share instead
+            await _shareFile();
+          } else {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Cannot open file: ${result.message}')),
+            );
+          }
+        }
       }
     } catch (e) {
       if (mounted) {

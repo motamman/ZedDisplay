@@ -150,16 +150,14 @@ class SharedFile {
 
   /// Create SignalK notes resource format
   Map<String, dynamic> toNoteResource({double lat = 0.0, double lng = 0.0}) {
-    // Don't include large data in the note - only metadata
-    final fileData = toJson();
-    // Remove actual file data from notes (too large)
-    if (size > 100 * 1024) {
-      fileData.remove('data');
-    }
+    // Store metadata in description (including downloadUrl, but not file data)
+    final metaData = toJson();
+    metaData.remove('data'); // Never include raw file data
+    metaData.remove('thumbnailData'); // Don't include thumbnail
 
     return {
       'name': '$fromName: $filename',
-      'description': jsonEncode(fileData),
+      'description': jsonEncode(metaData),
       'group': 'zeddisplay-files',
       'position': {'latitude': lat, 'longitude': lng},
     };
@@ -167,8 +165,12 @@ class SharedFile {
 
   factory SharedFile.fromNoteResource(String id, Map<String, dynamic> resource) {
     final description = resource['description'] as String;
-    final data = jsonDecode(description) as Map<String, dynamic>;
-    return SharedFile.fromJson({...data, 'id': id});
+    final metaData = jsonDecode(description) as Map<String, dynamic>;
+
+    return SharedFile.fromJson({
+      ...metaData,
+      'id': id,
+    });
   }
 }
 
