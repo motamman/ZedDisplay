@@ -38,20 +38,20 @@ class IntercomChannel {
     ),
     IntercomChannel(
       id: 'ch02',
-      name: 'Main Salon',
+      name: 'Salon',
       description: 'Main living area',
       priority: 2,
     ),
     IntercomChannel(
       id: 'ch03',
-      name: 'Main Cabin',
-      description: 'Master cabin',
+      name: 'Forward Cabin',
+      description: 'Forward guest cabin',
       priority: 3,
     ),
     IntercomChannel(
       id: 'ch04',
-      name: 'Crew Cabin',
-      description: 'Crew quarters',
+      name: 'Aft Cabin',
+      description: 'Aft cabin',
       priority: 4,
     ),
   ];

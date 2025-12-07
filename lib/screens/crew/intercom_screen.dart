@@ -6,8 +6,36 @@ import '../../services/crew_service.dart';
 import '../../widgets/crew/intercom_panel.dart';
 
 /// Full-screen intercom interface
-class IntercomScreen extends StatelessWidget {
-  const IntercomScreen({super.key});
+class IntercomScreen extends StatefulWidget {
+  /// Optional channel ID to auto-select when opening from a notification
+  final String? initialChannelId;
+
+  const IntercomScreen({super.key, this.initialChannelId});
+
+  @override
+  State<IntercomScreen> createState() => _IntercomScreenState();
+}
+
+class _IntercomScreenState extends State<IntercomScreen> {
+  bool _initialChannelSelected = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Auto-select the initial channel if provided (only once)
+    if (!_initialChannelSelected && widget.initialChannelId != null) {
+      _initialChannelSelected = true;
+      final intercomService = context.read<IntercomService>();
+      final channel = intercomService.channels.firstWhere(
+        (c) => c.id == widget.initialChannelId,
+        orElse: () => intercomService.channels.first,
+      );
+      // Use post-frame callback to avoid build-time setState
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        intercomService.selectChannel(channel);
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -20,7 +48,7 @@ class IntercomScreen extends StatelessWidget {
               // Manage channels
               IconButton(
                 icon: const Icon(Icons.settings),
-                onPressed: () => _showChannelManager(context, intercomService),
+                onPressed: () => _showChannelManager(intercomService),
                 tooltip: 'Manage Channels',
               ),
             ],
@@ -56,7 +84,7 @@ class IntercomScreen extends StatelessWidget {
     );
   }
 
-  void _showChannelManager(BuildContext context, IntercomService service) {
+  void _showChannelManager(IntercomService service) {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,

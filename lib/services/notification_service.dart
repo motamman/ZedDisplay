@@ -7,6 +7,7 @@ import '../models/crew_member.dart';
 import '../screens/crew/chat_screen.dart';
 import '../screens/crew/crew_screen.dart';
 import '../screens/crew/direct_chat_screen.dart';
+import '../screens/crew/intercom_screen.dart';
 
 /// Service to handle system-level notifications
 class NotificationService {
@@ -82,6 +83,25 @@ class NotificationService {
     if (payload == null || _navigatorKey?.currentState == null) return;
 
     final navigator = _navigatorKey!.currentState!;
+
+    // Handle intercom notifications
+    // Payload format: intercom:{channelId}:{channelName}
+    if (payload.startsWith('intercom:')) {
+      final parts = payload.split(':');
+      if (parts.length >= 2) {
+        final channelId = parts[1];
+        navigator.push(
+          MaterialPageRoute(
+            builder: (_) => IntercomScreen(initialChannelId: channelId),
+          ),
+        );
+      } else {
+        navigator.push(
+          MaterialPageRoute(builder: (_) => const IntercomScreen()),
+        );
+      }
+      return;
+    }
 
     // Handle crew message notifications
     // Payload format: crew_message:broadcast or crew_message:direct:{fromId}:{fromName}
@@ -384,5 +404,70 @@ class NotificationService {
       '$_activeNotificationCount message${_activeNotificationCount > 1 ? 's' : ''}',
       details,
     );
+  }
+
+  /// Show a notification for intercom activity
+  Future<void> showIntercomNotification({
+    required String channelId,
+    required String channelName,
+    required String transmitterName,
+    bool isEmergency = false,
+  }) async {
+    if (!_initialized) return;
+
+    try {
+      final androidDetails = AndroidNotificationDetails(
+        isEmergency ? 'intercom_emergency' : 'intercom_activity',
+        isEmergency ? 'Emergency Intercom' : 'Intercom Activity',
+        channelDescription: isEmergency
+            ? 'Emergency intercom transmissions'
+            : 'Voice intercom activity notifications',
+        importance: isEmergency ? Importance.max : Importance.high,
+        priority: isEmergency ? Priority.max : Priority.high,
+        color: isEmergency ? const Color(0xFFB71C1C) : const Color(0xFF1976D2),
+        playSound: true,
+        enableVibration: true,
+        ticker: '$transmitterName on $channelName',
+        groupKey: 'com.zennora.zed_display.INTERCOM',
+        setAsGroupSummary: false,
+        // Use a short timeout so it auto-dismisses when transmission ends
+        timeoutAfter: 30000, // 30 seconds
+      );
+
+      const iosDetails = DarwinNotificationDetails(
+        presentAlert: true,
+        presentBadge: true,
+        presentSound: true,
+      );
+
+      final details = NotificationDetails(
+        android: androidDetails,
+        iOS: iosDetails,
+      );
+
+      _notificationIdCounter++;
+      if (_notificationIdCounter > 2147483647) {
+        _notificationIdCounter = 1;
+      }
+
+      // Payload for navigation: intercom:{channelId}
+      final payload = 'intercom:$channelId';
+
+      await _notifications.show(
+        _notificationIdCounter,
+        isEmergency ? '🚨 EMERGENCY: $channelName' : '📻 $channelName',
+        '$transmitterName is transmitting',
+        details,
+        payload: payload,
+      );
+
+      if (kDebugMode) {
+        print('Showed intercom notification: $transmitterName on $channelName');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ Error showing intercom notification: $e');
+      }
+    }
   }
 }

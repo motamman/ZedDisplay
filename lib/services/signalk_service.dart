@@ -56,6 +56,9 @@ class SignalKService extends ChangeNotifier implements DataService {
   // Zones cache service
   ZonesCacheService? _zonesCache;
 
+  // RTC signaling callback for real-time WebRTC signaling
+  void Function(String path, dynamic value)? _rtcDeltaCallback;
+
   // Internal managers
   late final _DataCacheManager _dataCache;
   late final _ConversionManager _conversionManager;
@@ -198,6 +201,11 @@ class SignalKService extends ChangeNotifier implements DataService {
 
       // Subscribe to paths immediately
       await _sendSubscription();
+
+      // Subscribe to RTC paths if callback is registered
+      if (_rtcDeltaCallback != null) {
+        _subscribeToRtcPaths();
+      }
 
       // Start periodic cache cleanup to prevent memory growth
       _startCacheCleanup();
@@ -559,6 +567,24 @@ class SignalKService extends ChangeNotifier implements DataService {
           // }
 
           for (final value in updateValue.values) {
+            // Check for RTC signaling notifications - route to callback immediately
+            if (value.path.startsWith('notifications.crew.rtc.') && _rtcDeltaCallback != null) {
+              try {
+                // Parse the signaling data from notification message field
+                final notifValue = value.value;
+                if (notifValue is Map<String, dynamic> && notifValue['message'] != null) {
+                  final messageJson = notifValue['message'] as String;
+                  final signalingData = jsonDecode(messageJson) as Map<String, dynamic>;
+                  _rtcDeltaCallback!(value.path, signalingData);
+                }
+              } catch (e) {
+                if (kDebugMode) {
+                  print('Error parsing RTC notification: $e');
+                }
+              }
+              continue; // Don't store RTC signaling in data cache
+            }
+
             SignalKDataPoint dataPoint;
 
             // Check if value is from units-preference plugin (has converted/original/formatted fields)
@@ -732,6 +758,71 @@ class SignalKService extends ChangeNotifier implements DataService {
         print('PUT request error: $e');
       }
       rethrow;
+    }
+  }
+
+  // ===== RTC Signaling via WebSocket =====
+
+  /// Register callback to receive RTC signaling deltas in real-time
+  /// The callback receives (path, value) when crew.rtc.* paths change
+  void registerRtcDeltaCallback(void Function(String path, dynamic value) callback) {
+    _rtcDeltaCallback = callback;
+    // Subscribe to RTC paths if connected
+    if (_isConnected) {
+      _subscribeToRtcPaths();
+    }
+  }
+
+  /// Unregister RTC delta callback
+  void unregisterRtcDeltaCallback() {
+    _rtcDeltaCallback = null;
+  }
+
+  /// Subscribe to notifications.crew.rtc.* for real-time signaling
+  void _subscribeToRtcPaths() {
+    if (_channel == null) return;
+
+    final subscribeMessage = {
+      'context': 'vessels.self',
+      'subscribe': [
+        {'path': 'notifications.crew.rtc.*'},
+      ],
+    };
+
+    _channel?.sink.add(jsonEncode(subscribeMessage));
+
+    if (kDebugMode) {
+      print('Subscribed to notifications.crew.rtc.* for RTC signaling');
+    }
+  }
+
+  /// Send RTC signaling data via SignalK notification (broadcasts to all clients)
+  void sendRtcSignaling(String signalingPath, Map<String, dynamic> data) {
+    if (_channel == null) return;
+
+    // Send as a notification - notifications are broadcast to all connected clients
+    final notification = {
+      'context': 'vessels.self',
+      'updates': [
+        {
+          'values': [
+            {
+              'path': 'notifications.crew.rtc.$signalingPath',
+              'value': {
+                'state': 'normal',
+                'method': ['visual'],
+                'message': jsonEncode(data),
+              }
+            }
+          ]
+        }
+      ]
+    };
+
+    _channel?.sink.add(jsonEncode(notification));
+
+    if (kDebugMode) {
+      print('Sent RTC notification: notifications.crew.rtc.$signalingPath');
     }
   }
 

@@ -8,6 +8,7 @@ import '../models/intercom_channel.dart';
 import 'signalk_service.dart';
 import 'storage_service.dart';
 import 'crew_service.dart';
+import 'notification_service.dart';
 
 /// Service for voice intercom using WebRTC
 class IntercomService extends ChangeNotifier {
@@ -60,11 +61,9 @@ class IntercomService extends ChangeNotifier {
   // Resources API configuration
   static const String _channelResourceType = 'notes';
   static const String _channelGroupName = 'zeddisplay-channels';
-  static const String _rtcGroupName = 'zeddisplay-rtc';
 
-  // Polling timer
+  // Periodic timer for channel sync (RTC signaling now uses WebSocket deltas)
   Timer? _pollTimer;
-  static const Duration _pollInterval = Duration(seconds: 2);
 
   // Track connection state
   bool _wasConnected = false;
@@ -97,7 +96,10 @@ class IntercomService extends ChangeNotifier {
     // Listen to SignalK connection changes
     _signalKService.addListener(_onSignalKChanged);
 
-    // If already connected, start polling
+    // Register for real-time RTC signaling via WebSocket
+    _signalKService.registerRtcDeltaCallback(_handleRtcDelta);
+
+    // If already connected, start
     if (_signalKService.isConnected) {
       _onConnected();
     }
@@ -113,6 +115,7 @@ class IntercomService extends ChangeNotifier {
   void dispose() {
     _pollTimer?.cancel();
     _signalKService.removeListener(_onSignalKChanged);
+    _signalKService.unregisterRtcDeltaCallback();
     _cleanup();
     super.dispose();
   }
@@ -276,9 +279,107 @@ class IntercomService extends ChangeNotifier {
 
   void _startPolling() {
     _pollTimer?.cancel();
-    _pollTimer = Timer.periodic(_pollInterval, (_) {
-      _fetchSignaling();
+    // Polling now only used for channel sync, not RTC signaling (which uses WebSocket)
+    _pollTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+      _syncChannels();
     });
+  }
+
+  /// Handle incoming RTC signaling delta from WebSocket (real-time)
+  void _handleRtcDelta(String path, dynamic value) {
+    if (value == null || value is! Map<String, dynamic>) return;
+
+    final myId = _crewService.localProfile?.id;
+    if (myId == null) return;
+
+    try {
+      // Parse the signaling message from the delta value
+      final message = SignalingMessage.fromJson(value.cast<String, dynamic>());
+
+      // Skip messages from self
+      if (message.fromId == myId) return;
+
+      // Only process recent messages (last 30 seconds)
+      if (DateTime.now().difference(message.timestamp).inSeconds > 30) return;
+
+      if (kDebugMode) {
+        print('RTC delta: ${message.type} from ${message.fromName} on ${message.channelId}');
+      }
+
+      // Route to appropriate handler
+      if (message.channelId.startsWith('direct_')) {
+        _handleDirectCallMessageFromDelta(message, myId);
+      } else {
+        // For channel messages, check if we should show a notification
+        if (message.type == SignalingType.pttStart) {
+          _handleChannelActivityNotification(message);
+        }
+
+        // Only process signaling for our current channel
+        if (_currentChannel != null && message.channelId == _currentChannel!.id) {
+          _handleSignalingMessage(message);
+        }
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error handling RTC delta: $e');
+      }
+    }
+  }
+
+  /// Show notification for channel activity if we're not actively on that channel
+  void _handleChannelActivityNotification(SignalingMessage message) {
+    // Don't notify if we're already on this channel and transmitting/listening
+    final isOnChannel = _currentChannel?.id == message.channelId;
+    final isActiveOnChannel = isOnChannel && (_isPTTActive || _isListening);
+
+    if (isActiveOnChannel) {
+      if (kDebugMode) {
+        print('Skipping notification - already active on channel ${message.channelId}');
+      }
+      return;
+    }
+
+    // Find the channel to get its name and emergency status
+    final channel = _channels.firstWhere(
+      (c) => c.id == message.channelId,
+      orElse: () => IntercomChannel(id: message.channelId, name: message.channelId),
+    );
+
+    // Show notification
+    NotificationService().showIntercomNotification(
+      channelId: message.channelId,
+      channelName: channel.name,
+      transmitterName: message.fromName,
+      isEmergency: channel.isEmergency,
+    );
+
+    if (kDebugMode) {
+      print('Showed intercom notification: ${message.fromName} on ${channel.name}');
+    }
+  }
+
+  /// Handle direct call message from WebSocket delta
+  Future<void> _handleDirectCallMessageFromDelta(SignalingMessage message, String myId) async {
+    final targetId = message.channelId.replaceFirst('direct_', '');
+
+    // Check if this is targeted at us
+    final dataTargetId = message.data?['targetId'] as String?;
+    final isForUs = targetId == myId || dataTargetId == myId;
+
+    // Also check if it's from our direct call target (for answers/ICE)
+    final isFromOurTarget = _isInDirectCall && message.fromId == _directCallTargetId;
+
+    if (kDebugMode) {
+      print('Direct call routing: targetId=$targetId, myId=$myId, dataTargetId=$dataTargetId');
+      print('  isForUs=$isForUs, isFromOurTarget=$isFromOurTarget, isInDirectCall=$_isInDirectCall');
+    }
+
+    if (isForUs || isFromOurTarget) {
+      await _handleDirectCallMessage(message);
+    } else if (kDebugMode) {
+      print('  SKIPPED - not for us');
+    }
   }
 
   /// Select a channel to listen to
@@ -314,7 +415,7 @@ class IntercomService extends ChangeNotifier {
       type: SignalingType.channelJoin,
     );
 
-    await _sendSignalingMessage(message);
+    _sendSignalingMessage(message);
 
     _isListening = true;
     notifyListeners();
@@ -351,7 +452,7 @@ class IntercomService extends ChangeNotifier {
       type: SignalingType.channelLeave,
     );
 
-    await _sendSignalingMessage(message);
+    _sendSignalingMessage(message);
 
     _isListening = false;
     _currentChannel = null;
@@ -394,7 +495,7 @@ class IntercomService extends ChangeNotifier {
         type: SignalingType.pttStart,
       );
 
-      await _sendSignalingMessage(message);
+      _sendSignalingMessage(message);
 
       _isPTTActive = true;
       // Add self to active transmitters
@@ -436,7 +537,7 @@ class IntercomService extends ChangeNotifier {
           type: SignalingType.pttEnd,
         );
 
-        await _sendSignalingMessage(message);
+        _sendSignalingMessage(message);
       }
 
       // Stop local stream
@@ -549,7 +650,7 @@ class IntercomService extends ChangeNotifier {
         fromName: profile.name,
         type: SignalingType.hangup,
       );
-      await _sendSignalingMessage(message);
+      _sendSignalingMessage(message);
     }
 
     // Cleanup
@@ -680,7 +781,7 @@ class IntercomService extends ChangeNotifier {
         },
       );
 
-      await _sendSignalingMessage(answerMessage);
+      _sendSignalingMessage(answerMessage);
 
       // Process any queued ICE candidates now that peer connection is ready
       if (_pendingIceCandidates.isNotEmpty) {
@@ -734,7 +835,7 @@ class IntercomService extends ChangeNotifier {
         type: SignalingType.hangup,
         data: {'declined': true, 'targetId': _incomingCallFromId},
       );
-      await _sendSignalingMessage(message);
+      _sendSignalingMessage(message);
     }
 
     _clearIncomingCall();
@@ -820,7 +921,7 @@ class IntercomService extends ChangeNotifier {
         data: {'sdp': offer.sdp, 'type': offer.type, 'directCall': true},
       );
 
-      await _sendSignalingMessage(offerMessage);
+      _sendSignalingMessage(offerMessage);
     } catch (e) {
       if (kDebugMode) {
         print('Error creating direct call offer: $e');
@@ -903,7 +1004,7 @@ class IntercomService extends ChangeNotifier {
         data: {'mode': 'duplex'},
       );
 
-      await _sendSignalingMessage(message);
+      _sendSignalingMessage(message);
 
       _isPTTActive = true;
       notifyListeners();
@@ -984,7 +1085,7 @@ class IntercomService extends ChangeNotifier {
         data: {'sdp': offer.sdp, 'type': offer.type},
       );
 
-      await _sendSignalingMessage(message);
+      _sendSignalingMessage(message);
     } catch (e) {
       if (kDebugMode) {
         print('Error creating offer: $e');
@@ -1011,7 +1112,7 @@ class IntercomService extends ChangeNotifier {
       },
     );
 
-    await _sendSignalingMessage(message);
+    _sendSignalingMessage(message);
   }
 
   /// Handle incoming signaling message
@@ -1133,6 +1234,51 @@ class IntercomService extends ChangeNotifier {
         _sendSignalingMessage(answerMessage);
       };
 
+      // In duplex mode, add our local audio so they can hear us too
+      if (isDuplexMode && _hasMicPermission) {
+        // Create local stream if we don't have one
+        if (_localStream == null) {
+          _localStream = await navigator.mediaDevices.getUserMedia({
+            'audio': {
+              'echoCancellation': true,
+              'noiseSuppression': true,
+              'autoGainControl': true,
+            },
+            'video': false,
+          });
+        }
+
+        // Add our audio tracks to this peer connection
+        for (final track in _localStream!.getAudioTracks()) {
+          await pc.addTrack(track, _localStream!);
+        }
+
+        // Mark us as actively transmitting so the UI shows it
+        if (!_isPTTActive) {
+          _isPTTActive = true;
+          _activeTransmitters[profile.id] = profile.name;
+
+          // Create a session ID if we don't have one
+          _currentSessionId ??= const Uuid().v4();
+
+          // Notify others that we've started transmitting
+          final pttStartMessage = SignalingMessage(
+            id: const Uuid().v4(),
+            sessionId: _currentSessionId!,
+            channelId: _currentChannel!.id,
+            fromId: profile.id,
+            fromName: profile.name,
+            type: SignalingType.pttStart,
+            data: {'mode': 'duplex'},
+          );
+          _sendSignalingMessage(pttStartMessage);
+        }
+
+        if (kDebugMode) {
+          print('Added local audio to duplex connection with ${message.fromName}');
+        }
+      }
+
       // Handle remote stream (the audio from the transmitter)
       pc.onTrack = (RTCTrackEvent event) async {
         if (event.streams.isNotEmpty) {
@@ -1172,7 +1318,7 @@ class IntercomService extends ChangeNotifier {
         data: {'sdp': answer.sdp, 'type': answer.type},
       );
 
-      await _sendSignalingMessage(answerMessage);
+      _sendSignalingMessage(answerMessage);
 
       if (kDebugMode) {
         print('Answered offer from ${message.fromName}');
@@ -1238,89 +1384,15 @@ class IntercomService extends ChangeNotifier {
     }
   }
 
-  /// Send signaling message via SignalK Resources API
-  Future<void> _sendSignalingMessage(SignalingMessage message) async {
+  /// Send signaling message via SignalK WebSocket delta (real-time broadcast)
+  void _sendSignalingMessage(SignalingMessage message) {
     if (!_signalKService.isConnected) return;
 
-    final posData = _signalKService.getValue('navigation.position');
-    double lat = 0.0;
-    double lng = 0.0;
-    if (posData?.value is Map) {
-      final pos = posData!.value as Map;
-      lat = (pos['latitude'] as num?)?.toDouble() ?? 0.0;
-      lng = (pos['longitude'] as num?)?.toDouble() ?? 0.0;
-    }
+    // Send via WebSocket delta - broadcasts to all connected clients
+    _signalKService.sendRtcSignaling(message.id, message.toJson());
 
-    await _signalKService.putResource(
-      _channelResourceType,
-      message.id,
-      message.toNoteResource(lat: lat, lng: lng),
-    );
-  }
-
-  /// Fetch signaling messages from SignalK
-  Future<void> _fetchSignaling() async {
-    if (!_signalKService.isConnected) return;
-
-    final myId = _crewService.localProfile?.id;
-    if (myId == null) return;
-
-    try {
-      final resources = await _signalKService.getResources(_channelResourceType);
-      if (resources.isEmpty) return;
-
-      for (final entry in resources.entries) {
-        final noteId = entry.key;
-        final noteData = entry.value as Map<String, dynamic>;
-
-        // Filter by RTC group
-        final group = noteData['group'] as String?;
-        if (group != _rtcGroupName) continue;
-
-        try {
-          final descriptionJson = noteData['description'] as String?;
-          if (descriptionJson == null) continue;
-
-          final msgData = jsonDecode(descriptionJson) as Map<String, dynamic>;
-          final message = SignalingMessage.fromJson(msgData);
-
-          // Only process recent messages (last 30 seconds)
-          if (DateTime.now().difference(message.timestamp).inSeconds > 30) continue;
-
-          // Skip messages from self
-          if (message.fromId == myId) continue;
-
-          // Check if this is a direct call for us
-          if (message.channelId.startsWith('direct_')) {
-            final targetId = message.channelId.replaceFirst('direct_', '');
-
-            // Check if this is targeted at us (either by channel ID or targetId in data)
-            final dataTargetId = message.data?['targetId'] as String?;
-            final isForUs = targetId == myId || dataTargetId == myId;
-
-            // Also check if it's from our direct call target (for answers/ICE)
-            final isFromOurTarget = _isInDirectCall && message.fromId == _directCallTargetId;
-
-            if (isForUs || isFromOurTarget) {
-              await _handleDirectCallMessage(message);
-            }
-            continue;
-          }
-
-          // Handle channel messages
-          if (_currentChannel != null && message.channelId == _currentChannel!.id) {
-            await _handleSignalingMessage(message);
-          }
-        } catch (e) {
-          if (kDebugMode) {
-            print('Error parsing signaling message $noteId: $e');
-          }
-        }
-      }
-    } catch (e) {
-      if (kDebugMode) {
-        print('Error fetching signaling: $e');
-      }
+    if (kDebugMode) {
+      print('Sent RTC signaling: ${message.type} to ${message.channelId}');
     }
   }
 
