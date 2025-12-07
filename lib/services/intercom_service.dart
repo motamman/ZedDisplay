@@ -483,6 +483,9 @@ class IntercomService extends ChangeNotifier {
   String? get incomingCallFromId => _incomingCallFromId;
   String? get incomingCallFromName => _incomingCallFromName;
 
+  // Queue for ICE candidates received before peer connection is ready
+  final List<SignalingMessage> _pendingIceCandidates = [];
+
   /// Start a direct call to a specific crew member
   Future<bool> startDirectCall(String targetId, String targetName) async {
     if (_isInDirectCall) return false;
@@ -511,18 +514,7 @@ class IntercomService extends ChangeNotifier {
       _directCallTargetName = targetName;
       _isInDirectCall = true;
 
-      // Send direct call offer via signaling
-      final message = SignalingMessage(
-        id: const Uuid().v4(),
-        sessionId: _currentSessionId!,
-        channelId: 'direct_$targetId', // Use special channel ID for direct calls
-        fromId: profile.id,
-        fromName: profile.name,
-        type: SignalingType.offer,
-        data: {'directCall': true, 'targetId': targetId},
-      );
-
-      // Create WebRTC offer
+      // Create WebRTC offer and send via signaling
       await _createDirectCallOffer(targetId);
 
       if (kDebugMode) {
@@ -572,7 +564,7 @@ class IntercomService extends ChangeNotifier {
     _directCallTargetId = null;
     _directCallTargetName = null;
     _currentSessionId = null;
-
+    _pendingIceCandidates.clear();
     notifyListeners();
 
     if (kDebugMode) {
@@ -690,6 +682,27 @@ class IntercomService extends ChangeNotifier {
 
       await _sendSignalingMessage(answerMessage);
 
+      // Process any queued ICE candidates now that peer connection is ready
+      if (_pendingIceCandidates.isNotEmpty) {
+        if (kDebugMode) {
+          print('Processing ${_pendingIceCandidates.length} queued ICE candidates');
+        }
+        for (final iceMsg in _pendingIceCandidates) {
+          try {
+            await _peerConnection!.addCandidate(RTCIceCandidate(
+              iceMsg.data!['candidate'] as String?,
+              iceMsg.data!['sdpMid'] as String?,
+              iceMsg.data!['sdpMLineIndex'] as int?,
+            ));
+          } catch (e) {
+            if (kDebugMode) {
+              print('Error adding queued ICE candidate: $e');
+            }
+          }
+        }
+        _pendingIceCandidates.clear();
+      }
+
       if (kDebugMode) {
         print('Answered call from $callerName');
       }
@@ -736,6 +749,7 @@ class IntercomService extends ChangeNotifier {
     _incomingCallFromName = null;
     _incomingCallSessionId = null;
     _pendingIncomingOffer = null;
+    _pendingIceCandidates.clear();
     notifyListeners();
   }
 
@@ -1371,6 +1385,14 @@ class IntercomService extends ChangeNotifier {
               print('Error adding ICE candidate: $e');
             }
           }
+        } else if (hasIncomingCall && message.fromId == _incomingCallFromId) {
+          // Queue ICE candidate until peer connection is ready (for incoming call)
+          if (kDebugMode) {
+            print('Queuing ICE candidate from ${message.fromName} (awaiting answer)');
+          }
+          _pendingIceCandidates.add(message);
+        } else if (kDebugMode) {
+          print('Ignoring ICE candidate - no active call or incoming call');
         }
         break;
 
