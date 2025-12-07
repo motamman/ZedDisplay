@@ -7,12 +7,14 @@ import '../models/crew_member.dart';
 import 'signalk_service.dart';
 import 'storage_service.dart';
 import 'crew_service.dart';
+import 'notification_service.dart';
 
 /// Service for crew text messaging
 class MessagingService extends ChangeNotifier {
   final SignalKService _signalKService;
   final StorageService _storageService;
   final CrewService _crewService;
+  final NotificationService _notificationService;
 
   // Messages cache (sorted by timestamp, newest last)
   final List<CrewMessage> _messages = [];
@@ -46,7 +48,8 @@ class MessagingService extends ChangeNotifier {
   // Last fetch timestamp to only get new messages
   DateTime? _lastFetchTime;
 
-  MessagingService(this._signalKService, this._storageService, this._crewService);
+  MessagingService(this._signalKService, this._storageService, this._crewService)
+      : _notificationService = NotificationService();
 
   /// Initialize the messaging service
   Future<void> initialize() async {
@@ -290,9 +293,11 @@ class MessagingService extends ChangeNotifier {
             _messages.add(message);
             changed = true;
 
-            // Count as unread if not from us
+            // Count as unread and show notification if not from us
             if (message.fromId != myId && !message.read) {
               _unreadCount++;
+              // Show system notification for new messages from others
+              _notificationService.showCrewMessageNotification(message);
             }
           }
         } catch (e) {

@@ -33,26 +33,45 @@ class IntercomPanel extends StatelessWidget {
 
             const SizedBox(height: 16),
 
-            // Transmission indicator
-            if (intercomService.currentTransmitterName != null)
+            // Transmission indicator (shows all active transmitters)
+            if (intercomService.hasActiveTransmitters)
               _TransmissionIndicator(
-                transmitterName: intercomService.currentTransmitterName!,
-                isMe: intercomService.currentTransmitterId == crewService.localProfile?.id,
+                activeTransmitters: intercomService.activeTransmitters,
+                myId: crewService.localProfile?.id,
               ),
 
             const SizedBox(height: 16),
 
-            // PTT Button
+            // PTT Button - in duplex mode, allow transmit even when receiving
             _PTTButton(
               isActive: intercomService.isPTTActive,
               isEnabled: intercomService.currentChannel != null &&
-                        intercomService.currentTransmitterId == null,
+                        (intercomService.isDuplexMode || !intercomService.isReceiving),
               onPTTStart: () => intercomService.startPTT(),
               onPTTEnd: () => intercomService.stopPTT(),
             ),
 
-            // Stop button (visible when transmitting as fallback)
-            if (intercomService.isPTTActive)
+            // Start/Stop button for duplex mode
+            if (intercomService.isDuplexMode && intercomService.currentChannel != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: FilledButton.icon(
+                  onPressed: () {
+                    if (intercomService.isPTTActive) {
+                      intercomService.stopPTT();
+                    } else {
+                      intercomService.startPTT();
+                    }
+                  },
+                  icon: Icon(intercomService.isPTTActive ? Icons.stop : Icons.play_arrow),
+                  label: Text(intercomService.isPTTActive ? 'STOP' : 'START'),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: intercomService.isPTTActive ? Colors.red : Colors.green,
+                  ),
+                ),
+              )
+            // Stop button for PTT mode (visible when transmitting as fallback)
+            else if (intercomService.isPTTActive)
               Padding(
                 padding: const EdgeInsets.only(top: 8),
                 child: TextButton.icon(
@@ -256,44 +275,88 @@ class _ChannelSelector extends StatelessWidget {
   }
 }
 
-/// Transmission indicator showing who is transmitting
+/// Transmission indicator showing who is transmitting (supports multiple)
 class _TransmissionIndicator extends StatelessWidget {
-  final String transmitterName;
-  final bool isMe;
+  final Map<String, String> activeTransmitters; // id -> name
+  final String? myId;
 
   const _TransmissionIndicator({
-    required this.transmitterName,
-    required this.isMe,
+    required this.activeTransmitters,
+    required this.myId,
   });
 
   @override
   Widget build(BuildContext context) {
+    final isTransmitting = myId != null && activeTransmitters.containsKey(myId);
+    final otherTransmitters = activeTransmitters.entries
+        .where((e) => e.key != myId)
+        .map((e) => e.value)
+        .toList();
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: BoxDecoration(
-        color: Colors.green.withValues(alpha: 0.2),
+        color: isTransmitting
+            ? Colors.red.withValues(alpha: 0.2)
+            : Colors.green.withValues(alpha: 0.2),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.green),
+        border: Border.all(
+          color: isTransmitting ? Colors.red : Colors.green,
+        ),
       ),
-      child: Row(
+      child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Container(
-            width: 12,
-            height: 12,
-            decoration: const BoxDecoration(
-              color: Colors.green,
-              shape: BoxShape.circle,
+          if (isTransmitting)
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 12,
+                  height: 12,
+                  decoration: const BoxDecoration(
+                    color: Colors.red,
+                    shape: BoxShape.circle,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                const Text(
+                  'You are transmitting',
+                  style: TextStyle(
+                    color: Colors.red,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
             ),
-          ),
-          const SizedBox(width: 12),
-          Text(
-            isMe ? 'You are transmitting' : '$transmitterName is transmitting',
-            style: const TextStyle(
-              color: Colors.green,
-              fontWeight: FontWeight.bold,
+          if (isTransmitting && otherTransmitters.isNotEmpty)
+            const SizedBox(height: 8),
+          if (otherTransmitters.isNotEmpty)
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 12,
+                  height: 12,
+                  decoration: const BoxDecoration(
+                    color: Colors.green,
+                    shape: BoxShape.circle,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Flexible(
+                  child: Text(
+                    otherTransmitters.length == 1
+                        ? '${otherTransmitters.first} is transmitting'
+                        : '${otherTransmitters.join(", ")} are transmitting',
+                    style: const TextStyle(
+                      color: Colors.green,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ],
             ),
-          ),
         ],
       ),
     );
@@ -433,10 +496,14 @@ class IntercomMini extends StatelessWidget {
       builder: (context, intercomService, child) {
         final channel = intercomService.currentChannel;
         final isTransmitting = intercomService.isPTTActive;
-        final transmitterName = intercomService.currentTransmitterName;
         final myId = context.read<CrewService>().localProfile?.id;
-        final isReceiving = transmitterName != null &&
-            intercomService.currentTransmitterId != myId;
+        final isReceiving = intercomService.isReceiving;
+
+        // Get other transmitters' names
+        final otherTransmitters = intercomService.activeTransmitters.entries
+            .where((e) => e.key != myId)
+            .map((e) => e.value)
+            .toList();
 
         return Container(
           padding: const EdgeInsets.all(12),
@@ -481,7 +548,16 @@ class IntercomMini extends StatelessWidget {
                       channel?.name ?? 'No Channel',
                       style: Theme.of(context).textTheme.titleSmall,
                     ),
-                    if (isTransmitting)
+                    if (isTransmitting && isReceiving)
+                      Text(
+                        'Duplex: ${otherTransmitters.join(", ")}',
+                        style: const TextStyle(
+                          color: Colors.orange,
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      )
+                    else if (isTransmitting)
                       Text(
                         intercomService.isDuplexMode ? 'Open channel active' : 'Transmitting',
                         style: const TextStyle(
@@ -492,7 +568,9 @@ class IntercomMini extends StatelessWidget {
                       )
                     else if (isReceiving)
                       Text(
-                        '$transmitterName is transmitting',
+                        otherTransmitters.length == 1
+                            ? '${otherTransmitters.first} is transmitting'
+                            : '${otherTransmitters.length} transmitting',
                         style: const TextStyle(
                           color: Colors.green,
                           fontSize: 12,
@@ -549,15 +627,23 @@ class IntercomStatusIndicator extends StatelessWidget {
     return Consumer<IntercomService>(
       builder: (context, intercomService, child) {
         final channel = intercomService.currentChannel;
-        final transmitterName = intercomService.currentTransmitterName;
         final myId = context.read<CrewService>().localProfile?.id;
-        final isReceiving = transmitterName != null &&
-            intercomService.currentTransmitterId != myId;
+        final isReceiving = intercomService.isReceiving;
 
-        // Only show if in a channel and someone is transmitting
+        // Get other transmitters' names
+        final otherTransmitters = intercomService.activeTransmitters.entries
+            .where((e) => e.key != myId)
+            .map((e) => e.value)
+            .toList();
+
+        // Only show if in a channel and someone else is transmitting
         if (channel == null || !isReceiving) {
           return const SizedBox.shrink();
         }
+
+        final statusText = otherTransmitters.length == 1
+            ? '${otherTransmitters.first} is transmitting'
+            : '${otherTransmitters.join(", ")} are transmitting';
 
         return Positioned(
           top: 100,
@@ -595,7 +681,7 @@ class IntercomStatusIndicator extends StatelessWidget {
                           ),
                         ),
                         Text(
-                          '$transmitterName is transmitting',
+                          statusText,
                           style: const TextStyle(
                             color: Colors.white,
                             fontWeight: FontWeight.bold,

@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'signalk_service.dart';
+import '../models/crew_message.dart';
 
 /// Service to handle system-level notifications
 class NotificationService {
@@ -196,5 +197,128 @@ class NotificationService {
         await _updateGroupSummary();
       }
     }
+  }
+
+  /// Show a notification for a crew message
+  Future<void> showCrewMessageNotification(CrewMessage message) async {
+    if (!_initialized) return;
+
+    try {
+      final (title, body, priority, importance, color, playSound) =
+          _getCrewMessageSettings(message);
+
+      final androidDetails = AndroidNotificationDetails(
+        'crew_messages',
+        'Crew Messages',
+        channelDescription: 'Messages from crew members',
+        importance: importance,
+        priority: priority,
+        color: color,
+        playSound: playSound,
+        enableVibration: playSound,
+        ticker: body,
+        groupKey: 'com.zennora.zed_display.CREW_MESSAGES',
+        setAsGroupSummary: false,
+      );
+
+      const iosDetails = DarwinNotificationDetails(
+        presentAlert: true,
+        presentBadge: true,
+        presentSound: true,
+      );
+
+      final details = NotificationDetails(
+        android: androidDetails,
+        iOS: iosDetails,
+      );
+
+      _notificationIdCounter++;
+      if (_notificationIdCounter > 2147483647) {
+        _notificationIdCounter = 1;
+      }
+
+      await _notifications.show(
+        _notificationIdCounter,
+        title,
+        body,
+        details,
+        payload: 'crew_message:${message.id}',
+      );
+
+      _activeNotificationCount++;
+      await _updateCrewMessageSummary();
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ Error showing crew message notification: $e');
+      }
+    }
+  }
+
+  /// Get notification settings based on message type
+  (String title, String body, Priority priority, Importance importance, Color color, bool playSound)
+      _getCrewMessageSettings(CrewMessage message) {
+    switch (message.type) {
+      case MessageType.alert:
+        return (
+          '🚨 ALERT from ${message.fromName}',
+          message.content,
+          Priority.max,
+          Importance.max,
+          const Color(0xFFB71C1C), // red.shade900
+          true,
+        );
+      case MessageType.status:
+        return (
+          message.fromName,
+          message.content,
+          Priority.defaultPriority,
+          Importance.defaultImportance,
+          const Color(0xFF1976D2), // blue.shade700
+          false,
+        );
+      case MessageType.text:
+      default:
+        return (
+          message.fromName,
+          message.content,
+          Priority.high,
+          Importance.high,
+          const Color(0xFF388E3C), // green.shade700
+          true,
+        );
+    }
+  }
+
+  /// Update crew message group summary
+  Future<void> _updateCrewMessageSummary() async {
+    if (!_initialized || _activeNotificationCount == 0) return;
+
+    const androidDetails = AndroidNotificationDetails(
+      'crew_messages_summary',
+      'Crew Messages',
+      channelDescription: 'Summary of crew messages',
+      importance: Importance.low,
+      priority: Priority.low,
+      groupKey: 'com.zennora.zed_display.CREW_MESSAGES',
+      setAsGroupSummary: true,
+    );
+
+    const iosDetails = DarwinNotificationDetails(
+      presentAlert: false,
+      presentBadge: true,
+      presentSound: false,
+    );
+
+    const details = NotificationDetails(
+      android: androidDetails,
+      iOS: iosDetails,
+    );
+
+    await _notifications.show(
+      _groupSummaryId + 1000, // Different ID from SignalK summary
+      'Crew Messages',
+      '$_activeNotificationCount message${_activeNotificationCount > 1 ? 's' : ''}',
+      details,
+    );
   }
 }

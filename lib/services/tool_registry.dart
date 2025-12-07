@@ -26,6 +26,10 @@ import '../widgets/tools/system_monitor_tool.dart';
 import '../widgets/tools/attitude_indicator_tool.dart';
 import '../widgets/tools/gnss_status_tool.dart';
 import '../widgets/tools/weatherflow_forecast_tool.dart';
+import '../widgets/tools/crew_messages_tool.dart';
+import '../widgets/tools/crew_list_tool.dart';
+import '../widgets/tools/intercom_tool.dart';
+import '../widgets/tools/file_share_tool.dart';
 
 /// Abstract builder for tool widgets
 abstract class ToolBuilder {
@@ -123,6 +127,10 @@ class ToolRegistry {
     register('attitude_indicator', AttitudeIndicatorToolBuilder());
     register('gnss_status', GnssStatusToolBuilder());
     register('weatherflow_forecast', WeatherFlowForecastToolBuilder());
+    register('crew_messages', CrewMessagesToolBuilder());
+    register('crew_list', CrewListToolBuilder());
+    register('intercom', IntercomToolBuilder());
+    register('file_share', FileShareToolBuilder());
     // register('webview', WebViewToolBuilder()); // Hidden for now - uncomment to enable
   }
 }

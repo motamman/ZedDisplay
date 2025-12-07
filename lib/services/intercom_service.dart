@@ -37,16 +37,24 @@ class IntercomService extends ChangeNotifier {
   IntercomMode get mode => _mode;
   bool get isDuplexMode => _mode == IntercomMode.duplex;
 
-  // Who is currently transmitting
-  String? _currentTransmitterId;
-  String? _currentTransmitterName;
-  String? get currentTransmitterId => _currentTransmitterId;
-  String? get currentTransmitterName => _currentTransmitterName;
+  // Who is currently transmitting (supports multiple transmitters)
+  final Map<String, String> _activeTransmitters = {}; // id -> name
+  Map<String, String> get activeTransmitters => Map.unmodifiable(_activeTransmitters);
+  bool get hasActiveTransmitters => _activeTransmitters.isNotEmpty;
+
+  // Legacy single transmitter getters (for backwards compatibility)
+  String? get currentTransmitterId => _activeTransmitters.keys.firstOrNull;
+  String? get currentTransmitterName => _activeTransmitters.values.firstOrNull;
 
   // WebRTC
   RTCPeerConnection? _peerConnection;
   MediaStream? _localStream;
-  MediaStream? _remoteStream;
+  final Map<String, MediaStream> _remoteStreams = {}; // peerId -> stream
+  MediaStream? get remoteStream => _remoteStreams.values.firstOrNull;
+
+  // Audio renderers for playback
+  final Map<String, RTCVideoRenderer> _audioRenderers = {};
+
   final Map<String, RTCPeerConnection> _peerConnections = {};
 
   // Resources API configuration
@@ -74,6 +82,7 @@ class IntercomService extends ChangeNotifier {
   // Session tracking
   String? _currentSessionId;
   final Set<String> _processedSignalingIds = {};
+  final Set<String> _answeredSessions = {}; // Track sessions we've already answered
 
   IntercomService(this._signalKService, this._storageService, this._crewService);
 
@@ -108,14 +117,47 @@ class IntercomService extends ChangeNotifier {
     super.dispose();
   }
 
+  /// Cleanup a specific peer's connection and stream
+  Future<void> _cleanupPeer(String peerId) async {
+    // Cleanup remote stream for this peer
+    final stream = _remoteStreams.remove(peerId);
+    await stream?.dispose();
+
+    // Cleanup audio renderer
+    final renderer = _audioRenderers.remove(peerId);
+    await renderer?.dispose();
+
+    // Close peer connection
+    final pc = _peerConnections.remove(peerId);
+    await pc?.close();
+  }
+
   Future<void> _cleanup() async {
     await _localStream?.dispose();
-    await _remoteStream?.dispose();
+    _localStream = null;
+
+    // Cleanup all remote streams
+    for (final stream in _remoteStreams.values) {
+      await stream.dispose();
+    }
+    _remoteStreams.clear();
+
+    // Cleanup audio renderers
+    for (final renderer in _audioRenderers.values) {
+      await renderer.dispose();
+    }
+    _audioRenderers.clear();
+
     await _peerConnection?.close();
+    _peerConnection = null;
+
     for (final pc in _peerConnections.values) {
       await pc.close();
     }
     _peerConnections.clear();
+
+    _activeTransmitters.clear();
+    _answeredSessions.clear();
   }
 
   /// Check and request microphone permission
@@ -241,10 +283,11 @@ class IntercomService extends ChangeNotifier {
 
   /// Select a channel to listen to
   Future<void> selectChannel(IntercomChannel channel) async {
-    if (_currentChannel?.id == channel.id) return;
+    // If same channel selected, treat as "rejoin" to restart transmission in duplex mode
+    final isSameChannel = _currentChannel?.id == channel.id;
 
-    // Leave current channel first
-    if (_currentChannel != null) {
+    // Leave current channel first (unless same channel)
+    if (_currentChannel != null && !isSameChannel) {
       await _leaveChannel();
     }
 
@@ -252,7 +295,7 @@ class IntercomService extends ChangeNotifier {
     await _storageService.saveSetting(_lastChannelKey, channel.id);
     notifyListeners();
 
-    // Join the new channel
+    // Join the channel (or rejoin if same channel)
     await _joinChannel(channel);
   }
 
@@ -354,8 +397,8 @@ class IntercomService extends ChangeNotifier {
       await _sendSignalingMessage(message);
 
       _isPTTActive = true;
-      _currentTransmitterId = profile.id;
-      _currentTransmitterName = profile.name;
+      // Add self to active transmitters
+      _activeTransmitters[profile.id] = profile.name;
       notifyListeners();
 
       // Create offer and start WebRTC connection
@@ -408,8 +451,8 @@ class IntercomService extends ChangeNotifier {
       _peerConnection = null;
 
       _isPTTActive = false;
-      _currentTransmitterId = null;
-      _currentTransmitterName = null;
+      // Remove self from active transmitters
+      _activeTransmitters.remove(profile.id);
       _currentSessionId = null;
       notifyListeners();
 
@@ -545,10 +588,21 @@ class IntercomService extends ChangeNotifier {
         _sendIceCandidate(candidate);
       };
 
-      // Handle remote stream
-      _peerConnection!.onTrack = (RTCTrackEvent event) {
+      // Handle remote stream (when receiving audio back in duplex mode)
+      _peerConnection!.onTrack = (RTCTrackEvent event) async {
         if (event.streams.isNotEmpty) {
-          _remoteStream = event.streams[0];
+          // In duplex mode, we might receive audio from answerers
+          // Store in remoteStreams map
+          final stream = event.streams[0];
+          // Use a generic key for self-initiated streams
+          _remoteStreams['self_receive'] = stream;
+
+          // Create renderer for playback
+          final renderer = RTCVideoRenderer();
+          await renderer.initialize();
+          renderer.srcObject = stream;
+          _audioRenderers['self_receive'] = renderer;
+
           notifyListeners();
         }
       };
@@ -619,20 +673,17 @@ class IntercomService extends ChangeNotifier {
 
     switch (message.type) {
       case SignalingType.pttStart:
-        _currentTransmitterId = message.fromId;
-        _currentTransmitterName = message.fromName;
+        // Add to active transmitters (supports multiple)
+        _activeTransmitters[message.fromId] = message.fromName;
         notifyListeners();
         break;
 
       case SignalingType.pttEnd:
-        if (_currentTransmitterId == message.fromId) {
-          _currentTransmitterId = null;
-          _currentTransmitterName = null;
-          // Close remote stream
-          await _remoteStream?.dispose();
-          _remoteStream = null;
-          notifyListeners();
-        }
+        // Remove from active transmitters
+        _activeTransmitters.remove(message.fromId);
+        // Cleanup that peer's stream and connection
+        await _cleanupPeer(message.fromId);
+        notifyListeners();
         break;
 
       case SignalingType.offer:
@@ -671,13 +722,36 @@ class IntercomService extends ChangeNotifier {
     final profile = _crewService.localProfile;
     if (profile == null || _currentChannel == null) return;
 
+    final peerId = message.fromId;
+    final sessionKey = '${message.sessionId}_$peerId';
+
+    // Check if we've already answered this session
+    if (_answeredSessions.contains(sessionKey)) {
+      if (kDebugMode) {
+        print('Already answered session from ${message.fromName}, skipping');
+      }
+      return;
+    }
+
     try {
+      // Mark as answered before processing to prevent duplicates
+      _answeredSessions.add(sessionKey);
+
+      // Cleanup old session keys (keep last 50)
+      if (_answeredSessions.length > 50) {
+        final toRemove = _answeredSessions.take(_answeredSessions.length - 50).toList();
+        _answeredSessions.removeAll(toRemove);
+      }
+
+      // Cleanup existing connection for this peer if any
+      await _cleanupPeer(peerId);
+
       // Create peer connection for this sender
       final pc = await createPeerConnection({
         'iceServers': [],
         'sdpSemantics': 'unified-plan',
       });
-      _peerConnections[message.fromId] = pc;
+      _peerConnections[peerId] = pc;
 
       // Handle ICE candidates
       pc.onIceCandidate = (RTCIceCandidate candidate) {
@@ -698,9 +772,20 @@ class IntercomService extends ChangeNotifier {
       };
 
       // Handle remote stream (the audio from the transmitter)
-      pc.onTrack = (RTCTrackEvent event) {
+      pc.onTrack = (RTCTrackEvent event) async {
         if (event.streams.isNotEmpty) {
-          _remoteStream = event.streams[0];
+          final stream = event.streams[0];
+          _remoteStreams[peerId] = stream;
+
+          // Create audio renderer for playback
+          final renderer = RTCVideoRenderer();
+          await renderer.initialize();
+          renderer.srcObject = stream;
+          _audioRenderers[peerId] = renderer;
+
+          if (kDebugMode) {
+            print('Audio stream connected from ${message.fromName}');
+          }
           notifyListeners();
         }
       };
@@ -726,6 +811,10 @@ class IntercomService extends ChangeNotifier {
       );
 
       await _sendSignalingMessage(answerMessage);
+
+      if (kDebugMode) {
+        print('Answered offer from ${message.fromName}');
+      }
     } catch (e) {
       if (kDebugMode) {
         print('Error handling offer: $e');
@@ -737,11 +826,31 @@ class IntercomService extends ChangeNotifier {
   Future<void> _handleAnswer(SignalingMessage message) async {
     if (_peerConnection == null) return;
 
+    // Only process answer if we're in the correct state (have-local-offer)
+    // and the answer is for our current session
+    if (_currentSessionId != message.sessionId) {
+      if (kDebugMode) {
+        print('Ignoring answer for different session: ${message.sessionId}');
+      }
+      return;
+    }
+
+    final signalingState = _peerConnection!.signalingState;
+    if (signalingState != RTCSignalingState.RTCSignalingStateHaveLocalOffer) {
+      if (kDebugMode) {
+        print('Ignoring answer - wrong state: $signalingState');
+      }
+      return;
+    }
+
     try {
       await _peerConnection!.setRemoteDescription(RTCSessionDescription(
         message.data!['sdp'] as String,
         message.data!['type'] as String,
       ));
+      if (kDebugMode) {
+        print('Successfully set remote description from ${message.fromName}');
+      }
     } catch (e) {
       if (kDebugMode) {
         print('Error handling answer: $e');
@@ -924,6 +1033,13 @@ class IntercomService extends ChangeNotifier {
     return true;
   }
 
-  /// Get remote stream for audio playback
-  MediaStream? get remoteStream => _remoteStream;
+  /// Get all remote streams for audio playback
+  Map<String, MediaStream> get remoteStreams => Map.unmodifiable(_remoteStreams);
+
+  /// Get audio renderers (for widgets that need to render audio)
+  Map<String, RTCVideoRenderer> get audioRenderers => Map.unmodifiable(_audioRenderers);
+
+  /// Check if receiving from anyone
+  bool get isReceiving => _activeTransmitters.entries
+      .any((e) => e.key != _crewService.localProfile?.id);
 }
