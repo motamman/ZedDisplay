@@ -32,14 +32,15 @@ class IntercomTool extends StatelessWidget {
           return _buildPermissionView(context, intercomService);
         }
 
-        return SizedBox.expand(
+        return ClipRect(
           child: Column(
+            mainAxisSize: MainAxisSize.min,
             children: [
               // Header with channel selector
               _buildHeader(context, intercomService),
 
               // Main PTT area
-              Expanded(
+              Flexible(
                 child: _buildPTTArea(context, intercomService, crewService),
               ),
 

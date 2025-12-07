@@ -32,14 +32,15 @@ class FileShareTool extends StatelessWidget {
 
         final files = fileShareService.files;
 
-        return SizedBox.expand(
+        return ClipRect(
           child: Column(
+            mainAxisSize: MainAxisSize.min,
             children: [
               // Header with share button
               _buildHeader(context, files.length),
 
               // Files list
-              Expanded(
+              Flexible(
                 child: files.isEmpty
                     ? _buildEmptyView()
                     : _buildFilesList(context, files),
@@ -89,6 +90,7 @@ class FileShareTool extends StatelessWidget {
 
     return ListView.builder(
       padding: const EdgeInsets.symmetric(vertical: 4),
+      shrinkWrap: true,
       itemCount: displayFiles.length,
       itemBuilder: (context, index) {
         final file = displayFiles[index];
