@@ -131,12 +131,14 @@ class _CrewMessagesToolState extends State<CrewMessagesTool> {
             ),
           ],
           const Spacer(),
-          IconButton(
-            icon: const Icon(Icons.open_in_full, size: 20),
-            onPressed: () => _openFullChat(context),
-            tooltip: 'Open full chat',
-            padding: EdgeInsets.zero,
-            constraints: const BoxConstraints(),
+          SizedBox(
+            width: 32,
+            height: 32,
+            child: IconButton(
+              icon: const Icon(Icons.open_in_full, size: 20),
+              onPressed: () => _openFullChat(context),
+              padding: EdgeInsets.zero,
+            ),
           ),
         ],
       ),

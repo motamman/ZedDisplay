@@ -3,6 +3,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'signalk_service.dart';
 import '../models/crew_message.dart';
+import '../models/crew_member.dart';
+import '../screens/crew/chat_screen.dart';
+import '../screens/crew/crew_screen.dart';
+import '../screens/crew/direct_chat_screen.dart';
 
 /// Service to handle system-level notifications
 class NotificationService {
@@ -15,6 +19,14 @@ class NotificationService {
   int _notificationIdCounter = 0; // Sequential ID for unique notifications
   static const int _groupSummaryId = 0; // Fixed ID for group summary
   int _activeNotificationCount = 0; // Track active notifications for summary
+
+  /// Navigator key for navigating from notifications
+  GlobalKey<NavigatorState>? _navigatorKey;
+
+  /// Set the navigator key for notification-based navigation
+  void setNavigatorKey(GlobalKey<NavigatorState> key) {
+    _navigatorKey = key;
+  }
 
   /// Initialize the notification service
   Future<void> initialize() async {
@@ -65,7 +77,53 @@ class NotificationService {
     if (kDebugMode) {
       print('Notification tapped: ${response.payload}');
     }
-    // TODO: Navigate to specific screen based on notification type
+
+    final payload = response.payload;
+    if (payload == null || _navigatorKey?.currentState == null) return;
+
+    final navigator = _navigatorKey!.currentState!;
+
+    // Handle crew message notifications
+    // Payload format: crew_message:broadcast or crew_message:direct:{fromId}:{fromName}
+    if (payload.startsWith('crew_message:')) {
+      final parts = payload.split(':');
+
+      if (parts.length >= 2 && parts[1] == 'broadcast') {
+        // Open broadcast chat screen
+        navigator.push(
+          MaterialPageRoute(builder: (_) => const ChatScreen()),
+        );
+      } else if (parts.length >= 4 && parts[1] == 'direct') {
+        // Open direct chat with the sender
+        final fromId = parts[2];
+        final fromName = parts.sublist(3).join(':'); // Handle names with colons
+
+        // Create a minimal CrewMember for navigation
+        final sender = CrewMember(
+          id: fromId,
+          name: fromName,
+          deviceId: '', // Not needed for navigation
+        );
+
+        navigator.push(
+          MaterialPageRoute(builder: (_) => DirectChatScreen(crewMember: sender)),
+        );
+      } else {
+        // Fallback to broadcast chat
+        navigator.push(
+          MaterialPageRoute(builder: (_) => const ChatScreen()),
+        );
+      }
+      return;
+    }
+
+    // Handle other notification types (SignalK alerts, etc.)
+    // For now, open the crew screen for crew-related or general notifications
+    if (payload.contains('crew')) {
+      navigator.push(
+        MaterialPageRoute(builder: (_) => const CrewScreen()),
+      );
+    }
   }
 
   /// Show a system notification for a SignalK notification
@@ -237,12 +295,18 @@ class NotificationService {
         _notificationIdCounter = 1;
       }
 
+      // Build payload based on message type
+      // Format: crew_message:broadcast or crew_message:direct:{fromId}:{fromName}
+      final payload = message.isBroadcast
+          ? 'crew_message:broadcast'
+          : 'crew_message:direct:${message.fromId}:${message.fromName}';
+
       await _notifications.show(
         _notificationIdCounter,
         title,
         body,
         details,
-        payload: 'crew_message:${message.id}',
+        payload: payload,
       );
 
       _activeNotificationCount++;

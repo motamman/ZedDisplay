@@ -176,6 +176,9 @@ class _ZedDisplayAppState extends State<ZedDisplayApp> with WidgetsBindingObserv
     // Listen to storage changes for theme updates
     widget.storageService.addListener(_onStorageChanged);
 
+    // Set navigator key for notification-based navigation
+    widget.notificationService.setNavigatorKey(_navigatorKey);
+
     // Check for shared file (Android only)
     if (!kIsWeb && Platform.isAndroid) {
       _checkForSharedFile();

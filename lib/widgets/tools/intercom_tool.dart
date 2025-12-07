@@ -159,23 +159,30 @@ class IntercomTool extends StatelessWidget {
                         : Colors.grey,
               ),
               const SizedBox(height: 8),
-              Text(
-                isTransmitting
-                    ? 'TRANSMITTING'
-                    : isReceiving
-                        ? otherTransmitters.join(', ')
-                        : intercomService.isDuplexMode
-                            ? 'OPEN CHANNEL'
-                            : 'PUSH TO TALK',
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  color: isTransmitting
-                      ? Colors.red
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                child: Text(
+                  isTransmitting
+                      ? 'TRANSMITTING'
                       : isReceiving
-                          ? Colors.green
-                          : Colors.grey,
+                          ? otherTransmitters.length == 1
+                              ? otherTransmitters.first
+                              : '${otherTransmitters.length} transmitting'
+                          : intercomService.isDuplexMode
+                              ? 'OPEN CHANNEL'
+                              : 'PUSH TO TALK',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: isTransmitting
+                        ? Colors.red
+                        : isReceiving
+                            ? Colors.green
+                            : Colors.grey,
+                  ),
+                  textAlign: TextAlign.center,
+                  overflow: TextOverflow.ellipsis,
+                  maxLines: 1,
                 ),
-                textAlign: TextAlign.center,
               ),
               if (intercomService.currentChannel == null)
                 const Padding(
@@ -210,29 +217,32 @@ class IntercomTool extends StatelessWidget {
               color: intercomService.isMuted ? Colors.red : null,
             ),
             tooltip: intercomService.isMuted ? 'Unmute' : 'Mute',
+            visualDensity: VisualDensity.compact,
           ),
 
-          // Mode toggle
-          SegmentedButton<IntercomMode>(
-            segments: const [
-              ButtonSegment(
-                value: IntercomMode.ptt,
-                icon: Icon(Icons.touch_app, size: 16),
-                label: Text('PTT'),
+          // Mode toggle - wrapped in Flexible to prevent overflow
+          Flexible(
+            child: SegmentedButton<IntercomMode>(
+              segments: const [
+                ButtonSegment(
+                  value: IntercomMode.ptt,
+                  icon: Icon(Icons.touch_app, size: 14),
+                ),
+                ButtonSegment(
+                  value: IntercomMode.duplex,
+                  icon: Icon(Icons.swap_horiz, size: 14),
+                ),
+              ],
+              selected: {intercomService.mode},
+              onSelectionChanged: (selected) {
+                intercomService.setMode(selected.first);
+              },
+              showSelectedIcon: false,
+              style: ButtonStyle(
+                visualDensity: VisualDensity.compact,
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                padding: WidgetStatePropertyAll(EdgeInsets.symmetric(horizontal: 8)),
               ),
-              ButtonSegment(
-                value: IntercomMode.duplex,
-                icon: Icon(Icons.swap_horiz, size: 16),
-                label: Text('Open'),
-              ),
-            ],
-            selected: {intercomService.mode},
-            onSelectionChanged: (selected) {
-              intercomService.setMode(selected.first);
-            },
-            style: ButtonStyle(
-              visualDensity: VisualDensity.compact,
-              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
             ),
           ),
 
@@ -251,6 +261,7 @@ class IntercomTool extends StatelessWidget {
                 color: intercomService.isPTTActive ? Colors.red : Colors.green,
               ),
               tooltip: intercomService.isPTTActive ? 'Stop' : 'Start',
+              visualDensity: VisualDensity.compact,
             )
           // Stop button for PTT mode (fallback if stuck)
           else if (intercomService.isPTTActive)
@@ -258,6 +269,7 @@ class IntercomTool extends StatelessWidget {
               onPressed: () => intercomService.stopPTT(),
               icon: const Icon(Icons.stop, color: Colors.red),
               tooltip: 'Stop',
+              visualDensity: VisualDensity.compact,
             ),
         ],
       ),

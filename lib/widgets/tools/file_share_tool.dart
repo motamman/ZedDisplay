@@ -201,11 +201,14 @@ class _FileListItem extends StatelessWidget {
         '${file.fromName} • ${timeFormat.format(file.timestamp.toLocal())}',
         style: const TextStyle(fontSize: 11),
       ),
-      trailing: IconButton(
-        icon: const Icon(Icons.download, size: 18),
-        onPressed: () => _viewFile(context),
-        padding: EdgeInsets.zero,
-        constraints: const BoxConstraints(),
+      trailing: SizedBox(
+        width: 32,
+        height: 32,
+        child: IconButton(
+          icon: const Icon(Icons.download, size: 18),
+          onPressed: () => _viewFile(context),
+          padding: EdgeInsets.zero,
+        ),
       ),
       onTap: () => _viewFile(context),
     );

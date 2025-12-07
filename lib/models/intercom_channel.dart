@@ -32,21 +32,27 @@ class IntercomChannel {
     ),
     IntercomChannel(
       id: 'ch01',
-      name: 'Bridge',
+      name: 'Helm',
       description: 'Command and navigation',
       priority: 1,
     ),
     IntercomChannel(
       id: 'ch02',
-      name: 'Deck',
-      description: 'Deck operations',
+      name: 'Main Salon',
+      description: 'Main living area',
       priority: 2,
     ),
     IntercomChannel(
       id: 'ch03',
-      name: 'Engine',
-      description: 'Engine room',
+      name: 'Main Cabin',
+      description: 'Master cabin',
       priority: 3,
+    ),
+    IntercomChannel(
+      id: 'ch04',
+      name: 'Crew Cabin',
+      description: 'Crew quarters',
+      priority: 4,
     ),
   ];
 

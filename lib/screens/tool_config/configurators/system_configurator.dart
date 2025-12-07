@@ -125,6 +125,14 @@ class SystemConfigurator extends ToolConfigurator {
         return 'Raspberry Pi Monitor';
       case 'server_manager':
         return 'Server Manager';
+      case 'crew_messages':
+        return 'Crew Messages';
+      case 'crew_list':
+        return 'Crew List';
+      case 'intercom':
+        return 'Voice Intercom';
+      case 'file_share':
+        return 'File Sharing';
       default:
         return 'System Tool';
     }
@@ -145,6 +153,18 @@ class SystemConfigurator extends ToolConfigurator {
         return 'The Server Manager provides quick access to SignalK server administrative functions. '
             'It allows you to manage your SignalK server directly from the dashboard without needing '
             'to open a separate browser window.';
+      case 'crew_messages':
+        return 'View and send messages to crew members. Shows recent messages with quick reply, '
+            'and provides access to the full chat screen.';
+      case 'crew_list':
+        return 'Displays online crew members and their current status. Shows who is on watch, '
+            'off watch, standby, resting, or away.';
+      case 'intercom':
+        return 'Voice communication with crew members using WebRTC. Supports push-to-talk and '
+            'open channel modes across multiple channels like Helm, Main Salon, and Crew Cabin.';
+      case 'file_share':
+        return 'Share and receive files with crew members over the local network. Supports images, '
+            'documents, waypoints (GPX), and audio files.';
       default:
         return 'This system tool provides diagnostic or administrative functionality.';
     }

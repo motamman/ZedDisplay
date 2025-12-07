@@ -48,6 +48,10 @@ class ToolConfiguratorFactory {
       case 'conversion_test':
       case 'rpi_monitor':
       case 'server_manager':
+      case 'crew_messages':
+      case 'crew_list':
+      case 'intercom':
+      case 'file_share':
         return SystemConfigurator(toolTypeId);
 
       // WebView
@@ -79,6 +83,10 @@ class ToolConfiguratorFactory {
       'conversion_test',
       'rpi_monitor',
       'server_manager',
+      'crew_messages',
+      'crew_list',
+      'intercom',
+      'file_share',
       'webview',
     ];
   }

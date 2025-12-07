@@ -5,8 +5,10 @@ import '../../models/tool_config.dart';
 import '../../models/crew_member.dart';
 import '../../services/signalk_service.dart';
 import '../../services/crew_service.dart';
+import '../../services/intercom_service.dart';
 import '../../services/tool_registry.dart';
 import '../../screens/crew/crew_profile_screen.dart';
+import '../../screens/crew/direct_chat_screen.dart';
 
 /// Dashboard tool showing online crew members
 class CrewListTool extends StatelessWidget {
@@ -49,6 +51,7 @@ class CrewListTool extends StatelessWidget {
                         itemBuilder: (context, index) {
                           final member = crewMembers[index];
                           final isMe = member.id == localProfile?.id;
+                          final isOnline = crewService.presence[member.id]?.online ?? false;
                           return ListTile(
                             dense: true,
                             leading: CircleAvatar(
@@ -69,7 +72,38 @@ class CrewListTool extends StatelessWidget {
                               member.role.name,
                               style: const TextStyle(fontSize: 11),
                             ),
-                            trailing: _buildStatusIndicator(member.status),
+                            trailing: isMe
+                                ? _buildStatusIndicator(member.status)
+                                : Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      // Direct message button
+                                      SizedBox(
+                                        width: 32,
+                                        height: 32,
+                                        child: IconButton(
+                                          icon: const Icon(Icons.message_outlined, size: 18),
+                                          onPressed: () => _openDirectChat(context, member),
+                                          padding: EdgeInsets.zero,
+                                          visualDensity: VisualDensity.compact,
+                                        ),
+                                      ),
+                                      // Direct call button (only if online)
+                                      if (isOnline) ...[
+                                        const SizedBox(width: 4),
+                                        SizedBox(
+                                          width: 32,
+                                          height: 32,
+                                          child: IconButton(
+                                            icon: const Icon(Icons.call, size: 18),
+                                            onPressed: () => _startDirectCall(context, member),
+                                            padding: EdgeInsets.zero,
+                                            visualDensity: VisualDensity.compact,
+                                          ),
+                                        ),
+                                      ],
+                                    ],
+                                  ),
                           );
                         },
                       ),
@@ -200,6 +234,27 @@ class CrewListTool extends StatelessWidget {
       case CrewStatus.away:
         return 'Away';
     }
+  }
+
+  void _openDirectChat(BuildContext context, CrewMember member) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => DirectChatScreen(crewMember: member),
+      ),
+    );
+  }
+
+  void _startDirectCall(BuildContext context, CrewMember member) {
+    final intercomService = Provider.of<IntercomService>(context, listen: false);
+    intercomService.startDirectCall(member.id, member.name);
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Calling ${member.name}...'),
+        backgroundColor: Colors.green,
+        duration: const Duration(seconds: 2),
+      ),
+    );
   }
 
   Widget _buildEmptyView() {

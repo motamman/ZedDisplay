@@ -348,11 +348,12 @@ class _TransmissionIndicator extends StatelessWidget {
                   child: Text(
                     otherTransmitters.length == 1
                         ? '${otherTransmitters.first} is transmitting'
-                        : '${otherTransmitters.join(", ")} are transmitting',
+                        : '${otherTransmitters.length} are transmitting',
                     style: const TextStyle(
                       color: Colors.green,
                       fontWeight: FontWeight.bold,
                     ),
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ),
               ],
@@ -615,8 +616,8 @@ class IntercomMini extends StatelessWidget {
   }
 }
 
-/// Floating intercom indicator that shows when someone is transmitting
-/// Can be added to the main app to always show intercom status
+/// Intercom status indicator that shows at the bottom when someone is transmitting
+/// Uses a snackbar-style appearance to be less obtrusive
 class IntercomStatusIndicator extends StatelessWidget {
   final VoidCallback? onTap;
 
@@ -642,62 +643,47 @@ class IntercomStatusIndicator extends StatelessWidget {
         }
 
         final statusText = otherTransmitters.length == 1
-            ? '${otherTransmitters.first} is transmitting'
-            : '${otherTransmitters.join(", ")} are transmitting';
+            ? '${otherTransmitters.first} on ${channel.name}'
+            : '${otherTransmitters.length} transmitting on ${channel.name}';
 
         return Positioned(
-          top: 100,
+          bottom: 16,
           left: 16,
           right: 16,
-          child: GestureDetector(
-            onTap: onTap,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              decoration: BoxDecoration(
+          child: SafeArea(
+            child: GestureDetector(
+              onTap: onTap,
+              child: Material(
+                elevation: 6,
+                borderRadius: BorderRadius.circular(8),
                 color: Colors.green.shade700,
-                borderRadius: BorderRadius.circular(12),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.green.withValues(alpha: 0.4),
-                    blurRadius: 12,
-                    spreadRadius: 2,
-                  ),
-                ],
-              ),
-              child: Row(
-                children: [
-                  const Icon(Icons.radio, color: Colors.white),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          channel.name,
-                          style: const TextStyle(
-                            color: Colors.white70,
-                            fontSize: 12,
-                          ),
-                        ),
-                        Text(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.volume_up, color: Colors.white, size: 20),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
                           statusText,
                           style: const TextStyle(
                             color: Colors.white,
-                            fontWeight: FontWeight.bold,
+                            fontWeight: FontWeight.w500,
+                            fontSize: 14,
                           ),
                         ),
-                      ],
-                    ),
+                      ),
+                      GestureDetector(
+                        onTap: intercomService.toggleMute,
+                        child: Icon(
+                          intercomService.isMuted ? Icons.volume_off : Icons.volume_up,
+                          color: Colors.white,
+                          size: 20,
+                        ),
+                      ),
+                    ],
                   ),
-                  IconButton(
-                    icon: Icon(
-                      intercomService.isMuted ? Icons.volume_off : Icons.volume_up,
-                      color: Colors.white,
-                    ),
-                    onPressed: intercomService.toggleMute,
-                  ),
-                ],
+                ),
               ),
             ),
           ),
