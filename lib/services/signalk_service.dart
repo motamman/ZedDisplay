@@ -735,6 +735,111 @@ class SignalKService extends ChangeNotifier implements DataService {
     }
   }
 
+  // ===== Resources API (v2) =====
+  // SignalK Resources API for storing custom data (routes, waypoints, notes, etc.)
+  // Uses v2 API: /signalk/v2/api/resources/
+
+  /// Get all resources of a specific type
+  /// Returns a Map of resource IDs to resource data
+  Future<Map<String, dynamic>> getResources(String resourceType) async {
+    final protocol = _useSecureConnection ? 'https' : 'http';
+
+    try {
+      final response = await http.get(
+        Uri.parse('$protocol://$_serverUrl/signalk/v2/api/resources/$resourceType'),
+        headers: _getHeaders(),
+      ).timeout(const Duration(seconds: 10));
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        if (data is Map<String, dynamic>) {
+          return data;
+        }
+      } else if (response.statusCode == 404) {
+        // Resource type doesn't exist yet, return empty map
+        return {};
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error getting resources ($resourceType): $e');
+      }
+    }
+    return {};
+  }
+
+  /// Get a specific resource by type and ID
+  Future<Map<String, dynamic>?> getResource(String resourceType, String id) async {
+    final protocol = _useSecureConnection ? 'https' : 'http';
+
+    try {
+      final response = await http.get(
+        Uri.parse('$protocol://$_serverUrl/signalk/v2/api/resources/$resourceType/$id'),
+        headers: _getHeaders(),
+      ).timeout(const Duration(seconds: 10));
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        if (data is Map<String, dynamic>) {
+          return data;
+        }
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error getting resource ($resourceType/$id): $e');
+      }
+    }
+    return null;
+  }
+
+  /// Create or update a resource
+  /// Returns true if successful
+  Future<bool> putResource(String resourceType, String id, Map<String, dynamic> data) async {
+    final protocol = _useSecureConnection ? 'https' : 'http';
+
+    try {
+      final response = await http.put(
+        Uri.parse('$protocol://$_serverUrl/signalk/v2/api/resources/$resourceType/$id'),
+        headers: _getHeaders(),
+        body: jsonEncode(data),
+      ).timeout(const Duration(seconds: 10));
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        return true;
+      } else {
+        if (kDebugMode) {
+          print('PUT resource failed ($resourceType/$id): ${response.statusCode} - ${response.body}');
+        }
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error putting resource ($resourceType/$id): $e');
+      }
+    }
+    return false;
+  }
+
+  /// Delete a resource
+  /// Returns true if successful
+  Future<bool> deleteResource(String resourceType, String id) async {
+    final protocol = _useSecureConnection ? 'https' : 'http';
+
+    try {
+      final response = await http.delete(
+        Uri.parse('$protocol://$_serverUrl/signalk/v2/api/resources/$resourceType/$id'),
+        headers: _getHeaders(),
+      ).timeout(const Duration(seconds: 10));
+
+      if (response.statusCode == 200 || response.statusCode == 204) {
+        return true;
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error deleting resource ($resourceType/$id): $e');
+      }
+    }
+    return false;
+  }
+
   /// Get value for specific path, optionally from a specific source
   @override
   SignalKDataPoint? getValue(String path, {String? source}) {

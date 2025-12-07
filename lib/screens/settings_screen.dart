@@ -13,6 +13,7 @@ import 'connection_screen.dart';
 import 'dashboard_manager_screen.dart';
 import 'device_registration_screen.dart';
 import 'setup_management_screen.dart';
+import 'crew/crew_screen.dart';
 
 /// Settings screen with connection management
 class SettingsScreen extends StatefulWidget {
@@ -208,6 +209,35 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 Navigator.of(context).push(
                   MaterialPageRoute(
                     builder: (context) => const SetupManagementScreen(),
+                  ),
+                );
+              },
+            ),
+          ),
+
+          const Divider(height: 32),
+
+          // Crew Section
+          Card(
+            margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: ListTile(
+              leading: const Icon(Icons.people, color: Colors.teal),
+              title: const Text(
+                'Crew',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              subtitle: const Text(
+                'Manage crew profiles and communication',
+                style: TextStyle(fontSize: 12),
+              ),
+              trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+              onTap: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (context) => const CrewScreen(),
                   ),
                 );
               },
