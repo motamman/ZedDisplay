@@ -32,6 +32,11 @@ class IntercomService extends ChangeNotifier {
   bool _isListening = false;
   bool get isListening => _isListening;
 
+  // Intercom mode (PTT vs Duplex)
+  IntercomMode _mode = IntercomMode.ptt;
+  IntercomMode get mode => _mode;
+  bool get isDuplexMode => _mode == IntercomMode.duplex;
+
   // Who is currently transmitting
   String? _currentTransmitterId;
   String? _currentTransmitterName;
@@ -274,6 +279,11 @@ class IntercomService extends ChangeNotifier {
     if (kDebugMode) {
       print('Joined channel: ${channel.name}');
     }
+
+    // If in duplex mode, start transmitting immediately
+    if (_mode == IntercomMode.duplex) {
+      await _startDuplexTransmission();
+    }
   }
 
   /// Leave current channel
@@ -420,6 +430,93 @@ class IntercomService extends ChangeNotifier {
       track.enabled = !_isMuted;
     });
     notifyListeners();
+  }
+
+  /// Set intercom mode (PTT or Duplex)
+  Future<void> setMode(IntercomMode newMode) async {
+    if (_mode == newMode) return;
+
+    // If switching modes while in a channel, need to handle transition
+    final wasInChannel = _currentChannel != null;
+    final channel = _currentChannel;
+
+    if (wasInChannel) {
+      // Stop current transmission if active
+      if (_isPTTActive) {
+        await stopPTT();
+      }
+    }
+
+    _mode = newMode;
+    notifyListeners();
+
+    // If in duplex mode and in a channel, start transmitting
+    if (wasInChannel && channel != null && newMode == IntercomMode.duplex) {
+      await _startDuplexTransmission();
+    }
+  }
+
+  /// Toggle between PTT and Duplex mode
+  Future<void> toggleMode() async {
+    await setMode(_mode == IntercomMode.ptt ? IntercomMode.duplex : IntercomMode.ptt);
+  }
+
+  /// Start duplex (open channel) transmission
+  Future<bool> _startDuplexTransmission() async {
+    if (_currentChannel == null) return false;
+    if (_isPTTActive) return true;  // Already transmitting
+    if (!_hasMicPermission) {
+      final granted = await requestMicPermission();
+      if (!granted) return false;
+    }
+
+    final profile = _crewService.localProfile;
+    if (profile == null) return false;
+
+    try {
+      // Get microphone stream
+      _localStream = await navigator.mediaDevices.getUserMedia({
+        'audio': {
+          'echoCancellation': true,
+          'noiseSuppression': true,
+          'autoGainControl': true,
+        },
+        'video': false,
+      });
+
+      // Create new session
+      _currentSessionId = const Uuid().v4();
+
+      // Send channel join with duplex indicator
+      final message = SignalingMessage(
+        id: const Uuid().v4(),
+        sessionId: _currentSessionId!,
+        channelId: _currentChannel!.id,
+        fromId: profile.id,
+        fromName: profile.name,
+        type: SignalingType.pttStart,
+        data: {'mode': 'duplex'},
+      );
+
+      await _sendSignalingMessage(message);
+
+      _isPTTActive = true;
+      notifyListeners();
+
+      // Create offer and start WebRTC connection
+      await _createOffer();
+
+      if (kDebugMode) {
+        print('Duplex mode started on channel: ${_currentChannel!.name}');
+      }
+
+      return true;
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error starting duplex transmission: $e');
+      }
+      return false;
+    }
   }
 
   /// Create WebRTC offer

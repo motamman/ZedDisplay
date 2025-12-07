@@ -22,6 +22,7 @@ import 'services/intercom_service.dart';
 import 'models/auth_token.dart';
 import 'screens/splash_screen.dart';
 import 'screens/setup_management_screen.dart';
+import 'widgets/crew/intercom_panel.dart';
 
 // Global app start time
 final DateTime appStartTime = DateTime.now();
@@ -357,7 +358,13 @@ class _ZedDisplayAppState extends State<ZedDisplayApp> with WidgetsBindingObserv
             signalKService: widget.signalKService,
             storageService: widget.storageService,
             notificationService: widget.notificationService,
-            child: child ?? const SizedBox.shrink(),
+            child: Stack(
+              children: [
+                child ?? const SizedBox.shrink(),
+                // Intercom status indicator overlay (shows when receiving transmission)
+                const IntercomStatusIndicator(),
+              ],
+            ),
           );
         },
       ),

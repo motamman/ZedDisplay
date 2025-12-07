@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:permission_handler/permission_handler.dart';
-import '../../models/intercom_channel.dart';
+import '../../models/intercom_channel.dart' show IntercomChannel, IntercomMode;
 import '../../services/intercom_service.dart';
 import '../../services/crew_service.dart';
 
@@ -64,6 +64,14 @@ class IntercomPanel extends StatelessWidget {
 
             const SizedBox(height: 16),
 
+            // Mode toggle
+            _ModeToggle(
+              mode: intercomService.mode,
+              onModeChanged: (mode) => intercomService.setMode(mode),
+            ),
+
+            const SizedBox(height: 16),
+
             // Controls row
             Row(
               mainAxisAlignment: MainAxisAlignment.center,
@@ -87,9 +95,11 @@ class IntercomPanel extends StatelessWidget {
                 // Channel info
                 if (intercomService.currentChannel != null)
                   Text(
-                    intercomService.isListening ? 'Listening' : 'Ready',
+                    intercomService.isDuplexMode
+                        ? (intercomService.isPTTActive ? 'Open Channel' : 'Ready')
+                        : (intercomService.isListening ? 'Listening' : 'Ready'),
                     style: TextStyle(
-                      color: intercomService.isListening
+                      color: intercomService.isPTTActive || intercomService.isListening
                           ? Colors.green
                           : Colors.grey,
                     ),
@@ -378,6 +388,39 @@ class _PTTButtonState extends State<_PTTButton> {
   }
 }
 
+/// Mode toggle (PTT vs Duplex)
+class _ModeToggle extends StatelessWidget {
+  final IntercomMode mode;
+  final Function(IntercomMode) onModeChanged;
+
+  const _ModeToggle({
+    required this.mode,
+    required this.onModeChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SegmentedButton<IntercomMode>(
+      segments: const [
+        ButtonSegment(
+          value: IntercomMode.ptt,
+          label: Text('PTT'),
+          icon: Icon(Icons.touch_app),
+        ),
+        ButtonSegment(
+          value: IntercomMode.duplex,
+          label: Text('Open'),
+          icon: Icon(Icons.swap_horiz),
+        ),
+      ],
+      selected: {mode},
+      onSelectionChanged: (selected) {
+        onModeChanged(selected.first);
+      },
+    );
+  }
+}
+
 /// Compact intercom widget for embedding in other screens
 class IntercomMini extends StatelessWidget {
   final VoidCallback? onExpand;
@@ -391,18 +434,26 @@ class IntercomMini extends StatelessWidget {
         final channel = intercomService.currentChannel;
         final isTransmitting = intercomService.isPTTActive;
         final transmitterName = intercomService.currentTransmitterName;
+        final myId = context.read<CrewService>().localProfile?.id;
+        final isReceiving = transmitterName != null &&
+            intercomService.currentTransmitterId != myId;
 
         return Container(
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
-            color: isTransmitting || transmitterName != null
-                ? Colors.green.withValues(alpha: 0.2)
-                : Theme.of(context).colorScheme.surfaceContainerHighest,
+            color: isTransmitting
+                ? Colors.red.withValues(alpha: 0.2)
+                : isReceiving
+                    ? Colors.green.withValues(alpha: 0.2)
+                    : Theme.of(context).colorScheme.surfaceContainerHighest,
             borderRadius: BorderRadius.circular(12),
             border: Border.all(
-              color: isTransmitting || transmitterName != null
-                  ? Colors.green
-                  : Colors.transparent,
+              color: isTransmitting
+                  ? Colors.red
+                  : isReceiving
+                      ? Colors.green
+                      : Colors.transparent,
+              width: 2,
             ),
           ),
           child: Row(
@@ -413,8 +464,10 @@ class IntercomMini extends StatelessWidget {
                 color: channel?.isEmergency == true
                     ? Colors.red
                     : isTransmitting
-                        ? Colors.green
-                        : Colors.blue,
+                        ? Colors.red
+                        : isReceiving
+                            ? Colors.green
+                            : Colors.blue,
               ),
               const SizedBox(width: 12),
 
@@ -428,18 +481,28 @@ class IntercomMini extends StatelessWidget {
                       channel?.name ?? 'No Channel',
                       style: Theme.of(context).textTheme.titleSmall,
                     ),
-                    if (transmitterName != null)
+                    if (isTransmitting)
+                      Text(
+                        intercomService.isDuplexMode ? 'Open channel active' : 'Transmitting',
+                        style: const TextStyle(
+                          color: Colors.red,
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      )
+                    else if (isReceiving)
                       Text(
                         '$transmitterName is transmitting',
                         style: const TextStyle(
                           color: Colors.green,
                           fontSize: 12,
+                          fontWeight: FontWeight.bold,
                         ),
                       )
                     else if (intercomService.isListening)
-                      const Text(
-                        'Listening',
-                        style: TextStyle(
+                      Text(
+                        intercomService.isDuplexMode ? 'Open mode' : 'Listening',
+                        style: const TextStyle(
                           color: Colors.grey,
                           fontSize: 12,
                         ),
@@ -447,6 +510,17 @@ class IntercomMini extends StatelessWidget {
                   ],
                 ),
               ),
+
+              // Quick mute toggle
+              if (channel != null)
+                IconButton(
+                  icon: Icon(
+                    intercomService.isMuted ? Icons.mic_off : Icons.mic,
+                    color: intercomService.isMuted ? Colors.red : null,
+                  ),
+                  onPressed: intercomService.toggleMute,
+                  tooltip: intercomService.isMuted ? 'Unmute' : 'Mute',
+                ),
 
               // Expand button
               if (onExpand != null)
@@ -456,6 +530,90 @@ class IntercomMini extends StatelessWidget {
                   tooltip: 'Open Intercom',
                 ),
             ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// Floating intercom indicator that shows when someone is transmitting
+/// Can be added to the main app to always show intercom status
+class IntercomStatusIndicator extends StatelessWidget {
+  final VoidCallback? onTap;
+
+  const IntercomStatusIndicator({super.key, this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Consumer<IntercomService>(
+      builder: (context, intercomService, child) {
+        final channel = intercomService.currentChannel;
+        final transmitterName = intercomService.currentTransmitterName;
+        final myId = context.read<CrewService>().localProfile?.id;
+        final isReceiving = transmitterName != null &&
+            intercomService.currentTransmitterId != myId;
+
+        // Only show if in a channel and someone is transmitting
+        if (channel == null || !isReceiving) {
+          return const SizedBox.shrink();
+        }
+
+        return Positioned(
+          top: 100,
+          left: 16,
+          right: 16,
+          child: GestureDetector(
+            onTap: onTap,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              decoration: BoxDecoration(
+                color: Colors.green.shade700,
+                borderRadius: BorderRadius.circular(12),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.green.withValues(alpha: 0.4),
+                    blurRadius: 12,
+                    spreadRadius: 2,
+                  ),
+                ],
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.radio, color: Colors.white),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          channel.name,
+                          style: const TextStyle(
+                            color: Colors.white70,
+                            fontSize: 12,
+                          ),
+                        ),
+                        Text(
+                          '$transmitterName is transmitting',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    icon: Icon(
+                      intercomService.isMuted ? Icons.volume_off : Icons.volume_up,
+                      color: Colors.white,
+                    ),
+                    onPressed: intercomService.toggleMute,
+                  ),
+                ],
+              ),
+            ),
           ),
         );
       },

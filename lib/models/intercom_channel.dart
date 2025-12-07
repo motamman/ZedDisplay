@@ -196,6 +196,12 @@ enum RTCSessionState {
   failed,        // Connection failed
 }
 
+/// Intercom mode
+enum IntercomMode {
+  ptt,    // Push-to-talk: hold button to transmit
+  duplex, // Open/duplex: always transmitting when in channel
+}
+
 /// WebRTC signaling message types
 enum SignalingType {
   offer,
