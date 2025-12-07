@@ -466,6 +466,354 @@ class IntercomService extends ChangeNotifier {
     }
   }
 
+  // Direct call state
+  String? _directCallTargetId;
+  String? _directCallTargetName;
+  bool _isInDirectCall = false;
+  String? get directCallTargetId => _directCallTargetId;
+  String? get directCallTargetName => _directCallTargetName;
+  bool get isInDirectCall => _isInDirectCall;
+
+  // Incoming call state
+  String? _incomingCallFromId;
+  String? _incomingCallFromName;
+  String? _incomingCallSessionId;
+  SignalingMessage? _pendingIncomingOffer;
+  bool get hasIncomingCall => _incomingCallFromId != null;
+  String? get incomingCallFromId => _incomingCallFromId;
+  String? get incomingCallFromName => _incomingCallFromName;
+
+  /// Start a direct call to a specific crew member
+  Future<bool> startDirectCall(String targetId, String targetName) async {
+    if (_isInDirectCall) return false;
+    if (!_hasMicPermission) {
+      final granted = await requestMicPermission();
+      if (!granted) return false;
+    }
+
+    final profile = _crewService.localProfile;
+    if (profile == null) return false;
+
+    try {
+      // Get microphone stream
+      _localStream = await navigator.mediaDevices.getUserMedia({
+        'audio': {
+          'echoCancellation': true,
+          'noiseSuppression': true,
+          'autoGainControl': true,
+        },
+        'video': false,
+      });
+
+      // Create new session for direct call
+      _currentSessionId = const Uuid().v4();
+      _directCallTargetId = targetId;
+      _directCallTargetName = targetName;
+      _isInDirectCall = true;
+
+      // Send direct call offer via signaling
+      final message = SignalingMessage(
+        id: const Uuid().v4(),
+        sessionId: _currentSessionId!,
+        channelId: 'direct_$targetId', // Use special channel ID for direct calls
+        fromId: profile.id,
+        fromName: profile.name,
+        type: SignalingType.offer,
+        data: {'directCall': true, 'targetId': targetId},
+      );
+
+      // Create WebRTC offer
+      await _createDirectCallOffer(targetId);
+
+      if (kDebugMode) {
+        print('Direct call started to: $targetName');
+      }
+
+      notifyListeners();
+      return true;
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error starting direct call: $e');
+      }
+      _isInDirectCall = false;
+      _directCallTargetId = null;
+      _directCallTargetName = null;
+      return false;
+    }
+  }
+
+  /// End a direct call
+  Future<void> endDirectCall() async {
+    if (!_isInDirectCall) return;
+
+    final profile = _crewService.localProfile;
+    if (profile != null && _directCallTargetId != null) {
+      // Send hangup message
+      final message = SignalingMessage(
+        id: const Uuid().v4(),
+        sessionId: _currentSessionId ?? '',
+        channelId: 'direct_$_directCallTargetId',
+        fromId: profile.id,
+        fromName: profile.name,
+        type: SignalingType.hangup,
+      );
+      await _sendSignalingMessage(message);
+    }
+
+    // Cleanup
+    _localStream?.getTracks().forEach((track) => track.stop());
+    await _localStream?.dispose();
+    _localStream = null;
+
+    await _peerConnection?.close();
+    _peerConnection = null;
+
+    _isInDirectCall = false;
+    _directCallTargetId = null;
+    _directCallTargetName = null;
+    _currentSessionId = null;
+
+    notifyListeners();
+
+    if (kDebugMode) {
+      print('Direct call ended');
+    }
+  }
+
+  /// Answer an incoming direct call
+  Future<bool> answerIncomingCall() async {
+    if (_pendingIncomingOffer == null || _incomingCallFromId == null) return false;
+    if (!_hasMicPermission) {
+      final granted = await requestMicPermission();
+      if (!granted) return false;
+    }
+
+    final profile = _crewService.localProfile;
+    if (profile == null) return false;
+
+    try {
+      // Get microphone stream
+      _localStream = await navigator.mediaDevices.getUserMedia({
+        'audio': {
+          'echoCancellation': true,
+          'noiseSuppression': true,
+          'autoGainControl': true,
+        },
+        'video': false,
+      });
+
+      final callerId = _incomingCallFromId!;
+      final callerName = _incomingCallFromName!;
+      final offer = _pendingIncomingOffer!;
+
+      _isInDirectCall = true;
+      _directCallTargetId = callerId;
+      _directCallTargetName = callerName;
+      _currentSessionId = offer.sessionId;
+
+      // Clear incoming call state
+      _incomingCallFromId = null;
+      _incomingCallFromName = null;
+      _incomingCallSessionId = null;
+      _pendingIncomingOffer = null;
+
+      // Create peer connection
+      _peerConnection = await createPeerConnection({
+        'iceServers': [],
+        'sdpSemantics': 'unified-plan',
+      });
+
+      // Add local stream
+      _localStream!.getTracks().forEach((track) {
+        _peerConnection!.addTrack(track, _localStream!);
+      });
+
+      // Handle ICE candidates
+      _peerConnection!.onIceCandidate = (RTCIceCandidate candidate) {
+        final iceMessage = SignalingMessage(
+          id: const Uuid().v4(),
+          sessionId: _currentSessionId!,
+          channelId: 'direct_${profile.id}',
+          fromId: profile.id,
+          fromName: profile.name,
+          type: SignalingType.iceCandidate,
+          data: {
+            'candidate': candidate.candidate,
+            'sdpMid': candidate.sdpMid,
+            'sdpMLineIndex': candidate.sdpMLineIndex,
+            'targetId': callerId,
+          },
+        );
+        _sendSignalingMessage(iceMessage);
+      };
+
+      // Handle remote stream
+      _peerConnection!.onTrack = (RTCTrackEvent event) async {
+        if (event.streams.isNotEmpty) {
+          final stream = event.streams[0];
+          _remoteStreams[callerId] = stream;
+
+          // Create renderer for playback
+          final renderer = RTCVideoRenderer();
+          await renderer.initialize();
+          renderer.srcObject = stream;
+          _audioRenderers[callerId] = renderer;
+
+          notifyListeners();
+        }
+      };
+
+      // Set remote description (the offer)
+      await _peerConnection!.setRemoteDescription(RTCSessionDescription(
+        offer.data!['sdp'] as String,
+        offer.data!['type'] as String,
+      ));
+
+      // Create and send answer
+      final answer = await _peerConnection!.createAnswer();
+      await _peerConnection!.setLocalDescription(answer);
+
+      final answerMessage = SignalingMessage(
+        id: const Uuid().v4(),
+        sessionId: offer.sessionId,
+        channelId: 'direct_${profile.id}',
+        fromId: profile.id,
+        fromName: profile.name,
+        type: SignalingType.answer,
+        data: {
+          'sdp': answer.sdp,
+          'type': answer.type,
+          'directCall': true,
+          'targetId': callerId,
+        },
+      );
+
+      await _sendSignalingMessage(answerMessage);
+
+      if (kDebugMode) {
+        print('Answered call from $callerName');
+      }
+
+      notifyListeners();
+      return true;
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error answering call: $e');
+      }
+      _clearIncomingCall();
+      return false;
+    }
+  }
+
+  /// Decline an incoming direct call
+  Future<void> declineIncomingCall() async {
+    if (_incomingCallFromId == null) return;
+
+    final profile = _crewService.localProfile;
+    if (profile != null) {
+      // Send decline/hangup message
+      final message = SignalingMessage(
+        id: const Uuid().v4(),
+        sessionId: _incomingCallSessionId ?? '',
+        channelId: 'direct_${profile.id}',
+        fromId: profile.id,
+        fromName: profile.name,
+        type: SignalingType.hangup,
+        data: {'declined': true, 'targetId': _incomingCallFromId},
+      );
+      await _sendSignalingMessage(message);
+    }
+
+    _clearIncomingCall();
+
+    if (kDebugMode) {
+      print('Declined incoming call');
+    }
+  }
+
+  void _clearIncomingCall() {
+    _incomingCallFromId = null;
+    _incomingCallFromName = null;
+    _incomingCallSessionId = null;
+    _pendingIncomingOffer = null;
+    notifyListeners();
+  }
+
+  /// Create WebRTC offer for direct call
+  Future<void> _createDirectCallOffer(String targetId) async {
+    final profile = _crewService.localProfile;
+    if (profile == null) return;
+
+    try {
+      _peerConnection = await createPeerConnection({
+        'iceServers': [],
+        'sdpSemantics': 'unified-plan',
+      });
+
+      // Add local stream
+      if (_localStream != null) {
+        _localStream!.getTracks().forEach((track) {
+          _peerConnection!.addTrack(track, _localStream!);
+        });
+      }
+
+      // Handle ICE candidates
+      _peerConnection!.onIceCandidate = (RTCIceCandidate candidate) {
+        final iceMessage = SignalingMessage(
+          id: const Uuid().v4(),
+          sessionId: _currentSessionId!,
+          channelId: 'direct_$targetId',
+          fromId: profile.id,
+          fromName: profile.name,
+          type: SignalingType.iceCandidate,
+          data: {
+            'candidate': candidate.candidate,
+            'sdpMid': candidate.sdpMid,
+            'sdpMLineIndex': candidate.sdpMLineIndex,
+          },
+        );
+        _sendSignalingMessage(iceMessage);
+      };
+
+      // Handle remote stream
+      _peerConnection!.onTrack = (RTCTrackEvent event) async {
+        if (event.streams.isNotEmpty) {
+          final stream = event.streams[0];
+          _remoteStreams[targetId] = stream;
+
+          // Create renderer for playback
+          final renderer = RTCVideoRenderer();
+          await renderer.initialize();
+          renderer.srcObject = stream;
+          _audioRenderers[targetId] = renderer;
+
+          notifyListeners();
+        }
+      };
+
+      // Create offer
+      final offer = await _peerConnection!.createOffer();
+      await _peerConnection!.setLocalDescription(offer);
+
+      // Send offer
+      final offerMessage = SignalingMessage(
+        id: const Uuid().v4(),
+        sessionId: _currentSessionId!,
+        channelId: 'direct_$targetId',
+        fromId: profile.id,
+        fromName: profile.name,
+        type: SignalingType.offer,
+        data: {'sdp': offer.sdp, 'type': offer.type, 'directCall': true},
+      );
+
+      await _sendSignalingMessage(offerMessage);
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error creating direct call offer: $e');
+      }
+    }
+  }
+
   /// Toggle mute state
   void toggleMute() {
     _isMuted = !_isMuted;
@@ -899,7 +1247,9 @@ class IntercomService extends ChangeNotifier {
   /// Fetch signaling messages from SignalK
   Future<void> _fetchSignaling() async {
     if (!_signalKService.isConnected) return;
-    if (_currentChannel == null) return;
+
+    final myId = _crewService.localProfile?.id;
+    if (myId == null) return;
 
     try {
       final resources = await _signalKService.getResources(_channelResourceType);
@@ -923,7 +1273,30 @@ class IntercomService extends ChangeNotifier {
           // Only process recent messages (last 30 seconds)
           if (DateTime.now().difference(message.timestamp).inSeconds > 30) continue;
 
-          await _handleSignalingMessage(message);
+          // Skip messages from self
+          if (message.fromId == myId) continue;
+
+          // Check if this is a direct call for us
+          if (message.channelId.startsWith('direct_')) {
+            final targetId = message.channelId.replaceFirst('direct_', '');
+
+            // Check if this is targeted at us (either by channel ID or targetId in data)
+            final dataTargetId = message.data?['targetId'] as String?;
+            final isForUs = targetId == myId || dataTargetId == myId;
+
+            // Also check if it's from our direct call target (for answers/ICE)
+            final isFromOurTarget = _isInDirectCall && message.fromId == _directCallTargetId;
+
+            if (isForUs || isFromOurTarget) {
+              await _handleDirectCallMessage(message);
+            }
+            continue;
+          }
+
+          // Handle channel messages
+          if (_currentChannel != null && message.channelId == _currentChannel!.id) {
+            await _handleSignalingMessage(message);
+          }
         } catch (e) {
           if (kDebugMode) {
             print('Error parsing signaling message $noteId: $e');
@@ -934,6 +1307,84 @@ class IntercomService extends ChangeNotifier {
       if (kDebugMode) {
         print('Error fetching signaling: $e');
       }
+    }
+  }
+
+  /// Handle direct call signaling messages
+  Future<void> _handleDirectCallMessage(SignalingMessage message) async {
+    // Skip already processed messages
+    if (_processedSignalingIds.contains(message.id)) return;
+    _processedSignalingIds.add(message.id);
+
+    if (kDebugMode) {
+      print('Direct call message: ${message.type} from ${message.fromName}');
+    }
+
+    switch (message.type) {
+      case SignalingType.offer:
+        // Incoming call!
+        if (!_isInDirectCall && !hasIncomingCall) {
+          _incomingCallFromId = message.fromId;
+          _incomingCallFromName = message.fromName;
+          _incomingCallSessionId = message.sessionId;
+          _pendingIncomingOffer = message;
+          notifyListeners();
+          if (kDebugMode) {
+            print('Incoming call from ${message.fromName}');
+          }
+        }
+        break;
+
+      case SignalingType.answer:
+        // Answer to our outgoing call
+        if (_isInDirectCall && _peerConnection != null) {
+          final signalingState = _peerConnection!.signalingState;
+          if (signalingState == RTCSignalingState.RTCSignalingStateHaveLocalOffer) {
+            try {
+              await _peerConnection!.setRemoteDescription(RTCSessionDescription(
+                message.data!['sdp'] as String,
+                message.data!['type'] as String,
+              ));
+              if (kDebugMode) {
+                print('Direct call connected with ${message.fromName}');
+              }
+            } catch (e) {
+              if (kDebugMode) {
+                print('Error setting remote description: $e');
+              }
+            }
+          }
+        }
+        break;
+
+      case SignalingType.iceCandidate:
+        // ICE candidate for direct call
+        if (_peerConnection != null) {
+          try {
+            await _peerConnection!.addCandidate(RTCIceCandidate(
+              message.data!['candidate'] as String?,
+              message.data!['sdpMid'] as String?,
+              message.data!['sdpMLineIndex'] as int?,
+            ));
+          } catch (e) {
+            if (kDebugMode) {
+              print('Error adding ICE candidate: $e');
+            }
+          }
+        }
+        break;
+
+      case SignalingType.hangup:
+        // Call ended by other party
+        if (_isInDirectCall) {
+          await endDirectCall();
+        } else if (hasIncomingCall && message.fromId == _incomingCallFromId) {
+          _clearIncomingCall();
+        }
+        break;
+
+      default:
+        break;
     }
   }
 

@@ -13,6 +13,8 @@ import '../models/tool_placement.dart';
 import 'tool_config_screen.dart';
 // Removed: template_library_screen import (deprecated)
 import 'settings_screen.dart';
+import 'crew/crew_screen.dart';
+import '../widgets/crew/incoming_call_overlay.dart';
 
 /// Main dashboard screen with multi-screen support using PageView
 class DashboardManagerScreen extends StatefulWidget {
@@ -471,9 +473,10 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      extendBody: _isFullScreen,
-      extendBodyBehindAppBar: _isFullScreen,
+    return IncomingCallOverlay(
+      child: Scaffold(
+        extendBody: _isFullScreen,
+        extendBodyBehindAppBar: _isFullScreen,
       floatingActionButton: (_isFullScreen && !_showAppBar && _toolBeingPlaced == null)
           ? FloatingActionButton.small(
               onPressed: _showAppBarTemporarily,
@@ -555,6 +558,18 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen> {
             icon: Icon(_isFullScreen ? Icons.fullscreen_exit : Icons.fullscreen),
             onPressed: _toggleFullScreen,
             tooltip: _isFullScreen ? 'Exit Full Screen' : 'Enter Full Screen',
+          ),
+          // Crew communications
+          IconButton(
+            icon: const Icon(Icons.group),
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (context) => const CrewScreen(),
+                ),
+              );
+            },
+            tooltip: 'Crew',
           ),
           IconButton(
             icon: const Icon(Icons.settings),
@@ -699,8 +714,9 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen> {
             ],
           );
         },
-      ),
+          ),
         ),
+      ),
     );
   }
 

@@ -5,6 +5,7 @@ import '../../services/crew_service.dart';
 import '../../services/messaging_service.dart';
 import '../../widgets/crew/crew_list.dart';
 import '../../widgets/crew/file_list.dart';
+import '../../widgets/crew/incoming_call_overlay.dart';
 import 'crew_profile_screen.dart';
 import 'chat_screen.dart';
 import 'intercom_screen.dart';
@@ -17,7 +18,8 @@ class CrewScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return Consumer2<CrewService, MessagingService>(
       builder: (context, crewService, messagingService, child) {
-        return Scaffold(
+        return IncomingCallOverlay(
+          child: Scaffold(
           appBar: AppBar(
             title: const Text('Crew'),
             actions: [
@@ -157,6 +159,7 @@ class CrewScreen extends StatelessWidget {
               const Expanded(child: CrewList()),
             ],
           ),
+        ),
         );
       },
     );
