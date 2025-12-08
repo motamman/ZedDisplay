@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../models/crew_member.dart';
 import '../../services/crew_service.dart';
+import '../../services/intercom_service.dart';
+import '../../screens/crew/direct_chat_screen.dart';
 
 /// Widget to display list of crew members with online/offline status
 class CrewList extends StatelessWidget {
@@ -190,14 +192,48 @@ class _CrewMemberTile extends StatelessWidget {
           _StatusBadge(status: member.status),
         ],
       ),
-      trailing: isOnline
-          ? IconButton(
-              icon: const Icon(Icons.message_outlined),
-              onPressed: () {
-                // TODO: Open direct message
-              },
+      trailing: !isLocalUser
+          ? Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Direct message button
+                IconButton(
+                  icon: const Icon(Icons.message_outlined, size: 20),
+                  onPressed: () => _openDirectChat(context),
+                  tooltip: 'Message ${member.name}',
+                  visualDensity: VisualDensity.compact,
+                ),
+                // Direct call button (only if online)
+                if (isOnline)
+                  IconButton(
+                    icon: const Icon(Icons.call, size: 20),
+                    onPressed: () => _startDirectCall(context),
+                    tooltip: 'Call ${member.name}',
+                    visualDensity: VisualDensity.compact,
+                  ),
+              ],
             )
           : null,
+    );
+  }
+
+  void _openDirectChat(BuildContext context) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => DirectChatScreen(crewMember: member),
+      ),
+    );
+  }
+
+  void _startDirectCall(BuildContext context) {
+    final intercomService = Provider.of<IntercomService>(context, listen: false);
+    intercomService.startDirectCall(member.id, member.name);
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Calling ${member.name}...'),
+        backgroundColor: Colors.green,
+      ),
     );
   }
 

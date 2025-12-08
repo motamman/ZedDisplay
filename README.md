@@ -19,18 +19,18 @@ A customizable SignalK marine dashboard application to display real-time vessel 
 
 ## Features
 
-### 🚢 Real-Time Marine Data Display
+### Real-Time Marine Data Display
 - Connect to any SignalK server (local or remote)
 - Real-time data streaming via WebSocket
 - Support for secure (HTTPS/WSS) and standard connections
 - Automatic reconnection on network changes
 
-### 📊 Customizable Dashboard
+### Customizable Dashboard
 - Multiple dashboard screens with custom layouts
 - Drag-and-drop tool placement
 - Grid-based responsive layout
 
-### 🎨 Tool Library
+### Tool Library
 
 **Display Tools**
 - **Radial Gauge**: Circular gauge with arc display for numeric values
@@ -99,30 +99,74 @@ A customizable SignalK marine dashboard application to display real-time vessel 
   - System uptime display
   - Requires signalk-rpi-monitor and signalk-rpi-uptime plugins
 
-### 🔧 Tool Management
+**Crew Communication Tools**
+- **Crew Messages**: View recent crew messages in a compact widget
+- **Crew List**: See online/offline crew members at a glance
+- **Intercom**: Quick-access PTT button for voice communication
+- **File Share**: View recently shared files
+
+### 👥 Crew Communication System
+
+ZedDisplay includes a complete peer-to-peer communication system for vessel crew, using SignalK as the message broker.
+
+**Crew Identity & Presence**
+- Create crew profiles with name and role (Captain, First Mate, Crew, Guest)
+- Real-time online/offline status via heartbeat system
+- Status indicators (On Watch, Off Watch, Standby, Resting, Away)
+- Automatic presence detection across all connected devices
+
+**Text Messaging**
+- Broadcast messages to all crew
+- Direct one-on-one messaging
+- Status broadcasts for watch changes
+- Emergency alerts (MOB, All Hands)
+- Message history with 30-day retention
+- Offline message caching
+- Unread message badges
+
+**File Sharing**
+- Share files between crew devices over local network
+- Supports images (PNG, JPG, GIF), documents (PDF), navigation files (GPX, KML), and audio
+- Local HTTP server hosts files on sender's device
+- Direct peer-to-peer downloads (no cloud required)
+- File preview and download UI
+- Share to other apps via system share sheet
+
+**Voice Intercom**
+- VHF radio-style channel system
+- Default channels: Emergency, Bridge, Deck, Engine
+- Push-to-talk (PTT) with haptic feedback
+- Duplex mode for open conversation
+- Direct one-on-one voice calls
+- WebRTC audio with SignalK signaling
+- Local network optimized (no internet required)
+- Incoming call notifications
+- Mute controls
+
+### Tool Management
 - Create and save custom tool configurations
 - Import/export tool definitions
 - Tool library with search and filtering
 - Reusable tools across multiple screens
 
-### 💾 Setup Management & Sharing
+### Setup Management & Sharing
 - Save multiple dashboard setups
 - Switch between setups instantly
 - Export setups as JSON files
 - Import shared setups from other users
 - Perfect for different boat configurations or conditions
 
-### 🔐 Secure Authentication
+### Secure Authentication
 - SignalK OAuth2 authentication flow
 - Device registration and approval
 - Secure token storage
 - Multiple server support
 
-### 🌓 Modern UI/UX
+### Modern UI/UX
 - Material Design 3
 - Dark and light themes
 - Smooth animations and transitions
-- Responsive layout for phones and tablets
+- Responsive layout for phones and tablets with separate layouts for portrait and landscape modes
 
 ## Screenshots
 
@@ -152,6 +196,19 @@ A customizable SignalK marine dashboard application to display real-time vessel 
 
 ![SignalK Monitor](docs/screenshots/skmanager.jpg)
 *Basic server and plugin monitor and manager*
+
+![Audio Coms](docs/screenshots/intercom.jpg)
+*broadcast channels in intercom or duplex mode and p2p*
+
+![Crew Status](docs/screenshots/crewstatus.jpg)
+*Status and quick text or talk*
+
+![Crew Texting](docs/screenshots/crewtexting.jpg)
+*Messages send to channel to individuals*
+
+![File Sharing](docs/screenshots/filesharing.jpg)
+*Images, routes, Zeddisplay layouts*
+
 
 ## Getting Started
 
@@ -240,6 +297,36 @@ Perfect for different scenarios:
 
 Simply go to Settings → Dashboard Setups and tap the setup you want to activate!
 
+### Using Crew Communication
+
+1. **Set Up Your Profile**
+   - Tap the Crew icon (👥) in the app bar
+   - Create your profile with name and role
+   - Your profile syncs to SignalK for other crew to see
+
+2. **Send Messages**
+   - Tap the Chat icon in the Crew screen
+   - Type a message and send to all crew (broadcast)
+   - Tap a crew member's name for direct messaging
+
+3. **Share Files**
+   - Tap the Files icon in the Crew screen
+   - Select a file from your device
+   - File is served from your device; other crew download directly
+
+4. **Voice Intercom**
+   - Tap the Radio icon in the Crew screen
+   - Select a channel (Bridge, Deck, Engine, or Emergency)
+   - Hold the PTT button to talk, release to listen
+   - Or enable Duplex mode for open conversation
+
+5. **Direct Calls**
+   - In the Crew list, tap the phone icon next to a crew member
+   - They'll see an incoming call notification
+   - Accept to start a private voice call
+
+**Note:** All crew devices must be connected to the same SignalK server on your boat's local network.
+
 ## Project Structure
 
 ```
@@ -249,26 +336,47 @@ lib/
 │   ├── dashboard_layout.dart
 │   ├── dashboard_setup.dart
 │   ├── tool.dart
-│   └── server_connection.dart
+│   ├── server_connection.dart
+│   ├── crew_member.dart        # Crew profiles and presence
+│   ├── crew_message.dart       # Text messaging
+│   ├── shared_file.dart        # File sharing
+│   └── intercom_channel.dart   # Voice intercom
 ├── screens/          # App screens
 │   ├── splash_screen.dart
 │   ├── server_list_screen.dart
 │   ├── connection_screen.dart
 │   ├── dashboard_manager_screen.dart
 │   ├── settings_screen.dart
-│   └── setup_management_screen.dart
+│   ├── setup_management_screen.dart
+│   └── crew/                   # Crew communication screens
+│       ├── crew_screen.dart
+│       ├── crew_profile_screen.dart
+│       ├── chat_screen.dart
+│       ├── direct_chat_screen.dart
+│       └── intercom_screen.dart
 ├── services/         # Business logic
 │   ├── signalk_service.dart
 │   ├── storage_service.dart
 │   ├── dashboard_service.dart
 │   ├── tool_service.dart
 │   ├── setup_service.dart
-│   └── auth_service.dart
+│   ├── auth_service.dart
+│   ├── crew_service.dart       # Crew identity & presence
+│   ├── messaging_service.dart  # Text messaging
+│   ├── file_share_service.dart # File sharing
+│   ├── file_server_service.dart # HTTP server for files
+│   └── intercom_service.dart   # WebRTC voice intercom
 ├── widgets/          # UI components
 │   ├── compass_gauge.dart
 │   ├── radial_gauge.dart
 │   ├── linear_gauge.dart
-│   └── tools/       # Tool implementations
+│   ├── tools/                  # Tool implementations
+│   └── crew/                   # Crew communication widgets
+│       ├── crew_list.dart
+│       ├── file_list.dart
+│       ├── file_viewer.dart
+│       ├── intercom_panel.dart
+│       └── incoming_call_overlay.dart
 └── main.dart
 ```
 
@@ -305,6 +413,9 @@ Tool Components (Display layer)
 - **Provider**: State management
 - **SignalK**: Marine data protocol
 - **WebSocket**: Real-time data streaming
+- **WebRTC**: Peer-to-peer voice communication (flutter_webrtc)
+- **Shelf**: HTTP server for file sharing
+- **Hive**: Local data persistence
 
 ## Development
 
@@ -383,6 +494,7 @@ For questions or issues:
 - [ ] AIS collision avoidance using `vessels.<uuid>.navigation.closestApproach` (CPA/TCPA)
 - [ ] AIS collision alerts using `notifications.danger.collision` (requires collision-detector plugin)
 - [x] Weather forecast tool (completed - WeatherFlow Tempest integration)
+- [ ] Generic Weather forecast tool using Weather API 
 - [x] Raspberry Pi health monitoring tool (completed - CPU, memory, temperature, uptime monitoring)
 - [ ] Manage overflows with dynamic sizing (improve responsive layout across all screen sizes)
 
@@ -390,10 +502,26 @@ For questions or issues:
 - [x] Target AWA mode with performance zones (completed)
 - [x] True laylines for waypoint navigation (completed)
 - [x] VMG optimization with basic polar data (completed)
-- [ ] Custom polar data upload
+- [x] Custom polar data upload
 - [ ] Downwind polar angles
 - [ ] VMG optimization for reaching/running
 - [ ] Polar curve visualization
+
+### Crew Communication (completed)
+- [x] Crew identity and presence system
+- [x] Text messaging (broadcast and direct)
+- [x] Status broadcasts and alerts
+- [x] File sharing via local HTTP server
+- [x] Voice intercom with WebRTC
+- [x] VHF-style channel system
+- [x] Direct one-on-one voice calls
+- [x] Incoming call notifications
+- [x] Dashboard widgets for crew features
+- [] Push notifications when app is backgrounded
+- [ ] Message search
+- [ ] Read receipts
+- [ ] Typing indicators
+- [ ] Attatch files to text messages
 
 ---
 

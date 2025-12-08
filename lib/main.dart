@@ -18,10 +18,12 @@ import 'services/foreground_service.dart';
 import 'services/crew_service.dart';
 import 'services/messaging_service.dart';
 import 'services/file_share_service.dart';
+import 'services/file_server_service.dart';
 import 'services/intercom_service.dart';
 import 'models/auth_token.dart';
 import 'screens/splash_screen.dart';
 import 'screens/setup_management_screen.dart';
+import 'widgets/crew/intercom_panel.dart';
 
 // Global app start time
 final DateTime appStartTime = DateTime.now();
@@ -60,8 +62,11 @@ void main() async {
   final messagingService = MessagingService(signalKService, storageService, crewService);
   await messagingService.initialize();
 
+  // Initialize file server service (for serving shared files over HTTP)
+  final fileServerService = FileServerService();
+
   // Initialize file share service
-  final fileShareService = FileShareService(signalKService, storageService, crewService);
+  final fileShareService = FileShareService(signalKService, storageService, crewService, fileServerService);
   await fileShareService.initialize();
 
   // Initialize intercom service
@@ -170,6 +175,9 @@ class _ZedDisplayAppState extends State<ZedDisplayApp> with WidgetsBindingObserv
 
     // Listen to storage changes for theme updates
     widget.storageService.addListener(_onStorageChanged);
+
+    // Set navigator key for notification-based navigation
+    widget.notificationService.setNavigatorKey(_navigatorKey);
 
     // Check for shared file (Android only)
     if (!kIsWeb && Platform.isAndroid) {
@@ -357,7 +365,13 @@ class _ZedDisplayAppState extends State<ZedDisplayApp> with WidgetsBindingObserv
             signalKService: widget.signalKService,
             storageService: widget.storageService,
             notificationService: widget.notificationService,
-            child: child ?? const SizedBox.shrink(),
+            child: Stack(
+              children: [
+                child ?? const SizedBox.shrink(),
+                // Intercom status indicator overlay (shows when receiving transmission)
+                const IntercomStatusIndicator(),
+              ],
+            ),
           );
         },
       ),

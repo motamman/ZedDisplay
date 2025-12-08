@@ -9,6 +9,7 @@ import '../widgets/compass_gauge.dart';
 import 'tool_config_screen.dart';
 // Removed: template_library_screen import (deprecated)
 import 'settings_screen.dart';
+import 'crew/crew_screen.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -207,6 +208,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
             icon: Icon(_isFullScreen ? Icons.fullscreen_exit : Icons.fullscreen),
             onPressed: _toggleFullScreen,
             tooltip: _isFullScreen ? 'Exit Full Screen' : 'Enter Full Screen',
+          ),
+          IconButton(
+            icon: const Icon(Icons.group),
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (context) => const CrewScreen(),
+                ),
+              );
+            },
+            tooltip: 'Crew',
           ),
           IconButton(
             icon: const Icon(Icons.settings),

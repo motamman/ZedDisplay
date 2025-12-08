@@ -9,12 +9,14 @@ import '../models/shared_file.dart';
 import 'signalk_service.dart';
 import 'storage_service.dart';
 import 'crew_service.dart';
+import 'file_server_service.dart';
 
 /// Service for sharing files between crew members
 class FileShareService extends ChangeNotifier {
   final SignalKService _signalKService;
   final StorageService _storageService;
   final CrewService _crewService;
+  final FileServerService _fileServerService;
 
   // Files cache (sorted by timestamp, newest first)
   final List<SharedFile> _files = [];
@@ -35,8 +37,9 @@ class FileShareService extends ChangeNotifier {
   // Storage key for local file metadata cache
   static const String _filesStorageKey = 'crew_files_cache';
 
-  // File size limit for embedding in SignalK notes (100KB)
-  static const int _embeddedFileSizeLimit = 100 * 1024;
+  // File size limit for embedding in SignalK notes (500KB)
+  // Base64 encoding adds ~33%, so 500KB file = ~667KB of base64
+  static const int _embeddedFileSizeLimit = 500 * 1024;
 
   // Track connection state
   bool _wasConnected = false;
@@ -44,7 +47,7 @@ class FileShareService extends ChangeNotifier {
   // Downloads directory
   Directory? _downloadsDir;
 
-  FileShareService(this._signalKService, this._storageService, this._crewService);
+  FileShareService(this._signalKService, this._storageService, this._crewService, this._fileServerService);
 
   /// Initialize the file share service
   Future<void> initialize() async {
@@ -155,8 +158,7 @@ class FileShareService extends ChangeNotifier {
   }
 
   /// Share a file with crew
-  /// For files <= 100KB: embedded as base64 in SignalK note
-  /// For larger files: metadata only (TODO: implement HTTP server fallback)
+  /// Uses HTTP server to serve files, shares URL via SignalK
   Future<bool> shareFile({
     required String filePath,
     String? toId,  // null = broadcast
@@ -182,9 +184,47 @@ class FileShareService extends ChangeNotifier {
       final bytes = await file.readAsBytes();
       final filename = filePath.split('/').last;
       final mimeType = _getMimeType(filename);
+      final fileId = const Uuid().v4();
+
+      if (kDebugMode) {
+        print('=== SHARE FILE START ===');
+        print('Filename: $filename');
+        print('Size: ${bytes.length} bytes');
+        print('File ID: $fileId');
+      }
+
+      // Start file server if not running
+      if (!_fileServerService.isRunning) {
+        final started = await _fileServerService.start();
+        if (!started) {
+          if (kDebugMode) {
+            print('Failed to start file server');
+          }
+          return false;
+        }
+      }
+
+      // Copy file to our serving directory and register it
+      await _initDownloadsDir();
+      final servePath = '${_downloadsDir!.path}/${fileId}_$filename';
+      await File(servePath).writeAsBytes(bytes);
+
+      // Get download URL from file server
+      final downloadUrl = _fileServerService.serveFile(fileId, servePath);
+
+      if (kDebugMode) {
+        print('Download URL: $downloadUrl');
+      }
+
+      if (downloadUrl == null) {
+        if (kDebugMode) {
+          print('Failed to get download URL');
+        }
+        return false;
+      }
 
       final sharedFile = SharedFile(
-        id: const Uuid().v4(),
+        id: fileId,
         fromId: profile.id,
         fromName: profile.name,
         toId: toId,
@@ -193,26 +233,39 @@ class FileShareService extends ChangeNotifier {
         size: bytes.length,
         timestamp: DateTime.now().toUtc(),
         thumbnailData: thumbnailData != null ? base64Encode(thumbnailData) : null,
-        data: bytes.length <= _embeddedFileSizeLimit ? base64Encode(bytes) : null,
+        downloadUrl: downloadUrl,
         status: FileTransferStatus.uploading,
       );
+
+      if (kDebugMode) {
+        print('SharedFile created with downloadUrl: ${sharedFile.downloadUrl}');
+      }
 
       // Add to local cache immediately
       _files.insert(0, sharedFile);
       notifyListeners();
 
-      // Sync to SignalK
+      // Sync to SignalK (just metadata + URL, no file data)
       bool success = false;
       if (_signalKService.isConnected && _resourcesApiAvailable) {
         final resourceData = sharedFile.toNoteResource(
           lat: _getVesselLat(),
           lng: _getVesselLng(),
         );
+
+        if (kDebugMode) {
+          print('Resource data keys: ${resourceData.keys}');
+        }
+
         success = await _signalKService.putResource(
           _fileResourceType,
           sharedFile.id,
           resourceData,
         );
+
+        if (kDebugMode) {
+          print('SignalK putResource result: $success');
+        }
       }
 
       // Update status
@@ -225,6 +278,10 @@ class FileShareService extends ChangeNotifier {
 
       await _saveCachedFiles();
       notifyListeners();
+
+      if (kDebugMode) {
+        print('=== SHARE FILE END (success: $success) ===');
+      }
 
       return success;
     } catch (e) {
@@ -301,49 +358,168 @@ class FileShareService extends ChangeNotifier {
 
   /// Download a file (for embedded files, decode from base64)
   Future<String?> downloadFile(SharedFile sharedFile) async {
+    if (kDebugMode) {
+      print('=== DOWNLOAD FILE START ===');
+      print('File ID: ${sharedFile.id}');
+      print('Filename: ${sharedFile.filename}');
+      print('Size: ${sharedFile.size}');
+      print('isEmbedded: ${sharedFile.isEmbedded}');
+      print('hasData: ${sharedFile.data != null}');
+      print('dataLength: ${sharedFile.data?.length ?? 0}');
+      print('downloadUrl: ${sharedFile.downloadUrl}');
+    }
+
+    // Update status to downloading
+    _updateFileStatus(sharedFile.id, FileTransferStatus.downloading);
+
+    // First, try to use embedded data
     if (sharedFile.isEmbedded && sharedFile.data != null) {
+      if (kDebugMode) {
+        print('Attempting embedded data decode...');
+      }
       try {
-        // Update status to downloading
-        _updateFileStatus(sharedFile.id, FileTransferStatus.downloading);
-
         final bytes = base64Decode(sharedFile.data!);
+        if (kDebugMode) {
+          print('Decoded ${bytes.length} bytes');
+        }
         final localPath = await _saveToLocal(sharedFile.filename, bytes);
-
-        // Update status to completed
+        if (kDebugMode) {
+          print('Saved to: $localPath');
+        }
         _updateFileStatus(sharedFile.id, FileTransferStatus.completed);
-
         return localPath;
       } catch (e) {
         if (kDebugMode) {
-          print('Error downloading embedded file: $e');
+          print('Error decoding embedded file: $e');
         }
-        _updateFileStatus(sharedFile.id, FileTransferStatus.failed);
-        return null;
+        // Fall through to try refetch
       }
-    } else if (sharedFile.downloadUrl != null) {
-      // Download from URL (for large files)
-      try {
-        _updateFileStatus(sharedFile.id, FileTransferStatus.downloading);
+    }
 
+    // Try to download from URL (for large files)
+    if (sharedFile.downloadUrl != null) {
+      if (kDebugMode) {
+        print('Attempting URL download from: ${sharedFile.downloadUrl}');
+      }
+      try {
         final response = await http.get(Uri.parse(sharedFile.downloadUrl!));
+        if (kDebugMode) {
+          print('HTTP response: ${response.statusCode}');
+        }
         if (response.statusCode == 200) {
           final localPath = await _saveToLocal(sharedFile.filename, response.bodyBytes);
           _updateFileStatus(sharedFile.id, FileTransferStatus.completed);
           return localPath;
-        } else {
-          _updateFileStatus(sharedFile.id, FileTransferStatus.failed);
-          return null;
         }
       } catch (e) {
         if (kDebugMode) {
           print('Error downloading file from URL: $e');
         }
-        _updateFileStatus(sharedFile.id, FileTransferStatus.failed);
-        return null;
+        // Fall through to try refetch from SignalK
       }
     }
 
+    // If no embedded data or URL failed, try to refetch from SignalK
+    if (kDebugMode) {
+      print('Attempting SignalK refetch...');
+      print('SignalK connected: ${_signalKService.isConnected}');
+    }
+    if (_signalKService.isConnected) {
+      try {
+        final freshData = await _refetchFileData(sharedFile.id);
+        if (kDebugMode) {
+          print('Refetch result: ${freshData != null ? '${freshData.length} chars' : 'null'}');
+        }
+        if (freshData != null && freshData.isNotEmpty) {
+          final bytes = base64Decode(freshData);
+          final localPath = await _saveToLocal(sharedFile.filename, bytes);
+          _updateFileStatus(sharedFile.id, FileTransferStatus.completed);
+          return localPath;
+        }
+      } catch (e) {
+        if (kDebugMode) {
+          print('Error refetching file from SignalK: $e');
+        }
+      }
+    }
+
+    if (kDebugMode) {
+      print('=== DOWNLOAD FAILED - NO DATA SOURCE ===');
+    }
+    _updateFileStatus(sharedFile.id, FileTransferStatus.failed);
     return null;
+  }
+
+  /// Refetch file data from SignalK by ID
+  Future<String?> _refetchFileData(String fileId) async {
+    try {
+      if (kDebugMode) {
+        print('Refetching file ID: $fileId');
+      }
+      final resources = await _signalKService.getResources(_fileResourceType);
+      if (kDebugMode) {
+        print('Got ${resources.length} resources from SignalK');
+      }
+
+      final noteData = resources[fileId] as Map<String, dynamic>?;
+
+      if (noteData == null) {
+        if (kDebugMode) {
+          print('File $fileId not found in SignalK resources');
+        }
+        return null;
+      }
+
+      if (kDebugMode) {
+        print('Found note data keys: ${noteData.keys}');
+        print('Has fileData field: ${noteData.containsKey('fileData')}');
+      }
+
+      // First try the new separate fileData field
+      final fileData = noteData['fileData'] as String?;
+      if (fileData != null && fileData.isNotEmpty) {
+        if (kDebugMode) {
+          print('Found fileData: ${fileData.length} chars');
+        }
+        // Update the local file entry with the fresh data
+        final index = _files.indexWhere((f) => f.id == fileId);
+        if (index != -1) {
+          _files[index] = _files[index].copyWith(data: fileData);
+        }
+        return fileData;
+      }
+
+      // Fallback: try old format (data in description JSON)
+      final descriptionJson = noteData['description'] as String?;
+      if (descriptionJson != null) {
+        try {
+          final metaData = jsonDecode(descriptionJson) as Map<String, dynamic>;
+          final data = metaData['data'] as String?;
+          if (data != null && data.isNotEmpty) {
+            if (kDebugMode) {
+              print('Found data in description: ${data.length} chars');
+            }
+            final index = _files.indexWhere((f) => f.id == fileId);
+            if (index != -1) {
+              _files[index] = _files[index].copyWith(data: data);
+            }
+            return data;
+          }
+        } catch (e) {
+          // Not valid JSON or doesn't have data field
+        }
+      }
+
+      if (kDebugMode) {
+        print('No file data found');
+      }
+      return null;
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error refetching file data: $e');
+      }
+      return null;
+    }
   }
 
   /// Get the local file path if already downloaded

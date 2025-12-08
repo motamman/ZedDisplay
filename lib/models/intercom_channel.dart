@@ -32,21 +32,27 @@ class IntercomChannel {
     ),
     IntercomChannel(
       id: 'ch01',
-      name: 'Bridge',
+      name: 'Helm',
       description: 'Command and navigation',
       priority: 1,
     ),
     IntercomChannel(
       id: 'ch02',
-      name: 'Deck',
-      description: 'Deck operations',
+      name: 'Salon',
+      description: 'Main living area',
       priority: 2,
     ),
     IntercomChannel(
       id: 'ch03',
-      name: 'Engine',
-      description: 'Engine room',
+      name: 'Forward Cabin',
+      description: 'Forward guest cabin',
       priority: 3,
+    ),
+    IntercomChannel(
+      id: 'ch04',
+      name: 'Aft Cabin',
+      description: 'Aft cabin',
+      priority: 4,
     ),
   ];
 
@@ -194,6 +200,12 @@ enum RTCSessionState {
   active,        // Voice transmission active
   ended,         // Session ended
   failed,        // Connection failed
+}
+
+/// Intercom mode
+enum IntercomMode {
+  ptt,    // Push-to-talk: hold button to transmit
+  duplex, // Open/duplex: always transmitting when in channel
 }
 
 /// WebRTC signaling message types

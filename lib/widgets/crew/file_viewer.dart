@@ -3,9 +3,10 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:share_plus/share_plus.dart' show ShareParams, SharePlus, XFile;
-import 'package:url_launcher/url_launcher.dart';
+import 'package:open_filex/open_filex.dart';
 import '../../models/shared_file.dart';
 import '../../services/file_share_service.dart';
+import '../../services/setup_service.dart';
 
 /// Widget for viewing and managing a shared file
 class FileViewer extends StatefulWidget {
@@ -22,7 +23,12 @@ class FileViewer extends StatefulWidget {
 
 class _FileViewerState extends State<FileViewer> {
   bool _isDownloading = false;
+  bool _isImporting = false;
   String? _localPath;
+
+  /// Check if this is a ZedDisplay dashboard file
+  bool get _isDashboardFile =>
+      widget.sharedFile.filename.toLowerCase().endsWith('.zedjson');
 
   @override
   void initState() {
@@ -280,33 +286,47 @@ class _FileViewerState extends State<FileViewer> {
   }
 
   Widget _buildActionButtons() {
-    final file = widget.sharedFile;
     final hasLocal = _localPath != null;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        // Download/Open button
-        if (!hasLocal && (file.isEmbedded || file.requiresDownload))
+        // For dashboard files, show Import button
+        if (_isDashboardFile) ...[
           FilledButton.icon(
-            onPressed: _isDownloading ? null : _downloadFile,
-            icon: _isDownloading
+            onPressed: _isImporting ? null : _importDashboard,
+            icon: _isImporting
                 ? const SizedBox(
                     width: 20,
                     height: 20,
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
-                : const Icon(Icons.download),
-            label: Text(_isDownloading ? 'Downloading...' : 'Download'),
-          )
-        else if (hasLocal)
-          FilledButton.icon(
-            onPressed: _openFile,
-            icon: const Icon(Icons.open_in_new),
-            label: const Text('Open'),
+                : const Icon(Icons.dashboard_customize),
+            label: Text(_isImporting ? 'Importing...' : 'Import Dashboard'),
           ),
-
-        const SizedBox(height: 12),
+          const SizedBox(height: 12),
+        ] else ...[
+          // Download/Open button for other files
+          if (!hasLocal)
+            FilledButton.icon(
+              onPressed: _isDownloading ? null : _downloadFile,
+              icon: _isDownloading
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.download),
+              label: Text(_isDownloading ? 'Downloading...' : 'Download'),
+            )
+          else
+            FilledButton.icon(
+              onPressed: _openFile,
+              icon: const Icon(Icons.open_in_new),
+              label: const Text('Open'),
+            ),
+          const SizedBox(height: 12),
+        ],
 
         // Share button (if downloaded)
         if (hasLocal)
@@ -352,16 +372,114 @@ class _FileViewerState extends State<FileViewer> {
     }
   }
 
+  Future<void> _importDashboard() async {
+    setState(() => _isImporting = true);
+
+    try {
+      // First download the file if not already downloaded
+      String? path = _localPath;
+      if (path == null) {
+        final fileShareService = context.read<FileShareService>();
+        path = await fileShareService.downloadFile(widget.sharedFile);
+        if (path == null) {
+          throw Exception('Failed to download dashboard file');
+        }
+        _localPath = path;
+      }
+
+      // Read the JSON content
+      final file = File(path);
+      final jsonString = await file.readAsString();
+
+      // Ask user if they want to switch immediately
+      if (!mounted) return;
+      final switchNow = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Import Dashboard'),
+          content: Text(
+            'Import "${widget.sharedFile.filename.replaceAll('.zedjson', '')}"?\n\n'
+            'Would you like to switch to it now?',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(null),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Import Only'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('Import & Switch'),
+            ),
+          ],
+        ),
+      );
+
+      if (switchNow == null) {
+        setState(() => _isImporting = false);
+        return;
+      }
+
+      // Import the dashboard
+      final setupService = context.read<SetupService>();
+      if (switchNow) {
+        await setupService.importAndLoadSetup(jsonString);
+      } else {
+        await setupService.importSetup(jsonString);
+      }
+
+      if (mounted) {
+        setState(() => _isImporting = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(switchNow
+                ? 'Dashboard imported and activated'
+                : 'Dashboard imported'),
+            backgroundColor: Colors.green,
+          ),
+        );
+        if (switchNow) {
+          // Go back to dashboard
+          Navigator.of(context).popUntil((route) => route.isFirst);
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isImporting = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Import failed: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
   Future<void> _openFile() async {
     if (_localPath == null) return;
 
     try {
-      final uri = Uri.file(_localPath!);
-      if (await canLaunchUrl(uri)) {
-        await launchUrl(uri);
-      } else {
-        // Fallback to share
-        await _shareFile();
+      final result = await OpenFilex.open(_localPath!);
+
+      if (result.type != ResultType.done) {
+        if (mounted) {
+          // Show error or fallback to share
+          if (result.type == ResultType.noAppToOpen) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('No app available to open this file type')),
+            );
+            // Offer to share instead
+            await _shareFile();
+          } else {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Cannot open file: ${result.message}')),
+            );
+          }
+        }
       }
     } catch (e) {
       if (mounted) {

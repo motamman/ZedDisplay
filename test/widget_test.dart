@@ -12,6 +12,7 @@ import 'package:zed_display/services/foreground_service.dart';
 import 'package:zed_display/services/crew_service.dart';
 import 'package:zed_display/services/messaging_service.dart';
 import 'package:zed_display/services/file_share_service.dart';
+import 'package:zed_display/services/file_server_service.dart';
 import 'package:zed_display/services/intercom_service.dart';
 
 void main() {
@@ -25,6 +26,7 @@ void main() {
   late ForegroundTaskService foregroundService;
   late CrewService crewService;
   late MessagingService messagingService;
+  late FileServerService fileServerService;
   late FileShareService fileShareService;
   late IntercomService intercomService;
 
@@ -56,8 +58,11 @@ void main() {
     messagingService = MessagingService(signalKService, storageService, crewService);
     await messagingService.initialize();
 
+    // Initialize file server service
+    fileServerService = FileServerService();
+
     // Initialize file share service
-    fileShareService = FileShareService(signalKService, storageService, crewService);
+    fileShareService = FileShareService(signalKService, storageService, crewService, fileServerService);
     await fileShareService.initialize();
 
     // Initialize intercom service
