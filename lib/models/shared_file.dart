@@ -150,10 +150,14 @@ class SharedFile {
 
   /// Create SignalK notes resource format
   Map<String, dynamic> toNoteResource({double lat = 0.0, double lng = 0.0}) {
-    // Store metadata in description (including downloadUrl, but not file data)
     final metaData = toJson();
-    metaData.remove('data'); // Never include raw file data
-    metaData.remove('thumbnailData'); // Don't include thumbnail
+
+    // For large files with downloadUrl, remove embedded data
+    // For small embedded files (no downloadUrl), keep the data
+    if (downloadUrl != null) {
+      metaData.remove('data');
+    }
+    metaData.remove('thumbnailData'); // Don't include thumbnail in SignalK
 
     return {
       'name': '$fromName: $filename',

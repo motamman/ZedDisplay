@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:share_plus/share_plus.dart';
@@ -6,6 +7,8 @@ import 'package:path_provider/path_provider.dart';
 import 'package:file_picker/file_picker.dart';
 import '../services/setup_service.dart';
 import '../services/dashboard_service.dart';
+import '../services/file_share_service.dart';
+import '../services/crew_service.dart';
 import '../models/dashboard_setup.dart';
 
 /// Screen for managing saved dashboard setups
@@ -380,6 +383,117 @@ class _SetupManagementScreenState extends State<SetupManagementScreen> {
   }
 
   Future<void> _shareSetup(SavedSetup setupRef) async {
+    // Show share options dialog
+    final choice = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Share Dashboard'),
+        content: const Text('How would you like to share this dashboard?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, null),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton.icon(
+            onPressed: () => Navigator.pop(context, 'crew'),
+            icon: const Icon(Icons.people),
+            label: const Text('Share with Crew'),
+          ),
+          ElevatedButton.icon(
+            onPressed: () => Navigator.pop(context, 'external'),
+            icon: const Icon(Icons.share),
+            label: const Text('Share via...'),
+          ),
+        ],
+      ),
+    );
+
+    if (choice == null || !mounted) return;
+
+    if (choice == 'crew') {
+      await _shareWithCrew(setupRef);
+    } else {
+      await _shareExternal(setupRef);
+    }
+  }
+
+  Future<void> _shareWithCrew(SavedSetup setupRef) async {
+    try {
+      final setupService = Provider.of<SetupService>(context, listen: false);
+      final fileShareService = Provider.of<FileShareService>(context, listen: false);
+      final crewService = Provider.of<CrewService>(context, listen: false);
+
+      if (!crewService.hasProfile) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Create a crew profile first to share with crew'),
+              backgroundColor: Colors.orange,
+            ),
+          );
+        }
+        return;
+      }
+
+      // Export current setup if it's the active one, otherwise load it first
+      final dashboardService = Provider.of<DashboardService>(context, listen: false);
+      final isActive = dashboardService.currentLayout?.id == setupRef.id;
+
+      DashboardSetup setup;
+      if (isActive) {
+        setup = setupService.exportCurrentSetup(
+          name: setupRef.name,
+          description: setupRef.description,
+        );
+      } else {
+        await setupService.loadSetup(setupRef.id);
+        setup = setupService.exportCurrentSetup(
+          name: setupRef.name,
+          description: setupRef.description,
+        );
+      }
+
+      // Export to JSON and share as bytes
+      final jsonString = setupService.exportToJson(setup);
+      final bytes = Uint8List.fromList(jsonString.codeUnits);
+      final filename = '${setupRef.name.replaceAll(RegExp(r'[^\w\s-]'), '_')}.zedjson';
+
+      final success = await fileShareService.shareBytes(
+        bytes: bytes,
+        filename: filename,
+        mimeType: 'application/json',
+      );
+
+      if (mounted) {
+        if (success) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('"${setupRef.name}" shared with crew'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Failed to share with crew. Check SignalK connection.'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error sharing with crew: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _shareExternal(SavedSetup setupRef) async {
     try {
       final setupService = Provider.of<SetupService>(context, listen: false);
 
