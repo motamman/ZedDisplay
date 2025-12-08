@@ -52,7 +52,7 @@ void main() async {
   await toolService.initialize();
 
   // Initialize SignalK service (will connect later)
-  final signalKService = SignalKService();
+  final signalKService = SignalKService(storageService: storageService);
 
   // Initialize crew service
   final crewService = CrewService(signalKService, storageService);

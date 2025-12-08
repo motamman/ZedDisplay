@@ -11,6 +11,7 @@ import '../models/auth_token.dart';
 import '../utils/conversion_utils.dart';
 import 'zones_cache_service.dart';
 import 'interfaces/data_service.dart';
+import 'storage_service.dart';
 
 /// Service to connect to SignalK server and stream data
 class SignalKService extends ChangeNotifier implements DataService {
@@ -59,6 +60,9 @@ class SignalKService extends ChangeNotifier implements DataService {
   // RTC signaling callback for real-time WebRTC signaling
   void Function(String path, dynamic value)? _rtcDeltaCallback;
 
+  // Storage service for caching conversions
+  final StorageService? _storageService;
+
   // Internal managers
   late final _DataCacheManager _dataCache;
   late final _ConversionManager _conversionManager;
@@ -66,7 +70,7 @@ class SignalKService extends ChangeNotifier implements DataService {
   late final _AISManager _aisManager;
 
   // Constructor
-  SignalKService() {
+  SignalKService({StorageService? storageService}) : _storageService = storageService {
     _dataCache = _DataCacheManager(
       getActivePaths: () => _activePaths,
       isConnected: () => _isConnected,
@@ -76,6 +80,8 @@ class SignalKService extends ChangeNotifier implements DataService {
       getServerUrl: () => _serverUrl,
       useSecureConnection: () => _useSecureConnection,
       getHeaders: () => _getHeaders(),
+      saveToCache: _saveConversionsToCache,
+      loadFromCache: _loadConversionsFromCache,
     );
     _notificationManager = _NotificationManager(
       getAuthToken: () => _authToken,
@@ -91,6 +97,18 @@ class SignalKService extends ChangeNotifier implements DataService {
       getDataCache: () => _dataCache.internalDataMap,
       convertValueForPath: (path, value) => _convertValueForPath(path, value),
     );
+  }
+
+  // Cache helper methods
+  Future<void> _saveConversionsToCache(Map<String, dynamic> data) async {
+    final storage = _storageService;
+    if (storage != null) {
+      await storage.saveConversionsCache(_serverUrl, data);
+    }
+  }
+
+  Map<String, dynamic>? _loadConversionsFromCache() {
+    return _storageService?.loadConversionsCache(_serverUrl);
   }
 
   // Getters
@@ -143,6 +161,12 @@ class SignalKService extends ChangeNotifier implements DataService {
     _serverUrl = serverUrl;
     _useSecureConnection = secure;
     _authToken = authToken;
+
+    // Load cached conversions immediately for instant display
+    // Server data will replace this when it arrives
+    _conversionManager.loadFromLocalCache();
+    _conversionsDataView = null; // Invalidate cache view
+    notifyListeners();
 
     // Initialize zones cache service
     _zonesCache = ZonesCacheService(
@@ -1658,15 +1682,35 @@ class _ConversionManager {
   final String Function() getServerUrl;
   final bool Function() useSecureConnection;
   final Map<String, String> Function() getHeaders;
+  final Future<void> Function(Map<String, dynamic>) saveToCache;
+  final Map<String, dynamic>? Function() loadFromCache;
 
   _ConversionManager({
     required this.getServerUrl,
     required this.useSecureConnection,
     required this.getHeaders,
+    required this.saveToCache,
+    required this.loadFromCache,
   });
 
   // Direct access to internal map
   Map<String, PathConversionData> get internalDataMap => _conversionsData;
+
+  /// Load conversions from local cache (used at startup before server data)
+  void loadFromLocalCache() {
+    final cached = loadFromCache();
+    if (cached != null && _conversionsData.isEmpty) {
+      _conversionsData.clear();
+      cached.forEach((path, conversionJson) {
+        if (conversionJson is Map<String, dynamic>) {
+          _conversionsData[path] = PathConversionData.fromJson(conversionJson);
+        }
+      });
+      if (kDebugMode) {
+        print('📦 Loaded ${_conversionsData.length} conversions from local cache');
+      }
+    }
+  }
 
   /// Fetch conversions from server REST API
   Future<void> fetchConversions() async {
@@ -1692,6 +1736,9 @@ class _ConversionManager {
         if (kDebugMode) {
           print('Fetched ${_conversionsData.length} path conversions from server');
         }
+
+        // Save to local cache for next startup
+        await saveToCache(data);
       }
     } catch (e) {
       if (kDebugMode) {
@@ -1724,6 +1771,8 @@ class _ConversionManager {
         if (kDebugMode) {
           print('✅ Loaded ${_conversionsData.length} conversions from stream (type: $type)');
         }
+        // Save to local cache
+        saveToCache(conversions);
       } else if (type == 'delta') {
         conversions.forEach((path, conversionJson) {
           if (conversionJson is Map<String, dynamic>) {
@@ -1733,6 +1782,22 @@ class _ConversionManager {
         if (kDebugMode) {
           print('✅ Updated ${conversions.length} conversion(s) from delta');
         }
+        // Save updated data to cache
+        final allData = <String, dynamic>{};
+        _conversionsData.forEach((path, data) {
+          allData[path] = {
+            'baseUnit': data.baseUnit,
+            'category': data.category,
+            'conversions': data.conversions.map((key, info) => MapEntry(key, {
+              'formula': info.formula,
+              'inverseFormula': info.inverseFormula,
+              'symbol': info.symbol,
+              if (info.dateFormat != null) 'dateFormat': info.dateFormat,
+              if (info.useLocalTime != null) 'useLocalTime': info.useLocalTime,
+            })),
+          };
+        });
+        saveToCache(allData);
       } else {
         if (kDebugMode) {
           print('⚠️ Unknown conversions message type: $type');

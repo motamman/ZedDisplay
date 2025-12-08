@@ -48,7 +48,7 @@ void main() {
     await toolService.initialize();
 
     // Initialize SignalK service
-    signalKService = SignalKService();
+    signalKService = SignalKService(storageService: storageService);
 
     // Initialize crew service
     crewService = CrewService(signalKService, storageService);

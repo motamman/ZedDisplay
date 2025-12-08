@@ -14,6 +14,7 @@ class StorageService extends ChangeNotifier {
   static const String _authTokenBoxName = 'authTokens';
   static const String _connectionsBoxName = 'connections';
   static const String _setupsBoxName = 'saved_setups';
+  static const String _conversionsBoxName = 'conversions_cache';
 
   late Box<String> _dashboardsBox;
   late Box<String> _templatesBox;
@@ -21,6 +22,7 @@ class StorageService extends ChangeNotifier {
   late Box<String> _authTokenBox;
   late Box<String> _connectionsBox;
   late Box<String> _setupsBox;
+  late Box<String> _conversionsBox;
 
   bool _initialized = false;
   bool get initialized => _initialized;
@@ -38,6 +40,7 @@ class StorageService extends ChangeNotifier {
       _authTokenBox = await Hive.openBox<String>(_authTokenBoxName);
       _connectionsBox = await Hive.openBox<String>(_connectionsBoxName);
       _setupsBox = await Hive.openBox<String>(_setupsBoxName);
+      _conversionsBox = await Hive.openBox<String>(_conversionsBoxName);
 
       _initialized = true;
       notifyListeners();
@@ -62,6 +65,7 @@ class StorageService extends ChangeNotifier {
     await _authTokenBox.close();
     await _connectionsBox.close();
     await _setupsBox.close();
+    await _conversionsBox.close();
     super.dispose();
   }
 
@@ -331,6 +335,7 @@ class StorageService extends ChangeNotifier {
       'authTokens': _authTokenBox.length,
       'connections': _connectionsBox.length,
       'setups': _setupsBox.length,
+      'conversions': _conversionsBox.length,
     };
   }
 
@@ -705,5 +710,85 @@ class StorageService extends ChangeNotifier {
   // Legacy method for backward compatibility - maps to in-app filter
   bool getNotificationLevelFilter(String level) {
     return getInAppNotificationFilter(level);
+  }
+
+  // ===== Conversions Cache Management =====
+
+  /// Save conversions data to local cache
+  /// This allows the app to use cached conversions on startup before server data arrives
+  Future<void> saveConversionsCache(String serverUrl, Map<String, dynamic> conversionsData) async {
+    if (!_initialized) throw Exception('StorageService not initialized');
+
+    try {
+      final cacheEntry = {
+        'serverUrl': serverUrl,
+        'timestamp': DateTime.now().toIso8601String(),
+        'conversions': conversionsData,
+      };
+      final json = jsonEncode(cacheEntry);
+      await _conversionsBox.put(serverUrl, json);
+
+      if (kDebugMode) {
+        print('Conversions cache saved for $serverUrl (${conversionsData.length} paths)');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error saving conversions cache: $e');
+      }
+    }
+  }
+
+  /// Load cached conversions for a server
+  /// Returns null if no cache exists or cache is expired (older than 30 days)
+  Map<String, dynamic>? loadConversionsCache(String serverUrl, {Duration maxAge = const Duration(days: 30)}) {
+    if (!_initialized) return null;
+
+    try {
+      final json = _conversionsBox.get(serverUrl);
+      if (json == null) return null;
+
+      final cacheEntry = jsonDecode(json) as Map<String, dynamic>;
+      final timestamp = DateTime.parse(cacheEntry['timestamp'] as String);
+      final age = DateTime.now().difference(timestamp);
+
+      // Check if cache is expired
+      if (age > maxAge) {
+        if (kDebugMode) {
+          print('Conversions cache expired for $serverUrl (age: ${age.inDays} days)');
+        }
+        return null;
+      }
+
+      final conversions = cacheEntry['conversions'] as Map<String, dynamic>;
+      if (kDebugMode) {
+        print('Loaded conversions cache for $serverUrl (${conversions.length} paths, age: ${age.inHours}h)');
+      }
+      return conversions;
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error loading conversions cache: $e');
+      }
+      return null;
+    }
+  }
+
+  /// Clear conversions cache for a specific server
+  Future<void> clearConversionsCache(String serverUrl) async {
+    if (!_initialized) throw Exception('StorageService not initialized');
+    await _conversionsBox.delete(serverUrl);
+
+    if (kDebugMode) {
+      print('Conversions cache cleared for $serverUrl');
+    }
+  }
+
+  /// Clear all conversions caches
+  Future<void> clearAllConversionsCaches() async {
+    if (!_initialized) throw Exception('StorageService not initialized');
+    await _conversionsBox.clear();
+
+    if (kDebugMode) {
+      print('All conversions caches cleared');
+    }
   }
 }

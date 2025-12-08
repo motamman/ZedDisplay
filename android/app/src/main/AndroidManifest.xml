@@ -75,7 +75,7 @@
         <!-- Notification icon for foreground service -->
         <meta-data
             android:name="com.zennora.signalk.zeddisplay.NOTIFICATION_ICON"
-            android:resource="@mipmap/ic_launcher" />
+            android:resource="@drawable/ic_launcher_foreground" />
 
         <!-- Foreground service for keeping WebSocket connections alive -->
         <service

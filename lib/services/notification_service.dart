@@ -33,8 +33,8 @@ class NotificationService {
   Future<void> initialize() async {
     if (_initialized) return;
 
-    // Android initialization settings
-    const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
+    // Android initialization settings - use monochrome drawable for status bar
+    const androidSettings = AndroidInitializationSettings('@drawable/ic_launcher_foreground');
 
     // iOS initialization settings
     const iosSettings = DarwinInitializationSettings(
