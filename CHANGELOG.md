@@ -7,6 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.7+15] - 2025-12-07
+
+### Added
+- **Intercom Activity Notifications**: Get notified when crew members transmit on intercom channels
+  - Tap notification to open intercom screen on that channel
+  - Emergency channel notifications highlighted in red
+  - Works even when not actively monitoring the channel
+- **Dashboard Sharing via Crew File Share**: Share dashboards directly with crew
+  - "Share with Crew" option added to dashboard share menu
+  - Crew members can import shared dashboards with one tap
+  - Import dialog with "Import Only" or "Import & Switch" options
+- **Forward Cabin Intercom Channel**: Added new default channel for forward cabin communication
+
+### Changed
+- **Intercom Channel Renaming**: Updated default channels for typical boat layout
+  - Bridge → Helm (command and navigation)
+  - Deck → Salon (main living area)
+  - Engine → Aft Cabin (aft cabin)
+  - Added Forward Cabin channel
+
+### Fixed
+- **Shared File Data Embedding**: Fixed bug where small embedded files weren't downloading
+  - `toNoteResource()` was incorrectly stripping data from all files
+  - Now only removes embedded data when `downloadUrl` is present (large files)
+  - Small files (< 100KB) now properly include base64 data in SignalK resources
+
+### Dependencies
+- **Major Updates**: Upgraded key dependencies to latest versions
+  - `flutter_webrtc`: 0.12.12 → 1.2.1 (major WebRTC improvements)
+  - `device_info_plus`: 11.x → 12.3.0
+  - `permission_handler`: 11.x → 12.0.1
+  - `battery_plus`: 6.2.1 → 7.0.0
+  - `flutter_foreground_task`: 8.17.0 → 9.1.0
+- **Minor Updates**:
+  - `flutter_local_notifications`: 19.2.1 → 19.5.0
+  - `webview_flutter`: 4.10.0 → 4.11.2
+  - `file_picker`: 10.1.4 → 10.3.7
+  - `flutter_map`: 8.0.3 → 8.2.2
+  - `video_player`: 2.9.5 → 2.10.1
+
 ## [0.4.0+9] - 2025-10-29
 
 ### Major Code Refactoring & Cleanup

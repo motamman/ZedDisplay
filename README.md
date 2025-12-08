@@ -107,41 +107,50 @@ A customizable SignalK marine dashboard application to display real-time vessel 
 
 ### 👥 Crew Communication System
 
-ZedDisplay includes a complete peer-to-peer communication system for vessel crew, using SignalK as the message broker.
+ZedDisplay includes a complete peer-to-peer communication system for vessel crew. All communication flows through your SignalK server—no cloud services, external servers, or internet connection required. Every crew member simply needs ZedDisplay connected to the same SignalK server on your boat's network.
+
+**How It Works**
+
+SignalK acts as the message broker and data store:
+- Crew profiles, messages, and file metadata are stored in SignalK's Resources API
+- All devices subscribe to crew data paths and receive real-time updates via WebSocket
+- Messages persist on the SignalK server and sync to devices when they connect
+- Voice uses WebRTC for audio with SignalK handling connection signaling
 
 **Crew Identity & Presence**
 - Create crew profiles with name and role (Captain, First Mate, Crew, Guest)
-- Real-time online/offline status via heartbeat system
+- Real-time online/offline status via heartbeat system (30-second intervals)
 - Status indicators (On Watch, Off Watch, Standby, Resting, Away)
-- Automatic presence detection across all connected devices
+- Automatic presence detection—see who's online across all connected devices
 
 **Text Messaging**
-- Broadcast messages to all crew
-- Direct one-on-one messaging
-- Status broadcasts for watch changes
-- Emergency alerts (MOB, All Hands)
-- Message history with 30-day retention
-- Offline message caching
-- Unread message badges
+- **Broadcast**: Send messages to all crew at once
+- **Direct**: Private one-on-one conversations
+- **Status broadcasts**: Quick status updates (watch changes, anchored, underway)
+- **Emergency alerts**: MOB and All Hands alerts with distinct notifications
+- Messages stored on SignalK with 30-day retention
+- Offline caching—read messages without connection, sync when back online
+- Unread badges show new message counts
 
 **File Sharing**
-- Share files between crew devices over local network
-- Supports images (PNG, JPG, GIF), documents (PDF), navigation files (GPX, KML), and audio
-- Local HTTP server hosts files on sender's device
-- Direct peer-to-peer downloads (no cloud required)
-- File preview and download UI
-- Share to other apps via system share sheet
+- Share files directly between crew devices over local network
+- Supported formats: images (PNG, JPG, GIF), documents (PDF), navigation files (GPX, KML), audio, and ZedDisplay dashboards (.zedjson)
+- **Small files** (< 100KB): Embedded directly in SignalK for instant delivery
+- **Large files**: Sender's device runs a temporary HTTP server; receivers download directly from sender
+- No cloud upload—files transfer peer-to-peer on your boat's WiFi
+- Preview images and documents before downloading
+- Export to other apps via system share sheet
 
 **Voice Intercom**
-- VHF radio-style channel system
-- Default channels: Emergency, Bridge, Deck, Engine
-- Push-to-talk (PTT) with haptic feedback
-- Duplex mode for open conversation
-- Direct one-on-one voice calls
-- WebRTC audio with SignalK signaling
-- Local network optimized (no internet required)
-- Incoming call notifications
-- Mute controls
+- VHF radio-style channel system for shipboard communication
+- Default channels: Emergency, Helm, Salon, Forward Cabin, Aft Cabin (customizable)
+- **PTT Mode** (Push-to-Talk): Hold button to transmit, release to listen—like a handheld radio
+- **Duplex Mode**: Open two-way audio—like a phone call, both parties hear each other continuously
+- **Direct Calls**: Private one-on-one voice calls to specific crew members
+- WebRTC handles audio encoding/transmission; SignalK handles call setup signaling
+- Optimized for local network—works without internet, low latency on boat WiFi
+- Get notified when someone transmits on a channel (tap notification to join)
+- Mute controls for incoming audio
 
 ### Tool Management
 - Create and save custom tool configurations
@@ -299,33 +308,42 @@ Simply go to Settings → Dashboard Setups and tap the setup you want to activat
 
 ### Using Crew Communication
 
+**Prerequisites**: All crew members need ZedDisplay installed and connected to the same SignalK server. The SignalK server (typically running on a Raspberry Pi or similar) acts as the hub for all communication.
+
 1. **Set Up Your Profile**
    - Tap the Crew icon (👥) in the app bar
-   - Create your profile with name and role
-   - Your profile syncs to SignalK for other crew to see
+   - Create your profile with name and role (Captain, First Mate, Crew, Guest)
+   - Set your status (On Watch, Off Watch, Standby, etc.)
+   - Your profile syncs to SignalK—other crew will see you as "online"
 
 2. **Send Messages**
-   - Tap the Chat icon in the Crew screen
-   - Type a message and send to all crew (broadcast)
-   - Tap a crew member's name for direct messaging
+   - Tap the Chat tab in the Crew screen
+   - **Broadcast**: Type a message and tap send—goes to all crew
+   - **Direct message**: Tap a crew member's name, then compose your message
+   - **Quick status**: Use the status picker for common updates (watch changes, anchored, etc.)
+   - Messages persist on SignalK and sync to all devices
 
 3. **Share Files**
-   - Tap the Files icon in the Crew screen
-   - Select a file from your device
-   - File is served from your device; other crew download directly
+   - Tap the Files tab in the Crew screen
+   - Tap + to select a file from your device
+   - Small files send instantly; large files start a local server
+   - Other crew see the file appear and can download it
+   - For dashboards (.zedjson), recipients can import with one tap
 
-4. **Voice Intercom**
-   - Tap the Radio icon in the Crew screen
-   - Select a channel (Bridge, Deck, Engine, or Emergency)
-   - Hold the PTT button to talk, release to listen
-   - Or enable Duplex mode for open conversation
+4. **Voice Intercom (Channel Mode)**
+   - Tap the Intercom tab in the Crew screen
+   - Select a channel (Emergency, Helm, Salon, Forward Cabin, or Aft Cabin)
+   - **PTT Mode** (default): Hold the microphone button to talk, release to listen
+     - Works like a handheld VHF radio—only one person transmits at a time
+   - **Duplex Mode**: Toggle the duplex switch for open two-way audio
+     - Both parties can talk and hear simultaneously—like a phone call
+   - Channel notifications alert you when someone transmits (tap to join)
 
-5. **Direct Calls**
+5. **Direct Voice Calls**
    - In the Crew list, tap the phone icon next to a crew member
-   - They'll see an incoming call notification
-   - Accept to start a private voice call
-
-**Note:** All crew devices must be connected to the same SignalK server on your boat's local network.
+   - They receive an incoming call notification
+   - When they accept, you have a private two-way voice call
+   - Either party can hang up to end the call
 
 ## Project Structure
 
