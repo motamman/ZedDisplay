@@ -165,6 +165,12 @@ class IntercomService extends ChangeNotifier {
 
   /// Check and request microphone permission
   Future<bool> _checkMicPermission() async {
+    // Permission handler doesn't support Linux, so assume permission is granted
+    if (defaultTargetPlatform == TargetPlatform.linux) {
+      _hasMicPermission = true;
+      return true;
+    }
+    
     final status = await Permission.microphone.status;
     _hasMicPermission = status.isGranted;
     return _hasMicPermission;
@@ -172,6 +178,12 @@ class IntercomService extends ChangeNotifier {
 
   /// Request microphone permission
   Future<bool> requestMicPermission() async {
+    // Permission handler doesn't support Linux, so assume permission is granted
+    if (defaultTargetPlatform == TargetPlatform.linux) {
+      _hasMicPermission = true;
+      return true;
+    }
+    
     try {
       final status = await Permission.microphone.request();
       _hasMicPermission = status.isGranted;

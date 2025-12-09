@@ -43,9 +43,15 @@ class NotificationService {
       requestSoundPermission: true,
     );
 
+    // Linux initialization settings
+    const linuxSettings = LinuxInitializationSettings(
+      defaultActionName: 'Open notification',
+    );
+
     const initSettings = InitializationSettings(
       android: androidSettings,
       iOS: iosSettings,
+      linux: linuxSettings,
     );
 
     await _notifications.initialize(

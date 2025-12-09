@@ -64,3 +64,5 @@ lib/config/app_config.dart
 android/key.properties
 *.jks
 *.keystore
+debian-package/
+*.deb
