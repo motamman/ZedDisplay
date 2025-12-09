@@ -63,6 +63,9 @@ class SignalKService extends ChangeNotifier implements DataService {
   // Storage service for caching conversions
   final StorageService? _storageService;
 
+  // Device ID for source identification
+  String get _deviceId => _storageService?.getSetting('crew_device_id') ?? 'unknown';
+
   // Internal managers
   late final _DataCacheManager _dataCache;
   late final _ConversionManager _conversionManager;
@@ -829,6 +832,7 @@ class SignalKService extends ChangeNotifier implements DataService {
       'context': 'vessels.self',
       'updates': [
         {
+          '\$source': 'zeddisplay.$_deviceId',
           'values': [
             {
               'path': 'notifications.crew.rtc.$signalingPath',
