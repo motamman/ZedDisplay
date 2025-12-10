@@ -140,8 +140,11 @@ class WeatherFlowForecastTool extends StatelessWidget {
   }
 
   /// Build SunMoonTimes from SignalK derived-data
+  /// Today's data: environment.sunlight.times.*
+  /// Tomorrow's data: environment.sunlight.times.1.*
   SunMoonTimes _getSunMoonTimes() {
     return SunMoonTimes(
+      // Today's times (no index)
       sunrise: _getDateTimeValue('$_sunlightBasePath.sunrise'),
       sunset: _getDateTimeValue('$_sunlightBasePath.sunset'),
       dawn: _getDateTimeValue('$_sunlightBasePath.dawn'),
@@ -158,6 +161,20 @@ class WeatherFlowForecastTool extends StatelessWidget {
       moonPhase: _getNumericValue('$_moonBasePath.phase'),
       moonFraction: _getNumericValue('$_moonBasePath.fraction'),
       moonAngle: _getNumericValue('$_moonBasePath.angle'),
+      // Tomorrow's times (index 1)
+      tomorrowSunrise: _getDateTimeValue('$_sunlightBasePath.1.sunrise'),
+      tomorrowSunset: _getDateTimeValue('$_sunlightBasePath.1.sunset'),
+      tomorrowDawn: _getDateTimeValue('$_sunlightBasePath.1.dawn'),
+      tomorrowDusk: _getDateTimeValue('$_sunlightBasePath.1.dusk'),
+      tomorrowNauticalDawn: _getDateTimeValue('$_sunlightBasePath.1.nauticalDawn'),
+      tomorrowNauticalDusk: _getDateTimeValue('$_sunlightBasePath.1.nauticalDusk'),
+      tomorrowSolarNoon: _getDateTimeValue('$_sunlightBasePath.1.solarNoon'),
+      tomorrowGoldenHour: _getDateTimeValue('$_sunlightBasePath.1.goldenHour'),
+      tomorrowGoldenHourEnd: _getDateTimeValue('$_sunlightBasePath.1.goldenHourEnd'),
+      // Tomorrow's moon times (moon cycle doesn't align with solar day, so today's
+      // moonset might be in tomorrow's data)
+      tomorrowMoonrise: _getDateTimeValue('$_moonBasePath.1.times.rise'),
+      tomorrowMoonset: _getDateTimeValue('$_moonBasePath.1.times.set'),
     );
   }
 
