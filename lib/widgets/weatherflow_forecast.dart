@@ -1,9 +1,8 @@
-import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
-/// Sun/Moon times for arc display
-class SunMoonTimes {
+/// Sun times for a single day
+class DaySunTimes {
   final DateTime? sunrise;
   final DateTime? sunset;
   final DateTime? dawn;
@@ -17,26 +16,8 @@ class SunMoonTimes {
   final DateTime? nightEnd;
   final DateTime? moonrise;
   final DateTime? moonset;
-  final double? moonPhase; // 0-1 (0=new, 0.5=full) - determines which side is lit
-  final double? moonFraction; // 0-1 illumination fraction - how much is lit
-  final double? moonAngle; // radians
 
-  // Tomorrow's times for arc display when crossing midnight
-  final DateTime? tomorrowSunrise;
-  final DateTime? tomorrowSunset;
-  final DateTime? tomorrowDawn;
-  final DateTime? tomorrowDusk;
-  final DateTime? tomorrowNauticalDawn;
-  final DateTime? tomorrowNauticalDusk;
-  final DateTime? tomorrowSolarNoon;
-  final DateTime? tomorrowGoldenHour;
-  final DateTime? tomorrowGoldenHourEnd;
-
-  // Tomorrow's moon times (moon cycle doesn't align with solar day)
-  final DateTime? tomorrowMoonrise;
-  final DateTime? tomorrowMoonset;
-
-  const SunMoonTimes({
+  const DaySunTimes({
     this.sunrise,
     this.sunset,
     this.dawn,
@@ -50,21 +31,61 @@ class SunMoonTimes {
     this.nightEnd,
     this.moonrise,
     this.moonset,
+  });
+}
+
+/// Sun/Moon times for multiple days
+class SunMoonTimes {
+  /// List of daily sun/moon times, index 0 = today, 1 = tomorrow, etc.
+  final List<DaySunTimes> days;
+
+  /// Moon phase info (current)
+  final double? moonPhase; // 0-1 (0=new, 0.5=full) - determines which side is lit
+  final double? moonFraction; // 0-1 illumination fraction - how much is lit
+  final double? moonAngle; // radians
+
+  const SunMoonTimes({
+    this.days = const [],
     this.moonPhase,
     this.moonFraction,
     this.moonAngle,
-    this.tomorrowSunrise,
-    this.tomorrowSunset,
-    this.tomorrowDawn,
-    this.tomorrowDusk,
-    this.tomorrowNauticalDawn,
-    this.tomorrowNauticalDusk,
-    this.tomorrowSolarNoon,
-    this.tomorrowGoldenHour,
-    this.tomorrowGoldenHourEnd,
-    this.tomorrowMoonrise,
-    this.tomorrowMoonset,
   });
+
+  /// Get sun times for a specific day (0 = today, 1 = tomorrow, etc.)
+  DaySunTimes? getDay(int index) {
+    if (index >= 0 && index < days.length) {
+      return days[index];
+    }
+    return null;
+  }
+
+  /// Convenience getters for backwards compatibility
+  DateTime? get sunrise => days.isNotEmpty ? days[0].sunrise : null;
+  DateTime? get sunset => days.isNotEmpty ? days[0].sunset : null;
+  DateTime? get dawn => days.isNotEmpty ? days[0].dawn : null;
+  DateTime? get dusk => days.isNotEmpty ? days[0].dusk : null;
+  DateTime? get nauticalDawn => days.isNotEmpty ? days[0].nauticalDawn : null;
+  DateTime? get nauticalDusk => days.isNotEmpty ? days[0].nauticalDusk : null;
+  DateTime? get solarNoon => days.isNotEmpty ? days[0].solarNoon : null;
+  DateTime? get goldenHour => days.isNotEmpty ? days[0].goldenHour : null;
+  DateTime? get goldenHourEnd => days.isNotEmpty ? days[0].goldenHourEnd : null;
+  DateTime? get night => days.isNotEmpty ? days[0].night : null;
+  DateTime? get nightEnd => days.isNotEmpty ? days[0].nightEnd : null;
+  DateTime? get moonrise => days.isNotEmpty ? days[0].moonrise : null;
+  DateTime? get moonset => days.isNotEmpty ? days[0].moonset : null;
+
+  // Tomorrow convenience getters
+  DateTime? get tomorrowSunrise => days.length > 1 ? days[1].sunrise : null;
+  DateTime? get tomorrowSunset => days.length > 1 ? days[1].sunset : null;
+  DateTime? get tomorrowDawn => days.length > 1 ? days[1].dawn : null;
+  DateTime? get tomorrowDusk => days.length > 1 ? days[1].dusk : null;
+  DateTime? get tomorrowNauticalDawn => days.length > 1 ? days[1].nauticalDawn : null;
+  DateTime? get tomorrowNauticalDusk => days.length > 1 ? days[1].nauticalDusk : null;
+  DateTime? get tomorrowSolarNoon => days.length > 1 ? days[1].solarNoon : null;
+  DateTime? get tomorrowGoldenHour => days.length > 1 ? days[1].goldenHour : null;
+  DateTime? get tomorrowGoldenHourEnd => days.length > 1 ? days[1].goldenHourEnd : null;
+  DateTime? get tomorrowMoonrise => days.length > 1 ? days[1].moonrise : null;
+  DateTime? get tomorrowMoonset => days.length > 1 ? days[1].moonset : null;
 }
 
 /// Daily forecast entry
