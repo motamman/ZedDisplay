@@ -730,7 +730,7 @@ class _ForecastRimPainter extends CustomPainter {
     if (times == null) return;
 
     final iconRadius = (outerRadius + innerRadius) / 2;
-    final iconSize = 36.0 * scale;
+    final iconSize = 27.0 * scale;  // Reduced by 25% from 36
 
     // Helper to get angle for a specific time
     // Icons are positioned at absolute hours from now, rotating with the rim
@@ -984,11 +984,176 @@ class _ForecastRimPainter extends CustomPainter {
       canvas.restore();
     }
 
+    // Secondary icon size and radius (smaller, outside the rim)
+    final secondaryIconSize = iconSize * 0.5;
+    final secondaryIconRadius = outerRadius + 8 * scale;
+
+    // Helper to draw twilight icon (sun with horizon line) - small, outside rim
+    void drawTwilightIcon(Offset iconCenter, double angle, DateTime eventTime, bool isDawn, bool isNautical) {
+      canvas.save();
+      canvas.translate(iconCenter.dx, iconCenter.dy);
+      canvas.rotate(-rotationAngle);
+
+      final tinyRadius = secondaryIconSize / 3;
+      final color = isNautical
+          ? (isDawn ? Colors.indigo.shade300 : Colors.indigo.shade400)
+          : (isDawn ? Colors.purple.shade300 : Colors.deepPurple.shade300);
+
+      // Draw horizon line
+      final horizonPaint = Paint()
+        ..color = color
+        ..strokeWidth = 1.5 * scale
+        ..style = PaintingStyle.stroke;
+      canvas.drawLine(Offset(-tinyRadius - 2 * scale, 0), Offset(tinyRadius + 2 * scale, 0), horizonPaint);
+
+      // Draw half sun (above or below horizon)
+      final sunPaint = Paint()
+        ..color = color
+        ..style = PaintingStyle.fill;
+
+      final rect = Rect.fromCircle(center: Offset.zero, radius: tinyRadius);
+      if (isDawn) {
+        canvas.drawArc(rect, 0, math.pi, true, sunPaint);
+      } else {
+        canvas.drawArc(rect, -math.pi, math.pi, true, sunPaint);
+      }
+
+      // Draw tiny stars for nautical twilight
+      if (isNautical) {
+        final starPaint = Paint()
+          ..color = Colors.white70
+          ..style = PaintingStyle.fill;
+        canvas.drawCircle(Offset(-tinyRadius - 1 * scale, -tinyRadius), 1.5 * scale, starPaint);
+        canvas.drawCircle(Offset(tinyRadius + 1 * scale, -tinyRadius + 1 * scale), 1 * scale, starPaint);
+      }
+
+      canvas.restore();
+    }
+
+    // Helper to draw golden hour icon (half sun with warm glow) - small, outside rim
+    void drawGoldenHourIcon(Offset iconCenter, double angle, DateTime eventTime, bool isMorning) {
+      canvas.save();
+      canvas.translate(iconCenter.dx, iconCenter.dy);
+      canvas.rotate(-rotationAngle);
+
+      final tinyRadius = secondaryIconSize / 2.5;
+
+      // Draw warm golden glow
+      final glowPaint = Paint()
+        ..color = Colors.orange.shade300.withValues(alpha: 0.5)
+        ..style = PaintingStyle.fill;
+      canvas.drawCircle(Offset(0, isMorning ? 2 * scale : -2 * scale), tinyRadius + 3 * scale, glowPaint);
+
+      // Draw horizon line (thicker, golden)
+      final horizonPaint = Paint()
+        ..color = Colors.orange.shade400
+        ..strokeWidth = 2 * scale
+        ..style = PaintingStyle.stroke;
+      canvas.drawLine(Offset(-tinyRadius - 4 * scale, 0), Offset(tinyRadius + 4 * scale, 0), horizonPaint);
+
+      // Draw half sun (above horizon for morning/end, below for evening/start)
+      final sunPaint = Paint()
+        ..color = Colors.orange.shade500
+        ..style = PaintingStyle.fill;
+
+      final rect = Rect.fromCircle(center: Offset.zero, radius: tinyRadius);
+      if (isMorning) {
+        // Morning golden hour END - sun rising above horizon
+        canvas.drawArc(rect, math.pi, math.pi, true, sunPaint);
+      } else {
+        // Evening golden hour START - sun setting toward horizon
+        canvas.drawArc(rect, 0, math.pi, true, sunPaint);
+      }
+
+      // Draw rays only on the visible half (3 rays)
+      final rayPaint = Paint()
+        ..color = Colors.amber.shade400
+        ..strokeWidth = 1.5 * scale
+        ..style = PaintingStyle.stroke;
+
+      for (int i = 0; i < 3; i++) {
+        final rayAngle = (isMorning ? -math.pi / 2 : math.pi / 2) + (i - 1) * math.pi / 6;
+        final start = Offset(
+          (tinyRadius + 1 * scale) * math.cos(rayAngle),
+          (tinyRadius + 1 * scale) * math.sin(rayAngle),
+        );
+        final end = Offset(
+          (tinyRadius + 4 * scale) * math.cos(rayAngle),
+          (tinyRadius + 4 * scale) * math.sin(rayAngle),
+        );
+        canvas.drawLine(start, end, rayPaint);
+      }
+
+      canvas.restore();
+    }
+
+    // Helper to draw solar noon icon (sun at peak) - small, outside rim
+    void drawSolarNoonIcon(Offset iconCenter, double angle, DateTime eventTime) {
+      canvas.save();
+      canvas.translate(iconCenter.dx, iconCenter.dy);
+      canvas.rotate(-rotationAngle);
+
+      final tinyRadius = secondaryIconSize / 3;
+
+      // Draw bright glow
+      final glowPaint = Paint()
+        ..color = Colors.yellow.shade100.withValues(alpha: 0.5)
+        ..style = PaintingStyle.fill;
+      canvas.drawCircle(Offset.zero, tinyRadius + 3 * scale, glowPaint);
+
+      // Draw sun
+      final sunPaint = Paint()
+        ..color = Colors.yellow.shade600
+        ..style = PaintingStyle.fill;
+      canvas.drawCircle(Offset.zero, tinyRadius, sunPaint);
+
+      // Draw rays
+      final rayPaint = Paint()
+        ..color = Colors.yellow.shade400
+        ..strokeWidth = 1 * scale
+        ..style = PaintingStyle.stroke;
+
+      for (int i = 0; i < 8; i++) {
+        final rayAngle = i * math.pi / 4;
+        final start = Offset(
+          (tinyRadius + 1 * scale) * math.cos(rayAngle),
+          (tinyRadius + 1 * scale) * math.sin(rayAngle),
+        );
+        final end = Offset(
+          (tinyRadius + 3 * scale) * math.cos(rayAngle),
+          (tinyRadius + 3 * scale) * math.sin(rayAngle),
+        );
+        canvas.drawLine(start, end, rayPaint);
+      }
+
+      canvas.restore();
+    }
+
     // Draw sun/moon icons for all available days
     for (int dayIndex = 0; dayIndex < times!.days.length; dayIndex++) {
       final dayTimes = times!.days[dayIndex];
 
-      // Sunrise
+      // Nautical Dawn - secondary, outside rim
+      if (dayTimes.nauticalDawn != null) {
+        final angle = getAngleForTime(dayTimes.nauticalDawn);
+        if (angle != null) {
+          final pos = Offset(center.dx + secondaryIconRadius * math.cos(angle),
+                             center.dy + secondaryIconRadius * math.sin(angle));
+          drawTwilightIcon(pos, angle, dayTimes.nauticalDawn!, true, true);
+        }
+      }
+
+      // Dawn (civil twilight) - secondary, outside rim
+      if (dayTimes.dawn != null) {
+        final angle = getAngleForTime(dayTimes.dawn);
+        if (angle != null) {
+          final pos = Offset(center.dx + secondaryIconRadius * math.cos(angle),
+                             center.dy + secondaryIconRadius * math.sin(angle));
+          drawTwilightIcon(pos, angle, dayTimes.dawn!, true, false);
+        }
+      }
+
+      // Sunrise - primary, on rim
       if (dayTimes.sunrise != null) {
         final angle = getAngleForTime(dayTimes.sunrise);
         if (angle != null) {
@@ -998,7 +1163,37 @@ class _ForecastRimPainter extends CustomPainter {
         }
       }
 
-      // Sunset
+      // Golden Hour End (morning) - secondary, outside rim
+      if (dayTimes.goldenHourEnd != null) {
+        final angle = getAngleForTime(dayTimes.goldenHourEnd);
+        if (angle != null) {
+          final pos = Offset(center.dx + secondaryIconRadius * math.cos(angle),
+                             center.dy + secondaryIconRadius * math.sin(angle));
+          drawGoldenHourIcon(pos, angle, dayTimes.goldenHourEnd!, true);
+        }
+      }
+
+      // Solar Noon - secondary, outside rim
+      if (dayTimes.solarNoon != null) {
+        final angle = getAngleForTime(dayTimes.solarNoon);
+        if (angle != null) {
+          final pos = Offset(center.dx + secondaryIconRadius * math.cos(angle),
+                             center.dy + secondaryIconRadius * math.sin(angle));
+          drawSolarNoonIcon(pos, angle, dayTimes.solarNoon!);
+        }
+      }
+
+      // Golden Hour (evening) - secondary, outside rim
+      if (dayTimes.goldenHour != null) {
+        final angle = getAngleForTime(dayTimes.goldenHour);
+        if (angle != null) {
+          final pos = Offset(center.dx + secondaryIconRadius * math.cos(angle),
+                             center.dy + secondaryIconRadius * math.sin(angle));
+          drawGoldenHourIcon(pos, angle, dayTimes.goldenHour!, false);
+        }
+      }
+
+      // Sunset - primary, on rim
       if (dayTimes.sunset != null) {
         final angle = getAngleForTime(dayTimes.sunset);
         if (angle != null) {
@@ -1008,7 +1203,27 @@ class _ForecastRimPainter extends CustomPainter {
         }
       }
 
-      // Moonrise
+      // Dusk (civil twilight) - secondary, outside rim
+      if (dayTimes.dusk != null) {
+        final angle = getAngleForTime(dayTimes.dusk);
+        if (angle != null) {
+          final pos = Offset(center.dx + secondaryIconRadius * math.cos(angle),
+                             center.dy + secondaryIconRadius * math.sin(angle));
+          drawTwilightIcon(pos, angle, dayTimes.dusk!, false, false);
+        }
+      }
+
+      // Nautical Dusk - secondary, outside rim
+      if (dayTimes.nauticalDusk != null) {
+        final angle = getAngleForTime(dayTimes.nauticalDusk);
+        if (angle != null) {
+          final pos = Offset(center.dx + secondaryIconRadius * math.cos(angle),
+                             center.dy + secondaryIconRadius * math.sin(angle));
+          drawTwilightIcon(pos, angle, dayTimes.nauticalDusk!, false, true);
+        }
+      }
+
+      // Moonrise - primary, on rim
       if (dayTimes.moonrise != null) {
         final angle = getAngleForTime(dayTimes.moonrise);
         if (angle != null) {
@@ -1018,7 +1233,7 @@ class _ForecastRimPainter extends CustomPainter {
         }
       }
 
-      // Moonset
+      // Moonset - primary, on rim
       if (dayTimes.moonset != null) {
         final angle = getAngleForTime(dayTimes.moonset);
         if (angle != null) {
@@ -1098,9 +1313,9 @@ class _ForecastRimPainter extends CustomPainter {
         if (timeMinutes >= goldenHourEndMin && timeMinutes < goldenHourMin) {
           return Colors.amber.shade200;
         }
-        // Golden hour (evening)
+        // Golden hour (evening) - use same bright orange as morning
         if (timeMinutes >= goldenHourMin && timeMinutes < sunsetMin) {
-          return Colors.orange.shade400;
+          return Colors.orange.shade300;
         }
         // Civil twilight (dusk)
         if (timeMinutes >= sunsetMin && timeMinutes < duskMin) {
