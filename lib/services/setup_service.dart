@@ -481,6 +481,43 @@ class SetupService extends ChangeNotifier {
     }
   }
 
+  /// Update a saved setup's intended use
+  Future<void> updateSetupIntendedUse(
+    String setupId,
+    String? newIntendedUse,
+  ) async {
+    try {
+      final setup = await _storageService.loadSetup(setupId);
+      if (setup == null) {
+        throw Exception('Setup not found: $setupId');
+      }
+
+      final updatedLayout = setup.layout.copyWith(
+        intendedUse: newIntendedUse,
+        clearIntendedUse: newIntendedUse == null,
+      );
+      final updatedMetadata = setup.metadata.copyWith(
+        updatedAt: DateTime.now(),
+      );
+      final updatedSetup = setup.copyWith(
+        layout: updatedLayout,
+        metadata: updatedMetadata,
+      );
+
+      await _storageService.saveSetup(updatedSetup);
+      notifyListeners();
+
+      if (kDebugMode) {
+        print('Setup intended use updated to: $newIntendedUse');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error updating setup intended use: $e');
+      }
+      rethrow;
+    }
+  }
+
   /// Check if a setup with given ID exists
   bool setupExists(String setupId) {
     return _storageService.setupExists(setupId);

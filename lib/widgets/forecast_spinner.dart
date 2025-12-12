@@ -355,13 +355,15 @@ class _ForecastSpinnerState extends State<ForecastSpinner>
               SizedBox(height: 2 * scale),
 
               // Conditions text only (icon is now in background)
+              // Use longDescription if available, otherwise conditions
               Text(
-                forecast.conditions ?? '',
+                forecast.longDescription ?? forecast.conditions ?? '',
                 style: TextStyle(
                   fontSize: 11 * scale,
                   color: isDark ? Colors.white60 : Colors.black45,
                 ),
                 overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
               ),
               SizedBox(height: 4 * scale),
 

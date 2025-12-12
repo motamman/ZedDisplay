@@ -121,9 +121,27 @@ class _SetupManagementScreenState extends State<SetupManagementScreen> {
                 if (setup.description.isNotEmpty)
                   Text(setup.description, maxLines: 2, overflow: TextOverflow.ellipsis),
                 const SizedBox(height: 4),
-                Text(
-                  '${setup.screenCount} screens • ${setup.toolCount} tools',
-                  style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                Row(
+                  children: [
+                    Text(
+                      '${setup.screenCount} screens • ${setup.toolCount} tools',
+                      style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                    ),
+                    if (setup.intendedUse != null) ...[
+                      const SizedBox(width: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: Colors.blue.withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text(
+                          setup.intendedUse!,
+                          style: TextStyle(fontSize: 10, color: Colors.blue[700]),
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
                 if (setup.lastUsedAt != null)
                   Text(
@@ -730,49 +748,104 @@ class _SetupManagementScreenState extends State<SetupManagementScreen> {
     final nameController = TextEditingController(text: setup.name);
     final descriptionController = TextEditingController(text: setup.description);
 
+    const presets = ['Phone', 'Tablet', 'Desktop'];
+    final isCustom = setup.intendedUse != null && !presets.contains(setup.intendedUse);
+    String? selectedIntendedUse = isCustom ? 'Custom' : setup.intendedUse;
+    final customIntendedUseController = TextEditingController(text: isCustom ? setup.intendedUse : '');
+
     final result = await showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Edit Setup'),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: nameController,
-                decoration: const InputDecoration(
-                  labelText: 'Setup Name',
-                  border: OutlineInputBorder(),
+      builder: (context) => StatefulBuilder(
+        builder: (context, setState) => AlertDialog(
+          title: const Text('Edit Setup'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                TextField(
+                  controller: nameController,
+                  decoration: const InputDecoration(
+                    labelText: 'Setup Name',
+                    border: OutlineInputBorder(),
+                  ),
+                  autofocus: true,
                 ),
-                autofocus: true,
-              ),
-              const SizedBox(height: 16),
-              TextField(
-                controller: descriptionController,
-                decoration: const InputDecoration(
-                  labelText: 'Description (optional)',
-                  border: OutlineInputBorder(),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: descriptionController,
+                  decoration: const InputDecoration(
+                    labelText: 'Description (optional)',
+                    border: OutlineInputBorder(),
+                  ),
+                  maxLines: 3,
                 ),
-                maxLines: 3,
-              ),
-            ],
+                const SizedBox(height: 16),
+                const Text('Intended Use', style: TextStyle(fontWeight: FontWeight.bold)),
+                const SizedBox(height: 8),
+                ...presets.map((preset) => RadioListTile<String?>(
+                  title: Text(preset),
+                  value: preset,
+                  groupValue: selectedIntendedUse,
+                  onChanged: (value) {
+                    setState(() => selectedIntendedUse = value);
+                  },
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                )),
+                RadioListTile<String?>(
+                  title: const Text('Custom'),
+                  value: 'Custom',
+                  groupValue: selectedIntendedUse,
+                  onChanged: (value) {
+                    setState(() => selectedIntendedUse = value);
+                  },
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                ),
+                if (selectedIntendedUse == 'Custom')
+                  Padding(
+                    padding: const EdgeInsets.only(left: 16, right: 16, top: 8),
+                    child: TextField(
+                      controller: customIntendedUseController,
+                      decoration: const InputDecoration(
+                        labelText: 'Custom name',
+                        border: OutlineInputBorder(),
+                        isDense: true,
+                      ),
+                      autofocus: true,
+                    ),
+                  ),
+                RadioListTile<String?>(
+                  title: const Text('None'),
+                  subtitle: const Text('Clear intended use'),
+                  value: null,
+                  groupValue: selectedIntendedUse,
+                  onChanged: (value) {
+                    setState(() => selectedIntendedUse = value);
+                  },
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                ),
+              ],
+            ),
           ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                if (nameController.text.trim().isEmpty) {
+                  return;
+                }
+                Navigator.pop(context, true);
+              },
+              child: const Text('Save'),
+            ),
+          ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              if (nameController.text.trim().isEmpty) {
-                return;
-              }
-              Navigator.pop(context, true);
-            },
-            child: const Text('Save'),
-          ),
-        ],
       ),
     );
 
@@ -781,6 +854,27 @@ class _SetupManagementScreenState extends State<SetupManagementScreen> {
         final setupService = Provider.of<SetupService>(context, listen: false);
         await setupService.renameSetup(setup.id, nameController.text.trim());
         await setupService.updateSetupDescription(setup.id, descriptionController.text.trim());
+
+        // Determine final intendedUse value
+        String? finalIntendedUse;
+        if (selectedIntendedUse == 'Custom') {
+          finalIntendedUse = customIntendedUseController.text.trim();
+          if (finalIntendedUse.isEmpty) finalIntendedUse = null;
+        } else {
+          finalIntendedUse = selectedIntendedUse;
+        }
+        await setupService.updateSetupIntendedUse(setup.id, finalIntendedUse);
+
+        // Also sync to active dashboard layout if this is the active setup
+        final dashboardService = Provider.of<DashboardService>(context, listen: false);
+        if (dashboardService.currentLayout?.id == setup.id) {
+          final currentLayout = dashboardService.currentLayout!;
+          final updatedLayout = currentLayout.copyWith(
+            intendedUse: finalIntendedUse,
+            clearIntendedUse: finalIntendedUse == null,
+          );
+          await dashboardService.updateLayout(updatedLayout);
+        }
 
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../services/dashboard_service.dart';
+import '../services/setup_service.dart';
 import '../services/signalk_service.dart';
 import '../services/storage_service.dart';
 import '../services/tool_registry.dart';
@@ -426,6 +427,128 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen> {
                   _showRenameDialog(activeScreen.id, activeScreen.name);
                 }
               },
+            ),
+            const Divider(),
+            ListTile(
+              leading: const Icon(Icons.devices),
+              title: const Text('Intended Use'),
+              subtitle: Text(
+                dashboardService.currentLayout?.intendedUse ?? 'Not set',
+                style: TextStyle(
+                  color: dashboardService.currentLayout?.intendedUse != null
+                      ? null
+                      : Colors.grey,
+                ),
+              ),
+              onTap: () {
+                Navigator.pop(context);
+                _showIntendedUseDialog();
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showIntendedUseDialog() {
+    final dashboardService = Provider.of<DashboardService>(context, listen: false);
+    final currentUse = dashboardService.currentLayout?.intendedUse;
+
+    const presets = ['Phone', 'Tablet', 'Desktop'];
+    final isCustom = currentUse != null && !presets.contains(currentUse);
+
+    String? selectedValue = isCustom ? 'Custom' : currentUse;
+    final customController = TextEditingController(text: isCustom ? currentUse : '');
+
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setState) => AlertDialog(
+          title: const Text('Intended Use'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                'Select the intended device type for this dashboard layout.',
+                style: TextStyle(fontSize: 12, color: Colors.grey),
+              ),
+              const SizedBox(height: 16),
+              ...presets.map((preset) => RadioListTile<String?>(
+                title: Text(preset),
+                value: preset,
+                groupValue: selectedValue,
+                onChanged: (value) {
+                  setState(() => selectedValue = value);
+                },
+              )),
+              RadioListTile<String?>(
+                title: const Text('Custom'),
+                value: 'Custom',
+                groupValue: selectedValue,
+                onChanged: (value) {
+                  setState(() => selectedValue = value);
+                },
+              ),
+              if (selectedValue == 'Custom')
+                Padding(
+                  padding: const EdgeInsets.only(left: 16, right: 16, top: 8),
+                  child: TextField(
+                    controller: customController,
+                    decoration: const InputDecoration(
+                      labelText: 'Custom name',
+                      border: OutlineInputBorder(),
+                      isDense: true,
+                    ),
+                    autofocus: true,
+                  ),
+                ),
+              RadioListTile<String?>(
+                title: const Text('None'),
+                subtitle: const Text('Clear intended use'),
+                value: null,
+                groupValue: selectedValue,
+                onChanged: (value) {
+                  setState(() => selectedValue = value);
+                },
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                String? newValue;
+                if (selectedValue == 'Custom') {
+                  newValue = customController.text.trim();
+                  if (newValue.isEmpty) newValue = null;
+                } else {
+                  newValue = selectedValue;
+                }
+
+                final currentLayout = dashboardService.currentLayout;
+                if (currentLayout != null) {
+                  final updatedLayout = currentLayout.copyWith(
+                    intendedUse: newValue,
+                    clearIntendedUse: newValue == null,
+                  );
+                  await dashboardService.updateLayout(updatedLayout);
+
+                  // Also sync to saved setup if it exists
+                  final setupService = Provider.of<SetupService>(context, listen: false);
+                  if (setupService.setupExists(currentLayout.id)) {
+                    await setupService.updateSetupIntendedUse(currentLayout.id, newValue);
+                  }
+                }
+
+                if (context.mounted) {
+                  Navigator.pop(context);
+                }
+              },
+              child: const Text('Save'),
             ),
           ],
         ),

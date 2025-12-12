@@ -168,6 +168,7 @@ class HourlyForecast {
   final double? temperature; // Already converted by ConversionUtils
   final double? feelsLike; // Already converted
   final String? conditions;
+  final String? longDescription;
   final String? icon;
   final double? precipProbability; // 0-100
   final double? humidity; // Already converted (ratio or %)
@@ -180,6 +181,7 @@ class HourlyForecast {
     this.temperature,
     this.feelsLike,
     this.conditions,
+    this.longDescription,
     this.icon,
     this.precipProbability,
     this.humidity,

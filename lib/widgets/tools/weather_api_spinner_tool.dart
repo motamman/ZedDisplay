@@ -220,6 +220,7 @@ class _WeatherApiSpinnerToolState extends State<WeatherApiSpinnerTool> {
         temperature: temp,
         feelsLike: feelsLike,
         conditions: apiFC.conditions,
+        longDescription: apiFC.longDescription,
         icon: apiFC.icon,
         precipProbability: precipProb,
         humidity: humidity,
