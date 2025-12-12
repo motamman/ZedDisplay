@@ -26,3 +26,21 @@ This will automatically generate all required icon sizes for Android.
 - The icon uses a black (#000000) background with your foreground image
 - Make sure icon_foreground.png has a transparent background
 - Keep the splash.mp4 file size reasonable for fast loading
+
+## Third-Party Assets
+
+### Weather Icons
+
+#### Meteocons (BAS Weather Icons)
+- **Location:** `weather_icons/bas_weather/`
+- **Author:** [Bas Milius](https://bas.dev)
+- **Source:** https://github.com/basmilius/weather-icons
+- **License:** MIT License
+- **Copyright:** (c) 2020-2021 Bas Milius
+
+Meteocons is a free-to-use set of animated SVG weather icons. Used for displaying weather conditions in the forecast spinner when receiving WMO weather codes from OpenMeteo via the SignalK Weather API.
+
+#### WMO Code Mapping
+The mapping from WMO weather interpretation codes to Meteocons icons is based on:
+- **Source:** https://gist.github.com/stellasphere/9490c195ed2b53c707087c8c2db4ec0c
+- **Author:** stellasphere
