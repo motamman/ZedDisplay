@@ -1,9 +1,8 @@
-import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
-/// Sun/Moon times for arc display
-class SunMoonTimes {
+/// Sun times for a single day
+class DaySunTimes {
   final DateTime? sunrise;
   final DateTime? sunset;
   final DateTime? dawn;
@@ -17,11 +16,8 @@ class SunMoonTimes {
   final DateTime? nightEnd;
   final DateTime? moonrise;
   final DateTime? moonset;
-  final double? moonPhase; // 0-1 (0=new, 0.5=full) - determines which side is lit
-  final double? moonFraction; // 0-1 illumination fraction - how much is lit
-  final double? moonAngle; // radians
 
-  const SunMoonTimes({
+  const DaySunTimes({
     this.sunrise,
     this.sunset,
     this.dawn,
@@ -35,10 +31,61 @@ class SunMoonTimes {
     this.nightEnd,
     this.moonrise,
     this.moonset,
+  });
+}
+
+/// Sun/Moon times for multiple days
+class SunMoonTimes {
+  /// List of daily sun/moon times, index 0 = today, 1 = tomorrow, etc.
+  final List<DaySunTimes> days;
+
+  /// Moon phase info (current)
+  final double? moonPhase; // 0-1 (0=new, 0.5=full) - determines which side is lit
+  final double? moonFraction; // 0-1 illumination fraction - how much is lit
+  final double? moonAngle; // radians
+
+  const SunMoonTimes({
+    this.days = const [],
     this.moonPhase,
     this.moonFraction,
     this.moonAngle,
   });
+
+  /// Get sun times for a specific day (0 = today, 1 = tomorrow, etc.)
+  DaySunTimes? getDay(int index) {
+    if (index >= 0 && index < days.length) {
+      return days[index];
+    }
+    return null;
+  }
+
+  /// Convenience getters for backwards compatibility
+  DateTime? get sunrise => days.isNotEmpty ? days[0].sunrise : null;
+  DateTime? get sunset => days.isNotEmpty ? days[0].sunset : null;
+  DateTime? get dawn => days.isNotEmpty ? days[0].dawn : null;
+  DateTime? get dusk => days.isNotEmpty ? days[0].dusk : null;
+  DateTime? get nauticalDawn => days.isNotEmpty ? days[0].nauticalDawn : null;
+  DateTime? get nauticalDusk => days.isNotEmpty ? days[0].nauticalDusk : null;
+  DateTime? get solarNoon => days.isNotEmpty ? days[0].solarNoon : null;
+  DateTime? get goldenHour => days.isNotEmpty ? days[0].goldenHour : null;
+  DateTime? get goldenHourEnd => days.isNotEmpty ? days[0].goldenHourEnd : null;
+  DateTime? get night => days.isNotEmpty ? days[0].night : null;
+  DateTime? get nightEnd => days.isNotEmpty ? days[0].nightEnd : null;
+  DateTime? get moonrise => days.isNotEmpty ? days[0].moonrise : null;
+  DateTime? get moonset => days.isNotEmpty ? days[0].moonset : null;
+
+  // Tomorrow convenience getters
+  DateTime? get tomorrowSunrise => days.length > 1 ? days[1].sunrise : null;
+  DateTime? get tomorrowSunset => days.length > 1 ? days[1].sunset : null;
+  DateTime? get tomorrowDawn => days.length > 1 ? days[1].dawn : null;
+  DateTime? get tomorrowDusk => days.length > 1 ? days[1].dusk : null;
+  DateTime? get tomorrowNauticalDawn => days.length > 1 ? days[1].nauticalDawn : null;
+  DateTime? get tomorrowNauticalDusk => days.length > 1 ? days[1].nauticalDusk : null;
+  DateTime? get tomorrowSolarNoon => days.length > 1 ? days[1].solarNoon : null;
+  DateTime? get tomorrowGoldenHour => days.length > 1 ? days[1].goldenHour : null;
+  DateTime? get tomorrowGoldenHourEnd => days.length > 1 ? days[1].goldenHourEnd : null;
+  DateTime? get tomorrowMoonrise => days.length > 1 ? days[1].moonrise : null;
+  DateTime? get tomorrowMoonset => days.length > 1 ? days[1].moonset : null;
 }
 
 /// Daily forecast entry
@@ -141,8 +188,17 @@ class HourlyForecast {
     this.windDirection,
   });
 
-  /// Get asset path for weather icon based on icon code from WeatherFlow
+  /// Get asset path for weather icon
   String get weatherIconAsset {
+    if (icon == null) return 'assets/weather_icons/cloudy.svg';
+
+    // Check if it's a Meteoblue icon (e.g., "07_night.svg")
+    if (icon!.contains('_') && icon!.endsWith('.svg')) {
+      // Convert to monochrome hollow version
+      final baseName = icon!.replaceAll('.svg', '');
+      return 'assets/weather_icons/meteoblue_specific/monochrome_hollow_hourly/${baseName}_monochrome_hollow.svg';
+    }
+
     // Map WeatherFlow icon codes to local SVG assets
     const iconMap = {
       'clear-day': 'assets/weather_icons/clear-day.svg',
@@ -1052,19 +1108,72 @@ class _SunMoonArc extends StatelessWidget {
       }
     }
 
-    // Sun icon at current position (if daytime)
-    if (times.sunrise != null && times.sunset != null) {
-      if (now.isAfter(times.sunrise!) && now.isBefore(times.sunset!)) {
-        final pos = getArcPosition(now, size: 20);
-        if (pos != null) {
-          children.add(
-            Positioned(
-              left: pos.$1,
-              top: pos.$2,
-              child: const Icon(Icons.wb_sunny, color: Colors.amber, size: 20),
+    // Tomorrow's sunrise marker (if within arc range)
+    if (times.tomorrowSunrise != null) {
+      final sunrisePos = getArcPosition(times.tomorrowSunrise!, size: 20);
+      if (sunrisePos != null) {
+        children.add(
+          Positioned(
+            left: sunrisePos.$1,
+            top: sunrisePos.$2,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  Icons.arrow_upward,
+                  color: Colors.amber.shade600,
+                  size: 10,
+                ),
+                const Icon(Icons.wb_sunny, color: Colors.amber, size: 16),
+              ],
             ),
-          );
-        }
+          ),
+        );
+      }
+    }
+
+    // Tomorrow's sunset marker (if within arc range)
+    if (times.tomorrowSunset != null) {
+      final sunsetPos = getArcPosition(times.tomorrowSunset!, size: 20);
+      if (sunsetPos != null) {
+        children.add(
+          Positioned(
+            left: sunsetPos.$1,
+            top: sunsetPos.$2 - 10,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.wb_sunny, color: Colors.deepOrange, size: 16),
+                Icon(
+                  Icons.arrow_downward,
+                  color: Colors.deepOrange.shade600,
+                  size: 10,
+                ),
+              ],
+            ),
+          ),
+        );
+      }
+    }
+
+    // Sun icon at current position (if daytime - check both today and tomorrow)
+    bool isDaytime = false;
+    if (times.sunrise != null && times.sunset != null) {
+      isDaytime = now.isAfter(times.sunrise!) && now.isBefore(times.sunset!);
+    }
+    if (!isDaytime && times.tomorrowSunrise != null && times.tomorrowSunset != null) {
+      isDaytime = now.isAfter(times.tomorrowSunrise!) && now.isBefore(times.tomorrowSunset!);
+    }
+    if (isDaytime) {
+      final pos = getArcPosition(now, size: 20);
+      if (pos != null) {
+        children.add(
+          Positioned(
+            left: pos.$1,
+            top: pos.$2,
+            child: const Icon(Icons.wb_sunny, color: Colors.amber, size: 20),
+          ),
+        );
       }
     }
 
@@ -1100,6 +1209,54 @@ class _SunMoonArc extends StatelessWidget {
           Positioned(
             left: moonsetPos.$1,
             top: moonsetPos.$2 - 20, // Position above the arc
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _buildMoonIcon(times.moonPhase, times.moonFraction),
+                Icon(
+                  Icons.arrow_downward,
+                  color: Colors.blueGrey.shade300,
+                  size: 10,
+                ),
+              ],
+            ),
+          ),
+        );
+      }
+    }
+
+    // Tomorrow's moonrise marker (if within arc range)
+    if (times.tomorrowMoonrise != null) {
+      final moonrisePos = getArcPosition(times.tomorrowMoonrise!, size: 16);
+      if (moonrisePos != null) {
+        children.add(
+          Positioned(
+            left: moonrisePos.$1,
+            top: moonrisePos.$2 + 5,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  Icons.arrow_upward,
+                  color: Colors.blueGrey.shade300,
+                  size: 10,
+                ),
+                _buildMoonIcon(times.moonPhase, times.moonFraction),
+              ],
+            ),
+          ),
+        );
+      }
+    }
+
+    // Tomorrow's moonset marker (if within arc range - often contains TODAY's moonset!)
+    if (times.tomorrowMoonset != null) {
+      final moonsetPos = getArcPosition(times.tomorrowMoonset!, size: 16);
+      if (moonsetPos != null) {
+        children.add(
+          Positioned(
+            left: moonsetPos.$1,
+            top: moonsetPos.$2 - 20,
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -1278,39 +1435,56 @@ class _SunMoonArcPainter extends CustomPainter {
       ..style = PaintingStyle.stroke
       ..strokeWidth = 2;
 
-    // Draw the arc segments with different colors for different phases
-    final segments = <_ArcSegment>[
-      // Night (before nautical dawn)
-      if (times.nauticalDawn != null)
-        _ArcSegment(arcStart, times.nauticalDawn!, Colors.indigo.shade900.withValues(alpha: 0.5)),
+    // Build segments using today's and tomorrow's data as appropriate
+    final segments = <_ArcSegment>[];
+
+    // Helper to add segment if times are within arc range
+    void addSegment(DateTime? start, DateTime? end, Color color) {
+      if (start == null || end == null) return;
+      if (end.isBefore(arcStart) || start.isAfter(arcEnd)) return;
+      segments.add(_ArcSegment(start, end, color));
+    }
+
+    // Today's segments
+    // Night (before nautical dawn)
+    if (times.nauticalDawn != null) {
+      addSegment(arcStart, times.nauticalDawn!, Colors.indigo.shade900.withValues(alpha: 0.5));
+    }
+    // Nautical twilight (dawn)
+    addSegment(times.nauticalDawn, times.dawn, Colors.indigo.shade700);
+    // Civil twilight (dawn)
+    addSegment(times.dawn, times.sunrise, Colors.indigo.shade400);
+    // Golden hour (morning)
+    addSegment(times.sunrise, times.goldenHourEnd, Colors.orange.shade300);
+    // Daylight (morning)
+    addSegment(times.goldenHourEnd, times.solarNoon, Colors.amber.shade200);
+    // Daylight (afternoon)
+    addSegment(times.solarNoon, times.goldenHour, Colors.amber.shade200);
+    // Golden hour (evening)
+    addSegment(times.goldenHour, times.sunset, Colors.orange.shade400);
+    // Civil twilight (dusk)
+    addSegment(times.sunset, times.dusk, Colors.deepOrange.shade400);
+    // Nautical twilight (dusk)
+    addSegment(times.dusk, times.nauticalDusk, Colors.indigo.shade400);
+    // Night (after nautical dusk to midnight or tomorrow's dawn)
+    if (times.nauticalDusk != null) {
+      final nightEnd = times.tomorrowNauticalDawn ?? arcEnd;
+      addSegment(times.nauticalDusk!, nightEnd, Colors.indigo.shade900.withValues(alpha: 0.5));
+    }
+
+    // Tomorrow's segments (if arc extends into tomorrow)
+    if (times.tomorrowNauticalDawn != null) {
       // Nautical twilight (dawn)
-      if (times.nauticalDawn != null && times.dawn != null)
-        _ArcSegment(times.nauticalDawn!, times.dawn!, Colors.indigo.shade700),
+      addSegment(times.tomorrowNauticalDawn, times.tomorrowDawn, Colors.indigo.shade700);
       // Civil twilight (dawn)
-      if (times.dawn != null && times.sunrise != null)
-        _ArcSegment(times.dawn!, times.sunrise!, Colors.indigo.shade400),
+      addSegment(times.tomorrowDawn, times.tomorrowSunrise, Colors.indigo.shade400);
       // Golden hour (morning)
-      if (times.sunrise != null && times.goldenHourEnd != null)
-        _ArcSegment(times.sunrise!, times.goldenHourEnd!, Colors.orange.shade300),
+      addSegment(times.tomorrowSunrise, times.tomorrowGoldenHourEnd, Colors.orange.shade300);
       // Daylight (morning)
-      if (times.goldenHourEnd != null && times.solarNoon != null)
-        _ArcSegment(times.goldenHourEnd!, times.solarNoon!, Colors.amber.shade200),
-      // Daylight (afternoon)
-      if (times.solarNoon != null && times.goldenHour != null)
-        _ArcSegment(times.solarNoon!, times.goldenHour!, Colors.amber.shade200),
-      // Golden hour (evening)
-      if (times.goldenHour != null && times.sunset != null)
-        _ArcSegment(times.goldenHour!, times.sunset!, Colors.orange.shade400),
-      // Civil twilight (dusk)
-      if (times.sunset != null && times.dusk != null)
-        _ArcSegment(times.sunset!, times.dusk!, Colors.deepOrange.shade400),
-      // Nautical twilight (dusk)
-      if (times.dusk != null && times.nauticalDusk != null)
-        _ArcSegment(times.dusk!, times.nauticalDusk!, Colors.indigo.shade400),
-      // Night (after nautical dusk)
-      if (times.nauticalDusk != null)
-        _ArcSegment(times.nauticalDusk!, arcEnd, Colors.indigo.shade900.withValues(alpha: 0.5)),
-    ];
+      addSegment(times.tomorrowGoldenHourEnd, times.tomorrowSolarNoon, Colors.amber.shade200);
+      // Daylight (afternoon) - extend to arc end
+      addSegment(times.tomorrowSolarNoon, arcEnd, Colors.amber.shade200);
+    }
 
     // Draw baseline
     final baseY = size.height - 10;
@@ -1408,6 +1582,26 @@ class _SunMoonArcPainter extends CustomPainter {
       }
     }
 
+    // Draw tomorrow's sunrise time (amber)
+    if (times.tomorrowSunrise != null) {
+      final progress = times.tomorrowSunrise!.difference(arcStart).inMinutes / arcDuration;
+      if (progress >= 0 && progress <= 1) {
+        final local = times.tomorrowSunrise!.toLocal();
+        final timeStr = '${local.hour.toString().padLeft(2, '0')}:${local.minute.toString().padLeft(2, '0')}';
+        drawColoredLabel(times.tomorrowSunrise, timeStr, Colors.amber, 2);
+      }
+    }
+
+    // Draw tomorrow's sunset time (deep orange)
+    if (times.tomorrowSunset != null) {
+      final progress = times.tomorrowSunset!.difference(arcStart).inMinutes / arcDuration;
+      if (progress >= 0 && progress <= 1) {
+        final local = times.tomorrowSunset!.toLocal();
+        final timeStr = '${local.hour.toString().padLeft(2, '0')}:${local.minute.toString().padLeft(2, '0')}';
+        drawColoredLabel(times.tomorrowSunset, timeStr, Colors.deepOrange, 2);
+      }
+    }
+
     // Draw moonrise time (blueGrey)
     if (times.moonrise != null) {
       final progress = times.moonrise!.difference(arcStart).inMinutes / arcDuration;
@@ -1425,6 +1619,26 @@ class _SunMoonArcPainter extends CustomPainter {
         final local = times.moonset!.toLocal();
         final timeStr = '${local.hour.toString().padLeft(2, '0')}:${local.minute.toString().padLeft(2, '0')}';
         drawColoredLabel(times.moonset, timeStr, Colors.blueGrey.shade300, 2);
+      }
+    }
+
+    // Draw tomorrow's moonrise time (blueGrey)
+    if (times.tomorrowMoonrise != null) {
+      final progress = times.tomorrowMoonrise!.difference(arcStart).inMinutes / arcDuration;
+      if (progress >= 0 && progress <= 1) {
+        final local = times.tomorrowMoonrise!.toLocal();
+        final timeStr = '${local.hour.toString().padLeft(2, '0')}:${local.minute.toString().padLeft(2, '0')}';
+        drawColoredLabel(times.tomorrowMoonrise, timeStr, Colors.blueGrey.shade300, 2);
+      }
+    }
+
+    // Draw tomorrow's moonset time (blueGrey) - often contains TODAY's moonset!
+    if (times.tomorrowMoonset != null) {
+      final progress = times.tomorrowMoonset!.difference(arcStart).inMinutes / arcDuration;
+      if (progress >= 0 && progress <= 1) {
+        final local = times.tomorrowMoonset!.toLocal();
+        final timeStr = '${local.hour.toString().padLeft(2, '0')}:${local.minute.toString().padLeft(2, '0')}';
+        drawColoredLabel(times.tomorrowMoonset, timeStr, Colors.blueGrey.shade300, 2);
       }
     }
   }

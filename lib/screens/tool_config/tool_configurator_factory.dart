@@ -6,6 +6,7 @@ import 'configurators/control_configurator.dart';
 import 'configurators/polar_chart_configurator.dart';
 import 'configurators/webview_configurator.dart';
 import 'configurators/system_configurator.dart';
+import 'configurators/weather_api_spinner_configurator.dart';
 
 /// Factory for creating tool-specific configurators
 ///
@@ -58,6 +59,10 @@ class ToolConfiguratorFactory {
       case 'webview':
         return WebViewConfigurator();
 
+      // Weather API Spinner
+      case 'weather_api_spinner':
+        return WeatherApiSpinnerConfigurator();
+
       // No custom configurator - use default UI
       default:
         return null;
@@ -88,6 +93,7 @@ class ToolConfiguratorFactory {
       'intercom',
       'file_share',
       'webview',
+      'weather_api_spinner',
     ];
   }
 }

@@ -140,21 +140,44 @@ class WeatherFlowForecastTool extends StatelessWidget {
   }
 
   /// Build SunMoonTimes from SignalK derived-data
+  /// Dynamically loads available days
   SunMoonTimes _getSunMoonTimes() {
+    final days = <DaySunTimes>[];
+
+    // Load up to 7 days of sun/moon data
+    for (int i = 0; i < 7; i++) {
+      // Day 0 (today) has no index prefix, others use .1., .2., etc.
+      final sunPrefix = i == 0 ? _sunlightBasePath : '$_sunlightBasePath.$i';
+      final moonPrefix = i == 0 ? _moonBasePath : '$_moonBasePath.$i';
+
+      final sunrise = _getDateTimeValue('$sunPrefix.sunrise');
+      final sunset = _getDateTimeValue('$sunPrefix.sunset');
+
+      // Only add day if we have at least sunrise or sunset data
+      if (sunrise != null || sunset != null) {
+        days.add(DaySunTimes(
+          sunrise: sunrise,
+          sunset: sunset,
+          dawn: _getDateTimeValue('$sunPrefix.dawn'),
+          dusk: _getDateTimeValue('$sunPrefix.dusk'),
+          nauticalDawn: _getDateTimeValue('$sunPrefix.nauticalDawn'),
+          nauticalDusk: _getDateTimeValue('$sunPrefix.nauticalDusk'),
+          solarNoon: _getDateTimeValue('$sunPrefix.solarNoon'),
+          goldenHour: _getDateTimeValue('$sunPrefix.goldenHour'),
+          goldenHourEnd: _getDateTimeValue('$sunPrefix.goldenHourEnd'),
+          night: _getDateTimeValue('$sunPrefix.night'),
+          nightEnd: _getDateTimeValue('$sunPrefix.nightEnd'),
+          moonrise: _getDateTimeValue('$moonPrefix.times.rise'),
+          moonset: _getDateTimeValue('$moonPrefix.times.set'),
+        ));
+      } else if (i > 0) {
+        // Stop if we hit a day with no data
+        break;
+      }
+    }
+
     return SunMoonTimes(
-      sunrise: _getDateTimeValue('$_sunlightBasePath.sunrise'),
-      sunset: _getDateTimeValue('$_sunlightBasePath.sunset'),
-      dawn: _getDateTimeValue('$_sunlightBasePath.dawn'),
-      dusk: _getDateTimeValue('$_sunlightBasePath.dusk'),
-      nauticalDawn: _getDateTimeValue('$_sunlightBasePath.nauticalDawn'),
-      nauticalDusk: _getDateTimeValue('$_sunlightBasePath.nauticalDusk'),
-      solarNoon: _getDateTimeValue('$_sunlightBasePath.solarNoon'),
-      goldenHour: _getDateTimeValue('$_sunlightBasePath.goldenHour'),
-      goldenHourEnd: _getDateTimeValue('$_sunlightBasePath.goldenHourEnd'),
-      night: _getDateTimeValue('$_sunlightBasePath.night'),
-      nightEnd: _getDateTimeValue('$_sunlightBasePath.nightEnd'),
-      moonrise: _getDateTimeValue('$_moonBasePath.times.rise'),
-      moonset: _getDateTimeValue('$_moonBasePath.times.set'),
+      days: days,
       moonPhase: _getNumericValue('$_moonBasePath.phase'),
       moonFraction: _getNumericValue('$_moonBasePath.fraction'),
       moonAngle: _getNumericValue('$_moonBasePath.angle'),

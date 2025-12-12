@@ -126,6 +126,7 @@ class SignalKService extends ChangeNotifier implements DataService {
     _conversionsDataView ??= UnmodifiableMapView(_conversionManager.internalDataMap);
     return _conversionsDataView!;
   }
+  bool get hasConversions => _conversionManager.internalDataMap.isNotEmpty;
   @override
   String get serverUrl => _serverUrl;
   @override
@@ -413,6 +414,12 @@ class SignalKService extends ChangeNotifier implements DataService {
       if (kDebugMode) {
         print('✅ Conversions channel connected successfully');
       }
+
+      // Also fetch via HTTP to ensure we have data immediately
+      // WebSocket may not push until there's a change
+      await _conversionManager.fetchConversions();
+      _conversionsDataView = null;
+      notifyListeners();
     } catch (e) {
       if (kDebugMode) {
         print('⚠️ Failed to connect conversions channel (will use HTTP fallback): $e');
@@ -420,7 +427,10 @@ class SignalKService extends ChangeNotifier implements DataService {
       // Clean up on error
       _conversionsChannel = null;
       _conversionsSubscription = null;
-      // Don't throw - this is optional, we have HTTP fallback
+      // Use HTTP fallback to fetch conversions
+      await _conversionManager.fetchConversions();
+      _conversionsDataView = null;
+      notifyListeners();
     }
   }
 

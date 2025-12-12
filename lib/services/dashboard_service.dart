@@ -14,6 +14,7 @@ class DashboardService extends ChangeNotifier {
 
   DashboardLayout? _currentLayout;
   bool _initialized = false;
+  bool _wasConnected = false; // Track connection state to avoid spam
 
   DashboardService(
     this._storageService, [
@@ -62,10 +63,16 @@ class DashboardService extends ChangeNotifier {
       }
 
       _initialized = true;
-      notifyListeners();
 
-      // Don't subscribe yet - SignalK isn't connected at this point
-      // Subscription will happen after connection in ConnectionScreen
+      // Listen for SignalK connection state changes
+      _signalKService?.addListener(_onSignalKStateChanged);
+
+      // If already connected, update subscriptions now
+      if (_signalKService?.isConnected ?? false) {
+        await _updateSignalKSubscriptions();
+      }
+
+      notifyListeners();
 
       if (kDebugMode) {
         print('DashboardService initialized with ${_currentLayout!.screens.length} screens');
@@ -75,6 +82,19 @@ class DashboardService extends ChangeNotifier {
         print('Error initializing DashboardService: $e');
       }
       rethrow;
+    }
+  }
+
+  /// Handle SignalK connection state changes
+  void _onSignalKStateChanged() {
+    final isConnected = _signalKService?.isConnected ?? false;
+
+    // Only trigger on connection state change (not every notification)
+    if (isConnected && !_wasConnected) {
+      _wasConnected = true;
+      _updateSignalKSubscriptions();
+    } else if (!isConnected) {
+      _wasConnected = false;
     }
   }
 

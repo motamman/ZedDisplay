@@ -106,6 +106,7 @@ flutter:
   assets:
     - assets/
     - assets/weather_icons/
+    - assets/weather_icons/meteoblue_specific/monochrome_hollow_hourly/
 
 flutter_launcher_icons:
   android: true
