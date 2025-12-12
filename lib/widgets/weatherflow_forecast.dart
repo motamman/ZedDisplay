@@ -121,30 +121,23 @@ class DailyForecast {
     return days[date.weekday - 1];
   }
 
-  /// Get weather icon asset path
+  /// Get weather icon asset path (uses BAS weather icons with WMO code support)
   String get weatherIconAsset {
-    const iconMap = {
-      'clear-day': 'assets/weather_icons/clear-day.svg',
-      'clear-night': 'assets/weather_icons/clear-night.svg',
-      'cloudy': 'assets/weather_icons/cloudy.svg',
-      'foggy': 'assets/weather_icons/foggy.svg',
-      'partly-cloudy-day': 'assets/weather_icons/partly-cloudy-day.svg',
-      'partly-cloudy-night': 'assets/weather_icons/partly-cloudy-night.svg',
-      'possibly-rainy-day': 'assets/weather_icons/possibly-rainy-day.svg',
-      'possibly-rainy-night': 'assets/weather_icons/possibly-rainy-night.svg',
-      'possibly-sleet-day': 'assets/weather_icons/possibly-sleet-day.svg',
-      'possibly-sleet-night': 'assets/weather_icons/possibly-sleet-night.svg',
-      'possibly-snow-day': 'assets/weather_icons/possibly-snow-day.svg',
-      'possibly-snow-night': 'assets/weather_icons/possibly-snow-night.svg',
-      'possibly-thunderstorm-day': 'assets/weather_icons/possibly-thunderstorm-day.svg',
-      'possibly-thunderstorm-night': 'assets/weather_icons/possibly-thunderstorm-night.svg',
-      'rainy': 'assets/weather_icons/rainy.svg',
-      'sleet': 'assets/weather_icons/sleet.svg',
-      'snow': 'assets/weather_icons/snow.svg',
-      'thunderstorm': 'assets/weather_icons/thunderstorm.svg',
-      'windy': 'assets/weather_icons/windy.svg',
-    };
-    return iconMap[icon] ?? 'assets/weather_icons/cloudy.svg';
+    if (icon == null) return 'assets/weather_icons/bas_weather/production/fill/all/cloudy.svg';
+
+    // Check if it's a WMO code - use HourlyForecast's mapping
+    if (HourlyForecast.wmoIconMap.containsKey(icon)) {
+      final iconName = HourlyForecast.wmoIconMap[icon]!['day']!;
+      return 'assets/weather_icons/bas_weather/production/fill/all/$iconName.svg';
+    }
+
+    // Map common icon names to BAS weather icons
+    final mappedIcon = HourlyForecast.basIconMap[icon?.toLowerCase()];
+    if (mappedIcon != null) {
+      return 'assets/weather_icons/bas_weather/production/fill/all/$mappedIcon.svg';
+    }
+
+    return 'assets/weather_icons/bas_weather/production/fill/all/cloudy.svg';
   }
 
   IconData get fallbackIcon {
@@ -190,9 +183,111 @@ class HourlyForecast {
     this.windDirection,
   });
 
+  /// WMO weather code to BAS weather icon mapping
+  /// Based on https://gist.github.com/stellasphere/9490c195ed2b53c707087c8c2db4ec0c
+  static const wmoIconMap = {
+    // Clear sky
+    '0': {'day': 'clear-day', 'night': 'clear-night'},
+    // Mainly clear
+    '1': {'day': 'clear-day', 'night': 'clear-night'},
+    // Partly cloudy
+    '2': {'day': 'partly-cloudy-day', 'night': 'partly-cloudy-night'},
+    // Overcast
+    '3': {'day': 'overcast', 'night': 'overcast'},
+    // Fog
+    '45': {'day': 'fog', 'night': 'fog'},
+    // Depositing rime fog
+    '48': {'day': 'fog', 'night': 'fog'},
+    // Drizzle: Light
+    '51': {'day': 'drizzle', 'night': 'drizzle'},
+    // Drizzle: Moderate
+    '53': {'day': 'drizzle', 'night': 'drizzle'},
+    // Drizzle: Dense
+    '55': {'day': 'drizzle', 'night': 'drizzle'},
+    // Freezing Drizzle: Light
+    '56': {'day': 'sleet', 'night': 'sleet'},
+    // Freezing Drizzle: Dense
+    '57': {'day': 'sleet', 'night': 'sleet'},
+    // Rain: Slight
+    '61': {'day': 'partly-cloudy-day-rain', 'night': 'partly-cloudy-night-rain'},
+    // Rain: Moderate
+    '63': {'day': 'rain', 'night': 'rain'},
+    // Rain: Heavy
+    '65': {'day': 'rain', 'night': 'rain'},
+    // Freezing Rain: Light
+    '66': {'day': 'sleet', 'night': 'sleet'},
+    // Freezing Rain: Heavy
+    '67': {'day': 'sleet', 'night': 'sleet'},
+    // Snow fall: Slight
+    '71': {'day': 'partly-cloudy-day-snow', 'night': 'partly-cloudy-night-snow'},
+    // Snow fall: Moderate
+    '73': {'day': 'snow', 'night': 'snow'},
+    // Snow fall: Heavy
+    '75': {'day': 'snow', 'night': 'snow'},
+    // Snow grains
+    '77': {'day': 'snow', 'night': 'snow'},
+    // Rain showers: Slight
+    '80': {'day': 'partly-cloudy-day-rain', 'night': 'partly-cloudy-night-rain'},
+    // Rain showers: Moderate
+    '81': {'day': 'rain', 'night': 'rain'},
+    // Rain showers: Violent
+    '82': {'day': 'rain', 'night': 'rain'},
+    // Snow showers: Slight
+    '85': {'day': 'partly-cloudy-day-snow', 'night': 'partly-cloudy-night-snow'},
+    // Snow showers: Heavy
+    '86': {'day': 'snow', 'night': 'snow'},
+    // Thunderstorm: Slight or moderate
+    '95': {'day': 'thunderstorms', 'night': 'thunderstorms'},
+    // Thunderstorm with slight hail
+    '96': {'day': 'thunderstorms-rain', 'night': 'thunderstorms-rain'},
+    // Thunderstorm with heavy hail
+    '99': {'day': 'thunderstorms-rain', 'night': 'thunderstorms-rain'},
+  };
+
+  /// Map common icon names to BAS weather icons (public for reuse)
+  static const basIconMap = {
+    'clear-day': 'clear-day',
+    'clear-night': 'clear-night',
+    'cloudy': 'cloudy',
+    'foggy': 'fog',
+    'fog': 'fog',
+    'mist': 'mist',
+    'partly-cloudy-day': 'partly-cloudy-day',
+    'partly-cloudy-night': 'partly-cloudy-night',
+    'possibly-rainy-day': 'partly-cloudy-day-rain',
+    'possibly-rainy-night': 'partly-cloudy-night-rain',
+    'possibly-sleet-day': 'partly-cloudy-day-sleet',
+    'possibly-sleet-night': 'partly-cloudy-night-sleet',
+    'possibly-snow-day': 'partly-cloudy-day-snow',
+    'possibly-snow-night': 'partly-cloudy-night-snow',
+    'possibly-thunderstorm-day': 'thunderstorms-day',
+    'possibly-thunderstorm-night': 'thunderstorms-night',
+    'rainy': 'rain',
+    'rain': 'rain',
+    'sleet': 'sleet',
+    'snow': 'snow',
+    'thunderstorm': 'thunderstorms',
+    'thunderstorms': 'thunderstorms',
+    'windy': 'wind',
+    'wind': 'wind',
+    'overcast': 'overcast',
+    'overcast-day': 'overcast-day',
+    'overcast-night': 'overcast-night',
+    'drizzle': 'drizzle',
+    'hail': 'hail',
+  };
+
   /// Get asset path for weather icon
   String get weatherIconAsset {
-    if (icon == null) return 'assets/weather_icons/cloudy.svg';
+    if (icon == null) return 'assets/weather_icons/bas_weather/production/fill/all/cloudy.svg';
+
+    // Check if it's a WMO code (numeric string like "0", "45", "95")
+    if (wmoIconMap.containsKey(icon)) {
+      final isDay = _isCurrentlyDay();
+      final dayNight = isDay ? 'day' : 'night';
+      final iconName = wmoIconMap[icon]![dayNight]!;
+      return 'assets/weather_icons/bas_weather/production/fill/all/$iconName.svg';
+    }
 
     // Check if it's a Meteoblue icon (e.g., "07_night.svg")
     if (icon!.contains('_') && icon!.endsWith('.svg')) {
@@ -201,29 +296,23 @@ class HourlyForecast {
       return 'assets/weather_icons/meteoblue_specific/monochrome_hollow_hourly/${baseName}_monochrome_hollow.svg';
     }
 
-    // Map WeatherFlow icon codes to local SVG assets
-    const iconMap = {
-      'clear-day': 'assets/weather_icons/clear-day.svg',
-      'clear-night': 'assets/weather_icons/clear-night.svg',
-      'cloudy': 'assets/weather_icons/cloudy.svg',
-      'foggy': 'assets/weather_icons/foggy.svg',
-      'partly-cloudy-day': 'assets/weather_icons/partly-cloudy-day.svg',
-      'partly-cloudy-night': 'assets/weather_icons/partly-cloudy-night.svg',
-      'possibly-rainy-day': 'assets/weather_icons/possibly-rainy-day.svg',
-      'possibly-rainy-night': 'assets/weather_icons/possibly-rainy-night.svg',
-      'possibly-sleet-day': 'assets/weather_icons/possibly-sleet-day.svg',
-      'possibly-sleet-night': 'assets/weather_icons/possibly-sleet-night.svg',
-      'possibly-snow-day': 'assets/weather_icons/possibly-snow-day.svg',
-      'possibly-snow-night': 'assets/weather_icons/possibly-snow-night.svg',
-      'possibly-thunderstorm-day': 'assets/weather_icons/possibly-thunderstorm-day.svg',
-      'possibly-thunderstorm-night': 'assets/weather_icons/possibly-thunderstorm-night.svg',
-      'rainy': 'assets/weather_icons/rainy.svg',
-      'sleet': 'assets/weather_icons/sleet.svg',
-      'snow': 'assets/weather_icons/snow.svg',
-      'thunderstorm': 'assets/weather_icons/thunderstorm.svg',
-      'windy': 'assets/weather_icons/windy.svg',
-    };
-    return iconMap[icon] ?? 'assets/weather_icons/cloudy.svg';
+    // Check if it's already a BAS weather icon name
+    final mappedIcon = basIconMap[icon?.toLowerCase()];
+    if (mappedIcon != null) {
+      return 'assets/weather_icons/bas_weather/production/fill/all/$mappedIcon.svg';
+    }
+
+    // Fallback
+    return 'assets/weather_icons/bas_weather/production/fill/all/cloudy.svg';
+  }
+
+  /// Determine if it's currently daytime based on the hour field
+  bool _isCurrentlyDay() {
+    // Use the hour offset to estimate the time
+    final now = DateTime.now();
+    final forecastTime = now.add(Duration(hours: hour));
+    final forecastHour = forecastTime.hour;
+    return forecastHour >= 6 && forecastHour < 18;
   }
 
   /// Fallback Flutter icon if asset not available
