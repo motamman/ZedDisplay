@@ -86,9 +86,10 @@ class WeatherApiForecast {
     // UV index
     double? uv = (outside['uvIndex'] as num?)?.toDouble();
 
-    // Description and derive icon from conditions
+    // Description and icon
     String? conditions = json['description'] as String?;
-    String? icon = _deriveIconFromConditions(conditions, time);
+    // Use icon from API if provided (Meteoblue), otherwise derive from conditions
+    String? icon = json['icon'] as String? ?? _deriveIconFromConditions(conditions, time);
 
     return WeatherApiForecast(
       time: time,
@@ -216,9 +217,14 @@ class WeatherApiForecast {
 }
 
 /// Service to fetch weather data from SignalK Weather API
+/// Uses a static cache to share data across all widgets with the same provider
 class WeatherApiService extends ChangeNotifier {
   final SignalKService _signalKService;
   final String? _provider;
+
+  // Static cache of instances by provider key
+  static final Map<String, WeatherApiService> _instances = {};
+  static final Map<String, int> _refCounts = {};
 
   List<WeatherApiForecast> _hourlyForecasts = [];
   DateTime? _lastFetch;
@@ -231,11 +237,23 @@ class WeatherApiService extends ChangeNotifier {
   // Auto-refresh interval
   static const Duration _refreshInterval = Duration(minutes: 30);
 
-  WeatherApiService(this._signalKService, {String? provider}) : _provider = provider {
-    // Listen for connection changes
-    _signalKService.addListener(_onConnectionChanged);
+  /// Get or create a shared instance for the given provider
+  factory WeatherApiService(SignalKService signalKService, {String? provider}) {
+    final key = provider ?? '_default_';
 
-    // Start auto-refresh timer
+    if (_instances.containsKey(key)) {
+      _refCounts[key] = (_refCounts[key] ?? 0) + 1;
+      return _instances[key]!;
+    }
+
+    final instance = WeatherApiService._internal(signalKService, provider: provider);
+    _instances[key] = instance;
+    _refCounts[key] = 1;
+    return instance;
+  }
+
+  WeatherApiService._internal(this._signalKService, {String? provider}) : _provider = provider {
+    // Start auto-refresh timer (every 30 minutes)
     _refreshTimer = Timer.periodic(_refreshInterval, (_) => fetchForecasts());
   }
 
@@ -245,12 +263,6 @@ class WeatherApiService extends ChangeNotifier {
   bool get isLoading => _isLoading;
   String? get errorMessage => _errorMessage;
   bool get hasData => _hourlyForecasts.isNotEmpty;
-
-  void _onConnectionChanged() {
-    if (_signalKService.isConnected && _hourlyForecasts.isEmpty) {
-      fetchForecasts();
-    }
-  }
 
   /// Fetch forecasts from SignalK Weather API
   Future<void> fetchForecasts({bool force = false}) async {
@@ -395,10 +407,26 @@ class WeatherApiService extends ChangeNotifier {
     return null;
   }
 
+  /// Release this instance - decrements ref count but keeps instance alive for caching
+  void release() {
+    final key = _provider ?? '_default_';
+    final count = (_refCounts[key] ?? 1) - 1;
+    _refCounts[key] = count < 0 ? 0 : count;
+    // Keep instance alive for caching - don't dispose even when ref count is 0
+  }
+
+  /// Force dispose all instances (call on app shutdown or SignalK disconnect)
+  static void disposeAll() {
+    for (final instance in _instances.values) {
+      instance._refreshTimer?.cancel();
+    }
+    _instances.clear();
+    _refCounts.clear();
+  }
+
   @override
   void dispose() {
-    _refreshTimer?.cancel();
-    _signalKService.removeListener(_onConnectionChanged);
-    super.dispose();
+    // Don't call super.dispose() directly - use release() or disposeAll()
+    // This prevents accidental disposal of shared instances
   }
 }

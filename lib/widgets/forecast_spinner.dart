@@ -316,54 +316,54 @@ class _ForecastSpinnerState extends State<ForecastSpinner>
     // Scale factor based on reference size of 200px for center content
     final scale = (centerSize / 200).clamp(0.6, 1.2);
 
-    return Padding(
-      padding: EdgeInsets.all(8 * scale),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          // Time label
-          Text(
-            _formatSelectedTime(time),
-            style: TextStyle(
-              fontSize: 14 * scale,
-              fontWeight: FontWeight.bold,
-              color: isDark ? Colors.white70 : Colors.black54,
+    return Stack(
+      alignment: Alignment.center,
+      children: [
+        // Weather icon as background - fills the middle area
+        Positioned.fill(
+          child: Padding(
+            padding: EdgeInsets.all(centerSize * 0.15),
+            child: Opacity(
+              opacity: 0.25,
+              child: SvgPicture.asset(
+                forecast.weatherIconAsset,
+                fit: BoxFit.contain,
+                placeholderBuilder: (context) => Icon(
+                  forecast.fallbackIcon,
+                  size: centerSize * 0.5,
+                  color: _getWeatherIconColor(forecast.icon),
+                ),
+              ),
             ),
           ),
-          SizedBox(height: 2 * scale),
-
-          // Weather icon and conditions
-          Row(
+        ),
+        // Data content on top
+        Padding(
+          padding: EdgeInsets.all(8 * scale),
+          child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              SizedBox(
-                width: 32 * scale,
-                height: 32 * scale,
-                child: SvgPicture.asset(
-                  forecast.weatherIconAsset,
-                  width: 32 * scale,
-                  height: 32 * scale,
-                  placeholderBuilder: (context) => Icon(
-                    forecast.fallbackIcon,
-                    size: 32 * scale,
-                    color: _getWeatherIconColor(forecast.icon),
-                  ),
+              // Time label
+              Text(
+                _formatSelectedTime(time),
+                style: TextStyle(
+                  fontSize: 14 * scale,
+                  fontWeight: FontWeight.bold,
+                  color: isDark ? Colors.white70 : Colors.black54,
                 ),
               ),
-              SizedBox(width: 6 * scale),
-              Flexible(
-                child: Text(
-                  forecast.conditions ?? '',
-                  style: TextStyle(
-                    fontSize: 11 * scale,
-                    color: isDark ? Colors.white60 : Colors.black45,
-                  ),
-                  overflow: TextOverflow.ellipsis,
+              SizedBox(height: 2 * scale),
+
+              // Conditions text only (icon is now in background)
+              Text(
+                forecast.conditions ?? '',
+                style: TextStyle(
+                  fontSize: 11 * scale,
+                  color: isDark ? Colors.white60 : Colors.black45,
                 ),
+                overflow: TextOverflow.ellipsis,
               ),
-            ],
-          ),
-          SizedBox(height: 4 * scale),
+              SizedBox(height: 4 * scale),
 
           // Temperature (large)
           Text(
@@ -448,9 +448,11 @@ class _ForecastSpinnerState extends State<ForecastSpinner>
               ),
             ),
 
-          SizedBox(height: 16 * scale), // Space for button area
-        ],
-      ),
+              SizedBox(height: 16 * scale), // Space for button area
+            ],
+          ),
+        ),
+      ],
     );
   }
 

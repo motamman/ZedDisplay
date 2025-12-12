@@ -263,6 +263,23 @@ class _DashboardScreenState extends State<DashboardScreen> {
             );
           }
 
+          // Block until conversions are loaded (only check if connected)
+          if (service.isConnected && !service.hasConversions) {
+            return const Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  CircularProgressIndicator(),
+                  SizedBox(height: 16),
+                  Text(
+                    'Loading unit conversions...',
+                    style: TextStyle(fontSize: 16, color: Colors.grey),
+                  ),
+                ],
+              ),
+            );
+          }
+
           // Extract common marine data paths (already converted by units-preference plugin)
           final speedOverGround = service.getConvertedValue('navigation.speedOverGround') ?? 0.0;
           final speedThroughWater = service.getConvertedValue('navigation.speedThroughWater') ?? 0.0;

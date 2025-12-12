@@ -188,8 +188,17 @@ class HourlyForecast {
     this.windDirection,
   });
 
-  /// Get asset path for weather icon based on icon code from WeatherFlow
+  /// Get asset path for weather icon
   String get weatherIconAsset {
+    if (icon == null) return 'assets/weather_icons/cloudy.svg';
+
+    // Check if it's a Meteoblue icon (e.g., "07_night.svg")
+    if (icon!.contains('_') && icon!.endsWith('.svg')) {
+      // Convert to monochrome hollow version
+      final baseName = icon!.replaceAll('.svg', '');
+      return 'assets/weather_icons/meteoblue_specific/monochrome_hollow_hourly/${baseName}_monochrome_hollow.svg';
+    }
+
     // Map WeatherFlow icon codes to local SVG assets
     const iconMap = {
       'clear-day': 'assets/weather_icons/clear-day.svg',

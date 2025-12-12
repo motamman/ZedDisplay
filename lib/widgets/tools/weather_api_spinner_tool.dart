@@ -54,7 +54,7 @@ class _WeatherApiSpinnerToolState extends State<WeatherApiSpinnerTool> {
   @override
   void dispose() {
     _weatherService?.removeListener(_onDataChanged);
-    _weatherService?.dispose();
+    _weatherService?.release();
     _weatherService = null;
     super.dispose();
   }
@@ -65,13 +65,21 @@ class _WeatherApiSpinnerToolState extends State<WeatherApiSpinnerTool> {
     }
   }
 
-  // Reference paths for unit conversions (from WeatherFlow delta paths)
-  static const _tempPath = 'environment.outside.tempest.forecast.hourly.airTemperature.0';
-  static const _windPath = 'environment.outside.tempest.forecast.hourly.windAvg.0';
-  static const _pressurePath = 'environment.outside.tempest.forecast.hourly.seaLevelPressure.0';
-  static const _humidityPath = 'environment.outside.tempest.forecast.hourly.relativeHumidity.0';
-  static const _precipPath = 'environment.outside.tempest.forecast.hourly.precipProbability.0';
-  static const _windDirPath = 'environment.outside.tempest.forecast.hourly.windDirection.0';
+  // Build conversion path based on provider source
+  String _getConversionPath(String field) {
+    final provider = _weatherService?.provider;
+    String source = 'meteoblue'; // default
+    if (provider != null && provider.startsWith('signalk-')) {
+      source = provider.substring(8); // remove "signalk-" prefix
+    } else if (provider != null && provider.isNotEmpty) {
+      source = provider;
+    }
+    // WeatherFlow uses 'tempest' as the source name
+    if (source == 'weatherflow') {
+      source = 'tempest';
+    }
+    return 'environment.outside.$source.forecast.hourly.$field.0';
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -82,10 +90,10 @@ class _WeatherApiSpinnerToolState extends State<WeatherApiSpinnerTool> {
       fallback: Colors.blue,
     ) ?? Colors.blue;
 
-    // Get unit symbols from SignalK conversions (same as WeatherFlow spinner)
-    final tempUnit = widget.signalKService.getUnitSymbol(_tempPath) ?? '°F';
-    final windUnit = widget.signalKService.getUnitSymbol(_windPath) ?? 'kn';
-    final pressureUnit = widget.signalKService.getUnitSymbol(_pressurePath) ?? 'hPa';
+    // Get unit symbols from SignalK conversions
+    final tempUnit = widget.signalKService.getUnitSymbol(_getConversionPath('airTemperature')) ?? '';
+    final windUnit = widget.signalKService.getUnitSymbol(_getConversionPath('windAvg')) ?? '';
+    final pressureUnit = widget.signalKService.getUnitSymbol(_getConversionPath('seaLevelPressure')) ?? '';
 
     // Convert API forecasts to HourlyForecast objects using ConversionUtils
     final hourlyForecasts = _buildHourlyForecasts();
@@ -183,28 +191,28 @@ class _WeatherApiSpinnerToolState extends State<WeatherApiSpinnerTool> {
       final hoursFromNow = apiFC.time.difference(now).inMinutes / 60.0;
       if (hoursFromNow < -1) continue; // Skip past forecasts
 
-      // Apply conversions using ConversionUtils (same as WeatherFlow spinner)
+      // Apply conversions using ConversionUtils
       // Raw values from API are in SI units (Kelvin, Pa, m/s, radians, ratios)
       final temp = apiFC.airTemperature != null
-          ? ConversionUtils.convertValue(service, _tempPath, apiFC.airTemperature!)
+          ? ConversionUtils.convertValue(service, _getConversionPath('airTemperature'), apiFC.airTemperature!)
           : null;
       final feelsLike = apiFC.feelsLike != null
-          ? ConversionUtils.convertValue(service, _tempPath, apiFC.feelsLike!)
+          ? ConversionUtils.convertValue(service, _getConversionPath('airTemperature'), apiFC.feelsLike!)
           : null;
       final windSpeed = apiFC.windAvg != null
-          ? ConversionUtils.convertValue(service, _windPath, apiFC.windAvg!)
+          ? ConversionUtils.convertValue(service, _getConversionPath('windAvg'), apiFC.windAvg!)
           : null;
       final windDir = apiFC.windDirection != null
-          ? ConversionUtils.convertValue(service, _windDirPath, apiFC.windDirection!)
+          ? ConversionUtils.convertValue(service, _getConversionPath('windDirection'), apiFC.windDirection!)
           : null;
       final pressure = apiFC.pressure != null
-          ? ConversionUtils.convertValue(service, _pressurePath, apiFC.pressure!)
+          ? ConversionUtils.convertValue(service, _getConversionPath('seaLevelPressure'), apiFC.pressure!)
           : null;
       final humidity = apiFC.relativeHumidity != null
-          ? ConversionUtils.convertValue(service, _humidityPath, apiFC.relativeHumidity!)
+          ? ConversionUtils.convertValue(service, _getConversionPath('relativeHumidity'), apiFC.relativeHumidity!)
           : null;
       final precipProb = apiFC.precipProbability != null
-          ? ConversionUtils.convertValue(service, _precipPath, apiFC.precipProbability!)
+          ? ConversionUtils.convertValue(service, _getConversionPath('precipProbability'), apiFC.precipProbability!)
           : null;
 
       forecasts.add(HourlyForecast(
