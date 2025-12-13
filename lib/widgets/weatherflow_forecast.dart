@@ -289,8 +289,19 @@ class HourlyForecast {
       return 'assets/weather_icons/bas_weather/production/fill/all/$iconName.svg';
     }
 
+    // Check if it's OpenMeteo WMO format (e.g., "wmo_0_day.svg", "wmo_45_night.svg")
+    final wmoMatch = RegExp(r'wmo_(\d+)_(day|night)\.svg').firstMatch(icon!);
+    if (wmoMatch != null) {
+      final wmoCode = wmoMatch.group(1)!;
+      final dayNight = wmoMatch.group(2)!;
+      if (wmoIconMap.containsKey(wmoCode)) {
+        final iconName = wmoIconMap[wmoCode]![dayNight]!;
+        return 'assets/weather_icons/bas_weather/production/fill/all/$iconName.svg';
+      }
+    }
+
     // Check if it's a Meteoblue icon (e.g., "07_night.svg")
-    if (icon!.contains('_') && icon!.endsWith('.svg')) {
+    if (icon!.contains('_') && icon!.endsWith('.svg') && !icon!.startsWith('wmo_')) {
       // Convert to monochrome hollow version
       final baseName = icon!.replaceAll('.svg', '');
       return 'assets/weather_icons/meteoblue_specific/monochrome_hollow_hourly/${baseName}_monochrome_hollow.svg';

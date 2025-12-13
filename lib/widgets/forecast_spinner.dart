@@ -21,6 +21,9 @@ class ForecastSpinner extends StatefulWidget {
   /// Primary accent color
   final Color primaryColor;
 
+  /// Provider name to display
+  final String? providerName;
+
   /// Callback when selected hour changes
   final void Function(int hourOffset)? onHourChanged;
 
@@ -32,6 +35,7 @@ class ForecastSpinner extends StatefulWidget {
     this.windUnit = 'kn',
     this.pressureUnit = 'hPa',
     this.primaryColor = Colors.blue,
+    this.providerName,
     this.onHourChanged,
   });
 
@@ -273,6 +277,23 @@ class _ForecastSpinnerState extends State<ForecastSpinner>
                     ),
                   ),
                 ),
+
+              // Provider name in top left
+              if (widget.providerName != null && widget.providerName!.isNotEmpty)
+                Positioned(
+                  top: 4 * scale,
+                  left: 4 * scale,
+                  child: IgnorePointer(
+                    child: Text(
+                      widget.providerName!,
+                      style: TextStyle(
+                        fontSize: 10 * scale,
+                        fontWeight: FontWeight.w500,
+                        color: isDark ? Colors.white54 : Colors.black45,
+                      ),
+                    ),
+                  ),
+                ),
             ],
           ),
         );
@@ -324,7 +345,7 @@ class _ForecastSpinnerState extends State<ForecastSpinner>
           child: Padding(
             padding: EdgeInsets.all(centerSize * 0.15),
             child: Opacity(
-              opacity: 0.25,
+              opacity: 0.40,
               child: SvgPicture.asset(
                 forecast.weatherIconAsset,
                 fit: BoxFit.contain,
