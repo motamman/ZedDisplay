@@ -20,7 +20,9 @@ class TanksTool extends StatelessWidget {
   /// Colors for tank types by ID
   static const Map<String, Color> tankTypeColors = {
     'diesel': Color(0xFFE91E63), // Pink
-    'gas': Color(0xFFFF5722), // Deep Orange (Petrol/Gas)
+    'petrol': Color(0xFFFF5722), // Deep Orange
+    'gasoline': Color(0xFFFF5722), // Deep Orange (same as petrol)
+    'propane': Color(0xFF2E7D32), // Dark Green
     'freshWater': Color(0xFF2196F3), // Blue
     'blackWater': Color(0xFF5D4037), // Brown
     'wasteWater': Color(0xFF795548), // Brown lighter
@@ -63,6 +65,24 @@ class TanksTool extends StatelessWidget {
     return dataSource.path.toReadableLabel();
   }
 
+  /// Get display name for a tank type ID
+  String? _getTankTypeName(String? typeId) {
+    if (typeId == null) return null;
+    const typeNames = {
+      'diesel': 'Diesel',
+      'petrol': 'Petrol',
+      'gasoline': 'Gas',
+      'propane': 'Propane',
+      'freshWater': 'Fresh',
+      'blackWater': 'Black',
+      'wasteWater': 'Waste',
+      'liveWell': 'Live',
+      'lubrication': 'Lube',
+      'ballast': 'Ballast',
+    };
+    return typeNames[typeId];
+  }
+
   @override
   Widget build(BuildContext context) {
     if (config.dataSources.isEmpty) {
@@ -73,27 +93,50 @@ class TanksTool extends StatelessWidget {
 
     final style = config.style;
     final showCapacity = style.customProperties?['showCapacity'] as bool? ?? false;
+    final toolLabel = style.customProperties?['label'] as String?;
+    final showToolLabel = style.showLabel == true && toolLabel != null && toolLabel.isNotEmpty;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return Padding(
       padding: const EdgeInsets.all(8.0),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: config.dataSources.asMap().entries.map((entry) {
-          final index = entry.key;
-          final dataSource = entry.value;
-          return Expanded(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 4.0),
-              child: _buildTank(
-                context,
-                dataSource,
-                index,
-                showCapacity,
+      child: Column(
+        children: [
+          // Tool label at top
+          if (showToolLabel) ...[
+            Text(
+              toolLabel,
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.bold,
+                color: isDark ? Colors.white : Colors.black87,
               ),
+              textAlign: TextAlign.center,
             ),
-          );
-        }).toList(),
+            const SizedBox(height: 8),
+          ],
+          // Tank row
+          Expanded(
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: config.dataSources.asMap().entries.map((entry) {
+                final index = entry.key;
+                final dataSource = entry.value;
+                return Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 4.0),
+                    child: _buildTank(
+                      context,
+                      dataSource,
+                      index,
+                      showCapacity,
+                    ),
+                  ),
+                );
+              }).toList(),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -144,6 +187,14 @@ class TanksTool extends StatelessWidget {
       remainingText = '${remaining.toStringAsFixed(0)}${unit.isNotEmpty ? ' $unit' : ''}';
     }
 
+    // Get tank type name for display inside tank
+    final tankTypes = config.style.customProperties?['tankTypes'] as List?;
+    String? tankTypeName;
+    if (tankTypes != null && index < tankTypes.length) {
+      final typeId = tankTypes[index]?.toString();
+      tankTypeName = _getTankTypeName(typeId);
+    }
+
     return Column(
       children: [
         // Label at top
@@ -160,7 +211,7 @@ class TanksTool extends StatelessWidget {
         ),
         const SizedBox(height: 4),
 
-        // Total capacity at top
+        // Total capacity
         if (showCapacity && capacityText != null)
           Text(
             capacityText,
@@ -170,7 +221,8 @@ class TanksTool extends StatelessWidget {
             ),
           ),
 
-        const SizedBox(height: 2),
+        if (showCapacity && capacityText != null)
+          const SizedBox(height: 2),
 
         // Tank visualization
         Expanded(
@@ -180,6 +232,7 @@ class TanksTool extends StatelessWidget {
             isDataFresh: isDataFresh,
             isDark: isDark,
             remainingText: showCapacity ? remainingText : null,
+            tankTypeName: tankTypeName,
           ),
         ),
       ],
@@ -194,6 +247,7 @@ class _TankVisual extends StatelessWidget {
   final bool isDataFresh;
   final bool isDark;
   final String? remainingText;
+  final String? tankTypeName;
 
   const _TankVisual({
     required this.levelPercent,
@@ -201,6 +255,7 @@ class _TankVisual extends StatelessWidget {
     required this.isDataFresh,
     required this.isDark,
     this.remainingText,
+    this.tankTypeName,
   });
 
   @override
@@ -265,10 +320,10 @@ class _TankVisual extends StatelessWidget {
                         ],
                       ),
                     ),
-                  // Show at bottom if level too low
+                  // Show percentage at bottom if level too low
                   if (isDataFresh && levelPercent <= 5)
                     Positioned(
-                      bottom: 4,
+                      bottom: tankTypeName != null ? 20 : 4,
                       left: 0,
                       right: 0,
                       child: Text(
@@ -277,6 +332,28 @@ class _TankVisual extends StatelessWidget {
                           fontSize: 11,
                           fontWeight: FontWeight.bold,
                           color: isDark ? Colors.white70 : Colors.black54,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                  // Tank type name at bottom inside the liquid
+                  if (tankTypeName != null && isDataFresh && levelPercent > 10)
+                    Positioned(
+                      bottom: 4,
+                      left: 0,
+                      right: 0,
+                      child: Text(
+                        tankTypeName!,
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w600,
+                          color: _getContrastColor(color),
+                          shadows: [
+                            Shadow(
+                              color: Colors.black.withValues(alpha: 0.5),
+                              blurRadius: 2,
+                            ),
+                          ],
                         ),
                         textAlign: TextAlign.center,
                       ),
@@ -447,6 +524,8 @@ class TanksToolBuilder extends ToolBuilder {
         minPaths: 1,
         maxPaths: 5,
         styleOptions: const [
+          'showLabel',
+          'label',
           'showCapacity',
           'tankTypes',
         ],

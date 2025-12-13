@@ -16,7 +16,9 @@ class TankType {
 /// Available tank types
 const List<TankType> tankTypes = [
   TankType('diesel', 'Diesel', Color(0xFFE91E63)),
-  TankType('gas', 'Petrol/Gas', Color(0xFFFF5722)),
+  TankType('petrol', 'Petrol', Color(0xFFFF5722)),
+  TankType('gasoline', 'Gasoline', Color(0xFFFF5722)),
+  TankType('propane', 'Propane', Color(0xFF2E7D32)),
   TankType('freshWater', 'Fresh Water', Color(0xFF2196F3)),
   TankType('blackWater', 'Black Water', Color(0xFF5D4037)),
   TankType('wasteWater', 'Waste Water', Color(0xFF795548)),
@@ -38,12 +40,16 @@ class TanksConfigurator extends ToolConfigurator {
   // State - only style options, NOT paths
   List<String> tankTypeIds = [];
   bool showCapacity = false;
+  bool showLabel = false;
+  String label = '';
   int _dataSourceCount = 0; // Track how many data sources exist
 
   @override
   void reset() {
     tankTypeIds = [];
     showCapacity = false;
+    showLabel = false;
+    label = '';
     _dataSourceCount = 0;
   }
 
@@ -59,8 +65,10 @@ class TanksConfigurator extends ToolConfigurator {
   void loadFromTool(Tool tool) {
     _dataSourceCount = tool.config.dataSources.length;
     final style = tool.config.style;
+    showLabel = style.showLabel ?? false;
     if (style.customProperties != null) {
       showCapacity = style.customProperties!['showCapacity'] as bool? ?? false;
+      label = style.customProperties!['label'] as String? ?? '';
       final types = style.customProperties!['tankTypes'];
       if (types is List) {
         tankTypeIds = types.map((t) => t?.toString() ?? 'diesel').toList();
@@ -79,7 +87,9 @@ class TanksConfigurator extends ToolConfigurator {
   String _inferTypeFromPath(String path) {
     final lowerPath = path.toLowerCase();
     if (lowerPath.contains('diesel')) return 'diesel';
-    if (lowerPath.contains('petrol') || lowerPath.contains('gas')) return 'gas';
+    if (lowerPath.contains('petrol')) return 'petrol';
+    if (lowerPath.contains('gasoline')) return 'gasoline';
+    if (lowerPath.contains('propane') || lowerPath.contains('lpg')) return 'propane';
     if (lowerPath.contains('fuel')) return 'diesel';
     for (final type in tankTypes) {
       if (lowerPath.contains(type.id.toLowerCase())) {
@@ -95,8 +105,10 @@ class TanksConfigurator extends ToolConfigurator {
     return ToolConfig(
       dataSources: [], // Empty - screen manages this
       style: StyleConfig(
+        showLabel: showLabel,
         customProperties: {
           'showCapacity': showCapacity,
+          'label': label,
           'tankTypes': tankTypeIds,
         },
       ),
@@ -233,6 +245,34 @@ class TanksConfigurator extends ToolConfigurator {
                 'Display Options',
                 style: Theme.of(context).textTheme.titleSmall,
               ),
+              const SizedBox(height: 8),
+
+              // Tool Label
+              SwitchListTile(
+                title: const Text('Show Label'),
+                subtitle: const Text('Display a title above the tanks'),
+                value: showLabel,
+                onChanged: (value) {
+                  setState(() => showLabel = value);
+                },
+              ),
+              if (showLabel)
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: TextFormField(
+                    initialValue: label,
+                    decoration: const InputDecoration(
+                      labelText: 'Label',
+                      hintText: 'e.g., Tank Levels',
+                      border: OutlineInputBorder(),
+                    ),
+                    onChanged: (value) {
+                      label = value;
+                    },
+                  ),
+                ),
+              const SizedBox(height: 8),
+
               SwitchListTile(
                 title: const Text('Show Capacity'),
                 subtitle: const Text('Display remaining volume (requires capacity data)'),
