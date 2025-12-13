@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:phosphor_flutter/phosphor_flutter.dart';
 import '../../models/tool_definition.dart';
 import '../../models/tool_config.dart';
 import '../../services/signalk_service.dart';
@@ -28,7 +29,6 @@ class TanksTool extends StatelessWidget {
     'wasteWater': Color(0xFF795548), // Brown lighter
     'liveWell': Color(0xFF4CAF50), // Green
     'lubrication': Color(0xFF9C27B0), // Purple
-    'ballast': Color(0xFF607D8B), // Blue Grey
   };
 
   /// Get color for a tank based on configured type
@@ -65,22 +65,34 @@ class TanksTool extends StatelessWidget {
     return dataSource.path.toReadableLabel();
   }
 
-  /// Get display name for a tank type ID
-  String? _getTankTypeName(String? typeId) {
+  /// Icons for tank types (using Phosphor Icons)
+  static final Map<String, IconData> tankTypeIcons = {
+    'diesel': PhosphorIcons.gasPump(),
+    'petrol': PhosphorIcons.gasPump(),
+    'gasoline': PhosphorIcons.gasPump(),
+    'propane': PhosphorIcons.fire(),
+    'freshWater': PhosphorIcons.drop(),
+    'blackWater': PhosphorIcons.toilet(),
+    'wasteWater': PhosphorIcons.trash(),
+    'liveWell': PhosphorIcons.fish(),
+    'lubrication': PhosphorIcons.engine(),
+  };
+
+  /// Badge letters for tank types (null = no badge)
+  static const Map<String, String> tankTypeBadges = {
+    'diesel': 'D',
+  };
+
+  /// Get icon for a tank type ID
+  IconData? _getTankTypeIcon(String? typeId) {
     if (typeId == null) return null;
-    const typeNames = {
-      'diesel': 'Diesel',
-      'petrol': 'Petrol',
-      'gasoline': 'Gas',
-      'propane': 'Propane',
-      'freshWater': 'Fresh',
-      'blackWater': 'Black',
-      'wasteWater': 'Waste',
-      'liveWell': 'Live',
-      'lubrication': 'Lube',
-      'ballast': 'Ballast',
-    };
-    return typeNames[typeId];
+    return tankTypeIcons[typeId];
+  }
+
+  /// Get badge for a tank type ID
+  String? _getTankTypeBadge(String? typeId) {
+    if (typeId == null) return null;
+    return tankTypeBadges[typeId];
   }
 
   @override
@@ -187,12 +199,14 @@ class TanksTool extends StatelessWidget {
       remainingText = '${remaining.toStringAsFixed(0)}${unit.isNotEmpty ? ' $unit' : ''}';
     }
 
-    // Get tank type name for display inside tank
+    // Get tank type icon and badge for display inside tank
     final tankTypes = config.style.customProperties?['tankTypes'] as List?;
-    String? tankTypeName;
+    IconData? tankTypeIcon;
+    String? tankTypeBadge;
     if (tankTypes != null && index < tankTypes.length) {
       final typeId = tankTypes[index]?.toString();
-      tankTypeName = _getTankTypeName(typeId);
+      tankTypeIcon = _getTankTypeIcon(typeId);
+      tankTypeBadge = _getTankTypeBadge(typeId);
     }
 
     return Column(
@@ -232,7 +246,8 @@ class TanksTool extends StatelessWidget {
             isDataFresh: isDataFresh,
             isDark: isDark,
             remainingText: showCapacity ? remainingText : null,
-            tankTypeName: tankTypeName,
+            tankTypeIcon: tankTypeIcon,
+            tankTypeBadge: tankTypeBadge,
           ),
         ),
       ],
@@ -247,7 +262,8 @@ class _TankVisual extends StatelessWidget {
   final bool isDataFresh;
   final bool isDark;
   final String? remainingText;
-  final String? tankTypeName;
+  final IconData? tankTypeIcon;
+  final String? tankTypeBadge;
 
   const _TankVisual({
     required this.levelPercent,
@@ -255,7 +271,8 @@ class _TankVisual extends StatelessWidget {
     required this.isDataFresh,
     required this.isDark,
     this.remainingText,
-    this.tankTypeName,
+    this.tankTypeIcon,
+    this.tankTypeBadge,
   });
 
   @override
@@ -323,7 +340,7 @@ class _TankVisual extends StatelessWidget {
                   // Show percentage at bottom if level too low
                   if (isDataFresh && levelPercent <= 5)
                     Positioned(
-                      bottom: tankTypeName != null ? 20 : 4,
+                      bottom: tankTypeIcon != null ? 20 : 4,
                       left: 0,
                       right: 0,
                       child: Text(
@@ -336,26 +353,53 @@ class _TankVisual extends StatelessWidget {
                         textAlign: TextAlign.center,
                       ),
                     ),
-                  // Tank type name at bottom inside the liquid
-                  if (tankTypeName != null && isDataFresh && levelPercent > 10)
+                  // Tank type icon at bottom inside the liquid
+                  if (tankTypeIcon != null && isDataFresh && levelPercent > 10)
                     Positioned(
                       bottom: 4,
                       left: 0,
                       right: 0,
-                      child: Text(
-                        tankTypeName!,
-                        style: TextStyle(
-                          fontSize: 10,
-                          fontWeight: FontWeight.w600,
-                          color: _getContrastColor(color),
-                          shadows: [
-                            Shadow(
-                              color: Colors.black.withValues(alpha: 0.5),
-                              blurRadius: 2,
-                            ),
-                          ],
+                      child: Center(
+                        child: SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: Stack(
+                            clipBehavior: Clip.none,
+                            children: [
+                              Icon(
+                                tankTypeIcon,
+                                size: 16,
+                                color: _getContrastColor(color),
+                                shadows: [
+                                  Shadow(
+                                    color: Colors.black.withValues(alpha: 0.5),
+                                    blurRadius: 2,
+                                  ),
+                                ],
+                              ),
+                              if (tankTypeBadge != null)
+                                Positioned(
+                                  right: -2,
+                                  top: -2,
+                                  child: Container(
+                                    padding: const EdgeInsets.all(1),
+                                    decoration: BoxDecoration(
+                                      color: Colors.black.withValues(alpha: 0.6),
+                                      borderRadius: BorderRadius.circular(4),
+                                    ),
+                                    child: Text(
+                                      tankTypeBadge!,
+                                      style: TextStyle(
+                                        fontSize: 7,
+                                        fontWeight: FontWeight.bold,
+                                        color: _getContrastColor(color),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          ),
                         ),
-                        textAlign: TextAlign.center,
                       ),
                     ),
                   // Stale data indicator

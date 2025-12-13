@@ -24,7 +24,6 @@ const List<TankType> tankTypes = [
   TankType('wasteWater', 'Waste Water', Color(0xFF795548)),
   TankType('liveWell', 'Live Well', Color(0xFF4CAF50)),
   TankType('lubrication', 'Lubrication', Color(0xFF9C27B0)),
-  TankType('ballast', 'Ballast', Color(0xFF607D8B)),
 ];
 
 /// Configurator for tanks tool
