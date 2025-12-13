@@ -112,6 +112,7 @@ class SavedSetup {
   final String id;              // Unique setup ID
   final String name;            // Display name
   final String description;     // Description
+  final String? intendedUse;    // Optional: "Phone", "Tablet", "Desktop", or custom
   final DateTime createdAt;     // Creation time
   final DateTime? lastUsedAt;   // Last time this setup was active
   final bool isActive;          // Is this the currently active setup?
@@ -122,6 +123,7 @@ class SavedSetup {
     required this.id,
     required this.name,
     this.description = '',
+    this.intendedUse,
     required this.createdAt,
     this.lastUsedAt,
     this.isActive = false,
@@ -140,6 +142,7 @@ class SavedSetup {
       id: setup.layout.id,
       name: setup.metadata.name,
       description: setup.metadata.description,
+      intendedUse: setup.layout.intendedUse,
       createdAt: setup.metadata.createdAt,
       lastUsedAt: isActive ? DateTime.now() : null,
       isActive: isActive,
@@ -153,6 +156,8 @@ class SavedSetup {
     String? id,
     String? name,
     String? description,
+    String? intendedUse,
+    bool clearIntendedUse = false,
     DateTime? createdAt,
     DateTime? lastUsedAt,
     bool? isActive,
@@ -163,6 +168,7 @@ class SavedSetup {
       id: id ?? this.id,
       name: name ?? this.name,
       description: description ?? this.description,
+      intendedUse: clearIntendedUse ? null : (intendedUse ?? this.intendedUse),
       createdAt: createdAt ?? this.createdAt,
       lastUsedAt: lastUsedAt ?? this.lastUsedAt,
       isActive: isActive ?? this.isActive,

@@ -74,9 +74,11 @@ class _WeatherApiSpinnerToolState extends State<WeatherApiSpinnerTool> {
     } else if (provider != null && provider.isNotEmpty) {
       source = provider;
     }
-    // WeatherFlow uses 'tempest' as the source name
+    // Normalize provider names to match SignalK conversion paths
     if (source == 'weatherflow') {
       source = 'tempest';
+    } else if (source == 'open-meteo') {
+      source = 'openmeteo'; // SignalK path uses no hyphen
     }
     return 'environment.outside.$source.forecast.hourly.$field.0';
   }
@@ -171,7 +173,36 @@ class _WeatherApiSpinnerToolState extends State<WeatherApiSpinnerTool> {
       windUnit: windUnit,
       pressureUnit: pressureUnit,
       primaryColor: primaryColor,
+      providerName: _getProviderDisplayName(),
     );
+  }
+
+  /// Get a user-friendly provider display name
+  String? _getProviderDisplayName() {
+    final provider = _weatherService?.provider;
+    if (provider == null || provider.isEmpty) return null;
+
+    // Remove 'signalk-' prefix and format nicely
+    String name = provider;
+    if (name.startsWith('signalk-')) {
+      name = name.substring(8);
+    }
+
+    // Capitalize and format common provider names
+    switch (name.toLowerCase()) {
+      case 'open-meteo':
+      case 'openmeteo':
+        return 'Open-Meteo';
+      case 'meteoblue':
+        return 'Meteoblue';
+      case 'weatherflow':
+        return 'WeatherFlow';
+      default:
+        // Title case the name
+        return name.split('-').map((word) =>
+          word.isNotEmpty ? '${word[0].toUpperCase()}${word.substring(1)}' : ''
+        ).join(' ');
+    }
   }
 
   /// Convert WeatherApiForecast to HourlyForecast for the spinner
@@ -220,6 +251,7 @@ class _WeatherApiSpinnerToolState extends State<WeatherApiSpinnerTool> {
         temperature: temp,
         feelsLike: feelsLike,
         conditions: apiFC.conditions,
+        longDescription: apiFC.longDescription,
         icon: apiFC.icon,
         precipProbability: precipProb,
         humidity: humidity,

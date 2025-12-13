@@ -19,6 +19,7 @@ class WeatherApiForecast {
   final double? uv;
   final double? pressure; // Pa
   final String? conditions;
+  final String? longDescription;
   final String? icon;
 
   WeatherApiForecast({
@@ -35,6 +36,7 @@ class WeatherApiForecast {
     this.uv,
     this.pressure,
     this.conditions,
+    this.longDescription,
     this.icon,
   });
 
@@ -88,8 +90,10 @@ class WeatherApiForecast {
 
     // Description and icon
     String? conditions = json['description'] as String?;
-    // Use icon from API if provided (Meteoblue), otherwise derive from conditions
-    String? icon = json['icon'] as String? ?? _deriveIconFromConditions(conditions, time);
+    String? longDescription = json['longDescription'] as String?;
+    // Use icon from API if provided, otherwise derive from conditions
+    String? icon = json['icon'] as String?;
+    icon ??= _deriveIconFromConditions(conditions, time);
 
     return WeatherApiForecast(
       time: time,
@@ -105,6 +109,7 @@ class WeatherApiForecast {
       uv: uv,
       pressure: pressure,
       conditions: conditions,
+      longDescription: longDescription,
       icon: icon,
     );
   }

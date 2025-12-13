@@ -7,6 +7,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0+16] - 2025-12-13
+
+### Added
+- **Tanks Tool**: New tool for displaying up to 5 tank levels
+  - Visual tank level indicators with fill percentage
+  - Color-coded tank types (diesel, freshWater, blackWater, wasteWater, liveWell, lubrication, ballast, gas)
+  - Auto-detection of tank type from SignalK path
+  - Optional capacity display
+  - Custom labels per tank
+- **Weather API Spinner Tool**: Generic weather forecast using SignalK Weather API
+  - Works with any provider implementing `/signalk/v2/api/weather/forecasts/point`
+  - Supports Meteoblue, Open-Meteo, WeatherFlow/Tempest, and other providers
+  - Spinner-style hourly forecast display
+  - Provider name displayed in header
+  - Automatic unit conversions based on provider
+- **Weather Icons**: Added new weather icons for enhanced forecast display
+  - Lightning, moon phases, pressure, raindrop, thermometer icons
+  - BAS Weather Icons integration
+  - Meteoblue weather icons
+- **Sun/Moon Times**: Tomorrow's sunrise, sunset, moonrise, and moonset times in WeatherFlow forecast
+- **Long Description Support**: Weather API and dashboard layout now support detailed descriptions
+
+### Enhanced
+- **Control Tools Source Selection**: Control tools (slider, knob, dropdown, switch, checkbox) can now display values from specific SignalK sources
+  - Configure a data source to read from a specific source (e.g., "whatif-helper")
+  - Useful for displaying values from specific sensors or plugins
+- **PUT Request Inverse Conversion**: Control tools now properly convert display values back to raw SI values
+  - Uses inverse formulas from SignalK unit conversion system
+  - Example: Display shows 70%, PUT sends 0.70 (raw ratio)
+  - Fixes issue where converted values were being sent directly
+- **Forecast Provider Display**: Weather forecast tools now show the data provider name
+
+### Fixed
+- **Control Tool PUT Values**: Fixed issue where slider/knob/dropdown sent display values instead of raw values
+  - Added `convertToRaw()` method using inverse formulas
+  - All numeric control tools now send correct SI values
+- **Source Parameter in PUT**: Removed incorrect source parameter from PUT requests
+  - SignalK source field identifies the sender, not the target
+  - Control tools now write as the app's source identity
+
+### Technical
+- **Device ID Source Identification**: SignalK service includes device ID for write source identification
+- **Linux Compatibility**: Updated IntercomService and NotificationService for Linux platform support
+- **Conversion Utilities**: Added `convertToRaw()` for inverse unit conversions
+
 ## [0.4.7+15] - 2025-12-07
 
 ### Added

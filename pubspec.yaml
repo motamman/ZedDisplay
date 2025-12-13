@@ -1,7 +1,7 @@
 name: zed_display
 description: A SignalK data display app with gauges and charts
 publish_to: 'none'
-version: 0.4.7+15
+version: 0.5.0+16
 
 environment:
   sdk: '>=3.8.0 <4.0.0'
@@ -107,6 +107,7 @@ flutter:
     - assets/
     - assets/weather_icons/
     - assets/weather_icons/meteoblue_specific/monochrome_hollow_hourly/
+    - assets/weather_icons/bas_weather/production/fill/all/
 
 flutter_launcher_icons:
   android: true

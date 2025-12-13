@@ -10,6 +10,7 @@ DashboardLayout _$DashboardLayoutFromJson(Map<String, dynamic> json) =>
     DashboardLayout(
       id: json['id'] as String,
       name: json['name'] as String,
+      intendedUse: json['intendedUse'] as String?,
       screens: (json['screens'] as List<dynamic>)
           .map((e) => DashboardScreen.fromJson(e as Map<String, dynamic>))
           .toList(),
@@ -20,6 +21,7 @@ Map<String, dynamic> _$DashboardLayoutToJson(DashboardLayout instance) =>
     <String, dynamic>{
       'id': instance.id,
       'name': instance.name,
+      'intendedUse': instance.intendedUse,
       'screens': instance.screens,
       'activeScreenIndex': instance.activeScreenIndex,
     };

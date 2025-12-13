@@ -8,12 +8,14 @@ part 'dashboard_layout.g.dart';
 class DashboardLayout {
   final String id;              // Unique layout ID
   final String name;            // Display name (e.g., "Default", "Sailing", "Motorsailing")
+  final String? intendedUse;    // Optional: "Phone", "Tablet", "Desktop", or custom string
   final List<DashboardScreen> screens;
   final int activeScreenIndex;  // Currently active screen (0-based)
 
   DashboardLayout({
     required this.id,
     required this.name,
+    this.intendedUse,
     required this.screens,
     this.activeScreenIndex = 0,
   });
@@ -27,12 +29,15 @@ class DashboardLayout {
   DashboardLayout copyWith({
     String? id,
     String? name,
+    String? intendedUse,
+    bool clearIntendedUse = false,
     List<DashboardScreen>? screens,
     int? activeScreenIndex,
   }) {
     return DashboardLayout(
       id: id ?? this.id,
       name: name ?? this.name,
+      intendedUse: clearIntendedUse ? null : (intendedUse ?? this.intendedUse),
       screens: screens ?? this.screens,
       activeScreenIndex: activeScreenIndex ?? this.activeScreenIndex,
     );

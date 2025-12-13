@@ -12,7 +12,9 @@ A customizable SignalK marine dashboard application to display real-time vessel 
 - **signalk-parquet**: Allows some tools to display historic data for selected paths
 - **signalk-rpi-monitor**: Required for RPi Monitor tool (CPU, GPU temperature, memory, storage monitoring)
 - **signalk-rpi-uptime**: Required for system uptime display in RPi Monitor tool
-- **signalk-weatherflow-api**: Required for WeatherFlow Forecast tool (weather data from Tempest stations) 
+- **signalk-weatherflow-api**: Required for WeatherFlow Forecast tool (weather data from Tempest stations)
+- **signalk-meteoblue-weather**: Weather forecasts from Meteoblue (for Weather API Spinner)
+- **signalk-open-meteo-weather**: Weather forecasts from Open-Meteo (for Weather API Spinner) 
 
 
 
@@ -46,8 +48,15 @@ A customizable SignalK marine dashboard application to display real-time vessel 
   - Current conditions (temperature, humidity, pressure, wind)
   - Hourly forecast with weather icons, temperature, precipitation probability
   - Wind direction arrows and speed for each forecast hour
+  - Tomorrow's sunrise, sunset, moonrise, and moonset times
   - Configurable hours to display (up to 72 hours)
   - Requires signalk-weatherflow-api plugin
+- **Weather API Spinner**: Generic weather forecast using SignalK Weather API
+  - Works with any provider implementing the SignalK Weather API
+  - Supports Meteoblue, Open-Meteo, WeatherFlow/Tempest, and other providers
+  - Spinner-style hourly forecast display
+  - Provider name displayed in header
+  - Automatic unit conversions
 
 **Chart Tools**
 - **Historical Chart**: Line chart showing historical data for up to 3 paths
@@ -83,6 +92,10 @@ A customizable SignalK marine dashboard application to display real-time vessel 
 - **Knob**: Rotary knob control for sending numeric values to SignalK paths
 - **Checkbox**: Checkbox for boolean SignalK paths with PUT support
 - **Dropdown**: Dropdown selector for sending numeric values to SignalK paths
+- **Tanks**: Display up to 5 tank levels with visual fill indicators
+  - Color-coded by tank type (diesel, freshWater, blackWater, wasteWater, liveWell, lubrication, ballast, gas)
+  - Auto-detection of tank type from SignalK path
+  - Optional capacity display
 
 **System Tools**
 - **Server Status**: Real-time SignalK server monitoring and management
@@ -512,7 +525,7 @@ For questions or issues:
 - [ ] AIS collision avoidance using `vessels.<uuid>.navigation.closestApproach` (CPA/TCPA)
 - [ ] AIS collision alerts using `notifications.danger.collision` (requires collision-detector plugin)
 - [x] Weather forecast tool (completed - WeatherFlow Tempest integration)
-- [ ] Generic Weather forecast tool using Weather API 
+- [x] Generic Weather forecast tool using Weather API (completed - Weather API Spinner) 
 - [x] Raspberry Pi health monitoring tool (completed - CPU, memory, temperature, uptime monitoring)
 - [ ] Manage overflows with dynamic sizing (improve responsive layout across all screen sizes)
 

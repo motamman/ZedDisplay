@@ -5,6 +5,7 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import '../../../services/signalk_service.dart';
 import '../../../utils/string_extensions.dart';
+import '../../../utils/conversion_utils.dart';
 
 /// Mixin for control tools (slider, knob, dropdown) that send numeric values
 ///
@@ -25,6 +26,8 @@ mixin ControlToolMixin<T extends StatefulWidget> on State<T> {
   /// - [value]: The numeric value to send
   /// - [path]: The SignalK path to send to
   /// - [signalKService]: The service to use for sending
+  /// - [source]: IGNORED - source in PUT identifies the sender, not the target.
+  ///   We read from a specific source but write as ourselves.
   /// - [decimalPlaces]: Number of decimal places to round to (default: 1)
   /// - [label]: Optional label for the SnackBar message (defaults to path)
   /// - [onComplete]: Optional callback after send completes (success or failure)
@@ -32,6 +35,7 @@ mixin ControlToolMixin<T extends StatefulWidget> on State<T> {
     required double value,
     required String path,
     required SignalKService signalKService,
+    String? source, // Kept for API compatibility but not used
     int decimalPlaces = 1,
     String? label,
     VoidCallback? onComplete,
@@ -41,17 +45,21 @@ mixin ControlToolMixin<T extends StatefulWidget> on State<T> {
     });
 
     try {
-      // Round the value before sending
+      // Round the display value before converting
       final multiplier = pow(10, decimalPlaces).toDouble();
-      final roundedValue = (value * multiplier).round() / multiplier;
+      final roundedDisplayValue = (value * multiplier).round() / multiplier;
 
-      await signalKService.sendPutRequest(path, roundedValue);
+      // Convert display value back to raw SI value for PUT
+      // e.g., 70 (displayed %) -> 0.70 (raw ratio)
+      final rawValue = ConversionUtils.convertToRaw(signalKService, path, roundedDisplayValue);
+
+      await signalKService.sendPutRequest(path, rawValue);
 
       if (mounted) {
         final displayLabel = label ?? path.toReadableLabel();
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('$displayLabel set to ${roundedValue.toStringAsFixed(decimalPlaces)}'),
+            content: Text('$displayLabel set to ${roundedDisplayValue.toStringAsFixed(decimalPlaces)}'),
             duration: const Duration(seconds: 1),
             backgroundColor: Colors.green,
           ),

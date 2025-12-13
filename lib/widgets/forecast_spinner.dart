@@ -21,6 +21,9 @@ class ForecastSpinner extends StatefulWidget {
   /// Primary accent color
   final Color primaryColor;
 
+  /// Provider name to display
+  final String? providerName;
+
   /// Callback when selected hour changes
   final void Function(int hourOffset)? onHourChanged;
 
@@ -32,6 +35,7 @@ class ForecastSpinner extends StatefulWidget {
     this.windUnit = 'kn',
     this.pressureUnit = 'hPa',
     this.primaryColor = Colors.blue,
+    this.providerName,
     this.onHourChanged,
   });
 
@@ -273,6 +277,23 @@ class _ForecastSpinnerState extends State<ForecastSpinner>
                     ),
                   ),
                 ),
+
+              // Provider name in top left
+              if (widget.providerName != null && widget.providerName!.isNotEmpty)
+                Positioned(
+                  top: 4 * scale,
+                  left: 4 * scale,
+                  child: IgnorePointer(
+                    child: Text(
+                      widget.providerName!,
+                      style: TextStyle(
+                        fontSize: 10 * scale,
+                        fontWeight: FontWeight.w500,
+                        color: isDark ? Colors.white54 : Colors.black45,
+                      ),
+                    ),
+                  ),
+                ),
             ],
           ),
         );
@@ -324,7 +345,7 @@ class _ForecastSpinnerState extends State<ForecastSpinner>
           child: Padding(
             padding: EdgeInsets.all(centerSize * 0.15),
             child: Opacity(
-              opacity: 0.25,
+              opacity: 0.40,
               child: SvgPicture.asset(
                 forecast.weatherIconAsset,
                 fit: BoxFit.contain,
@@ -355,13 +376,15 @@ class _ForecastSpinnerState extends State<ForecastSpinner>
               SizedBox(height: 2 * scale),
 
               // Conditions text only (icon is now in background)
+              // Use longDescription if available, otherwise conditions
               Text(
-                forecast.conditions ?? '',
+                forecast.longDescription ?? forecast.conditions ?? '',
                 style: TextStyle(
                   fontSize: 11 * scale,
                   color: isDark ? Colors.white60 : Colors.black45,
                 ),
                 overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
               ),
               SizedBox(height: 4 * scale),
 

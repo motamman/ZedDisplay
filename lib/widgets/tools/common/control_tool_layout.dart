@@ -55,30 +55,32 @@ class ControlToolLayout extends StatelessWidget {
     return Card(
       elevation: 2,
       color: backgroundColor,
+      clipBehavior: Clip.antiAlias,
       child: Padding(
-        padding: const EdgeInsets.all(16.0),
+        padding: const EdgeInsets.all(8.0),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
+          mainAxisSize: MainAxisSize.min,
           children: [
             // Label
             if (showLabel && label != null) ...[
               Text(
                 label!,
                 style: const TextStyle(
-                  fontSize: 18,
+                  fontSize: 14,
                   fontWeight: FontWeight.bold,
                 ),
                 textAlign: TextAlign.center,
-                maxLines: 2,
+                maxLines: 1,
                 overflow: TextOverflow.ellipsis,
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 4),
             ],
 
             // Value display
             if (valueWidget != null) ...[
               valueWidget!,
-              const SizedBox(height: 8),
+              const SizedBox(height: 4),
             ],
 
             // Additional widgets (e.g., min/max labels for slider)
@@ -88,24 +90,24 @@ class ControlToolLayout extends StatelessWidget {
             controlWidget,
 
             // Path info
-            const SizedBox(height: 8),
+            const SizedBox(height: 4),
             Text(
               path,
               style: TextStyle(
-                fontSize: 10,
+                fontSize: 9,
                 color: Colors.grey[600],
               ),
               textAlign: TextAlign.center,
-              maxLines: 2,
+              maxLines: 1,
               overflow: TextOverflow.ellipsis,
             ),
 
             // Sending indicator
             if (isSending) ...[
-              const SizedBox(height: 8),
+              const SizedBox(height: 4),
               const SizedBox(
-                width: 16,
-                height: 16,
+                width: 12,
+                height: 12,
                 child: CircularProgressIndicator(strokeWidth: 2),
               ),
             ],

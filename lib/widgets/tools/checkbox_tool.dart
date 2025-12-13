@@ -98,6 +98,7 @@ class _CheckboxToolState extends State<CheckboxTool> with AutomaticKeepAliveClie
     });
 
     try {
+      // Note: source is NOT passed to PUT - source identifies the sender, not target
       await widget.signalKService.sendPutRequest(path, newValue);
 
       if (mounted) {

@@ -780,11 +780,13 @@ class SignalKService extends ChangeNotifier implements DataService {
     // e.g., 'steering.autopilot.state' -> 'steering/autopilot/state'
     final urlPath = path.replaceAll('.', '/');
 
+    final body = <String, dynamic>{'value': value};
+
     try {
       final response = await http.put(
         Uri.parse('$protocol://$_serverUrl/signalk/v1/api/vessels/self/$urlPath'),
         headers: _getHeaders(),
-        body: jsonEncode({'value': value}),
+        body: jsonEncode(body),
       );
 
       if (response.statusCode != 200) {
@@ -1203,20 +1205,19 @@ class SignalKService extends ChangeNotifier implements DataService {
 
     tree.forEach((key, value) {
       // Skip metadata keys
-      if (key.startsWith('_') || key == '\$source' || key == 'timestamp') {
+      if (key.startsWith('_') || key == '\$source' || key == 'timestamp' || key == 'meta' || key == 'values') {
         return;
       }
 
       final currentPath = prefix.isEmpty ? key : '$prefix.$key';
 
       if (value is Map<String, dynamic>) {
-        // Check if this is a leaf node with a value
+        // Add path if it has a value
         if (value.containsKey('value')) {
           paths.add(currentPath);
-        } else {
-          // Recursively process nested objects
-          paths.addAll(extractPathsFromTree(value, currentPath));
         }
+        // Always recurse to find nested paths (nodes can have both value AND children)
+        paths.addAll(extractPathsFromTree(value, currentPath));
       }
     });
 

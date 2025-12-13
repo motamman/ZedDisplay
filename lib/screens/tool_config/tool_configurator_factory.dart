@@ -7,6 +7,7 @@ import 'configurators/polar_chart_configurator.dart';
 import 'configurators/webview_configurator.dart';
 import 'configurators/system_configurator.dart';
 import 'configurators/weather_api_spinner_configurator.dart';
+import 'configurators/tanks_configurator.dart';
 
 /// Factory for creating tool-specific configurators
 ///
@@ -63,6 +64,10 @@ class ToolConfiguratorFactory {
       case 'weather_api_spinner':
         return WeatherApiSpinnerConfigurator();
 
+      // Tanks
+      case 'tanks':
+        return TanksConfigurator();
+
       // No custom configurator - use default UI
       default:
         return null;
@@ -94,6 +99,7 @@ class ToolConfiguratorFactory {
       'file_share',
       'webview',
       'weather_api_spinner',
+      'tanks',
     ];
   }
 }
