@@ -91,8 +91,9 @@ class WeatherApiForecast {
     // Description and icon
     String? conditions = json['description'] as String?;
     String? longDescription = json['longDescription'] as String?;
-    // Use icon from API if provided (Meteoblue), otherwise derive from conditions
-    String? icon = json['icon'] as String? ?? _deriveIconFromConditions(conditions, time);
+    // Use icon from API if provided, otherwise derive from conditions
+    String? icon = json['icon'] as String?;
+    icon ??= _deriveIconFromConditions(conditions, time);
 
     return WeatherApiForecast(
       time: time,
