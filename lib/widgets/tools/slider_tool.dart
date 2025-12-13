@@ -55,8 +55,12 @@ class _SliderToolState extends State<SliderTool> with ControlToolMixin, Automati
     if (_currentSliderValue != null) {
       currentValue = _currentSliderValue!;
     } else {
-      // Use client-side conversions
-      final convertedValue = ConversionUtils.getConvertedValue(widget.signalKService, dataSource.path);
+      // Use client-side conversions with source
+      final convertedValue = ConversionUtils.getConvertedValue(
+        widget.signalKService,
+        dataSource.path,
+        source: dataSource.source,
+      );
       if (convertedValue != null) {
         currentValue = convertedValue;
       } else {

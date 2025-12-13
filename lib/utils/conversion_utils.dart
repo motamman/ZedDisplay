@@ -84,11 +84,13 @@ class ConversionUtils {
 
   /// Get converted value from a data point
   /// Applies THE conversion formula for this path
+  /// If [source] is specified, gets value from that specific source
   static double? getConvertedValue(
     SignalKService service,
-    String path,
-  ) {
-    final dataPoint = service.getValue(path);
+    String path, {
+    String? source,
+  }) {
+    final dataPoint = service.getValue(path, source: source);
     if (dataPoint == null) return null;
 
     // Get raw value and apply conversion
@@ -102,11 +104,13 @@ class ConversionUtils {
 
   /// Get raw SI value from standard SignalK stream
   /// With standard stream, dataPoint.value IS the raw SI value
+  /// If [source] is specified, gets value from that specific source
   static double? getRawValue(
     SignalKService service,
-    String path,
-  ) {
-    final dataPoint = service.getValue(path);
+    String path, {
+    String? source,
+  }) {
+    final dataPoint = service.getValue(path, source: source);
     if (dataPoint == null) return null;
 
     // Standard stream: value IS the raw SI value
@@ -115,5 +119,32 @@ class ConversionUtils {
     }
 
     return null;
+  }
+
+  /// Convert a display value back to raw SI value using inverse formula
+  /// Used when sending PUT requests - converts user-entered display value
+  /// back to the raw value that SignalK expects
+  static double convertToRaw(
+    SignalKService service,
+    String path,
+    double displayValue,
+  ) {
+    // Get available units for this path
+    final availableUnits = service.getAvailableUnits(path);
+    if (availableUnits.isEmpty) {
+      // No conversion available, return as-is
+      return displayValue;
+    }
+
+    // Get THE conversion for this path
+    final unit = availableUnits.first;
+    final conversionInfo = service.getConversionInfo(path, unit);
+    if (conversionInfo == null) {
+      return displayValue;
+    }
+
+    // Apply the inverse formula
+    final rawValue = evaluateFormula(conversionInfo.inverseFormula, displayValue);
+    return rawValue ?? displayValue;
   }
 }

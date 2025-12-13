@@ -53,8 +53,12 @@ class _KnobToolState extends State<KnobTool> with ControlToolMixin, AutomaticKee
     if (_currentKnobValue != null) {
       currentValue = _currentKnobValue!;
     } else {
-      // Use client-side conversions
-      final convertedValue = ConversionUtils.getConvertedValue(widget.signalKService, dataSource.path);
+      // Use client-side conversions with source
+      final convertedValue = ConversionUtils.getConvertedValue(
+        widget.signalKService,
+        dataSource.path,
+        source: dataSource.source,
+      );
       if (convertedValue != null) {
         currentValue = convertedValue;
       } else {

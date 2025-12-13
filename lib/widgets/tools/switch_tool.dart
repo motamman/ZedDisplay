@@ -102,6 +102,8 @@ class _SwitchToolState extends State<SwitchTool> with AutomaticKeepAliveClientMi
     });
 
     try {
+      // Note: source is NOT passed to PUT - source identifies the sender, not target
+      // We read from a specific source but write as ourselves
       await widget.signalKService.sendPutRequest(path, newValue);
 
       if (mounted) {

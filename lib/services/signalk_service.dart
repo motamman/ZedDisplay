@@ -780,11 +780,13 @@ class SignalKService extends ChangeNotifier implements DataService {
     // e.g., 'steering.autopilot.state' -> 'steering/autopilot/state'
     final urlPath = path.replaceAll('.', '/');
 
+    final body = <String, dynamic>{'value': value};
+
     try {
       final response = await http.put(
         Uri.parse('$protocol://$_serverUrl/signalk/v1/api/vessels/self/$urlPath'),
         headers: _getHeaders(),
-        body: jsonEncode({'value': value}),
+        body: jsonEncode(body),
       );
 
       if (response.statusCode != 200) {
