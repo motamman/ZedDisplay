@@ -13,6 +13,7 @@ import '../widgets/config/configure_data_source_dialog.dart';
 import '../widgets/config/source_selector.dart';
 import 'tool_config/base_tool_configurator.dart';
 import 'tool_config/tool_configurator_factory.dart';
+import 'tool_config/configurators/tanks_configurator.dart';
 
 /// Screen for configuring a tool
 class ToolConfigScreen extends StatefulWidget {
@@ -1184,8 +1185,8 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
       ]);
     }
 
-    // Unit (not applicable for autopilot, wind_compass, or weatherflow_forecast)
-    if (_selectedToolTypeId != 'autopilot' && _selectedToolTypeId != 'wind_compass' && _selectedToolTypeId != 'weatherflow_forecast') {
+    // Unit (not applicable for autopilot, wind_compass, weatherflow_forecast, or tanks)
+    if (_selectedToolTypeId != 'autopilot' && _selectedToolTypeId != 'wind_compass' && _selectedToolTypeId != 'weatherflow_forecast' && _selectedToolTypeId != 'tanks') {
       widgets.addAll([
         TextFormField(
           decoration: const InputDecoration(
@@ -1234,8 +1235,8 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
       ]);
     }
 
-    // Show/Hide Options (not applicable for autopilot, wind_compass, or weatherflow_forecast)
-    if (_selectedToolTypeId != 'autopilot' && _selectedToolTypeId != 'wind_compass' && _selectedToolTypeId != 'weatherflow_forecast') {
+    // Show/Hide Options (not applicable for autopilot, wind_compass, weatherflow_forecast, or tanks)
+    if (_selectedToolTypeId != 'autopilot' && _selectedToolTypeId != 'wind_compass' && _selectedToolTypeId != 'weatherflow_forecast' && _selectedToolTypeId != 'tanks') {
       widgets.addAll([
         SwitchListTile(
           title: const Text('Show Label'),
@@ -1333,6 +1334,10 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
 
     // If we have a configurator, use it for tool-specific options
     if (_configurator != null) {
+      // Update tanks configurator with current data source count
+      if (_selectedToolTypeId == 'tanks' && _configurator is TanksConfigurator) {
+        (_configurator as TanksConfigurator).updateDataSourceCount(_dataSources.length);
+      }
       widgets.addAll([
         const SizedBox(height: 16),
         const Divider(),

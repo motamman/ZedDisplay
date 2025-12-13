@@ -32,6 +32,7 @@ import '../widgets/tools/crew_list_tool.dart';
 import '../widgets/tools/intercom_tool.dart';
 import '../widgets/tools/file_share_tool.dart';
 import '../widgets/tools/weather_api_spinner_tool.dart';
+import '../widgets/tools/tanks_tool.dart';
 
 /// Abstract builder for tool widgets
 abstract class ToolBuilder {
@@ -135,6 +136,7 @@ class ToolRegistry {
     register('intercom', IntercomToolBuilder());
     register('file_share', FileShareToolBuilder());
     register('weather_api_spinner', WeatherApiSpinnerToolBuilder());
+    register('tanks', TanksToolBuilder());
     // register('webview', WebViewToolBuilder()); // Hidden for now - uncomment to enable
   }
 }
