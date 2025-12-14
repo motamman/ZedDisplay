@@ -14,10 +14,20 @@ class WeatherAlertsConfigurator extends ToolConfigurator {
 
   // State
   bool compact = false;
+  bool showDescription = true;
+  bool showInstruction = true;
+  bool showAreaDesc = false;
+  bool showSenderName = false;
+  bool showTimeRange = true;
 
   @override
   void reset() {
     compact = false;
+    showDescription = true;
+    showInstruction = true;
+    showAreaDesc = false;
+    showSenderName = false;
+    showTimeRange = true;
   }
 
   @override
@@ -27,7 +37,13 @@ class WeatherAlertsConfigurator extends ToolConfigurator {
 
   @override
   void loadFromTool(Tool tool) {
-    compact = tool.config.style.customProperties?['compact'] as bool? ?? false;
+    final props = tool.config.style.customProperties;
+    compact = props?['compact'] as bool? ?? false;
+    showDescription = props?['showDescription'] as bool? ?? true;
+    showInstruction = props?['showInstruction'] as bool? ?? true;
+    showAreaDesc = props?['showAreaDesc'] as bool? ?? false;
+    showSenderName = props?['showSenderName'] as bool? ?? false;
+    showTimeRange = props?['showTimeRange'] as bool? ?? true;
   }
 
   @override
@@ -37,6 +53,11 @@ class WeatherAlertsConfigurator extends ToolConfigurator {
       style: StyleConfig(
         customProperties: {
           'compact': compact,
+          'showDescription': showDescription,
+          'showInstruction': showInstruction,
+          'showAreaDesc': showAreaDesc,
+          'showSenderName': showSenderName,
+          'showTimeRange': showTimeRange,
         },
       ),
     );
@@ -112,6 +133,62 @@ class WeatherAlertsConfigurator extends ToolConfigurator {
                 value: compact,
                 onChanged: (value) {
                   setState(() => compact = value);
+                },
+              ),
+
+              const SizedBox(height: 24),
+              const Divider(),
+              const SizedBox(height: 8),
+
+              // Component visibility
+              Text(
+                'Show Components',
+                style: Theme.of(context).textTheme.titleSmall,
+              ),
+              const SizedBox(height: 8),
+
+              SwitchListTile(
+                title: const Text('Time Range'),
+                subtitle: const Text('Show onset and end times'),
+                value: showTimeRange,
+                onChanged: (value) {
+                  setState(() => showTimeRange = value);
+                },
+              ),
+
+              SwitchListTile(
+                title: const Text('Description'),
+                subtitle: const Text('Full alert description text'),
+                value: showDescription,
+                onChanged: (value) {
+                  setState(() => showDescription = value);
+                },
+              ),
+
+              SwitchListTile(
+                title: const Text('Instructions'),
+                subtitle: const Text('Safety instructions from NWS'),
+                value: showInstruction,
+                onChanged: (value) {
+                  setState(() => showInstruction = value);
+                },
+              ),
+
+              SwitchListTile(
+                title: const Text('Affected Areas'),
+                subtitle: const Text('List of counties/regions'),
+                value: showAreaDesc,
+                onChanged: (value) {
+                  setState(() => showAreaDesc = value);
+                },
+              ),
+
+              SwitchListTile(
+                title: const Text('Source'),
+                subtitle: const Text('NWS office name'),
+                value: showSenderName,
+                onChanged: (value) {
+                  setState(() => showSenderName = value);
                 },
               ),
 

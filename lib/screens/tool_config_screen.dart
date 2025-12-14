@@ -535,7 +535,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
     if (!_formKey.currentState!.validate()) return;
     // WebView, server_manager, system_monitor, and crew tools don't need data sources
     if (_selectedToolTypeId == null) return;
-    if (_selectedToolTypeId != 'webview' && _selectedToolTypeId != 'server_manager' && _selectedToolTypeId != 'system_monitor' && _selectedToolTypeId != 'crew_messages' && _selectedToolTypeId != 'crew_list' && _selectedToolTypeId != 'intercom' && _selectedToolTypeId != 'file_share' && _dataSources.isEmpty) return;
+    if (_selectedToolTypeId != 'webview' && _selectedToolTypeId != 'server_manager' && _selectedToolTypeId != 'system_monitor' && _selectedToolTypeId != 'crew_messages' && _selectedToolTypeId != 'crew_list' && _selectedToolTypeId != 'intercom' && _selectedToolTypeId != 'file_share' && _selectedToolTypeId != 'weather_alerts' && _dataSources.isEmpty) return;
 
     final toolService = Provider.of<ToolService>(context, listen: false);
 
@@ -701,7 +701,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
         title: Text(widget.existingTool == null ? 'Add Tool' : 'Edit Tool'),
         actions: [
           TextButton.icon(
-            onPressed: _selectedToolTypeId != null && (_dataSources.isNotEmpty || _selectedToolTypeId == 'webview' || _selectedToolTypeId == 'server_manager' || _selectedToolTypeId == 'system_monitor' || _selectedToolTypeId == 'crew_messages' || _selectedToolTypeId == 'crew_list' || _selectedToolTypeId == 'intercom' || _selectedToolTypeId == 'file_share')
+            onPressed: _selectedToolTypeId != null && (_dataSources.isNotEmpty || _selectedToolTypeId == 'webview' || _selectedToolTypeId == 'server_manager' || _selectedToolTypeId == 'system_monitor' || _selectedToolTypeId == 'crew_messages' || _selectedToolTypeId == 'crew_list' || _selectedToolTypeId == 'intercom' || _selectedToolTypeId == 'file_share' || _selectedToolTypeId == 'weather_alerts')
                 ? _saveTool
                 : null,
             icon: const Icon(Icons.check),
@@ -761,8 +761,8 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
             ),
             const SizedBox(height: 16),
 
-            // Data Source Configuration (hide for webview, server_manager, system_monitor, and crew tools)
-            if (_selectedToolTypeId != 'webview' && _selectedToolTypeId != 'server_manager' && _selectedToolTypeId != 'system_monitor' && _selectedToolTypeId != 'crew_messages' && _selectedToolTypeId != 'crew_list' && _selectedToolTypeId != 'intercom' && _selectedToolTypeId != 'file_share')
+            // Data Source Configuration (hide for webview, server_manager, system_monitor, crew tools, and weather_alerts)
+            if (_selectedToolTypeId != 'webview' && _selectedToolTypeId != 'server_manager' && _selectedToolTypeId != 'system_monitor' && _selectedToolTypeId != 'crew_messages' && _selectedToolTypeId != 'crew_list' && _selectedToolTypeId != 'intercom' && _selectedToolTypeId != 'file_share' && _selectedToolTypeId != 'weather_alerts')
               Card(
               child: Padding(
                 padding: const EdgeInsets.all(16),
@@ -1005,8 +1005,8 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
             // Chart-specific Configuration
             const SizedBox(height: 16),
 
-            // Style Configuration (hide for conversion_test, server_manager, rpi_monitor, system_monitor, and crew tools)
-            if (_selectedToolTypeId != null && _selectedToolTypeId != 'conversion_test' && _selectedToolTypeId != 'server_manager' && _selectedToolTypeId != 'rpi_monitor' && _selectedToolTypeId != 'system_monitor' && _selectedToolTypeId != 'crew_messages' && _selectedToolTypeId != 'crew_list' && _selectedToolTypeId != 'intercom' && _selectedToolTypeId != 'file_share')
+            // Style Configuration (hide for conversion_test, server_manager, rpi_monitor, system_monitor, crew tools, and weather_alerts)
+            if (_selectedToolTypeId != null && _selectedToolTypeId != 'conversion_test' && _selectedToolTypeId != 'server_manager' && _selectedToolTypeId != 'rpi_monitor' && _selectedToolTypeId != 'system_monitor' && _selectedToolTypeId != 'crew_messages' && _selectedToolTypeId != 'crew_list' && _selectedToolTypeId != 'intercom' && _selectedToolTypeId != 'file_share' && _selectedToolTypeId != 'weather_alerts')
               Card(
                 child: Padding(
                   padding: const EdgeInsets.all(16),
@@ -1037,7 +1037,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
             const SizedBox(height: 16),
 
             // Preview (hide for server_manager - it has too much content)
-            if (_selectedToolTypeId != null && (_dataSources.isNotEmpty || _selectedToolTypeId == 'webview' || _selectedToolTypeId == 'crew_messages' || _selectedToolTypeId == 'crew_list' || _selectedToolTypeId == 'intercom' || _selectedToolTypeId == 'file_share') && _selectedToolTypeId != 'server_manager')
+            if (_selectedToolTypeId != null && (_dataSources.isNotEmpty || _selectedToolTypeId == 'webview' || _selectedToolTypeId == 'crew_messages' || _selectedToolTypeId == 'crew_list' || _selectedToolTypeId == 'intercom' || _selectedToolTypeId == 'file_share' || _selectedToolTypeId == 'weather_alerts') && _selectedToolTypeId != 'server_manager')
               Card(
                 child: Padding(
                   padding: const EdgeInsets.all(16),

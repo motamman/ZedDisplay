@@ -69,9 +69,15 @@ void main() async {
   final fileShareService = FileShareService(signalKService, storageService, crewService, fileServerService);
   await fileShareService.initialize();
 
-  // Initialize intercom service
+  // Initialize intercom service (wrapped to prevent crash loops on WebRTC init failures)
   final intercomService = IntercomService(signalKService, storageService, crewService);
-  await intercomService.initialize();
+  try {
+    await intercomService.initialize();
+  } catch (e) {
+    if (kDebugMode) {
+      print('⚠️ IntercomService initialization failed: $e');
+    }
+  }
 
   // Auto-enable notifications if they were enabled before
   final notificationsEnabled = storageService.getNotificationsEnabled();

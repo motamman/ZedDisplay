@@ -291,7 +291,13 @@ class _WeatherAlertsToolState extends State<WeatherAlertsTool>
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final activeAlerts = _alerts.where((a) => a.isActive).toList();
-    final showCompact = widget.config.style.customProperties?['compact'] as bool? ?? false;
+    final props = widget.config.style.customProperties;
+    final showCompact = props?['compact'] as bool? ?? false;
+    final showDescription = props?['showDescription'] as bool? ?? true;
+    final showInstruction = props?['showInstruction'] as bool? ?? true;
+    final showAreaDesc = props?['showAreaDesc'] as bool? ?? false;
+    final showSenderName = props?['showSenderName'] as bool? ?? false;
+    final showTimeRange = props?['showTimeRange'] as bool? ?? true;
 
     if (activeAlerts.isEmpty) {
       return _buildNoAlerts(isDark);
@@ -301,7 +307,15 @@ class _WeatherAlertsToolState extends State<WeatherAlertsTool>
       return _buildCompactView(activeAlerts, isDark);
     }
 
-    return _buildFullView(activeAlerts, isDark);
+    return _buildFullView(
+      activeAlerts,
+      isDark,
+      showTimeRange: showTimeRange,
+      showDescription: showDescription,
+      showInstruction: showInstruction,
+      showAreaDesc: showAreaDesc,
+      showSenderName: showSenderName,
+    );
   }
 
   Widget _buildNoAlerts(bool isDark) {
@@ -408,7 +422,15 @@ class _WeatherAlertsToolState extends State<WeatherAlertsTool>
     );
   }
 
-  Widget _buildFullView(List<NWSAlert> alerts, bool isDark) {
+  Widget _buildFullView(
+    List<NWSAlert> alerts,
+    bool isDark, {
+    required bool showTimeRange,
+    required bool showDescription,
+    required bool showInstruction,
+    required bool showAreaDesc,
+    required bool showSenderName,
+  }) {
     return Column(
       children: [
         // Header with alert count
@@ -455,7 +477,17 @@ class _WeatherAlertsToolState extends State<WeatherAlertsTool>
               final isExpanded = _expandedAlertId == alert.id;
               final isNew = _newAlertIds.contains(alert.id);
 
-              return _buildAlertCard(alert, isExpanded, isNew, isDark);
+              return _buildAlertCard(
+                alert,
+                isExpanded,
+                isNew,
+                isDark,
+                showTimeRange: showTimeRange,
+                showDescription: showDescription,
+                showInstruction: showInstruction,
+                showAreaDesc: showAreaDesc,
+                showSenderName: showSenderName,
+              );
             },
           ),
         ),
@@ -463,7 +495,17 @@ class _WeatherAlertsToolState extends State<WeatherAlertsTool>
     );
   }
 
-  Widget _buildAlertCard(NWSAlert alert, bool isExpanded, bool isNew, bool isDark) {
+  Widget _buildAlertCard(
+    NWSAlert alert,
+    bool isExpanded,
+    bool isNew,
+    bool isDark, {
+    required bool showTimeRange,
+    required bool showDescription,
+    required bool showInstruction,
+    required bool showAreaDesc,
+    required bool showSenderName,
+  }) {
     return AnimatedBuilder(
       animation: _pulseController,
       builder: (context, child) {
@@ -536,7 +578,7 @@ class _WeatherAlertsToolState extends State<WeatherAlertsTool>
                   ),
 
                   // Time info
-                  if (alert.onset != null || alert.ends != null) ...[
+                  if (showTimeRange && (alert.onset != null || alert.ends != null)) ...[
                     const SizedBox(height: 4),
                     Text(
                       _formatTimeRange(alert),
@@ -558,15 +600,17 @@ class _WeatherAlertsToolState extends State<WeatherAlertsTool>
                         color: isDark ? Colors.white : Colors.black87,
                       ),
                     ),
-                    const SizedBox(height: 8),
-                    Text(
-                      alert.description,
-                      style: TextStyle(
-                        fontSize: 11,
-                        color: isDark ? Colors.white70 : Colors.black54,
+                    if (showDescription) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        alert.description,
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: isDark ? Colors.white70 : Colors.black54,
+                        ),
                       ),
-                    ),
-                    if (alert.instruction != null) ...[
+                    ],
+                    if (showInstruction && alert.instruction != null) ...[
                       const SizedBox(height: 8),
                       Container(
                         padding: const EdgeInsets.all(8),
@@ -597,21 +641,26 @@ class _WeatherAlertsToolState extends State<WeatherAlertsTool>
                         ),
                       ),
                     ],
-                    const SizedBox(height: 8),
-                    Text(
-                      'Areas: ${alert.areaDesc}',
-                      style: TextStyle(
-                        fontSize: 10,
-                        color: isDark ? Colors.white38 : Colors.black38,
+                    if (showAreaDesc && alert.areaDesc.isNotEmpty) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        'Areas: ${alert.areaDesc}',
+                        style: TextStyle(
+                          fontSize: 10,
+                          color: isDark ? Colors.white38 : Colors.black38,
+                        ),
                       ),
-                    ),
-                    Text(
-                      'Source: ${alert.senderName}',
-                      style: TextStyle(
-                        fontSize: 10,
-                        color: isDark ? Colors.white38 : Colors.black38,
+                    ],
+                    if (showSenderName) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        'Source: ${alert.senderName}',
+                        style: TextStyle(
+                          fontSize: 10,
+                          color: isDark ? Colors.white38 : Colors.black38,
+                        ),
                       ),
-                    ),
+                    ],
                   ],
                 ],
               ),
