@@ -317,18 +317,30 @@ class AnchorAlarmService extends ChangeNotifier {
         if (data is List) {
           _trackHistory = data.map((point) {
             if (point is Map<String, dynamic>) {
-              final lat = point['latitude'];
-              final lon = point['longitude'];
-              // Skip points with null coordinates
-              if (lat == null || lon == null) return null;
-              if (lat is! num || lon is! num) return null;
-              return TrackPoint(
-                latitude: lat.toDouble(),
-                longitude: lon.toDouble(),
-                timestamp: point['timestamp'] != null
-                    ? DateTime.parse(point['timestamp'] as String)
-                    : DateTime.now(),
-              );
+              // Plugin format: { position: { latitude, longitude }, time }
+              final position = point['position'];
+              if (position is Map) {
+                final lat = position['latitude'];
+                final lon = position['longitude'];
+                // Skip points with null coordinates
+                if (lat == null || lon == null) return null;
+                if (lat is! num || lon is! num) return null;
+
+                // Time is in milliseconds since epoch
+                final time = point['time'];
+                DateTime timestamp;
+                if (time is num) {
+                  timestamp = DateTime.fromMillisecondsSinceEpoch(time.toInt());
+                } else {
+                  timestamp = DateTime.now();
+                }
+
+                return TrackPoint(
+                  latitude: lat.toDouble(),
+                  longitude: lon.toDouble(),
+                  timestamp: timestamp,
+                );
+              }
             }
             return null;
           }).whereType<TrackPoint>().toList();

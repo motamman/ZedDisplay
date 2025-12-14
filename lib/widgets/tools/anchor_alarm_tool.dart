@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:provider/provider.dart';
+import 'package:syncfusion_flutter_charts/charts.dart';
 import '../../models/tool_config.dart';
 import '../../models/tool_definition.dart';
 import '../../services/signalk_service.dart';
@@ -38,6 +39,7 @@ class _AnchorAlarmToolState extends State<AnchorAlarmTool> {
   final MapController _mapController = MapController();
   bool _mapAutoFollow = true;
   double _rodeSliderValue = 30.0;
+  bool _showPolarView = false; // Toggle between map and polar view
 
   @override
   void initState() {
@@ -223,43 +225,51 @@ class _AnchorAlarmToolState extends State<AnchorAlarmTool> {
       clipBehavior: Clip.antiAlias,
       child: Stack(
         children: [
-          // Full map background
+          // Main view - map or polar
           Positioned.fill(
-            child: _buildMap(state),
+            child: _showPolarView ? _buildPolarView(state) : _buildMap(state),
           ),
 
-          // Map controls (top right)
+          // View controls (top right)
           Positioned(
             top: 8,
             right: 8,
             child: Column(
               children: [
+                // Map/Polar toggle
                 _buildMapButton(
-                  icon: Icons.add,
-                  onPressed: () => _mapController.move(
-                    _mapController.camera.center,
-                    _mapController.camera.zoom + 1,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                _buildMapButton(
-                  icon: Icons.remove,
-                  onPressed: () => _mapController.move(
-                    _mapController.camera.center,
-                    _mapController.camera.zoom - 1,
-                  ),
+                  icon: _showPolarView ? Icons.map : Icons.radar,
+                  onPressed: () => setState(() => _showPolarView = !_showPolarView),
                 ),
                 const SizedBox(height: 8),
-                _buildMapButton(
-                  icon: Icons.anchor,
-                  onPressed: _centerOnAnchor,
-                ),
-                const SizedBox(height: 4),
-                _buildMapButton(
-                  icon: _mapAutoFollow ? Icons.gps_fixed : Icons.gps_not_fixed,
-                  onPressed: _toggleAutoFollow,
-                  color: _mapAutoFollow ? _getPrimaryColor() : null,
-                ),
+                if (!_showPolarView) ...[
+                  _buildMapButton(
+                    icon: Icons.add,
+                    onPressed: () => _mapController.move(
+                      _mapController.camera.center,
+                      _mapController.camera.zoom + 1,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  _buildMapButton(
+                    icon: Icons.remove,
+                    onPressed: () => _mapController.move(
+                      _mapController.camera.center,
+                      _mapController.camera.zoom - 1,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  _buildMapButton(
+                    icon: Icons.anchor,
+                    onPressed: _centerOnAnchor,
+                  ),
+                  const SizedBox(height: 4),
+                  _buildMapButton(
+                    icon: _mapAutoFollow ? Icons.gps_fixed : Icons.gps_not_fixed,
+                    onPressed: _toggleAutoFollow,
+                    color: _mapAutoFollow ? _getPrimaryColor() : null,
+                  ),
+                ],
               ],
             ),
           ),
@@ -419,6 +429,336 @@ class _AnchorAlarmToolState extends State<AnchorAlarmTool> {
     );
   }
 
+  /// Build polar/radar view as fallback when maps unavailable
+  Widget _buildPolarView(AnchorState state) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final backgroundColor = isDark ? Colors.grey.shade900 : Colors.grey.shade100;
+
+    if (!state.isActive || state.anchorPosition == null) {
+      return Container(
+        color: backgroundColor,
+        child: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.anchor_outlined, size: 48, color: Colors.grey),
+              const SizedBox(height: 16),
+              Text(
+                'Drop anchor to see polar view',
+                style: TextStyle(color: Colors.grey, fontSize: 16),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    // Calculate range - use max of alarm radius or current distance, with some padding
+    final maxRadius = state.maxRadius ?? 50.0;
+    final currentRadius = state.currentRadius ?? 0.0;
+    final displayRange = math.max(maxRadius, currentRadius) * 1.3;
+
+    // Build data points for the chart
+    final chartData = <_PolarPoint>[];
+
+    // Anchor at center (0, 0)
+    chartData.add(_PolarPoint(x: 0, y: 0, label: 'Anchor', type: 'anchor'));
+
+    // Vessel position relative to anchor
+    if (state.vesselPosition != null && state.anchorPosition != null) {
+      final bearing = state.bearingTrue ?? 0; // radians
+      final distance = state.currentRadius ?? 0;
+
+      // Convert polar to cartesian (bearing is from vessel TO anchor, so we flip it)
+      // North is up (positive Y), East is right (positive X)
+      final vesselBearing = bearing + math.pi; // flip direction
+      final x = distance * math.sin(vesselBearing);
+      final y = distance * math.cos(vesselBearing);
+
+      chartData.add(_PolarPoint(x: x, y: y, label: 'Vessel', type: 'vessel'));
+    }
+
+    // Build circle data for alarm radius
+    final alarmCircle = _generateCirclePoints(maxRadius, 36);
+    final currentCircle = currentRadius > 0 ? _generateCirclePoints(currentRadius, 36) : <_PolarPoint>[];
+
+    // Build track history points relative to anchor
+    final trackPoints = <_PolarPoint>[];
+    if (state.anchorPosition != null) {
+      final anchorLat = state.anchorPosition!.latitude;
+      final anchorLon = state.anchorPosition!.longitude;
+      const distance = Distance();
+
+      // Add historical track points
+      for (final point in _alarmService.trackHistory) {
+        // Calculate distance and bearing from anchor to track point
+        final dist = distance.as(
+          LengthUnit.Meter,
+          LatLng(anchorLat, anchorLon),
+          LatLng(point.latitude, point.longitude),
+        );
+        final bearing = distance.bearing(
+          LatLng(anchorLat, anchorLon),
+          LatLng(point.latitude, point.longitude),
+        ) * math.pi / 180; // Convert to radians
+
+        // Convert to cartesian (bearing is from anchor to point)
+        // North is up (positive Y), East is right (positive X)
+        final x = dist * math.sin(bearing);
+        final y = dist * math.cos(bearing);
+
+        trackPoints.add(_PolarPoint(x: x, y: y, label: '', type: 'track'));
+      }
+
+      // Always add current vessel position as last point to connect track to vessel
+      if (state.vesselPosition != null) {
+        final vesselBearing = (state.bearingTrue ?? 0) + math.pi; // flip direction
+        final vesselDist = state.currentRadius ?? 0;
+        final vx = vesselDist * math.sin(vesselBearing);
+        final vy = vesselDist * math.cos(vesselBearing);
+        trackPoints.add(_PolarPoint(x: vx, y: vy, label: '', type: 'track'));
+      }
+    }
+
+    return Container(
+      color: backgroundColor,
+      child: Center(
+        child: AspectRatio(
+          aspectRatio: 1.0,
+          child: Padding(
+            padding: const EdgeInsets.all(8),
+            child: SfCartesianChart(
+          plotAreaBackgroundColor: Colors.transparent,
+          margin: const EdgeInsets.all(5),
+          primaryXAxis: NumericAxis(
+            minimum: -displayRange,
+            maximum: displayRange,
+            isVisible: false,
+            majorGridLines: const MajorGridLines(width: 0),
+          ),
+          primaryYAxis: NumericAxis(
+            minimum: -displayRange,
+            maximum: displayRange,
+            isVisible: false,
+            majorGridLines: const MajorGridLines(width: 0),
+          ),
+          plotAreaBorderWidth: 0,
+          annotations: _buildPolarAnnotations(displayRange, isDark),
+          series: <CartesianSeries>[
+            // Grid circles
+            ..._buildPolarGridSeries(displayRange, isDark),
+
+            // Track history line (connects all points)
+            if (trackPoints.isNotEmpty)
+              LineSeries<_PolarPoint, double>(
+                dataSource: trackPoints,
+                xValueMapper: (p, _) => p.x,
+                yValueMapper: (p, _) => p.y,
+                color: Colors.blue,
+                width: 2,
+                animationDuration: 0,
+              ),
+
+            // Track history points (dots along the track, larger than line)
+            if (trackPoints.isNotEmpty)
+              ScatterSeries<_PolarPoint, double>(
+                dataSource: trackPoints,
+                xValueMapper: (p, _) => p.x,
+                yValueMapper: (p, _) => p.y,
+                color: Colors.blue,
+                animationDuration: 0,
+                markerSettings: const MarkerSettings(
+                  height: 5,
+                  width: 5,
+                  shape: DataMarkerType.circle,
+                ),
+              ),
+
+            // Alarm radius circle (red)
+            LineSeries<_PolarPoint, double>(
+              dataSource: alarmCircle,
+              xValueMapper: (p, _) => p.x,
+              yValueMapper: (p, _) => p.y,
+              color: Colors.red.withValues(alpha: 0.7),
+              width: 2,
+              animationDuration: 0,
+            ),
+
+            // Current distance circle (color-coded)
+            if (currentCircle.isNotEmpty)
+              LineSeries<_PolarPoint, double>(
+                dataSource: currentCircle,
+                xValueMapper: (p, _) => p.x,
+                yValueMapper: (p, _) => p.y,
+                color: _getDistanceColor(state).withValues(alpha: 0.5),
+                width: 1,
+                dashArray: const <double>[5, 3],
+                animationDuration: 0,
+              ),
+
+            // Anchor point (center)
+            ScatterSeries<_PolarPoint, double>(
+              dataSource: chartData.where((p) => p.type == 'anchor').toList(),
+              xValueMapper: (p, _) => p.x,
+              yValueMapper: (p, _) => p.y,
+              color: Colors.brown,
+              animationDuration: 0,
+              markerSettings: const MarkerSettings(
+                height: 16,
+                width: 16,
+                shape: DataMarkerType.diamond,
+                borderColor: Colors.white,
+                borderWidth: 2,
+              ),
+            ),
+
+            // Vessel point
+            ScatterSeries<_PolarPoint, double>(
+              dataSource: chartData.where((p) => p.type == 'vessel').toList(),
+              xValueMapper: (p, _) => p.x,
+              yValueMapper: (p, _) => p.y,
+              color: Colors.green,
+              animationDuration: 0,
+              markerSettings: const MarkerSettings(
+                height: 14,
+                width: 14,
+                shape: DataMarkerType.triangle,
+                borderColor: Colors.white,
+                borderWidth: 2,
+              ),
+            ),
+          ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  List<_PolarPoint> _generateCirclePoints(double radius, int segments) {
+    final points = <_PolarPoint>[];
+    for (int i = 0; i <= segments; i++) {
+      final angle = (i / segments) * 2 * math.pi;
+      points.add(_PolarPoint(
+        x: radius * math.cos(angle),
+        y: radius * math.sin(angle),
+        label: '',
+        type: 'circle',
+      ));
+    }
+    return points;
+  }
+
+  List<CartesianChartAnnotation> _buildPolarAnnotations(double range, bool isDark) {
+    final textColor = isDark ? Colors.white70 : Colors.black54;
+    final annotations = <CartesianChartAnnotation>[];
+
+    // Compass labels
+    final labels = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+    final labelRadius = range * 0.92;
+
+    for (int i = 0; i < 8; i++) {
+      final angle = (i * 45) * math.pi / 180;
+      final x = labelRadius * math.sin(angle);
+      final y = labelRadius * math.cos(angle);
+
+      annotations.add(CartesianChartAnnotation(
+        widget: Text(
+          labels[i],
+          style: TextStyle(
+            fontSize: 10,
+            color: textColor,
+            fontWeight: i == 0 ? FontWeight.bold : FontWeight.normal,
+          ),
+        ),
+        coordinateUnit: CoordinateUnit.point,
+        x: x,
+        y: y,
+      ));
+    }
+
+    // Distance labels at grid circles (25%, 50%, 75%)
+    for (final fraction in [0.25, 0.5, 0.75]) {
+      final distanceMeters = range * fraction;
+      final distanceLabel = _formatDistance(distanceMeters, 'navigation.anchor.currentRadius');
+
+      // Place label on the right side (East direction)
+      annotations.add(CartesianChartAnnotation(
+        widget: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 1),
+          decoration: BoxDecoration(
+            color: isDark ? Colors.black54 : Colors.white70,
+            borderRadius: BorderRadius.circular(3),
+          ),
+          child: Text(
+            distanceLabel,
+            style: TextStyle(
+              fontSize: 9,
+              color: textColor,
+            ),
+          ),
+        ),
+        coordinateUnit: CoordinateUnit.point,
+        x: distanceMeters + 5,
+        y: 0,
+      ));
+    }
+
+    // Center label
+    annotations.add(CartesianChartAnnotation(
+      widget: Icon(Icons.anchor, size: 12, color: Colors.brown),
+      coordinateUnit: CoordinateUnit.point,
+      x: 0,
+      y: 0,
+    ));
+
+    return annotations;
+  }
+
+  List<LineSeries<_PolarPoint, double>> _buildPolarGridSeries(double range, bool isDark) {
+    final gridColor = isDark ? Colors.white24 : Colors.black12;
+    final series = <LineSeries<_PolarPoint, double>>[];
+
+    // Concentric circles at 25%, 50%, 75%
+    for (final fraction in [0.25, 0.5, 0.75]) {
+      final circlePoints = _generateCirclePoints(range * fraction, 36);
+      series.add(LineSeries<_PolarPoint, double>(
+        dataSource: circlePoints,
+        xValueMapper: (p, _) => p.x,
+        yValueMapper: (p, _) => p.y,
+        color: gridColor,
+        width: 0.5,
+        animationDuration: 0,
+      ));
+    }
+
+    // Cardinal lines (N-S, E-W)
+    series.add(LineSeries<_PolarPoint, double>(
+      dataSource: [
+        _PolarPoint(x: 0, y: range, label: '', type: 'grid'),   // North
+        _PolarPoint(x: 0, y: -range, label: '', type: 'grid'),  // South
+      ],
+      xValueMapper: (p, _) => p.x,
+      yValueMapper: (p, _) => p.y,
+      color: gridColor,
+      width: 0.5,
+      animationDuration: 0,
+    ));
+    series.add(LineSeries<_PolarPoint, double>(
+      dataSource: [
+        _PolarPoint(x: -range, y: 0, label: '', type: 'grid'),
+        _PolarPoint(x: range, y: 0, label: '', type: 'grid'),
+      ],
+      xValueMapper: (p, _) => p.x,
+      yValueMapper: (p, _) => p.y,
+      color: gridColor,
+      width: 0.5,
+      animationDuration: 0,
+    ));
+
+    return series;
+  }
+
   Color _getDistanceColor(AnchorState state) {
     final percentage = state.radiusPercentage ?? 0;
     if (percentage >= 100) return Colors.red;
@@ -464,6 +804,7 @@ class _AnchorAlarmToolState extends State<AnchorAlarmTool> {
             _buildStatusRow('Rode', _formatDistance(state.rodeLength, 'navigation.anchor.rodeLength')),
             if (state.bearingDegrees != null)
               _buildStatusRow('Bearing', '${state.bearingDegrees!.toStringAsFixed(0)}°'),
+            _buildStatusRow('Track', '${_alarmService.trackHistory.length} pts'),
           ],
         ],
       ),
@@ -737,4 +1078,19 @@ class AnchorAlarmToolBuilder extends ToolBuilder {
       signalKService: signalKService,
     );
   }
+}
+
+/// Data point for polar chart
+class _PolarPoint {
+  final double x;
+  final double y;
+  final String label;
+  final String type;
+
+  _PolarPoint({
+    required this.x,
+    required this.y,
+    required this.label,
+    required this.type,
+  });
 }
