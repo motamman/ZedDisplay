@@ -1,7 +1,7 @@
 name: zed_display
 description: A SignalK data display app with gauges and charts
 publish_to: 'none'
-version: 0.5.0+16
+verRqsion: 0.5.0+16
 
 environment:
   sdk: '>=3.8.0 <4.0.0'
@@ -36,6 +36,7 @@ dependencies:
 
   # UI Components
   cupertino_icons: ^1.0.6
+  phosphor_flutter: ^2.1.0
 
   # UUID generation for device IDs
   uuid: ^4.5.2

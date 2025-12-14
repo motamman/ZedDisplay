@@ -474,6 +474,13 @@ class _SignalKNotificationListenerState extends State<SignalKNotificationListene
         break;
     }
 
+    // Extract headline from message (remove language prefix like "en-US: ")
+    String headline = notification.message;
+    final langMatch = RegExp(r'^[a-z]{2}(-[A-Z]{2})?: ').firstMatch(headline);
+    if (langMatch != null) {
+      headline = headline.substring(langMatch.end);
+    }
+
     // Show the notification as a SnackBar
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -487,7 +494,7 @@ class _SignalKNotificationListenerState extends State<SignalKNotificationListene
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Text(
-                    '[${notification.state.toUpperCase()}] ${notification.key}',
+                    '[${notification.state.toUpperCase()}] $headline',
                     style: const TextStyle(
                       fontWeight: FontWeight.bold,
                       fontSize: 14,
@@ -496,10 +503,10 @@ class _SignalKNotificationListenerState extends State<SignalKNotificationListene
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    notification.message,
+                    notification.key,
                     style: const TextStyle(
-                      fontSize: 13,
-                      color: Colors.white,
+                      fontSize: 12,
+                      color: Colors.white70,
                     ),
                   ),
                 ],

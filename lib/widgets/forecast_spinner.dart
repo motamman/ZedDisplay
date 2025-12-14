@@ -1,7 +1,11 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+import 'package:phosphor_flutter/phosphor_flutter.dart';
 import 'weatherflow_forecast.dart'; // Reuse HourlyForecast, SunMoonTimes
+
+/// Weather effect types for animation
+enum WeatherEffectType { none, rain, snow, wind, hail, thunder }
 
 /// Circular forecast spinner widget
 /// Displays a spinnable dial showing 24 hours of forecast data
@@ -336,6 +340,7 @@ class _ForecastSpinnerState extends State<ForecastSpinner>
   Widget _buildForecastContent(HourlyForecast forecast, DateTime time, bool isDark, double centerSize) {
     // Scale factor based on reference size of 200px for center content
     final scale = (centerSize / 200).clamp(0.6, 1.2);
+    final weatherEffect = _getWeatherEffect(forecast);
 
     return Stack(
       alignment: Alignment.center,
@@ -358,6 +363,14 @@ class _ForecastSpinnerState extends State<ForecastSpinner>
             ),
           ),
         ),
+        // Animated weather effect overlay
+        if (weatherEffect != WeatherEffectType.none)
+          Positioned.fill(
+            child: _WeatherEffectOverlay(
+              effectType: weatherEffect,
+              size: centerSize,
+            ),
+          ),
         // Data content on top
         Padding(
           padding: EdgeInsets.all(8 * scale),
@@ -584,6 +597,41 @@ class _ForecastSpinnerState extends State<ForecastSpinner>
     if (code.contains('foggy')) return Colors.blueGrey;
     if (code.contains('windy')) return Colors.teal;
     return Colors.grey;
+  }
+
+  /// Detect weather effect type from forecast
+  WeatherEffectType _getWeatherEffect(HourlyForecast forecast) {
+    final conditions = forecast.conditions?.toLowerCase() ?? '';
+    final icon = forecast.icon?.toLowerCase() ?? '';
+    final combined = '$conditions $icon';
+
+    // Check for thunder first (highest priority)
+    if (combined.contains('thunder') || combined.contains('lightning')) {
+      return WeatherEffectType.thunder;
+    }
+
+    // Check for hail/sleet
+    if (combined.contains('hail') || combined.contains('sleet') || combined.contains('ice')) {
+      return WeatherEffectType.hail;
+    }
+
+    // Check for snow
+    if (combined.contains('snow') || combined.contains('flurr')) {
+      return WeatherEffectType.snow;
+    }
+
+    // Check for rain
+    if (combined.contains('rain') || combined.contains('drizzle') || combined.contains('shower')) {
+      return WeatherEffectType.rain;
+    }
+
+    // Check for wind (high wind speed or wind in conditions)
+    final windSpeed = forecast.windSpeed ?? 0;
+    if (combined.contains('wind') || windSpeed > 25) {
+      return WeatherEffectType.wind;
+    }
+
+    return WeatherEffectType.none;
   }
 }
 
@@ -1375,5 +1423,171 @@ class _ForecastRimPainter extends CustomPainter {
            oldDelegate.selectedHourOffset != selectedHourOffset ||
            oldDelegate.isDark != isDark ||
            oldDelegate.times != times;
+  }
+}
+
+/// Animated weather effect overlay for the center circle
+class _WeatherEffectOverlay extends StatefulWidget {
+  final WeatherEffectType effectType;
+  final double size;
+
+  const _WeatherEffectOverlay({
+    required this.effectType,
+    required this.size,
+  });
+
+  @override
+  State<_WeatherEffectOverlay> createState() => _WeatherEffectOverlayState();
+}
+
+class _WeatherEffectOverlayState extends State<_WeatherEffectOverlay>
+    with TickerProviderStateMixin {
+  late AnimationController _controller;
+  final List<_WeatherParticle> _particles = [];
+  final math.Random _random = math.Random();
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 2),
+    )..repeat();
+    _controller.addListener(_updateParticles);
+    _initParticles();
+  }
+
+  @override
+  void didUpdateWidget(_WeatherEffectOverlay oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.effectType != widget.effectType) {
+      _initParticles();
+    }
+  }
+
+  void _initParticles() {
+    _particles.clear();
+    if (widget.effectType == WeatherEffectType.none) return;
+
+    final count = widget.effectType == WeatherEffectType.wind ? 6 : 12;
+    for (int i = 0; i < count; i++) {
+      _particles.add(_WeatherParticle(
+        x: _random.nextDouble(),
+        y: _random.nextDouble(),
+        speed: 0.3 + _random.nextDouble() * 0.4,
+        size: 0.8 + _random.nextDouble() * 0.4,
+        delay: _random.nextDouble(),
+      ));
+    }
+  }
+
+  void _updateParticles() {
+    if (!mounted) return;
+    setState(() {
+      for (final p in _particles) {
+        final progress = (_controller.value + p.delay) % 1.0;
+        if (widget.effectType == WeatherEffectType.wind) {
+          // Horizontal movement for wind
+          p.currentX = (p.x + progress * p.speed * 2) % 1.0;
+          p.currentY = p.y + math.sin(progress * math.pi * 4) * 0.05;
+        } else {
+          // Vertical falling for rain/snow/hail
+          p.currentX = p.x + math.sin(progress * math.pi * 2) * 0.03;
+          p.currentY = (progress * p.speed + p.y) % 1.0;
+        }
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (widget.effectType == WeatherEffectType.none) {
+      return const SizedBox.shrink();
+    }
+
+    return ClipOval(
+      child: SizedBox(
+        width: widget.size,
+        height: widget.size,
+        child: Stack(
+          children: _particles.map((p) {
+            final iconSize = 14.0 * p.size;
+            return Positioned(
+              left: p.currentX * widget.size - iconSize / 2,
+              top: p.currentY * widget.size - iconSize / 2,
+              child: Opacity(
+                opacity: 0.6,
+                child: _buildParticleIcon(iconSize),
+              ),
+            );
+          }).toList(),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildParticleIcon(double size) {
+    switch (widget.effectType) {
+      case WeatherEffectType.rain:
+        return Icon(
+          PhosphorIcons.drop(),
+          size: size,
+          color: Colors.blue.shade300,
+        );
+      case WeatherEffectType.snow:
+        return Icon(
+          PhosphorIcons.snowflake(),
+          size: size,
+          color: Colors.white70,
+        );
+      case WeatherEffectType.wind:
+        return Icon(
+          PhosphorIcons.wind(),
+          size: size,
+          color: Colors.teal.shade300,
+        );
+      case WeatherEffectType.hail:
+        return Icon(
+          PhosphorIcons.cloudSnow(),
+          size: size,
+          color: Colors.cyan.shade200,
+        );
+      case WeatherEffectType.thunder:
+        return Icon(
+          PhosphorIcons.lightning(),
+          size: size,
+          color: Colors.yellow.shade300,
+        );
+      case WeatherEffectType.none:
+        return const SizedBox.shrink();
+    }
+  }
+}
+
+/// Single weather particle for animation
+class _WeatherParticle {
+  double x;
+  double y;
+  double speed;
+  double size;
+  double delay;
+  double currentX = 0;
+  double currentY = 0;
+
+  _WeatherParticle({
+    required this.x,
+    required this.y,
+    required this.speed,
+    required this.size,
+    required this.delay,
+  }) {
+    currentX = x;
+    currentY = y;
   }
 }
