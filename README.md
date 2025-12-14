@@ -97,6 +97,16 @@ A customizable SignalK marine dashboard application to display real-time vessel 
   - Auto-detection of tank type from SignalK path
   - Optional capacity display
 
+**Utility Tools**
+- **Clock/Alarm**: Smart clock with customizable faces and alarms
+  - 5 clock face styles: analog, digital, minimal, nautical, modern
+  - Multiple alarms with 5 sound options (ding, fog horn, ship bell, whistle, chimes)
+  - Alarms persist via SignalK resources API (sync across all devices)
+  - Multi-device dismiss: "Dismiss Here" (local) or "Dismiss All" (synced)
+  - 12h/24h time format toggle with AM/PM selector
+  - Snooze support (1, 5, 9, 15, 30 minutes)
+  - Long-press clock face to manage alarms
+
 **System Tools**
 - **Server Status**: Real-time SignalK server monitoring and management
   - Live server statistics (uptime, delta rate, connected clients, available paths)
@@ -548,11 +558,11 @@ For questions or issues:
 - [x] Direct one-on-one voice calls
 - [x] Incoming call notifications
 - [x] Dashboard widgets for crew features
-- [] Push notifications when app is backgrounded
+- [ ] Push notifications when app is backgrounded
 - [ ] Message search
 - [ ] Read receipts
 - [ ] Typing indicators
-- [ ] Attatch files to text messages
+- [ ] Attach files to text messages
 
 ---
 

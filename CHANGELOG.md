@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.1+17] - 2025-12-14
+
+### Added
+- **Clock/Alarm Tool**: Smart clock with customizable faces and alarm management
+  - 5 clock face styles using one_clock library: analog, digital, minimal, nautical, modern
+  - Multiple alarm support with full CRUD (create, read, update, delete)
+  - 5 alarm sound options: ding, fog horn, ship bell, whistle, chimes (local assets)
+  - Alarms persist via SignalK resources API (notes with `zeddisplay-alarms` group)
+  - Multi-device synchronization: alarms sync across all connected devices
+  - Dual dismiss modes: "Dismiss Here" (local only) or "Dismiss All" (synced via SignalK)
+  - 12h/24h time format toggle with AM/PM selector in alarm editor
+  - Snooze options: 1, 5, 9, 15, 30 minutes
+  - Long-press clock face to open alarm management panel
+  - System notifications with action buttons (Snooze, Dismiss Here, Dismiss All)
+  - Complementary color second hand (opposite hue on color wheel)
+
+### Dependencies
+- Added `one_clock: ^2.0.2` for clock face widgets
+- Added `audioplayers: ^6.1.0` for alarm sound playback
+
 ## [0.5.0+16] - 2025-12-13
 
 ### Added
