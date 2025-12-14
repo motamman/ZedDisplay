@@ -8,6 +8,7 @@ import '../screens/crew/chat_screen.dart';
 import '../screens/crew/crew_screen.dart';
 import '../screens/crew/direct_chat_screen.dart';
 import '../screens/crew/intercom_screen.dart';
+import '../widgets/tools/weather_alerts_tool.dart';
 
 /// Service to handle system-level notifications
 class NotificationService {
@@ -143,6 +144,14 @@ class NotificationService {
       return;
     }
 
+    // Handle NWS weather alert notifications
+    // Payload format: weather.nws.{alertId}
+    if (payload.startsWith('weather.nws.')) {
+      final alertId = payload.replaceFirst('weather.nws.', '');
+      WeatherAlertsNotifier.instance.requestExpandAlert(alertId);
+      return;
+    }
+
     // Handle other notification types (SignalK alerts, etc.)
     // For now, open the crew screen for crew-related or general notifications
     if (payload.contains('crew')) {
@@ -193,10 +202,17 @@ class NotificationService {
         _notificationIdCounter = 1; // Reset if overflow
       }
 
+      // Extract headline from message (remove language prefix like "en-US: ")
+      String headline = notification.message;
+      final langMatch = RegExp(r'^[a-z]{2}(-[A-Z]{2})?: ').firstMatch(headline);
+      if (langMatch != null) {
+        headline = headline.substring(langMatch.end);
+      }
+
       await _notifications.show(
         _notificationIdCounter,
-        '[$title] ${notification.key}',
-        notification.message,
+        '[$title] $headline',
+        notification.key,
         details,
         payload: notification.key,
       );

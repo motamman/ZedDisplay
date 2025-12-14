@@ -142,6 +142,24 @@ class NWSAlert {
   }
 }
 
+/// Global notifier for expanding a specific alert from snackbar/notification
+class WeatherAlertsNotifier extends ChangeNotifier {
+  static final WeatherAlertsNotifier instance = WeatherAlertsNotifier._();
+  WeatherAlertsNotifier._();
+
+  String? _expandAlertId;
+  String? get expandAlertId => _expandAlertId;
+
+  void requestExpandAlert(String alertId) {
+    _expandAlertId = alertId;
+    notifyListeners();
+    // Clear after a short delay so it can be triggered again
+    Future.delayed(const Duration(milliseconds: 100), () {
+      _expandAlertId = null;
+    });
+  }
+}
+
 /// Weather Alerts Tool - displays NWS alerts with severity-based alerting
 class WeatherAlertsTool extends StatefulWidget {
   final ToolConfig config;
@@ -176,6 +194,7 @@ class _WeatherAlertsToolState extends State<WeatherAlertsTool>
     )..repeat(reverse: true);
 
     widget.signalKService.addListener(_onDataChanged);
+    WeatherAlertsNotifier.instance.addListener(_onExpandRequest);
 
     // Initial load after a short delay
     Future.delayed(const Duration(milliseconds: 500), () {
@@ -188,7 +207,27 @@ class _WeatherAlertsToolState extends State<WeatherAlertsTool>
     _pulseController.dispose();
     _debounceTimer?.cancel();
     widget.signalKService.removeListener(_onDataChanged);
+    WeatherAlertsNotifier.instance.removeListener(_onExpandRequest);
     super.dispose();
+  }
+
+  void _onExpandRequest() {
+    final alertId = WeatherAlertsNotifier.instance.expandAlertId;
+    if (alertId != null && mounted) {
+      // Find matching alert and expand it
+      final matchingAlert = _alerts.where((a) =>
+        a.id == alertId ||
+        a.id.contains(alertId) ||
+        alertId.contains(a.id)
+      ).firstOrNull;
+
+      if (matchingAlert != null) {
+        setState(() {
+          _expandedAlertId = matchingAlert.id;
+          _newAlertIds.remove(matchingAlert.id);
+        });
+      }
+    }
   }
 
   void _onDataChanged() {
