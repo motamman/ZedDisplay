@@ -245,9 +245,14 @@ class AnchorAlarmService extends ChangeNotifier {
         if (data is List) {
           _trackHistory = data.map((point) {
             if (point is Map<String, dynamic>) {
+              final lat = point['latitude'];
+              final lon = point['longitude'];
+              // Skip points with null coordinates
+              if (lat == null || lon == null) return null;
+              if (lat is! num || lon is! num) return null;
               return TrackPoint(
-                latitude: (point['latitude'] as num).toDouble(),
-                longitude: (point['longitude'] as num).toDouble(),
+                latitude: lat.toDouble(),
+                longitude: lon.toDouble(),
                 timestamp: point['timestamp'] != null
                     ? DateTime.parse(point['timestamp'] as String)
                     : DateTime.now(),

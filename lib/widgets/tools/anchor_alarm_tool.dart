@@ -13,12 +13,12 @@ import '../../models/anchor_state.dart';
 import '../../services/tool_registry.dart';
 import '../../utils/conversion_utils.dart';
 
-/// Anchor Alarm Tool - Compact dashboard widget with full-screen dialog
+/// Anchor Alarm Tool - Single unified widget with map and controls
 ///
 /// Shows:
-/// - Mini map with anchor position and vessel
-/// - Distance to anchor and alarm state
-/// - Tap to open full controls
+/// - Interactive map with anchor position and vessel
+/// - Status panel with distance/bearing info
+/// - Control panel with drop/raise anchor and rode adjustment
 class AnchorAlarmTool extends StatefulWidget {
   final ToolConfig config;
   final SignalKService signalKService;
@@ -37,6 +37,7 @@ class _AnchorAlarmToolState extends State<AnchorAlarmTool> {
   late AnchorAlarmService _alarmService;
   final MapController _mapController = MapController();
   bool _mapAutoFollow = true;
+  double _rodeSliderValue = 30.0;
 
   @override
   void initState() {
@@ -91,6 +92,12 @@ class _AnchorAlarmToolState extends State<AnchorAlarmTool> {
     if (mounted) {
       setState(() {});
 
+      // Update slider from current rode length
+      final rodeLength = _alarmService.state.rodeLength;
+      if (rodeLength != null && (_rodeSliderValue - rodeLength).abs() > 1) {
+        _rodeSliderValue = rodeLength.clamp(5.0, 100.0);
+      }
+
       // Auto-follow vessel if enabled
       if (_mapAutoFollow && _alarmService.state.vesselPosition != null) {
         final pos = _alarmService.state.vesselPosition!;
@@ -106,18 +113,6 @@ class _AnchorAlarmToolState extends State<AnchorAlarmTool> {
     }
   }
 
-  void _openFullDialog() {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => _AnchorAlarmDialog(
-        alarmService: _alarmService,
-        signalKService: widget.signalKService,
-        primaryColor: _getPrimaryColor(),
-      ),
-    );
-  }
-
   Color _getPrimaryColor() {
     final colorStr = widget.config.style.primaryColor;
     if (colorStr != null && colorStr.startsWith('#')) {
@@ -128,352 +123,8 @@ class _AnchorAlarmToolState extends State<AnchorAlarmTool> {
     return Colors.blue;
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final state = _alarmService.state;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-
-    return GestureDetector(
-      onTap: _openFullDialog,
-      child: Card(
-        child: Stack(
-          children: [
-            // Mini map background
-            Positioned.fill(
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(12),
-                child: _buildMiniMap(state, isDark),
-              ),
-            ),
-
-            // Status overlay at bottom
-            Positioned(
-              left: 0,
-              right: 0,
-              bottom: 0,
-              child: Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.bottomCenter,
-                    end: Alignment.topCenter,
-                    colors: [
-                      Colors.black.withValues(alpha: 0.8),
-                      Colors.transparent,
-                    ],
-                  ),
-                  borderRadius: const BorderRadius.only(
-                    bottomLeft: Radius.circular(12),
-                    bottomRight: Radius.circular(12),
-                  ),
-                ),
-                child: _buildStatusBar(state),
-              ),
-            ),
-
-            // Alarm indicator at top right
-            if (state.alarmState.isWarning)
-              Positioned(
-                top: 8,
-                right: 8,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: _getAlarmColor(state.alarmState),
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        Icons.warning,
-                        size: 14,
-                        color: Colors.white,
-                      ),
-                      const SizedBox(width: 4),
-                      Text(
-                        state.alarmState.name.toUpperCase(),
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 10,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-
-            // Check-in indicator
-            if (_alarmService.awaitingCheckIn)
-              Positioned(
-                top: 8,
-                left: 8,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: Colors.orange,
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.access_time, size: 14, color: Colors.white),
-                      const SizedBox(width: 4),
-                      Text(
-                        'CHECK-IN',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 10,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-
-            // Tap hint when inactive
-            if (!state.isActive)
-              Center(
-                child: Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: Colors.black54,
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.anchor, size: 32, color: Colors.white70),
-                      const SizedBox(height: 8),
-                      const Text(
-                        'Tap to set anchor',
-                        style: TextStyle(color: Colors.white70),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildMiniMap(AnchorState state, bool isDark) {
-    final vesselPos = state.vesselPosition;
-    final anchorPos = state.anchorPosition;
-
-    // Default center
-    LatLng center = LatLng(0, 0);
-    double zoom = 16;
-
-    if (anchorPos != null) {
-      center = LatLng(anchorPos.latitude, anchorPos.longitude);
-    } else if (vesselPos != null) {
-      center = LatLng(vesselPos.latitude, vesselPos.longitude);
-    }
-
-    return FlutterMap(
-      mapController: _mapController,
-      options: MapOptions(
-        initialCenter: center,
-        initialZoom: zoom,
-        interactionOptions: const InteractionOptions(
-          flags: InteractiveFlag.none, // Disable all interactions on mini map
-        ),
-      ),
-      children: [
-        // Base map
-        TileLayer(
-          urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-          userAgentPackageName: 'com.zennora.signalk',
-        ),
-        // OpenSeaMap overlay
-        TileLayer(
-          urlTemplate: 'https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png',
-          userAgentPackageName: 'com.zennora.signalk',
-        ),
-        // Alarm radius circle
-        if (anchorPos != null && state.maxRadius != null)
-          CircleLayer(
-            circles: [
-              CircleMarker(
-                point: LatLng(anchorPos.latitude, anchorPos.longitude),
-                radius: state.maxRadius!,
-                useRadiusInMeter: true,
-                color: Colors.red.withValues(alpha: 0.1),
-                borderColor: Colors.red,
-                borderStrokeWidth: 2,
-              ),
-            ],
-          ),
-        // Markers
-        MarkerLayer(
-          markers: [
-            // Anchor position
-            if (anchorPos != null)
-              Marker(
-                point: LatLng(anchorPos.latitude, anchorPos.longitude),
-                width: 24,
-                height: 24,
-                child: const Icon(Icons.anchor, color: Colors.brown, size: 20),
-              ),
-            // Vessel position
-            if (vesselPos != null)
-              Marker(
-                point: LatLng(vesselPos.latitude, vesselPos.longitude),
-                width: 24,
-                height: 24,
-                child: Transform.rotate(
-                  angle: (state.vesselHeading ?? 0) * math.pi / 180,
-                  child: const Icon(Icons.navigation, color: Colors.green, size: 20),
-                ),
-              ),
-          ],
-        ),
-      ],
-    );
-  }
-
-  Widget _buildStatusBar(AnchorState state) {
-    // Format distance with user's preferred units
-    String formatDistance(double? meters) {
-      if (meters == null) return '--';
-      return ConversionUtils.formatValue(
-        widget.signalKService,
-        'navigation.anchor.currentRadius',
-        meters,
-        decimalPlaces: 0,
-      );
-    }
-
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        // Status/distance
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              state.isActive ? 'ANCHORED' : 'NOT SET',
-              style: TextStyle(
-                color: state.isActive ? Colors.green : Colors.grey,
-                fontSize: 10,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            if (state.currentRadius != null)
-              Text(
-                formatDistance(state.currentRadius),
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-          ],
-        ),
-        // Limit
-        if (state.maxRadius != null)
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Text(
-                'LIMIT',
-                style: TextStyle(
-                  color: Colors.grey,
-                  fontSize: 10,
-                ),
-              ),
-              Text(
-                formatDistance(state.maxRadius),
-                style: const TextStyle(
-                  color: Colors.white70,
-                  fontSize: 14,
-                ),
-              ),
-            ],
-          ),
-      ],
-    );
-  }
-
-  Color _getAlarmColor(AnchorAlarmState state) {
-    switch (state) {
-      case AnchorAlarmState.emergency:
-        return Colors.red.shade900;
-      case AnchorAlarmState.alarm:
-        return Colors.red.shade700;
-      case AnchorAlarmState.warn:
-        return Colors.orange.shade700;
-      case AnchorAlarmState.normal:
-        return Colors.green;
-    }
-  }
-}
-
-/// Full-screen anchor alarm dialog with all controls
-class _AnchorAlarmDialog extends StatefulWidget {
-  final AnchorAlarmService alarmService;
-  final SignalKService signalKService;
-  final Color primaryColor;
-
-  const _AnchorAlarmDialog({
-    required this.alarmService,
-    required this.signalKService,
-    required this.primaryColor,
-  });
-
-  @override
-  State<_AnchorAlarmDialog> createState() => _AnchorAlarmDialogState();
-}
-
-class _AnchorAlarmDialogState extends State<_AnchorAlarmDialog> {
-  final MapController _mapController = MapController();
-  bool _mapAutoFollow = true;
-  double _rodeSliderValue = 30.0;
-
-  @override
-  void initState() {
-    super.initState();
-    widget.alarmService.addListener(_onStateChanged);
-
-    // Initialize slider from current rode length
-    final rodeLength = widget.alarmService.state.rodeLength;
-    if (rodeLength != null) {
-      _rodeSliderValue = rodeLength.clamp(5.0, 100.0);
-    }
-  }
-
-  @override
-  void dispose() {
-    widget.alarmService.removeListener(_onStateChanged);
-    super.dispose();
-  }
-
-  void _onStateChanged() {
-    if (mounted) {
-      setState(() {});
-
-      // Auto-follow vessel
-      if (_mapAutoFollow && widget.alarmService.state.vesselPosition != null) {
-        final pos = widget.alarmService.state.vesselPosition!;
-        try {
-          _mapController.move(
-            LatLng(pos.latitude, pos.longitude),
-            _mapController.camera.zoom,
-          );
-        } catch (_) {}
-      }
-    }
-  }
-
   void _centerOnAnchor() {
-    final anchorPos = widget.alarmService.state.anchorPosition;
+    final anchorPos = _alarmService.state.anchorPosition;
     if (anchorPos != null) {
       _mapController.move(
         LatLng(anchorPos.latitude, anchorPos.longitude),
@@ -484,7 +135,7 @@ class _AnchorAlarmDialogState extends State<_AnchorAlarmDialog> {
   }
 
   void _centerOnVessel() {
-    final vesselPos = widget.alarmService.state.vesselPosition;
+    final vesselPos = _alarmService.state.vesselPosition;
     if (vesselPos != null) {
       _mapController.move(
         LatLng(vesselPos.latitude, vesselPos.longitude),
@@ -503,7 +154,7 @@ class _AnchorAlarmDialogState extends State<_AnchorAlarmDialog> {
   }
 
   Future<void> _dropAnchor() async {
-    final success = await widget.alarmService.dropAnchor();
+    final success = await _alarmService.dropAnchor();
     if (success && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -534,7 +185,7 @@ class _AnchorAlarmDialogState extends State<_AnchorAlarmDialog> {
     );
 
     if (confirmed == true) {
-      final success = await widget.alarmService.raiseAnchor();
+      final success = await _alarmService.raiseAnchor();
       if (success && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -547,109 +198,96 @@ class _AnchorAlarmDialogState extends State<_AnchorAlarmDialog> {
   }
 
   Future<void> _setRodeLength(double length) async {
-    await widget.alarmService.setRodeLength(length);
+    await _alarmService.setRodeLength(length);
   }
 
-  Future<void> _setRadiusFromPosition() async {
-    final success = await widget.alarmService.setRadius();
-    if (success && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Radius set from current position'),
-          backgroundColor: Colors.blue,
-        ),
-      );
-    }
+  // Format distance with user's preferred units
+  String _formatDistance(double? meters, String path) {
+    if (meters == null) return '--';
+    return ConversionUtils.formatValue(
+      widget.signalKService,
+      path,
+      meters,
+      decimalPlaces: 0,
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    final state = widget.alarmService.state;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final state = _alarmService.state;
 
-    return Dialog.fullscreen(
-      child: Scaffold(
-        appBar: AppBar(
-          title: const Text('Anchor Alarm'),
-          leading: IconButton(
-            icon: const Icon(Icons.close),
-            onPressed: () => Navigator.pop(context),
+    return Card(
+      clipBehavior: Clip.antiAlias,
+      child: Stack(
+        children: [
+          // Full map background
+          Positioned.fill(
+            child: _buildMap(state),
           ),
-          actions: const [],
-        ),
-        body: Stack(
-          children: [
-            // Full map
+
+          // Map controls (top right)
+          Positioned(
+            top: 8,
+            right: 8,
+            child: Column(
+              children: [
+                _buildMapButton(
+                  icon: Icons.add,
+                  onPressed: () => _mapController.move(
+                    _mapController.camera.center,
+                    _mapController.camera.zoom + 1,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                _buildMapButton(
+                  icon: Icons.remove,
+                  onPressed: () => _mapController.move(
+                    _mapController.camera.center,
+                    _mapController.camera.zoom - 1,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                _buildMapButton(
+                  icon: Icons.anchor,
+                  onPressed: _centerOnAnchor,
+                ),
+                const SizedBox(height: 4),
+                _buildMapButton(
+                  icon: _mapAutoFollow ? Icons.gps_fixed : Icons.gps_not_fixed,
+                  onPressed: _toggleAutoFollow,
+                  color: _mapAutoFollow ? _getPrimaryColor() : null,
+                ),
+              ],
+            ),
+          ),
+
+          // Status panel (top left)
+          Positioned(
+            top: 8,
+            left: 8,
+            child: _buildStatusPanel(state),
+          ),
+
+          // Control panel (bottom)
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: _buildControlPanel(state),
+          ),
+
+          // Check-in overlay
+          if (_alarmService.awaitingCheckIn)
             Positioned.fill(
-              child: _buildFullMap(state, isDark),
+              child: _buildCheckInOverlay(),
             ),
 
-            // Map controls (top right)
-            Positioned(
-              top: 16,
-              right: 16,
-              child: Column(
-                children: [
-                  _buildMapButton(
-                    icon: Icons.add,
-                    onPressed: () => _mapController.move(
-                      _mapController.camera.center,
-                      _mapController.camera.zoom + 1,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  _buildMapButton(
-                    icon: Icons.remove,
-                    onPressed: () => _mapController.move(
-                      _mapController.camera.center,
-                      _mapController.camera.zoom - 1,
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  _buildMapButton(
-                    icon: Icons.anchor,
-                    onPressed: _centerOnAnchor,
-                    tooltip: 'Center on anchor',
-                  ),
-                  const SizedBox(height: 8),
-                  _buildMapButton(
-                    icon: _mapAutoFollow ? Icons.gps_fixed : Icons.gps_not_fixed,
-                    onPressed: _toggleAutoFollow,
-                    color: _mapAutoFollow ? widget.primaryColor : null,
-                    tooltip: 'Auto-follow vessel',
-                  ),
-                ],
-              ),
+          // Alarm overlay
+          if (state.alarmState.isAlarming)
+            Positioned.fill(
+              child: _buildAlarmOverlay(state),
             ),
-
-            // Status panel (top left)
-            Positioned(
-              top: 16,
-              left: 16,
-              child: _buildStatusPanel(state),
-            ),
-
-            // Control panel (bottom)
-            Positioned(
-                left: 0,
-                right: 0,
-                bottom: 0,
-                child: _buildControlPanel(state),
-              ),
-
-            // Check-in overlay
-            if (widget.alarmService.awaitingCheckIn)
-              Positioned.fill(
-                child: _buildCheckInOverlay(),
-              ),
-
-            // Alarm overlay
-            if (state.alarmState.isAlarming)
-              Positioned.fill(
-                child: _buildAlarmOverlay(state),
-              ),
-          ],
-        ),
+        ],
       ),
     );
   }
@@ -658,29 +296,25 @@ class _AnchorAlarmDialogState extends State<_AnchorAlarmDialog> {
     required IconData icon,
     required VoidCallback onPressed,
     Color? color,
-    String? tooltip,
   }) {
     return Material(
-      color: Colors.white,
-      borderRadius: BorderRadius.circular(8),
+      color: Colors.white.withValues(alpha: 0.9),
+      borderRadius: BorderRadius.circular(6),
       elevation: 2,
       child: InkWell(
         onTap: onPressed,
-        borderRadius: BorderRadius.circular(8),
-        child: Tooltip(
-          message: tooltip ?? '',
-          child: Container(
-            width: 40,
-            height: 40,
-            alignment: Alignment.center,
-            child: Icon(icon, color: color ?? Colors.black87),
-          ),
+        borderRadius: BorderRadius.circular(6),
+        child: Container(
+          width: 32,
+          height: 32,
+          alignment: Alignment.center,
+          child: Icon(icon, color: color ?? Colors.black87, size: 18),
         ),
       ),
     );
   }
 
-  Widget _buildFullMap(AnchorState state, bool isDark) {
+  Widget _buildMap(AnchorState state) {
     final vesselPos = state.vesselPosition;
     final anchorPos = state.anchorPosition;
 
@@ -717,11 +351,11 @@ class _AnchorAlarmDialogState extends State<_AnchorAlarmDialog> {
           userAgentPackageName: 'com.zennora.signalk',
         ),
         // Track history
-        if (widget.alarmService.trackHistory.isNotEmpty)
+        if (_alarmService.trackHistory.isNotEmpty)
           PolylineLayer(
             polylines: [
               Polyline(
-                points: widget.alarmService.trackHistory
+                points: _alarmService.trackHistory
                     .map((p) => LatLng(p.latitude, p.longitude))
                     .toList(),
                 color: Colors.blue.withValues(alpha: 0.7),
@@ -761,16 +395,16 @@ class _AnchorAlarmDialogState extends State<_AnchorAlarmDialog> {
             if (anchorPos != null)
               Marker(
                 point: LatLng(anchorPos.latitude, anchorPos.longitude),
-                width: 40,
-                height: 40,
-                child: const Icon(Icons.anchor, color: Colors.brown, size: 32),
+                width: 32,
+                height: 32,
+                child: const Icon(Icons.anchor, color: Colors.brown, size: 28),
               ),
             // Vessel position
             if (vesselPos != null)
               Marker(
                 point: LatLng(vesselPos.latitude, vesselPos.longitude),
-                width: 32,
-                height: 32,
+                width: 28,
+                height: 28,
                 child: Transform.rotate(
                   angle: (state.vesselHeading ?? 0) * math.pi / 180,
                   child: const Icon(Icons.navigation, color: Colors.green, size: 24),
@@ -791,61 +425,42 @@ class _AnchorAlarmDialogState extends State<_AnchorAlarmDialog> {
   }
 
   Widget _buildStatusPanel(AnchorState state) {
-    // Format distance with user's preferred units
-    String formatDistance(double? meters, String path) {
-      if (meters == null) return '--';
-      return ConversionUtils.formatValue(
-        widget.signalKService,
-        path,
-        meters,
-        decimalPlaces: 0,
-      );
-    }
-
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.85),
-        borderRadius: BorderRadius.circular(12),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black45,
-            blurRadius: 8,
-            offset: const Offset(0, 4),
-          ),
-        ],
+        color: Colors.black.withValues(alpha: 0.8),
+        borderRadius: BorderRadius.circular(8),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
           Row(
+            mainAxisSize: MainAxisSize.min,
             children: [
               Icon(
                 state.isActive ? Icons.anchor : Icons.anchor_outlined,
                 color: state.isActive ? Colors.orange : Colors.grey,
-                size: 28,
+                size: 20,
               ),
-              const SizedBox(width: 10),
+              const SizedBox(width: 6),
               Text(
                 state.isActive ? 'ANCHORED' : 'NOT SET',
                 style: TextStyle(
                   fontWeight: FontWeight.bold,
-                  fontSize: 18,
+                  fontSize: 14,
                   color: state.isActive ? Colors.green : Colors.grey,
                 ),
               ),
             ],
           ),
           if (state.isActive) ...[
-            const Divider(height: 20, color: Colors.white24),
-            _buildStatusRow('From Anchor', formatDistance(state.currentRadius, 'navigation.anchor.currentRadius')),
-            _buildStatusRow('Alarm At', formatDistance(state.maxRadius, 'navigation.anchor.maxRadius')),
-            _buildStatusRow('Rode Out', formatDistance(state.rodeLength, 'navigation.anchor.rodeLength')),
+            const SizedBox(height: 6),
+            _buildStatusRow('Distance', _formatDistance(state.currentRadius, 'navigation.anchor.currentRadius')),
+            _buildStatusRow('Alarm', _formatDistance(state.maxRadius, 'navigation.anchor.maxRadius')),
+            _buildStatusRow('Rode', _formatDistance(state.rodeLength, 'navigation.anchor.rodeLength')),
             if (state.bearingDegrees != null)
-              _buildStatusRow('To Anchor', '${state.bearingDegrees!.toStringAsFixed(0)}°'),
-            if (widget.alarmService.gpsFromBow != null)
-              _buildStatusRow('GPS→Bow', formatDistance(widget.alarmService.gpsFromBow, 'sensors.gps.fromBow')),
+              _buildStatusRow('Bearing', '${state.bearingDegrees!.toStringAsFixed(0)}°'),
           ],
         ],
       ),
@@ -854,22 +469,22 @@ class _AnchorAlarmDialogState extends State<_AnchorAlarmDialog> {
 
   Widget _buildStatusRow(String label, String value) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
+      padding: const EdgeInsets.symmetric(vertical: 1),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           SizedBox(
-            width: 80,
+            width: 55,
             child: Text(
               label,
-              style: const TextStyle(color: Colors.white60, fontSize: 16),
+              style: const TextStyle(color: Colors.white60, fontSize: 11),
             ),
           ),
           Text(
             value,
             style: const TextStyle(
               fontWeight: FontWeight.bold,
-              fontSize: 18,
+              fontSize: 13,
               color: Colors.white,
             ),
           ),
@@ -893,20 +508,13 @@ class _AnchorAlarmDialogState extends State<_AnchorAlarmDialog> {
     ) ?? _rodeSliderValue;
 
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: Colors.white.withValues(alpha: 0.95),
         borderRadius: const BorderRadius.only(
-          topLeft: Radius.circular(16),
-          topRight: Radius.circular(16),
+          topLeft: Radius.circular(12),
+          topRight: Radius.circular(12),
         ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black26,
-            blurRadius: 8,
-            offset: const Offset(0, -2),
-          ),
-        ],
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -917,25 +525,25 @@ class _AnchorAlarmDialogState extends State<_AnchorAlarmDialog> {
               Expanded(
                 child: ElevatedButton.icon(
                   onPressed: state.isActive ? null : _dropAnchor,
-                  icon: const Icon(Icons.anchor),
-                  label: const Text('Drop Anchor'),
+                  icon: const Icon(Icons.anchor, size: 18),
+                  label: const Text('Drop'),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.green,
                     foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    padding: const EdgeInsets.symmetric(vertical: 8),
                   ),
                 ),
               ),
-              const SizedBox(width: 16),
+              const SizedBox(width: 8),
               Expanded(
                 child: ElevatedButton.icon(
                   onPressed: state.isActive ? _raiseAnchor : null,
-                  icon: const Icon(Icons.eject),
-                  label: const Text('Raise Anchor'),
+                  icon: const Icon(Icons.eject, size: 18),
+                  label: const Text('Raise'),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.orange,
                     foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    padding: const EdgeInsets.symmetric(vertical: 8),
                   ),
                 ),
               ),
@@ -944,40 +552,35 @@ class _AnchorAlarmDialogState extends State<_AnchorAlarmDialog> {
 
           // Rode length slider (only when active)
           if (state.isActive) ...[
-            const SizedBox(height: 16),
+            const SizedBox(height: 4),
             Row(
               children: [
-                const Text('Rode Out:', style: TextStyle(color: Colors.black87, fontSize: 16)),
-                const SizedBox(width: 8),
+                Text('Rode: ', style: TextStyle(color: Colors.black87, fontSize: 12)),
                 Text(
                   '${displayValue.toStringAsFixed(0)} $unitSymbol',
-                  style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black, fontSize: 18),
+                  style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black, fontSize: 14),
+                ),
+                Expanded(
+                  child: SliderTheme(
+                    data: SliderThemeData(
+                      activeTrackColor: Colors.blue,
+                      inactiveTrackColor: Colors.blue.shade100,
+                      thumbColor: Colors.blue,
+                      overlayColor: Colors.blue.withValues(alpha: 0.2),
+                      trackHeight: 3,
+                      thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 8),
+                    ),
+                    child: Slider(
+                      value: _rodeSliderValue,
+                      min: 5,
+                      max: 100,
+                      divisions: 19,
+                      onChanged: (value) => setState(() => _rodeSliderValue = value),
+                      onChangeEnd: _setRodeLength,
+                    ),
+                  ),
                 ),
               ],
-            ),
-            SliderTheme(
-              data: SliderThemeData(
-                activeTrackColor: Colors.blue,
-                inactiveTrackColor: Colors.blue.shade100,
-                thumbColor: Colors.blue,
-                overlayColor: Colors.blue.withValues(alpha: 0.2),
-                valueIndicatorColor: Colors.blue,
-              ),
-              child: Slider(
-                value: _rodeSliderValue,
-                min: 5,
-                max: 100,
-                divisions: 19,
-                label: '${displayValue.toStringAsFixed(0)} $unitSymbol',
-                onChanged: (value) => setState(() => _rodeSliderValue = value),
-                onChangeEnd: _setRodeLength,
-              ),
-            ),
-            const SizedBox(height: 8),
-            TextButton.icon(
-              onPressed: _setRadiusFromPosition,
-              icon: const Icon(Icons.gps_fixed, color: Colors.blue),
-              label: const Text('Set alarm radius from anchor drop', style: TextStyle(color: Colors.blue)),
             ),
           ],
         ],
@@ -986,7 +589,7 @@ class _AnchorAlarmDialogState extends State<_AnchorAlarmDialog> {
   }
 
   Widget _buildCheckInOverlay() {
-    final deadline = widget.alarmService.checkInDeadline;
+    final deadline = _alarmService.checkInDeadline;
     final remaining = deadline != null
         ? deadline.difference(DateTime.now())
         : Duration.zero;
@@ -997,12 +600,12 @@ class _AnchorAlarmDialogState extends State<_AnchorAlarmDialog> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.warning_amber, size: 80, color: Colors.orange),
-            const SizedBox(height: 16),
+            const Icon(Icons.warning_amber, size: 60, color: Colors.orange),
+            const SizedBox(height: 12),
             const Text(
               'ANCHOR WATCH CHECK-IN',
               style: TextStyle(
-                fontSize: 24,
+                fontSize: 20,
                 fontWeight: FontWeight.bold,
                 color: Colors.white,
               ),
@@ -1010,17 +613,17 @@ class _AnchorAlarmDialogState extends State<_AnchorAlarmDialog> {
             const SizedBox(height: 8),
             Text(
               'Time remaining: ${_formatDuration(remaining)}',
-              style: const TextStyle(fontSize: 18, color: Colors.white70),
+              style: const TextStyle(fontSize: 16, color: Colors.white70),
             ),
-            const SizedBox(height: 24),
+            const SizedBox(height: 16),
             ElevatedButton.icon(
-              onPressed: () => widget.alarmService.acknowledgeCheckIn(),
+              onPressed: () => _alarmService.acknowledgeCheckIn(),
               icon: const Icon(Icons.check),
               label: const Text("I'm Watching"),
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.green,
                 foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(horizontal: 48, vertical: 16),
+                padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
               ),
             ),
           ],
@@ -1030,15 +633,7 @@ class _AnchorAlarmDialogState extends State<_AnchorAlarmDialog> {
   }
 
   Widget _buildAlarmOverlay(AnchorState state) {
-    // Format distance with user's preferred units
-    final distanceDisplay = state.currentRadius != null
-        ? ConversionUtils.formatValue(
-            widget.signalKService,
-            'navigation.anchor.currentRadius',
-            state.currentRadius!,
-            decimalPlaces: 0,
-          )
-        : '--';
+    final distanceDisplay = _formatDistance(state.currentRadius, 'navigation.anchor.currentRadius');
 
     return Container(
       color: Colors.red.shade900.withValues(alpha: 0.9),
@@ -1046,12 +641,12 @@ class _AnchorAlarmDialogState extends State<_AnchorAlarmDialog> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.warning, size: 100, color: Colors.white),
-            const SizedBox(height: 16),
+            const Icon(Icons.warning, size: 80, color: Colors.white),
+            const SizedBox(height: 12),
             Text(
               state.alarmMessage ?? 'ANCHOR ALARM',
               style: const TextStyle(
-                fontSize: 28,
+                fontSize: 24,
                 fontWeight: FontWeight.bold,
                 color: Colors.white,
               ),
@@ -1060,17 +655,17 @@ class _AnchorAlarmDialogState extends State<_AnchorAlarmDialog> {
             const SizedBox(height: 8),
             Text(
               'Distance: $distanceDisplay',
-              style: const TextStyle(fontSize: 24, color: Colors.white),
+              style: const TextStyle(fontSize: 20, color: Colors.white),
             ),
-            const SizedBox(height: 32),
+            const SizedBox(height: 20),
             ElevatedButton.icon(
-              onPressed: () => widget.alarmService.acknowledgeAlarm(),
+              onPressed: () => _alarmService.acknowledgeAlarm(),
               icon: const Icon(Icons.check),
               label: const Text('Acknowledge'),
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.white,
                 foregroundColor: Colors.black,
-                padding: const EdgeInsets.symmetric(horizontal: 48, vertical: 16),
+                padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
               ),
             ),
           ],
