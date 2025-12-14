@@ -31,6 +31,9 @@ class ForecastSpinner extends StatefulWidget {
   /// Callback when selected hour changes
   final void Function(int hourOffset)? onHourChanged;
 
+  /// Whether to show animated weather effects (rain, snow, etc.)
+  final bool showWeatherAnimation;
+
   const ForecastSpinner({
     super.key,
     required this.hourlyForecasts,
@@ -41,6 +44,7 @@ class ForecastSpinner extends StatefulWidget {
     this.primaryColor = Colors.blue,
     this.providerName,
     this.onHourChanged,
+    this.showWeatherAnimation = true,
   });
 
   @override
@@ -76,17 +80,27 @@ class _ForecastSpinnerState extends State<ForecastSpinner>
   @override
   void initState() {
     super.initState();
-    _controller = AnimationController.unbounded(vsync: this);
-    _controller.addListener(_onAnimationTick);
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 200),
+    );
+    // Defer listener registration to avoid issues during placement preview
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        _controller.addListener(_onAnimationTick);
+      }
+    });
   }
 
   @override
   void dispose() {
+    _controller.removeListener(_onAnimationTick);
     _controller.dispose();
     super.dispose();
   }
 
   void _onAnimationTick() {
+    if (!mounted) return;
     setState(() {
       // Use snap animation value if available, otherwise controller value (for momentum)
       final newAngle = _snapAnimation?.value ?? _controller.value;
@@ -162,9 +176,11 @@ class _ForecastSpinnerState extends State<ForecastSpinner>
 
     _controller.duration = const Duration(milliseconds: 200);
     _controller.forward(from: 0).then((_) {
+      if (!mounted) return;
+      _controller.stop();
       setState(() {
         _rotationAngle = targetAngle;
-        _snapAnimation = null; // Clear after completion
+        _snapAnimation = null;
       });
       widget.onHourChanged?.call(_selectedHourOffset);
     });
@@ -364,7 +380,7 @@ class _ForecastSpinnerState extends State<ForecastSpinner>
           ),
         ),
         // Animated weather effect overlay
-        if (weatherEffect != WeatherEffectType.none)
+        if (widget.showWeatherAnimation && weatherEffect != WeatherEffectType.none)
           Positioned.fill(
             child: _WeatherEffectOverlay(
               effectType: weatherEffect,
@@ -1501,6 +1517,7 @@ class _WeatherEffectOverlayState extends State<_WeatherEffectOverlay>
 
   @override
   void dispose() {
+    _controller.removeListener(_updateParticles);
     _controller.dispose();
     super.dispose();
   }

@@ -33,22 +33,29 @@ class _WeatherApiSpinnerToolState extends State<WeatherApiSpinnerTool> {
   @override
   void initState() {
     super.initState();
-    _initService();
+    // Delay initialization to avoid issues during placement preview
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _initService();
+    });
   }
 
   void _initService() {
-    // Get provider from config
-    final provider = widget.config.style.customProperties?['provider'] as String?;
+    try {
+      // Get provider from config
+      final provider = widget.config.style.customProperties?['provider'] as String?;
 
-    _weatherService = WeatherApiService(widget.signalKService, provider: provider);
-    _weatherService!.addListener(_onDataChanged);
-    // Delay first fetch to allow position data to arrive
-    Future.delayed(const Duration(seconds: 2), () {
-      if (mounted && !_fetchScheduled) {
-        _fetchScheduled = true;
-        _weatherService?.fetchForecasts();
-      }
-    });
+      _weatherService = WeatherApiService(widget.signalKService, provider: provider);
+      _weatherService!.addListener(_onDataChanged);
+      // Delay first fetch to allow position data to arrive
+      Future.delayed(const Duration(seconds: 2), () {
+        if (mounted && !_fetchScheduled) {
+          _fetchScheduled = true;
+          _weatherService?.fetchForecasts();
+        }
+      });
+    } catch (e) {
+      debugPrint('WeatherApiSpinnerTool init error: $e');
+    }
   }
 
   @override
@@ -166,6 +173,8 @@ class _WeatherApiSpinnerToolState extends State<WeatherApiSpinnerTool> {
       );
     }
 
+    final showWeatherAnimation = widget.config.style.customProperties?['showWeatherAnimation'] as bool? ?? true;
+
     return ForecastSpinner(
       hourlyForecasts: hourlyForecasts,
       sunMoonTimes: sunMoonTimes,
@@ -174,6 +183,7 @@ class _WeatherApiSpinnerToolState extends State<WeatherApiSpinnerTool> {
       pressureUnit: pressureUnit,
       primaryColor: primaryColor,
       providerName: _getProviderDisplayName(),
+      showWeatherAnimation: showWeatherAnimation,
     );
   }
 
