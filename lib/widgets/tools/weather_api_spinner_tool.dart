@@ -26,9 +26,20 @@ class WeatherApiSpinnerTool extends StatefulWidget {
   State<WeatherApiSpinnerTool> createState() => _WeatherApiSpinnerToolState();
 }
 
-class _WeatherApiSpinnerToolState extends State<WeatherApiSpinnerTool> {
+class _WeatherApiSpinnerToolState extends State<WeatherApiSpinnerTool>
+    with AutomaticKeepAliveClientMixin {
   WeatherApiService? _weatherService;
   bool _fetchScheduled = false;
+
+  // Cached hourly forecasts to avoid rebuilding on every setState
+  List<HourlyForecast>? _cachedForecasts;
+  int? _lastForecastCount;
+
+  // Cached sun/moon times to avoid recalculating every build
+  SunMoonTimes? _cachedSunMoonTimes;
+
+  @override
+  bool get wantKeepAlive => true; // Keep state alive when scrolled off screen
 
   @override
   void initState() {
@@ -67,9 +78,18 @@ class _WeatherApiSpinnerToolState extends State<WeatherApiSpinnerTool> {
   }
 
   void _onDataChanged() {
-    if (mounted) {
-      setState(() {});
+    if (!mounted) return;
+
+    // Only rebuild forecasts if the data actually changed
+    final newCount = _weatherService?.hourlyForecasts.length;
+    if (newCount != _lastForecastCount) {
+      _cachedForecasts = _buildHourlyForecasts();
+      _lastForecastCount = newCount;
+      // Also update sun/moon times when forecast data changes
+      _cachedSunMoonTimes = _getSunMoonTimes();
     }
+
+    setState(() {});
   }
 
   // Build conversion path based on provider source
@@ -92,6 +112,7 @@ class _WeatherApiSpinnerToolState extends State<WeatherApiSpinnerTool> {
 
   @override
   Widget build(BuildContext context) {
+    super.build(context); // Required for AutomaticKeepAliveClientMixin
     final style = widget.config.style;
 
     // Parse color from config
@@ -104,11 +125,16 @@ class _WeatherApiSpinnerToolState extends State<WeatherApiSpinnerTool> {
     final windUnit = widget.signalKService.getUnitSymbol(_getConversionPath('windAvg')) ?? '';
     final pressureUnit = widget.signalKService.getUnitSymbol(_getConversionPath('seaLevelPressure')) ?? '';
 
-    // Convert API forecasts to HourlyForecast objects using ConversionUtils
-    final hourlyForecasts = _buildHourlyForecasts();
-
-    // Get sun/moon times from SignalK (derived-data plugin)
-    final sunMoonTimes = _getSunMoonTimes();
+    // Use cached forecasts (updated in _onDataChanged)
+    // Always rebuild if cache is empty but service has data (handles swipe away/back)
+    final serviceHasData = (_weatherService?.hourlyForecasts.length ?? 0) > 0;
+    if (_cachedForecasts == null || (_cachedForecasts!.isEmpty && serviceHasData)) {
+      _cachedForecasts = _buildHourlyForecasts();
+      _lastForecastCount = _weatherService?.hourlyForecasts.length;
+      _cachedSunMoonTimes = _getSunMoonTimes();
+    }
+    final hourlyForecasts = _cachedForecasts ?? [];
+    final sunMoonTimes = _cachedSunMoonTimes;
 
     final weatherService = _weatherService;
 

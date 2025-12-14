@@ -31,7 +31,7 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen> {
   bool _isFullScreen = false;
   bool _showAppBar = true;
   Timer? _appBarHideTimer;
-  int _currentVirtualPage = 0; // Track virtual page for infinite scroll
+
 
   @override
   void initState() {
@@ -39,10 +39,9 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen> {
     final dashboardService = Provider.of<DashboardService>(context, listen: false);
     final initialIndex = dashboardService.currentLayout?.activeScreenIndex ?? 0;
 
-    // Start at a high offset to allow wrap-around in both directions
-    _currentVirtualPage = 1000 + initialIndex;
+    // Simple page indexing - no infinite scroll, widget state is preserved
     _pageController = PageController(
-      initialPage: _currentVirtualPage,
+      initialPage: initialIndex,
     );
   }
 
@@ -249,29 +248,8 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen> {
                     trailing: isActive ? const Icon(Icons.check, color: Colors.green) : null,
                     onTap: () {
                       Navigator.pop(context);
-
-                      // Calculate target virtual page
-                      final totalScreens = layout.screens.length;
-                      final currentActualIndex = _currentVirtualPage % totalScreens;
-
-                      // Determine direction and distance
-                      int targetVirtualPage;
-                      if (index == currentActualIndex) {
-                        targetVirtualPage = _currentVirtualPage;
-                      } else {
-                        // Move in the shortest direction
-                        final forwardDist = (index - currentActualIndex + totalScreens) % totalScreens;
-                        final backwardDist = (currentActualIndex - index + totalScreens) % totalScreens;
-
-                        if (forwardDist <= backwardDist) {
-                          targetVirtualPage = _currentVirtualPage + forwardDist;
-                        } else {
-                          targetVirtualPage = _currentVirtualPage - backwardDist;
-                        }
-                      }
-
                       _pageController.animateToPage(
-                        targetVirtualPage,
+                        index,
                         duration: const Duration(milliseconds: 300),
                         curve: Curves.easeInOut,
                       );
@@ -391,15 +369,10 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen> {
               onTap: () async {
                 Navigator.pop(context);
                 await dashboardService.addScreen();
-                // Jump to the new screen using virtual page system
+                // Jump to the new screen
                 final newIndex = dashboardService.currentLayout!.screens.length - 1;
-                final totalScreens = dashboardService.currentLayout!.screens.length;
-                final currentActualIndex = _currentVirtualPage % totalScreens;
-
-                // Move forward to the new screen
-                final targetVirtualPage = _currentVirtualPage + (newIndex - currentActualIndex);
                 _pageController.animateToPage(
-                  targetVirtualPage,
+                  newIndex,
                   duration: const Duration(milliseconds: 300),
                   curve: Curves.easeInOut,
                 );
@@ -474,21 +447,28 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen> {
                 style: TextStyle(fontSize: 12, color: Colors.grey),
               ),
               const SizedBox(height: 16),
-              ...presets.map((preset) => RadioListTile<String?>(
-                title: Text(preset),
-                value: preset,
+              RadioGroup<String?>(
                 groupValue: selectedValue,
                 onChanged: (value) {
                   setState(() => selectedValue = value);
                 },
-              )),
-              RadioListTile<String?>(
-                title: const Text('Custom'),
-                value: 'Custom',
-                groupValue: selectedValue,
-                onChanged: (value) {
-                  setState(() => selectedValue = value);
-                },
+                child: Column(
+                  children: [
+                    ...presets.map((preset) => RadioListTile<String?>(
+                      title: Text(preset),
+                      value: preset,
+                    )),
+                    const RadioListTile<String?>(
+                      title: Text('Custom'),
+                      value: 'Custom',
+                    ),
+                    const RadioListTile<String?>(
+                      title: Text('None'),
+                      subtitle: Text('Clear intended use'),
+                      value: null,
+                    ),
+                  ],
+                ),
               ),
               if (selectedValue == 'Custom')
                 Padding(
@@ -503,15 +483,6 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen> {
                     autofocus: true,
                   ),
                 ),
-              RadioListTile<String?>(
-                title: const Text('None'),
-                subtitle: const Text('Clear intended use'),
-                value: null,
-                groupValue: selectedValue,
-                onChanged: (value) {
-                  setState(() => selectedValue = value);
-                },
-              ),
             ],
           ),
           actions: [
@@ -757,31 +728,18 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen> {
 
             return Stack(
             children: [
-              // PageView with screens - full screen with wrap-around
+              // PageView with explicit children - preserves widget state
+              // Use itemCount to limit pages, handle wrap-around at edges
               PageView.builder(
                 controller: _pageController,
-                physics: (_isEditMode || _toolBeingPlaced != null) ? const NeverScrollableScrollPhysics() : null, // Disable swipe in edit mode OR placement mode
-                onPageChanged: (virtualIndex) {
-                  final totalScreens = layout.screens.length;
-                  if (totalScreens == 0) return;
-
-                  // Calculate actual screen index from virtual index
-                  final actualIndex = virtualIndex % totalScreens;
-                  _currentVirtualPage = virtualIndex;
-                  dashboardService.setActiveScreen(actualIndex);
-
-                  // Show app bar temporarily when switching screens in fullscreen mode
+                physics: (_isEditMode || _toolBeingPlaced != null) ? const NeverScrollableScrollPhysics() : null,
+                itemCount: layout.screens.length,
+                onPageChanged: (index) {
+                  dashboardService.setActiveScreen(index);
                   _showAppBarTemporarily();
                 },
-                itemBuilder: (context, virtualIndex) {
-                  final totalScreens = layout.screens.length;
-                  if (totalScreens == 0) {
-                    return const Center(child: Text('No screens available'));
-                  }
-
-                  // Map virtual index to actual screen index using modulo
-                  final actualIndex = virtualIndex % totalScreens;
-                  final screen = layout.screens[actualIndex];
+                itemBuilder: (context, index) {
+                  final screen = layout.screens[index];
                   return _buildScreenContent(screen, signalKService);
                 },
               ),
