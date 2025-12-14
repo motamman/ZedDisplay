@@ -446,7 +446,12 @@ class _ForecastSpinnerState extends State<ForecastSpinner>
   }
 
   Widget _buildCenterContent(double size, bool isDark) {
-    final centerSize = size * 0.65;
+    // Calculate centerSize to match the inner edge of the rim
+    final scale = (size / 300).clamp(0.5, 1.5);
+    final outerMargin = 27.0 * scale;
+    final outerRadius = size / 2 - outerMargin;
+    final innerRadius = outerRadius * 0.72;
+    final centerSize = innerRadius * 2; // Diameter matches rim's inner edge
     final forecast = _selectedHourOffset < widget.hourlyForecasts.length
         ? widget.hourlyForecasts[_selectedHourOffset]
         : null;
@@ -657,7 +662,7 @@ class _ForecastSpinnerState extends State<ForecastSpinner>
   }
 
   Color _getTimeOfDayColor(DateTime time) {
-    // Use actual sun times if available
+    // Use actual sun times if available - matches _computeSegmentColor logic
     final times = widget.sunMoonTimes;
     if (times != null && times.days.isNotEmpty) {
       final now = DateTime.now();
@@ -665,57 +670,58 @@ class _ForecastSpinnerState extends State<ForecastSpinner>
       final dayIndex = time.difference(todayStart).inDays;
       final dayTimes = times.getDay(dayIndex);
 
-      if (dayTimes?.sunrise != null && dayTimes?.sunset != null) {
-        final timeMinutes = time.hour * 60 + time.minute;
-        final sunriseLocal = dayTimes!.sunrise!.toLocal();
-        final sunsetLocal = dayTimes.sunset!.toLocal();
-        final sunriseMin = sunriseLocal.hour * 60 + sunriseLocal.minute;
-        final sunsetMin = sunsetLocal.hour * 60 + sunsetLocal.minute;
-        final goldenHourEndMin = sunriseMin + 60;
-        final goldenHourMin = sunsetMin - 60;
+      if (dayTimes != null) {
+        final sunrise = dayTimes.sunrise;
+        final sunset = dayTimes.sunset;
+        final dawn = dayTimes.dawn;
+        final dusk = dayTimes.dusk;
+        final goldenHour = dayTimes.goldenHour;
+        final goldenHourEnd = dayTimes.goldenHourEnd;
+        final nauticalDawn = dayTimes.nauticalDawn;
+        final nauticalDusk = dayTimes.nauticalDusk;
 
-        // Night (before sunrise - 30min)
-        if (timeMinutes < sunriseMin - 30) {
-          return Colors.indigo.shade700;
+        if (sunrise != null && sunset != null) {
+          final timeMinutes = time.hour * 60 + time.minute;
+          final sunriseLocal = sunrise.toLocal();
+          final sunsetLocal = sunset.toLocal();
+          final sunriseMin = sunriseLocal.hour * 60 + sunriseLocal.minute;
+          final sunsetMin = sunsetLocal.hour * 60 + sunsetLocal.minute;
+          final dawnLocal = dawn?.toLocal();
+          final duskLocal = dusk?.toLocal();
+          final nauticalDawnLocal = nauticalDawn?.toLocal();
+          final nauticalDuskLocal = nauticalDusk?.toLocal();
+          final goldenHourLocal = goldenHour?.toLocal();
+          final goldenHourEndLocal = goldenHourEnd?.toLocal();
+          final dawnMin = dawnLocal != null ? dawnLocal.hour * 60 + dawnLocal.minute : sunriseMin - 30;
+          final duskMin = duskLocal != null ? duskLocal.hour * 60 + duskLocal.minute : sunsetMin + 30;
+          final nauticalDawnMin = nauticalDawnLocal != null ? nauticalDawnLocal.hour * 60 + nauticalDawnLocal.minute : dawnMin - 30;
+          final nauticalDuskMin = nauticalDuskLocal != null ? nauticalDuskLocal.hour * 60 + nauticalDuskLocal.minute : duskMin + 30;
+          final goldenHourEndMin = goldenHourEndLocal != null ? goldenHourEndLocal.hour * 60 + goldenHourEndLocal.minute : sunriseMin + 60;
+          final goldenHourMin = goldenHourLocal != null ? goldenHourLocal.hour * 60 + goldenHourLocal.minute : sunsetMin - 60;
+
+          if (timeMinutes < nauticalDawnMin) return Colors.indigo.shade900;
+          if (timeMinutes >= nauticalDawnMin && timeMinutes < dawnMin) return Colors.indigo.shade700;
+          if (timeMinutes >= dawnMin && timeMinutes < sunriseMin) return Colors.indigo.shade400;
+          if (timeMinutes >= sunriseMin && timeMinutes < goldenHourEndMin) return Colors.orange.shade300;
+          if (timeMinutes >= goldenHourEndMin && timeMinutes < goldenHourMin) return Colors.amber.shade200;
+          if (timeMinutes >= goldenHourMin && timeMinutes < sunsetMin) return Colors.orange.shade300;
+          if (timeMinutes >= sunsetMin && timeMinutes < duskMin) return Colors.deepOrange.shade400;
+          if (timeMinutes >= duskMin && timeMinutes < nauticalDuskMin) return Colors.indigo.shade700;
+          if (timeMinutes >= nauticalDuskMin) return Colors.indigo.shade900;
         }
-        // Dawn
-        if (timeMinutes < sunriseMin) {
-          return Colors.deepPurple.shade300;
-        }
-        // Golden hour morning
-        if (timeMinutes < goldenHourEndMin) {
-          return Colors.orange.shade400;
-        }
-        // Daylight
-        if (timeMinutes < goldenHourMin) {
-          return Colors.amber.shade300;
-        }
-        // Golden hour evening
-        if (timeMinutes < sunsetMin) {
-          return Colors.orange.shade500;
-        }
-        // Dusk
-        if (timeMinutes < sunsetMin + 30) {
-          return Colors.deepOrange.shade400;
-        }
-        // Night
-        return Colors.indigo.shade700;
       }
     }
 
-    // Fallback: simplified hour-based colors
+    // Fallback: simplified hour-based colors - matches _computeSegmentColor fallback
     final hour = time.hour;
-    if (hour >= 6 && hour < 8) {
-      return Colors.orange.shade400;
-    } else if (hour >= 8 && hour < 17) {
-      return Colors.amber.shade300;
-    } else if (hour >= 17 && hour < 19) {
-      return Colors.orange.shade500;
-    } else if (hour >= 19 && hour < 21) {
-      return Colors.deepOrange.shade400;
-    } else {
-      return Colors.indigo.shade700;
-    }
+    if (hour >= 5 && hour < 6) return Colors.indigo.shade700;
+    if (hour >= 6 && hour < 7) return Colors.indigo.shade400;
+    if (hour >= 7 && hour < 8) return Colors.orange.shade300;
+    if (hour >= 8 && hour < 16) return Colors.amber.shade200;
+    if (hour >= 16 && hour < 17) return Colors.orange.shade400;
+    if (hour >= 17 && hour < 18) return Colors.deepOrange.shade400;
+    if (hour >= 18 && hour < 19) return Colors.indigo.shade700;
+    return Colors.indigo.shade900;
   }
 
   String _getWindDirectionLabel(double degrees) {
@@ -810,12 +816,15 @@ class _ForecastRimPainter extends CustomPainter {
     }
 
     final center = Offset(size.width / 2, size.height / 2);
-    final outerRadius = size.width / 2 - 4;
-    final innerRadius = outerRadius * 0.72;
-    final rimWidth = outerRadius - innerRadius;
 
     // Scale factor based on reference size of 300px
     final scale = (size.width / 300).clamp(0.5, 1.5);
+
+    // Dynamic sizing based on widget size
+    final outerMargin = 27.0 * scale; // Match sunrise/sunset icon width
+    final outerRadius = size.width / 2 - outerMargin;
+    final innerRadius = outerRadius * 0.72; // Proportional inner radius
+    final rimWidth = outerRadius - innerRadius;
 
     // Additional size guards
     if (outerRadius <= 0 || innerRadius <= 0 || rimWidth <= 0) {
