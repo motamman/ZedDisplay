@@ -41,6 +41,7 @@ class WeatherApiSpinnerConfigurator extends ToolConfigurator {
   List<WeatherProvider> availableProviders = [];
   bool loadingProviders = false;
   String? loadError;
+  bool showWeatherAnimation = true;
 
   @override
   void reset() {
@@ -48,6 +49,7 @@ class WeatherApiSpinnerConfigurator extends ToolConfigurator {
     availableProviders = [];
     loadingProviders = false;
     loadError = null;
+    showWeatherAnimation = true;
   }
 
   @override
@@ -61,6 +63,7 @@ class WeatherApiSpinnerConfigurator extends ToolConfigurator {
     if (style.customProperties != null) {
       final provider = style.customProperties!['provider'];
       selectedProvider = (provider is String && provider.isNotEmpty) ? provider : null;
+      showWeatherAnimation = style.customProperties!['showWeatherAnimation'] as bool? ?? true;
     }
   }
 
@@ -71,6 +74,7 @@ class WeatherApiSpinnerConfigurator extends ToolConfigurator {
       style: StyleConfig(
         customProperties: {
           'provider': selectedProvider ?? '',
+          'showWeatherAnimation': showWeatherAnimation,
         },
       ),
     );
@@ -307,6 +311,26 @@ class WeatherApiSpinnerConfigurator extends ToolConfigurator {
                 ),
               ),
             ],
+
+            const SizedBox(height: 24),
+            const Divider(),
+            const SizedBox(height: 8),
+
+            // Animation settings
+            Text(
+              'Display Options',
+              style: Theme.of(context).textTheme.titleSmall,
+            ),
+            const SizedBox(height: 8),
+
+            SwitchListTile(
+              title: const Text('Weather Animation'),
+              subtitle: const Text('Show animated weather effects (rain, snow, etc.)'),
+              value: showWeatherAnimation,
+              onChanged: (value) {
+                setState(() => showWeatherAnimation = value);
+              },
+            ),
           ],
         );
       },

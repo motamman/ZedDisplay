@@ -24,6 +24,7 @@ import 'models/auth_token.dart';
 import 'screens/splash_screen.dart';
 import 'screens/setup_management_screen.dart';
 import 'widgets/crew/intercom_panel.dart';
+import 'widgets/tools/weather_alerts_tool.dart';
 
 // Global app start time
 final DateTime appStartTime = DateTime.now();
@@ -69,9 +70,15 @@ void main() async {
   final fileShareService = FileShareService(signalKService, storageService, crewService, fileServerService);
   await fileShareService.initialize();
 
-  // Initialize intercom service
+  // Initialize intercom service (wrapped to prevent crash loops on WebRTC init failures)
   final intercomService = IntercomService(signalKService, storageService, crewService);
-  await intercomService.initialize();
+  try {
+    await intercomService.initialize();
+  } catch (e) {
+    if (kDebugMode) {
+      print('⚠️ IntercomService initialization failed: $e');
+    }
+  }
 
   // Auto-enable notifications if they were enabled before
   final notificationsEnabled = storageService.getNotificationsEnabled();
@@ -474,38 +481,73 @@ class _SignalKNotificationListenerState extends State<SignalKNotificationListene
         break;
     }
 
+    // Extract headline from message (remove language prefix like "en-US: ")
+    String headline = notification.message;
+    final langMatch = RegExp(r'^[a-z]{2}(-[A-Z]{2})?: ').firstMatch(headline);
+    if (langMatch != null) {
+      headline = headline.substring(langMatch.end);
+    }
+
+    // Check if this is an NWS weather alert
+    final isNwsAlert = notification.key.startsWith('weather.nws.');
+    // Extract alert ID from key like "weather.nws.winterWeatherAdvisory"
+    final alertId = isNwsAlert ? notification.key.replaceFirst('weather.nws.', '') : null;
+
     // Show the notification as a SnackBar
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Row(
-          children: [
-            Icon(icon, color: Colors.white, size: 24),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    '[${notification.state.toUpperCase()}] ${notification.key}',
-                    style: const TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 14,
-                      color: Colors.white,
+        content: GestureDetector(
+          onTap: isNwsAlert && alertId != null
+              ? () {
+                  WeatherAlertsNotifier.instance.requestExpandAlert(alertId);
+                  ScaffoldMessenger.of(context).hideCurrentSnackBar();
+                }
+              : null,
+          child: Row(
+            children: [
+              Icon(icon, color: Colors.white, size: 24),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      '[${notification.state.toUpperCase()}] $headline',
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 14,
+                        color: Colors.white,
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    notification.message,
-                    style: const TextStyle(
-                      fontSize: 13,
-                      color: Colors.white,
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            notification.key,
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: Colors.white70,
+                            ),
+                          ),
+                        ),
+                        if (isNwsAlert)
+                          const Text(
+                            'TAP FOR DETAILS',
+                            style: TextStyle(
+                              fontSize: 10,
+                              color: Colors.white54,
+                              fontStyle: FontStyle.italic,
+                            ),
+                          ),
+                      ],
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
         backgroundColor: backgroundColor,
         duration: notification.state.toLowerCase() == 'emergency' ||

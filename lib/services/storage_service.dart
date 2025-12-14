@@ -693,11 +693,9 @@ class StorageService extends ChangeNotifier {
   /// Get system notification level filter (defaults: only emergency enabled)
   bool getSystemNotificationFilter(String level) {
     if (!_initialized) {
-      // Default: only emergency for system notifications
       return level.toLowerCase() == 'emergency';
     }
 
-    // Defaults: only emergency enabled for system, others disabled
     final defaultValue = level.toLowerCase() == 'emergency' ? 'true' : 'false';
     return _settingsBox.get('notification_system_$level', defaultValue: defaultValue) == 'true';
   }

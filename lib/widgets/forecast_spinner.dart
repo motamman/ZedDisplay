@@ -1,7 +1,11 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+import 'package:phosphor_flutter/phosphor_flutter.dart';
 import 'weatherflow_forecast.dart'; // Reuse HourlyForecast, SunMoonTimes
+
+/// Weather effect types for animation
+enum WeatherEffectType { none, rain, snow, wind, hail, thunder }
 
 /// Circular forecast spinner widget
 /// Displays a spinnable dial showing 24 hours of forecast data
@@ -27,6 +31,9 @@ class ForecastSpinner extends StatefulWidget {
   /// Callback when selected hour changes
   final void Function(int hourOffset)? onHourChanged;
 
+  /// Whether to show animated weather effects (rain, snow, etc.)
+  final bool showWeatherAnimation;
+
   const ForecastSpinner({
     super.key,
     required this.hourlyForecasts,
@@ -37,6 +44,7 @@ class ForecastSpinner extends StatefulWidget {
     this.primaryColor = Colors.blue,
     this.providerName,
     this.onHourChanged,
+    this.showWeatherAnimation = true,
   });
 
   @override
@@ -45,14 +53,26 @@ class ForecastSpinner extends StatefulWidget {
 
 class _ForecastSpinnerState extends State<ForecastSpinner>
     with SingleTickerProviderStateMixin {
-  // Rotation state
-  double _rotationAngle = 0.0; // Current rotation in radians
+  // Rotation state - use ValueNotifier to avoid setState on every pan update
+  final ValueNotifier<double> _rotationNotifier = ValueNotifier<double>(0.0);
   double _previousAngle = 0.0; // For tracking delta
-  double _angularVelocity = 0.0; // For momentum
+
+  // Track last hour offset to minimize center content rebuilds
+  int _lastSelectedHourOffset = 0;
 
   // Animation controller for momentum and snap
   late AnimationController _controller;
   Animation<double>? _snapAnimation;
+
+  // Cached segment colors (calculated once when sunMoonTimes changes)
+  List<Color>? _cachedSegmentColors;
+
+  // Cached DateTime.now() for consistent time across a frame
+  DateTime _cachedNow = DateTime.now();
+
+  // Convenience getter for rotation angle
+  double get _rotationAngle => _rotationNotifier.value;
+  set _rotationAngle(double value) => _rotationNotifier.value = value;
 
   // Selected time offset in minutes (derived from rotation)
   int get _selectedMinuteOffset {
@@ -72,25 +92,133 @@ class _ForecastSpinnerState extends State<ForecastSpinner>
   @override
   void initState() {
     super.initState();
-    _controller = AnimationController.unbounded(vsync: this);
-    _controller.addListener(_onAnimationTick);
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 200),
+    );
+    // Initialize cached segment colors
+    _updateSegmentColors();
+    // Defer listener registration to avoid issues during placement preview
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        _controller.addListener(_onAnimationTick);
+      }
+    });
+  }
+
+  @override
+  void didUpdateWidget(ForecastSpinner oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Recalculate segment colors if sun/moon times changed
+    if (widget.sunMoonTimes != oldWidget.sunMoonTimes) {
+      _updateSegmentColors();
+    }
   }
 
   @override
   void dispose() {
+    _controller.removeListener(_onAnimationTick);
     _controller.dispose();
+    _rotationNotifier.dispose();
     super.dispose();
   }
 
-  void _onAnimationTick() {
-    setState(() {
-      // Use snap animation value if available, otherwise controller value (for momentum)
-      final newAngle = _snapAnimation?.value ?? _controller.value;
-      // Guard against infinity/NaN
-      if (newAngle.isFinite) {
-        _rotationAngle = newAngle;
-      }
+  /// Pre-compute all segment colors based on sun/moon times
+  /// This is called once when sunMoonTimes changes, not on every paint
+  void _updateSegmentColors() {
+    _cachedNow = DateTime.now();
+
+    // Compute colors for 72 segments (72 hours at 1 hour each)
+    // Reduced from 144 to improve paint performance
+    const segmentCount = 72;
+    const minutesPerSegment = 60;
+
+    _cachedSegmentColors = List<Color>.generate(segmentCount, (i) {
+      final segmentTime = _cachedNow.add(Duration(minutes: i * minutesPerSegment));
+      return _computeSegmentColor(segmentTime, widget.sunMoonTimes);
     });
+  }
+
+  /// Compute the color for a segment based on time of day and sun data
+  Color _computeSegmentColor(DateTime time, SunMoonTimes? times) {
+    if (times != null) {
+      final todayStart = DateTime(_cachedNow.year, _cachedNow.month, _cachedNow.day);
+      final dayIndex = time.difference(todayStart).inDays;
+      final dayTimes = times.getDay(dayIndex);
+
+      if (dayTimes != null) {
+        final sunrise = dayTimes.sunrise;
+        final sunset = dayTimes.sunset;
+        final dawn = dayTimes.dawn;
+        final dusk = dayTimes.dusk;
+        final goldenHour = dayTimes.goldenHour;
+        final goldenHourEnd = dayTimes.goldenHourEnd;
+        final nauticalDawn = dayTimes.nauticalDawn;
+        final nauticalDusk = dayTimes.nauticalDusk;
+
+        if (sunrise != null && sunset != null) {
+          final timeMinutes = time.hour * 60 + time.minute;
+          final sunriseLocal = sunrise.toLocal();
+          final sunsetLocal = sunset.toLocal();
+          final sunriseMin = sunriseLocal.hour * 60 + sunriseLocal.minute;
+          final sunsetMin = sunsetLocal.hour * 60 + sunsetLocal.minute;
+          final dawnLocal = dawn?.toLocal();
+          final duskLocal = dusk?.toLocal();
+          final nauticalDawnLocal = nauticalDawn?.toLocal();
+          final nauticalDuskLocal = nauticalDusk?.toLocal();
+          final goldenHourLocal = goldenHour?.toLocal();
+          final goldenHourEndLocal = goldenHourEnd?.toLocal();
+          final dawnMin = dawnLocal != null ? dawnLocal.hour * 60 + dawnLocal.minute : sunriseMin - 30;
+          final duskMin = duskLocal != null ? duskLocal.hour * 60 + duskLocal.minute : sunsetMin + 30;
+          final nauticalDawnMin = nauticalDawnLocal != null ? nauticalDawnLocal.hour * 60 + nauticalDawnLocal.minute : dawnMin - 30;
+          final nauticalDuskMin = nauticalDuskLocal != null ? nauticalDuskLocal.hour * 60 + nauticalDuskLocal.minute : duskMin + 30;
+          final goldenHourEndMin = goldenHourEndLocal != null ? goldenHourEndLocal.hour * 60 + goldenHourEndLocal.minute : sunriseMin + 60;
+          final goldenHourMin = goldenHourLocal != null ? goldenHourLocal.hour * 60 + goldenHourLocal.minute : sunsetMin - 60;
+
+          if (timeMinutes < nauticalDawnMin) return Colors.indigo.shade900;
+          if (timeMinutes >= nauticalDawnMin && timeMinutes < dawnMin) return Colors.indigo.shade700;
+          if (timeMinutes >= dawnMin && timeMinutes < sunriseMin) return Colors.indigo.shade400;
+          if (timeMinutes >= sunriseMin && timeMinutes < goldenHourEndMin) return Colors.orange.shade300;
+          if (timeMinutes >= goldenHourEndMin && timeMinutes < goldenHourMin) return Colors.amber.shade200;
+          if (timeMinutes >= goldenHourMin && timeMinutes < sunsetMin) return Colors.orange.shade300;
+          if (timeMinutes >= sunsetMin && timeMinutes < duskMin) return Colors.deepOrange.shade400;
+          if (timeMinutes >= duskMin && timeMinutes < nauticalDuskMin) return Colors.indigo.shade700;
+          if (timeMinutes >= nauticalDuskMin) return Colors.indigo.shade900;
+        }
+      }
+    }
+
+    // Fallback: use simplified hour-based colors
+    final hour = time.hour;
+    if (hour >= 5 && hour < 6) return Colors.indigo.shade700;
+    if (hour >= 6 && hour < 7) return Colors.indigo.shade400;
+    if (hour >= 7 && hour < 8) return Colors.orange.shade300;
+    if (hour >= 8 && hour < 16) return Colors.amber.shade200;
+    if (hour >= 16 && hour < 17) return Colors.orange.shade400;
+    if (hour >= 17 && hour < 18) return Colors.deepOrange.shade400;
+    if (hour >= 18 && hour < 19) return Colors.indigo.shade700;
+    return Colors.indigo.shade900;
+  }
+
+  void _onAnimationTick() {
+    if (!mounted) return;
+    // Use snap animation value if available, otherwise controller value (for momentum)
+    final newAngle = _snapAnimation?.value ?? _controller.value;
+    // Guard against infinity/NaN
+    if (newAngle.isFinite) {
+      _rotationAngle = newAngle; // Updates ValueNotifier, triggers repaint
+      // Only rebuild center content when hour offset changes
+      _checkHourOffsetChanged();
+    }
+  }
+
+  /// Check if hour offset changed and rebuild center content if needed
+  void _checkHourOffsetChanged() {
+    final newOffset = _selectedHourOffset;
+    if (newOffset != _lastSelectedHourOffset) {
+      _lastSelectedHourOffset = newOffset;
+      if (mounted) setState(() {}); // Rebuild center content only
+    }
   }
 
   void _onPanStart(DragStartDetails details) {
@@ -107,19 +235,21 @@ class _ForecastSpinnerState extends State<ForecastSpinner>
     if (delta > math.pi) delta -= 2 * math.pi;
     if (delta < -math.pi) delta += 2 * math.pi;
 
-    setState(() {
-      _rotationAngle += delta;
-      _angularVelocity = delta;
-      _previousAngle = currentAngle;
+    // Update rotation directly via ValueNotifier (no setState!)
+    var newRotation = _rotationAngle + delta;
+    _previousAngle = currentAngle;
 
-      // Clamp rotation to valid forecast range
-      if (widget.hourlyForecasts.isNotEmpty) {
-        final maxHours = widget.hourlyForecasts.length - 1;
-        final maxRotation = 0.0; // Can't go before "now"
-        final minRotation = -maxHours * (math.pi / 12);
-        _rotationAngle = _rotationAngle.clamp(minRotation, maxRotation);
-      }
-    });
+    // Clamp rotation to valid forecast range
+    if (widget.hourlyForecasts.isNotEmpty) {
+      final maxHours = widget.hourlyForecasts.length - 1;
+      final maxRotation = 0.0; // Can't go before "now"
+      final minRotation = -maxHours * (math.pi / 12);
+      newRotation = newRotation.clamp(minRotation, maxRotation);
+    }
+
+    _rotationAngle = newRotation; // Updates ValueNotifier
+    // Only rebuild center content when hour changes
+    _checkHourOffsetChanged();
   }
 
   void _onPanEnd(DragEndDetails details) {
@@ -158,9 +288,11 @@ class _ForecastSpinnerState extends State<ForecastSpinner>
 
     _controller.duration = const Duration(milliseconds: 200);
     _controller.forward(from: 0).then((_) {
+      if (!mounted) return;
+      _controller.stop();
       setState(() {
         _rotationAngle = targetAngle;
-        _snapAnimation = null; // Clear after completion
+        _snapAnimation = null;
       });
       widget.onHourChanged?.call(_selectedHourOffset);
     });
@@ -199,10 +331,12 @@ class _ForecastSpinnerState extends State<ForecastSpinner>
         // Scale factor for UI elements based on reference size of 300px
         final scale = (size / 300).clamp(0.5, 1.5);
 
-        return SizedBox(
-          width: size,
-          height: size,
-          child: Stack(
+        // RepaintBoundary isolates repaints to just this widget tree
+        return RepaintBoundary(
+          child: SizedBox(
+            width: size,
+            height: size,
+            child: Stack(
             alignment: Alignment.center,
             children: [
               // Gesture detector for the entire area (rim spinning)
@@ -212,14 +346,23 @@ class _ForecastSpinnerState extends State<ForecastSpinner>
                   onPanStart: _onPanStart,
                   onPanUpdate: (details) => _onPanUpdate(details, Size(size, size)),
                   onPanEnd: _onPanEnd,
-                  child: CustomPaint(
-                    size: Size(size, size),
-                    painter: _ForecastRimPainter(
-                      times: widget.sunMoonTimes,
-                      rotationAngle: _rotationAngle,
-                      isDark: isDark,
-                      selectedHourOffset: _selectedHourOffset,
-                    ),
+                  // Use ValueListenableBuilder to only repaint the rim on rotation
+                  // without rebuilding the entire widget tree
+                  child: ValueListenableBuilder<double>(
+                    valueListenable: _rotationNotifier,
+                    builder: (context, rotationAngle, child) {
+                      return CustomPaint(
+                        size: Size(size, size),
+                        painter: _ForecastRimPainter(
+                          times: widget.sunMoonTimes,
+                          rotationAngle: rotationAngle,
+                          isDark: isDark,
+                          selectedHourOffset: _selectedHourOffset,
+                          cachedSegmentColors: _cachedSegmentColors,
+                          cachedNow: _cachedNow,
+                        ),
+                      );
+                    },
                   ),
                 ),
               ),
@@ -296,6 +439,7 @@ class _ForecastSpinnerState extends State<ForecastSpinner>
                 ),
             ],
           ),
+          ),
         );
       },
     );
@@ -336,6 +480,7 @@ class _ForecastSpinnerState extends State<ForecastSpinner>
   Widget _buildForecastContent(HourlyForecast forecast, DateTime time, bool isDark, double centerSize) {
     // Scale factor based on reference size of 200px for center content
     final scale = (centerSize / 200).clamp(0.6, 1.2);
+    final weatherEffect = _getWeatherEffect(forecast);
 
     return Stack(
       alignment: Alignment.center,
@@ -358,6 +503,14 @@ class _ForecastSpinnerState extends State<ForecastSpinner>
             ),
           ),
         ),
+        // Animated weather effect overlay
+        if (widget.showWeatherAnimation && weatherEffect != WeatherEffectType.none)
+          Positioned.fill(
+            child: _WeatherEffectOverlay(
+              effectType: weatherEffect,
+              size: centerSize,
+            ),
+          ),
         // Data content on top
         Padding(
           padding: EdgeInsets.all(8 * scale),
@@ -585,6 +738,41 @@ class _ForecastSpinnerState extends State<ForecastSpinner>
     if (code.contains('windy')) return Colors.teal;
     return Colors.grey;
   }
+
+  /// Detect weather effect type from forecast
+  WeatherEffectType _getWeatherEffect(HourlyForecast forecast) {
+    final conditions = forecast.conditions?.toLowerCase() ?? '';
+    final icon = forecast.icon?.toLowerCase() ?? '';
+    final combined = '$conditions $icon';
+
+    // Check for thunder first (highest priority)
+    if (combined.contains('thunder') || combined.contains('lightning')) {
+      return WeatherEffectType.thunder;
+    }
+
+    // Check for hail/sleet
+    if (combined.contains('hail') || combined.contains('sleet') || combined.contains('ice')) {
+      return WeatherEffectType.hail;
+    }
+
+    // Check for snow
+    if (combined.contains('snow') || combined.contains('flurr')) {
+      return WeatherEffectType.snow;
+    }
+
+    // Check for rain
+    if (combined.contains('rain') || combined.contains('drizzle') || combined.contains('shower')) {
+      return WeatherEffectType.rain;
+    }
+
+    // Check for wind (high wind speed or wind in conditions)
+    final windSpeed = forecast.windSpeed ?? 0;
+    if (combined.contains('wind') || windSpeed > 25) {
+      return WeatherEffectType.wind;
+    }
+
+    return WeatherEffectType.none;
+  }
 }
 
 /// Custom painter for the spinnable rim
@@ -593,12 +781,16 @@ class _ForecastRimPainter extends CustomPainter {
   final double rotationAngle;
   final bool isDark;
   final int selectedHourOffset;
+  final List<Color>? cachedSegmentColors;
+  final DateTime cachedNow;
 
   _ForecastRimPainter({
     required this.times,
     required this.rotationAngle,
     required this.isDark,
     required this.selectedHourOffset,
+    this.cachedSegmentColors,
+    required this.cachedNow,
   });
 
   @override
@@ -636,35 +828,34 @@ class _ForecastRimPainter extends CustomPainter {
     canvas.rotate(rotationAngle);
     canvas.translate(-center.dx, -center.dy);
 
-    // Draw segments for 72 hours (one segment per 30 minutes = 144 segments)
-    // This covers the full forecast range regardless of rotation
-    final now = DateTime.now();
-    final segmentCount = 144; // 72 hours at 30 min each
-    final minutesPerSegment = 30;
-    final radiansPerSegment = (2 * math.pi) / 48; // 48 segments per 24 hours (one per 30 min)
+    // Draw segments for 72 hours (one segment per hour = 72 segments)
+    // Reduced from 144 segments for better performance
+    const segmentCount = 72;
+    const minutesPerSegment = 60;
+    const radiansPerSegment = (2 * math.pi) / 24; // 24 segments per 24 hours (one per hour)
+
+    final arcRect = Rect.fromCircle(center: center, radius: (outerRadius + innerRadius) / 2);
+    final segmentPaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = rimWidth
+      ..strokeCap = StrokeCap.butt;
 
     for (int i = 0; i < segmentCount; i++) {
-      // Each segment represents 30 minutes, positioned by hours from now
-      final hoursFromNow = i * minutesPerSegment / 60.0;
-      final startAngle = -math.pi / 2 + (hoursFromNow * math.pi / 12);
-      final sweepAngle = radiansPerSegment + 0.01; // Slight overlap
+      // Each segment represents 1 hour, positioned by hours from now
+      final startAngle = -math.pi / 2 + (i * math.pi / 12);
+      const sweepAngle = radiansPerSegment + 0.01; // Slight overlap
 
-      // Calculate time for this segment
-      final segmentTime = now.add(Duration(minutes: i * minutesPerSegment));
-      final color = _getSegmentColor(segmentTime);
-
-      final paint = Paint()
-        ..color = color
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = rimWidth
-        ..strokeCap = StrokeCap.butt;
+      // Use cached color if available, otherwise fallback to simple calculation
+      segmentPaint.color = cachedSegmentColors != null && i < cachedSegmentColors!.length
+          ? cachedSegmentColors![i]
+          : _getFallbackColor(i * minutesPerSegment);
 
       canvas.drawArc(
-        Rect.fromCircle(center: center, radius: (outerRadius + innerRadius) / 2),
+        arcRect,
         startAngle,
         sweepAngle,
         false,
-        paint,
+        segmentPaint,
       );
     }
 
@@ -704,18 +895,18 @@ class _ForecastRimPainter extends CustomPainter {
         center.dy + labelRadius * math.sin(angle),
       );
 
-      // Label text - show actual time
+      // Label text - show actual time using cachedNow
       String labelText;
       if (i == 0) {
         // Show current time for "Now"
-        final hour = now.hour;
-        final minute = now.minute;
+        final hour = cachedNow.hour;
+        final minute = cachedNow.minute;
         final ampm = hour < 12 ? 'AM' : 'PM';
         final displayHour = hour == 0 ? 12 : (hour > 12 ? hour - 12 : hour);
         labelText = '$displayHour:${minute.toString().padLeft(2, '0')} $ampm';
       } else {
         // Show future time
-        final futureTime = now.add(Duration(hours: i));
+        final futureTime = cachedNow.add(Duration(hours: i));
         final hour = futureTime.hour;
         final ampm = hour < 12 ? 'AM' : 'PM';
         final displayHour = hour == 0 ? 12 : (hour > 12 ? hour - 12 : hour);
@@ -739,7 +930,7 @@ class _ForecastRimPainter extends CustomPainter {
     }
 
     // Draw sun/moon icons on the rim (pass base offset and scale for correct positioning)
-    _drawSunMoonIcons(canvas, center, outerRadius, innerRadius, now, baseHourOffset, scale);
+    _drawSunMoonIcons(canvas, center, outerRadius, innerRadius, cachedNow, baseHourOffset, scale);
 
     canvas.restore();
 
@@ -1270,95 +1461,11 @@ class _ForecastRimPainter extends CustomPainter {
     }
   }
 
-  Color _getSegmentColor(DateTime time) {
-    // Use actual sun times if available
-    if (times != null) {
-      // Determine which day's times to use based on calendar day
-      final now = DateTime.now();
-      final todayStart = DateTime(now.year, now.month, now.day);
-
-      // Calculate which day this time falls on (0 = today, 1 = tomorrow, etc.)
-      final dayIndex = time.difference(todayStart).inDays;
-
-      // Get sun times for this day from the array
-      final dayTimes = times!.getDay(dayIndex);
-
-      // Select appropriate sun times based on which day
-      DateTime? sunrise, sunset, dawn, dusk, goldenHour, goldenHourEnd, nauticalDawn, nauticalDusk;
-
-      if (dayTimes != null) {
-        sunrise = dayTimes.sunrise;
-        sunset = dayTimes.sunset;
-        dawn = dayTimes.dawn;
-        dusk = dayTimes.dusk;
-        goldenHour = dayTimes.goldenHour;
-        goldenHourEnd = dayTimes.goldenHourEnd;
-        nauticalDawn = dayTimes.nauticalDawn;
-        nauticalDusk = dayTimes.nauticalDusk;
-      }
-
-      // Check time periods using hour comparison for robustness
-      // Convert all times to local to ensure consistent comparison
-      if (sunrise != null && sunset != null) {
-        final timeMinutes = time.hour * 60 + time.minute;
-        final sunriseLocal = sunrise.toLocal();
-        final sunsetLocal = sunset.toLocal();
-        final sunriseMin = sunriseLocal.hour * 60 + sunriseLocal.minute;
-        final sunsetMin = sunsetLocal.hour * 60 + sunsetLocal.minute;
-        final dawnLocal = dawn?.toLocal();
-        final duskLocal = dusk?.toLocal();
-        final nauticalDawnLocal = nauticalDawn?.toLocal();
-        final nauticalDuskLocal = nauticalDusk?.toLocal();
-        final goldenHourLocal = goldenHour?.toLocal();
-        final goldenHourEndLocal = goldenHourEnd?.toLocal();
-        final dawnMin = dawnLocal != null ? dawnLocal.hour * 60 + dawnLocal.minute : sunriseMin - 30;
-        final duskMin = duskLocal != null ? duskLocal.hour * 60 + duskLocal.minute : sunsetMin + 30;
-        final nauticalDawnMin = nauticalDawnLocal != null ? nauticalDawnLocal.hour * 60 + nauticalDawnLocal.minute : dawnMin - 30;
-        final nauticalDuskMin = nauticalDuskLocal != null ? nauticalDuskLocal.hour * 60 + nauticalDuskLocal.minute : duskMin + 30;
-        final goldenHourEndMin = goldenHourEndLocal != null ? goldenHourEndLocal.hour * 60 + goldenHourEndLocal.minute : sunriseMin + 60;
-        final goldenHourMin = goldenHourLocal != null ? goldenHourLocal.hour * 60 + goldenHourLocal.minute : sunsetMin - 60;
-
-        // Night (late night before nautical dawn)
-        if (timeMinutes < nauticalDawnMin) {
-          return Colors.indigo.shade900;
-        }
-        // Nautical twilight (dawn)
-        if (timeMinutes >= nauticalDawnMin && timeMinutes < dawnMin) {
-          return Colors.indigo.shade700;
-        }
-        // Civil twilight (dawn)
-        if (timeMinutes >= dawnMin && timeMinutes < sunriseMin) {
-          return Colors.indigo.shade400;
-        }
-        // Golden hour (morning)
-        if (timeMinutes >= sunriseMin && timeMinutes < goldenHourEndMin) {
-          return Colors.orange.shade300;
-        }
-        // Daylight
-        if (timeMinutes >= goldenHourEndMin && timeMinutes < goldenHourMin) {
-          return Colors.amber.shade200;
-        }
-        // Golden hour (evening) - use same bright orange as morning
-        if (timeMinutes >= goldenHourMin && timeMinutes < sunsetMin) {
-          return Colors.orange.shade300;
-        }
-        // Civil twilight (dusk)
-        if (timeMinutes >= sunsetMin && timeMinutes < duskMin) {
-          return Colors.deepOrange.shade400;
-        }
-        // Nautical twilight (dusk)
-        if (timeMinutes >= duskMin && timeMinutes < nauticalDuskMin) {
-          return Colors.indigo.shade700;
-        }
-        // Night (after nautical dusk)
-        if (timeMinutes >= nauticalDuskMin) {
-          return Colors.indigo.shade900;
-        }
-      }
-    }
-
-    // Fallback: use simplified hour-based colors for days without sun data
-    final hour = time.hour;
+  /// Simple fallback color based on hour - used only when cached colors unavailable
+  Color _getFallbackColor(int minutesFromNow) {
+    // Calculate the hour of day for this segment
+    final segmentTime = cachedNow.add(Duration(minutes: minutesFromNow));
+    final hour = segmentTime.hour;
     if (hour >= 5 && hour < 6) return Colors.indigo.shade700;      // Nautical dawn
     if (hour >= 6 && hour < 7) return Colors.indigo.shade400;      // Civil dawn
     if (hour >= 7 && hour < 8) return Colors.orange.shade300;      // Golden hour morning
@@ -1371,9 +1478,177 @@ class _ForecastRimPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _ForecastRimPainter oldDelegate) {
+    // Only repaint if rotation, theme, or cached data changed
+    // cachedSegmentColors identity check is fast (same list = no change)
     return oldDelegate.rotationAngle != rotationAngle ||
-           oldDelegate.selectedHourOffset != selectedHourOffset ||
            oldDelegate.isDark != isDark ||
-           oldDelegate.times != times;
+           !identical(oldDelegate.cachedSegmentColors, cachedSegmentColors);
+  }
+}
+
+/// Animated weather effect overlay for the center circle
+class _WeatherEffectOverlay extends StatefulWidget {
+  final WeatherEffectType effectType;
+  final double size;
+
+  const _WeatherEffectOverlay({
+    required this.effectType,
+    required this.size,
+  });
+
+  @override
+  State<_WeatherEffectOverlay> createState() => _WeatherEffectOverlayState();
+}
+
+class _WeatherEffectOverlayState extends State<_WeatherEffectOverlay>
+    with TickerProviderStateMixin {
+  late AnimationController _controller;
+  final List<_WeatherParticle> _particles = [];
+  final math.Random _random = math.Random();
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 2),
+    )..repeat();
+    _controller.addListener(_updateParticles);
+    _initParticles();
+  }
+
+  @override
+  void didUpdateWidget(_WeatherEffectOverlay oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.effectType != widget.effectType) {
+      _initParticles();
+    }
+  }
+
+  void _initParticles() {
+    _particles.clear();
+    if (widget.effectType == WeatherEffectType.none) return;
+
+    final count = widget.effectType == WeatherEffectType.wind ? 6 : 12;
+    for (int i = 0; i < count; i++) {
+      _particles.add(_WeatherParticle(
+        x: _random.nextDouble(),
+        y: _random.nextDouble(),
+        speed: 0.3 + _random.nextDouble() * 0.4,
+        size: 0.8 + _random.nextDouble() * 0.4,
+        delay: _random.nextDouble(),
+      ));
+    }
+  }
+
+  void _updateParticles() {
+    if (!mounted) return;
+    setState(() {
+      for (final p in _particles) {
+        final progress = (_controller.value + p.delay) % 1.0;
+        if (widget.effectType == WeatherEffectType.wind) {
+          // Horizontal movement for wind
+          p.currentX = (p.x + progress * p.speed * 2) % 1.0;
+          p.currentY = p.y + math.sin(progress * math.pi * 4) * 0.05;
+        } else {
+          // Vertical falling for rain/snow/hail
+          p.currentX = p.x + math.sin(progress * math.pi * 2) * 0.03;
+          p.currentY = (progress * p.speed + p.y) % 1.0;
+        }
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _controller.removeListener(_updateParticles);
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (widget.effectType == WeatherEffectType.none) {
+      return const SizedBox.shrink();
+    }
+
+    return ClipOval(
+      child: SizedBox(
+        width: widget.size,
+        height: widget.size,
+        child: Stack(
+          children: _particles.map((p) {
+            final iconSize = 14.0 * p.size;
+            return Positioned(
+              left: p.currentX * widget.size - iconSize / 2,
+              top: p.currentY * widget.size - iconSize / 2,
+              child: Opacity(
+                opacity: 0.6,
+                child: _buildParticleIcon(iconSize),
+              ),
+            );
+          }).toList(),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildParticleIcon(double size) {
+    switch (widget.effectType) {
+      case WeatherEffectType.rain:
+        return Icon(
+          PhosphorIcons.drop(),
+          size: size,
+          color: Colors.blue.shade300,
+        );
+      case WeatherEffectType.snow:
+        return Icon(
+          PhosphorIcons.snowflake(),
+          size: size,
+          color: Colors.white70,
+        );
+      case WeatherEffectType.wind:
+        return Icon(
+          PhosphorIcons.wind(),
+          size: size,
+          color: Colors.teal.shade300,
+        );
+      case WeatherEffectType.hail:
+        return Icon(
+          PhosphorIcons.cloudSnow(),
+          size: size,
+          color: Colors.cyan.shade200,
+        );
+      case WeatherEffectType.thunder:
+        return Icon(
+          PhosphorIcons.lightning(),
+          size: size,
+          color: Colors.yellow.shade300,
+        );
+      case WeatherEffectType.none:
+        return const SizedBox.shrink();
+    }
+  }
+}
+
+/// Single weather particle for animation
+class _WeatherParticle {
+  double x;
+  double y;
+  double speed;
+  double size;
+  double delay;
+  double currentX = 0;
+  double currentY = 0;
+
+  _WeatherParticle({
+    required this.x,
+    required this.y,
+    required this.speed,
+    required this.size,
+    required this.delay,
+  }) {
+    currentX = x;
+    currentY = y;
   }
 }

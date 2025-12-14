@@ -31,19 +31,20 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen> {
   bool _isFullScreen = false;
   bool _showAppBar = true;
   Timer? _appBarHideTimer;
-  int _currentVirtualPage = 0; // Track virtual page for infinite scroll
+
+  // For swipe gesture handling with IndexedStack
+  double _dragStartX = 0;
+  double _dragDelta = 0;
+  bool _isDragging = false;
+
 
   @override
   void initState() {
     super.initState();
+    // PageController kept for potential future use
     final dashboardService = Provider.of<DashboardService>(context, listen: false);
     final initialIndex = dashboardService.currentLayout?.activeScreenIndex ?? 0;
-
-    // Start at a high offset to allow wrap-around in both directions
-    _currentVirtualPage = 1000 + initialIndex;
-    _pageController = PageController(
-      initialPage: _currentVirtualPage,
-    );
+    _pageController = PageController(initialPage: initialIndex);
   }
 
   @override
@@ -51,6 +52,26 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen> {
     _appBarHideTimer?.cancel();
     _pageController.dispose();
     super.dispose();
+  }
+
+  /// Handle swipe to change screens with wrap-around
+  void _onHorizontalSwipe(int direction, DashboardService dashboardService) {
+    final totalScreens = dashboardService.currentLayout?.screens.length ?? 0;
+    if (totalScreens <= 1) return;
+
+    final currentIndex = dashboardService.currentLayout!.activeScreenIndex;
+    int newIndex;
+
+    if (direction > 0) {
+      // Swipe left (next screen)
+      newIndex = (currentIndex + 1) % totalScreens;
+    } else {
+      // Swipe right (previous screen)
+      newIndex = (currentIndex - 1 + totalScreens) % totalScreens;
+    }
+
+    dashboardService.setActiveScreen(newIndex);
+    _showAppBarTemporarily();
   }
 
   void _startAppBarHideTimer() {
@@ -249,32 +270,7 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen> {
                     trailing: isActive ? const Icon(Icons.check, color: Colors.green) : null,
                     onTap: () {
                       Navigator.pop(context);
-
-                      // Calculate target virtual page
-                      final totalScreens = layout.screens.length;
-                      final currentActualIndex = _currentVirtualPage % totalScreens;
-
-                      // Determine direction and distance
-                      int targetVirtualPage;
-                      if (index == currentActualIndex) {
-                        targetVirtualPage = _currentVirtualPage;
-                      } else {
-                        // Move in the shortest direction
-                        final forwardDist = (index - currentActualIndex + totalScreens) % totalScreens;
-                        final backwardDist = (currentActualIndex - index + totalScreens) % totalScreens;
-
-                        if (forwardDist <= backwardDist) {
-                          targetVirtualPage = _currentVirtualPage + forwardDist;
-                        } else {
-                          targetVirtualPage = _currentVirtualPage - backwardDist;
-                        }
-                      }
-
-                      _pageController.animateToPage(
-                        targetVirtualPage,
-                        duration: const Duration(milliseconds: 300),
-                        curve: Curves.easeInOut,
-                      );
+                      dashboardService.setActiveScreen(index);
                     },
                   );
                 },
@@ -391,18 +387,9 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen> {
               onTap: () async {
                 Navigator.pop(context);
                 await dashboardService.addScreen();
-                // Jump to the new screen using virtual page system
+                // Jump to the new screen
                 final newIndex = dashboardService.currentLayout!.screens.length - 1;
-                final totalScreens = dashboardService.currentLayout!.screens.length;
-                final currentActualIndex = _currentVirtualPage % totalScreens;
-
-                // Move forward to the new screen
-                final targetVirtualPage = _currentVirtualPage + (newIndex - currentActualIndex);
-                _pageController.animateToPage(
-                  targetVirtualPage,
-                  duration: const Duration(milliseconds: 300),
-                  curve: Curves.easeInOut,
-                );
+                dashboardService.setActiveScreen(newIndex);
               },
             ),
             if (dashboardService.currentLayout!.screens.length > 1)
@@ -474,21 +461,28 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen> {
                 style: TextStyle(fontSize: 12, color: Colors.grey),
               ),
               const SizedBox(height: 16),
-              ...presets.map((preset) => RadioListTile<String?>(
-                title: Text(preset),
-                value: preset,
+              RadioGroup<String?>(
                 groupValue: selectedValue,
                 onChanged: (value) {
                   setState(() => selectedValue = value);
                 },
-              )),
-              RadioListTile<String?>(
-                title: const Text('Custom'),
-                value: 'Custom',
-                groupValue: selectedValue,
-                onChanged: (value) {
-                  setState(() => selectedValue = value);
-                },
+                child: Column(
+                  children: [
+                    ...presets.map((preset) => RadioListTile<String?>(
+                      title: Text(preset),
+                      value: preset,
+                    )),
+                    const RadioListTile<String?>(
+                      title: Text('Custom'),
+                      value: 'Custom',
+                    ),
+                    const RadioListTile<String?>(
+                      title: Text('None'),
+                      subtitle: Text('Clear intended use'),
+                      value: null,
+                    ),
+                  ],
+                ),
               ),
               if (selectedValue == 'Custom')
                 Padding(
@@ -503,15 +497,6 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen> {
                     autofocus: true,
                   ),
                 ),
-              RadioListTile<String?>(
-                title: const Text('None'),
-                subtitle: const Text('Clear intended use'),
-                value: null,
-                groupValue: selectedValue,
-                onChanged: (value) {
-                  setState(() => selectedValue = value);
-                },
-              ),
             ],
           ),
           actions: [
@@ -521,6 +506,10 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen> {
             ),
             ElevatedButton(
               onPressed: () async {
+                // Get services before any await to avoid async context issues
+                final setupService = Provider.of<SetupService>(context, listen: false);
+                final navigator = Navigator.of(context);
+
                 String? newValue;
                 if (selectedValue == 'Custom') {
                   newValue = customController.text.trim();
@@ -538,14 +527,13 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen> {
                   await dashboardService.updateLayout(updatedLayout);
 
                   // Also sync to saved setup if it exists
-                  final setupService = Provider.of<SetupService>(context, listen: false);
                   if (setupService.setupExists(currentLayout.id)) {
                     await setupService.updateSetupIntendedUse(currentLayout.id, newValue);
                   }
                 }
 
                 if (context.mounted) {
-                  Navigator.pop(context);
+                  navigator.pop();
                 }
               },
               child: const Text('Save'),
@@ -757,33 +745,31 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen> {
 
             return Stack(
             children: [
-              // PageView with screens - full screen with wrap-around
-              PageView.builder(
-                controller: _pageController,
-                physics: (_isEditMode || _toolBeingPlaced != null) ? const NeverScrollableScrollPhysics() : null, // Disable swipe in edit mode OR placement mode
-                onPageChanged: (virtualIndex) {
-                  final totalScreens = layout.screens.length;
-                  if (totalScreens == 0) return;
-
-                  // Calculate actual screen index from virtual index
-                  final actualIndex = virtualIndex % totalScreens;
-                  _currentVirtualPage = virtualIndex;
-                  dashboardService.setActiveScreen(actualIndex);
-
-                  // Show app bar temporarily when switching screens in fullscreen mode
-                  _showAppBarTemporarily();
+              // IndexedStack keeps ALL children built and alive - state is preserved
+              // No caching needed - IndexedStack handles state preservation internally
+              GestureDetector(
+                behavior: HitTestBehavior.translucent,
+                onHorizontalDragStart: (_isEditMode || _toolBeingPlaced != null) ? null : (details) {
+                  _dragStartX = details.localPosition.dx;
+                  _dragDelta = 0;
+                  _isDragging = true;
                 },
-                itemBuilder: (context, virtualIndex) {
-                  final totalScreens = layout.screens.length;
-                  if (totalScreens == 0) {
-                    return const Center(child: Text('No screens available'));
+                onHorizontalDragUpdate: (_isEditMode || _toolBeingPlaced != null) ? null : (details) {
+                  _dragDelta = details.localPosition.dx - _dragStartX;
+                },
+                onHorizontalDragEnd: (_isEditMode || _toolBeingPlaced != null) ? null : (details) {
+                  if (_isDragging && _dragDelta.abs() > 50) {
+                    _onHorizontalSwipe(_dragDelta < 0 ? 1 : -1, dashboardService);
                   }
-
-                  // Map virtual index to actual screen index using modulo
-                  final actualIndex = virtualIndex % totalScreens;
-                  final screen = layout.screens[actualIndex];
-                  return _buildScreenContent(screen, signalKService);
+                  _isDragging = false;
+                  _dragDelta = 0;
                 },
+                child: IndexedStack(
+                  index: layout.activeScreenIndex,
+                  children: layout.screens.map((screen) {
+                    return _buildScreenContent(screen, signalKService);
+                  }).toList(),
+                ),
               ),
 
               // Screen selector button (only show if multiple screens)

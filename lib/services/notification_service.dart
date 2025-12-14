@@ -8,6 +8,7 @@ import '../screens/crew/chat_screen.dart';
 import '../screens/crew/crew_screen.dart';
 import '../screens/crew/direct_chat_screen.dart';
 import '../screens/crew/intercom_screen.dart';
+import '../widgets/tools/weather_alerts_tool.dart';
 
 /// Service to handle system-level notifications
 class NotificationService {
@@ -143,6 +144,14 @@ class NotificationService {
       return;
     }
 
+    // Handle NWS weather alert notifications
+    // Payload format: weather.nws.{alertId}
+    if (payload.startsWith('weather.nws.')) {
+      final alertId = payload.replaceFirst('weather.nws.', '');
+      WeatherAlertsNotifier.instance.requestExpandAlert(alertId);
+      return;
+    }
+
     // Handle other notification types (SignalK alerts, etc.)
     // For now, open the crew screen for crew-related or general notifications
     if (payload.contains('crew')) {
@@ -193,10 +202,17 @@ class NotificationService {
         _notificationIdCounter = 1; // Reset if overflow
       }
 
+      // Extract headline from message (remove language prefix like "en-US: ")
+      String headline = notification.message;
+      final langMatch = RegExp(r'^[a-z]{2}(-[A-Z]{2})?: ').firstMatch(headline);
+      if (langMatch != null) {
+        headline = headline.substring(langMatch.end);
+      }
+
       await _notifications.show(
         _notificationIdCounter,
-        '[$title] ${notification.key}',
-        notification.message,
+        '[$title] $headline',
+        notification.key,
         details,
         payload: notification.key,
       );
@@ -410,6 +426,101 @@ class NotificationService {
       '$_activeNotificationCount message${_activeNotificationCount > 1 ? 's' : ''}',
       details,
     );
+  }
+
+  /// Show a notification for clock alarms with action buttons
+  Future<void> showAlarmNotification({
+    required String title,
+    required String body,
+    String? alarmId,
+  }) async {
+    if (!_initialized) return;
+
+    try {
+      final androidDetails = AndroidNotificationDetails(
+        'clock_alarms',
+        'Clock Alarms',
+        channelDescription: 'Alarm notifications from clock widget',
+        importance: Importance.max,
+        priority: Priority.max,
+        color: const Color(0xFFF57C00), // orange.shade700
+        playSound: true,
+        enableVibration: true,
+        ticker: title,
+        fullScreenIntent: true, // Show as full screen on lock screen
+        category: AndroidNotificationCategory.alarm,
+        ongoing: true, // Keep notification until dismissed
+        autoCancel: false,
+        actions: <AndroidNotificationAction>[
+          AndroidNotificationAction(
+            'snooze_$alarmId',
+            'Snooze 9m',
+            showsUserInterface: true,
+          ),
+          AndroidNotificationAction(
+            'dismiss_local_$alarmId',
+            'Dismiss Here',
+            showsUserInterface: true,
+          ),
+          AndroidNotificationAction(
+            'dismiss_all_$alarmId',
+            'Dismiss All',
+            showsUserInterface: true,
+          ),
+        ],
+      );
+
+      const iosDetails = DarwinNotificationDetails(
+        presentAlert: true,
+        presentBadge: true,
+        presentSound: true,
+        interruptionLevel: InterruptionLevel.timeSensitive,
+      );
+
+      final details = NotificationDetails(
+        android: androidDetails,
+        iOS: iosDetails,
+      );
+
+      _notificationIdCounter++;
+      if (_notificationIdCounter > 2147483647) {
+        _notificationIdCounter = 1;
+      }
+
+      // Store the notification ID for this alarm so we can cancel it later
+      _alarmNotificationIds[alarmId ?? 'unknown'] = _notificationIdCounter;
+
+      await _notifications.show(
+        _notificationIdCounter,
+        title,
+        body,
+        details,
+        payload: 'alarm:$alarmId',
+      );
+
+      if (kDebugMode) {
+        print('Showed alarm notification: $title (id: $_notificationIdCounter)');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error showing alarm notification: $e');
+      }
+    }
+  }
+
+  // Track notification IDs for alarms so we can cancel them
+  final Map<String, int> _alarmNotificationIds = {};
+
+  /// Cancel an alarm notification
+  Future<void> cancelAlarmNotification(String alarmId) async {
+    final notificationId = _alarmNotificationIds[alarmId];
+    if (notificationId != null) {
+      await _notifications.cancel(notificationId);
+      _alarmNotificationIds.remove(alarmId);
+      if (kDebugMode) {
+        print('Cancelled alarm notification: $alarmId');
+      }
+    }
   }
 
   /// Show a notification for intercom activity

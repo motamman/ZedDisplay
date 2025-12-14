@@ -37,9 +37,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _showInAppNormal = false;
   bool _showInAppNominal = false;
 
-  // System notification level filters (only emergency and alarm available)
+  // System notification level filters
   bool _showSystemEmergency = true;
   bool _showSystemAlarm = false;
+  bool _showSystemWarn = false;
+  bool _showSystemAlert = false;
 
   @override
   void initState() {
@@ -63,9 +65,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _showInAppNormal = storageService.getInAppNotificationFilter('normal');
       _showInAppNominal = storageService.getInAppNotificationFilter('nominal');
 
-      // Load system notification filters (only emergency and alarm)
+      // Load system notification filters
       _showSystemEmergency = storageService.getSystemNotificationFilter('emergency');
       _showSystemAlarm = storageService.getSystemNotificationFilter('alarm');
+      _showSystemWarn = storageService.getSystemNotificationFilter('warn');
+      _showSystemAlert = storageService.getSystemNotificationFilter('alert');
     });
 
     // Sync with SignalKService
@@ -396,32 +400,40 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             }
                           },
                         ),
-                        // Warn (in-app only)
+                        // Warn
                         _buildNotificationRow(
                           Icons.warning,
                           Colors.orange,
                           'Warn',
                           _showInAppWarn,
-                          null, // No system notification
+                          _showSystemWarn,
                           (inApp, system) async {
                             setState(() {
                               _showInAppWarn = inApp;
+                              if (system != null) _showSystemWarn = system;
                             });
                             await storageService.saveInAppNotificationFilter('warn', inApp);
+                            if (system != null) {
+                              await storageService.saveSystemNotificationFilter('warn', system);
+                            }
                           },
                         ),
-                        // Alert (in-app only)
+                        // Alert
                         _buildNotificationRow(
                           Icons.info,
                           Colors.amber,
                           'Alert',
                           _showInAppAlert,
-                          null, // No system notification
+                          _showSystemAlert,
                           (inApp, system) async {
                             setState(() {
                               _showInAppAlert = inApp;
+                              if (system != null) _showSystemAlert = system;
                             });
                             await storageService.saveInAppNotificationFilter('alert', inApp);
+                            if (system != null) {
+                              await storageService.saveSystemNotificationFilter('alert', system);
+                            }
                           },
                         ),
                         // Normal (in-app only)
