@@ -65,6 +65,9 @@ class _AnchorAlarmToolState extends State<AnchorAlarmTool> {
   void _configureFromSettings() {
     final customProps = widget.config.style.customProperties ?? {};
 
+    // Configure SignalK paths from dataSources
+    _alarmService.setPaths(AnchorAlarmPaths.fromDataSources(widget.config.dataSources));
+
     // Alarm sound
     final alarmSound = customProps['alarmSound'] as String? ?? 'foghorn';
     _alarmService.setAlarmSound(alarmSound);
@@ -693,16 +696,11 @@ class AnchorAlarmToolBuilder extends ToolBuilder {
       category: ToolCategory.system,
       configSchema: ConfigSchema(
         allowsMinMax: false,
-        allowsColorCustomization: true,
-        allowsMultiplePaths: false,
+        allowsColorCustomization: false,
+        allowsMultiplePaths: true,
         minPaths: 0,
-        maxPaths: 0,
-        styleOptions: const [
-          'primaryColor',
-          'alarmSound',
-          'checkInEnabled',
-          'checkInIntervalMinutes',
-        ],
+        maxPaths: 8,
+        styleOptions: const [],
       ),
     );
   }
@@ -711,15 +709,22 @@ class AnchorAlarmToolBuilder extends ToolBuilder {
   ToolConfig? getDefaultConfig(String vesselId) {
     return ToolConfig(
       vesselId: vesselId,
-      dataSources: const [],
+      dataSources: [
+        DataSource(path: 'navigation.anchor.position', label: 'Anchor Position'),
+        DataSource(path: 'navigation.anchor.maxRadius', label: 'Alarm Radius'),
+        DataSource(path: 'navigation.anchor.currentRadius', label: 'Current Distance'),
+        DataSource(path: 'navigation.anchor.rodeLength', label: 'Rode Length'),
+        DataSource(path: 'navigation.anchor.bearingTrue', label: 'Bearing to Anchor'),
+        DataSource(path: 'navigation.position', label: 'Vessel Position'),
+        DataSource(path: 'navigation.headingTrue', label: 'Vessel Heading'),
+        DataSource(path: 'sensors.gps.fromBow', label: 'GPS from Bow'),
+      ],
       style: StyleConfig(
-        primaryColor: '#2196F3',
         customProperties: {
           'alarmSound': 'foghorn',
           'checkInEnabled': false,
           'checkInIntervalMinutes': 30,
           'checkInGracePeriodSeconds': 60,
-          'showTrackHistory': true,
         },
       ),
     );

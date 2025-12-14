@@ -7,12 +7,79 @@ import 'signalk_service.dart';
 import 'notification_service.dart';
 import 'messaging_service.dart';
 
+/// Configuration for SignalK paths used by anchor alarm
+class AnchorAlarmPaths {
+  final String anchorPosition;
+  final String maxRadius;
+  final String currentRadius;
+  final String rodeLength;
+  final String bearing;
+  final String vesselPosition;
+  final String heading;
+  final String gpsFromBow;
+
+  // Default paths
+  static const _defaults = [
+    'navigation.anchor.position',      // 0
+    'navigation.anchor.maxRadius',     // 1
+    'navigation.anchor.currentRadius', // 2
+    'navigation.anchor.rodeLength',    // 3
+    'navigation.anchor.bearingTrue',   // 4
+    'navigation.position',             // 5
+    'navigation.headingTrue',          // 6
+    'sensors.gps.fromBow',             // 7
+  ];
+
+  const AnchorAlarmPaths({
+    this.anchorPosition = 'navigation.anchor.position',
+    this.maxRadius = 'navigation.anchor.maxRadius',
+    this.currentRadius = 'navigation.anchor.currentRadius',
+    this.rodeLength = 'navigation.anchor.rodeLength',
+    this.bearing = 'navigation.anchor.bearingTrue',
+    this.vesselPosition = 'navigation.position',
+    this.heading = 'navigation.headingTrue',
+    this.gpsFromBow = 'sensors.gps.fromBow',
+  });
+
+  /// Create from dataSources list (from ToolConfig)
+  factory AnchorAlarmPaths.fromDataSources(List<dynamic>? dataSources) {
+    String getPath(int index) {
+      if (dataSources != null && dataSources.length > index) {
+        final ds = dataSources[index];
+        if (ds != null) {
+          // Handle both DataSource objects and maps
+          final path = ds is Map ? ds['path'] : ds.path;
+          if (path != null && path.toString().isNotEmpty) {
+            return path.toString();
+          }
+        }
+      }
+      return _defaults[index];
+    }
+
+    return AnchorAlarmPaths(
+      anchorPosition: getPath(0),
+      maxRadius: getPath(1),
+      currentRadius: getPath(2),
+      rodeLength: getPath(3),
+      bearing: getPath(4),
+      vesselPosition: getPath(5),
+      heading: getPath(6),
+      gpsFromBow: getPath(7),
+    );
+  }
+}
+
 /// Service for managing anchor alarm functionality
 /// Integrates with SignalK anchor alarm plugin via REST API
 class AnchorAlarmService extends ChangeNotifier {
   final SignalKService _signalKService;
   final NotificationService _notificationService;
   final MessagingService? _messagingService;
+
+  // Configurable SignalK paths
+  AnchorAlarmPaths _paths = const AnchorAlarmPaths();
+  AnchorAlarmPaths get paths => _paths;
 
   // Current state
   AnchorState _state = AnchorState.initial();
@@ -91,6 +158,11 @@ class AnchorAlarmService extends ChangeNotifier {
     if (alarmSounds.containsKey(sound)) {
       _alarmSound = sound;
     }
+  }
+
+  /// Configure SignalK paths
+  void setPaths(AnchorAlarmPaths paths) {
+    _paths = paths;
   }
 
   /// Configure check-in system
@@ -296,7 +368,7 @@ class AnchorAlarmService extends ChangeNotifier {
   void _updateStateFromSignalK() {
     // Get anchor position
     AnchorPosition? anchorPos;
-    final anchorPosData = _signalKService.getValue('navigation.anchor.position');
+    final anchorPosData = _signalKService.getValue(_paths.anchorPosition);
     if (anchorPosData?.value is Map) {
       try {
         anchorPos = AnchorPosition.fromSignalK(
@@ -309,7 +381,7 @@ class AnchorAlarmService extends ChangeNotifier {
 
     // Get vessel position
     AnchorPosition? vesselPos;
-    final vesselPosData = _signalKService.getValue('navigation.position');
+    final vesselPosData = _signalKService.getValue(_paths.vesselPosition);
     if (vesselPosData?.value is Map) {
       final posMap = vesselPosData!.value as Map;
       final lat = posMap['latitude'];
@@ -324,11 +396,12 @@ class AnchorAlarmService extends ChangeNotifier {
 
     // Get vessel heading
     double? vesselHeading;
-    final headingData = _signalKService.getValue('navigation.headingTrue');
+    final headingData = _signalKService.getValue(_paths.heading);
     if (headingData?.value is num) {
       // Convert radians to degrees
       vesselHeading = (headingData!.value as num).toDouble() * 180 / 3.14159265359;
     } else {
+      // Fallback to magnetic if true heading not available
       final headingMag = _signalKService.getValue('navigation.headingMagnetic');
       if (headingMag?.value is num) {
         vesselHeading = (headingMag!.value as num).toDouble() * 180 / 3.14159265359;
@@ -336,26 +409,26 @@ class AnchorAlarmService extends ChangeNotifier {
     }
 
     // Get GPS distance from bow (vessel design data)
-    final gpsFromBowData = _signalKService.getValue('sensors.gps.fromBow');
+    final gpsFromBowData = _signalKService.getValue(_paths.gpsFromBow);
     if (gpsFromBowData?.value is num) {
       _gpsFromBow = (gpsFromBowData!.value as num).toDouble();
     }
 
     // Get other values
     double? maxRadius;
-    final maxRadiusData = _signalKService.getValue('navigation.anchor.maxRadius');
+    final maxRadiusData = _signalKService.getValue(_paths.maxRadius);
     if (maxRadiusData?.value is num) {
       maxRadius = (maxRadiusData!.value as num).toDouble();
     }
 
     double? currentRadius;
-    final currentRadiusData = _signalKService.getValue('navigation.anchor.currentRadius');
+    final currentRadiusData = _signalKService.getValue(_paths.currentRadius);
     if (currentRadiusData?.value is num) {
       currentRadius = (currentRadiusData!.value as num).toDouble();
     }
 
     double? rodeLength;
-    final rodeLengthData = _signalKService.getValue('navigation.anchor.rodeLength');
+    final rodeLengthData = _signalKService.getValue(_paths.rodeLength);
     if (rodeLengthData?.value is num) {
       rodeLength = (rodeLengthData!.value as num).toDouble();
     }
@@ -367,7 +440,7 @@ class AnchorAlarmService extends ChangeNotifier {
     }
 
     double? bearingTrue;
-    final bearingData = _signalKService.getValue('navigation.anchor.bearingTrue');
+    final bearingData = _signalKService.getValue(_paths.bearing);
     if (bearingData?.value is num) {
       bearingTrue = (bearingData!.value as num).toDouble();
     }

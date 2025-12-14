@@ -1240,8 +1240,9 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
       ]);
     }
 
-    // Show/Hide Options (not applicable for autopilot, wind_compass, weatherflow_forecast, tanks, clock_alarm, weather_api_spinner)
-    if (_selectedToolTypeId != 'autopilot' && _selectedToolTypeId != 'wind_compass' && _selectedToolTypeId != 'weatherflow_forecast' && _selectedToolTypeId != 'tanks' && _selectedToolTypeId != 'clock_alarm' && _selectedToolTypeId != 'weather_api_spinner') {
+    // Show/Hide Options (not applicable for certain tools)
+    const excludeShowHideOptions = ['autopilot', 'wind_compass', 'weatherflow_forecast', 'tanks', 'clock_alarm', 'weather_api_spinner', 'anchor_alarm'];
+    if (!excludeShowHideOptions.contains(_selectedToolTypeId)) {
       widgets.addAll([
         SwitchListTile(
           title: const Text('Show Label'),
@@ -1272,29 +1273,33 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
       ]);
     }
 
-    widgets.addAll([
-      DropdownButtonFormField<int?>(
-        decoration: const InputDecoration(
-          labelText: 'Data Staleness Threshold (TTL)',
-          border: OutlineInputBorder(),
-          helperText: 'Show "--" if data is older than this threshold',
+    // TTL (not applicable for certain tools that have their own state management)
+    const excludeTTLOptions = ['clock_alarm', 'anchor_alarm', 'server_manager', 'crew_messages', 'crew_list', 'intercom', 'file_share'];
+    if (!excludeTTLOptions.contains(_selectedToolTypeId)) {
+      widgets.addAll([
+        DropdownButtonFormField<int?>(
+          decoration: const InputDecoration(
+            labelText: 'Data Staleness Threshold (TTL)',
+            border: OutlineInputBorder(),
+            helperText: 'Show "--" if data is older than this threshold',
+          ),
+          initialValue: _ttlSeconds,
+          items: const [
+            DropdownMenuItem(value: null, child: Text('No check (always show data)')),
+            DropdownMenuItem(value: 5, child: Text('5 seconds')),
+            DropdownMenuItem(value: 10, child: Text('10 seconds')),
+            DropdownMenuItem(value: 30, child: Text('30 seconds')),
+            DropdownMenuItem(value: 60, child: Text('1 minute')),
+            DropdownMenuItem(value: 120, child: Text('2 minutes')),
+            DropdownMenuItem(value: 300, child: Text('5 minutes')),
+            DropdownMenuItem(value: 600, child: Text('10 minutes')),
+          ],
+          onChanged: (value) {
+            setState(() => _ttlSeconds = value);
+          },
         ),
-        initialValue: _ttlSeconds,
-        items: const [
-          DropdownMenuItem(value: null, child: Text('No check (always show data)')),
-          DropdownMenuItem(value: 5, child: Text('5 seconds')),
-          DropdownMenuItem(value: 10, child: Text('10 seconds')),
-          DropdownMenuItem(value: 30, child: Text('30 seconds')),
-          DropdownMenuItem(value: 60, child: Text('1 minute')),
-          DropdownMenuItem(value: 120, child: Text('2 minutes')),
-          DropdownMenuItem(value: 300, child: Text('5 minutes')),
-          DropdownMenuItem(value: 600, child: Text('10 minutes')),
-        ],
-        onChanged: (value) {
-          setState(() => _ttlSeconds = value);
-        },
-      ),
-    ]);
+      ]);
+    }
 
     // WeatherFlow forecast specific options
     if (_selectedToolTypeId == 'weatherflow_forecast') {
