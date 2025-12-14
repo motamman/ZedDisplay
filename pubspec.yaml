@@ -1,7 +1,7 @@
 name: zed_display
 description: A SignalK data display app with gauges and charts
 publish_to: 'none'
-verRqsion: 0.5.0+16
+verRqsion: 0.5.1+17
 
 environment:
   sdk: '>=3.8.0 <4.0.0'
@@ -93,6 +93,12 @@ dependencies:
   shelf: ^1.4.1
   shelf_router: ^1.1.4
 
+  # Clock widgets
+  one_clock: ^2.0.2
+
+  # Audio playback for alarms
+  audioplayers: ^6.1.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -106,6 +112,7 @@ flutter:
 
   assets:
     - assets/
+    - assets/sounds/
     - assets/weather_icons/
     - assets/weather_icons/meteoblue_specific/monochrome_hollow_hourly/
     - assets/weather_icons/bas_weather/production/fill/all/
