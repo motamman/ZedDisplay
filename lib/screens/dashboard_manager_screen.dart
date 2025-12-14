@@ -32,17 +32,24 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen> {
   bool _showAppBar = true;
   Timer? _appBarHideTimer;
 
+  // For swipe gesture handling with IndexedStack
+  double _dragStartX = 0;
+  double _dragDelta = 0;
+  bool _isDragging = false;
+
+  // Cache screen widgets to prevent rebuilds - keyed by screen ID
+  final Map<String, Widget> _screenWidgetCache = {};
+  String? _lastLayoutId;
+  int _lastScreenCount = 0;
+
 
   @override
   void initState() {
     super.initState();
+    // PageController kept for potential future use
     final dashboardService = Provider.of<DashboardService>(context, listen: false);
     final initialIndex = dashboardService.currentLayout?.activeScreenIndex ?? 0;
-
-    // Simple page indexing - no infinite scroll, widget state is preserved
-    _pageController = PageController(
-      initialPage: initialIndex,
-    );
+    _pageController = PageController(initialPage: initialIndex);
   }
 
   @override
@@ -50,6 +57,26 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen> {
     _appBarHideTimer?.cancel();
     _pageController.dispose();
     super.dispose();
+  }
+
+  /// Handle swipe to change screens with wrap-around
+  void _onHorizontalSwipe(int direction, DashboardService dashboardService) {
+    final totalScreens = dashboardService.currentLayout?.screens.length ?? 0;
+    if (totalScreens <= 1) return;
+
+    final currentIndex = dashboardService.currentLayout!.activeScreenIndex;
+    int newIndex;
+
+    if (direction > 0) {
+      // Swipe left (next screen)
+      newIndex = (currentIndex + 1) % totalScreens;
+    } else {
+      // Swipe right (previous screen)
+      newIndex = (currentIndex - 1 + totalScreens) % totalScreens;
+    }
+
+    dashboardService.setActiveScreen(newIndex);
+    _showAppBarTemporarily();
   }
 
   void _startAppBarHideTimer() {
@@ -248,11 +275,7 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen> {
                     trailing: isActive ? const Icon(Icons.check, color: Colors.green) : null,
                     onTap: () {
                       Navigator.pop(context);
-                      _pageController.animateToPage(
-                        index,
-                        duration: const Duration(milliseconds: 300),
-                        curve: Curves.easeInOut,
-                      );
+                      dashboardService.setActiveScreen(index);
                     },
                   );
                 },
@@ -371,11 +394,7 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen> {
                 await dashboardService.addScreen();
                 // Jump to the new screen
                 final newIndex = dashboardService.currentLayout!.screens.length - 1;
-                _pageController.animateToPage(
-                  newIndex,
-                  duration: const Duration(milliseconds: 300),
-                  curve: Curves.easeInOut,
-                );
+                dashboardService.setActiveScreen(newIndex);
               },
             ),
             if (dashboardService.currentLayout!.screens.length > 1)
@@ -492,6 +511,10 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen> {
             ),
             ElevatedButton(
               onPressed: () async {
+                // Get services before any await to avoid async context issues
+                final setupService = Provider.of<SetupService>(context, listen: false);
+                final navigator = Navigator.of(context);
+
                 String? newValue;
                 if (selectedValue == 'Custom') {
                   newValue = customController.text.trim();
@@ -509,14 +532,13 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen> {
                   await dashboardService.updateLayout(updatedLayout);
 
                   // Also sync to saved setup if it exists
-                  final setupService = Provider.of<SetupService>(context, listen: false);
                   if (setupService.setupExists(currentLayout.id)) {
                     await setupService.updateSetupIntendedUse(currentLayout.id, newValue);
                   }
                 }
 
                 if (context.mounted) {
-                  Navigator.pop(context);
+                  navigator.pop();
                 }
               },
               child: const Text('Save'),
@@ -728,19 +750,48 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen> {
 
             return Stack(
             children: [
-              // PageView with explicit children - preserves widget state
-              // Use itemCount to limit pages, handle wrap-around at edges
-              PageView.builder(
-                controller: _pageController,
-                physics: (_isEditMode || _toolBeingPlaced != null) ? const NeverScrollableScrollPhysics() : null,
-                itemCount: layout.screens.length,
-                onPageChanged: (index) {
-                  dashboardService.setActiveScreen(index);
-                  _showAppBarTemporarily();
-                },
-                itemBuilder: (context, index) {
-                  final screen = layout.screens[index];
-                  return _buildScreenContent(screen, signalKService);
+              // IndexedStack keeps ALL screens alive - state is preserved
+              // GestureDetector handles swipes for infinite wrap-around
+              Builder(
+                builder: (context) {
+                  // Invalidate cache if layout changed
+                  if (_lastLayoutId != layout.id || _lastScreenCount != layout.screens.length) {
+                    _screenWidgetCache.clear();
+                    _lastLayoutId = layout.id;
+                    _lastScreenCount = layout.screens.length;
+                  }
+
+                  // Build and cache screen widgets - SAME instances reused
+                  final screenWidgets = layout.screens.map((screen) {
+                    return _screenWidgetCache.putIfAbsent(
+                      screen.id,
+                      () => _buildScreenContent(screen, signalKService),
+                    );
+                  }).toList();
+
+                  return GestureDetector(
+                    behavior: HitTestBehavior.translucent,
+                    onHorizontalDragStart: (_isEditMode || _toolBeingPlaced != null) ? null : (details) {
+                      _dragStartX = details.localPosition.dx;
+                      _dragDelta = 0;
+                      _isDragging = true;
+                    },
+                    onHorizontalDragUpdate: (_isEditMode || _toolBeingPlaced != null) ? null : (details) {
+                      _dragDelta = details.localPosition.dx - _dragStartX;
+                    },
+                    onHorizontalDragEnd: (_isEditMode || _toolBeingPlaced != null) ? null : (details) {
+                      if (_isDragging && _dragDelta.abs() > 50) {
+                        // Swipe threshold met
+                        _onHorizontalSwipe(_dragDelta < 0 ? 1 : -1, dashboardService);
+                      }
+                      _isDragging = false;
+                      _dragDelta = 0;
+                    },
+                    child: IndexedStack(
+                      index: layout.activeScreenIndex,
+                      children: screenWidgets,
+                    ),
+                  );
                 },
               ),
 
