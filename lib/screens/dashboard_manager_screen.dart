@@ -37,11 +37,6 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen> {
   double _dragDelta = 0;
   bool _isDragging = false;
 
-  // Cache screen widgets to prevent rebuilds - keyed by screen ID
-  final Map<String, Widget> _screenWidgetCache = {};
-  String? _lastLayoutId;
-  int _lastScreenCount = 0;
-
 
   @override
   void initState() {
@@ -750,49 +745,31 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen> {
 
             return Stack(
             children: [
-              // IndexedStack keeps ALL screens alive - state is preserved
-              // GestureDetector handles swipes for infinite wrap-around
-              Builder(
-                builder: (context) {
-                  // Invalidate cache if layout changed
-                  if (_lastLayoutId != layout.id || _lastScreenCount != layout.screens.length) {
-                    _screenWidgetCache.clear();
-                    _lastLayoutId = layout.id;
-                    _lastScreenCount = layout.screens.length;
-                  }
-
-                  // Build and cache screen widgets - SAME instances reused
-                  final screenWidgets = layout.screens.map((screen) {
-                    return _screenWidgetCache.putIfAbsent(
-                      screen.id,
-                      () => _buildScreenContent(screen, signalKService),
-                    );
-                  }).toList();
-
-                  return GestureDetector(
-                    behavior: HitTestBehavior.translucent,
-                    onHorizontalDragStart: (_isEditMode || _toolBeingPlaced != null) ? null : (details) {
-                      _dragStartX = details.localPosition.dx;
-                      _dragDelta = 0;
-                      _isDragging = true;
-                    },
-                    onHorizontalDragUpdate: (_isEditMode || _toolBeingPlaced != null) ? null : (details) {
-                      _dragDelta = details.localPosition.dx - _dragStartX;
-                    },
-                    onHorizontalDragEnd: (_isEditMode || _toolBeingPlaced != null) ? null : (details) {
-                      if (_isDragging && _dragDelta.abs() > 50) {
-                        // Swipe threshold met
-                        _onHorizontalSwipe(_dragDelta < 0 ? 1 : -1, dashboardService);
-                      }
-                      _isDragging = false;
-                      _dragDelta = 0;
-                    },
-                    child: IndexedStack(
-                      index: layout.activeScreenIndex,
-                      children: screenWidgets,
-                    ),
-                  );
+              // IndexedStack keeps ALL children built and alive - state is preserved
+              // No caching needed - IndexedStack handles state preservation internally
+              GestureDetector(
+                behavior: HitTestBehavior.translucent,
+                onHorizontalDragStart: (_isEditMode || _toolBeingPlaced != null) ? null : (details) {
+                  _dragStartX = details.localPosition.dx;
+                  _dragDelta = 0;
+                  _isDragging = true;
                 },
+                onHorizontalDragUpdate: (_isEditMode || _toolBeingPlaced != null) ? null : (details) {
+                  _dragDelta = details.localPosition.dx - _dragStartX;
+                },
+                onHorizontalDragEnd: (_isEditMode || _toolBeingPlaced != null) ? null : (details) {
+                  if (_isDragging && _dragDelta.abs() > 50) {
+                    _onHorizontalSwipe(_dragDelta < 0 ? 1 : -1, dashboardService);
+                  }
+                  _isDragging = false;
+                  _dragDelta = 0;
+                },
+                child: IndexedStack(
+                  index: layout.activeScreenIndex,
+                  children: layout.screens.map((screen) {
+                    return _buildScreenContent(screen, signalKService);
+                  }).toList(),
+                ),
               ),
 
               // Screen selector button (only show if multiple screens)

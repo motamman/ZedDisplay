@@ -9,6 +9,7 @@ import 'configurators/system_configurator.dart';
 import 'configurators/weather_api_spinner_configurator.dart';
 import 'configurators/tanks_configurator.dart';
 import 'configurators/weather_alerts_configurator.dart';
+import 'configurators/clock_alarm_configurator.dart';
 
 /// Factory for creating tool-specific configurators
 ///
@@ -73,6 +74,10 @@ class ToolConfiguratorFactory {
       case 'weather_alerts':
         return WeatherAlertsConfigurator();
 
+      // Clock & Alarm
+      case 'clock_alarm':
+        return ClockAlarmConfigurator();
+
       // No custom configurator - use default UI
       default:
         return null;
@@ -106,6 +111,7 @@ class ToolConfiguratorFactory {
       'weather_api_spinner',
       'tanks',
       'weather_alerts',
+      'clock_alarm',
     ];
   }
 }

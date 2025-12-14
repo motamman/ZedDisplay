@@ -428,6 +428,101 @@ class NotificationService {
     );
   }
 
+  /// Show a notification for clock alarms with action buttons
+  Future<void> showAlarmNotification({
+    required String title,
+    required String body,
+    String? alarmId,
+  }) async {
+    if (!_initialized) return;
+
+    try {
+      final androidDetails = AndroidNotificationDetails(
+        'clock_alarms',
+        'Clock Alarms',
+        channelDescription: 'Alarm notifications from clock widget',
+        importance: Importance.max,
+        priority: Priority.max,
+        color: const Color(0xFFF57C00), // orange.shade700
+        playSound: true,
+        enableVibration: true,
+        ticker: title,
+        fullScreenIntent: true, // Show as full screen on lock screen
+        category: AndroidNotificationCategory.alarm,
+        ongoing: true, // Keep notification until dismissed
+        autoCancel: false,
+        actions: <AndroidNotificationAction>[
+          AndroidNotificationAction(
+            'snooze_$alarmId',
+            'Snooze 9m',
+            showsUserInterface: true,
+          ),
+          AndroidNotificationAction(
+            'dismiss_local_$alarmId',
+            'Dismiss Here',
+            showsUserInterface: true,
+          ),
+          AndroidNotificationAction(
+            'dismiss_all_$alarmId',
+            'Dismiss All',
+            showsUserInterface: true,
+          ),
+        ],
+      );
+
+      const iosDetails = DarwinNotificationDetails(
+        presentAlert: true,
+        presentBadge: true,
+        presentSound: true,
+        interruptionLevel: InterruptionLevel.timeSensitive,
+      );
+
+      final details = NotificationDetails(
+        android: androidDetails,
+        iOS: iosDetails,
+      );
+
+      _notificationIdCounter++;
+      if (_notificationIdCounter > 2147483647) {
+        _notificationIdCounter = 1;
+      }
+
+      // Store the notification ID for this alarm so we can cancel it later
+      _alarmNotificationIds[alarmId ?? 'unknown'] = _notificationIdCounter;
+
+      await _notifications.show(
+        _notificationIdCounter,
+        title,
+        body,
+        details,
+        payload: 'alarm:$alarmId',
+      );
+
+      if (kDebugMode) {
+        print('Showed alarm notification: $title (id: $_notificationIdCounter)');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error showing alarm notification: $e');
+      }
+    }
+  }
+
+  // Track notification IDs for alarms so we can cancel them
+  final Map<String, int> _alarmNotificationIds = {};
+
+  /// Cancel an alarm notification
+  Future<void> cancelAlarmNotification(String alarmId) async {
+    final notificationId = _alarmNotificationIds[alarmId];
+    if (notificationId != null) {
+      await _notifications.cancel(notificationId);
+      _alarmNotificationIds.remove(alarmId);
+      if (kDebugMode) {
+        print('Cancelled alarm notification: $alarmId');
+      }
+    }
+  }
+
   /// Show a notification for intercom activity
   Future<void> showIntercomNotification({
     required String channelId,

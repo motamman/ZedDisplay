@@ -185,6 +185,11 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
         _toolWidth = 4;
         _toolHeight = 4;
         break;
+      case 'clock_alarm':
+      case 'weather_api_spinner':
+        _toolWidth = 4;
+        _toolHeight = 4;
+        break;
       case 'conversion_test':
       case 'server_manager':
       case 'rpi_monitor':
@@ -535,7 +540,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
     if (!_formKey.currentState!.validate()) return;
     // WebView, server_manager, system_monitor, and crew tools don't need data sources
     if (_selectedToolTypeId == null) return;
-    if (_selectedToolTypeId != 'webview' && _selectedToolTypeId != 'server_manager' && _selectedToolTypeId != 'system_monitor' && _selectedToolTypeId != 'crew_messages' && _selectedToolTypeId != 'crew_list' && _selectedToolTypeId != 'intercom' && _selectedToolTypeId != 'file_share' && _selectedToolTypeId != 'weather_alerts' && _dataSources.isEmpty) return;
+    if (_selectedToolTypeId != 'webview' && _selectedToolTypeId != 'server_manager' && _selectedToolTypeId != 'system_monitor' && _selectedToolTypeId != 'crew_messages' && _selectedToolTypeId != 'crew_list' && _selectedToolTypeId != 'intercom' && _selectedToolTypeId != 'file_share' && _selectedToolTypeId != 'weather_alerts' && _selectedToolTypeId != 'clock_alarm' && _selectedToolTypeId != 'weather_api_spinner' && _dataSources.isEmpty) return;
 
     final toolService = Provider.of<ToolService>(context, listen: false);
 
@@ -701,7 +706,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
         title: Text(widget.existingTool == null ? 'Add Tool' : 'Edit Tool'),
         actions: [
           TextButton.icon(
-            onPressed: _selectedToolTypeId != null && (_dataSources.isNotEmpty || _selectedToolTypeId == 'webview' || _selectedToolTypeId == 'server_manager' || _selectedToolTypeId == 'system_monitor' || _selectedToolTypeId == 'crew_messages' || _selectedToolTypeId == 'crew_list' || _selectedToolTypeId == 'intercom' || _selectedToolTypeId == 'file_share' || _selectedToolTypeId == 'weather_alerts')
+            onPressed: _selectedToolTypeId != null && (_dataSources.isNotEmpty || _selectedToolTypeId == 'webview' || _selectedToolTypeId == 'server_manager' || _selectedToolTypeId == 'system_monitor' || _selectedToolTypeId == 'crew_messages' || _selectedToolTypeId == 'crew_list' || _selectedToolTypeId == 'intercom' || _selectedToolTypeId == 'file_share' || _selectedToolTypeId == 'weather_alerts' || _selectedToolTypeId == 'clock_alarm' || _selectedToolTypeId == 'weather_api_spinner')
                 ? _saveTool
                 : null,
             icon: const Icon(Icons.check),
@@ -761,8 +766,8 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
             ),
             const SizedBox(height: 16),
 
-            // Data Source Configuration (hide for webview, server_manager, system_monitor, crew tools, and weather_alerts)
-            if (_selectedToolTypeId != 'webview' && _selectedToolTypeId != 'server_manager' && _selectedToolTypeId != 'system_monitor' && _selectedToolTypeId != 'crew_messages' && _selectedToolTypeId != 'crew_list' && _selectedToolTypeId != 'intercom' && _selectedToolTypeId != 'file_share' && _selectedToolTypeId != 'weather_alerts')
+            // Data Source Configuration (hide for webview, server_manager, system_monitor, crew tools, weather_alerts, clock_alarm, weather_api_spinner)
+            if (_selectedToolTypeId != 'webview' && _selectedToolTypeId != 'server_manager' && _selectedToolTypeId != 'system_monitor' && _selectedToolTypeId != 'crew_messages' && _selectedToolTypeId != 'crew_list' && _selectedToolTypeId != 'intercom' && _selectedToolTypeId != 'file_share' && _selectedToolTypeId != 'weather_alerts' && _selectedToolTypeId != 'clock_alarm' && _selectedToolTypeId != 'weather_api_spinner')
               Card(
               child: Padding(
                 padding: const EdgeInsets.all(16),
@@ -1037,7 +1042,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
             const SizedBox(height: 16),
 
             // Preview (hide for server_manager - it has too much content)
-            if (_selectedToolTypeId != null && (_dataSources.isNotEmpty || _selectedToolTypeId == 'webview' || _selectedToolTypeId == 'crew_messages' || _selectedToolTypeId == 'crew_list' || _selectedToolTypeId == 'intercom' || _selectedToolTypeId == 'file_share' || _selectedToolTypeId == 'weather_alerts') && _selectedToolTypeId != 'server_manager')
+            if (_selectedToolTypeId != null && (_dataSources.isNotEmpty || _selectedToolTypeId == 'webview' || _selectedToolTypeId == 'crew_messages' || _selectedToolTypeId == 'crew_list' || _selectedToolTypeId == 'intercom' || _selectedToolTypeId == 'file_share' || _selectedToolTypeId == 'weather_alerts' || _selectedToolTypeId == 'clock_alarm' || _selectedToolTypeId == 'weather_api_spinner') && _selectedToolTypeId != 'server_manager')
               Card(
                 child: Padding(
                   padding: const EdgeInsets.all(16),
@@ -1185,8 +1190,8 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
       ]);
     }
 
-    // Unit (not applicable for autopilot, wind_compass, weatherflow_forecast, or tanks)
-    if (_selectedToolTypeId != 'autopilot' && _selectedToolTypeId != 'wind_compass' && _selectedToolTypeId != 'weatherflow_forecast' && _selectedToolTypeId != 'tanks') {
+    // Unit (not applicable for autopilot, wind_compass, weatherflow_forecast, tanks, clock_alarm, weather_api_spinner)
+    if (_selectedToolTypeId != 'autopilot' && _selectedToolTypeId != 'wind_compass' && _selectedToolTypeId != 'weatherflow_forecast' && _selectedToolTypeId != 'tanks' && _selectedToolTypeId != 'clock_alarm' && _selectedToolTypeId != 'weather_api_spinner') {
       widgets.addAll([
         TextFormField(
           decoration: const InputDecoration(
@@ -1235,8 +1240,8 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
       ]);
     }
 
-    // Show/Hide Options (not applicable for autopilot, wind_compass, weatherflow_forecast, or tanks)
-    if (_selectedToolTypeId != 'autopilot' && _selectedToolTypeId != 'wind_compass' && _selectedToolTypeId != 'weatherflow_forecast' && _selectedToolTypeId != 'tanks') {
+    // Show/Hide Options (not applicable for autopilot, wind_compass, weatherflow_forecast, tanks, clock_alarm, weather_api_spinner)
+    if (_selectedToolTypeId != 'autopilot' && _selectedToolTypeId != 'wind_compass' && _selectedToolTypeId != 'weatherflow_forecast' && _selectedToolTypeId != 'tanks' && _selectedToolTypeId != 'clock_alarm' && _selectedToolTypeId != 'weather_api_spinner') {
       widgets.addAll([
         SwitchListTile(
           title: const Text('Show Label'),
