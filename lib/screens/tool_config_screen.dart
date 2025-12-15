@@ -617,15 +617,15 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
             ? configuratorConfig.dataSources
             : config.dataSources,
         style: StyleConfig(
-          minValue: config.style.minValue,
-          maxValue: config.style.maxValue,
-          unit: config.style.unit,
-          primaryColor: config.style.primaryColor,
-          fontSize: config.style.fontSize,
-          showLabel: config.style.showLabel,
-          showValue: config.style.showValue,
-          showUnit: config.style.showUnit,
-          ttlSeconds: config.style.ttlSeconds,
+          minValue: configuratorConfig.style.minValue ?? config.style.minValue,
+          maxValue: configuratorConfig.style.maxValue ?? config.style.maxValue,
+          unit: configuratorConfig.style.unit ?? config.style.unit,
+          primaryColor: configuratorConfig.style.primaryColor ?? config.style.primaryColor,
+          fontSize: configuratorConfig.style.fontSize ?? config.style.fontSize,
+          showLabel: configuratorConfig.style.showLabel ?? config.style.showLabel,
+          showValue: configuratorConfig.style.showValue ?? config.style.showValue,
+          showUnit: configuratorConfig.style.showUnit ?? config.style.showUnit,
+          ttlSeconds: configuratorConfig.style.ttlSeconds ?? config.style.ttlSeconds,
           // Merge configurator's style fields (compass/autopilot)
           laylineAngle: configuratorConfig.style.laylineAngle ?? config.style.laylineAngle,
           targetTolerance: configuratorConfig.style.targetTolerance ?? config.style.targetTolerance,
@@ -1212,8 +1212,9 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
       ]);
     }
 
-    // Unit (not applicable for autopilot, wind_compass, weatherflow_forecast, tanks, clock_alarm, weather_api_spinner)
-    if (_selectedToolTypeId != 'autopilot' && _selectedToolTypeId != 'wind_compass' && _selectedToolTypeId != 'weatherflow_forecast' && _selectedToolTypeId != 'tanks' && _selectedToolTypeId != 'clock_alarm' && _selectedToolTypeId != 'weather_api_spinner') {
+    // Unit (not applicable for certain complex tools)
+    const excludeUnitOptions = ['autopilot', 'wind_compass', 'weatherflow_forecast', 'tanks', 'clock_alarm', 'weather_api_spinner', 'anchor_alarm', 'position_display', 'victron_flow'];
+    if (!excludeUnitOptions.contains(_selectedToolTypeId)) {
       widgets.addAll([
         TextFormField(
           decoration: const InputDecoration(

@@ -1,8 +1,161 @@
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import '../../models/tool_config.dart';
 import '../../models/tool_definition.dart';
 import '../../services/signalk_service.dart';
 import '../../services/tool_registry.dart';
+
+/// Configuration for a power source (e.g., Shore, Solar, Alternator, Generator)
+class PowerSourceConfig {
+  final String name;
+  final String icon;
+  final String? currentPath;
+  final String? voltagePath;
+  final String? powerPath;
+  final String? frequencyPath;
+  final String? statePath;
+
+  const PowerSourceConfig({
+    required this.name,
+    required this.icon,
+    this.currentPath,
+    this.voltagePath,
+    this.powerPath,
+    this.frequencyPath,
+    this.statePath,
+  });
+
+  factory PowerSourceConfig.fromMap(Map<String, dynamic> map) {
+    return PowerSourceConfig(
+      name: map['name'] as String? ?? 'Source',
+      icon: map['icon'] as String? ?? 'power',
+      currentPath: map['currentPath'] as String?,
+      voltagePath: map['voltagePath'] as String?,
+      powerPath: map['powerPath'] as String?,
+      frequencyPath: map['frequencyPath'] as String?,
+      statePath: map['statePath'] as String?,
+    );
+  }
+
+  Map<String, dynamic> toMap() => {
+    'name': name,
+    'icon': icon,
+    if (currentPath != null) 'currentPath': currentPath,
+    if (voltagePath != null) 'voltagePath': voltagePath,
+    if (powerPath != null) 'powerPath': powerPath,
+    if (frequencyPath != null) 'frequencyPath': frequencyPath,
+    if (statePath != null) 'statePath': statePath,
+  };
+
+  /// Get the primary value for flow animation (current or power)
+  double getPrimaryValue(SignalKService service) {
+    // Prefer current, fall back to power
+    if (currentPath != null) {
+      final data = service.getValue(currentPath!);
+      if (data?.value is num) return (data!.value as num).toDouble().abs();
+    }
+    if (powerPath != null) {
+      final data = service.getValue(powerPath!);
+      if (data?.value is num) return (data!.value as num).toDouble().abs() / 100;
+    }
+    return 0;
+  }
+
+  bool get hasAnyPath => currentPath != null || voltagePath != null || powerPath != null;
+}
+
+/// Configuration for a power load (e.g., AC Loads, DC Loads, specific circuits)
+class PowerLoadConfig {
+  final String name;
+  final String icon;
+  final String? currentPath;
+  final String? voltagePath;
+  final String? powerPath;
+  final String? frequencyPath;
+
+  const PowerLoadConfig({
+    required this.name,
+    required this.icon,
+    this.currentPath,
+    this.voltagePath,
+    this.powerPath,
+    this.frequencyPath,
+  });
+
+  factory PowerLoadConfig.fromMap(Map<String, dynamic> map) {
+    return PowerLoadConfig(
+      name: map['name'] as String? ?? 'Load',
+      icon: map['icon'] as String? ?? 'power',
+      currentPath: map['currentPath'] as String?,
+      voltagePath: map['voltagePath'] as String?,
+      powerPath: map['powerPath'] as String?,
+      frequencyPath: map['frequencyPath'] as String?,
+    );
+  }
+
+  Map<String, dynamic> toMap() => {
+    'name': name,
+    'icon': icon,
+    if (currentPath != null) 'currentPath': currentPath,
+    if (voltagePath != null) 'voltagePath': voltagePath,
+    if (powerPath != null) 'powerPath': powerPath,
+    if (frequencyPath != null) 'frequencyPath': frequencyPath,
+  };
+
+  double getPrimaryValue(SignalKService service) {
+    if (currentPath != null) {
+      final data = service.getValue(currentPath!);
+      if (data?.value is num) return (data!.value as num).toDouble().abs();
+    }
+    if (powerPath != null) {
+      final data = service.getValue(powerPath!);
+      if (data?.value is num) return (data!.value as num).toDouble().abs() / 100;
+    }
+    return 0;
+  }
+
+  bool get hasAnyPath => currentPath != null || voltagePath != null || powerPath != null;
+}
+
+/// Battery configuration paths
+class BatteryConfig {
+  final String? socPath;
+  final String? voltagePath;
+  final String? currentPath;
+  final String? powerPath;
+  final String? timeRemainingPath;
+  final String? temperaturePath;
+
+  const BatteryConfig({
+    this.socPath,
+    this.voltagePath,
+    this.currentPath,
+    this.powerPath,
+    this.timeRemainingPath,
+    this.temperaturePath,
+  });
+
+  factory BatteryConfig.fromMap(Map<String, dynamic>? map) {
+    if (map == null) return const BatteryConfig();
+    return BatteryConfig(
+      socPath: map['socPath'] as String?,
+      voltagePath: map['voltagePath'] as String?,
+      currentPath: map['currentPath'] as String?,
+      powerPath: map['powerPath'] as String?,
+      timeRemainingPath: map['timeRemainingPath'] as String?,
+      temperaturePath: map['temperaturePath'] as String?,
+    );
+  }
+
+  Map<String, dynamic> toMap() => {
+    if (socPath != null) 'socPath': socPath,
+    if (voltagePath != null) 'voltagePath': voltagePath,
+    if (currentPath != null) 'currentPath': currentPath,
+    if (powerPath != null) 'powerPath': powerPath,
+    if (timeRemainingPath != null) 'timeRemainingPath': timeRemainingPath,
+    if (temperaturePath != null) 'temperaturePath': temperaturePath,
+  };
+}
 
 /// Victron Power Flow Tool - Visual power flow diagram with animated flow lines
 class VictronFlowTool extends StatefulWidget {
@@ -21,6 +174,11 @@ class VictronFlowTool extends StatefulWidget {
 
 class _VictronFlowToolState extends State<VictronFlowTool> with SingleTickerProviderStateMixin {
   late AnimationController _animController;
+  late List<PowerSourceConfig> _sources;
+  late List<PowerLoadConfig> _loads;
+  late BatteryConfig _batteryConfig;
+  late String? _inverterStatePath;
+  late Color _primaryColor;
 
   @override
   void initState() {
@@ -30,7 +188,119 @@ class _VictronFlowToolState extends State<VictronFlowTool> with SingleTickerProv
       duration: const Duration(milliseconds: 1000),
     )..repeat();
     widget.signalKService.addListener(_onDataUpdate);
+    _parseConfig();
   }
+
+  @override
+  void didUpdateWidget(VictronFlowTool oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.config != widget.config) {
+      _parseConfig();
+    }
+  }
+
+  void _parseConfig() {
+    final customProps = widget.config.style.customProperties ?? {};
+
+    // Parse sources
+    final sourcesData = customProps['sources'] as List<dynamic>?;
+    if (sourcesData != null && sourcesData.isNotEmpty) {
+      _sources = sourcesData
+          .whereType<Map<String, dynamic>>()
+          .map((m) => PowerSourceConfig.fromMap(m))
+          .toList();
+    } else {
+      _sources = _getDefaultSources();
+    }
+
+    // Parse loads
+    final loadsData = customProps['loads'] as List<dynamic>?;
+    if (loadsData != null && loadsData.isNotEmpty) {
+      _loads = loadsData
+          .whereType<Map<String, dynamic>>()
+          .map((m) => PowerLoadConfig.fromMap(m))
+          .toList();
+    } else {
+      _loads = _getDefaultLoads();
+    }
+
+    // Parse battery config
+    _batteryConfig = BatteryConfig.fromMap(customProps['battery'] as Map<String, dynamic>?);
+    if (_batteryConfig.socPath == null) {
+      _batteryConfig = _getDefaultBatteryConfig();
+    }
+
+    // Parse inverter state path
+    _inverterStatePath = customProps['inverterStatePath'] as String? ??
+        'electrical.inverter.state';
+
+    // Parse primary color
+    _primaryColor = _parseColor(widget.config.style.primaryColor);
+  }
+
+  Color _parseColor(String? colorStr) {
+    if (colorStr != null && colorStr.isNotEmpty) {
+      try {
+        final hexColor = colorStr.replaceAll('#', '');
+        return Color(int.parse('FF$hexColor', radix: 16));
+      } catch (_) {}
+    }
+    return Colors.blue;
+  }
+
+  List<PowerSourceConfig> _getDefaultSources() => [
+    const PowerSourceConfig(
+      name: 'Shore',
+      icon: 'power',
+      currentPath: 'electrical.shore.current',
+      voltagePath: 'electrical.shore.voltage',
+      powerPath: 'electrical.shore.power',
+      frequencyPath: 'electrical.shore.frequency',
+    ),
+    const PowerSourceConfig(
+      name: 'Solar',
+      icon: 'wb_sunny_outlined',
+      currentPath: 'electrical.solar.current',
+      voltagePath: 'electrical.solar.voltage',
+      powerPath: 'electrical.solar.power',
+      statePath: 'electrical.solar.chargingMode',
+    ),
+    const PowerSourceConfig(
+      name: 'Alternator',
+      icon: 'settings_input_svideo',
+      currentPath: 'electrical.alternator.current',
+      voltagePath: 'electrical.alternator.voltage',
+      powerPath: 'electrical.alternator.power',
+      statePath: 'electrical.alternator.state',
+    ),
+  ];
+
+  List<PowerLoadConfig> _getDefaultLoads() => [
+    const PowerLoadConfig(
+      name: 'AC Loads',
+      icon: 'outlet',
+      currentPath: 'electrical.ac.load.current',
+      voltagePath: 'electrical.ac.load.voltage',
+      powerPath: 'electrical.ac.load.power',
+      frequencyPath: 'electrical.ac.load.frequency',
+    ),
+    const PowerLoadConfig(
+      name: 'DC Loads',
+      icon: 'flash_on',
+      currentPath: 'electrical.dc.load.current',
+      voltagePath: 'electrical.dc.load.voltage',
+      powerPath: 'electrical.dc.load.power',
+    ),
+  ];
+
+  BatteryConfig _getDefaultBatteryConfig() => const BatteryConfig(
+    socPath: 'electrical.batteries.house.capacity.stateOfCharge',
+    voltagePath: 'electrical.batteries.house.voltage',
+    currentPath: 'electrical.batteries.house.current',
+    powerPath: 'electrical.batteries.house.power',
+    timeRemainingPath: 'electrical.batteries.house.capacity.timeRemaining',
+    temperaturePath: 'electrical.batteries.house.temperature',
+  );
 
   @override
   void dispose() {
@@ -43,16 +313,8 @@ class _VictronFlowToolState extends State<VictronFlowTool> with SingleTickerProv
     if (mounted) setState(() {});
   }
 
-  String _getPath(int index) {
-    if (index < widget.config.dataSources.length) {
-      return widget.config.dataSources[index].path;
-    }
-    return '';
-  }
-
-  double? _getValue(int index) {
-    final path = _getPath(index);
-    if (path.isEmpty) return null;
+  double? _getPathValue(String? path) {
+    if (path == null || path.isEmpty) return null;
     final data = widget.signalKService.getValue(path);
     if (data?.value is num) {
       return (data!.value as num).toDouble();
@@ -60,9 +322,8 @@ class _VictronFlowToolState extends State<VictronFlowTool> with SingleTickerProv
     return null;
   }
 
-  String? _getStringValue(int index) {
-    final path = _getPath(index);
-    if (path.isEmpty) return null;
+  String? _getPathStringValue(String? path) {
+    if (path == null || path.isEmpty) return null;
     final data = widget.signalKService.getValue(path);
     if (data?.value != null) {
       return data!.value.toString();
@@ -72,13 +333,12 @@ class _VictronFlowToolState extends State<VictronFlowTool> with SingleTickerProv
 
   @override
   Widget build(BuildContext context) {
-    // Get current values for animation speed
-    final shoreCurrent = (_getValue(0) ?? 0).abs();
-    final solarPower = (_getValue(6) ?? 0).abs();
-    final alternatorCurrent = (_getValue(8) ?? 0).abs();
-    final batteryCurrent = _getValue(15) ?? 0;
-    final acLoadsPower = (_getValue(22) ?? 0).abs();
-    final dcLoadsPower = (_getValue(25) ?? 0).abs();
+    // Get battery current for flow direction
+    final batteryCurrent = _getPathValue(_batteryConfig.currentPath) ?? 0;
+
+    // Build flow data for painter
+    final sourceFlows = _sources.map((s) => s.getPrimaryValue(widget.signalKService)).toList();
+    final loadFlows = _loads.map((l) => l.getPrimaryValue(widget.signalKService)).toList();
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -88,19 +348,14 @@ class _VictronFlowToolState extends State<VictronFlowTool> with SingleTickerProv
             return CustomPaint(
               painter: _FlowLinesPainter(
                 animValue: _animController.value,
-                shoreActive: shoreCurrent > 0.1,
-                shoreCurrent: shoreCurrent,
-                solarActive: solarPower > 1,
-                solarPower: solarPower,
-                alternatorActive: alternatorCurrent > 0.1,
-                alternatorCurrent: alternatorCurrent,
+                sourceCount: _sources.length,
+                loadCount: _loads.length,
+                sourceFlows: sourceFlows,
+                loadFlows: loadFlows,
                 batteryCharging: batteryCurrent > 0,
                 batteryDischarging: batteryCurrent < 0,
                 batteryCurrent: batteryCurrent.abs(),
-                acLoadsActive: acLoadsPower > 1,
-                acLoadsPower: acLoadsPower,
-                dcLoadsActive: dcLoadsPower > 1,
-                dcLoadsPower: dcLoadsPower,
+                primaryColor: _primaryColor,
               ),
               child: child,
             );
@@ -123,11 +378,10 @@ class _VictronFlowToolState extends State<VictronFlowTool> with SingleTickerProv
           flex: 3,
           child: Column(
             children: [
-              Expanded(child: _buildShoreBox()),
-              const SizedBox(height: 16),
-              Expanded(child: _buildSolarBox()),
-              const SizedBox(height: 16),
-              Expanded(child: _buildAlternatorBox()),
+              for (int i = 0; i < _sources.length; i++) ...[
+                if (i > 0) const SizedBox(height: 16),
+                Expanded(child: _buildSourceBox(_sources[i])),
+              ],
             ],
           ),
         ),
@@ -149,15 +403,52 @@ class _VictronFlowToolState extends State<VictronFlowTool> with SingleTickerProv
           flex: 3,
           child: Column(
             children: [
-              Expanded(child: _buildAcLoadsBox()),
-              const SizedBox(height: 16),
-              Expanded(child: _buildDcLoadsBox()),
-              const Spacer(),
+              for (int i = 0; i < _loads.length; i++) ...[
+                if (i > 0) const SizedBox(height: 16),
+                Expanded(child: _buildLoadBox(_loads[i])),
+              ],
+              if (_loads.length < 3) const Spacer(),
             ],
           ),
         ),
       ],
     );
+  }
+
+  IconData _getIconData(String iconName) {
+    switch (iconName) {
+      case 'power':
+        return Icons.power;
+      case 'wb_sunny':
+      case 'wb_sunny_outlined':
+        return Icons.wb_sunny_outlined;
+      case 'settings_input_svideo':
+        return Icons.settings_input_svideo;
+      case 'electrical_services':
+        return Icons.electrical_services;
+      case 'outlet':
+        return Icons.outlet;
+      case 'battery_std':
+        return Icons.battery_std;
+      case 'local_gas_station':
+        return Icons.local_gas_station;
+      case 'air':
+        return Icons.air;
+      case 'bolt':
+        return Icons.bolt;
+      case 'flash_on':
+        return Icons.flash_on;
+      case 'lightbulb':
+        return Icons.lightbulb;
+      case 'kitchen':
+        return Icons.kitchen;
+      case 'ac_unit':
+        return Icons.ac_unit;
+      case 'water_drop':
+        return Icons.water_drop;
+      default:
+        return Icons.power;
+    }
   }
 
   Widget _buildComponentBox({
@@ -168,8 +459,15 @@ class _VictronFlowToolState extends State<VictronFlowTool> with SingleTickerProv
     Color? backgroundColor,
   }) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final bgColor = backgroundColor ?? (isDark ? const Color(0xFF1a3a5c) : Colors.blue.shade50);
-    final border = borderColor ?? Colors.blue.shade300;
+    // Create shade variants from primary color
+    final baseColor = _primaryColor;
+    final defaultBg = isDark
+        ? HSLColor.fromColor(baseColor).withLightness(0.2).withSaturation(0.4).toColor()
+        : HSLColor.fromColor(baseColor).withLightness(0.95).toColor();
+    final defaultBorder = HSLColor.fromColor(baseColor).withLightness(0.6).toColor();
+
+    final bgColor = backgroundColor ?? defaultBg;
+    final border = borderColor ?? defaultBorder;
 
     return Container(
       decoration: BoxDecoration(
@@ -201,45 +499,16 @@ class _VictronFlowToolState extends State<VictronFlowTool> with SingleTickerProv
     );
   }
 
-  Widget _buildShoreBox() {
-    final current = _getValue(0);
-    final voltage = _getValue(1);
-    final frequency = _getValue(2);
-    final power = _getValue(3);
+  Widget _buildSourceBox(PowerSourceConfig source) {
+    final current = _getPathValue(source.currentPath);
+    final voltage = _getPathValue(source.voltagePath);
+    final power = _getPathValue(source.powerPath);
+    final frequency = _getPathValue(source.frequencyPath);
+    final state = _getPathStringValue(source.statePath);
 
     return _buildComponentBox(
-      title: 'Shore',
-      icon: Icons.power,
-      content: FittedBox(
-        fit: BoxFit.scaleDown,
-        alignment: Alignment.centerLeft,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              current != null ? '${current.toStringAsFixed(1)}A' : '--A',
-              style: const TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.bold),
-            ),
-            Text(
-              '${voltage?.toStringAsFixed(0) ?? '--'}V  ${frequency?.toStringAsFixed(0) ?? '--'}Hz  ${power?.toStringAsFixed(0) ?? '--'}W',
-              style: const TextStyle(color: Colors.white60, fontSize: 11),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildSolarBox() {
-    final current = _getValue(4);
-    final voltage = _getValue(5);
-    final power = _getValue(6);
-    final state = _getStringValue(7);
-
-    return _buildComponentBox(
-      title: 'Solar yield',
-      icon: Icons.wb_sunny_outlined,
+      title: source.name,
+      icon: _getIconData(source.icon),
       content: FittedBox(
         fit: BoxFit.scaleDown,
         alignment: Alignment.centerLeft,
@@ -254,7 +523,7 @@ class _VictronFlowToolState extends State<VictronFlowTool> with SingleTickerProv
             if (state != null)
               Text(_formatState(state), style: const TextStyle(color: Colors.white70, fontSize: 12)),
             Text(
-              '${voltage?.toStringAsFixed(2) ?? '--'}V  ${power?.toStringAsFixed(2) ?? '--'}W',
+              _buildSecondaryLine(voltage, frequency, power),
               style: const TextStyle(color: Colors.white60, fontSize: 11),
             ),
           ],
@@ -263,15 +532,15 @@ class _VictronFlowToolState extends State<VictronFlowTool> with SingleTickerProv
     );
   }
 
-  Widget _buildAlternatorBox() {
-    final current = _getValue(8);
-    final voltage = _getValue(9);
-    final power = _getValue(10);
-    final state = _getStringValue(11);
+  Widget _buildLoadBox(PowerLoadConfig load) {
+    final current = _getPathValue(load.currentPath);
+    final voltage = _getPathValue(load.voltagePath);
+    final power = _getPathValue(load.powerPath);
+    final frequency = _getPathValue(load.frequencyPath);
 
     return _buildComponentBox(
-      title: 'Alternator',
-      icon: Icons.settings_input_svideo,
+      title: load.name,
+      icon: _getIconData(load.icon),
       content: FittedBox(
         fit: BoxFit.scaleDown,
         alignment: Alignment.centerLeft,
@@ -283,9 +552,8 @@ class _VictronFlowToolState extends State<VictronFlowTool> with SingleTickerProv
               current != null ? '${current.toStringAsFixed(1)}A' : '--A',
               style: const TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.bold),
             ),
-            Text(state ?? 'Off', style: const TextStyle(color: Colors.white70, fontSize: 12)),
             Text(
-              '${voltage?.toStringAsFixed(2) ?? '--'}V  ${power?.toStringAsFixed(2) ?? '--'}W',
+              _buildSecondaryLine(voltage, frequency, power),
               style: const TextStyle(color: Colors.white60, fontSize: 11),
             ),
           ],
@@ -294,13 +562,26 @@ class _VictronFlowToolState extends State<VictronFlowTool> with SingleTickerProv
     );
   }
 
+  String _buildSecondaryLine(double? voltage, double? frequency, double? power) {
+    final parts = <String>[];
+    if (voltage != null) {
+      parts.add(voltage > 50 ? '${voltage.toStringAsFixed(0)}V' : '${voltage.toStringAsFixed(2)}V');
+    }
+    if (frequency != null) parts.add('${frequency.toStringAsFixed(0)}Hz');
+    if (power != null) {
+      parts.add(power > 100 ? '${power.toStringAsFixed(0)}W' : '${power.toStringAsFixed(2)}W');
+    }
+    return parts.isEmpty ? '--' : parts.join('  ');
+  }
+
   Widget _buildInverterBox() {
-    final state = _getStringValue(12);
+    final state = _getPathStringValue(_inverterStatePath);
+    final borderColor = HSLColor.fromColor(_primaryColor).withLightness(0.7).toColor();
 
     return _buildComponentBox(
       title: 'Inverter / Charger',
       icon: Icons.electrical_services,
-      borderColor: Colors.blue.shade200,
+      borderColor: borderColor,
       content: Center(
         child: FittedBox(
           fit: BoxFit.scaleDown,
@@ -315,12 +596,12 @@ class _VictronFlowToolState extends State<VictronFlowTool> with SingleTickerProv
   }
 
   Widget _buildBatteryBox() {
-    final soc = _getValue(13);
-    final voltage = _getValue(14);
-    final current = _getValue(15);
-    final power = _getValue(16);
-    final timeRemaining = _getValue(17);
-    final temp = _getValue(18);
+    final soc = _getPathValue(_batteryConfig.socPath);
+    final voltage = _getPathValue(_batteryConfig.voltagePath);
+    final current = _getPathValue(_batteryConfig.currentPath);
+    final power = _getPathValue(_batteryConfig.powerPath);
+    final timeRemaining = _getPathValue(_batteryConfig.timeRemainingPath);
+    final temp = _getPathValue(_batteryConfig.temperaturePath);
 
     final isCharging = (current ?? 0) > 0;
     final isDischarging = (current ?? 0) < 0;
@@ -340,11 +621,14 @@ class _VictronFlowToolState extends State<VictronFlowTool> with SingleTickerProv
       }
     }
 
+    final bgColor = HSLColor.fromColor(_primaryColor).withLightness(0.5).withSaturation(0.6).toColor().withValues(alpha: 0.9);
+    final borderColor = HSLColor.fromColor(_primaryColor).withLightness(0.7).toColor();
+
     return _buildComponentBox(
       title: 'Battery',
       icon: Icons.battery_std,
-      backgroundColor: Colors.blue.shade400.withValues(alpha: 0.9),
-      borderColor: Colors.blue.shade200,
+      backgroundColor: bgColor,
+      borderColor: borderColor,
       content: FittedBox(
         fit: BoxFit.scaleDown,
         alignment: Alignment.center,
@@ -394,65 +678,6 @@ class _VictronFlowToolState extends State<VictronFlowTool> with SingleTickerProv
     );
   }
 
-  Widget _buildAcLoadsBox() {
-    final current = _getValue(19);
-    final voltage = _getValue(20);
-    final frequency = _getValue(21);
-    final power = _getValue(22);
-
-    return _buildComponentBox(
-      title: 'AC Loads',
-      icon: Icons.outlet,
-      content: FittedBox(
-        fit: BoxFit.scaleDown,
-        alignment: Alignment.centerLeft,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              current != null ? '${current.toStringAsFixed(1)}A' : '--A',
-              style: const TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.bold),
-            ),
-            Text(
-              '${voltage?.toStringAsFixed(0) ?? '--'}V  ${frequency?.toStringAsFixed(0) ?? '--'}Hz  ${power?.toStringAsFixed(0) ?? '--'}W',
-              style: const TextStyle(color: Colors.white60, fontSize: 11),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildDcLoadsBox() {
-    final current = _getValue(23);
-    final voltage = _getValue(24);
-    final power = _getValue(25);
-
-    return _buildComponentBox(
-      title: 'DC Loads',
-      icon: Icons.power,
-      content: FittedBox(
-        fit: BoxFit.scaleDown,
-        alignment: Alignment.centerLeft,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              current != null ? '${current.toStringAsFixed(1)}A' : '--A',
-              style: const TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.bold),
-            ),
-            Text(
-              '${voltage?.toStringAsFixed(2) ?? '--'}V  ${power?.toStringAsFixed(2) ?? '--'}W',
-              style: const TextStyle(color: Colors.white60, fontSize: 11),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
   String _formatState(String state) {
     if (state.isEmpty) return 'Off';
     return state
@@ -464,44 +689,34 @@ class _VictronFlowToolState extends State<VictronFlowTool> with SingleTickerProv
   }
 }
 
-/// Animated flow lines painter
+/// Animated flow lines painter - now supports variable source/load counts
 class _FlowLinesPainter extends CustomPainter {
   final double animValue;
-  final bool shoreActive;
-  final double shoreCurrent;
-  final bool solarActive;
-  final double solarPower;
-  final bool alternatorActive;
-  final double alternatorCurrent;
+  final int sourceCount;
+  final int loadCount;
+  final List<double> sourceFlows;
+  final List<double> loadFlows;
   final bool batteryCharging;
   final bool batteryDischarging;
   final double batteryCurrent;
-  final bool acLoadsActive;
-  final double acLoadsPower;
-  final bool dcLoadsActive;
-  final double dcLoadsPower;
+  final Color primaryColor;
 
   _FlowLinesPainter({
     required this.animValue,
-    required this.shoreActive,
-    required this.shoreCurrent,
-    required this.solarActive,
-    required this.solarPower,
-    required this.alternatorActive,
-    required this.alternatorCurrent,
+    required this.sourceCount,
+    required this.loadCount,
+    required this.sourceFlows,
+    required this.loadFlows,
     required this.batteryCharging,
     required this.batteryDischarging,
     required this.batteryCurrent,
-    required this.acLoadsActive,
-    required this.acLoadsPower,
-    required this.dcLoadsActive,
-    required this.dcLoadsPower,
+    required this.primaryColor,
   });
 
   @override
   void paint(Canvas canvas, Size size) {
     final inactivePaint = Paint()
-      ..color = Colors.blue.withValues(alpha: 0.3)
+      ..color = primaryColor.withValues(alpha: 0.3)
       ..strokeWidth = 3
       ..style = PaintingStyle.stroke;
 
@@ -516,13 +731,24 @@ class _FlowLinesPainter extends CustomPainter {
     final centerColRight = centerColLeft + colWidthUnit * 4;
     final rightColLeft = centerColRight + gap;
 
-    // Vertical positions for rows (3 equal rows in left column with 16px gaps)
+    // Calculate source row positions
     final contentHeight = size.height - padding * 2;
-    final rowHeight = (contentHeight - 32) / 3; // 2 gaps of 16px
+    final sourceGaps = sourceCount > 1 ? (sourceCount - 1) * 16.0 : 0.0;
+    final sourceRowHeight = (contentHeight - sourceGaps) / sourceCount;
 
-    final row1Center = padding + rowHeight / 2;
-    final row2Center = padding + rowHeight + 16 + rowHeight / 2;
-    final row3Center = padding + rowHeight * 2 + 32 + rowHeight / 2;
+    List<double> sourceRowCenters = [];
+    for (int i = 0; i < sourceCount; i++) {
+      sourceRowCenters.add(padding + sourceRowHeight * i + sourceGaps * i / (sourceCount > 1 ? sourceCount - 1 : 1) + sourceRowHeight / 2);
+    }
+
+    // Calculate load row positions
+    final loadGaps = loadCount > 1 ? (loadCount - 1) * 16.0 : 0.0;
+    final loadRowHeight = (contentHeight - loadGaps) / (loadCount < 3 ? 3 : loadCount); // Account for spacer
+
+    List<double> loadRowCenters = [];
+    for (int i = 0; i < loadCount; i++) {
+      loadRowCenters.add(padding + loadRowHeight * i + (i > 0 ? 16.0 * i : 0) + loadRowHeight / 2);
+    }
 
     // Center column: inverter (flex 2) and battery (flex 3) with 16px gap
     final inverterHeight = (contentHeight - 16) * 2 / 5;
@@ -530,56 +756,49 @@ class _FlowLinesPainter extends CustomPainter {
     final inverterBottom = padding + inverterHeight;
     final batteryTop = inverterBottom + 16;
     final batteryCenter = batteryTop + batteryHeight / 2;
-
-    // Right column: 2 equal boxes + spacer (each box is 1/3 of content height minus gap)
-    final rightRowHeight = (contentHeight - 16) / 3; // Only 2 boxes with 1 gap, spacer takes 1/3
-    final acLoadsCenter = padding + rightRowHeight / 2;
-    final dcLoadsCenter = padding + rightRowHeight + 16 + rightRowHeight / 2;
-
-    // Inverter center for horizontal line
     final inverterCenter = padding + inverterHeight / 2;
 
-    // Shore to Inverter (left to right)
-    _drawAnimatedLine(
-      canvas,
-      Offset(leftColRight, row1Center),
-      Offset(centerColLeft, inverterCenter),
-      shoreActive,
-      shoreCurrent,
-      inactivePaint,
-      true,
-    );
-
-    // Solar to Battery (via corner)
     final midX = leftColRight + gap / 2;
-    _drawAnimatedPath(
-      canvas,
-      [
-        Offset(leftColRight, row2Center),
-        Offset(midX, row2Center),
-        Offset(midX, batteryCenter - 10),
-        Offset(centerColLeft, batteryCenter - 10),
-      ],
-      solarActive,
-      solarPower / 100,
-      inactivePaint,
-      true,
-    );
 
-    // Alternator to Battery (via corner)
-    _drawAnimatedPath(
-      canvas,
-      [
-        Offset(leftColRight, row3Center),
-        Offset(midX, row3Center),
-        Offset(midX, batteryCenter + 10),
-        Offset(centerColLeft, batteryCenter + 10),
-      ],
-      alternatorActive,
-      alternatorCurrent,
-      inactivePaint,
-      true,
-    );
+    // Draw source flows
+    int lineIndex = 0;
+    for (int i = 0; i < sourceCount; i++) {
+      final flow = i < sourceFlows.length ? sourceFlows[i] : 0.0;
+      final isActive = flow > 0.1;
+      final phaseOffset = lineIndex * 0.17; // Stagger by ~17% of cycle
+      lineIndex++;
+
+      if (i == 0) {
+        // First source goes to inverter (like Shore)
+        _drawAnimatedLine(
+          canvas,
+          Offset(leftColRight, sourceRowCenters[i]),
+          Offset(centerColLeft, inverterCenter),
+          isActive,
+          flow,
+          inactivePaint,
+          true,
+          phaseOffset: phaseOffset,
+        );
+      } else {
+        // Other sources go to battery with corner routing
+        final yOffset = (i - 1) * 10.0 - 5; // Spread the lines vertically
+        _drawAnimatedPath(
+          canvas,
+          [
+            Offset(leftColRight, sourceRowCenters[i]),
+            Offset(midX, sourceRowCenters[i]),
+            Offset(midX, batteryCenter + yOffset),
+            Offset(centerColLeft, batteryCenter + yOffset),
+          ],
+          isActive,
+          flow,
+          inactivePaint,
+          true,
+          phaseOffset: phaseOffset,
+        );
+      }
+    }
 
     // Inverter to/from Battery (vertical)
     _drawAnimatedLine(
@@ -590,88 +809,173 @@ class _FlowLinesPainter extends CustomPainter {
       batteryCurrent,
       inactivePaint,
       batteryCharging,
+      phaseOffset: lineIndex * 0.17,
     );
+    lineIndex++;
 
-    // Inverter to AC Loads (right)
-    _drawAnimatedLine(
-      canvas,
-      Offset(centerColRight, inverterCenter),
-      Offset(rightColLeft, acLoadsCenter),
-      acLoadsActive,
-      acLoadsPower / 100,
-      inactivePaint,
-      true,
-    );
+    // Draw load flows
+    for (int i = 0; i < loadCount; i++) {
+      final flow = i < loadFlows.length ? loadFlows[i] : 0.0;
+      final isActive = flow > 0.1;
+      final phaseOffset = lineIndex * 0.17;
+      lineIndex++;
 
-    // Battery to DC Loads (right)
-    _drawAnimatedLine(
-      canvas,
-      Offset(centerColRight, batteryCenter),
-      Offset(rightColLeft, dcLoadsCenter),
-      dcLoadsActive,
-      dcLoadsPower / 100,
-      inactivePaint,
-      true,
-    );
+      if (i == 0) {
+        // First load from inverter (like AC loads)
+        _drawAnimatedLine(
+          canvas,
+          Offset(centerColRight, inverterCenter),
+          Offset(rightColLeft, loadRowCenters[i]),
+          isActive,
+          flow,
+          inactivePaint,
+          true,
+          phaseOffset: phaseOffset,
+        );
+      } else {
+        // Other loads from battery
+        _drawAnimatedLine(
+          canvas,
+          Offset(centerColRight, batteryCenter),
+          Offset(rightColLeft, loadRowCenters[i]),
+          isActive,
+          flow,
+          inactivePaint,
+          true,
+          phaseOffset: phaseOffset,
+        );
+      }
+    }
   }
 
-  void _drawAnimatedLine(Canvas canvas, Offset start, Offset end, bool active, double current, Paint inactivePaint, bool forward) {
+  void _drawAnimatedLine(Canvas canvas, Offset start, Offset end, bool active, double current, Paint inactivePaint, bool forward, {double phaseOffset = 0.0}) {
     // Draw dots at endpoints
     final dotPaint = Paint()
-      ..color = active ? Colors.blue : Colors.blue.withValues(alpha: 0.3)
+      ..color = active ? primaryColor : primaryColor.withValues(alpha: 0.3)
       ..style = PaintingStyle.fill;
     canvas.drawCircle(start, 5, dotPaint);
     canvas.drawCircle(end, 5, dotPaint);
 
-    if (!active) {
-      canvas.drawLine(start, end, inactivePaint);
-      return;
-    }
+    // Draw the solid line
+    final linePaint = Paint()
+      ..color = active ? primaryColor.withValues(alpha: 0.6) : primaryColor.withValues(alpha: 0.2)
+      ..strokeWidth = 3
+      ..style = PaintingStyle.stroke;
+    canvas.drawLine(start, end, linePaint);
+
+    if (!active) return;
 
     // Calculate animation speed based on current (more current = faster)
-    final speed = (current.clamp(0.1, 50) / 10).clamp(0.5, 3.0);
-    final dashOffset = (forward ? animValue : 1 - animValue) * speed * 30;
+    // Use logarithmic scale for visible differences: 0.1A=slow, 1A=medium, 5A=fast, 10A+=very fast
+    final logSpeed = math.log(current.clamp(0.1, 100) + 1) / math.log(10); // log10 scale
+    final speed = (logSpeed * 1.5).clamp(0.3, 4.0);
 
-    final paint = Paint()
-      ..color = Colors.blue
-      ..strokeWidth = 4
-      ..style = PaintingStyle.stroke;
+    // Draw moving balls along the line
+    final ballPaint = Paint()
+      ..color = Colors.white
+      ..style = PaintingStyle.fill;
+    final glowPaint = Paint()
+      ..color = primaryColor
+      ..style = PaintingStyle.fill;
 
-    final path = Path()..moveTo(start.dx, start.dy)..lineTo(end.dx, end.dy);
-    final dashPath = _createDashedPath(path, dashOffset);
-    canvas.drawPath(dashPath, paint);
+    // Calculate line length and direction
+    final dx = end.dx - start.dx;
+    final dy = end.dy - start.dy;
+    final length = math.sqrt(dx * dx + dy * dy);
+
+    // Number of balls based on line length
+    final numBalls = (length / 40).floor().clamp(2, 6);
+    final spacing = 1.0 / numBalls;
+
+    for (int i = 0; i < numBalls; i++) {
+      // Calculate position along the line (0 to 1), with phase offset for staggering
+      var t = ((forward ? animValue : 1 - animValue) * speed + i * spacing + phaseOffset) % 1.0;
+
+      // Position of the ball
+      final x = start.dx + dx * t;
+      final y = start.dy + dy * t;
+
+      // Draw glow behind ball
+      canvas.drawCircle(Offset(x, y), 6, glowPaint);
+      // Draw bright ball
+      canvas.drawCircle(Offset(x, y), 4, ballPaint);
+    }
   }
 
-  void _drawAnimatedPath(Canvas canvas, List<Offset> points, bool active, double current, Paint inactivePaint, bool forward) {
+  void _drawAnimatedPath(Canvas canvas, List<Offset> points, bool active, double current, Paint inactivePaint, bool forward, {double phaseOffset = 0.0}) {
     if (points.length < 2) return;
 
     // Draw dots at endpoints
     final dotPaint = Paint()
-      ..color = active ? Colors.blue : Colors.blue.withValues(alpha: 0.3)
+      ..color = active ? primaryColor : primaryColor.withValues(alpha: 0.3)
       ..style = PaintingStyle.fill;
     canvas.drawCircle(points.first, 5, dotPaint);
     canvas.drawCircle(points.last, 5, dotPaint);
 
+    // Draw the solid line path
     final path = Path()..moveTo(points.first.dx, points.first.dy);
     for (int i = 1; i < points.length; i++) {
       path.lineTo(points[i].dx, points[i].dy);
     }
 
-    if (!active) {
-      canvas.drawPath(path, inactivePaint);
-      return;
+    final linePaint = Paint()
+      ..color = active ? primaryColor.withValues(alpha: 0.6) : primaryColor.withValues(alpha: 0.2)
+      ..strokeWidth = 3
+      ..style = PaintingStyle.stroke;
+    canvas.drawPath(path, linePaint);
+
+    if (!active) return;
+
+    // Calculate total path length
+    double totalLength = 0;
+    List<double> segmentLengths = [];
+    for (int i = 1; i < points.length; i++) {
+      final dx = points[i].dx - points[i - 1].dx;
+      final dy = points[i].dy - points[i - 1].dy;
+      final len = math.sqrt(dx * dx + dy * dy);
+      segmentLengths.add(len);
+      totalLength += len;
     }
 
-    final speed = (current.clamp(0.1, 50) / 10).clamp(0.5, 3.0);
-    final dashOffset = (forward ? animValue : 1 - animValue) * speed * 30;
+    // Calculate animation speed based on current (logarithmic scale)
+    final logSpeed = math.log(current.clamp(0.1, 100) + 1) / math.log(10);
+    final speed = (logSpeed * 1.5).clamp(0.3, 4.0);
 
-    final paint = Paint()
-      ..color = Colors.blue
-      ..strokeWidth = 4
-      ..style = PaintingStyle.stroke;
+    // Draw moving balls along the path
+    final ballPaint = Paint()
+      ..color = Colors.white
+      ..style = PaintingStyle.fill;
+    final glowPaint = Paint()
+      ..color = primaryColor
+      ..style = PaintingStyle.fill;
 
-    final dashPath = _createDashedPath(path, dashOffset);
-    canvas.drawPath(dashPath, paint);
+    // Number of balls based on path length
+    final numBalls = (totalLength / 40).floor().clamp(2, 6);
+    final spacing = 1.0 / numBalls;
+
+    for (int i = 0; i < numBalls; i++) {
+      // Calculate position along the path (0 to 1), with phase offset for staggering
+      var t = ((forward ? animValue : 1 - animValue) * speed + i * spacing + phaseOffset) % 1.0;
+      var distanceAlongPath = t * totalLength;
+
+      // Find which segment and position within segment
+      double accumulatedLength = 0;
+      for (int j = 0; j < segmentLengths.length; j++) {
+        if (accumulatedLength + segmentLengths[j] >= distanceAlongPath) {
+          // Ball is in this segment
+          final segmentT = (distanceAlongPath - accumulatedLength) / segmentLengths[j];
+          final x = points[j].dx + (points[j + 1].dx - points[j].dx) * segmentT;
+          final y = points[j].dy + (points[j + 1].dy - points[j].dy) * segmentT;
+
+          // Draw glow behind ball
+          canvas.drawCircle(Offset(x, y), 6, glowPaint);
+          // Draw bright ball
+          canvas.drawCircle(Offset(x, y), 4, ballPaint);
+          break;
+        }
+        accumulatedLength += segmentLengths[j];
+      }
+    }
   }
 
   Path _createDashedPath(Path source, double offset) {
@@ -705,15 +1009,15 @@ class VictronFlowToolBuilder extends ToolBuilder {
   ToolDefinition getDefinition() {
     return ToolDefinition(
       id: 'victron_flow',
-      name: 'Victron Power Flow',
-      description: 'Visual power flow diagram for Victron systems',
+      name: 'Power Flow',
+      description: 'Visual power flow diagram with customizable sources and loads',
       category: ToolCategory.electrical,
       configSchema: ConfigSchema(
         allowsMinMax: false,
         allowsColorCustomization: false,
-        allowsMultiplePaths: true,
-        minPaths: 26,
-        maxPaths: 26,
+        allowsMultiplePaths: false,
+        minPaths: 0,
+        maxPaths: 0,
         styleOptions: const [],
       ),
     );
@@ -723,35 +1027,63 @@ class VictronFlowToolBuilder extends ToolBuilder {
   ToolConfig? getDefaultConfig(String vesselId) {
     return ToolConfig(
       vesselId: vesselId,
-      dataSources: [
-        DataSource(path: 'electrical.shore.current', label: 'Shore Current'),
-        DataSource(path: 'electrical.shore.voltage', label: 'Shore Voltage'),
-        DataSource(path: 'electrical.shore.frequency', label: 'Shore Frequency'),
-        DataSource(path: 'electrical.shore.power', label: 'Shore Power'),
-        DataSource(path: 'electrical.solar.current', label: 'Solar Current'),
-        DataSource(path: 'electrical.solar.voltage', label: 'Solar Voltage'),
-        DataSource(path: 'electrical.solar.power', label: 'Solar Power'),
-        DataSource(path: 'electrical.solar.chargingMode', label: 'Solar State'),
-        DataSource(path: 'electrical.alternator.current', label: 'Alternator Current'),
-        DataSource(path: 'electrical.alternator.voltage', label: 'Alternator Voltage'),
-        DataSource(path: 'electrical.alternator.power', label: 'Alternator Power'),
-        DataSource(path: 'electrical.alternator.state', label: 'Alternator State'),
-        DataSource(path: 'electrical.inverter.state', label: 'Inverter State'),
-        DataSource(path: 'electrical.batteries.house.capacity.stateOfCharge', label: 'Battery SOC'),
-        DataSource(path: 'electrical.batteries.house.voltage', label: 'Battery Voltage'),
-        DataSource(path: 'electrical.batteries.house.current', label: 'Battery Current'),
-        DataSource(path: 'electrical.batteries.house.power', label: 'Battery Power'),
-        DataSource(path: 'electrical.batteries.house.capacity.timeRemaining', label: 'Battery Time Remaining'),
-        DataSource(path: 'electrical.batteries.house.temperature', label: 'Battery Temperature'),
-        DataSource(path: 'electrical.ac.load.current', label: 'AC Loads Current'),
-        DataSource(path: 'electrical.ac.load.voltage', label: 'AC Loads Voltage'),
-        DataSource(path: 'electrical.ac.load.frequency', label: 'AC Loads Frequency'),
-        DataSource(path: 'electrical.ac.load.power', label: 'AC Loads Power'),
-        DataSource(path: 'electrical.dc.load.current', label: 'DC Loads Current'),
-        DataSource(path: 'electrical.dc.load.voltage', label: 'DC Loads Voltage'),
-        DataSource(path: 'electrical.dc.load.power', label: 'DC Loads Power'),
-      ],
-      style: StyleConfig(),
+      dataSources: [], // No longer using dataSources, paths are in customProperties
+      style: StyleConfig(
+        customProperties: {
+          'sources': [
+            {
+              'name': 'Shore',
+              'icon': 'power',
+              'currentPath': 'electrical.shore.current',
+              'voltagePath': 'electrical.shore.voltage',
+              'powerPath': 'electrical.shore.power',
+              'frequencyPath': 'electrical.shore.frequency',
+            },
+            {
+              'name': 'Solar',
+              'icon': 'wb_sunny_outlined',
+              'currentPath': 'electrical.solar.current',
+              'voltagePath': 'electrical.solar.voltage',
+              'powerPath': 'electrical.solar.power',
+              'statePath': 'electrical.solar.chargingMode',
+            },
+            {
+              'name': 'Alternator',
+              'icon': 'settings_input_svideo',
+              'currentPath': 'electrical.alternator.current',
+              'voltagePath': 'electrical.alternator.voltage',
+              'powerPath': 'electrical.alternator.power',
+              'statePath': 'electrical.alternator.state',
+            },
+          ],
+          'loads': [
+            {
+              'name': 'AC Loads',
+              'icon': 'outlet',
+              'currentPath': 'electrical.ac.load.current',
+              'voltagePath': 'electrical.ac.load.voltage',
+              'powerPath': 'electrical.ac.load.power',
+              'frequencyPath': 'electrical.ac.load.frequency',
+            },
+            {
+              'name': 'DC Loads',
+              'icon': 'flash_on',
+              'currentPath': 'electrical.dc.load.current',
+              'voltagePath': 'electrical.dc.load.voltage',
+              'powerPath': 'electrical.dc.load.power',
+            },
+          ],
+          'inverterStatePath': 'electrical.inverter.state',
+          'battery': {
+            'socPath': 'electrical.batteries.house.capacity.stateOfCharge',
+            'voltagePath': 'electrical.batteries.house.voltage',
+            'currentPath': 'electrical.batteries.house.current',
+            'powerPath': 'electrical.batteries.house.power',
+            'timeRemainingPath': 'electrical.batteries.house.capacity.timeRemaining',
+            'temperaturePath': 'electrical.batteries.house.temperature',
+          },
+        },
+      ),
     );
   }
 

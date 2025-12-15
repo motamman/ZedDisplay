@@ -7,6 +7,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.2+18] - 2025-12-15
+
+### Added
+- **Anchor Alarm Tool**: Comprehensive anchor watch with visual monitoring
+  - Real-time map display showing anchor position, current position, and swing radius
+  - One-tap "Drop Anchor" with rode length auto-calculated from GPS-from-bow distance + 10%
+  - Configurable alarm radius with visual circle overlay on map
+  - Rode length adjustment via slider (5-100m)
+  - Real-time distance from anchor display
+  - Alarm triggers when vessel exceeds set radius from anchor point
+  - "Raise Anchor" button to clear and reset
+  - Integrates with SignalK anchor alarm plugin
+  - Dedicated configurator for all anchor alarm settings
+- **Position Display Tool**: Current vessel position display
+  - Latitude/longitude display with configurable format options
+  - Large, readable display optimized for cockpit use
+  - Dedicated configurator for position display settings
+- **Power Flow Tool**: Visual power flow diagram with animated energy flows
+  - Real-time visualization of power sources, battery, inverter, and loads
+  - Animated flow lines with bright moving balls showing power direction
+  - Flow speed indicates current/power level using logarithmic scale
+  - Staggered ball animations so lines from same origin don't sync
+  - **Fully customizable sources**: Add, remove, rename, reorder power sources
+  - **Fully customizable loads**: Add, remove, rename, reorder power loads
+  - Default sources: Shore, Solar, Alternator (easily add Generator, Wind, etc.)
+  - Default loads: AC Loads, DC Loads (easily add specific circuits)
+  - Icon picker with 14+ icons for each source/load
+  - Drag-and-drop reordering in configurator
+  - Name editor dialog opens automatically when adding new items
+  - Battery section: SOC, voltage, current, power, time remaining, temperature
+  - Inverter/charger state display
+  - Configurable base color theme with full color picker
+  - Each component has configurable SignalK paths for current, voltage, power, frequency, state
+
+### Enhanced
+- **Tool Configuration Screen**: Improved config merging for tool-specific configurators
+  - Configurator style values (primaryColor, minValue, maxValue, etc.) now properly override defaults
+  - Fixed issue where configurator's color picker selection wasn't being saved
+- **Unit Field Exclusion**: Added anchor_alarm, position_display, and victron_flow to tools that hide the Unit field
+  - Cleaner configuration UI for tools that don't need unit settings
+
+### Technical
+- Added new tool category: Electrical Tools
+- Power Flow uses customProperties for flexible source/load configuration
+- Logarithmic speed scaling for visible flow differences at all current levels
+- Phase-offset animation system prevents synchronized ball movement
+
 ## [0.5.1+17] - 2025-12-14
 
 ### Added
