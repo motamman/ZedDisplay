@@ -349,7 +349,7 @@ class HistoricalChartBuilder extends ToolBuilder {
       id: 'historical_chart',
       name: 'Historical Chart',
       description: 'Line chart showing historical data for up to 3 paths',
-      category: ToolCategory.chart,
+      category: ToolCategory.charts,
       configSchema: ConfigSchema(
         allowsMinMax: false,
         allowsColorCustomization: true,

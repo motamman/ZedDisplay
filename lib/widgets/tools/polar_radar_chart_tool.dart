@@ -93,7 +93,7 @@ class PolarRadarChartBuilder extends ToolBuilder {
       id: 'polar_radar_chart',
       name: 'Polar Radar Chart',
       description: 'Polar chart showing magnitude vs angle with area fill (e.g., wind speed/direction)',
-      category: ToolCategory.chart,
+      category: ToolCategory.navigation,
       configSchema: ConfigSchema(
         allowsMinMax: false,
         allowsColorCustomization: true,

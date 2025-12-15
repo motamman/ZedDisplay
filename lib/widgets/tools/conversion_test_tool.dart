@@ -193,7 +193,7 @@ class ConversionTestToolBuilder extends ToolBuilder {
       id: 'conversion_test',
       name: 'Conversion Test',
       description: 'Test tool to display conversion data from standard SignalK stream',
-      category: ToolCategory.display,
+      category: ToolCategory.system,
       configSchema: ConfigSchema(
         allowsMinMax: false,
         allowsColorCustomization: false,

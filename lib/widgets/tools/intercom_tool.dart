@@ -341,7 +341,7 @@ class IntercomToolBuilder implements ToolBuilder {
       id: 'intercom',
       name: 'Intercom',
       description: 'Voice communication with crew members',
-      category: ToolCategory.system,
+      category: ToolCategory.communication,
       configSchema: ConfigSchema(
         allowsMinMax: false,
         allowsColorCustomization: false,

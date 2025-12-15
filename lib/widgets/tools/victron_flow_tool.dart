@@ -707,7 +707,7 @@ class VictronFlowToolBuilder extends ToolBuilder {
       id: 'victron_flow',
       name: 'Victron Power Flow',
       description: 'Visual power flow diagram for Victron systems',
-      category: ToolCategory.system,
+      category: ToolCategory.electrical,
       configSchema: ConfigSchema(
         allowsMinMax: false,
         allowsColorCustomization: false,

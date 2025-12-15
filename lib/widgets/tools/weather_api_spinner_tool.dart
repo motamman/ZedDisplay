@@ -372,7 +372,7 @@ class WeatherApiSpinnerToolBuilder extends ToolBuilder {
       id: 'weather_api_spinner',
       name: 'Weather Spinner (API)',
       description: 'Forecast spinner using SignalK Weather API - works with any weather provider',
-      category: ToolCategory.display,
+      category: ToolCategory.weather,
       configSchema: ConfigSchema(
         allowsMinMax: false,
         allowsColorCustomization: true,

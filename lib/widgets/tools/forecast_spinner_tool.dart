@@ -185,7 +185,7 @@ class ForecastSpinnerToolBuilder extends ToolBuilder {
       id: 'forecast_spinner',
       name: 'Forecast Spinner',
       description: 'Circular dial to explore hourly forecast by spinning',
-      category: ToolCategory.display,
+      category: ToolCategory.weather,
       configSchema: ConfigSchema(
         allowsMinMax: false,
         allowsColorCustomization: true,

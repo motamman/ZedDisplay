@@ -139,7 +139,7 @@ class RadialGaugeBuilder extends ToolBuilder {
       id: 'radial_gauge',
       name: 'Radial Gauge',
       description: 'Circular gauge with arc display for numeric values',
-      category: ToolCategory.gauge,
+      category: ToolCategory.instruments,
       configSchema: ConfigSchema(
         allowsMinMax: true,
         allowsColorCustomization: true,

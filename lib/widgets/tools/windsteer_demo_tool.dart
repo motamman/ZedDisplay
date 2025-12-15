@@ -121,7 +121,7 @@ class WindsteerDemoToolBuilder extends ToolBuilder {
       id: 'windsteer_demo',
       name: 'Windsteer (Auto)',
       description: 'Wind steering gauge with automatic path detection - perfect for quick setup!',
-      category: ToolCategory.compass,
+      category: ToolCategory.navigation,
       configSchema: ConfigSchema(
         allowsMinMax: false,
         allowsColorCustomization: true,

@@ -175,7 +175,7 @@ class RealtimeChartBuilder extends ToolBuilder {
       id: 'realtime_chart',
       name: 'Real-Time Chart',
       description: 'Live spline chart showing real-time data for up to 3 paths',
-      category: ToolCategory.chart,
+      category: ToolCategory.charts,
       configSchema: ConfigSchema(
         allowsMinMax: false,
         allowsColorCustomization: true,

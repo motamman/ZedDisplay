@@ -208,45 +208,56 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
     List<def.ToolDefinition> filtered;
 
     if (_selectedCategory == null || _selectedCategory == 'all') {
-      filtered = allTools; // Show all if no category selected or "all" selected
+      filtered = allTools;
     } else {
       filtered = allTools.where((toolDef) {
         switch (_selectedCategory) {
-          case 'gauges':
-            // Gauges and text displays
-            return toolDef.category == def.ToolCategory.gauge || toolDef.category == def.ToolCategory.display;
+          case 'navigation':
+            return toolDef.category == def.ToolCategory.navigation;
+          case 'instruments':
+            return toolDef.category == def.ToolCategory.instruments;
           case 'charts':
-            return toolDef.category == def.ToolCategory.chart;
+            return toolDef.category == def.ToolCategory.charts;
+          case 'weather':
+            return toolDef.category == def.ToolCategory.weather;
+          case 'electrical':
+            return toolDef.category == def.ToolCategory.electrical;
+          case 'ais':
+            return toolDef.category == def.ToolCategory.ais;
           case 'controls':
-            return toolDef.category == def.ToolCategory.control;
+            return toolDef.category == def.ToolCategory.controls;
+          case 'communication':
+            return toolDef.category == def.ToolCategory.communication;
           case 'system':
             return toolDef.category == def.ToolCategory.system;
-          case 'instruments':
-            // Compass and other instruments
-            return toolDef.category == def.ToolCategory.compass || toolDef.category == def.ToolCategory.other;
           default:
             return true;
         }
       }).toList();
     }
 
-    // Sort by category to group colors together
+    // Sort by category then alphabetically
     filtered.sort((a, b) {
-      // Define category order: gauge/display (blue), chart (green), control (orange), compass/other (purple)
       int categoryOrder(def.ToolCategory cat) {
         switch (cat) {
-          case def.ToolCategory.gauge:
-          case def.ToolCategory.display:
-            return 0; // Blue - Gauges & Text
-          case def.ToolCategory.chart:
-            return 1; // Green - Charts
-          case def.ToolCategory.control:
-            return 2; // Orange - Controls
+          case def.ToolCategory.navigation:
+            return 0;
+          case def.ToolCategory.instruments:
+            return 1;
+          case def.ToolCategory.charts:
+            return 2;
+          case def.ToolCategory.weather:
+            return 3;
+          case def.ToolCategory.electrical:
+            return 4;
+          case def.ToolCategory.ais:
+            return 5;
+          case def.ToolCategory.controls:
+            return 6;
+          case def.ToolCategory.communication:
+            return 7;
           case def.ToolCategory.system:
-            return 3; // Red - System tools
-          case def.ToolCategory.compass:
-          case def.ToolCategory.other:
-            return 4; // Purple - Instruments
+            return 8;
         }
       }
 
@@ -256,8 +267,6 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
       if (orderA != orderB) {
         return orderA.compareTo(orderB);
       }
-
-      // Within same category, sort alphabetically by name
       return a.name.compareTo(b.name);
     });
 
@@ -267,18 +276,24 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
   /// Get color for a category
   Color _getCategoryColor(def.ToolCategory category) {
     switch (category) {
-      case def.ToolCategory.gauge:
-      case def.ToolCategory.display:
+      case def.ToolCategory.navigation:
         return Colors.blue;
-      case def.ToolCategory.chart:
+      case def.ToolCategory.instruments:
+        return Colors.teal;
+      case def.ToolCategory.charts:
         return Colors.green;
-      case def.ToolCategory.control:
+      case def.ToolCategory.weather:
         return Colors.orange;
+      case def.ToolCategory.electrical:
+        return Colors.amber.shade700;
+      case def.ToolCategory.ais:
+        return Colors.cyan;
+      case def.ToolCategory.controls:
+        return Colors.purple;
+      case def.ToolCategory.communication:
+        return Colors.pink;
       case def.ToolCategory.system:
         return Colors.red.shade700;
-      case def.ToolCategory.compass:
-      case def.ToolCategory.other:
-        return Colors.purple;
     }
   }
 
@@ -740,11 +755,15 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                       runSpacing: 8,
                       children: [
                         _buildCategoryButton('all', 'All', Colors.grey),
-                        _buildCategoryButton('gauges', 'Gauges & Text', Colors.blue),
+                        _buildCategoryButton('navigation', 'Navigation', Colors.blue),
+                        _buildCategoryButton('instruments', 'Instruments', Colors.teal),
                         _buildCategoryButton('charts', 'Charts', Colors.green),
-                        _buildCategoryButton('controls', 'Controls', Colors.orange),
+                        _buildCategoryButton('weather', 'Weather', Colors.orange),
+                        _buildCategoryButton('electrical', 'Electrical', Colors.amber.shade700),
+                        _buildCategoryButton('ais', 'AIS', Colors.cyan),
+                        _buildCategoryButton('controls', 'Controls', Colors.purple),
+                        _buildCategoryButton('communication', 'Crew', Colors.pink),
                         _buildCategoryButton('system', 'System', Colors.red.shade700),
-                        _buildCategoryButton('instruments', 'Instruments', Colors.purple),
                       ],
                     ),
                     const SizedBox(height: 16),

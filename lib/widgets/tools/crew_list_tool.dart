@@ -312,7 +312,7 @@ class CrewListToolBuilder implements ToolBuilder {
       id: 'crew_list',
       name: 'Crew List',
       description: 'View online crew members and their status',
-      category: ToolCategory.system,
+      category: ToolCategory.communication,
       configSchema: ConfigSchema(
         allowsMinMax: false,
         allowsColorCustomization: false,

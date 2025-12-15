@@ -810,7 +810,7 @@ class AutopilotToolBuilder extends ToolBuilder {
       id: 'autopilot',
       name: 'Autopilot',
       description: 'Full autopilot control with compass display, mode selection, and tacking. Supports V1 (plugin) and V2 (REST) autopilot APIs.',
-      category: ToolCategory.compass,
+      category: ToolCategory.navigation,
       configSchema: ConfigSchema(
         allowsMinMax: false,
         allowsColorCustomization: true,

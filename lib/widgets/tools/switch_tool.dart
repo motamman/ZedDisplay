@@ -143,7 +143,7 @@ class SwitchToolBuilder extends ToolBuilder {
       id: 'switch',
       name: 'Switch',
       description: 'Toggle switch for boolean SignalK paths with PUT support',
-      category: ToolCategory.control,
+      category: ToolCategory.controls,
       configSchema: ConfigSchema(
         allowsMinMax: false,
         allowsColorCustomization: true,

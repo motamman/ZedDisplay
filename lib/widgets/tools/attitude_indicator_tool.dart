@@ -81,7 +81,7 @@ class AttitudeIndicatorToolBuilder extends ToolBuilder {
       id: 'attitude_indicator',
       name: 'Attitude Indicator',
       description: 'Artificial horizon showing roll (heel) and pitch with boat silhouette',
-      category: ToolCategory.compass,
+      category: ToolCategory.navigation,
       configSchema: ConfigSchema(
         allowsMinMax: false,
         allowsColorCustomization: true,

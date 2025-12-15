@@ -256,7 +256,7 @@ class FileShareToolBuilder implements ToolBuilder {
       id: 'file_share',
       name: 'Shared Files',
       description: 'Share and receive files with crew members',
-      category: ToolCategory.system,
+      category: ToolCategory.communication,
       configSchema: ConfigSchema(
         allowsMinMax: false,
         allowsColorCustomization: false,

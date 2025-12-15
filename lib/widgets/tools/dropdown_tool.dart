@@ -209,7 +209,7 @@ class DropdownToolBuilder extends ToolBuilder {
       id: 'dropdown',
       name: 'Dropdown',
       description: 'Dropdown selector for sending numeric values to SignalK paths',
-      category: ToolCategory.control,
+      category: ToolCategory.controls,
       configSchema: ConfigSchema(
         allowsMinMax: true,
         allowsColorCustomization: true,

@@ -285,7 +285,7 @@ class WeatherFlowForecastToolBuilder extends ToolBuilder {
       id: 'weatherflow_forecast',
       name: 'WeatherFlow Forecast',
       description: 'Weather forecast from WeatherFlow Tempest station',
-      category: ToolCategory.display,
+      category: ToolCategory.weather,
       configSchema: ConfigSchema(
         allowsMinMax: false,
         allowsColorCustomization: true,

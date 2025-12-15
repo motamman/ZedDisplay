@@ -241,7 +241,7 @@ class KnobToolBuilder extends ToolBuilder {
       id: 'knob',
       name: 'Knob',
       description: 'Rotary knob control for sending numeric values to SignalK paths',
-      category: ToolCategory.control,
+      category: ToolCategory.controls,
       configSchema: ConfigSchema(
         allowsMinMax: true,
         allowsColorCustomization: true,

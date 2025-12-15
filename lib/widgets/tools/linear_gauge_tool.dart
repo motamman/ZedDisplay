@@ -599,7 +599,7 @@ class LinearGaugeBuilder extends ToolBuilder {
       id: 'linear_gauge',
       name: 'Linear Gauge',
       description: 'Horizontal or vertical bar gauge for numeric values',
-      category: ToolCategory.gauge,
+      category: ToolCategory.instruments,
       configSchema: ConfigSchema(
         allowsMinMax: true,
         allowsColorCustomization: true,

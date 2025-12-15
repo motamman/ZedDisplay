@@ -1034,7 +1034,7 @@ class AnchorAlarmToolBuilder extends ToolBuilder {
       id: 'anchor_alarm',
       name: 'Anchor Alarm',
       description: 'Monitor anchor position with map display, alarms, and check-in system',
-      category: ToolCategory.system,
+      category: ToolCategory.navigation,
       configSchema: ConfigSchema(
         allowsMinMax: false,
         allowsColorCustomization: false,

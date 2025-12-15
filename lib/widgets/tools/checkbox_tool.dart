@@ -138,7 +138,7 @@ class CheckboxToolBuilder extends ToolBuilder {
       id: 'checkbox',
       name: 'Checkbox',
       description: 'Checkbox for boolean SignalK paths with PUT support',
-      category: ToolCategory.control,
+      category: ToolCategory.controls,
       configSchema: ConfigSchema(
         allowsMinMax: false,
         allowsColorCustomization: true,

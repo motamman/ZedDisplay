@@ -371,7 +371,7 @@ class PositionDisplayToolBuilder extends ToolBuilder {
       id: 'position_display',
       name: 'Position Display',
       description: 'Display vessel position (latitude/longitude) in various formats',
-      category: ToolCategory.display,
+      category: ToolCategory.navigation,
       configSchema: ConfigSchema(
         allowsMinMax: false,
         allowsColorCustomization: true,
