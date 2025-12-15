@@ -161,6 +161,13 @@ class _AnchorAlarmToolState extends State<AnchorAlarmTool> {
   Future<void> _dropAnchor() async {
     final success = await _alarmService.dropAnchor();
     if (success && mounted) {
+      // Set rode length to distance from bow + 10%
+      final gpsFromBow = _alarmService.gpsFromBow;
+      if (gpsFromBow != null && gpsFromBow > 0) {
+        final rodeLength = gpsFromBow * 1.1;
+        await _alarmService.setRodeLength(rodeLength);
+      }
+
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Anchor dropped'),
