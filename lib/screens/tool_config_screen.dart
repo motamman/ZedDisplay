@@ -540,7 +540,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
     if (!_formKey.currentState!.validate()) return;
     // WebView, server_manager, system_monitor, and crew tools don't need data sources
     if (_selectedToolTypeId == null) return;
-    if (_selectedToolTypeId != 'webview' && _selectedToolTypeId != 'server_manager' && _selectedToolTypeId != 'system_monitor' && _selectedToolTypeId != 'crew_messages' && _selectedToolTypeId != 'crew_list' && _selectedToolTypeId != 'intercom' && _selectedToolTypeId != 'file_share' && _selectedToolTypeId != 'weather_alerts' && _selectedToolTypeId != 'clock_alarm' && _selectedToolTypeId != 'weather_api_spinner' && _dataSources.isEmpty) return;
+    if (_selectedToolTypeId != 'webview' && _selectedToolTypeId != 'server_manager' && _selectedToolTypeId != 'system_monitor' && _selectedToolTypeId != 'crew_messages' && _selectedToolTypeId != 'crew_list' && _selectedToolTypeId != 'intercom' && _selectedToolTypeId != 'file_share' && _selectedToolTypeId != 'weather_alerts' && _selectedToolTypeId != 'clock_alarm' && _selectedToolTypeId != 'weather_api_spinner' && _selectedToolTypeId != 'victron_flow' && _dataSources.isEmpty) return;
 
     final toolService = Provider.of<ToolService>(context, listen: false);
 
@@ -597,7 +597,10 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
     // Merge configurator's config if available
     if (configuratorConfig != null) {
       config = ToolConfig(
-        dataSources: config.dataSources,
+        // Use configurator's dataSources if it provides them, otherwise use screen's
+        dataSources: configuratorConfig.dataSources.isNotEmpty
+            ? configuratorConfig.dataSources
+            : config.dataSources,
         style: StyleConfig(
           minValue: config.style.minValue,
           maxValue: config.style.maxValue,
@@ -706,7 +709,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
         title: Text(widget.existingTool == null ? 'Add Tool' : 'Edit Tool'),
         actions: [
           TextButton.icon(
-            onPressed: _selectedToolTypeId != null && (_dataSources.isNotEmpty || _selectedToolTypeId == 'webview' || _selectedToolTypeId == 'server_manager' || _selectedToolTypeId == 'system_monitor' || _selectedToolTypeId == 'crew_messages' || _selectedToolTypeId == 'crew_list' || _selectedToolTypeId == 'intercom' || _selectedToolTypeId == 'file_share' || _selectedToolTypeId == 'weather_alerts' || _selectedToolTypeId == 'clock_alarm' || _selectedToolTypeId == 'weather_api_spinner')
+            onPressed: _selectedToolTypeId != null && (_dataSources.isNotEmpty || _selectedToolTypeId == 'webview' || _selectedToolTypeId == 'server_manager' || _selectedToolTypeId == 'system_monitor' || _selectedToolTypeId == 'crew_messages' || _selectedToolTypeId == 'crew_list' || _selectedToolTypeId == 'intercom' || _selectedToolTypeId == 'file_share' || _selectedToolTypeId == 'weather_alerts' || _selectedToolTypeId == 'clock_alarm' || _selectedToolTypeId == 'weather_api_spinner' || _selectedToolTypeId == 'victron_flow')
                 ? _saveTool
                 : null,
             icon: const Icon(Icons.check),
@@ -766,8 +769,8 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
             ),
             const SizedBox(height: 16),
 
-            // Data Source Configuration (hide for webview, server_manager, system_monitor, crew tools, weather_alerts, clock_alarm, weather_api_spinner)
-            if (_selectedToolTypeId != 'webview' && _selectedToolTypeId != 'server_manager' && _selectedToolTypeId != 'system_monitor' && _selectedToolTypeId != 'crew_messages' && _selectedToolTypeId != 'crew_list' && _selectedToolTypeId != 'intercom' && _selectedToolTypeId != 'file_share' && _selectedToolTypeId != 'weather_alerts' && _selectedToolTypeId != 'clock_alarm' && _selectedToolTypeId != 'weather_api_spinner')
+            // Data Source Configuration (hide for webview, server_manager, system_monitor, crew tools, weather_alerts, clock_alarm, weather_api_spinner, victron_flow)
+            if (_selectedToolTypeId != 'webview' && _selectedToolTypeId != 'server_manager' && _selectedToolTypeId != 'system_monitor' && _selectedToolTypeId != 'crew_messages' && _selectedToolTypeId != 'crew_list' && _selectedToolTypeId != 'intercom' && _selectedToolTypeId != 'file_share' && _selectedToolTypeId != 'weather_alerts' && _selectedToolTypeId != 'clock_alarm' && _selectedToolTypeId != 'weather_api_spinner' && _selectedToolTypeId != 'victron_flow')
               Card(
               child: Padding(
                 padding: const EdgeInsets.all(16),
@@ -1241,7 +1244,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
     }
 
     // Show/Hide Options (not applicable for certain tools)
-    const excludeShowHideOptions = ['autopilot', 'wind_compass', 'weatherflow_forecast', 'tanks', 'clock_alarm', 'weather_api_spinner', 'anchor_alarm', 'position_display'];
+    const excludeShowHideOptions = ['autopilot', 'wind_compass', 'weatherflow_forecast', 'tanks', 'clock_alarm', 'weather_api_spinner', 'anchor_alarm', 'position_display', 'victron_flow'];
     if (!excludeShowHideOptions.contains(_selectedToolTypeId)) {
       widgets.addAll([
         SwitchListTile(
@@ -1274,7 +1277,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
     }
 
     // TTL (not applicable for certain tools that have their own state management)
-    const excludeTTLOptions = ['clock_alarm', 'anchor_alarm', 'server_manager', 'crew_messages', 'crew_list', 'intercom', 'file_share', 'position_display'];
+    const excludeTTLOptions = ['clock_alarm', 'anchor_alarm', 'server_manager', 'crew_messages', 'crew_list', 'intercom', 'file_share', 'position_display', 'victron_flow'];
     if (!excludeTTLOptions.contains(_selectedToolTypeId)) {
       widgets.addAll([
         DropdownButtonFormField<int?>(
