@@ -110,7 +110,7 @@ class CompassGaugeBuilder extends ToolBuilder {
       id: 'compass',
       name: 'Compass Gauge',
       description: 'Circular compass display for heading/bearing values (supports up to 4 needles)',
-      category: ToolCategory.gauge,
+      category: ToolCategory.navigation,
       configSchema: ConfigSchema(
         allowsMinMax: false,
         allowsColorCustomization: true,

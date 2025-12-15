@@ -50,11 +50,13 @@ Map<String, dynamic> _$ToolDefinitionToJson(ToolDefinition instance) =>
     };
 
 const _$ToolCategoryEnumMap = {
-  ToolCategory.gauge: 'gauge',
-  ToolCategory.chart: 'chart',
-  ToolCategory.display: 'display',
-  ToolCategory.compass: 'compass',
-  ToolCategory.control: 'control',
+  ToolCategory.navigation: 'navigation',
+  ToolCategory.instruments: 'instruments',
+  ToolCategory.charts: 'charts',
+  ToolCategory.weather: 'weather',
+  ToolCategory.electrical: 'electrical',
+  ToolCategory.ais: 'ais',
+  ToolCategory.controls: 'controls',
+  ToolCategory.communication: 'communication',
   ToolCategory.system: 'system',
-  ToolCategory.other: 'other',
 };

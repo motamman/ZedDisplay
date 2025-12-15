@@ -339,7 +339,7 @@ class CrewMessagesToolBuilder implements ToolBuilder {
       id: 'crew_messages',
       name: 'Crew Messages',
       description: 'View and send messages to crew members',
-      category: ToolCategory.system,
+      category: ToolCategory.communication,
       configSchema: ConfigSchema(
         allowsMinMax: false,
         allowsColorCustomization: false,

@@ -971,6 +971,31 @@ class SignalKService extends ChangeNotifier implements DataService {
     return false;
   }
 
+  /// Make an authenticated POST request to a plugin API endpoint
+  /// Returns the response body as a Map, or null on failure
+  Future<http.Response> postPluginApi(String pluginPath, {Map<String, dynamic>? body}) async {
+    final protocol = _useSecureConnection ? 'https' : 'http';
+    final url = '$protocol://$_serverUrl$pluginPath';
+
+    return await http.post(
+      Uri.parse(url),
+      headers: _getHeaders(),
+      body: body != null ? jsonEncode(body) : null,
+    ).timeout(const Duration(seconds: 10));
+  }
+
+  /// Make an authenticated GET request to a plugin API endpoint
+  /// Returns the response body as a Map, or null on failure
+  Future<http.Response> getPluginApi(String pluginPath) async {
+    final protocol = _useSecureConnection ? 'https' : 'http';
+    final url = '$protocol://$_serverUrl$pluginPath';
+
+    return await http.get(
+      Uri.parse(url),
+      headers: _getHeaders(),
+    ).timeout(const Duration(seconds: 10));
+  }
+
   /// Get value for specific path, optionally from a specific source
   @override
   SignalKDataPoint? getValue(String path, {String? source}) {

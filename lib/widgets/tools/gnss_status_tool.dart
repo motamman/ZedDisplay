@@ -231,7 +231,7 @@ class GnssStatusToolBuilder extends ToolBuilder {
       id: 'gnss_status',
       name: 'GNSS Status',
       description: 'Satellite status, fix quality, DOP values, and position accuracy',
-      category: ToolCategory.system,
+      category: ToolCategory.navigation,
       configSchema: ConfigSchema(
         allowsMinMax: false,
         allowsColorCustomization: true,

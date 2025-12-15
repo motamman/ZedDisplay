@@ -4,13 +4,15 @@ part 'tool_definition.g.dart';
 
 /// Categories for tool types
 enum ToolCategory {
-  gauge,    // Analog/digital gauges
-  chart,    // Time-series charts
-  display,  // Text/numeric displays
-  compass,  // Compass/directional displays
-  control,  // Interactive controls (switches, buttons)
-  system,   // System management and monitoring
-  other,
+  navigation,    // Helm instruments: compass, autopilot, wind, anchor, position
+  instruments,   // Data display: gauges, tanks, text
+  charts,        // Time-series: historical, realtime
+  weather,       // Forecasts and alerts
+  electrical,    // Power systems: Victron flow
+  ais,           // AIS and radar
+  controls,      // Interactive: switches, sliders, knobs
+  communication, // Crew: messages, intercom, file share
+  system,        // Admin: server, monitoring, clock
 }
 
 /// Configuration schema defining what can be configured

@@ -189,7 +189,7 @@ class WindCompassToolBuilder extends ToolBuilder {
       id: 'wind_compass',
       name: 'Wind Compass',
       description: 'Autopilot-style compass showing heading (true/magnetic), wind direction (true/apparent), and speed over ground',
-      category: ToolCategory.compass,
+      category: ToolCategory.navigation,
       configSchema: ConfigSchema(
         allowsMinMax: false,
         allowsColorCustomization: false,

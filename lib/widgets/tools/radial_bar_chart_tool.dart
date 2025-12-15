@@ -114,7 +114,7 @@ class RadialBarChartBuilder extends ToolBuilder {
       id: 'radial_bar_chart',
       name: 'Radial Bar Chart',
       description: 'Circular chart displaying up to 4 values as concentric rings',
-      category: ToolCategory.chart,
+      category: ToolCategory.instruments,
       configSchema: ConfigSchema(
         allowsMinMax: true,
         allowsColorCustomization: true,

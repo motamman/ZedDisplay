@@ -169,7 +169,7 @@ class WindsteerToolBuilder extends ToolBuilder {
       id: 'windsteer',
       name: 'Windsteer',
       description: 'Comprehensive wind steering gauge with compass, wind angles, laylines, COG, drift, and waypoints',
-      category: ToolCategory.compass,
+      category: ToolCategory.navigation,
       configSchema: ConfigSchema(
         allowsMinMax: false,
         allowsColorCustomization: true,

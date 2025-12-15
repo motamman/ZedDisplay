@@ -85,6 +85,33 @@ A customizable SignalK marine dashboard application to display real-time vessel 
   - Horizontal/vertical dilution of precision (HDOP/VDOP)
   - Data age indicator (LIVE/stale status)
   - Detailed satellite information (PRN, elevation, azimuth, SNR)
+- **Anchor Alarm**: Comprehensive anchor watch with visual monitoring
+  - Real-time map display showing anchor position, current position, and swing radius
+  - Drop anchor with one tap (rode length auto-set to GPS-from-bow distance + 10%)
+  - Configurable alarm radius with visual circle overlay
+  - Rode length adjustment via slider (5-100m)
+  - Distance from anchor displayed in real-time
+  - Alarm triggers when vessel exceeds set radius from anchor point
+  - Raise anchor to clear and reset
+  - Works with SignalK anchor alarm plugin
+- **Position Display**: Current vessel position in configurable formats
+  - Latitude/longitude display with multiple format options
+  - Degrees, minutes, seconds or decimal degrees
+  - Large, readable display for cockpit use
+
+**Electrical Tools**
+- **Power Flow**: Visual power flow diagram with animated energy flows
+  - Real-time visualization of power sources, battery, and loads
+  - Animated flow lines with moving balls showing power direction and magnitude
+  - Flow speed indicates current/power level (logarithmic scale for visible differences)
+  - **Fully customizable sources**: Add/remove/rename power sources (Shore, Solar, Alternator, Generator, Wind, etc.)
+  - **Fully customizable loads**: Add/remove/rename loads (AC Loads, DC Loads, specific circuits)
+  - Icon picker with 14+ icons for each source/load
+  - Drag-and-drop reordering of sources and loads
+  - Battery section showing SOC, voltage, current, power, time remaining, temperature
+  - Inverter/charger state display
+  - Configurable base color theme
+  - Each source/load has configurable SignalK paths for current, voltage, power, frequency, and state
 
 **Control Tools**
 - **Switch**: Toggle switch for boolean SignalK paths with PUT support

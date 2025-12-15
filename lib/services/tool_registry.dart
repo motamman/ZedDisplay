@@ -35,6 +35,9 @@ import '../widgets/tools/weather_api_spinner_tool.dart';
 import '../widgets/tools/tanks_tool.dart';
 import '../widgets/tools/weather_alerts_tool.dart';
 import '../widgets/tools/clock_alarm_tool.dart';
+import '../widgets/tools/anchor_alarm_tool.dart';
+import '../widgets/tools/position_display_tool.dart';
+import '../widgets/tools/victron_flow_tool.dart';
 
 /// Abstract builder for tool widgets
 abstract class ToolBuilder {
@@ -141,6 +144,9 @@ class ToolRegistry {
     register('tanks', TanksToolBuilder());
     register('weather_alerts', WeatherAlertsToolBuilder());
     register('clock_alarm', ClockAlarmToolBuilder());
+    register('anchor_alarm', AnchorAlarmToolBuilder());
+    register('position_display', PositionDisplayToolBuilder());
+    register('victron_flow', VictronFlowToolBuilder());
     // register('webview', WebViewToolBuilder()); // Hidden for now - uncomment to enable
   }
 }

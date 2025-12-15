@@ -398,7 +398,7 @@ class AutopilotSimpleToolBuilder extends ToolBuilder {
       id: 'autopilot_simple',
       name: 'Autopilot (Simple)',
       description: 'Simple text-based autopilot control without compass visualization',
-      category: ToolCategory.compass,
+      category: ToolCategory.navigation,
       configSchema: ConfigSchema(
         allowsMinMax: false,
         allowsColorCustomization: true,

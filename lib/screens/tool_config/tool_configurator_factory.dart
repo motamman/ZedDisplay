@@ -10,6 +10,9 @@ import 'configurators/weather_api_spinner_configurator.dart';
 import 'configurators/tanks_configurator.dart';
 import 'configurators/weather_alerts_configurator.dart';
 import 'configurators/clock_alarm_configurator.dart';
+import 'configurators/anchor_alarm_configurator.dart';
+import 'configurators/position_display_configurator.dart';
+import 'configurators/victron_flow_configurator.dart';
 
 /// Factory for creating tool-specific configurators
 ///
@@ -78,6 +81,18 @@ class ToolConfiguratorFactory {
       case 'clock_alarm':
         return ClockAlarmConfigurator();
 
+      // Anchor Alarm
+      case 'anchor_alarm':
+        return AnchorAlarmConfigurator();
+
+      // Position Display
+      case 'position_display':
+        return PositionDisplayConfigurator();
+
+      // Victron Power Flow
+      case 'victron_flow':
+        return VictronFlowConfigurator();
+
       // No custom configurator - use default UI
       default:
         return null;
@@ -112,6 +127,9 @@ class ToolConfiguratorFactory {
       'tanks',
       'weather_alerts',
       'clock_alarm',
+      'anchor_alarm',
+      'position_display',
+      'victron_flow',
     ];
   }
 }

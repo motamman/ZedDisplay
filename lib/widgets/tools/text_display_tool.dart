@@ -232,7 +232,7 @@ class TextDisplayBuilder extends ToolBuilder {
       id: 'text_display',
       name: 'Text Display',
       description: 'Large value display with label and unit. Automatically stacks object properties as label: value pairs.',
-      category: ToolCategory.display,
+      category: ToolCategory.instruments,
       configSchema: ConfigSchema(
         allowsMinMax: false,
         allowsColorCustomization: true,

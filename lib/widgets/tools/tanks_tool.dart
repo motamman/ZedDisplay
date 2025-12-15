@@ -516,7 +516,7 @@ class TanksToolBuilder extends ToolBuilder {
       id: 'tanks',
       name: 'Tanks',
       description: 'Display up to 5 tank levels',
-      category: ToolCategory.display,
+      category: ToolCategory.instruments,
       configSchema: ConfigSchema(
         allowsMinMax: false,
         allowsColorCustomization: false,

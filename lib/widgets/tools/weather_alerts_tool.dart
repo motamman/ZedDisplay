@@ -824,7 +824,7 @@ class WeatherAlertsToolBuilder extends ToolBuilder {
       id: 'weather_alerts',
       name: 'NWS Weather Alerts',
       description: 'Display NWS weather alerts with severity-based alerting',
-      category: ToolCategory.display,
+      category: ToolCategory.weather,
       configSchema: ConfigSchema(
         allowsMinMax: false,
         allowsColorCustomization: false,

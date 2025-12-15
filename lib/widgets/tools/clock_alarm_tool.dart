@@ -1361,7 +1361,7 @@ class ClockAlarmToolBuilder extends ToolBuilder {
       id: 'clock_alarm',
       name: 'Clock & Alarm',
       description: 'Smart clock with multiple face styles and alarms stored in SignalK',
-      category: ToolCategory.display,
+      category: ToolCategory.system,
       configSchema: ConfigSchema(
         allowsMinMax: false,
         allowsColorCustomization: true,

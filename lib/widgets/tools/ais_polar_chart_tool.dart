@@ -76,7 +76,7 @@ class AISPolarChartBuilder extends ToolBuilder {
       id: 'ais_polar_chart',
       name: 'AIS Polar Chart',
       description: 'Display nearby AIS vessels on polar chart with CPA/TCPA calculations',
-      category: ToolCategory.chart,
+      category: ToolCategory.ais,
       configSchema: ConfigSchema(
         allowsMinMax: false,
         allowsColorCustomization: true,

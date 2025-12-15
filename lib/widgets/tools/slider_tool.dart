@@ -184,7 +184,7 @@ class SliderToolBuilder extends ToolBuilder {
       id: 'slider',
       name: 'Slider',
       description: 'Slider control for sending numeric values to SignalK paths',
-      category: ToolCategory.control,
+      category: ToolCategory.controls,
       configSchema: ConfigSchema(
         allowsMinMax: true,
         allowsColorCustomization: true,
