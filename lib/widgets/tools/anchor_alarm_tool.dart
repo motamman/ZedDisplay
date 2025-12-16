@@ -39,6 +39,7 @@ class _AnchorAlarmToolState extends State<AnchorAlarmTool> {
   final MapController _mapController = MapController();
   bool _mapAutoFollow = true;
   double _rodeSliderValue = 30.0;
+  bool _isRodeSliderDragging = false;
   bool _showPolarView = false; // Toggle between map and polar view
 
   @override
@@ -97,10 +98,12 @@ class _AnchorAlarmToolState extends State<AnchorAlarmTool> {
     if (mounted) {
       setState(() {});
 
-      // Update slider from current rode length
-      final rodeLength = _alarmService.state.rodeLength;
-      if (rodeLength != null && (_rodeSliderValue - rodeLength).abs() > 1) {
-        _rodeSliderValue = rodeLength.clamp(5.0, 100.0);
+      // Update slider from current rode length (only when not actively dragging)
+      if (!_isRodeSliderDragging) {
+        final rodeLength = _alarmService.state.rodeLength;
+        if (rodeLength != null && (_rodeSliderValue - rodeLength).abs() > 1) {
+          _rodeSliderValue = rodeLength.clamp(5.0, 100.0);
+        }
       }
 
       // Auto-follow vessel if enabled
@@ -926,8 +929,12 @@ class _AnchorAlarmToolState extends State<AnchorAlarmTool> {
                       min: 5,
                       max: 100,
                       divisions: 19,
+                      onChangeStart: (_) => _isRodeSliderDragging = true,
                       onChanged: (value) => setState(() => _rodeSliderValue = value),
-                      onChangeEnd: _setRodeLength,
+                      onChangeEnd: (value) {
+                        _isRodeSliderDragging = false;
+                        _setRodeLength(value);
+                      },
                     ),
                   ),
                 ),
