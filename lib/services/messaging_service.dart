@@ -310,7 +310,6 @@ class MessagingService extends ChangeNotifier {
         notifyListeners();
       }
 
-      _lastFetchTime = DateTime.now();
       _resourcesApiAvailable = true;
     } catch (e) {
       if (kDebugMode) {
