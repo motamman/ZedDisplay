@@ -80,7 +80,7 @@ A customizable SignalK marine dashboard application to display real-time vessel 
   <img src="screenshots/AIS_display.png" alt="AIS Polar Chart" width="300">
 
 **Navigation Tools**
-- **Wind Compass**: Advanced autopilot-style compass with multiple sailing modes
+- **Wind Compass**: Advanced compass with multiple sailing modes
   - **Target AWA Mode**: Performance steering with configurable target angles and tolerance zones
   - **Laylines Mode**: True navigation laylines for upwind waypoint navigation with "can fetch" indicators
   - **VMG Mode**: Real-time Velocity Made Good with polar-based optimization
@@ -101,6 +101,11 @@ A customizable SignalK marine dashboard application to display real-time vessel 
   - Incremental command queue with acknowledgment tracking
   - Rudder indicator when space permits
   - Responsive portrait/landscape layouts
+
+  <img src="screenshots/autopilot.png" alt="Autopilot" width="280">
+  <img src="screenshots/autopilotv2.png" alt="Autopilot v2" width="280">
+
+
 - **Attitude Indicator**: Aircraft-style artificial horizon display
   - Shows vessel pitch and roll in real-time
   - Configurable color scheme
