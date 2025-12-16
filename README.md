@@ -75,6 +75,15 @@ A customizable SignalK marine dashboard application to display real-time vessel 
   - Tap display to cycle between modes
   - Shows heading (true/magnetic), wind direction (true/apparent), SOG, and COG
 - **Autopilot**: Full autopilot control with compass display, mode selection, and tacking
+- **Autopilot V2**: Redesigned circular autopilot with nested controls
+  - Banana-shaped heading adjustment buttons (+1, -1, +10, -10) arced around inner circle
+  - Mode selector (Compass, Wind, Route) with engage/standby toggle
+  - Tack/Gybe banana buttons in Wind mode positioned by turn direction
+  - Advance Waypoint and Dodge buttons in Route mode
+  - Draggable target heading arrow with long-press activation
+  - Incremental command queue with acknowledgment tracking
+  - Rudder indicator when space permits
+  - Responsive portrait/landscape layouts
 - **Attitude Indicator**: Aircraft-style artificial horizon display
   - Shows vessel pitch and roll in real-time
   - Configurable color scheme
@@ -580,11 +589,13 @@ For questions or issues:
 - [x] Text messaging (broadcast and direct)
 - [x] Status broadcasts and alerts
 - [x] File sharing via local HTTP server
-- [x] Voice intercom with WebRTC
+- [x] Voice intercom with WebRTC (E2E encrypted via SRTP - direct P2P, no relay)
 - [x] VHF-style channel system
 - [x] Direct one-on-one voice calls
 - [x] Incoming call notifications
 - [x] Dashboard widgets for crew features
+- [x] Crew deletion (captain can remove anyone, self can remove self)
+- [ ] End-to-end encryption for text messages (X25519 key exchange)
 - [ ] Push notifications when app is backgrounded
 - [ ] Message search
 - [ ] Read receipts
