@@ -272,18 +272,18 @@ class AuthService extends ChangeNotifier {
     _pollingTimer = null;
   }
 
-  /// Get saved token for a server
-  AuthToken? getSavedToken(String serverUrl) {
-    return _storage.getAuthToken(serverUrl);
+  /// Get saved token for a connection
+  AuthToken? getSavedToken(String connectionId) {
+    return _storage.getAuthToken(connectionId);
   }
 
-  /// Delete saved token for a server
-  Future<void> deleteSavedToken(String serverUrl) async {
-    await _storage.deleteAuthToken(serverUrl);
+  /// Delete saved token for a connection
+  Future<void> deleteSavedToken(String connectionId) async {
+    await _storage.deleteAuthToken(connectionId);
   }
 
-  /// Save an approved token
-  Future<void> _saveApprovedToken(String serverUrl, AccessRequest request) async {
+  /// Save an approved token for a connection
+  Future<void> saveApprovedToken(String serverUrl, AccessRequest request, {required String connectionId}) async {
     if (request.token == null) return;
 
     final authToken = AuthToken(
@@ -291,12 +291,40 @@ class AuthService extends ChangeNotifier {
       clientId: request.clientId,
       expiresAt: request.expiresAt,
       serverUrl: serverUrl,
+      connectionId: connectionId,
     );
 
-    await _storage.saveAuthToken(authToken);
+    await _storage.saveAuthToken(authToken, connectionId: connectionId);
 
     if (kDebugMode) {
-      print('Token saved for $serverUrl');
+      print('Token saved for connection $connectionId ($serverUrl)');
+    }
+  }
+
+  /// Internal method to save token (used during polling)
+  String? _pendingConnectionId;
+
+  /// Set the connection ID for the current access request
+  void setConnectionIdForRequest(String connectionId) {
+    _pendingConnectionId = connectionId;
+  }
+
+  /// Save an approved token (internal, uses pending connection ID)
+  Future<void> _saveApprovedToken(String serverUrl, AccessRequest request) async {
+    if (request.token == null || _pendingConnectionId == null) return;
+
+    final authToken = AuthToken(
+      token: request.token!,
+      clientId: request.clientId,
+      expiresAt: request.expiresAt,
+      serverUrl: serverUrl,
+      connectionId: _pendingConnectionId,
+    );
+
+    await _storage.saveAuthToken(authToken, connectionId: _pendingConnectionId!);
+
+    if (kDebugMode) {
+      print('Token saved for connection $_pendingConnectionId ($serverUrl)');
     }
   }
 

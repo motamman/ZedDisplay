@@ -12,6 +12,7 @@ class DeviceRegistrationScreen extends StatefulWidget {
   final bool secure;
   final String clientId;
   final String description;
+  final String? connectionId; // Optional - if not provided, uses serverUrl as fallback
 
   const DeviceRegistrationScreen({
     super.key,
@@ -19,6 +20,7 @@ class DeviceRegistrationScreen extends StatefulWidget {
     required this.secure,
     required this.clientId,
     required this.description,
+    this.connectionId,
   });
 
   @override
@@ -33,8 +35,14 @@ class _DeviceRegistrationScreenState extends State<DeviceRegistrationScreen> {
     _submitAccessRequest();
   }
 
+  /// Get the connection ID (uses provided connectionId or falls back to serverUrl)
+  String get _connectionId => widget.connectionId ?? widget.serverUrl;
+
   Future<void> _submitAccessRequest() async {
     final authService = Provider.of<AuthService>(context, listen: false);
+
+    // Set the connection ID for this request so token is saved correctly
+    authService.setConnectionIdForRequest(_connectionId);
 
     try {
       final request = await authService.requestAccess(
@@ -73,8 +81,8 @@ class _DeviceRegistrationScreenState extends State<DeviceRegistrationScreen> {
     final dashboardService = Provider.of<DashboardService>(context, listen: false);
     final storageService = Provider.of<StorageService>(context, listen: false);
 
-    // Get the saved token
-    final token = authService.getSavedToken(widget.serverUrl);
+    // Get the saved token using connection ID
+    final token = authService.getSavedToken(_connectionId);
 
     if (token != null) {
       try {
@@ -90,6 +98,11 @@ class _DeviceRegistrationScreenState extends State<DeviceRegistrationScreen> {
           widget.serverUrl,
           widget.secure,
         );
+
+        // Update last connected time if we have a connection ID
+        if (widget.connectionId != null) {
+          await storageService.updateConnectionLastConnected(widget.connectionId!);
+        }
 
         // Trigger dashboard subscription update (happens automatically in DashboardService)
         // Force an update to ensure subscriptions are set up

@@ -33,8 +33,8 @@ class _ServerListScreenState extends State<ServerListScreen> {
       final dashboardService = context.read<DashboardService>();
       final storageService = context.read<StorageService>();
 
-      // Check if we have a saved token
-      final savedToken = authService.getSavedToken(connection.serverUrl);
+      // Check if we have a saved token for this connection
+      final savedToken = authService.getSavedToken(connection.id);
 
       if (savedToken != null && savedToken.isValid) {
         // Use saved token
@@ -75,6 +75,7 @@ class _ServerListScreenState extends State<ServerListScreen> {
                 secure: connection.useSecure,
                 clientId: authService.generateClientId(),
                 description: 'ZedDisplay Marine Dashboard',
+                connectionId: connection.id,
               ),
             ),
           );
@@ -104,7 +105,10 @@ class _ServerListScreenState extends State<ServerListScreen> {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Delete Server'),
-        content: Text('Are you sure you want to delete "${connection.name}"?'),
+        content: Text(
+          'Are you sure you want to delete "${connection.name}"?\n\n'
+          'This will also remove saved authentication credentials for this connection.',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),

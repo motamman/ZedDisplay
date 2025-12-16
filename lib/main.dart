@@ -297,7 +297,11 @@ class _ZedDisplayAppState extends State<ZedDisplayApp> with WidgetsBindingObserv
         if (widget.signalKService.isConnected) {
           _lastServerUrl = widget.signalKService.serverUrl;
           _lastUseSecure = widget.signalKService.useSecureConnection;
-          _lastToken = widget.authService.getSavedToken(_lastServerUrl!);
+          // Find connection by URL to get connectionId for token lookup
+          final connection = widget.storageService.findConnectionByUrl(_lastServerUrl!);
+          _lastToken = connection != null
+              ? widget.authService.getSavedToken(connection.id)
+              : null;
         }
         break;
 

@@ -9,6 +9,7 @@ class AuthToken {
   final DateTime? expiresAt;
   final DateTime issuedAt;
   final String serverUrl;
+  final String? connectionId; // Links token to specific connection
 
   AuthToken({
     required this.token,
@@ -16,6 +17,7 @@ class AuthToken {
     this.expiresAt,
     DateTime? issuedAt,
     required this.serverUrl,
+    this.connectionId,
   }) : issuedAt = issuedAt ?? DateTime.now();
 
   /// Check if token is expired or will expire soon (within 1 hour)

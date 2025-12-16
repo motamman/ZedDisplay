@@ -85,10 +85,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
       final dashboardService = context.read<DashboardService>();
       final storageService = context.read<StorageService>();
 
-      // Check if we have a saved token
-      final savedToken = authService.getSavedToken(_serverController.text);
-
-      // First, save/update the connection in storage
+      // First, find or create the connection in storage
       final existingConnection = storageService.findConnectionByUrl(_serverController.text);
       ServerConnection connection;
 
@@ -114,6 +111,9 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
       }
 
       await storageService.saveConnection(connection);
+
+      // Check if we have a saved token for this connection (keyed by connection.id)
+      final savedToken = authService.getSavedToken(connection.id);
 
       if (savedToken != null && savedToken.isValid) {
         // Use saved token
@@ -153,6 +153,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
                 secure: _useSecure,
                 clientId: _clientId,
                 description: 'ZedDisplay Marine Dashboard',
+                connectionId: connection.id,
               ),
             ),
           );
