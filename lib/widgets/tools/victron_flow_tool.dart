@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import '../../models/tool_config.dart';
 import '../../models/tool_definition.dart';
@@ -870,36 +871,92 @@ class _FlowLinesPainter extends CustomPainter {
     final logSpeed = math.log(current.clamp(0.1, 100) + 1) / math.log(10); // log10 scale
     final speed = (logSpeed * 1.5).clamp(0.3, 4.0);
 
-    // Draw moving balls along the line
-    final ballPaint = Paint()
-      ..color = Colors.white
-      ..style = PaintingStyle.fill;
-    final glowPaint = Paint()
-      ..color = primaryColor
-      ..style = PaintingStyle.fill;
-
     // Calculate line length and direction
     final dx = end.dx - start.dx;
     final dy = end.dy - start.dy;
     final length = math.sqrt(dx * dx + dy * dy);
 
-    // Number of balls based on line length
-    final numBalls = (length / 40).floor().clamp(2, 6);
-    final spacing = 1.0 / numBalls;
+    // Calculate angle for arrow direction
+    double angle = math.atan2(dy, dx);
+    if (!forward) angle += math.pi; // Reverse direction
 
-    for (int i = 0; i < numBalls; i++) {
-      // Calculate position along the line (0 to 1), with phase offset for staggering
-      var t = ((forward ? animValue : 1 - animValue) * speed + i * spacing + phaseOffset) % 1.0;
+    // Fixed spacing between sprites (in pixels)
+    const spriteSpacing = 25.0;
+    final numSprites = (length / spriteSpacing).floor().clamp(2, 8);
 
-      // Position of the ball
+    // Cycle length includes a gap at the end for natural flow
+    final cycleLength = 1.0 + (1.0 / numSprites);
+
+    // Extra distance for sprite to travel beyond endpoint (as fraction of line)
+    // Allows head+tail to fully exit under the destination card
+    // Use minimum of 0.15 (15%) to ensure visible extension on short lines
+    final exitExtension = math.max(30.0 / length, 0.15);
+
+    for (int i = 0; i < numSprites; i++) {
+      // Calculate position with proper cycling (includes gap for natural entry/exit)
+      final baseT = (forward ? animValue : 1 - animValue) * speed;
+      var t = (baseT + (i / numSprites) + phaseOffset) % cycleLength;
+
+      // Draw if within extended visible range (allows exit animation)
+      if (t > 1.0 + exitExtension) continue;
+
+      // Position of the sprite (can extend past endpoint)
       final x = start.dx + dx * t;
       final y = start.dy + dy * t;
 
-      // Draw glow behind ball
-      canvas.drawCircle(Offset(x, y), 6, glowPaint);
-      // Draw bright ball
-      canvas.drawCircle(Offset(x, y), 4, ballPaint);
+      // Draw meteor sprite
+      _drawMeteorSprite(canvas, Offset(x, y), angle, primaryColor);
     }
+  }
+
+  void _drawMeteorSprite(Canvas canvas, Offset center, double angle, Color color) {
+    const tailLength = 18.0;
+
+    final tailDx = -math.cos(angle) * tailLength;
+    final tailDy = -math.sin(angle) * tailLength;
+    final tailEnd = Offset(center.dx + tailDx, center.dy + tailDy);
+
+    // Tail - multiple segments fading out
+    const segments = 5;
+    for (int i = 0; i < segments; i++) {
+      final t1 = i / segments;
+      final t2 = (i + 1) / segments;
+
+      final start = Offset(
+        center.dx + tailDx * t1,
+        center.dy + tailDy * t1,
+      );
+      final end = Offset(
+        center.dx + tailDx * t2,
+        center.dy + tailDy * t2,
+      );
+
+      // Fade from bright to transparent
+      final alpha = 0.6 * (1 - t1);
+      final width = 4.0 * (1 - t1 * 0.5);
+
+      final segPaint = Paint()
+        ..color = Colors.white.withValues(alpha: alpha)
+        ..strokeWidth = width
+        ..strokeCap = StrokeCap.round
+        ..style = PaintingStyle.stroke
+        ..maskFilter = MaskFilter.blur(BlurStyle.normal, 1.5 + t1 * 2);
+      canvas.drawLine(start, end, segPaint);
+    }
+
+    // Colored glow around head
+    final glowPaint = Paint()
+      ..color = color
+      ..style = PaintingStyle.fill
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 5);
+    canvas.drawCircle(center, 6, glowPaint);
+
+    // Bright white head with soft blur
+    final headPaint = Paint()
+      ..color = Colors.white
+      ..style = PaintingStyle.fill
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 2);
+    canvas.drawCircle(center, 3, headPaint);
   }
 
   void _drawAnimatedPath(Canvas canvas, List<Offset> points, bool active, double current, Paint inactivePaint, bool forward, {double phaseOffset = 0.0}) {
@@ -941,62 +998,65 @@ class _FlowLinesPainter extends CustomPainter {
     final logSpeed = math.log(current.clamp(0.1, 100) + 1) / math.log(10);
     final speed = (logSpeed * 1.5).clamp(0.3, 4.0);
 
-    // Draw moving balls along the path
-    final ballPaint = Paint()
-      ..color = Colors.white
-      ..style = PaintingStyle.fill;
-    final glowPaint = Paint()
-      ..color = primaryColor
-      ..style = PaintingStyle.fill;
+    // Fixed spacing between sprites (in pixels)
+    const spriteSpacing = 25.0;
+    final numSprites = (totalLength / spriteSpacing).floor().clamp(2, 8);
 
-    // Number of balls based on path length
-    final numBalls = (totalLength / 40).floor().clamp(2, 6);
-    final spacing = 1.0 / numBalls;
+    // Cycle length includes a gap at the end for natural flow
+    final cycleLength = 1.0 + (1.0 / numSprites);
 
-    for (int i = 0; i < numBalls; i++) {
-      // Calculate position along the path (0 to 1), with phase offset for staggering
-      var t = ((forward ? animValue : 1 - animValue) * speed + i * spacing + phaseOffset) % 1.0;
+    // Extra distance for sprite to travel beyond endpoint
+    // Use minimum of 0.15 (15%) to ensure visible extension on short lines
+    final exitExtension = math.max(30.0 / totalLength, 0.15);
+
+    for (int i = 0; i < numSprites; i++) {
+      // Calculate position with proper cycling (includes gap for natural entry/exit)
+      final baseT = (forward ? animValue : 1 - animValue) * speed;
+      var t = (baseT + (i / numSprites) + phaseOffset) % cycleLength;
+
+      // Draw if within extended visible range
+      if (t > 1.0 + exitExtension) continue;
+
       var distanceAlongPath = t * totalLength;
 
       // Find which segment and position within segment
       double accumulatedLength = 0;
+      bool drawn = false;
       for (int j = 0; j < segmentLengths.length; j++) {
         if (accumulatedLength + segmentLengths[j] >= distanceAlongPath) {
-          // Ball is in this segment
+          // Sprite is in this segment
           final segmentT = (distanceAlongPath - accumulatedLength) / segmentLengths[j];
           final x = points[j].dx + (points[j + 1].dx - points[j].dx) * segmentT;
           final y = points[j].dy + (points[j + 1].dy - points[j].dy) * segmentT;
 
-          // Draw glow behind ball
-          canvas.drawCircle(Offset(x, y), 6, glowPaint);
-          // Draw bright ball
-          canvas.drawCircle(Offset(x, y), 4, ballPaint);
+          // Calculate angle for this segment
+          final segDx = points[j + 1].dx - points[j].dx;
+          final segDy = points[j + 1].dy - points[j].dy;
+          double angle = math.atan2(segDy, segDx);
+          if (!forward) angle += math.pi;
+
+          // Draw meteor sprite
+          _drawMeteorSprite(canvas, Offset(x, y), angle, primaryColor);
+          drawn = true;
           break;
         }
         accumulatedLength += segmentLengths[j];
       }
-    }
-  }
 
-  Path _createDashedPath(Path source, double offset) {
-    final dashPath = Path();
-    final metrics = source.computeMetrics();
-
-    const dashLength = 10.0;
-    const gapLength = 8.0;
-    final totalLength = dashLength + gapLength;
-
-    for (final metric in metrics) {
-      double distance = offset % totalLength;
-      while (distance < metric.length) {
-        final start = distance;
-        final end = (distance + dashLength).clamp(0, metric.length);
-        final extracted = metric.extractPath(start, end.toDouble());
-        dashPath.addPath(extracted, Offset.zero);
-        distance += totalLength;
+      // If past the end, extrapolate along last segment direction
+      if (!drawn && segmentLengths.isNotEmpty) {
+        final lastIdx = points.length - 1;
+        final segDx = points[lastIdx].dx - points[lastIdx - 1].dx;
+        final segDy = points[lastIdx].dy - points[lastIdx - 1].dy;
+        final segLen = segmentLengths.last;
+        final extraDist = distanceAlongPath - totalLength;
+        final x = points[lastIdx].dx + (segDx / segLen) * extraDist;
+        final y = points[lastIdx].dy + (segDy / segLen) * extraDist;
+        double angle = math.atan2(segDy, segDx);
+        if (!forward) angle += math.pi;
+        _drawMeteorSprite(canvas, Offset(x, y), angle, primaryColor);
       }
     }
-    return dashPath;
   }
 
   @override
