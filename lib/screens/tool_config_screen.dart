@@ -738,56 +738,58 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
-            // Tool Type Selection
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Select Tool Type',
-                      style: Theme.of(context).textTheme.titleMedium,
-                    ),
-                    const SizedBox(height: 16),
-                    // Category filter chips with colors
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: [
-                        _buildCategoryButton('all', 'All', Colors.grey),
-                        _buildCategoryButton('navigation', 'Navigation', Colors.blue),
-                        _buildCategoryButton('instruments', 'Instruments', Colors.teal),
-                        _buildCategoryButton('charts', 'Charts', Colors.green),
-                        _buildCategoryButton('weather', 'Weather', Colors.orange),
-                        _buildCategoryButton('electrical', 'Electrical', Colors.amber.shade700),
-                        _buildCategoryButton('ais', 'AIS', Colors.cyan),
-                        _buildCategoryButton('controls', 'Controls', Colors.purple),
-                        _buildCategoryButton('communication', 'Crew', Colors.pink),
-                        _buildCategoryButton('system', 'System', Colors.red.shade700),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-                    // Tool type chips (filtered by category)
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: _getFilteredToolDefinitions(toolDefinitions).map((toolDef) {
-                        final isSelected = _selectedToolTypeId == toolDef.id;
-                        final categoryColor = _getCategoryColor(toolDef.category);
-                        return _buildToolButton(
-                          toolDef.id,
-                          toolDef.name,
-                          categoryColor,
-                          isSelected,
-                        );
-                      }).toList(),
-                    ),
-                  ],
+            // Tool Type Selection (only show for new tools)
+            if (widget.existingTool == null)
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Select Tool Type',
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                      const SizedBox(height: 16),
+                      // Category filter chips with colors
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          _buildCategoryButton('all', 'All', Colors.grey),
+                          _buildCategoryButton('navigation', 'Navigation', Colors.blue),
+                          _buildCategoryButton('instruments', 'Instruments', Colors.teal),
+                          _buildCategoryButton('charts', 'Charts', Colors.green),
+                          _buildCategoryButton('weather', 'Weather', Colors.orange),
+                          _buildCategoryButton('electrical', 'Electrical', Colors.amber.shade700),
+                          _buildCategoryButton('ais', 'AIS', Colors.cyan),
+                          _buildCategoryButton('controls', 'Controls', Colors.purple),
+                          _buildCategoryButton('communication', 'Crew', Colors.pink),
+                          _buildCategoryButton('system', 'System', Colors.red.shade700),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      // Tool type chips (filtered by category)
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: _getFilteredToolDefinitions(toolDefinitions).map((toolDef) {
+                          final isSelected = _selectedToolTypeId == toolDef.id;
+                          final categoryColor = _getCategoryColor(toolDef.category);
+                          return _buildToolButton(
+                            toolDef.id,
+                            toolDef.name,
+                            categoryColor,
+                            isSelected,
+                          );
+                        }).toList(),
+                      ),
+                    ],
+                  ),
                 ),
               ),
-            ),
-            const SizedBox(height: 16),
+            if (widget.existingTool == null)
+              const SizedBox(height: 16),
 
             // Data Source Configuration (hide for webview, server_manager, system_monitor, crew tools, weather_alerts, clock_alarm, weather_api_spinner, victron_flow)
             if (_selectedToolTypeId != 'webview' && _selectedToolTypeId != 'server_manager' && _selectedToolTypeId != 'system_monitor' && _selectedToolTypeId != 'crew_messages' && _selectedToolTypeId != 'crew_list' && _selectedToolTypeId != 'intercom' && _selectedToolTypeId != 'file_share' && _selectedToolTypeId != 'weather_alerts' && _selectedToolTypeId != 'clock_alarm' && _selectedToolTypeId != 'weather_api_spinner' && _selectedToolTypeId != 'victron_flow')
@@ -935,8 +937,9 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
             ),
             const SizedBox(height: 16),
 
-            // Size Configuration (hide for all tools - using pixel positioning instead of grid layout)
-            if (_selectedToolTypeId != null &&
+            // Size Configuration (only show for new tools, hide for most tool types that use pixel positioning)
+            if (widget.existingTool == null &&
+                _selectedToolTypeId != null &&
                 _selectedToolTypeId != 'autopilot' &&
                 _selectedToolTypeId != 'wind_compass' &&
                 _selectedToolTypeId != 'radial_gauge' &&
