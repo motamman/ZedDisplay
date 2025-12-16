@@ -971,6 +971,65 @@ class SignalKService extends ChangeNotifier implements DataService {
     return false;
   }
 
+  // Track which custom resource types have been ensured this session
+  final Set<String> _ensuredResourceTypes = {};
+
+  /// Ensure a custom resource type exists on the SignalK server
+  /// Uses the resources-provider plugin's configuration API
+  /// Returns true if the resource type exists or was created successfully
+  Future<bool> ensureResourceTypeExists(String resourceType, {String? description}) async {
+    // Skip if already ensured this session
+    if (_ensuredResourceTypes.contains(resourceType)) {
+      return true;
+    }
+
+    final protocol = _useSecureConnection ? 'https' : 'http';
+
+    try {
+      // First check if the resource type already exists by trying to GET it
+      final checkResponse = await http.get(
+        Uri.parse('$protocol://$_serverUrl/signalk/v2/api/resources/$resourceType'),
+        headers: _getHeaders(),
+      ).timeout(const Duration(seconds: 5));
+
+      if (checkResponse.statusCode == 200) {
+        // Resource type exists
+        _ensuredResourceTypes.add(resourceType);
+        if (kDebugMode) {
+          print('Resource type "$resourceType" already exists');
+        }
+        return true;
+      }
+
+      // Resource type doesn't exist, try to create it via resources-provider plugin API
+      final createResponse = await http.post(
+        Uri.parse('$protocol://$_serverUrl/plugins/resources-provider/_config/$resourceType'),
+        headers: _getHeaders(),
+        body: jsonEncode({
+          'description': description ?? 'ZedDisplay $resourceType',
+        }),
+      ).timeout(const Duration(seconds: 10));
+
+      if (createResponse.statusCode == 200 || createResponse.statusCode == 201) {
+        _ensuredResourceTypes.add(resourceType);
+        if (kDebugMode) {
+          print('Created custom resource type "$resourceType"');
+        }
+        return true;
+      } else {
+        if (kDebugMode) {
+          print('Failed to create resource type "$resourceType": ${createResponse.statusCode} - ${createResponse.body}');
+        }
+        return false;
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error ensuring resource type "$resourceType": $e');
+      }
+      return false;
+    }
+  }
+
   /// Make an authenticated POST request to a plugin API endpoint
   /// Returns the response body as a Map, or null on failure
   Future<http.Response> postPluginApi(String pluginPath, {Map<String, dynamic>? body}) async {
@@ -1484,6 +1543,7 @@ class SignalKService extends ChangeNotifier implements DataService {
       _activePaths.clear();
       _autopilotPaths.clear();
       _vesselContext = null;
+      _ensuredResourceTypes.clear();
 
       // Disconnect autopilot channel
       await _autopilotSubscription?.cancel();

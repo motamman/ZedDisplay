@@ -211,10 +211,65 @@ class _CrewMemberTile extends StatelessWidget {
                     tooltip: 'Call ${member.name}',
                     visualDensity: VisualDensity.compact,
                   ),
+                // Delete button (only for captains)
+                Consumer<CrewService>(
+                  builder: (context, crewService, child) {
+                    if (crewService.canDelete(member.id)) {
+                      return IconButton(
+                        icon: const Icon(Icons.delete_outline, size: 20),
+                        onPressed: () => _confirmDeleteMember(context, crewService),
+                        tooltip: 'Remove ${member.name}',
+                        visualDensity: VisualDensity.compact,
+                        color: Colors.red.shade400,
+                      );
+                    }
+                    return const SizedBox.shrink();
+                  },
+                ),
               ],
             )
           : null,
     );
+  }
+
+  Future<void> _confirmDeleteMember(BuildContext context, CrewService crewService) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Remove Crew Member?'),
+        content: Text(
+          'Are you sure you want to remove ${member.name} from the crew? '
+          'They will need to create a new profile to rejoin.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            style: FilledButton.styleFrom(
+              backgroundColor: Colors.red,
+            ),
+            child: const Text('Remove'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true && context.mounted) {
+      final success = await crewService.deleteCrewMember(member.id);
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(success
+                ? '${member.name} has been removed'
+                : 'Failed to remove ${member.name}'),
+            backgroundColor: success ? Colors.green : Colors.red,
+          ),
+        );
+      }
+    }
   }
 
   void _openDirectChat(BuildContext context) {

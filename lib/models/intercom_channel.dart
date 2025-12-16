@@ -104,12 +104,11 @@ class IntercomChannel {
     );
   }
 
-  /// Create SignalK notes resource format
+  /// Create SignalK resource format
   Map<String, dynamic> toNoteResource({double lat = 0.0, double lng = 0.0}) {
     return {
       'name': 'Channel: $name',
       'description': jsonEncode(toJson()),
-      'group': 'zeddisplay-channels',
       'position': {'latitude': lat, 'longitude': lng},
     };
   }

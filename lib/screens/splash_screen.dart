@@ -28,6 +28,12 @@ class _SplashScreenState extends State<SplashScreen> {
   Future<void> _tryAutoConnect() async {
     if (!mounted) return;
 
+    // Get providers before any async gaps
+    final storageService = Provider.of<StorageService>(context, listen: false);
+    final signalKService = Provider.of<SignalKService>(context, listen: false);
+    final authService = Provider.of<AuthService>(context, listen: false);
+    final dashboardService = Provider.of<DashboardService>(context, listen: false);
+
     setState(() {
       _isConnecting = true;
     });
@@ -35,15 +41,16 @@ class _SplashScreenState extends State<SplashScreen> {
     // Small delay to allow network to stabilize
     await Future.delayed(const Duration(milliseconds: 500));
 
-    final storageService = Provider.of<StorageService>(context, listen: false);
-    final signalKService = Provider.of<SignalKService>(context, listen: false);
-    final authService = Provider.of<AuthService>(context, listen: false);
-    final dashboardService = Provider.of<DashboardService>(context, listen: false);
+    if (!mounted) return;
 
     final lastServerUrl = storageService.getLastServerUrl();
 
     if (lastServerUrl != null) {
-      final savedToken = authService.getSavedToken(lastServerUrl);
+      // Find connection by URL to get the connectionId for token lookup
+      final connection = storageService.findConnectionByUrl(lastServerUrl);
+      final savedToken = connection != null
+          ? authService.getSavedToken(connection.id)
+          : null;
 
       if (savedToken != null && savedToken.isValid) {
         // Try connecting with a retry for network timing issues

@@ -316,19 +316,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       await notificationService.cancelAll();
                     }
 
-                    if (mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text(
-                            value
-                                ? 'Notifications enabled'
-                                : 'Notifications disabled',
-                          ),
-                          backgroundColor: value ? Colors.green : Colors.orange,
-                          duration: const Duration(seconds: 2),
+                    if (!context.mounted) return;
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(
+                          value
+                              ? 'Notifications enabled'
+                              : 'Notifications disabled',
                         ),
-                      );
-                    }
+                        backgroundColor: value ? Colors.green : Colors.orange,
+                        duration: const Duration(seconds: 2),
+                      ),
+                    );
                   },
                 ),
                 if (_notificationsEnabled) ...[
@@ -794,8 +793,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final storageService = Provider.of<StorageService>(context, listen: false);
     final dashboardService = Provider.of<DashboardService>(context, listen: false);
 
-    // Check if we have a saved token
-    final savedToken = authService.getSavedToken(connection.serverUrl);
+    // Check if we have a saved token for this connection (keyed by connection.id)
+    final savedToken = authService.getSavedToken(connection.id);
 
     try {
       if (savedToken != null && savedToken.isValid) {
@@ -821,6 +820,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
         }
 
         if (mounted) {
+          // Capture messenger before navigation (context will be invalid after)
+          final messenger = ScaffoldMessenger.of(context);
+          final connectionName = connection.name;
+
           // Navigate to dashboard, replacing entire navigation stack
           Navigator.of(context).pushAndRemoveUntil(
             MaterialPageRoute(
@@ -829,16 +832,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
             (route) => false, // Remove all previous routes
           );
 
-          // Show success message
+          // Show success message after short delay
           Future.delayed(const Duration(milliseconds: 500), () {
-            if (context.mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text('Connected to ${connection.name}'),
-                  backgroundColor: Colors.green,
-                ),
-              );
-            }
+            messenger.showSnackBar(
+              SnackBar(
+                content: Text('Connected to $connectionName'),
+                backgroundColor: Colors.green,
+              ),
+            );
           });
         }
       } else {
@@ -851,6 +852,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 secure: connection.useSecure,
                 clientId: authService.generateClientId(),
                 description: 'ZedDisplay Marine Dashboard',
+                connectionId: connection.id,
               ),
             ),
           );
@@ -1050,7 +1052,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
       builder: (context) => AlertDialog(
         title: const Text('Delete Connection'),
         content: Text(
-          'Are you sure you want to delete "${connection.name}"?',
+          'Are you sure you want to delete "${connection.name}"?\n\n'
+          'This will also remove saved authentication credentials for this connection.',
         ),
         actions: [
           TextButton(

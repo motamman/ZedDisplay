@@ -7,6 +7,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.5+22] - 2025-12-16
+
+### Added
+- **Autopilot V2 Tool**: Redesigned circular autopilot with nested controls
+  - Banana-shaped heading adjustment buttons (+1, -1, +10, -10) arced around inner circle
+  - Mode selector (Compass, Wind, Route) with engage/standby toggle
+  - Tack/Gybe banana buttons in Wind mode positioned by turn direction (port side = turn left, starboard = turn right)
+  - Advance Waypoint banana button at top in Route mode
+  - Dodge button in center circle for Route mode
+  - Draggable target heading arrow with long-press activation
+  - Incremental command queue with acknowledgment tracking (3-second timeout fallback)
+  - Visual feedback with ghost marker and arc showing heading change during drag
+  - Rudder indicator shown when space permits (not just portrait mode)
+  - Responsive portrait/landscape layouts using LayoutBuilder
+  - Buttons disabled/shadowed when autopilot not engaged
+- **Crew Deletion**: Crew members can now be removed from the server
+  - Captain can remove any crew member
+  - Any user can remove themselves
+  - "Delete My Profile" button in profile edit screen
+  - Red trash icon for captains in crew list
+  - Confirmation dialogs before deletion
+  - Clears both server (SignalK Resources API) and local storage
+
+### Fixed
+- **Tool Configuration Screen**: Tool type selection and grid size now hidden when editing existing tools
+  - Previously showed full tool list even when editing, causing confusion
+  - Grid size selector also hidden during edit (size set during initial placement)
+- **Connection/Registration Screens**: Fixed horizontal and vertical centering
+  - Screens now properly centered on all device sizes
+- **Deprecation Warnings**: Replaced all `.withOpacity()` calls with `.withValues(alpha:)`
+  - Updated across server_manager_tool.dart and other files
+- **Unused Code Cleanup**: Removed unused methods, fields, and imports
+  - Removed `_buildProviderStatsSection`, `_buildPluginsSection`, `_buildWebappsSection` from server_manager_tool
+  - Removed `_availableInstances`, `_v2Info` from autopilot_tool
+  - Removed `_buildCrewList` from crew_list_tool
+  - Removed `_buildMessagesList` from crew_messages_tool
+  - Removed unused `dart:ui` import from victron_flow_tool
+  - Fixed `must_call_super` warning in weather_api_service
+
+### Dependencies
+- Updated Syncfusion Flutter Gauges from 27.x to 28.x (major version)
+- Minor package updates via `flutter pub upgrade`
+
+### Technical
+- Power Flow visualization now uses orthogonal routing for flow lines
+- Flow lines replaced moving balls with meteor sprite animation
+
 ## [0.5.2+18] - 2025-12-15
 
 ### Added

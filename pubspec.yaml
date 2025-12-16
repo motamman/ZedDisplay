@@ -1,7 +1,7 @@
 name: zed_display
 description: A SignalK data display app with gauges and charts
 publish_to: 'none'
-version: 0.5.4+21
+version: 0.5.5+22
 
 environment:
   sdk: '>=3.8.0 <4.0.0'
@@ -98,6 +98,9 @@ dependencies:
 
   # Audio playback for alarms
   audioplayers: ^6.1.0
+
+  # Device compass for anchor bearing
+  flutter_compass: ^0.8.0
 
 dev_dependencies:
   flutter_test:
