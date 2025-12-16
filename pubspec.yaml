@@ -99,6 +99,9 @@ dependencies:
   # Audio playback for alarms
   audioplayers: ^6.1.0
 
+  # Device compass for anchor bearing
+  flutter_compass: ^0.8.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
