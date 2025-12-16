@@ -7,9 +7,9 @@ import '../../utils/string_extensions.dart';
 import '../../utils/color_extensions.dart';
 import '../../utils/data_extensions.dart';
 import '../../config/ui_constants.dart';
-import 'common/control_tool_layout.dart';
 
 /// Config-driven switch tool for toggling boolean SignalK paths
+/// Supports multiple switches in a single tool
 class SwitchTool extends StatefulWidget {
   final ToolConfig config;
   final SignalKService signalKService;
@@ -25,7 +25,7 @@ class SwitchTool extends StatefulWidget {
 }
 
 class _SwitchToolState extends State<SwitchTool> with AutomaticKeepAliveClientMixin {
-  bool _isSending = false;
+  final Set<String> _sendingPaths = {};
 
   @override
   bool get wantKeepAlive => true;
@@ -34,22 +34,12 @@ class _SwitchToolState extends State<SwitchTool> with AutomaticKeepAliveClientMi
   Widget build(BuildContext context) {
     super.build(context);
 
-    // Get data from first data source
     if (widget.config.dataSources.isEmpty) {
       return const Center(child: Text('No data source configured'));
     }
 
-    final dataSource = widget.config.dataSources.first;
-    final dataPoint = widget.signalKService.getValue(dataSource.path, source: dataSource.source);
-
-    // Get boolean value - handle different formats
-    final currentValue = dataPoint.toBool();
-
-    // Get style configuration
     final style = widget.config.style;
-
-    // Get label from data source or style
-    final label = dataSource.label ?? dataSource.path.toReadableLabel();
+    final dataSources = widget.config.dataSources;
 
     // Parse colors from hex string
     final activeColor = style.primaryColor?.toColor(
@@ -60,50 +50,204 @@ class _SwitchToolState extends State<SwitchTool> with AutomaticKeepAliveClientMi
       fallback: Colors.grey
     ) ?? Colors.grey;
 
-    return ControlToolLayout(
-      label: label,
-      showLabel: style.showLabel == true,
-      valueWidget: Text(
-        currentValue ? 'ON' : 'OFF',
-        style: TextStyle(
-          fontSize: 24,
-          fontWeight: FontWeight.bold,
-          color: currentValue ? activeColor : inactiveColor,
+    // Single switch - use original layout
+    if (dataSources.length == 1) {
+      return _buildSingleSwitch(dataSources.first, style, activeColor, inactiveColor);
+    }
+
+    // Multiple switches - use grid layout
+    return Padding(
+      padding: const EdgeInsets.all(8.0),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          // Determine grid columns based on available width
+          final crossAxisCount = constraints.maxWidth > 400 ? 3 : (constraints.maxWidth > 200 ? 2 : 1);
+
+          // Adjust aspect ratio based on what's shown
+          final showLabel = style.showLabel == true;
+          final showValue = style.showValue == true;
+          double aspectRatio;
+          if (showLabel && showValue) {
+            aspectRatio = 1.0;  // Taller for both
+          } else if (showLabel || showValue) {
+            aspectRatio = 1.3;  // Medium
+          } else {
+            aspectRatio = 1.8;  // Wider/shorter for icon only
+          }
+
+          return GridView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: crossAxisCount,
+              childAspectRatio: aspectRatio,
+              crossAxisSpacing: 8,
+              mainAxisSpacing: 8,
+            ),
+            itemCount: dataSources.length,
+            itemBuilder: (context, index) {
+              return _buildSwitchCard(
+                dataSources[index],
+                style,
+                activeColor,
+                inactiveColor,
+              );
+            },
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildSingleSwitch(
+    DataSource dataSource,
+    StyleConfig style,
+    Color activeColor,
+    Color inactiveColor,
+  ) {
+    final dataPoint = widget.signalKService.getValue(dataSource.path, source: dataSource.source);
+    final currentValue = dataPoint.toBool();
+    final label = dataSource.label ?? dataSource.path.toReadableLabel();
+    final isSending = _sendingPaths.contains(dataSource.path);
+
+    return Padding(
+      padding: const EdgeInsets.all(16.0),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          if (style.showLabel == true) ...[
+            Text(
+              label,
+              style: const TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w500,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 8),
+          ],
+          if (style.showValue == true) ...[
+            Text(
+              currentValue ? 'ON' : 'OFF',
+              style: TextStyle(
+                fontSize: 24,
+                fontWeight: FontWeight.bold,
+                color: currentValue ? activeColor : inactiveColor,
+              ),
+            ),
+            const SizedBox(height: 8),
+          ],
+          Transform.scale(
+            scale: UIConstants.switchScale,
+            child: Switch(
+              value: currentValue,
+              activeThumbColor: activeColor,
+              activeTrackColor: UIConstants.withMediumOpacity(activeColor),
+              inactiveThumbColor: inactiveColor,
+              inactiveTrackColor: UIConstants.withLightOpacity(inactiveColor),
+              thumbIcon: WidgetStateProperty.resolveWith<Icon?>((states) {
+                if (states.contains(WidgetState.selected)) {
+                  return const Icon(Icons.check, size: 16, color: Colors.white);
+                }
+                return const Icon(Icons.close, size: 16, color: Colors.white);
+              }),
+              onChanged: isSending ? null : (value) => _toggleSwitch(value, dataSource.path),
+            ),
+          ),
+          if (isSending)
+            const Padding(
+              padding: EdgeInsets.only(top: 8),
+              child: SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSwitchCard(
+    DataSource dataSource,
+    StyleConfig style,
+    Color activeColor,
+    Color inactiveColor,
+  ) {
+    final dataPoint = widget.signalKService.getValue(dataSource.path, source: dataSource.source);
+    final currentValue = dataPoint.toBool();
+    final label = dataSource.label ?? dataSource.path.toReadableLabel();
+    final isSending = _sendingPaths.contains(dataSource.path);
+
+    return Card(
+      elevation: 2,
+      child: InkWell(
+        onTap: isSending ? null : () => _toggleSwitch(!currentValue, dataSource.path),
+        borderRadius: BorderRadius.circular(12),
+        child: Container(
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: currentValue ? activeColor : Colors.transparent,
+              width: 2,
+            ),
+          ),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              // Icon indicator
+              Icon(
+                currentValue ? Icons.toggle_on : Icons.toggle_off,
+                size: 32,
+                color: currentValue ? activeColor : inactiveColor,
+              ),
+              const SizedBox(height: 4),
+              // Label
+              if (style.showLabel == true)
+                Text(
+                  label,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                  ),
+                  textAlign: TextAlign.center,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              // ON/OFF text
+              if (style.showValue == true)
+                Text(
+                  currentValue ? 'ON' : 'OFF',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                    color: currentValue ? activeColor : inactiveColor,
+                  ),
+                ),
+              // Loading indicator
+              if (isSending)
+                const Padding(
+                  padding: EdgeInsets.only(top: 4),
+                  child: SizedBox(
+                    width: 12,
+                    height: 12,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                ),
+            ],
+          ),
         ),
       ),
-      additionalWidgets: const [
-        SizedBox(height: 8),
-      ],
-      controlWidget: Transform.scale(
-        scale: UIConstants.switchScale,
-        child: Switch(
-          value: currentValue,
-          activeThumbColor: activeColor,
-          activeTrackColor: UIConstants.withMediumOpacity(activeColor),
-          inactiveThumbColor: inactiveColor,
-          inactiveTrackColor: UIConstants.withLightOpacity(inactiveColor),
-          thumbIcon: WidgetStateProperty.resolveWith<Icon?>((states) {
-            if (states.contains(WidgetState.selected)) {
-              return const Icon(Icons.check, size: 16, color: Colors.white);
-            }
-            return const Icon(Icons.close, size: 16, color: Colors.white);
-          }),
-          onChanged: _isSending ? null : (value) => _toggleSwitch(value, dataSource.path),
-        ),
-      ),
-      path: dataSource.path,
-      isSending: _isSending,
     );
   }
 
   Future<void> _toggleSwitch(bool newValue, String path) async {
     setState(() {
-      _isSending = true;
+      _sendingPaths.add(path);
     });
 
     try {
-      // Note: source is NOT passed to PUT - source identifies the sender, not target
-      // We read from a specific source but write as ourselves
       await widget.signalKService.sendPutRequest(path, newValue);
 
       if (mounted) {
@@ -128,7 +272,7 @@ class _SwitchToolState extends State<SwitchTool> with AutomaticKeepAliveClientMi
     } finally {
       if (mounted) {
         setState(() {
-          _isSending = false;
+          _sendingPaths.remove(path);
         });
       }
     }
@@ -142,18 +286,19 @@ class SwitchToolBuilder extends ToolBuilder {
     return ToolDefinition(
       id: 'switch',
       name: 'Switch',
-      description: 'Toggle switch for boolean SignalK paths with PUT support',
+      description: 'Toggle switches for boolean SignalK paths with PUT support',
       category: ToolCategory.controls,
       configSchema: ConfigSchema(
         allowsMinMax: false,
         allowsColorCustomization: true,
-        allowsMultiplePaths: false,
+        allowsMultiplePaths: true,
         minPaths: 1,
-        maxPaths: 1,
+        maxPaths: 8,
         styleOptions: const [
           'primaryColor',    // Active color
           'secondaryColor',  // Inactive color
           'showLabel',
+          'showValue',       // Show ON/OFF text
         ],
       ),
     );

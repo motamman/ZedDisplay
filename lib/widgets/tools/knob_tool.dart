@@ -80,6 +80,13 @@ class _KnobToolState extends State<KnobTool> with ControlToolMixin, AutomaticKee
     // Get decimal places from customProperties
     final decimalPlaces = style.customProperties?['decimalPlaces'] as int? ?? 1;
 
+    // Get unit symbol
+    final availableUnits = widget.signalKService.getAvailableUnits(dataSource.path);
+    final conversionInfo = availableUnits.isNotEmpty
+        ? widget.signalKService.getConversionInfo(dataSource.path, availableUnits.first)
+        : null;
+    final unit = style.unit ?? conversionInfo?.symbol ?? '';
+
     return ControlToolLayout(
       label: label,
       showLabel: style.showLabel == true,
@@ -178,21 +185,20 @@ class _KnobToolState extends State<KnobTool> with ControlToolMixin, AutomaticKee
                           ),
                         ],
                         annotations: <GaugeAnnotation>[
-                          // Value display in center
-                          GaugeAnnotation(
-                            widget: Container(
-                              child: Text(
-                                currentValue.toStringAsFixed(decimalPlaces),
+                          // Value display in center (if showValue is enabled)
+                          if (style.showValue == true)
+                            GaugeAnnotation(
+                              widget: Text(
+                                '${currentValue.toStringAsFixed(decimalPlaces)}${style.showUnit == true ? " $unit" : ""}',
                                 style: TextStyle(
                                   fontSize: size * 0.08,
                                   fontWeight: FontWeight.bold,
                                   color: primaryColor,
                                 ),
                               ),
+                              angle: 90,
+                              positionFactor: 0.7,
                             ),
-                            angle: 90,
-                            positionFactor: 0.7,
-                          ),
                         ],
                       ),
                     ],
