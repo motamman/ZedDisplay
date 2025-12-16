@@ -1,6 +1,6 @@
 # <img src="assets/icon.png" alt="ZedDisplay" width="72" height="72" style="vertical-align: middle; margin-right: 20px;"> ZedDisplay
 
-A customizable SignalK marine dashboard application to display real-time vessel data with configurable tools.
+A customizable SignalK marine dashboard and crew comms application to display real-time vessel data with configurable tools.
 <img src="screenshots/dashboard.jpg" alt="ZedDisplay dashboard example" width="600">
 
  
