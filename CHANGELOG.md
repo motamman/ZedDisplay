@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.6+23] - 2025-12-16
+
+### Changed
+- **Custom Resource Types**: Migrated from `notes` resource type to dedicated custom resource types
+  - `zeddisplay-messages` for crew messaging
+  - `zeddisplay-crew` for crew profiles and presence
+  - `zeddisplay-files` for file sharing metadata
+  - `zeddisplay-channels` for intercom channels
+  - `zeddisplay-alarms` for shared alarms
+  - **Privacy improvement**: Other apps reading `notes` will no longer see ZedDisplay data
+  - **Auto-creation**: Resource types are automatically created on first connection via resources-provider plugin API
+  - Requires authenticated connection with admin rights
+
+### Fixed
+- **Auth Token Storage**: Fixed issue where multiple connections to same IP address shared the same token
+  - Tokens now stored by connection ID instead of server URL
+  - Each connection maintains its own authentication state
+- **Connection Deletion**: Deleting a connection now also removes its associated auth token
+
 ## [0.5.5+22] - 2025-12-16
 
 ### Added

@@ -152,8 +152,6 @@ A customizable SignalK marine dashboard application to display real-time vessel 
   - Degrees, minutes, seconds or decimal degrees
   - Large, readable display for cockpit use
 
-  <img src="screenshots/tool_position.png" alt="Position Display" width="280">
-
 **Electrical Tools**
 - **Power Flow**: Visual power flow diagram with animated energy flows
   - Real-time visualization of power sources, battery, and loads
@@ -254,7 +252,9 @@ ZedDisplay includes a complete peer-to-peer communication system for vessel crew
 **How It Works**
 
 SignalK acts as the message broker and data store:
-- Crew profiles, messages, and file metadata are stored in SignalK's Resources API
+- Crew profiles, messages, and file metadata are stored in SignalK's Resources API using custom resource types (`zeddisplay-messages`, `zeddisplay-crew`, `zeddisplay-files`, `zeddisplay-channels`, `zeddisplay-alarms`)
+- Custom resource types are automatically created on first connection (requires admin authentication)
+- Data is isolated from other SignalK apps—only ZedDisplay reads these resource types
 - All devices subscribe to crew data paths and receive real-time updates via WebSocket
 - Messages persist on the SignalK server and sync to devices when they connect
 - Voice uses WebRTC for audio with SignalK handling connection signaling
