@@ -230,10 +230,109 @@ class _CrewProfileScreenState extends State<CrewProfileScreen> {
                   : const Icon(Icons.save),
               label: Text(isNewProfile ? 'Create Profile' : 'Save Changes'),
             ),
+
+            // Delete profile button (only show if profile exists)
+            if (!isNewProfile) ...[
+              const SizedBox(height: 48),
+              const Divider(),
+              const SizedBox(height: 16),
+              OutlinedButton.icon(
+                onPressed: _isLoading ? null : _confirmDeleteProfile,
+                icon: const Icon(Icons.delete_forever),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: Colors.red,
+                  side: const BorderSide(color: Colors.red),
+                ),
+                label: const Text('Delete My Profile'),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'This will remove your profile from the server and this device.',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: Colors.grey,
+                ),
+                textAlign: TextAlign.center,
+              ),
+            ],
           ],
         ),
       ),
     );
+  }
+
+  Future<void> _confirmDeleteProfile() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete Profile?'),
+        content: const Text(
+          'This will permanently remove your crew profile from the server and this device. '
+          'You will need to create a new profile to use crew features again.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            style: FilledButton.styleFrom(
+              backgroundColor: Colors.red,
+            ),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true && mounted) {
+      await _deleteProfile();
+    }
+  }
+
+  Future<void> _deleteProfile() async {
+    setState(() => _isLoading = true);
+
+    try {
+      final crewService = context.read<CrewService>();
+      final profileId = crewService.localProfile?.id;
+
+      if (profileId != null) {
+        final success = await crewService.deleteCrewMember(profileId);
+
+        if (mounted) {
+          if (success) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Profile deleted'),
+                backgroundColor: Colors.green,
+              ),
+            );
+            Navigator.of(context).pop();
+          } else {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Failed to delete profile from server'),
+                backgroundColor: Colors.red,
+              ),
+            );
+          }
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error deleting profile: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
   }
 
   String _getRoleLabel(CrewRole role) {

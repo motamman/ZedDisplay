@@ -449,4 +449,78 @@ class CrewService extends ChangeNotifier {
 
   /// Check if Resources API is available for crew sync
   bool get isResourcesApiAvailable => _resourcesApiAvailable;
+
+  /// Check if current user can delete a crew member
+  /// Rules: Captain can delete anyone, self can delete self
+  bool canDelete(String crewId) {
+    if (_localProfile == null) return false;
+
+    // Self can always delete self
+    if (crewId == _localProfile!.id) return true;
+
+    // Captain can delete anyone
+    if (_localProfile!.role == CrewRole.captain) return true;
+
+    return false;
+  }
+
+  /// Delete a crew member from the server
+  /// Returns true if successful
+  Future<bool> deleteCrewMember(String crewId) async {
+    if (!canDelete(crewId)) {
+      if (kDebugMode) {
+        print('CrewService: Not authorized to delete crew member $crewId');
+      }
+      return false;
+    }
+
+    if (!_signalKService.isConnected || !_resourcesApiAvailable) {
+      if (kDebugMode) {
+        print('CrewService: Cannot delete - not connected or Resources API unavailable');
+      }
+      return false;
+    }
+
+    // Delete from SignalK Resources API
+    final success = await _signalKService.deleteResource(_crewResourceType, crewId);
+
+    if (success) {
+      // Remove from local cache
+      _crewMembers.remove(crewId);
+      _presence.remove(crewId);
+
+      // If deleting self, also clear local profile
+      if (crewId == _localProfile?.id) {
+        await clearLocalProfile();
+      }
+
+      notifyListeners();
+
+      if (kDebugMode) {
+        print('CrewService: Deleted crew member $crewId');
+      }
+    } else {
+      if (kDebugMode) {
+        print('CrewService: Failed to delete crew member $crewId from server');
+      }
+    }
+
+    return success;
+  }
+
+  /// Clear the local profile (removes from device storage only)
+  Future<void> clearLocalProfile() async {
+    _localProfile = null;
+    await _storageService.deleteSetting(_localProfileKey);
+
+    // Stop heartbeat since we no longer have a profile
+    _heartbeatTimer?.cancel();
+    _heartbeatTimer = null;
+
+    notifyListeners();
+
+    if (kDebugMode) {
+      print('CrewService: Local profile cleared');
+    }
+  }
 }
