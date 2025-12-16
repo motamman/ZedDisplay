@@ -770,11 +770,15 @@ class _FlowLinesPainter extends CustomPainter {
       lineIndex++;
 
       if (i == 0) {
-        // First source goes to inverter (like Shore)
-        _drawAnimatedLine(
+        // First source goes to inverter (like Shore) - orthogonal routing
+        _drawAnimatedPath(
           canvas,
-          Offset(leftColRight, sourceRowCenters[i]),
-          Offset(centerColLeft, inverterCenter),
+          [
+            Offset(leftColRight, sourceRowCenters[i]),
+            Offset(midX, sourceRowCenters[i]),
+            Offset(midX, inverterCenter),
+            Offset(centerColLeft, inverterCenter),
+          ],
           isActive,
           flow,
           inactivePaint,
@@ -815,6 +819,7 @@ class _FlowLinesPainter extends CustomPainter {
     lineIndex++;
 
     // Draw load flows
+    final midXRight = centerColRight + gap / 2;
     for (int i = 0; i < loadCount; i++) {
       final flow = i < loadFlows.length ? loadFlows[i] : 0.0;
       final isActive = flow > 0.1;
@@ -822,11 +827,15 @@ class _FlowLinesPainter extends CustomPainter {
       lineIndex++;
 
       if (i == 0) {
-        // First load from inverter (like AC loads)
-        _drawAnimatedLine(
+        // First load from inverter (like AC loads) - orthogonal routing
+        _drawAnimatedPath(
           canvas,
-          Offset(centerColRight, inverterCenter),
-          Offset(rightColLeft, loadRowCenters[i]),
+          [
+            Offset(centerColRight, inverterCenter),
+            Offset(midXRight, inverterCenter),
+            Offset(midXRight, loadRowCenters[i]),
+            Offset(rightColLeft, loadRowCenters[i]),
+          ],
           isActive,
           flow,
           inactivePaint,
@@ -834,11 +843,16 @@ class _FlowLinesPainter extends CustomPainter {
           phaseOffset: phaseOffset,
         );
       } else {
-        // Other loads from battery
-        _drawAnimatedLine(
+        // Other loads from battery - orthogonal routing
+        final yOffset = (i - 1) * 10.0 - 5;
+        _drawAnimatedPath(
           canvas,
-          Offset(centerColRight, batteryCenter),
-          Offset(rightColLeft, loadRowCenters[i]),
+          [
+            Offset(centerColRight, batteryCenter + yOffset),
+            Offset(midXRight, batteryCenter + yOffset),
+            Offset(midXRight, loadRowCenters[i]),
+            Offset(rightColLeft, loadRowCenters[i]),
+          ],
           isActive,
           flow,
           inactivePaint,
