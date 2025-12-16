@@ -1,8 +1,8 @@
 # Creating New Tools - Developer Guide
 
 **ZedDisplay Tool Development Guide**
-**Version**: 2.0 (Post-Refactoring)
-**Last Updated**: October 28, 2025
+**Version**: 3.0 (ToolBuilder Pattern)
+**Last Updated**: December 16, 2025
 
 ---
 
@@ -35,13 +35,16 @@ A **tool** is a widget that:
 ### Tool System Components
 
 ```
-Tool Definition (ToolDefinition)
-    ↓
-Tool Configuration (ToolConfig)
-    ↓
-Tool Configurator (ToolConfigurator) ← NEW in v2.0
-    ↓
+ToolBuilder (abstract class)
+    ├── getDefinition() → ToolDefinition
+    ├── build() → Widget
+    └── getDefaultConfig() → ToolConfig?
+         ↓
+ToolRegistry.register(id, builder)
+         ↓
 Tool Widget (e.g., RadialGaugeTool)
+         ↓
+ToolConfigurator (optional, for custom config UI)
 ```
 
 ---
@@ -50,7 +53,24 @@ Tool Widget (e.g., RadialGaugeTool)
 
 ### Core Classes
 
-#### 1. ToolDefinition (`lib/models/tool_definition.dart`)
+#### 1. ToolBuilder (`lib/services/tool_registry.dart`)
+
+Abstract base class that every tool must implement:
+
+```dart
+abstract class ToolBuilder {
+  /// Get the definition for this tool type
+  ToolDefinition getDefinition();
+
+  /// Build a widget instance with the given configuration
+  Widget build(ToolConfig config, SignalKService signalKService);
+
+  /// Get default config for this tool type (optional)
+  ToolConfig? getDefaultConfig(String vesselId) => null;
+}
+```
+
+#### 2. ToolDefinition (`lib/models/tool_definition.dart`)
 
 Defines the **metadata** about a tool type:
 
@@ -59,15 +79,12 @@ class ToolDefinition {
   final String id;                    // Unique identifier (e.g., 'radial_gauge')
   final String name;                  // Display name
   final String description;           // What it does
-  final IconData icon;                // Icon to show in UI
-  final ToolCategory category;        // gauge, chart, control, system, etc.
-  final ToolConfigSchema configSchema; // What can be configured
-  final int defaultWidth;             // Default grid width
-  final int defaultHeight;            // Default grid height
+  final ToolCategory category;        // navigation, instruments, charts, etc.
+  final ConfigSchema configSchema;    // What can be configured
 }
 ```
 
-#### 2. Tool (`lib/models/tool.dart`)
+#### 3. Tool (`lib/models/tool.dart`)
 
 An **instance** of a tool with specific configuration:
 
@@ -80,35 +97,47 @@ class Tool {
 }
 ```
 
-#### 3. ToolConfig (`lib/models/tool_config.dart`)
+#### 4. ToolConfig (`lib/models/tool_config.dart`)
 
 Configuration for a tool instance:
 
 ```dart
 class ToolConfig {
+  final String vesselId;              // Vessel context
   final List<DataSource> dataSources; // What data to show
-  final ToolStyle style;              // How to display it
-  final int? refreshRate;             // Update frequency
+  final StyleConfig style;            // How to display it
 }
 ```
 
-#### 4. ToolConfigurator (`lib/screens/tool_config/base_tool_configurator.dart`) **NEW**
+#### 5. ToolConfigurator (`lib/screens/tool_config/base_tool_configurator.dart`)
 
 Handles tool-specific configuration UI (Strategy pattern):
 
 ```dart
 abstract class ToolConfigurator {
-  // Build configuration UI
+  /// The tool type ID this configurator handles
+  String get toolTypeId;
+
+  /// Default size (width, height in grid units)
+  Size get defaultSize => const Size(1, 1);
+
+  /// Build configuration UI
   Widget buildConfigUI(BuildContext context, SignalKService signalKService);
 
-  // Get configuration values
-  Map<String, dynamic> getConfigValues();
+  /// Get the current configuration
+  ToolConfig getConfig();
 
-  // Load existing configuration
-  void loadConfig(Map<String, dynamic> config);
+  /// Load configuration from an existing tool
+  void loadFromTool(Tool tool);
 
-  // Reset to defaults
+  /// Load default values
+  void loadDefaults(SignalKService signalKService);
+
+  /// Reset to defaults
   void reset();
+
+  /// Validate configuration (returns null if valid, error message if invalid)
+  String? validate();
 }
 ```
 
@@ -116,55 +145,29 @@ abstract class ToolConfigurator {
 
 ## Quick Start
 
-### Creating a Simple Tool (5 Steps)
+### Creating a Simple Tool (4 Steps)
 
-1. **Define the tool** in `ToolRegistry`
-2. **Create the widget** in `lib/widgets/tools/`
-3. **Add configurator** (if custom config needed) in `lib/screens/tool_config/configurators/`
-4. **Register configurator** in `ToolConfiguratorFactory`
-5. **Test and document**
+1. **Create the widget** in `lib/widgets/tools/my_tool.dart`
+2. **Create the ToolBuilder** at the bottom of the same file
+3. **Register the builder** in `ToolRegistry.registerDefaults()`
+4. **Add configurator** (optional) in `lib/screens/tool_config/configurators/`
 
-**Time estimate**: 2-4 hours for a simple tool
+**Time estimate**: 1-3 hours for a simple tool
 
 ---
 
 ## Step-by-Step Guide
 
-### Step 1: Define the Tool
-
-Edit `lib/services/tool_registry.dart`:
-
-```dart
-ToolDefinition(
-  id: 'my_custom_gauge',              // Unique ID (use snake_case)
-  name: 'My Custom Gauge',            // Display name
-  description: 'A custom gauge for displaying boat speed with custom styling',
-  icon: Icons.speed,                  // Choose from Material Icons
-  category: ToolCategory.gauge,       // gauge, chart, control, system
-  configSchema: ToolConfigSchema(
-    requiredDataSources: 1,           // Minimum data sources
-    maxDataSources: 1,                // Maximum data sources
-    allowsMinMax: true,               // Can configure min/max values?
-    allowsColorCustomization: true,   // Can change colors?
-    allowsUnitSelection: true,        // Can change units?
-    customProperties: {               // Tool-specific properties
-      'showPointer': true,
-      'gaugeStyle': 'arc',            // Options: 'arc', 'circle', 'semicircle'
-    },
-  ),
-  defaultWidth: 2,                    // Grid columns (1-12)
-  defaultHeight: 2,                   // Grid rows (1-12)
-),
-```
-
-### Step 2: Create the Widget
+### Step 1: Create the Widget
 
 Create `lib/widgets/tools/my_custom_gauge_tool.dart`:
 
 ```dart
 import 'package:flutter/material.dart';
 import '../../models/tool_config.dart';
+import '../../models/tool_definition.dart';
 import '../../services/signalk_service.dart';
+import '../../services/tool_registry.dart';
 
 class MyCustomGaugeTool extends StatelessWidget {
   final ToolConfig config;
@@ -228,97 +231,162 @@ class MyCustomGaugeTool extends StatelessWidget {
 }
 ```
 
-### Step 3: Register the Widget
+### Step 2: Create the ToolBuilder
 
-Edit `lib/services/tool_registry.dart` - Add to widget factory:
+Add this class at the bottom of the same file:
 
 ```dart
-Widget? createWidget(String toolTypeId, ToolConfig config, SignalKService signalKService) {
-  switch (toolTypeId) {
-    // ... existing cases ...
+class MyCustomGaugeBuilder extends ToolBuilder {
+  @override
+  ToolDefinition getDefinition() {
+    return ToolDefinition(
+      id: 'my_custom_gauge',              // Unique ID (use snake_case)
+      name: 'My Custom Gauge',            // Display name
+      description: 'A custom gauge for displaying boat speed',
+      category: ToolCategory.instruments, // See categories below
+      configSchema: ConfigSchema(
+        allowsMinMax: true,               // Can configure min/max values?
+        allowsColorCustomization: true,   // Can change colors?
+        allowsMultiplePaths: false,       // Single data source
+        minPaths: 1,                      // Minimum data sources
+        maxPaths: 1,                      // Maximum data sources
+        styleOptions: const [             // Tool-specific style options
+          'showPointer',
+          'gaugeStyle',
+        ],
+      ),
+    );
+  }
 
-    case 'my_custom_gauge':
-      return MyCustomGaugeTool(
-        config: config,
-        signalKService: signalKService,
-      );
+  @override
+  ToolConfig? getDefaultConfig(String vesselId) {
+    return ToolConfig(
+      vesselId: vesselId,
+      dataSources: const [],
+      style: StyleConfig(
+        primaryColor: '#2196F3',
+        minValue: 0.0,
+        maxValue: 10.0,
+        customProperties: {
+          'showPointer': true,
+          'gaugeStyle': 'arc',
+        },
+      ),
+    );
+  }
 
-    // ... rest of cases ...
+  @override
+  Widget build(ToolConfig config, SignalKService signalKService) {
+    return MyCustomGaugeTool(
+      config: config,
+      signalKService: signalKService,
+    );
   }
 }
 ```
 
-### Step 4: Create a Configurator (Optional but Recommended)
+### Step 3: Register the Builder
+
+Edit `lib/services/tool_registry.dart` - Add to `registerDefaults()`:
+
+```dart
+void registerDefaults() {
+  // ... existing registrations ...
+
+  register('my_custom_gauge', MyCustomGaugeBuilder());
+}
+```
+
+Don't forget to import your tool file at the top of `tool_registry.dart`:
+
+```dart
+import '../widgets/tools/my_custom_gauge_tool.dart';
+```
+
+### Step 4: Create a Configurator (Optional)
+
+For tools with custom configuration UI, create a configurator. Most simple tools
+can skip this step and use the default configuration screen.
 
 Create `lib/screens/tool_config/configurators/my_custom_gauge_configurator.dart`:
 
 ```dart
 import 'package:flutter/material.dart';
 import '../base_tool_configurator.dart';
+import '../../../models/tool.dart';
+import '../../../models/tool_config.dart';
 import '../../../services/signalk_service.dart';
 
 class MyCustomGaugeConfigurator extends ToolConfigurator {
-  // State variables for your custom properties
+  // State variables
+  String _vesselId = '';
   bool _showPointer = true;
   String _gaugeStyle = 'arc';
+  String _primaryColor = '#2196F3';
+
+  @override
+  String get toolTypeId => 'my_custom_gauge';
+
+  @override
+  Size get defaultSize => const Size(2, 2);
 
   @override
   Widget buildConfigUI(BuildContext context, SignalKService signalKService) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Title
-        Text(
-          'Gauge Options',
-          style: Theme.of(context).textTheme.titleMedium,
-        ),
+        Text('Gauge Options', style: Theme.of(context).textTheme.titleMedium),
         const SizedBox(height: 16),
 
-        // Show pointer toggle
         SwitchListTile(
           title: const Text('Show Pointer'),
-          subtitle: const Text('Display a pointer on the gauge'),
           value: _showPointer,
-          onChanged: (value) {
-            // Use setState from parent if needed, or handle in StatefulWidget
-            _showPointer = value;
-          },
+          onChanged: (value) => _showPointer = value,
         ),
 
-        // Gauge style dropdown
         DropdownButtonFormField<String>(
-          decoration: const InputDecoration(
-            labelText: 'Gauge Style',
-            border: OutlineInputBorder(),
-          ),
+          decoration: const InputDecoration(labelText: 'Gauge Style'),
           value: _gaugeStyle,
           items: const [
-            DropdownMenuItem(value: 'arc', child: Text('Arc (180°)')),
-            DropdownMenuItem(value: 'circle', child: Text('Full Circle')),
-            DropdownMenuItem(value: 'semicircle', child: Text('Semi Circle')),
+            DropdownMenuItem(value: 'arc', child: Text('Arc')),
+            DropdownMenuItem(value: 'circle', child: Text('Circle')),
           ],
-          onChanged: (value) {
-            if (value != null) {
-              _gaugeStyle = value;
-            }
-          },
+          onChanged: (value) => _gaugeStyle = value ?? 'arc',
         ),
       ],
     );
   }
 
   @override
-  Map<String, dynamic> getConfigValues() {
-    return {
-      'showPointer': _showPointer,
-      'gaugeStyle': _gaugeStyle,
-    };
+  ToolConfig getConfig() {
+    return ToolConfig(
+      vesselId: _vesselId,
+      dataSources: const [], // Add data sources as needed
+      style: StyleConfig(
+        primaryColor: _primaryColor,
+        customProperties: {
+          'showPointer': _showPointer,
+          'gaugeStyle': _gaugeStyle,
+        },
+      ),
+    );
   }
 
   @override
-  void loadConfig(Map<String, dynamic> config) {
-    _showPointer = config['showPointer'] as bool? ?? true;
-    _gaugeStyle = config['gaugeStyle'] as String? ?? 'arc';
+  void loadFromTool(Tool tool) {
+    _vesselId = tool.config.vesselId;
+    final props = tool.config.style.customProperties ?? {};
+    _showPointer = props['showPointer'] as bool? ?? true;
+    _gaugeStyle = props['gaugeStyle'] as String? ?? 'arc';
+    _primaryColor = tool.config.style.primaryColor ?? '#2196F3';
+  }
+
+  @override
+  void loadDefaults(SignalKService signalKService) {
+    _vesselId = signalKService.vesselContext ?? 'vessels.self';
+    _showPointer = true;
+    _gaugeStyle = 'arc';
+    _primaryColor = '#2196F3';
   }
 
   @override
@@ -326,55 +394,41 @@ class MyCustomGaugeConfigurator extends ToolConfigurator {
     _showPointer = true;
     _gaugeStyle = 'arc';
   }
+
+  @override
+  String? validate() {
+    // Return error message if invalid, null if valid
+    return null;
+  }
 }
 ```
 
-### Step 5: Register the Configurator
-
-Edit `lib/screens/tool_config/tool_configurator_factory.dart`:
+Then register in `lib/screens/tool_config/tool_configurator_factory.dart`:
 
 ```dart
-class ToolConfiguratorFactory {
-  static ToolConfigurator? create(String toolTypeId) {
-    switch (toolTypeId) {
-      // ... existing cases ...
-
-      case 'my_custom_gauge':
-        return MyCustomGaugeConfigurator();
-
-      // ... rest of cases ...
-    }
-  }
-
-  static List<String> getConfiguratorToolTypes() {
-    return [
-      // ... existing types ...
-      'my_custom_gauge',
-      // ... rest of types ...
-    ];
-  }
-}
+case 'my_custom_gauge':
+  return MyCustomGaugeConfigurator();
 ```
 
 ---
 
 ## Tool Configuration System
 
-### Understanding ToolConfigSchema
+### Understanding ConfigSchema
 
 The schema defines what can be configured:
 
 ```dart
-ToolConfigSchema(
-  requiredDataSources: 1,      // At least 1 data source required
-  maxDataSources: 4,           // Up to 4 data sources allowed
-  allowsMinMax: true,          // User can set min/max values
+ConfigSchema(
+  allowsMinMax: true,            // User can set min/max values
   allowsColorCustomization: true, // User can change colors
-  allowsUnitSelection: true,   // User can change units
-  customProperties: {          // Tool-specific defaults
-    'chartStyle': 'line',
-    'showLegend': true,
-  },
+  allowsMultiplePaths: false,    // Single vs multiple data sources
+  minPaths: 1,                   // Minimum data sources required
+  maxPaths: 4,                   // Maximum data sources allowed
+  styleOptions: const [          // Tool-specific style option keys
+    'chartStyle',
+    'showLegend',
+  ],
 )
 ```
 
@@ -751,23 +805,29 @@ final testCases = {
 
 ```dart
 enum ToolCategory {
-  gauge,      // Radial gauge, linear gauge, text display
-  chart,      // Line charts, bar charts, historical data
-  display,    // Text displays, status indicators
-  control,    // Buttons, sliders, switches
-  instrument, // Compass, wind instruments
-  system,     // System monitors, diagnostics
+  navigation,    // Helm instruments: compass, autopilot, wind, anchor, position
+  instruments,   // Data display: gauges, tanks, text
+  charts,        // Time-series: historical, realtime
+  weather,       // Forecasts and alerts
+  electrical,    // Power systems: Victron flow
+  ais,           // AIS and radar
+  controls,      // Interactive: switches, sliders, knobs
+  communication, // Crew: messages, intercom, file share
+  system,        // Admin: server, monitoring, clock
 }
 ```
 
 ### Choosing a Category
 
-- **gauge**: Single-value displays with visual indication
-- **chart**: Time-series or multi-value visualizations
-- **display**: Simple text/status displays
-- **control**: Interactive elements that send commands
-- **instrument**: Specialized marine instruments
-- **system**: System monitoring and diagnostics
+- **navigation**: Helm/navigation instruments (compass, autopilot, wind compass, anchor alarm, position)
+- **instruments**: Data display tools (radial gauge, linear gauge, text display, tanks, attitude)
+- **charts**: Time-series visualizations (historical chart, realtime chart, radial bar)
+- **weather**: Weather forecasts and alerts (WeatherFlow, Weather API spinner)
+- **electrical**: Power systems (Victron flow diagram)
+- **ais**: AIS vessel tracking (AIS polar chart)
+- **controls**: Interactive controls (switch, slider, knob, checkbox, dropdown)
+- **communication**: Crew communication (messages, crew list, intercom, file share)
+- **system**: System administration (server manager, RPi monitor, clock/alarm)
 
 ---
 
@@ -847,20 +907,24 @@ final ownData = signalKService.getValue(ownPath);
 
 ### Key Files to Reference
 
-- `lib/services/tool_registry.dart` - Tool definitions
-- `lib/models/tool_definition.dart` - Tool metadata model
-- `lib/models/tool_config.dart` - Tool configuration model
-- `lib/screens/tool_config/base_tool_configurator.dart` - Configurator base class
+- `lib/services/tool_registry.dart` - ToolBuilder registration and ToolBuilder abstract class
+- `lib/models/tool_definition.dart` - ToolDefinition and ConfigSchema models
+- `lib/models/tool_config.dart` - ToolConfig and StyleConfig models
+- `lib/models/tool.dart` - Tool instance model
+- `lib/screens/tool_config/base_tool_configurator.dart` - ToolConfigurator base class
 - `lib/screens/tool_config/tool_configurator_factory.dart` - Configurator factory
-- `lib/widgets/tools/` - Example tool widgets
+- `lib/widgets/tools/` - All tool widgets
 
 ### Example Tools to Study
 
-- **Simple**: `lib/widgets/tools/text_display_tool.dart`
+- **Simple Display**: `lib/widgets/tools/text_display_tool.dart`
 - **Gauge**: `lib/widgets/tools/radial_gauge_tool.dart`
 - **Chart**: `lib/widgets/tools/historical_chart_tool.dart`
-- **Control**: `lib/widgets/tools/button_tool.dart`
-- **Complex**: `lib/widgets/tools/wind_compass_tool.dart`
+- **Control**: `lib/widgets/tools/switch_tool.dart`
+- **Navigation**: `lib/widgets/tools/wind_compass_tool.dart`
+- **Complex/New**: `lib/widgets/tools/clock_alarm_tool.dart`
+- **Power Flow**: `lib/widgets/tools/victron_flow_tool.dart`
+- **Anchor**: `lib/widgets/tools/anchor_alarm_tool.dart`
 
 ### SignalK Documentation
 
@@ -904,8 +968,9 @@ final ownData = signalKService.getValue(ownPath);
 For questions or issues:
 1. Check existing tools in `lib/widgets/tools/`
 2. Review configurators in `lib/screens/tool_config/configurators/`
-3. Consult the comprehensive code review: `docs/CODE_REVIEW_COMPREHENSIVE_2025-10-28.md`
+3. Look at `clock_alarm_tool.dart` as a modern reference implementation
+4. Open an issue at the [ZedDisplay repo](https://github.com/motamman/ZedDisplay)
 
 ---
 
-**Happy Tool Development!** 🚢⚓️
+**Happy Tool Development!**
