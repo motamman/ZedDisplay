@@ -371,6 +371,23 @@ class _VictronFlowToolState extends State<VictronFlowTool> with SingleTickerProv
   }
 
   Widget _buildFlowDiagram(BoxConstraints constraints) {
+    // Calculate proportional spacing based on number of cards
+    final availableHeight = constraints.maxHeight;
+    final sourceCount = _sources.length;
+    final loadCount = _loads.length;
+
+    // Base spacing calculation: more cards = less spacing
+    // Allocate ~15% of height to gaps, distributed among gaps
+    final sourceGapCount = sourceCount > 1 ? sourceCount - 1 : 0;
+    final loadGapCount = loadCount > 1 ? loadCount - 1 : 0;
+
+    final sourceSpacing = sourceGapCount > 0
+        ? (availableHeight * 0.15 / sourceGapCount).clamp(12.0, 40.0)
+        : 0.0;
+    final loadSpacing = loadGapCount > 0
+        ? (availableHeight * 0.15 / loadGapCount).clamp(12.0, 40.0)
+        : 0.0;
+
     return Row(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -380,32 +397,32 @@ class _VictronFlowToolState extends State<VictronFlowTool> with SingleTickerProv
           child: Column(
             children: [
               for (int i = 0; i < _sources.length; i++) ...[
-                if (i > 0) const SizedBox(height: 16),
+                if (i > 0) SizedBox(height: sourceSpacing),
                 Expanded(child: _buildSourceBox(_sources[i])),
               ],
             ],
           ),
         ),
-        const SizedBox(width: 40),
+        const SizedBox(width: 70),
         // Center column - Inverter & Battery
         Expanded(
           flex: 4,
           child: Column(
             children: [
               Expanded(flex: 2, child: _buildInverterBox()),
-              const SizedBox(height: 16),
+              const SizedBox(height: 28),
               Expanded(flex: 3, child: _buildBatteryBox()),
             ],
           ),
         ),
-        const SizedBox(width: 40),
+        const SizedBox(width: 70),
         // Right column - Loads
         Expanded(
           flex: 3,
           child: Column(
             children: [
               for (int i = 0; i < _loads.length; i++) ...[
-                if (i > 0) const SizedBox(height: 16),
+                if (i > 0) SizedBox(height: loadSpacing),
                 Expanded(child: _buildLoadBox(_loads[i])),
               ],
               if (_loads.length < 3) const Spacer(),
@@ -510,25 +527,70 @@ class _VictronFlowToolState extends State<VictronFlowTool> with SingleTickerProv
     return _buildComponentBox(
       title: source.name,
       icon: _getIconData(source.icon),
-      content: FittedBox(
-        fit: BoxFit.scaleDown,
-        alignment: Alignment.centerLeft,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              current != null ? '${current.toStringAsFixed(1)}A' : '--A',
-              style: const TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.bold),
+      content: LayoutBuilder(
+        builder: (context, constraints) {
+          final isWide = constraints.maxWidth > 150;
+
+          if (isWide) {
+            // Horizontal layout for wide cards
+            return Row(
+              children: [
+                Expanded(
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      current != null ? '${current.toStringAsFixed(1)}A' : '--A',
+                      style: const TextStyle(color: Colors.white, fontSize: 32, fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerRight,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        if (state != null)
+                          Text(_formatState(state), style: const TextStyle(color: Colors.white70, fontSize: 13)),
+                        Text(
+                          _buildSecondaryLine(voltage, frequency, power),
+                          style: const TextStyle(color: Colors.white60, fontSize: 12),
+                          textAlign: TextAlign.right,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            );
+          }
+
+          // Vertical layout for narrow cards
+          return FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  current != null ? '${current.toStringAsFixed(1)}A' : '--A',
+                  style: const TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.bold),
+                ),
+                if (state != null)
+                  Text(_formatState(state), style: const TextStyle(color: Colors.white70, fontSize: 12)),
+                Text(
+                  _buildSecondaryLine(voltage, frequency, power),
+                  style: const TextStyle(color: Colors.white60, fontSize: 11),
+                ),
+              ],
             ),
-            if (state != null)
-              Text(_formatState(state), style: const TextStyle(color: Colors.white70, fontSize: 12)),
-            Text(
-              _buildSecondaryLine(voltage, frequency, power),
-              style: const TextStyle(color: Colors.white60, fontSize: 11),
-            ),
-          ],
-        ),
+          );
+        },
       ),
     );
   }
@@ -542,23 +604,60 @@ class _VictronFlowToolState extends State<VictronFlowTool> with SingleTickerProv
     return _buildComponentBox(
       title: load.name,
       icon: _getIconData(load.icon),
-      content: FittedBox(
-        fit: BoxFit.scaleDown,
-        alignment: Alignment.centerLeft,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              current != null ? '${current.toStringAsFixed(1)}A' : '--A',
-              style: const TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.bold),
+      content: LayoutBuilder(
+        builder: (context, constraints) {
+          final isWide = constraints.maxWidth > 150;
+
+          if (isWide) {
+            // Horizontal layout for wide cards
+            return Row(
+              children: [
+                Expanded(
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      current != null ? '${current.toStringAsFixed(1)}A' : '--A',
+                      style: const TextStyle(color: Colors.white, fontSize: 32, fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerRight,
+                    child: Text(
+                      _buildSecondaryLine(voltage, frequency, power),
+                      style: const TextStyle(color: Colors.white60, fontSize: 12),
+                      textAlign: TextAlign.right,
+                    ),
+                  ),
+                ),
+              ],
+            );
+          }
+
+          // Vertical layout for narrow cards
+          return FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  current != null ? '${current.toStringAsFixed(1)}A' : '--A',
+                  style: const TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.bold),
+                ),
+                Text(
+                  _buildSecondaryLine(voltage, frequency, power),
+                  style: const TextStyle(color: Colors.white60, fontSize: 11),
+                ),
+              ],
             ),
-            Text(
-              _buildSecondaryLine(voltage, frequency, power),
-              style: const TextStyle(color: Colors.white60, fontSize: 11),
-            ),
-          ],
-        ),
+          );
+        },
       ),
     );
   }
@@ -630,51 +729,106 @@ class _VictronFlowToolState extends State<VictronFlowTool> with SingleTickerProv
       icon: Icons.battery_std,
       backgroundColor: bgColor,
       borderColor: borderColor,
-      content: FittedBox(
-        fit: BoxFit.scaleDown,
-        alignment: Alignment.center,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Row(
-              mainAxisSize: MainAxisSize.min,
+      content: LayoutBuilder(
+        builder: (context, constraints) {
+          final isWide = constraints.maxWidth > 200;
+          final stateColor = isCharging ? Colors.greenAccent : (isDischarging ? Colors.orangeAccent : Colors.white70);
+
+          if (isWide) {
+            // Horizontal layout for wide cards
+            return Row(
               children: [
-                Text(
-                  soc != null ? '${(soc * 100).toStringAsFixed(0)}%' : '--%',
-                  style: const TextStyle(color: Colors.white, fontSize: 36, fontWeight: FontWeight.bold),
-                ),
-                if (temp != null) ...[
-                  const SizedBox(width: 16),
-                  Text('${(temp - 273.15).toStringAsFixed(0)}°C', style: const TextStyle(color: Colors.white70, fontSize: 14)),
-                ],
-              ],
-            ),
-            Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  stateText,
-                  style: TextStyle(
-                    color: isCharging ? Colors.greenAccent : (isDischarging ? Colors.orangeAccent : Colors.white70),
-                    fontSize: 14,
+                // SOC on left
+                Expanded(
+                  flex: 2,
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      soc != null ? '${(soc * 100).toStringAsFixed(0)}%' : '--%',
+                      style: const TextStyle(color: Colors.white, fontSize: 40, fontWeight: FontWeight.bold),
+                    ),
                   ),
                 ),
-                if (timeText.isNotEmpty) ...[
-                  const SizedBox(width: 8),
-                  Text(timeText, style: const TextStyle(color: Colors.white70, fontSize: 14)),
-                ],
+                const SizedBox(width: 12),
+                // Status in middle
+                Expanded(
+                  flex: 2,
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(stateText, style: TextStyle(color: stateColor, fontSize: 14, fontWeight: FontWeight.w500)),
+                        if (timeText.isNotEmpty)
+                          Text(timeText, style: const TextStyle(color: Colors.white70, fontSize: 13)),
+                        if (temp != null)
+                          Text('${(temp - 273.15).toStringAsFixed(0)}°C', style: const TextStyle(color: Colors.white70, fontSize: 13)),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                // V/A/W on right
+                Expanded(
+                  flex: 2,
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerRight,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        Text('${voltage?.toStringAsFixed(2) ?? '--'}V', style: TextStyle(color: stateColor, fontSize: 13)),
+                        Text('${current?.toStringAsFixed(1) ?? '--'}A', style: TextStyle(color: stateColor, fontSize: 13)),
+                        Text('${power?.toStringAsFixed(0) ?? '--'}W', style: TextStyle(color: stateColor, fontSize: 13)),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            );
+          }
+
+          // Vertical layout for narrow cards
+          return FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.center,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      soc != null ? '${(soc * 100).toStringAsFixed(0)}%' : '--%',
+                      style: const TextStyle(color: Colors.white, fontSize: 36, fontWeight: FontWeight.bold),
+                    ),
+                    if (temp != null) ...[
+                      const SizedBox(width: 16),
+                      Text('${(temp - 273.15).toStringAsFixed(0)}°C', style: const TextStyle(color: Colors.white70, fontSize: 14)),
+                    ],
+                  ],
+                ),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(stateText, style: TextStyle(color: stateColor, fontSize: 14)),
+                    if (timeText.isNotEmpty) ...[
+                      const SizedBox(width: 8),
+                      Text(timeText, style: const TextStyle(color: Colors.white70, fontSize: 14)),
+                    ],
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '${voltage?.toStringAsFixed(2) ?? '--'}V  ${current?.toStringAsFixed(1) ?? '--'}A  ${power?.toStringAsFixed(0) ?? '--'}W',
+                  style: TextStyle(color: stateColor, fontSize: 13),
+                ),
               ],
             ),
-            const SizedBox(height: 4),
-            Text(
-              '${voltage?.toStringAsFixed(2) ?? '--'}V  ${current?.toStringAsFixed(1) ?? '--'}A  ${power?.toStringAsFixed(0) ?? '--'}W',
-              style: TextStyle(
-                color: isCharging ? Colors.greenAccent : (isDischarging ? Colors.orangeAccent : Colors.white70),
-                fontSize: 13,
-              ),
-            ),
-          ],
-        ),
+          );
+        },
       ),
     );
   }
@@ -721,9 +875,9 @@ class _FlowLinesPainter extends CustomPainter {
       ..strokeWidth = 3
       ..style = PaintingStyle.stroke;
 
-    // Match layout: padding 12, gaps 40, flex 3:4:3
+    // Match layout: padding 12, gaps 70, flex 3:4:3
     const padding = 12.0;
-    const gap = 40.0;
+    const gap = 70.0;
     final contentWidth = size.width - padding * 2;
     final colWidthUnit = (contentWidth - gap * 2) / 10;
 
@@ -732,30 +886,41 @@ class _FlowLinesPainter extends CustomPainter {
     final centerColRight = centerColLeft + colWidthUnit * 4;
     final rightColLeft = centerColRight + gap;
 
-    // Calculate source row positions
+    // Calculate source row positions with proportional spacing
     final contentHeight = size.height - padding * 2;
-    final sourceGaps = sourceCount > 1 ? (sourceCount - 1) * 16.0 : 0.0;
+
+    // Proportional spacing: 15% of height distributed among gaps, clamped 12-40
+    final sourceGapCount = sourceCount > 1 ? sourceCount - 1 : 0;
+    final loadGapCount = loadCount > 1 ? loadCount - 1 : 0;
+    final sourceSpacing = sourceGapCount > 0
+        ? (contentHeight * 0.15 / sourceGapCount).clamp(12.0, 40.0)
+        : 0.0;
+    final loadSpacing = loadGapCount > 0
+        ? (contentHeight * 0.15 / loadGapCount).clamp(12.0, 40.0)
+        : 0.0;
+
+    final sourceGaps = sourceGapCount * sourceSpacing;
     final sourceRowHeight = (contentHeight - sourceGaps) / sourceCount;
 
     List<double> sourceRowCenters = [];
     for (int i = 0; i < sourceCount; i++) {
-      sourceRowCenters.add(padding + sourceRowHeight * i + sourceGaps * i / (sourceCount > 1 ? sourceCount - 1 : 1) + sourceRowHeight / 2);
+      sourceRowCenters.add(padding + sourceRowHeight * i + sourceSpacing * i + sourceRowHeight / 2);
     }
 
     // Calculate load row positions
-    final loadGaps = loadCount > 1 ? (loadCount - 1) * 16.0 : 0.0;
+    final loadGaps = loadGapCount * loadSpacing;
     final loadRowHeight = (contentHeight - loadGaps) / (loadCount < 3 ? 3 : loadCount); // Account for spacer
 
     List<double> loadRowCenters = [];
     for (int i = 0; i < loadCount; i++) {
-      loadRowCenters.add(padding + loadRowHeight * i + (i > 0 ? 16.0 * i : 0) + loadRowHeight / 2);
+      loadRowCenters.add(padding + loadRowHeight * i + loadSpacing * i + loadRowHeight / 2);
     }
 
-    // Center column: inverter (flex 2) and battery (flex 3) with 16px gap
-    final inverterHeight = (contentHeight - 16) * 2 / 5;
-    final batteryHeight = (contentHeight - 16) * 3 / 5;
+    // Center column: inverter (flex 2) and battery (flex 3) with 28px gap
+    final inverterHeight = (contentHeight - 28) * 2 / 5;
+    final batteryHeight = (contentHeight - 28) * 3 / 5;
     final inverterBottom = padding + inverterHeight;
-    final batteryTop = inverterBottom + 16;
+    final batteryTop = inverterBottom + 28;
     final batteryCenter = batteryTop + batteryHeight / 2;
     final inverterCenter = padding + inverterHeight / 2;
 
@@ -880,10 +1045,8 @@ class _FlowLinesPainter extends CustomPainter {
 
     if (!active) return;
 
-    // Calculate animation speed based on current (more current = faster)
-    // Use logarithmic scale for visible differences: 0.1A=slow, 1A=medium, 5A=fast, 10A+=very fast
-    final logSpeed = math.log(current.clamp(0.1, 100) + 1) / math.log(10); // log10 scale
-    final speed = (logSpeed * 1.5).clamp(0.3, 4.0);
+    // Calculate animation speed based on current using defined scale
+    final speed = _currentToSpeed(current);
 
     // Calculate line length and direction
     final dx = end.dx - start.dx;
@@ -907,28 +1070,33 @@ class _FlowLinesPainter extends CustomPainter {
     final exitExtension = math.max(30.0 / length, 0.15);
 
     for (int i = 0; i < numSprites; i++) {
-      // Calculate position with proper cycling (includes gap for natural entry/exit)
       final baseT = (forward ? animValue : 1 - animValue) * speed;
-      var t = (baseT + (i / numSprites) + phaseOffset) % cycleLength;
 
-      // Draw if within extended visible range (allows exit animation)
+      // Simple unique offset per sprite using golden ratio for max spread
+      final golden = 0.618033988749;
+      final spriteHash = ((i + 1) * golden + phaseOffset * 7.3) % 1.0;
+      final jitterStrength = 0.3 / (1.0 + speed * speed * 0.15);
+      final jitter = (spriteHash - 0.5) * jitterStrength;
+
+      var t = (baseT + (i / numSprites) + phaseOffset + jitter) % cycleLength;
+
       if (t > 1.0 + exitExtension) continue;
 
-      // Position of the sprite (can extend past endpoint)
       final x = start.dx + dx * t;
       final y = start.dy + dy * t;
-
-      // Draw meteor sprite
       _drawMeteorSprite(canvas, Offset(x, y), angle, primaryColor);
     }
   }
 
   void _drawMeteorSprite(Canvas canvas, Offset center, double angle, Color color) {
+    _drawMeteorSpriteSimple(canvas, center, angle, color);
+  }
+
+  void _drawMeteorSpriteSimple(Canvas canvas, Offset center, double angle, Color color) {
     const tailLength = 18.0;
 
     final tailDx = -math.cos(angle) * tailLength;
     final tailDy = -math.sin(angle) * tailLength;
-    final tailEnd = Offset(center.dx + tailDx, center.dy + tailDy);
 
     // Tail - multiple segments fading out
     const segments = 5;
@@ -958,6 +1126,67 @@ class _FlowLinesPainter extends CustomPainter {
       canvas.drawLine(start, end, segPaint);
     }
 
+    _drawMeteorHead(canvas, center, color);
+  }
+
+  void _drawMeteorSpriteOnPath(Canvas canvas, List<Offset> points, List<double> segmentLengths, double distanceAlongPath, double totalLength, bool forward, Color color, {double phaseOffset = 0.0}) {
+    const tailLength = 18.0;
+    const segments = 5;
+
+    // Get head position
+    final head = _getPointOnPath(points, segmentLengths, distanceAlongPath, totalLength, phaseOffset: phaseOffset);
+
+    // Draw tail segments by tracing back along path
+    for (int i = 0; i < segments; i++) {
+      final t1 = i / segments;
+      final t2 = (i + 1) / segments;
+
+      final dist1 = forward
+          ? distanceAlongPath - tailLength * t1
+          : distanceAlongPath + tailLength * t1;
+      final dist2 = forward
+          ? distanceAlongPath - tailLength * t2
+          : distanceAlongPath + tailLength * t2;
+
+      final start = _getPointOnPath(points, segmentLengths, dist1, totalLength, phaseOffset: phaseOffset);
+      final end = _getPointOnPath(points, segmentLengths, dist2, totalLength, phaseOffset: phaseOffset);
+
+      // Fade from bright to transparent
+      final alpha = 0.6 * (1 - t1);
+      final width = 4.0 * (1 - t1 * 0.5);
+
+      final segPaint = Paint()
+        ..color = Colors.white.withValues(alpha: alpha)
+        ..strokeWidth = width
+        ..strokeCap = StrokeCap.round
+        ..style = PaintingStyle.stroke
+        ..maskFilter = MaskFilter.blur(BlurStyle.normal, 1.5 + t1 * 2);
+      canvas.drawLine(start, end, segPaint);
+    }
+
+    _drawMeteorHead(canvas, head, color);
+  }
+
+  Offset _getPointOnPath(List<Offset> points, List<double> segmentLengths, double distance, double totalLength, {double phaseOffset = 0.0}) {
+    // Clamp distance to valid range
+    if (distance <= 0) return points.first;
+    if (distance >= totalLength) return points.last;
+
+    double accumulated = 0;
+    for (int i = 0; i < segmentLengths.length; i++) {
+      if (accumulated + segmentLengths[i] >= distance) {
+        final segT = (distance - accumulated) / segmentLengths[i];
+        return Offset(
+          points[i].dx + (points[i + 1].dx - points[i].dx) * segT,
+          points[i].dy + (points[i + 1].dy - points[i].dy) * segT,
+        );
+      }
+      accumulated += segmentLengths[i];
+    }
+    return points.last;
+  }
+
+  void _drawMeteorHead(Canvas canvas, Offset center, Color color) {
     // Colored glow around head
     final glowPaint = Paint()
       ..color = color
@@ -983,11 +1212,41 @@ class _FlowLinesPainter extends CustomPainter {
     canvas.drawCircle(points.first, 5, dotPaint);
     canvas.drawCircle(points.last, 5, dotPaint);
 
-    // Draw the solid line path
+    // Draw curved path with rounded corners
     final path = Path()..moveTo(points.first.dx, points.first.dy);
-    for (int i = 1; i < points.length; i++) {
-      path.lineTo(points[i].dx, points[i].dy);
+    const cornerRadius = 15.0;
+
+    for (int i = 1; i < points.length - 1; i++) {
+      final prev = points[i - 1];
+      final curr = points[i];
+      final next = points[i + 1];
+
+      // Calculate direction vectors
+      final d1x = curr.dx - prev.dx;
+      final d1y = curr.dy - prev.dy;
+      final d2x = next.dx - curr.dx;
+      final d2y = next.dy - curr.dy;
+
+      // Normalize and get distances
+      final len1 = math.sqrt(d1x * d1x + d1y * d1y);
+      final len2 = math.sqrt(d2x * d2x + d2y * d2y);
+
+      // Calculate how far back from corner to start curve
+      final radius = math.min(cornerRadius, math.min(len1, len2) / 2);
+
+      // Point before corner
+      final beforeX = curr.dx - (d1x / len1) * radius;
+      final beforeY = curr.dy - (d1y / len1) * radius;
+
+      // Point after corner
+      final afterX = curr.dx + (d2x / len2) * radius;
+      final afterY = curr.dy + (d2y / len2) * radius;
+
+      // Draw line to before corner, then curve through corner
+      path.lineTo(beforeX, beforeY);
+      path.quadraticBezierTo(curr.dx, curr.dy, afterX, afterY);
     }
+    path.lineTo(points.last.dx, points.last.dy);
 
     final linePaint = Paint()
       ..color = active ? primaryColor.withValues(alpha: 0.6) : primaryColor.withValues(alpha: 0.2)
@@ -1008,9 +1267,8 @@ class _FlowLinesPainter extends CustomPainter {
       totalLength += len;
     }
 
-    // Calculate animation speed based on current (logarithmic scale)
-    final logSpeed = math.log(current.clamp(0.1, 100) + 1) / math.log(10);
-    final speed = (logSpeed * 1.5).clamp(0.3, 4.0);
+    // Calculate animation speed based on current using defined scale
+    final speed = _currentToSpeed(current);
 
     // Fixed spacing between sprites (in pixels)
     const spriteSpacing = 25.0;
@@ -1024,53 +1282,34 @@ class _FlowLinesPainter extends CustomPainter {
     final exitExtension = math.max(30.0 / totalLength, 0.15);
 
     for (int i = 0; i < numSprites; i++) {
-      // Calculate position with proper cycling (includes gap for natural entry/exit)
       final baseT = (forward ? animValue : 1 - animValue) * speed;
-      var t = (baseT + (i / numSprites) + phaseOffset) % cycleLength;
 
-      // Draw if within extended visible range
+      // Simple unique offset per sprite using golden ratio for max spread
+      final golden = 0.618033988749;
+      final spriteHash = ((i + 1) * golden + phaseOffset * 7.3) % 1.0;
+      final jitterStrength = 0.3 / (1.0 + speed * speed * 0.15);
+      final jitter = (spriteHash - 0.5) * jitterStrength;
+
+      var t = (baseT + (i / numSprites) + phaseOffset + jitter) % cycleLength;
+
       if (t > 1.0 + exitExtension) continue;
 
       var distanceAlongPath = t * totalLength;
-
-      // Find which segment and position within segment
-      double accumulatedLength = 0;
-      bool drawn = false;
-      for (int j = 0; j < segmentLengths.length; j++) {
-        if (accumulatedLength + segmentLengths[j] >= distanceAlongPath) {
-          // Sprite is in this segment
-          final segmentT = (distanceAlongPath - accumulatedLength) / segmentLengths[j];
-          final x = points[j].dx + (points[j + 1].dx - points[j].dx) * segmentT;
-          final y = points[j].dy + (points[j + 1].dy - points[j].dy) * segmentT;
-
-          // Calculate angle for this segment
-          final segDx = points[j + 1].dx - points[j].dx;
-          final segDy = points[j + 1].dy - points[j].dy;
-          double angle = math.atan2(segDy, segDx);
-          if (!forward) angle += math.pi;
-
-          // Draw meteor sprite
-          _drawMeteorSprite(canvas, Offset(x, y), angle, primaryColor);
-          drawn = true;
-          break;
-        }
-        accumulatedLength += segmentLengths[j];
-      }
-
-      // If past the end, extrapolate along last segment direction
-      if (!drawn && segmentLengths.isNotEmpty) {
-        final lastIdx = points.length - 1;
-        final segDx = points[lastIdx].dx - points[lastIdx - 1].dx;
-        final segDy = points[lastIdx].dy - points[lastIdx - 1].dy;
-        final segLen = segmentLengths.last;
-        final extraDist = distanceAlongPath - totalLength;
-        final x = points[lastIdx].dx + (segDx / segLen) * extraDist;
-        final y = points[lastIdx].dy + (segDy / segLen) * extraDist;
-        double angle = math.atan2(segDy, segDx);
-        if (!forward) angle += math.pi;
-        _drawMeteorSprite(canvas, Offset(x, y), angle, primaryColor);
-      }
+      _drawMeteorSpriteOnPath(canvas, points, segmentLengths, distanceAlongPath, totalLength, forward, primaryColor, phaseOffset: phaseOffset);
     }
+  }
+
+  /// Power-law scale: maps current (0.1A to 200A) to speed (0.1 to 8.0)
+  /// Uses current^0.58 - keeps low end slow, faster at high end
+  double _currentToSpeed(double current) {
+    const minCurrent = 0.1;
+    const maxCurrent = 200.0;
+
+    final clampedCurrent = current.abs().clamp(minCurrent, maxCurrent);
+
+    // Power law: speed = 0.38 * current^0.58
+    // Derived from: 0.1A → 0.1, 200A → 8.0
+    return 0.38 * math.pow(clampedCurrent, 0.58);
   }
 
   @override
