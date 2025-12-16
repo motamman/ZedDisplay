@@ -531,15 +531,20 @@ class StorageService extends ChangeNotifier {
     return connections;
   }
 
-  /// Delete a server connection
+  /// Delete a server connection and all associated data (auth token, etc.)
   Future<void> deleteConnection(String id) async {
     if (!_initialized) throw Exception('StorageService not initialized');
 
+    // Delete associated auth token
+    await _authTokenBox.delete(id);
+
+    // Delete the connection itself
     await _connectionsBox.delete(id);
+
     notifyListeners();
 
     if (kDebugMode) {
-      print('Server connection deleted: $id');
+      print('Server connection and associated data deleted: $id');
     }
   }
 
@@ -565,17 +570,27 @@ class StorageService extends ChangeNotifier {
 
   // ===== Authentication Token Management =====
 
-  /// Save auth token for a server
-  Future<void> saveAuthToken(AuthToken token) async {
+  /// Save auth token for a connection
+  /// Uses connectionId as key to support multiple connections to same server
+  Future<void> saveAuthToken(AuthToken token, {required String connectionId}) async {
     if (!_initialized) throw Exception('StorageService not initialized');
 
     try {
-      final json = jsonEncode(token.toJson());
-      await _authTokenBox.put(token.serverUrl, json);
+      // Create token with connectionId
+      final tokenWithConnection = AuthToken(
+        token: token.token,
+        clientId: token.clientId,
+        expiresAt: token.expiresAt,
+        issuedAt: token.issuedAt,
+        serverUrl: token.serverUrl,
+        connectionId: connectionId,
+      );
+      final json = jsonEncode(tokenWithConnection.toJson());
+      await _authTokenBox.put(connectionId, json);
       notifyListeners();
 
       if (kDebugMode) {
-        print('Auth token saved for ${token.serverUrl}');
+        print('Auth token saved for connection $connectionId (${token.serverUrl})');
       }
     } catch (e) {
       if (kDebugMode) {
@@ -585,12 +600,12 @@ class StorageService extends ChangeNotifier {
     }
   }
 
-  /// Get auth token for a server
-  AuthToken? getAuthToken(String serverUrl) {
+  /// Get auth token for a connection
+  AuthToken? getAuthToken(String connectionId) {
     if (!_initialized) throw Exception('StorageService not initialized');
 
     try {
-      final json = _authTokenBox.get(serverUrl);
+      final json = _authTokenBox.get(connectionId);
       if (json == null) return null;
 
       final tokenData = jsonDecode(json) as Map<String, dynamic>;
@@ -599,30 +614,30 @@ class StorageService extends ChangeNotifier {
       // Check if expired
       if (token.isExpired) {
         if (kDebugMode) {
-          print('Token for $serverUrl is expired, removing...');
+          print('Token for connection $connectionId is expired, removing...');
         }
-        _authTokenBox.delete(serverUrl);
+        _authTokenBox.delete(connectionId);
         return null;
       }
 
       return token;
     } catch (e) {
       if (kDebugMode) {
-        print('Error loading auth token for $serverUrl: $e');
+        print('Error loading auth token for connection $connectionId: $e');
       }
       return null;
     }
   }
 
-  /// Delete auth token for a server
-  Future<void> deleteAuthToken(String serverUrl) async {
+  /// Delete auth token for a connection
+  Future<void> deleteAuthToken(String connectionId) async {
     if (!_initialized) throw Exception('StorageService not initialized');
 
-    await _authTokenBox.delete(serverUrl);
+    await _authTokenBox.delete(connectionId);
     notifyListeners();
 
     if (kDebugMode) {
-      print('Auth token deleted for $serverUrl');
+      print('Auth token deleted for connection $connectionId');
     }
   }
 

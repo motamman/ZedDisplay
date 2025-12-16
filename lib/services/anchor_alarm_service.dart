@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:audioplayers/audioplayers.dart';
 import '../models/anchor_state.dart';
@@ -303,6 +304,61 @@ class AnchorAlarmService extends ChangeNotifier {
       }
       return false;
     }
+  }
+
+  /// Set anchor position via the plugin API
+  /// Used to correct anchor position based on user-provided bearing
+  Future<bool> setAnchorPosition(double latitude, double longitude) async {
+    try {
+      final response = await _signalKService.postPluginApi(
+        '/plugins/anchoralarm/setAnchorPosition',
+        body: {
+          'position': {'latitude': latitude, 'longitude': longitude},
+        },
+      );
+
+      if (response.statusCode >= 200 && response.statusCode < 300) {
+        await _refreshState();
+        return true;
+      }
+      if (kDebugMode) {
+        print('Set anchor position failed: ${response.statusCode}');
+      }
+      return false;
+    } catch (e) {
+      if (kDebugMode) {
+        print('Set anchor position error: $e');
+      }
+      return false;
+    }
+  }
+
+  /// Calculate anchor position from vessel position, bearing, and distance
+  /// Uses the haversine formula to calculate destination point
+  static (double lat, double lon) calculateAnchorPosition({
+    required double vesselLat,
+    required double vesselLon,
+    required double bearingDegrees,
+    required double distanceMeters,
+  }) {
+    const earthRadius = 6371000.0;
+
+    final lat1 = vesselLat * math.pi / 180;
+    final lon1 = vesselLon * math.pi / 180;
+    final bearing = bearingDegrees * math.pi / 180;
+    final angularDist = distanceMeters / earthRadius;
+
+    final lat2 = math.asin(
+      math.sin(lat1) * math.cos(angularDist) +
+      math.cos(lat1) * math.sin(angularDist) * math.cos(bearing)
+    );
+
+    final lon2 = lon1 + math.atan2(
+      math.sin(bearing) * math.sin(angularDist) * math.cos(lat1),
+      math.cos(angularDist) - math.sin(lat1) * math.sin(lat2)
+    );
+
+    return (lat2 * 180 / math.pi, lon2 * 180 / math.pi);
   }
 
   /// Get track history from plugin

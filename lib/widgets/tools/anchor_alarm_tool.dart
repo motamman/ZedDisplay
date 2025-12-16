@@ -13,6 +13,7 @@ import '../../services/messaging_service.dart';
 import '../../models/anchor_state.dart';
 import '../../services/tool_registry.dart';
 import '../../utils/conversion_utils.dart';
+import 'anchor_compass_overlay.dart';
 
 /// Anchor Alarm Tool - Single unified widget with map and controls
 ///
@@ -171,6 +172,7 @@ class _AnchorAlarmToolState extends State<AnchorAlarmTool> {
         await _alarmService.setRodeLength(rodeLength);
       }
 
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Anchor dropped'),
@@ -213,7 +215,93 @@ class _AnchorAlarmToolState extends State<AnchorAlarmTool> {
   }
 
   Future<void> _setRodeLength(double length) async {
+    // Get bearing BEFORE changing rode (it will change after position update)
+    final bearingBefore = _alarmService.state.bearingTrue;
+
     await _alarmService.setRodeLength(length);
+
+    // Wait for SignalK to update with new maxRadius from plugin
+    await Future.delayed(const Duration(milliseconds: 200));
+
+    // Recalculate anchor position using existing bearing + new maxRadius
+    final state = _alarmService.state;
+    final bearing = bearingBefore ?? state.bearingTrue; // use pre-change bearing
+    final vesselPos = state.vesselPosition;
+    final maxRadius = state.maxRadius;
+
+    if (bearing != null && vesselPos != null && maxRadius != null) {
+      final bearingDegrees = bearing * 180 / math.pi;
+      final (lat, lon) = AnchorAlarmService.calculateAnchorPosition(
+        vesselLat: vesselPos.latitude,
+        vesselLon: vesselPos.longitude,
+        bearingDegrees: bearingDegrees,
+        distanceMeters: maxRadius,
+      );
+      await _alarmService.setAnchorPosition(lat, lon);
+    }
+  }
+
+  /// Open compass overlay to set anchor direction
+  Future<void> _setAnchorDirection() async {
+    final state = _alarmService.state;
+
+    if (!state.isActive) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Drop anchor first'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
+    final bearing = await AnchorCompassOverlay.show(context);
+    if (bearing == null || !mounted) return;
+
+    final vesselPos = state.vesselPosition;
+    if (vesselPos == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No vessel position available'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    // Get magnetic variation to convert compass (magnetic) to true bearing
+    final magVarData = widget.signalKService.getValue('navigation.magneticVariation');
+    double magneticVariation = 0.0;
+    if (magVarData?.value is num) {
+      magneticVariation = (magVarData!.value as num).toDouble() * 180 / math.pi;
+    }
+
+    // Convert magnetic compass heading to true bearing
+    final trueBearing = (bearing + magneticVariation) % 360;
+
+    // Use maxRadius (horizontal distance calculated by plugin from rode/depth)
+    final distance = state.maxRadius ?? 30.0;
+
+    // Calculate new anchor position
+    final (lat, lon) = AnchorAlarmService.calculateAnchorPosition(
+      vesselLat: vesselPos.latitude,
+      vesselLon: vesselPos.longitude,
+      bearingDegrees: trueBearing,
+      distanceMeters: distance,
+    );
+
+    final success = await _alarmService.setAnchorPosition(lat, lon);
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(success
+              ? 'Anchor direction set to ${trueBearing.toStringAsFixed(0)}°'
+              : 'Failed to update anchor position'),
+          backgroundColor: success ? Colors.green : Colors.red,
+        ),
+      );
+    }
   }
 
   // Format distance with user's preferred units
@@ -342,7 +430,7 @@ class _AnchorAlarmToolState extends State<AnchorAlarmTool> {
     final anchorPos = state.anchorPosition;
 
     // Default center
-    LatLng center = LatLng(0, 0);
+    LatLng center = const LatLng(0, 0);
     if (anchorPos != null) {
       center = LatLng(anchorPos.latitude, anchorPos.longitude);
     } else if (vesselPos != null) {
@@ -447,12 +535,12 @@ class _AnchorAlarmToolState extends State<AnchorAlarmTool> {
     if (!state.isActive || state.anchorPosition == null) {
       return Container(
         color: backgroundColor,
-        child: Center(
+        child: const Center(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               Icon(Icons.anchor_outlined, size: 48, color: Colors.grey),
-              const SizedBox(height: 16),
+              SizedBox(height: 16),
               Text(
                 'Drop anchor to see polar view',
                 style: TextStyle(color: Colors.grey, fontSize: 16),
@@ -553,7 +641,13 @@ class _AnchorAlarmToolState extends State<AnchorAlarmTool> {
             majorGridLines: const MajorGridLines(width: 0),
           ),
           plotAreaBorderWidth: 0,
-          annotations: _buildPolarAnnotations(displayRange, isDark),
+          annotations: _buildPolarAnnotations(
+            displayRange,
+            isDark,
+            vesselX: chartData.where((p) => p.type == 'vessel').firstOrNull?.x,
+            vesselY: chartData.where((p) => p.type == 'vessel').firstOrNull?.y,
+            vesselHeading: state.vesselHeading,
+          ),
           series: <CartesianSeries>[
             // Grid circles
             ..._buildPolarGridSeries(displayRange, isDark),
@@ -622,21 +716,7 @@ class _AnchorAlarmToolState extends State<AnchorAlarmTool> {
               ),
             ),
 
-            // Vessel point
-            ScatterSeries<_PolarPoint, double>(
-              dataSource: chartData.where((p) => p.type == 'vessel').toList(),
-              xValueMapper: (p, _) => p.x,
-              yValueMapper: (p, _) => p.y,
-              color: Colors.green,
-              animationDuration: 0,
-              markerSettings: const MarkerSettings(
-                height: 14,
-                width: 14,
-                shape: DataMarkerType.triangle,
-                borderColor: Colors.white,
-                borderWidth: 2,
-              ),
-            ),
+            // Vessel is now rendered as an annotation with rotated icon
           ],
             ),
           ),
@@ -659,7 +739,13 @@ class _AnchorAlarmToolState extends State<AnchorAlarmTool> {
     return points;
   }
 
-  List<CartesianChartAnnotation> _buildPolarAnnotations(double range, bool isDark) {
+  List<CartesianChartAnnotation> _buildPolarAnnotations(
+    double range,
+    bool isDark, {
+    double? vesselX,
+    double? vesselY,
+    double? vesselHeading,
+  }) {
     final textColor = isDark ? Colors.white70 : Colors.black54;
     final annotations = <CartesianChartAnnotation>[];
 
@@ -715,12 +801,25 @@ class _AnchorAlarmToolState extends State<AnchorAlarmTool> {
     }
 
     // Center label
-    annotations.add(CartesianChartAnnotation(
+    annotations.add(const CartesianChartAnnotation(
       widget: Icon(Icons.anchor, size: 12, color: Colors.brown),
       coordinateUnit: CoordinateUnit.point,
       x: 0,
       y: 0,
     ));
+
+    // Vessel with rotated navigation icon (same as map view)
+    if (vesselX != null && vesselY != null) {
+      annotations.add(CartesianChartAnnotation(
+        widget: Transform.rotate(
+          angle: (vesselHeading ?? 0) * math.pi / 180,
+          child: const Icon(Icons.navigation, color: Colors.green, size: 24),
+        ),
+        coordinateUnit: CoordinateUnit.point,
+        x: vesselX,
+        y: vesselY,
+      ));
+    }
 
     return annotations;
   }
@@ -904,12 +1003,30 @@ class _AnchorAlarmToolState extends State<AnchorAlarmTool> {
             ],
           ),
 
+          // Set Direction button (only when active)
+          if (state.isActive) ...[
+            const SizedBox(height: 8),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: _setAnchorDirection,
+                icon: const Icon(Icons.explore, size: 18),
+                label: const Text('Set Direction'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: Colors.blue,
+                  side: const BorderSide(color: Colors.blue),
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                ),
+              ),
+            ),
+          ],
+
           // Rode length slider (only when active)
           if (state.isActive) ...[
             const SizedBox(height: 4),
             Row(
               children: [
-                Text('Rode: ', style: TextStyle(color: Colors.black87, fontSize: 12)),
+                const Text('Rode: ', style: TextStyle(color: Colors.black87, fontSize: 12)),
                 Text(
                   '${displayValue.toStringAsFixed(0)} $unitSymbol',
                   style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black, fontSize: 14),
