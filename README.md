@@ -36,23 +36,14 @@ A customizable SignalK marine dashboard application to display real-time vessel 
 
 **Display Tools**
 - **Radial Gauge**: Circular gauge with arc display for numeric values
-
-  <img src="screenshots/tool_radial_gauge.png" alt="Radial Gauge" width="280">
-
 - **Linear Gauge**: Horizontal or vertical bar gauge for numeric values
-
-  <img src="screenshots/tool_linear_gauge.png" alt="Linear Gauge" width="280">
 - **Compass Gauge**: Circular compass display for heading/bearing values (supports up to 4 needles)
   - Compare multiple headings on one display (heading, COG, autopilot target, etc.)
   - Multiple styles: classic, arc, minimal, marine
   - Custom labels that stay horizontal for easy reading
-
-  <img src="screenshots/tool_compass_gauge.png" alt="Compass Gauge" width="280">
 - **Text Display**: Large numeric value display with label and unit
   - Smart lat/long formatting (auto-detects and formats as degrees/minutes/seconds)
   - Object value support (displays Map properties as key-value pairs)
-
-  <img src="screenshots/tool_text_display.png" alt="Text Display" width="280">
 
 - **WeatherFlow Forecast**: Weather forecast from WeatherFlow Tempest station
   - Current conditions (temperature, humidity, pressure, wind)
@@ -62,7 +53,7 @@ A customizable SignalK marine dashboard application to display real-time vessel 
   - Configurable hours to display (up to 72 hours)
   - Requires signalk-weatherflow-api plugin
 
-  <img src="screenshots/tool_weatherflow.png" alt="WeatherFlow Forecast" width="400">
+  <img src="screenshots/weatherflow_forecast.png" alt="WeatherFlow Forecast" width="400">
 - **Weather API Spinner**: Generic weather forecast using SignalK Weather API
   - Works with any provider implementing the SignalK Weather API
   - Supports Meteoblue, Open-Meteo, WeatherFlow/Tempest, and other providers
@@ -70,28 +61,25 @@ A customizable SignalK marine dashboard application to display real-time vessel 
   - Provider name displayed in header
   - Automatic unit conversions
 
-  <img src="screenshots/tool_weather_spinner.png" alt="Weather API Spinner" width="400">
+  <img src="screenshots/weather_api_spinner.png" alt="Weather API Spinner" width="400">
 
 **Chart Tools**
 - **Historical Chart**: Line chart showing historical data for up to 3 paths
 
-  <img src="screenshots/tool_historical_chart.png" alt="Historical Chart" width="400">
+  <img src="screenshots/realtime_historic_chat.png" alt="Historical Chart" width="400">
 
 - **Real-Time Chart**: Live spline chart showing real-time data for up to 3 paths
 
-  <img src="screenshots/tool_realtime_chart.png" alt="Real-Time Chart" width="400">
+  <img src="screenshots/screen_combo_charts.jpg" alt="Real-Time Chart" width="400">
 
 - **Radial Bar Chart**: Circular chart displaying up to 4 values as concentric rings
 
-  <img src="screenshots/tool_radial_bar.png" alt="Radial Bar Chart" width="280">
+  <img src="screenshots/radial_bar.png" alt="Radial Bar Chart" width="280">
 
 - **Polar Radar Chart**: Polar chart showing magnitude vs angle with area fill (e.g., wind speed/direction)
-
-  <img src="screenshots/tool_polar_radar.png" alt="Polar Radar Chart" width="280">
-
 - **AIS Polar Chart**: Display nearby AIS vessels on polar chart relative to own position
 
-  <img src="screenshots/tool_ais_polar.png" alt="AIS Polar Chart" width="300">
+  <img src="screenshots/AIS_display.png" alt="AIS Polar Chart" width="300">
 
 **Navigation Tools**
 - **Wind Compass**: Advanced autopilot-style compass with multiple sailing modes
@@ -103,12 +91,9 @@ A customizable SignalK marine dashboard application to display real-time vessel 
   - Tap display to cycle between modes
   - Shows heading (true/magnetic), wind direction (true/apparent), SOG, and COG
 
-  <img src="screenshots/tool_wind_compass.png" alt="Wind Compass" width="320">
+  <img src="screenshots/wind_compass.png" alt="Wind Compass" width="320">
 
 - **Autopilot**: Full autopilot control with compass display, mode selection, and tacking
-
-  <img src="screenshots/tool_autopilot.png" alt="Autopilot" width="320">
-
 - **Autopilot V2**: Redesigned circular autopilot with nested controls
   - Banana-shaped heading adjustment buttons (+1, -1, +10, -10) arced around inner circle
   - Mode selector (Compass, Wind, Route) with engage/standby toggle
@@ -118,14 +103,12 @@ A customizable SignalK marine dashboard application to display real-time vessel 
   - Incremental command queue with acknowledgment tracking
   - Rudder indicator when space permits
   - Responsive portrait/landscape layouts
-
-  <img src="screenshots/tool_autopilot_v2.png" alt="Autopilot V2" width="320">
 - **Attitude Indicator**: Aircraft-style artificial horizon display
   - Shows vessel pitch and roll in real-time
   - Configurable color scheme
   - Visual horizon line with degree markings
 
-  <img src="screenshots/tool_attitude.png" alt="Attitude Indicator" width="280">
+  <img src="screenshots/attitude.png" alt="Attitude Indicator" width="280">
 
 - **GNSS Status**: GPS/GNSS satellite and fix quality display
   - Fix type indicator (No Fix, 2D, 3D, GNSS, DGNSS, RTK Float, RTK Fixed)
@@ -145,8 +128,6 @@ A customizable SignalK marine dashboard application to display real-time vessel 
   - Alarm triggers when vessel exceeds set radius from anchor point
   - Raise anchor to clear and reset
   - Works with SignalK anchor alarm plugin
-
-  <img src="screenshots/tool_anchor_alarm.png" alt="Anchor Alarm" width="350">
 - **Position Display**: Current vessel position in configurable formats
   - Latitude/longitude display with multiple format options
   - Degrees, minutes, seconds or decimal degrees
@@ -166,35 +147,20 @@ A customizable SignalK marine dashboard application to display real-time vessel 
   - Configurable base color theme
   - Each source/load has configurable SignalK paths for current, voltage, power, frequency, and state
 
-  <img src="screenshots/tool_power_flow.png" alt="Power Flow" width="400">
+  <img src="screenshots/power_flow.png" alt="Power Flow" width="400">
 
 **Control Tools**
 - **Switch**: Toggle switch for boolean SignalK paths with PUT support
-
-  <img src="screenshots/tool_switch.png" alt="Switch" width="200">
-
 - **Slider**: Slider control for sending numeric values to SignalK paths
-
-  <img src="screenshots/tool_slider.png" alt="Slider" width="280">
-
 - **Knob**: Rotary knob control for sending numeric values to SignalK paths
-
-  <img src="screenshots/tool_knob.png" alt="Knob" width="200">
-
 - **Checkbox**: Checkbox for boolean SignalK paths with PUT support
-
-  <img src="screenshots/tool_checkbox.png" alt="Checkbox" width="200">
-
 - **Dropdown**: Dropdown selector for sending numeric values to SignalK paths
-
-  <img src="screenshots/tool_dropdown.png" alt="Dropdown" width="280">
-
 - **Tanks**: Display up to 5 tank levels with visual fill indicators
   - Color-coded by tank type (diesel, freshWater, blackWater, wasteWater, liveWell, lubrication, ballast, gas)
   - Auto-detection of tank type from SignalK path
   - Optional capacity display
 
-  <img src="screenshots/tool_tanks.png" alt="Tanks" width="350">
+  <img src="screenshots/tanks.png" alt="Tanks" width="350">
 
 **Utility Tools**
 - **Clock/Alarm**: Smart clock with customizable faces and alarms
@@ -206,7 +172,7 @@ A customizable SignalK marine dashboard application to display real-time vessel 
   - Snooze support (1, 5, 9, 15, 30 minutes)
   - Long-press clock face to manage alarms
 
-  <img src="screenshots/tool_clock.png" alt="Clock/Alarm" width="280">
+  <img src="screenshots/clock.png" alt="Clock/Alarm" width="280">
 
 **System Tools**
 - **Server Status**: Real-time SignalK server monitoring and management
@@ -231,19 +197,17 @@ A customizable SignalK marine dashboard application to display real-time vessel 
 **Crew Communication Tools**
 - **Crew Messages**: View recent crew messages in a compact widget
 
-  <img src="screenshots/tool_crew_messages.png" alt="Crew Messages" width="280">
+  <img src="screenshots/chat.png" alt="Crew Messages" width="280">
 
 - **Crew List**: See online/offline crew members at a glance
 
-  <img src="screenshots/tool_crew_list.png" alt="Crew List" width="280">
+  <img src="screenshots/crew.png" alt="Crew List" width="280">
 
 - **Intercom**: Quick-access PTT button for voice communication
 
-  <img src="screenshots/tool_intercom.png" alt="Intercom" width="280">
+  <img src="screenshots/intercom.png" alt="Intercom" width="280">
 
 - **File Share**: View recently shared files
-
-  <img src="screenshots/tool_file_share.png" alt="File Share" width="280">
 
 ### 👥 Crew Communication System
 
@@ -323,30 +287,20 @@ SignalK acts as the message broker and data store:
 
 ### Dashboard Overview
 
-<img src="screenshots/dashboard_sailing.png" alt="Sailing Dashboard" width="600">
+<img src="screenshots/dashborads.png" alt="Dashboard Overview" width="600">
 
-*Sailing dashboard with navigation instruments*
-
-<img src="screenshots/dashboard_electrical.png" alt="Electrical Dashboard" width="600">
-
-*Electrical monitoring with power flow and tanks*
+*Dashboard with navigation instruments and tools*
 
 ### Setup & Configuration
 
-<img src="screenshots/screen_connection.png" alt="Connection Screen" width="350">
-<img src="screenshots/screen_dashboard_manager.png" alt="Dashboard Manager" width="350">
+<img src="screenshots/screen_setup.png" alt="Setup Management" width="350">
 
-*Server connection and dashboard management*
-
-<img src="screenshots/screen_tool_config.png" alt="Tool Configuration" width="350">
-<img src="screenshots/screen_setup_export.png" alt="Setup Export" width="350">
-
-*Tool configuration and setup sharing*
+*Setup management and sharing*
 
 ### Crew Communication
 
-<img src="screenshots/crew_overview.png" alt="Crew Screen" width="350">
-<img src="screenshots/crew_intercom.png" alt="Intercom" width="350">
+<img src="screenshots/crew.png" alt="Crew Screen" width="350">
+<img src="screenshots/intercom.png" alt="Intercom" width="350">
 
 *Crew status, messaging, and voice intercom*
 
