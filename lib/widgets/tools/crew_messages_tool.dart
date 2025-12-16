@@ -145,27 +145,6 @@ class _CrewMessagesToolState extends State<CrewMessagesTool> {
     );
   }
 
-  Widget _buildMessagesList(BuildContext context, List<CrewMessage> messages, String? myId) {
-    // Show last N messages (most recent at bottom)
-    final displayMessages = messages.length > 10
-        ? messages.sublist(messages.length - 10)
-        : messages;
-
-    return ListView.builder(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      itemCount: displayMessages.length,
-      itemBuilder: (context, index) {
-        final message = displayMessages[index];
-        final isMe = message.fromId == myId;
-
-        return _MessageBubble(
-          message: message,
-          isMe: isMe,
-        );
-      },
-    );
-  }
-
   Widget _buildQuickReply(BuildContext context, MessagingService messagingService) {
     return Container(
       padding: const EdgeInsets.all(8),

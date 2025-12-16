@@ -15,6 +15,7 @@ import '../widgets/tools/dropdown_tool.dart';
 import '../widgets/tools/realtime_chart_tool.dart';
 import '../widgets/tools/radial_bar_chart_tool.dart';
 import '../widgets/tools/autopilot_tool.dart';
+import '../widgets/tools/autopilot_tool_v2.dart';
 import '../widgets/tools/autopilot_simple_tool.dart';
 import '../widgets/tools/polar_radar_chart_tool.dart';
 import '../widgets/tools/ais_polar_chart_tool.dart';
@@ -124,6 +125,7 @@ class ToolRegistry {
     register('checkbox', CheckboxToolBuilder());
     register('dropdown', DropdownToolBuilder());
     register('autopilot', AutopilotToolBuilder());
+    register('autopilot_v2', AutopilotToolV2Builder());
     register('autopilot_simple', AutopilotSimpleToolBuilder());
     register('polar_radar_chart', PolarRadarChartBuilder());
     register('ais_polar_chart', AISPolarChartBuilder());

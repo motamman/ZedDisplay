@@ -3,7 +3,6 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
 import '../models/crew_message.dart';
-import '../models/crew_member.dart';
 import 'signalk_service.dart';
 import 'storage_service.dart';
 import 'crew_service.dart';
@@ -44,9 +43,6 @@ class MessagingService extends ChangeNotifier {
 
   // Track connection state
   bool _wasConnected = false;
-
-  // Last fetch timestamp to only get new messages
-  DateTime? _lastFetchTime;
 
   MessagingService(this._signalKService, this._storageService, this._crewService)
       : _notificationService = NotificationService();
@@ -314,7 +310,6 @@ class MessagingService extends ChangeNotifier {
         notifyListeners();
       }
 
-      _lastFetchTime = DateTime.now();
       _resourcesApiAvailable = true;
     } catch (e) {
       if (kDebugMode) {

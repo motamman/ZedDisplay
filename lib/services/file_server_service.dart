@@ -3,7 +3,6 @@ import 'package:flutter/foundation.dart';
 import 'package:shelf/shelf.dart';
 import 'package:shelf/shelf_io.dart' as shelf_io;
 import 'package:shelf_router/shelf_router.dart';
-import 'package:path_provider/path_provider.dart';
 
 /// Service that runs a local HTTP server to serve shared files
 class FileServerService extends ChangeNotifier {

@@ -182,14 +182,18 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
       appBar: AppBar(
         title: const Text('Connect to SignalK'),
       ),
-      body: Padding(
-        padding: const EdgeInsets.all(24.0),
-        child: Form(
-          key: _formKey,
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
+      body: Center(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(24.0),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 400),
+            child: Form(
+              key: _formKey,
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                mainAxisSize: MainAxisSize.min,
+                children: [
               Image.asset(
                 'assets/icon.png',
                 width: 120,
@@ -325,6 +329,8 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
                 textAlign: TextAlign.center,
               ),
             ],
+              ),
+            ),
           ),
         ),
       ),

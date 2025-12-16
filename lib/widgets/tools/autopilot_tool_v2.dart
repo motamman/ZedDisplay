@@ -13,49 +13,40 @@ import '../../services/tool_registry.dart';
 import '../../utils/color_extensions.dart';
 import '../../utils/conversion_utils.dart';
 import '../../config/ui_constants.dart';
-import '../autopilot_widget.dart';
+import '../autopilot_widget_v2.dart';
 import '../route_info_panel.dart';
 import '../countdown_confirmation_overlay.dart';
 
-/// Autopilot control tool - subscribes to SignalK paths and displays autopilot controls
+/// Autopilot V2 control tool - reimagined design with center circle controls
+///
+/// Features:
+/// - Controls nested in center circle
+/// - +10, -10, +1, -1 buttons arced around inner circle edge
+/// - Mode and engage/disengage in center
 ///
 /// Supports both V1 (plugin-based PUT requests) and V2 (REST API with instance discovery).
-/// Automatically detects available API version and uses V2 when available, falling back to V1.
-///
-/// Expected data sources (in order):
-/// 0: steering.autopilot.state (REQUIRED)
-/// 1: steering.autopilot.mode (REQUIRED)
-/// 2: steering.autopilot.engaged (optional - V2 only)
-/// 3: steering.autopilot.target.headingMagnetic (REQUIRED)
-/// 4: navigation.headingMagnetic (REQUIRED)
-/// 5: steering.rudderAngle (REQUIRED)
-/// 6: environment.wind.angleApparent (optional)
-/// 7: navigation.course.calcValues.crossTrackError (optional)
-class AutopilotTool extends StatefulWidget {
+class AutopilotToolV2 extends StatefulWidget {
   final ToolConfig config;
   final SignalKService signalKService;
 
-  const AutopilotTool({
+  const AutopilotToolV2({
     super.key,
     required this.config,
     required this.signalKService,
   });
 
   @override
-  State<AutopilotTool> createState() => _AutopilotToolState();
+  State<AutopilotToolV2> createState() => _AutopilotToolV2State();
 }
 
-class _AutopilotToolState extends State<AutopilotTool> with AutomaticKeepAliveClientMixin {
-  // Autopilot configuration
-  AutopilotConfig _autopilotConfig = const AutopilotConfig();
+class _AutopilotToolV2State extends State<AutopilotToolV2> with AutomaticKeepAliveClientMixin {
+  final AutopilotConfig _autopilotConfig = const AutopilotConfig();
 
-  // API version and V2 support
-  String? _apiVersion; // 'v1' or 'v2'
+  String? _apiVersion;
   AutopilotV2Api? _v2Api;
   String? _selectedInstanceId;
-  bool _dodgeActive = false; // V2 only - dodge mode state
+  bool _dodgeActive = false;
 
-  // Autopilot state from SignalK
   double _currentHeading = 0;
   double _currentHeadingTrue = 0;
   double _targetHeading = 0;
@@ -65,12 +56,11 @@ class _AutopilotToolState extends State<AutopilotTool> with AutomaticKeepAliveCl
   double? _apparentWindAngle;
   double? _trueWindAngle;
   double? _crossTrackError;
-  bool _isSailingVessel = true; // Default to true to show wind options unless we know otherwise
+  bool _isSailingVessel = true;
 
-  // Route navigation data
   LatLon? _nextWaypoint;
   DateTime? _eta;
-  double? _distanceToWaypoint;  // meters
+  double? _distanceToWaypoint;
   Duration? _timeToWaypoint;
 
   @override
@@ -79,13 +69,8 @@ class _AutopilotToolState extends State<AutopilotTool> with AutomaticKeepAliveCl
   @override
   void initState() {
     super.initState();
-    // Subscribe to SignalK data updates
     widget.signalKService.addListener(_onSignalKUpdate);
-
-    // Detect API version and initialize
     _detectAndInitializeApi();
-
-    // Do an initial update after a short delay to let subscriptions settle
     Future.delayed(const Duration(milliseconds: 500), () {
       if (mounted) {
         _onSignalKUpdate();
@@ -93,7 +78,6 @@ class _AutopilotToolState extends State<AutopilotTool> with AutomaticKeepAliveCl
     });
   }
 
-  /// Detect API version and initialize appropriate API client
   Future<void> _detectAndInitializeApi() async {
     try {
       final detector = AutopilotApiDetector(
@@ -109,7 +93,6 @@ class _AutopilotToolState extends State<AutopilotTool> with AutomaticKeepAliveCl
         _apiVersion = apiVersion.version;
 
         if (apiVersion.isV2) {
-          // Use default instance or first available
           final defaultInstance = apiVersion.defaultInstance;
           _selectedInstanceId = defaultInstance?.id;
 
@@ -118,11 +101,9 @@ class _AutopilotToolState extends State<AutopilotTool> with AutomaticKeepAliveCl
               baseUrl: widget.signalKService.serverUrl,
               authToken: widget.signalKService.authToken?.token,
             );
-
             _initializeV2Api();
           }
         } else {
-          // V1 API - existing implementation
           _subscribeToAutopilotPaths();
         }
       });
@@ -130,7 +111,6 @@ class _AutopilotToolState extends State<AutopilotTool> with AutomaticKeepAliveCl
       if (kDebugMode) {
         print('API detection failed: $e');
       }
-      // Fall back to V1
       setState(() {
         _apiVersion = 'v1';
       });
@@ -138,12 +118,10 @@ class _AutopilotToolState extends State<AutopilotTool> with AutomaticKeepAliveCl
     }
   }
 
-  /// Initialize V2 API by fetching autopilot info
   Future<void> _initializeV2Api() async {
     if (_v2Api == null || _selectedInstanceId == null) return;
 
     try {
-      // Get autopilot info and capabilities
       final info = await _v2Api!.getAutopilotInfo(_selectedInstanceId!);
 
       if (!mounted) return;
@@ -156,7 +134,6 @@ class _AutopilotToolState extends State<AutopilotTool> with AutomaticKeepAliveCl
         }
       });
 
-      // Still subscribe to WebSocket for real-time updates
       _subscribeToAutopilotPaths();
     } catch (e) {
       if (kDebugMode) {
@@ -171,20 +148,16 @@ class _AutopilotToolState extends State<AutopilotTool> with AutomaticKeepAliveCl
     super.dispose();
   }
 
-  /// Subscribe to autopilot SignalK paths from config
   void _subscribeToAutopilotPaths() {
-    // Get paths from tool config data sources
     final configuredPaths = widget.config.dataSources.map((ds) => ds.path).toList();
 
-    // Always include these additional optional paths for enhanced functionality
     final additionalPaths = [
       'steering.autopilot.target.windAngleApparent',
       'navigation.headingTrue',
       'environment.wind.angleTrueWater',
-      'design.aisShipType', // Vessel type to determine if sailing
+      'design.aisShipType',
     ];
 
-    // Optionally include route calculation paths (can be CPU-intensive on server)
     if (_autopilotConfig.enableRouteCalculations) {
       additionalPaths.addAll([
         'navigation.course.calcValues.bearingMagnetic',
@@ -196,14 +169,10 @@ class _AutopilotToolState extends State<AutopilotTool> with AutomaticKeepAliveCl
       ]);
     }
 
-    // Combine configured paths with additional paths (removing duplicates)
     final allPaths = {...configuredPaths, ...additionalPaths}.toList();
-
-    // Use autopilot-specific subscription (standard SignalK stream, not units-preference)
     widget.signalKService.subscribeToAutopilotPaths(allPaths);
   }
 
-  /// Update local state from SignalK data
   void _onSignalKUpdate() {
     if (!mounted) return;
 
@@ -211,8 +180,6 @@ class _AutopilotToolState extends State<AutopilotTool> with AutomaticKeepAliveCl
     if (dataSources.isEmpty) return;
 
     setState(() {
-      // 0: Autopilot state (REQUIRED)
-      // In V1 API, steering.autopilot.state contains the mode (auto, wind, route, standby)
       if (dataSources.isNotEmpty) {
         final statePath = dataSources[0].path;
         final stateSource = dataSources[0].source;
@@ -220,27 +187,16 @@ class _AutopilotToolState extends State<AutopilotTool> with AutomaticKeepAliveCl
 
         if (stateData?.value != null) {
           final rawMode = stateData!.value.toString();
-          // Capitalize first letter for display consistency
           final newMode = rawMode.isNotEmpty
               ? rawMode[0].toUpperCase() + rawMode.substring(1).toLowerCase()
               : 'Standby';
 
           if (newMode != _mode) {
-            if (kDebugMode) {
-              print('🌊 Autopilot state from WebSocket delta: $_mode -> $newMode (raw: $rawMode)');
-            }
             _mode = newMode;
           }
         }
-        // Don't log missing data - normal when autopilot is off or not configured
       }
 
-      // 1: Autopilot mode (optional - may be same as state in V1)
-      // In V1, this is redundant with state. In V2, this would be a separate path.
-      // Skip for now, using state for mode
-
-      // 2: Autopilot engaged (optional - V2 only)
-      // In V1, we derive engaged state from the mode
       final bool newEngaged;
       if (dataSources.length > 2) {
         final engagedData = widget.signalKService.getValue(
@@ -248,25 +204,18 @@ class _AutopilotToolState extends State<AutopilotTool> with AutomaticKeepAliveCl
           source: dataSources[2].source,
         );
         if (engagedData?.value != null && engagedData!.value is bool) {
-          // V2: Use explicit engaged boolean
           newEngaged = engagedData.value as bool;
         } else {
-          // V1: engaged if not in standby
           newEngaged = _mode.toLowerCase() != 'standby';
         }
       } else {
-        // V1: engaged if not in standby
         newEngaged = _mode.toLowerCase() != 'standby';
       }
 
       if (newEngaged != _engaged) {
-        if (kDebugMode) {
-          print('Autopilot engaged state changed: $_engaged -> $newEngaged');
-        }
         _engaged = newEngaged;
       }
 
-      // 3: Target heading (REQUIRED)
       if (dataSources.length > 3) {
         final converted = ConversionUtils.getConvertedValue(
           widget.signalKService,
@@ -277,7 +226,6 @@ class _AutopilotToolState extends State<AutopilotTool> with AutomaticKeepAliveCl
         }
       }
 
-      // 4: Current heading (REQUIRED)
       if (dataSources.length > 4) {
         final converted = ConversionUtils.getConvertedValue(
           widget.signalKService,
@@ -288,17 +236,13 @@ class _AutopilotToolState extends State<AutopilotTool> with AutomaticKeepAliveCl
         }
       }
 
-      // 5: Rudder angle (REQUIRED)
       if (dataSources.length > 5) {
         final converted = ConversionUtils.getConvertedValue(
           widget.signalKService,
           dataSources[5].path,
         );
         if (converted != null) {
-          // Invert by default (positive rudder = turn right = card turns left visually)
           _rudderAngle = -converted;
-
-          // Apply additional invert rudder config if set (for double-negative = normal)
           final invertRudder = widget.config.style.customProperties?['invertRudder'] as bool? ?? false;
           if (invertRudder) {
             _rudderAngle = -_rudderAngle;
@@ -306,7 +250,6 @@ class _AutopilotToolState extends State<AutopilotTool> with AutomaticKeepAliveCl
         }
       }
 
-      // 6: Apparent wind angle (optional)
       if (dataSources.length > 6) {
         final converted = ConversionUtils.getConvertedValue(
           widget.signalKService,
@@ -317,7 +260,6 @@ class _AutopilotToolState extends State<AutopilotTool> with AutomaticKeepAliveCl
         }
       }
 
-      // 7: Cross track error (optional)
       if (dataSources.length > 7) {
         final xteData = widget.signalKService.getValue(
           dataSources[7].path,
@@ -328,8 +270,6 @@ class _AutopilotToolState extends State<AutopilotTool> with AutomaticKeepAliveCl
         }
       }
 
-      // Additional paths not in config but subscribed
-      // True heading (optional)
       final convertedHeadingTrue = ConversionUtils.getConvertedValue(
         widget.signalKService,
         'navigation.headingTrue',
@@ -338,7 +278,6 @@ class _AutopilotToolState extends State<AutopilotTool> with AutomaticKeepAliveCl
         _currentHeadingTrue = convertedHeadingTrue;
       }
 
-      // True wind angle (optional)
       final convertedTwa = ConversionUtils.getConvertedValue(
         widget.signalKService,
         'environment.wind.angleTrueWater',
@@ -347,58 +286,47 @@ class _AutopilotToolState extends State<AutopilotTool> with AutomaticKeepAliveCl
         _trueWindAngle = convertedTwa;
       }
 
-      // Vessel type (to determine if sailing)
       final vesselTypeData = widget.signalKService.getValue('design.aisShipType');
       if (vesselTypeData?.value != null) {
         final vesselType = vesselTypeData!.value;
         if (vesselType is Map) {
-          // Check both name and id for sailing vessel
           final name = vesselType['name']?.toString().toLowerCase() ?? '';
           final id = vesselType['id'];
           _isSailingVessel = name.contains('sail') || id == 36;
         } else if (vesselType is num) {
-          // If it's just the id number
           _isSailingVessel = vesselType == 36;
         }
       }
 
-      // Route navigation data (only if enabled)
       if (_autopilotConfig.enableRouteCalculations) {
-        // Next waypoint position
         final nextWptData = widget.signalKService.getValue('navigation.courseGreatCircle.nextPoint.position');
         if (nextWptData?.value != null && nextWptData!.value is Map) {
           _nextWaypoint = LatLon.fromJson(nextWptData.value as Map<String, dynamic>);
         }
 
-        // Distance to waypoint (meters)
         final distanceData = widget.signalKService.getValue('navigation.course.calcValues.distance');
         if (distanceData?.value != null) {
           _distanceToWaypoint = (distanceData!.value as num).toDouble();
         }
 
-        // Time to waypoint (seconds)
         final timeData = widget.signalKService.getValue('navigation.course.calcValues.timeToGo');
         if (timeData?.value != null) {
           final seconds = (timeData!.value as num).toInt();
           _timeToWaypoint = Duration(seconds: seconds);
         }
 
-        // ETA (ISO 8601 string)
         final etaData = widget.signalKService.getValue('navigation.course.calcValues.estimatedTimeOfArrival');
         if (etaData?.value != null) {
           try {
             _eta = DateTime.parse(etaData!.value.toString());
           } catch (e) {
-            if (kDebugMode) {
-              print('Failed to parse ETA: $e');
-            }
+            // Ignore parse errors
           }
         }
       }
     });
   }
 
-  /// Unified command sending that works with both V1 and V2 APIs
   Future<void> _sendCommand({
     required String description,
     required Future<void> Function() v1Command,
@@ -406,30 +334,23 @@ class _AutopilotToolState extends State<AutopilotTool> with AutomaticKeepAliveCl
     String? verifyPath,
     dynamic verifyValue,
   }) async {
-    if (kDebugMode) {
-      print('Sending autopilot command ($_apiVersion): $description');
-    }
-
     try {
-      // Send command via appropriate API
       if (_apiVersion == 'v2' && _v2Api != null && _selectedInstanceId != null) {
         await v2Command();
       } else {
         await v1Command();
       }
 
-      // Show pending feedback
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
+          const SnackBar(
             content: Text('Sending command...'),
             backgroundColor: Colors.orange,
-            duration: const Duration(seconds: 5),
+            duration: Duration(seconds: 5),
           ),
         );
       }
 
-      // Verify state change via WebSocket (if verification path provided)
       bool verified = true;
       if (verifyPath != null && verifyValue != null) {
         final verifier = AutopilotStateVerifier(widget.signalKService);
@@ -437,30 +358,21 @@ class _AutopilotToolState extends State<AutopilotTool> with AutomaticKeepAliveCl
           path: verifyPath,
           expectedValue: verifyValue,
         );
-
-        if (kDebugMode) {
-          print('Autopilot command ${verified ? "verified" : "timed out"}');
-        }
       }
 
-      // Show final result
       if (mounted) {
         ScaffoldMessenger.of(context).clearSnackBars();
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(verified
                 ? 'Command successful'
-                : 'Command sent but not confirmed - may still be processing'),
+                : 'Command sent but not confirmed'),
             backgroundColor: verified ? Colors.green : Colors.orange,
             duration: UIConstants.snackBarShort,
           ),
         );
       }
     } on AutopilotException catch (e) {
-      if (kDebugMode) {
-        print('Autopilot error: ${e.message}');
-      }
-
       if (mounted) {
         ScaffoldMessenger.of(context).clearSnackBars();
         ScaffoldMessenger.of(context).showSnackBar(
@@ -472,10 +384,6 @@ class _AutopilotToolState extends State<AutopilotTool> with AutomaticKeepAliveCl
         );
       }
     } catch (e) {
-      if (kDebugMode) {
-        print('Autopilot command failed: $e');
-      }
-
       if (mounted) {
         ScaffoldMessenger.of(context).clearSnackBars();
         ScaffoldMessenger.of(context).showSnackBar(
@@ -489,7 +397,6 @@ class _AutopilotToolState extends State<AutopilotTool> with AutomaticKeepAliveCl
     }
   }
 
-  /// Handle engage/disengage (works with both V1 and V2)
   void _handleEngageDisengage() async {
     await _sendCommand(
       description: _engaged ? 'Disengage' : 'Engage',
@@ -511,7 +418,6 @@ class _AutopilotToolState extends State<AutopilotTool> with AutomaticKeepAliveCl
     );
   }
 
-  /// Handle mode change (works with both V1 and V2)
   void _handleModeChange(String mode) async {
     await _sendCommand(
       description: 'Mode change to $mode',
@@ -529,7 +435,6 @@ class _AutopilotToolState extends State<AutopilotTool> with AutomaticKeepAliveCl
     );
   }
 
-  /// Handle heading adjustment (works with both V1 and V2)
   void _handleAdjustHeading(int degrees) {
     _sendCommand(
       description: 'Adjust heading ${degrees > 0 ? "+" : ""}$degrees°',
@@ -542,16 +447,14 @@ class _AutopilotToolState extends State<AutopilotTool> with AutomaticKeepAliveCl
       v2Command: () async {
         await _v2Api!.adjustTarget(_selectedInstanceId!, degrees);
       },
-      verifyPath: null, // Don't verify heading adjustments
+      verifyPath: null,
       verifyValue: null,
     );
   }
 
-  /// Handle tack with countdown confirmation (works with both V1 and V2)
   void _handleTack(String direction) async {
     final directionLabel = direction == 'port' ? 'Port' : 'Starboard';
 
-    // Show countdown confirmation
     final confirmed = await showCountdownConfirmation(
       context: context,
       title: 'Tack to $directionLabel?',
@@ -572,14 +475,12 @@ class _AutopilotToolState extends State<AutopilotTool> with AutomaticKeepAliveCl
       v2Command: () async {
         await _v2Api!.tack(_selectedInstanceId!, direction);
       },
-      verifyPath: null, // Tacking doesn't have a simple verification path
+      verifyPath: null,
       verifyValue: null,
     );
   }
 
-  /// Handle advance waypoint with countdown confirmation (V1 only - route management)
   void _handleAdvanceWaypoint() async {
-    // Show countdown confirmation
     final confirmed = await showCountdownConfirmation(
       context: context,
       title: 'Advance to Next Waypoint?',
@@ -598,8 +499,6 @@ class _AutopilotToolState extends State<AutopilotTool> with AutomaticKeepAliveCl
         );
       },
       v2Command: () async {
-        // V2 API doesn't have a standard advance waypoint endpoint yet
-        // Fall back to V1 method
         await widget.signalKService.sendPutRequest(
           'steering.autopilot.actions.advanceWaypoint',
           1,
@@ -610,9 +509,7 @@ class _AutopilotToolState extends State<AutopilotTool> with AutomaticKeepAliveCl
     );
   }
 
-  /// Handle gybe with countdown confirmation (V2 only)
   void _handleGybe(String direction) async {
-    // Check if V2 API is available
     if (_apiVersion != 'v2') {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -627,7 +524,6 @@ class _AutopilotToolState extends State<AutopilotTool> with AutomaticKeepAliveCl
 
     final directionLabel = direction == 'port' ? 'Port' : 'Starboard';
 
-    // Show countdown confirmation
     final confirmed = await showCountdownConfirmation(
       context: context,
       title: 'Gybe to $directionLabel?',
@@ -650,9 +546,7 @@ class _AutopilotToolState extends State<AutopilotTool> with AutomaticKeepAliveCl
     );
   }
 
-  /// Handle dodge mode toggle (V2 only)
   void _handleDodgeToggle() async {
-    // Check if V2 API is available
     if (_apiVersion != 'v2') {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -683,7 +577,6 @@ class _AutopilotToolState extends State<AutopilotTool> with AutomaticKeepAliveCl
       verifyValue: null,
     );
 
-    // Update local state
     if (mounted) {
       setState(() {
         _dodgeActive = newState;
@@ -695,7 +588,6 @@ class _AutopilotToolState extends State<AutopilotTool> with AutomaticKeepAliveCl
   Widget build(BuildContext context) {
     super.build(context);
 
-    // Check minimum configuration
     if (widget.config.dataSources.length < 6) {
       return const Center(
         child: Text(
@@ -711,35 +603,24 @@ class _AutopilotToolState extends State<AutopilotTool> with AutomaticKeepAliveCl
       );
     }
 
-    // Parse color from hex string
     final primaryColor = widget.config.style.primaryColor?.toColor(
       fallback: Colors.red
     ) ?? Colors.red;
 
-    // Get heading preference from config
     final headingTrue = widget.config.style.customProperties?['headingTrue'] as bool? ?? false;
-
-    // Get polar configuration from config (same fields as wind compass)
     final targetAWA = widget.config.style.laylineAngle ?? 40.0;
     final targetTolerance = widget.config.style.targetTolerance ?? 3.0;
-
-    // Get fade delay from config
     final fadeDelaySeconds = widget.config.style.customProperties?['fadeDelaySeconds'] as int? ?? 5;
 
-    // Select the appropriate heading based on config
     final displayHeading = headingTrue ? _currentHeadingTrue : _currentHeading;
 
-    // Determine which wind angle to display based on mode
     double? displayWindAngle;
     if (_mode.toLowerCase() == 'wind') {
-      // In wind mode, show apparent wind angle
       displayWindAngle = _apparentWindAngle;
     } else if (_mode.toLowerCase() == 'true wind') {
-      // In true wind mode, show true wind angle
       displayWindAngle = _trueWindAngle;
     }
 
-    // Calculate absolute wind directions for compass display
     double? apparentWindDir;
     double? trueWindDir;
 
@@ -753,57 +634,51 @@ class _AutopilotToolState extends State<AutopilotTool> with AutomaticKeepAliveCl
       if (trueWindDir < 0) trueWindDir += 360;
     }
 
-    // Show wind indicators only in wind mode
     final isWindMode = _mode.toLowerCase() == 'wind' || _mode.toLowerCase() == 'true wind';
 
-    return Stack(
-      children: [
-        AutopilotWidget(
-          currentHeading: displayHeading,
-          targetHeading: _targetHeading,
-          rudderAngle: _rudderAngle,
-          mode: _mode,
-          engaged: _engaged,
-          apparentWindAngle: displayWindAngle,
-          apparentWindDirection: apparentWindDir,
-          trueWindDirection: trueWindDir,
-          crossTrackError: _crossTrackError,
-          headingTrue: headingTrue,
-          showWindIndicators: isWindMode,
-          primaryColor: primaryColor,
-          isSailingVessel: _isSailingVessel,
-          targetAWA: targetAWA,
-          targetTolerance: targetTolerance,
-          nextWaypoint: _nextWaypoint,
-          eta: _eta,
-          distanceToWaypoint: _distanceToWaypoint,
-          timeToWaypoint: _timeToWaypoint,
-          onlyShowXTEWhenNear: _autopilotConfig.onlyShowXTEWhenNear,
-          fadeDelaySeconds: fadeDelaySeconds,
-          isV2Api: _apiVersion == 'v2',
-          dodgeActive: _dodgeActive,
-          onEngageDisengage: _handleEngageDisengage,
-          onModeChange: _handleModeChange,
-          onAdjustHeading: _handleAdjustHeading,
-          onTack: _handleTack,
-          onGybe: _handleGybe,
-          onAdvanceWaypoint: _handleAdvanceWaypoint,
-          onDodgeToggle: _handleDodgeToggle,
-        ),
-      ],
+    return AutopilotWidgetV2(
+      currentHeading: displayHeading,
+      targetHeading: _targetHeading,
+      rudderAngle: _rudderAngle,
+      mode: _mode,
+      engaged: _engaged,
+      apparentWindAngle: displayWindAngle,
+      apparentWindDirection: apparentWindDir,
+      trueWindDirection: trueWindDir,
+      crossTrackError: _crossTrackError,
+      headingTrue: headingTrue,
+      showWindIndicators: isWindMode,
+      primaryColor: primaryColor,
+      isSailingVessel: _isSailingVessel,
+      targetAWA: targetAWA,
+      targetTolerance: targetTolerance,
+      nextWaypoint: _nextWaypoint,
+      eta: _eta,
+      distanceToWaypoint: _distanceToWaypoint,
+      timeToWaypoint: _timeToWaypoint,
+      onlyShowXTEWhenNear: _autopilotConfig.onlyShowXTEWhenNear,
+      fadeDelaySeconds: fadeDelaySeconds,
+      isV2Api: _apiVersion == 'v2',
+      dodgeActive: _dodgeActive,
+      onEngageDisengage: _handleEngageDisengage,
+      onModeChange: _handleModeChange,
+      onAdjustHeading: _handleAdjustHeading,
+      onTack: _handleTack,
+      onGybe: _handleGybe,
+      onAdvanceWaypoint: _handleAdvanceWaypoint,
+      onDodgeToggle: _handleDodgeToggle,
     );
   }
-
 }
 
-/// Builder for autopilot tools
-class AutopilotToolBuilder extends ToolBuilder {
+/// Builder for autopilot V2 tools
+class AutopilotToolV2Builder extends ToolBuilder {
   @override
   ToolDefinition getDefinition() {
     return ToolDefinition(
-      id: 'autopilot',
-      name: 'Autopilot',
-      description: 'Full autopilot control with compass display, mode selection, and tacking. Supports V1 (plugin) and V2 (REST) autopilot APIs.',
+      id: 'autopilot_v2',
+      name: 'Autopilot V2',
+      description: 'Reimagined autopilot control with center circle design. +10/-10/+1/-1 buttons arc around the inner circle.',
       category: ToolCategory.navigation,
       configSchema: ConfigSchema(
         allowsMinMax: false,
@@ -813,11 +688,11 @@ class AutopilotToolBuilder extends ToolBuilder {
         maxPaths: 10,
         styleOptions: const [
           'primaryColor',
-          'headingTrue',      // Boolean: use true vs magnetic heading
-          'invertRudder',     // Boolean: invert rudder angle display
-          'laylineAngle',     // Number: optimal close-hauled angle (degrees) - same as wind compass
-          'targetTolerance',  // Number: acceptable deviation from target (degrees) - same as wind compass
-          'fadeDelaySeconds', // Number: seconds before controls fade (default: 5)
+          'headingTrue',
+          'invertRudder',
+          'laylineAngle',
+          'targetTolerance',
+          'fadeDelaySeconds',
         ],
       ),
     );
@@ -838,11 +713,11 @@ class AutopilotToolBuilder extends ToolBuilder {
         DataSource(path: 'navigation.course.calcValues.crossTrackError', label: 'Cross Track Error'),
       ],
       style: StyleConfig(
-        primaryColor: '#FF0000', // Red for autopilot
-        laylineAngle: 40.0,      // Default target AWA
-        targetTolerance: 3.0,    // Default tolerance
+        primaryColor: '#FF0000',
+        laylineAngle: 40.0,
+        targetTolerance: 3.0,
         customProperties: {
-          'fadeDelaySeconds': 5,  // Default fade delay in seconds
+          'fadeDelaySeconds': 5,
         },
       ),
     );
@@ -850,7 +725,7 @@ class AutopilotToolBuilder extends ToolBuilder {
 
   @override
   Widget build(ToolConfig config, SignalKService signalKService) {
-    return AutopilotTool(
+    return AutopilotToolV2(
       config: config,
       signalKService: signalKService,
     );
