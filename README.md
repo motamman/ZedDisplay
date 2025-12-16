@@ -64,17 +64,15 @@ A customizable SignalK marine dashboard application to display real-time vessel 
   <img src="screenshots/weather_api_spinner.png" alt="Weather API Spinner" width="400">
 
 **Chart Tools**
-- **Historical Chart**: Line chart showing historical data for up to 3 paths
-
-  <img src="screenshots/realtime_historic_chat.png" alt="Historical Chart" width="400">
-
+- **Historical Chart**: Line chart showing historical data for up to 3 paths 
 - **Real-Time Chart**: Live spline chart showing real-time data for up to 3 paths
 
-  <img src="screenshots/screen_combo_charts.jpg" alt="Real-Time Chart" width="400">
+<img src="screenshots/screen_combo_charts.jpg" alt="Real-Time Chart" width="400">
+ <img src="screenshots/realtime_historic_chat.png" alt="Historical Chart" width="400">
 
 - **Radial Bar Chart**: Circular chart displaying up to 4 values as concentric rings
 
-  <img src="screenshots/radial_bar.png" alt="Radial Bar Chart" width="280">
+  <img src="screenshots/radial_bar2.png" alt="Radial Bar Chart" width="280">
 
 - **Polar Radar Chart**: Polar chart showing magnitude vs angle with area fill (e.g., wind speed/direction)
 - **AIS Polar Chart**: Display nearby AIS vessels on polar chart relative to own position
@@ -151,13 +149,12 @@ A customizable SignalK marine dashboard application to display real-time vessel 
 
 **Control Tools**
 - **Switch**: Toggle switch for boolean SignalK paths with PUT support
-- **Slider**: Slider control for sending numeric values to SignalK paths
-- **Knob**: Rotary knob control for sending numeric values to SignalK paths
-- **Checkbox**: Checkbox for boolean SignalK paths with PUT support
-- **Dropdown**: Dropdown selector for sending numeric values to SignalK paths
+- **Slider**: Slider control for sending numeric values to SignalK paths with PUT support
+- **Knob**: Rotary knob control for sending numeric values to SignalK paths with PUT support
+- **Checkbox**: Checkbox for boolean SignalK paths with PUT support with PUT support
+- **Dropdown**: Dropdown selector for sending numeric values to SignalK paths with PUT support
 - **Tanks**: Display up to 5 tank levels with visual fill indicators
-  - Color-coded by tank type (diesel, freshWater, blackWater, wasteWater, liveWell, lubrication, ballast, gas)
-  - Auto-detection of tank type from SignalK path
+  - Color-coded by tank type (diesel, freshWater, blackWater, wasteWater, liveWell, lubrication, ballast, gas) with icons
   - Optional capacity display
 
   <img src="screenshots/tanks.png" alt="Tanks" width="350">
@@ -173,6 +170,8 @@ A customizable SignalK marine dashboard application to display real-time vessel 
   - Long-press clock face to manage alarms
 
   <img src="screenshots/clock.png" alt="Clock/Alarm" width="280">
+  <img src="screenshots/alarm_setup2.png" alt="Clock/Alarm" width="280">
+  
 
 **System Tools**
 - **Server Status**: Real-time SignalK server monitoring and management
