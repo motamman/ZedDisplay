@@ -371,6 +371,12 @@ class _ClockAlarmToolState extends State<ClockAlarmTool> with TickerProviderStat
   }
 
   Future<void> _saveAlarm(Alarm alarm) async {
+    // Ensure resource type exists before saving
+    await widget.signalKService.ensureResourceTypeExists(
+      _alarmResourceType,
+      description: 'ZedDisplay shared alarms',
+    );
+
     final data = alarm.toJson();
     final description = data.entries
         .map((e) => '${e.key}=${e.value}')
@@ -382,7 +388,10 @@ class _ClockAlarmToolState extends State<ClockAlarmTool> with TickerProviderStat
       'position': {'latitude': 0.0, 'longitude': 0.0},
     };
 
-    await widget.signalKService.putResource(_alarmResourceType, alarm.id, resourceData);
+    final success = await widget.signalKService.putResource(_alarmResourceType, alarm.id, resourceData);
+    if (kDebugMode && !success) {
+      print('Failed to save alarm ${alarm.id}');
+    }
   }
 
   Future<void> _deleteAlarm(Alarm alarm) async {
@@ -802,12 +811,12 @@ class _ClockAlarmToolState extends State<ClockAlarmTool> with TickerProviderStat
 }
 
 /// Alarms panel bottom sheet
-class _AlarmsPanelSheet extends StatelessWidget {
+class _AlarmsPanelSheet extends StatefulWidget {
   final List<Alarm> alarms;
   final Color primaryColor;
   final VoidCallback onAddAlarm;
   final Function(Alarm) onEditAlarm;
-  final Function(Alarm) onToggleAlarm;
+  final Future<void> Function(Alarm) onToggleAlarm;
   final Function(Alarm) onDeleteAlarm;
   final VoidCallback onRefresh;
 
@@ -820,6 +829,18 @@ class _AlarmsPanelSheet extends StatelessWidget {
     required this.onDeleteAlarm,
     required this.onRefresh,
   });
+
+  @override
+  State<_AlarmsPanelSheet> createState() => _AlarmsPanelSheetState();
+}
+
+class _AlarmsPanelSheetState extends State<_AlarmsPanelSheet> {
+  Future<void> _handleToggle(Alarm alarm) async {
+    await widget.onToggleAlarm(alarm);
+    if (mounted) {
+      setState(() {});
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -859,12 +880,12 @@ class _AlarmsPanelSheet extends StatelessWidget {
                       children: [
                         IconButton(
                           icon: const Icon(Icons.refresh),
-                          onPressed: onRefresh,
+                          onPressed: widget.onRefresh,
                           tooltip: 'Refresh',
                         ),
                         IconButton(
-                          icon: Icon(Icons.add, color: primaryColor),
-                          onPressed: onAddAlarm,
+                          icon: Icon(Icons.add, color: widget.primaryColor),
+                          onPressed: widget.onAddAlarm,
                           tooltip: 'Add Alarm',
                         ),
                       ],
@@ -875,7 +896,7 @@ class _AlarmsPanelSheet extends StatelessWidget {
               const Divider(),
               // Alarms list
               Expanded(
-                child: alarms.isEmpty
+                child: widget.alarms.isEmpty
                     ? Center(
                         child: Column(
                           mainAxisSize: MainAxisSize.min,
@@ -888,7 +909,7 @@ class _AlarmsPanelSheet extends StatelessWidget {
                             ),
                             const SizedBox(height: 8),
                             TextButton.icon(
-                              onPressed: onAddAlarm,
+                              onPressed: widget.onAddAlarm,
                               icon: const Icon(Icons.add),
                               label: const Text('Add Alarm'),
                             ),
@@ -897,9 +918,9 @@ class _AlarmsPanelSheet extends StatelessWidget {
                       )
                     : ListView.builder(
                         controller: scrollController,
-                        itemCount: alarms.length,
+                        itemCount: widget.alarms.length,
                         itemBuilder: (context, index) {
-                          final alarm = alarms[index];
+                          final alarm = widget.alarms[index];
                           return Dismissible(
                             key: Key(alarm.id),
                             direction: DismissDirection.endToStart,
@@ -909,11 +930,11 @@ class _AlarmsPanelSheet extends StatelessWidget {
                               padding: const EdgeInsets.only(right: 20),
                               child: const Icon(Icons.delete, color: Colors.white),
                             ),
-                            onDismissed: (_) => onDeleteAlarm(alarm),
+                            onDismissed: (_) => widget.onDeleteAlarm(alarm),
                             child: ListTile(
                               leading: Icon(
                                 alarm.enabled ? Icons.alarm : Icons.alarm_off,
-                                color: alarm.enabled ? primaryColor : Colors.grey,
+                                color: alarm.enabled ? widget.primaryColor : Colors.grey,
                               ),
                               title: Text(
                                 alarm.timeString,
@@ -931,11 +952,11 @@ class _AlarmsPanelSheet extends StatelessWidget {
                               ),
                               trailing: Switch(
                                 value: alarm.enabled,
-                                onChanged: (_) => onToggleAlarm(alarm),
-                                activeTrackColor: primaryColor.withAlpha(180),
-                                activeThumbColor: primaryColor,
+                                onChanged: (_) => _handleToggle(alarm),
+                                activeTrackColor: widget.primaryColor.withAlpha(180),
+                                activeThumbColor: widget.primaryColor,
                               ),
-                              onTap: () => onEditAlarm(alarm),
+                              onTap: () => widget.onEditAlarm(alarm),
                             ),
                           );
                         },
