@@ -585,13 +585,8 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 This project is licensed under the MIT License - see the LICENSE file for details.
 
-## Support
+- Open an issue at the [ZedDisplay repo](https://github.com/motamman/ZedDisplay)
 
-For questions or issues:
-- Open an issue on GitHub
-- Check the [SignalK documentation](https://signalk.org/documentation/)
-
-## Roadmap
 
 ### General Features
 - [ ] Offline mode with cached data
