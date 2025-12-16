@@ -1,5 +1,4 @@
 import 'dart:math' as math;
-import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import '../../models/tool_config.dart';
 import '../../models/tool_definition.dart';

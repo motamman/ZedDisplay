@@ -433,5 +433,6 @@ class WeatherApiService extends ChangeNotifier {
   void dispose() {
     // Don't call super.dispose() directly - use release() or disposeAll()
     // This prevents accidental disposal of shared instances
+    super.dispose();
   }
 }

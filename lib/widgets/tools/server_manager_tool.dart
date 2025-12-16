@@ -577,64 +577,10 @@ class _ServerManagerToolState extends State<ServerManagerTool> {
     );
   }
 
-  Widget _buildProviderStatsSection(ThemeData theme) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'Providers',
-          style: theme.textTheme.titleSmall?.copyWith(
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-        const SizedBox(height: 4),
-        ..._providerStats.entries.map((entry) {
-          final stats = entry.value as Map<String, dynamic>;
-          final deltaRate = (stats['deltaRate'] as num?)?.toDouble() ?? 0;
-          final deltaCount = (stats['deltaCount'] as num?)?.toInt() ?? 0;
-
-          return Padding(
-            padding: const EdgeInsets.only(bottom: 4),
-            child: Row(
-              children: [
-                Expanded(
-                  flex: 2,
-                  child: Text(
-                    entry.key,
-                    style: const TextStyle(fontSize: 12),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-                Expanded(
-                  child: Text(
-                    '${deltaRate.toStringAsFixed(1)}/s',
-                    style: const TextStyle(fontSize: 12),
-                    textAlign: TextAlign.right,
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    '$deltaCount deltas',
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: theme.textTheme.bodySmall?.color,
-                    ),
-                    textAlign: TextAlign.right,
-                  ),
-                ),
-              ],
-            ),
-          );
-        }),
-      ],
-    );
-  }
-
   Widget _buildScrollableProvidersSection(ThemeData theme) {
     return Container(
       decoration: BoxDecoration(
-        border: Border.all(color: Colors.grey.withOpacity(0.3)),
+        border: Border.all(color: Colors.grey.withValues(alpha:0.3)),
         borderRadius: BorderRadius.circular(6),
       ),
       child: Column(
@@ -643,7 +589,7 @@ class _ServerManagerToolState extends State<ServerManagerTool> {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
             decoration: BoxDecoration(
-              color: Colors.blue.withOpacity(0.1),
+              color: Colors.blue.withValues(alpha:0.1),
               borderRadius: const BorderRadius.only(
                 topLeft: Radius.circular(6),
                 topRight: Radius.circular(6),
@@ -683,7 +629,7 @@ class _ServerManagerToolState extends State<ServerManagerTool> {
                         child: Container(
                           padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 8),
                           decoration: BoxDecoration(
-                            color: Colors.blue.withOpacity(0.05),
+                            color: Colors.blue.withValues(alpha:0.05),
                             borderRadius: BorderRadius.circular(4),
                           ),
                           child: Row(
@@ -735,7 +681,7 @@ class _ServerManagerToolState extends State<ServerManagerTool> {
   Widget _buildScrollablePluginsSection(ThemeData theme) {
     return Container(
       decoration: BoxDecoration(
-        border: Border.all(color: Colors.grey.withOpacity(0.3)),
+        border: Border.all(color: Colors.grey.withValues(alpha:0.3)),
         borderRadius: BorderRadius.circular(6),
       ),
       child: Column(
@@ -744,7 +690,7 @@ class _ServerManagerToolState extends State<ServerManagerTool> {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
             decoration: BoxDecoration(
-              color: Colors.grey.withOpacity(0.1),
+              color: Colors.grey.withValues(alpha:0.1),
               borderRadius: const BorderRadius.only(
                 topLeft: Radius.circular(6),
                 topRight: Radius.circular(6),
@@ -800,8 +746,8 @@ class _ServerManagerToolState extends State<ServerManagerTool> {
                         child: Container(
                           decoration: BoxDecoration(
                             color: enabled
-                                ? Colors.green.withOpacity(0.1)
-                                : Colors.grey.withOpacity(0.05),
+                                ? Colors.green.withValues(alpha:0.1)
+                                : Colors.grey.withValues(alpha:0.05),
                             borderRadius: BorderRadius.circular(4),
                           ),
                           child: Padding(
@@ -843,83 +789,10 @@ class _ServerManagerToolState extends State<ServerManagerTool> {
     );
   }
 
-  Widget _buildPluginsSection(ThemeData theme) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text(
-              'Plugins (${_plugins.length})',
-              style: theme.textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            if (_loadingPlugins)
-              const SizedBox(
-                width: 16,
-                height: 16,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              )
-            else
-              IconButton(
-                icon: const Icon(Icons.refresh, size: 20),
-                onPressed: _loadPlugins,
-                tooltip: 'Refresh plugins',
-              ),
-          ],
-        ),
-        const SizedBox(height: 8),
-        if (_plugins.isEmpty && !_loadingPlugins)
-          const Text('No plugins loaded', style: TextStyle(fontSize: 12))
-        else
-          ..._plugins.map((plugin) {
-            final id = plugin['id'] as String? ?? 'Unknown';
-            final name = plugin['name'] as String? ?? id;
-            final enabled = plugin['enabled'] as bool? ?? false;
-
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 4),
-              child: InkWell(
-                onTap: () => _togglePlugin(id, enabled),
-                borderRadius: BorderRadius.circular(4),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 4),
-                  child: Row(
-                    children: [
-                      Icon(
-                        enabled ? Icons.check_circle : Icons.cancel,
-                        size: 16,
-                        color: enabled ? Colors.green : Colors.grey,
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          name,
-                          style: const TextStyle(fontSize: 12),
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                      Icon(
-                        Icons.touch_app,
-                        size: 14,
-                        color: theme.textTheme.bodySmall?.color?.withValues(alpha: 0.5),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            );
-          }),
-      ],
-    );
-  }
-
   Widget _buildScrollableWebappsSection(ThemeData theme) {
     return Container(
       decoration: BoxDecoration(
-        border: Border.all(color: Colors.grey.withOpacity(0.3)),
+        border: Border.all(color: Colors.grey.withValues(alpha:0.3)),
         borderRadius: BorderRadius.circular(6),
       ),
       child: Column(
@@ -928,7 +801,7 @@ class _ServerManagerToolState extends State<ServerManagerTool> {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
             decoration: BoxDecoration(
-              color: Colors.grey.withOpacity(0.1),
+              color: Colors.grey.withValues(alpha:0.1),
               borderRadius: const BorderRadius.only(
                 topLeft: Radius.circular(6),
                 topRight: Radius.circular(6),
@@ -983,7 +856,7 @@ class _ServerManagerToolState extends State<ServerManagerTool> {
                         child: Container(
                           padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 8),
                           decoration: BoxDecoration(
-                            color: Colors.purple.withOpacity(0.05),
+                            color: Colors.purple.withValues(alpha:0.05),
                             borderRadius: BorderRadius.circular(4),
                           ),
                           child: Row(
@@ -1015,68 +888,6 @@ class _ServerManagerToolState extends State<ServerManagerTool> {
     );
   }
 
-  Widget _buildWebappsSection(ThemeData theme) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text(
-              'Webapps (${_webapps.length})',
-              style: theme.textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            if (_loadingWebapps)
-              const SizedBox(
-                width: 16,
-                height: 16,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              )
-            else
-              IconButton(
-                icon: const Icon(Icons.refresh, size: 20),
-                onPressed: _loadWebapps,
-                tooltip: 'Refresh webapps',
-              ),
-          ],
-        ),
-        const SizedBox(height: 8),
-        if (_webapps.isEmpty && !_loadingWebapps)
-          const Text('No webapps found', style: TextStyle(fontSize: 12))
-        else
-          ..._webapps.map((webapp) {
-            final name = webapp['name'] as String? ?? 'Unknown';
-            final version = webapp['version'] as String? ?? '';
-
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 4),
-              child: Row(
-                children: [
-                  const Icon(Icons.web, size: 16, color: Colors.blue),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      name,
-                      style: const TextStyle(fontSize: 12),
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                  Text(
-                    version,
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: theme.textTheme.bodySmall?.color,
-                    ),
-                  ),
-                ],
-              ),
-            );
-          }),
-      ],
-    );
-  }
 }
 
 /// Builder for server manager tool

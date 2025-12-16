@@ -322,7 +322,7 @@ class _SystemMonitorToolState extends State<SystemMonitorTool> with AutomaticKee
                       _buildMetric('Model', _deviceModel),
                       _buildMetric('OS', _osVersion),
                       if (_totalMemoryMB > 0)
-                        _buildMetric('Total Memory', '${_totalMemoryMB} MB'),
+                        _buildMetric('Total Memory', '$_totalMemoryMB MB'),
                     ],
                   ),
                   const Divider(),

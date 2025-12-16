@@ -5,7 +5,6 @@ import '../../models/tool_definition.dart';
 import '../../models/tool_config.dart';
 import '../../models/autopilot_errors.dart';
 import '../../models/autopilot_config.dart';
-import '../../models/autopilot_v2_models.dart';
 import '../../services/signalk_service.dart';
 import '../../services/autopilot_state_verifier.dart';
 import '../../services/autopilot_v2_api.dart';
@@ -46,8 +45,6 @@ class _AutopilotToolV2State extends State<AutopilotToolV2> with AutomaticKeepAli
   String? _apiVersion;
   AutopilotV2Api? _v2Api;
   String? _selectedInstanceId;
-  List<AutopilotInstance>? _availableInstances;
-  AutopilotInfo? _v2Info;
   bool _dodgeActive = false;
 
   double _currentHeading = 0;
@@ -96,7 +93,6 @@ class _AutopilotToolV2State extends State<AutopilotToolV2> with AutomaticKeepAli
         _apiVersion = apiVersion.version;
 
         if (apiVersion.isV2) {
-          _availableInstances = apiVersion.v2Instances;
           final defaultInstance = apiVersion.defaultInstance;
           _selectedInstanceId = defaultInstance?.id;
 
@@ -131,7 +127,6 @@ class _AutopilotToolV2State extends State<AutopilotToolV2> with AutomaticKeepAli
       if (!mounted) return;
 
       setState(() {
-        _v2Info = info;
         _engaged = info.engaged;
         _mode = info.mode ?? 'Standby';
         if (info.target != null) {

@@ -5,7 +5,6 @@ import '../../models/crew_member.dart';
 import '../../models/crew_message.dart';
 import '../../services/messaging_service.dart';
 import '../../services/crew_service.dart';
-import '../../services/file_share_service.dart';
 import '../../services/intercom_service.dart';
 import '../../widgets/crew/file_picker_widget.dart';
 import '../../widgets/crew/incoming_call_overlay.dart';

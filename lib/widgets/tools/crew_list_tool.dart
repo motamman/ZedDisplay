@@ -150,40 +150,6 @@ class CrewListTool extends StatelessWidget {
     );
   }
 
-  Widget _buildCrewList(BuildContext context, List<CrewMember> members, String? myId) {
-    return ListView.builder(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      itemCount: members.length,
-      itemBuilder: (context, index) {
-        final member = members[index];
-        final isMe = member.id == myId;
-
-        return ListTile(
-          dense: true,
-          leading: CircleAvatar(
-            radius: 16,
-            backgroundColor: _getStatusColor(member.status),
-            child: Text(
-              member.name.isNotEmpty ? member.name[0].toUpperCase() : '?',
-              style: const TextStyle(color: Colors.white, fontSize: 14),
-            ),
-          ),
-          title: Text(
-            isMe ? '${member.name} (You)' : member.name,
-            style: TextStyle(
-              fontWeight: isMe ? FontWeight.bold : FontWeight.normal,
-            ),
-          ),
-          subtitle: Text(
-            member.role?.name ?? 'Crew',
-            style: const TextStyle(fontSize: 11),
-          ),
-          trailing: _buildStatusIndicator(member.status),
-        );
-      },
-    );
-  }
-
   Widget _buildStatusIndicator(CrewStatus status) {
     final color = _getStatusColor(status);
     final label = _getStatusLabel(status);
