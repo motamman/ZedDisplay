@@ -58,9 +58,8 @@ class IntercomService extends ChangeNotifier {
 
   final Map<String, RTCPeerConnection> _peerConnections = {};
 
-  // Resources API configuration
-  static const String _channelResourceType = 'notes';
-  static const String _channelGroupName = 'zeddisplay-channels';
+  // Resources API configuration - uses custom resource type for isolation
+  static const String _channelResourceType = 'zeddisplay-channels';
 
   // Periodic timer for channel sync (RTC signaling now uses WebSocket deltas)
   Timer? _pollTimer;
@@ -276,8 +275,17 @@ class IntercomService extends ChangeNotifier {
     if (kDebugMode) {
       print('IntercomService: Connected');
     }
+    _ensureResourceType();
     _startPolling();
     _syncChannels();
+  }
+
+  /// Ensure the custom resource type exists on the server
+  Future<void> _ensureResourceType() async {
+    await _signalKService.ensureResourceTypeExists(
+      _channelResourceType,
+      description: 'ZedDisplay intercom channels',
+    );
   }
 
   void _onDisconnected() {
@@ -1502,15 +1510,11 @@ class IntercomService extends ChangeNotifier {
       final resources = await _signalKService.getResources(_channelResourceType);
 
       for (final entry in resources.entries) {
-        final noteId = entry.key;
-        final noteData = entry.value as Map<String, dynamic>;
-
-        // Filter by channel group
-        final group = noteData['group'] as String?;
-        if (group != _channelGroupName) continue;
+        final resourceId = entry.key;
+        final resourceData = entry.value as Map<String, dynamic>;
 
         try {
-          final channel = IntercomChannel.fromNoteResource(noteId, noteData);
+          final channel = IntercomChannel.fromNoteResource(resourceId, resourceData);
 
           // Add or update channel
           final existingIndex = _channels.indexWhere((c) => c.id == channel.id);
@@ -1521,7 +1525,7 @@ class IntercomService extends ChangeNotifier {
           }
         } catch (e) {
           if (kDebugMode) {
-            print('Error parsing channel $noteId: $e');
+            print('Error parsing channel $resourceId: $e');
           }
         }
       }

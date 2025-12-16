@@ -23,9 +23,8 @@ class MessagingService extends ChangeNotifier {
   int _unreadCount = 0;
   int get unreadCount => _unreadCount;
 
-  // Resources API configuration
-  static const String _messageResourceType = 'notes';
-  static const String _messageGroupName = 'zeddisplay-messages';
+  // Resources API configuration - uses custom resource type for isolation
+  static const String _messageResourceType = 'zeddisplay-messages';
 
   // Polling timer
   Timer? _pollTimer;
@@ -121,8 +120,17 @@ class MessagingService extends ChangeNotifier {
     if (kDebugMode) {
       print('MessagingService: Connected');
     }
+    _ensureResourceType();
     _startPolling();
     _fetchMessages();
+  }
+
+  /// Ensure the custom resource type exists on the server
+  Future<void> _ensureResourceType() async {
+    await _signalKService.ensureResourceTypeExists(
+      _messageResourceType,
+      description: 'ZedDisplay crew messaging',
+    );
   }
 
   void _onDisconnected() {
@@ -241,7 +249,6 @@ class MessagingService extends ChangeNotifier {
     return {
       'name': '${message.fromName}: ${_truncate(message.content, 50)}',
       'description': jsonEncode(message.toJson()),
-      'group': _messageGroupName,
       'position': {
         'latitude': lat,
         'longitude': lng,
@@ -267,18 +274,14 @@ class MessagingService extends ChangeNotifier {
       final myId = _crewService.localProfile?.id;
 
       for (final entry in resources.entries) {
-        final noteId = entry.key;
-        final noteData = entry.value as Map<String, dynamic>;
-
-        // Filter by our group
-        final group = noteData['group'] as String?;
-        if (group != _messageGroupName) continue;
+        final resourceId = entry.key;
+        final resourceData = entry.value as Map<String, dynamic>;
 
         // Skip messages we already have
-        if (_messages.any((m) => m.id == noteId)) continue;
+        if (_messages.any((m) => m.id == resourceId)) continue;
 
         try {
-          final descriptionJson = noteData['description'] as String?;
+          final descriptionJson = resourceData['description'] as String?;
           if (descriptionJson == null) continue;
 
           final msgData = jsonDecode(descriptionJson) as Map<String, dynamic>;
@@ -298,7 +301,7 @@ class MessagingService extends ChangeNotifier {
           }
         } catch (e) {
           if (kDebugMode) {
-            print('Error parsing message $noteId: $e');
+            print('Error parsing message $resourceId: $e');
           }
         }
       }

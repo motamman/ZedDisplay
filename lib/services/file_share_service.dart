@@ -22,9 +22,8 @@ class FileShareService extends ChangeNotifier {
   final List<SharedFile> _files = [];
   List<SharedFile> get files => List.unmodifiable(_files);
 
-  // Resources API configuration
-  static const String _fileResourceType = 'notes';
-  static const String _fileGroupName = 'zeddisplay-files';
+  // Resources API configuration - uses custom resource type for isolation
+  static const String _fileResourceType = 'zeddisplay-files';
 
   // Polling timer
   Timer? _pollTimer;
@@ -138,8 +137,17 @@ class FileShareService extends ChangeNotifier {
     if (kDebugMode) {
       print('FileShareService: Connected');
     }
+    _ensureResourceType();
     _startPolling();
     _fetchFiles();
+  }
+
+  /// Ensure the custom resource type exists on the server
+  Future<void> _ensureResourceType() async {
+    await _signalKService.ensureResourceTypeExists(
+      _fileResourceType,
+      description: 'ZedDisplay shared files',
+    );
   }
 
   void _onDisconnected() {
@@ -563,18 +571,14 @@ class FileShareService extends ChangeNotifier {
       final myId = _crewService.localProfile?.id;
 
       for (final entry in resources.entries) {
-        final noteId = entry.key;
-        final noteData = entry.value as Map<String, dynamic>;
-
-        // Filter by our group
-        final group = noteData['group'] as String?;
-        if (group != _fileGroupName) continue;
+        final resourceId = entry.key;
+        final resourceData = entry.value as Map<String, dynamic>;
 
         // Skip files we already have
-        if (_files.any((f) => f.id == noteId)) continue;
+        if (_files.any((f) => f.id == resourceId)) continue;
 
         try {
-          final descriptionJson = noteData['description'] as String?;
+          final descriptionJson = resourceData['description'] as String?;
           if (descriptionJson == null) continue;
 
           final fileData = jsonDecode(descriptionJson) as Map<String, dynamic>;
@@ -591,7 +595,7 @@ class FileShareService extends ChangeNotifier {
           }
         } catch (e) {
           if (kDebugMode) {
-            print('Error parsing file $noteId: $e');
+            print('Error parsing file $resourceId: $e');
           }
         }
       }

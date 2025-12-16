@@ -148,7 +148,7 @@ class SharedFile {
     );
   }
 
-  /// Create SignalK notes resource format
+  /// Create SignalK resource format
   Map<String, dynamic> toNoteResource({double lat = 0.0, double lng = 0.0}) {
     final metaData = toJson();
 
@@ -162,7 +162,6 @@ class SharedFile {
     return {
       'name': '$fromName: $filename',
       'description': jsonEncode(metaData),
-      'group': 'zeddisplay-files',
       'position': {'latitude': lat, 'longitude': lng},
     };
   }

@@ -180,8 +180,8 @@ class ClockAlarmTool extends StatefulWidget {
 }
 
 class _ClockAlarmToolState extends State<ClockAlarmTool> with TickerProviderStateMixin {
-  static const String _alarmResourceType = 'notes';
-  static const String _alarmGroupName = 'zeddisplay-alarms';
+  // Custom resource type for isolation from other apps
+  static const String _alarmResourceType = 'zeddisplay-alarms';
 
   DateTime _now = DateTime.now();
   Timer? _timer;
@@ -227,7 +227,18 @@ class _ClockAlarmToolState extends State<ClockAlarmTool> with TickerProviderStat
       vsync: this,
     );
     _startClock();
-    _loadAlarms();
+    _ensureResourceTypeAndLoadAlarms();
+  }
+
+  Future<void> _ensureResourceTypeAndLoadAlarms() async {
+    // Ensure custom resource type exists on server
+    if (widget.signalKService.isConnected) {
+      await widget.signalKService.ensureResourceTypeExists(
+        _alarmResourceType,
+        description: 'ZedDisplay shared alarms',
+      );
+    }
+    await _loadAlarms();
   }
 
   @override
@@ -318,12 +329,10 @@ class _ClockAlarmToolState extends State<ClockAlarmTool> with TickerProviderStat
       final alarms = <Alarm>[];
 
       for (final entry in resources.entries) {
-        final noteData = entry.value as Map<String, dynamic>;
-        final group = noteData['group'] as String?;
-        if (group != _alarmGroupName) continue;
+        final resourceData = entry.value as Map<String, dynamic>;
 
         try {
-          final description = noteData['description'] as String?;
+          final description = resourceData['description'] as String?;
           if (description != null) {
             final alarmData = Map<String, dynamic>.from(
               Uri.splitQueryString(description).map((k, v) => MapEntry(k, _parseValue(v)))
@@ -370,7 +379,6 @@ class _ClockAlarmToolState extends State<ClockAlarmTool> with TickerProviderStat
     final resourceData = {
       'name': 'Alarm: ${alarm.label} (${alarm.timeString})',
       'description': description,
-      'group': _alarmGroupName,
       'position': {'latitude': 0.0, 'longitude': 0.0},
     };
 

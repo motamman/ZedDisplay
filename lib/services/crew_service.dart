@@ -31,10 +31,8 @@ class CrewService extends ChangeNotifier {
   // Track connection state to avoid duplicate handlers
   bool _wasConnected = false;
 
-  // Resources API type for crew data
-  // Using "notes" which is a standard SignalK resource type with flexible schema
-  static const String _crewResourceType = 'notes';
-  static const String _crewGroupName = 'zeddisplay-crew';
+  // Resources API type for crew data - uses custom resource type for isolation
+  static const String _crewResourceType = 'zeddisplay-crew';
 
   // Polling timer for fetching crew updates
   Timer? _pollTimer;
@@ -191,6 +189,9 @@ class CrewService extends ChangeNotifier {
       print('CrewService: SignalK connected');
     }
 
+    // Ensure custom resource type exists on server
+    await _ensureResourceType();
+
     // Start heartbeat timer
     _startHeartbeat();
 
@@ -204,6 +205,14 @@ class CrewService extends ChangeNotifier {
 
     // Fetch existing crew members
     await _fetchCrewMembers();
+  }
+
+  /// Ensure the custom resource type exists on the server
+  Future<void> _ensureResourceType() async {
+    await _signalKService.ensureResourceTypeExists(
+      _crewResourceType,
+      description: 'ZedDisplay crew profiles and presence',
+    );
   }
 
   /// Handle disconnection from SignalK
@@ -263,7 +272,6 @@ class CrewService extends ChangeNotifier {
     return {
       'name': '${member.name} (${member.roleDisplay})',
       'description': jsonEncode(crewData),
-      'group': _crewGroupName,
       'position': {
         'latitude': lat,
         'longitude': lng,
@@ -357,26 +365,22 @@ class CrewService extends ChangeNotifier {
       bool changed = false;
 
       for (final entry in resources.entries) {
-        final noteId = entry.key;
-        final noteData = entry.value as Map<String, dynamic>;
-
-        // Filter by our group
-        final group = noteData['group'] as String?;
-        if (group != _crewGroupName) continue;
+        final resourceId = entry.key;
+        final resourceData = entry.value as Map<String, dynamic>;
 
         // Skip our own profile (we already have it locally)
-        if (noteId == _localProfile?.id) continue;
+        if (resourceId == _localProfile?.id) continue;
 
         try {
           // Parse crew data from description field (JSON string)
-          final descriptionJson = noteData['description'] as String?;
+          final descriptionJson = resourceData['description'] as String?;
           if (descriptionJson == null) continue;
 
           final crewData = jsonDecode(descriptionJson) as Map<String, dynamic>;
 
           // Parse crew member
           final member = CrewMember.fromJson(crewData);
-          _crewMembers[noteId] = member;
+          _crewMembers[resourceId] = member;
 
           // Parse presence data
           final lastSeenStr = crewData['lastSeen'] as String?;
@@ -386,8 +390,8 @@ class CrewService extends ChangeNotifier {
 
           final isOnline = now.difference(lastSeen) < _presenceTimeout;
 
-          _presence[noteId] = CrewPresence(
-            crewId: noteId,
+          _presence[resourceId] = CrewPresence(
+            crewId: resourceId,
             online: isOnline,
             lastSeen: lastSeen,
           );
@@ -395,7 +399,7 @@ class CrewService extends ChangeNotifier {
           changed = true;
         } catch (e) {
           if (kDebugMode) {
-            print('Error parsing crew note $noteId: $e');
+            print('Error parsing crew resource $resourceId: $e');
           }
         }
       }
