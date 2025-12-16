@@ -134,7 +134,7 @@ A customizable SignalK marine dashboard application to display real-time vessel 
   - Data age indicator (LIVE/stale status)
   - Detailed satellite information (PRN, elevation, azimuth, SNR)
 
-  <img src="screenshots/tool_gnss.png" alt="GNSS Status" width="280">
+  <img src="screenshots/gnss.png" alt="GNSS Status" width="280">
 
 - **Anchor Alarm**: Comprehensive anchor watch with visual monitoring
   - Real-time map display showing anchor position, current position, and swing radius
@@ -217,7 +217,7 @@ A customizable SignalK marine dashboard application to display real-time vessel 
   - Server restart functionality
   - Auto-updates every 5 seconds
 
-  <img src="screenshots/tool_server_status.png" alt="Server Status" width="350">
+  <img src="screenshots/server_status.png" alt="Server Status" width="350">
 
 - **RPi Monitor**: Raspberry Pi system health monitoring
   - CPU utilization (overall and per-core)
@@ -226,7 +226,7 @@ A customizable SignalK marine dashboard application to display real-time vessel 
   - System uptime display
   - Requires signalk-rpi-monitor and signalk-rpi-uptime plugins
 
-  <img src="screenshots/tool_rpi_monitor.png" alt="RPi Monitor" width="350">
+  <img src="screenshots/RPI_monitor.png" alt="RPi Monitor" width="350">
 
 **Crew Communication Tools**
 - **Crew Messages**: View recent crew messages in a compact widget
