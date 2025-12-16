@@ -51,11 +51,13 @@ class ConversionUtils {
 
   /// Format a value with unit symbol using THE conversion for this path
   /// Returns a formatted string like "12.6 kn" or "45.2°"
+  /// Set [includeUnit] to false to return just the numeric value without unit
   static String formatValue(
     SignalKService service,
     String path,
     double rawValue, {
     int decimalPlaces = 1,
+    bool includeUnit = true,
   }) {
     // Get available units
     final availableUnits = service.getAvailableUnits(path);
@@ -77,9 +79,12 @@ class ConversionUtils {
       return rawValue.toStringAsFixed(decimalPlaces);
     }
 
-    // Format with symbol
-    final symbol = conversionInfo.symbol;
-    return '${converted.toStringAsFixed(decimalPlaces)} $symbol';
+    // Format with symbol (if requested)
+    if (includeUnit) {
+      final symbol = conversionInfo.symbol;
+      return '${converted.toStringAsFixed(decimalPlaces)} $symbol';
+    }
+    return converted.toStringAsFixed(decimalPlaces);
   }
 
   /// Get converted value from a data point

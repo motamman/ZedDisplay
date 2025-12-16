@@ -84,6 +84,9 @@ class _LinearGaugeToolState extends State<LinearGaugeTool> with ZonesMixin, Auto
     // Get label from data source or derive from path
     final label = dataSource.label ?? dataSource.path.toReadableLabel();
 
+    // Check if we should show the unit
+    final showUnit = style.showUnit ?? true;
+
     // Get formatted value using client-side conversion, or show "--" if stale
     String? formattedValue;
     if (isDataFresh && rawSIValue != null) {
@@ -92,19 +95,12 @@ class _LinearGaugeToolState extends State<LinearGaugeTool> with ZonesMixin, Auto
         dataSource.path,
         rawSIValue,
         decimalPlaces: 1,
+        includeUnit: showUnit,
       );
     } else {
       formattedValue = '--';
     }
 
-    // Get unit symbol from conversion info
-    final availableUnits = widget.signalKService.getAvailableUnits(dataSource.path);
-    final conversionInfo = availableUnits.isNotEmpty
-        ? widget.signalKService.getConversionInfo(dataSource.path, availableUnits.first)
-        : null;
-
-    // Get unit (prefer style override, fallback to conversion symbol)
-    final unit = style.unit ?? conversionInfo?.symbol ?? '';
 
     // Parse color from hex string
     final primaryColor = style.primaryColor?.toColor(
@@ -129,7 +125,6 @@ class _LinearGaugeToolState extends State<LinearGaugeTool> with ZonesMixin, Auto
               minValue,
               maxValue,
               label,
-              unit,
               formattedValue,
               primaryColor,
               style,
@@ -146,7 +141,6 @@ class _LinearGaugeToolState extends State<LinearGaugeTool> with ZonesMixin, Auto
               minValue,
               maxValue,
               label,
-              unit,
               formattedValue,
               primaryColor,
               style,
@@ -179,7 +173,6 @@ class _LinearGaugeToolState extends State<LinearGaugeTool> with ZonesMixin, Auto
     double minValue,
     double maxValue,
     String label,
-    String unit,
     String? formattedValue,
     Color primaryColor,
     StyleConfig style,
@@ -250,7 +243,6 @@ class _LinearGaugeToolState extends State<LinearGaugeTool> with ZonesMixin, Auto
             markerPointers: _getMarkerPointers(
               value,
               formattedValue,
-              unit,
               primaryColor,
               style,
               gaugeStyle,
@@ -271,7 +263,6 @@ class _LinearGaugeToolState extends State<LinearGaugeTool> with ZonesMixin, Auto
     double minValue,
     double maxValue,
     String label,
-    String unit,
     String? formattedValue,
     Color primaryColor,
     StyleConfig style,
@@ -346,7 +337,6 @@ class _LinearGaugeToolState extends State<LinearGaugeTool> with ZonesMixin, Auto
                   markerPointers: _getMarkerPointers(
                     value,
                     formattedValue,
-                    unit,
                     primaryColor,
                     style,
                     gaugeStyle,
@@ -457,7 +447,6 @@ class _LinearGaugeToolState extends State<LinearGaugeTool> with ZonesMixin, Auto
   List<LinearMarkerPointer>? _getMarkerPointers(
     double value,
     String? formattedValue,
-    String unit,
     Color primaryColor,
     StyleConfig style,
     LinearGaugeStyle gaugeStyle,
@@ -490,27 +479,28 @@ class _LinearGaugeToolState extends State<LinearGaugeTool> with ZonesMixin, Auto
       );
     }
 
-    // Value label - use fixed width container to prevent layout shifts
+    // Value label - positioned at the bar level (like tanks tool)
     if (style.showValue == true) {
-      // Determine display text - show "--" for stale data or formattedValue
-      final displayText = formattedValue == '--'
-          ? '--'
-          : (formattedValue ?? '${value.toStringAsFixed(1)}${unit.isNotEmpty ? " $unit" : ""}');
+      final displayText = formattedValue ?? '--';
+      final clampedValue = value.clamp(style.minValue ?? 0.0, style.maxValue ?? 100.0);
 
       pointers.add(
         LinearWidgetPointer(
-          value: anchorValue,
-          position: LinearElementPosition.outside,
-          offset: 15,
-          child: SizedBox(
-            width: 120, // Fixed width to prevent gauge resizing when value changes
+          value: clampedValue,
+          position: LinearElementPosition.inside,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+            decoration: BoxDecoration(
+              color: primaryColor.withValues(alpha: 0.85),
+              borderRadius: BorderRadius.circular(4),
+            ),
             child: Text(
               displayText,
-              style: const TextStyle(
-                fontSize: 18,
+              style: TextStyle(
+                fontSize: 14,
                 fontWeight: FontWeight.bold,
+                color: _getContrastColor(primaryColor),
               ),
-              textAlign: isVertical ? TextAlign.left : TextAlign.center,
             ),
           ),
         ),
@@ -588,6 +578,12 @@ class _LinearGaugeToolState extends State<LinearGaugeTool> with ZonesMixin, Auto
       case ZoneState.normal:
         return Colors.grey.withValues(alpha: 0.5);
     }
+  }
+
+  /// Get contrasting text color for readability on colored background
+  Color _getContrastColor(Color color) {
+    final luminance = color.computeLuminance();
+    return luminance > 0.5 ? Colors.black87 : Colors.white;
   }
 }
 

@@ -622,9 +622,10 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
           unit: configuratorConfig.style.unit ?? config.style.unit,
           primaryColor: configuratorConfig.style.primaryColor ?? config.style.primaryColor,
           fontSize: configuratorConfig.style.fontSize ?? config.style.fontSize,
-          showLabel: configuratorConfig.style.showLabel ?? config.style.showLabel,
-          showValue: configuratorConfig.style.showValue ?? config.style.showValue,
-          showUnit: configuratorConfig.style.showUnit ?? config.style.showUnit,
+          // Use screen state directly - StyleConfig defaults (true) would override user's settings
+          showLabel: _showLabel,
+          showValue: _showValue,
+          showUnit: _showUnit,
           ttlSeconds: configuratorConfig.style.ttlSeconds ?? config.style.ttlSeconds,
           // Merge configurator's style fields (compass/autopilot)
           laylineAngle: configuratorConfig.style.laylineAngle ?? config.style.laylineAngle,

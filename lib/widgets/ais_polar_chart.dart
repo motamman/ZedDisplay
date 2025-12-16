@@ -74,6 +74,10 @@ class _AISPolarChartState extends State<AISPolarChart>
   bool _showMapView = false; // Toggle between polar chart and map view
   bool _mapAutoFollow = true; // Auto-follow own vessel on map
 
+  // Throttle updates to prevent ANR on tablets
+  DateTime? _lastUpdate;
+  static const _updateThrottle = Duration(milliseconds: 500);
+
   @override
   void initState() {
     super.initState();
@@ -137,11 +141,18 @@ class _AISPolarChartState extends State<AISPolarChart>
   }
 
   void _onServiceUpdate() {
-    if (mounted) {
-      // Try to subscribe if we haven't yet (in case connection happened after init)
-      _subscribeIfConnected();
-      _updateVesselData();
+    if (!mounted) return;
+
+    // Throttle updates to prevent ANR on tablets
+    final now = DateTime.now();
+    if (_lastUpdate != null && now.difference(_lastUpdate!) < _updateThrottle) {
+      return;
     }
+    _lastUpdate = now;
+
+    // Try to subscribe if we haven't yet (in case connection happened after init)
+    _subscribeIfConnected();
+    _updateVesselData();
   }
 
   @override
@@ -170,36 +181,34 @@ class _AISPolarChartState extends State<AISPolarChart>
   }
 
   void _updateVesselData() {
-    setState(() {
-      // Get own position - it's an object with latitude and longitude
-      final positionData = widget.signalKService.getValue(widget.positionPath);
+    // Get own position - it's an object with latitude and longitude
+    final positionData = widget.signalKService.getValue(widget.positionPath);
 
-      if (positionData?.value is Map) {
-        final positionMap = positionData!.value as Map<String, dynamic>;
-        final lat = positionMap['latitude'];
-        final lon = positionMap['longitude'];
+    if (positionData?.value is Map) {
+      final positionMap = positionData!.value as Map<String, dynamic>;
+      final lat = positionMap['latitude'];
+      final lon = positionMap['longitude'];
 
-        if (lat is num && lon is num) {
-          final newLat = lat.toDouble();
-          final newLon = lon.toDouble();
+      if (lat is num && lon is num) {
+        final newLat = lat.toDouble();
+        final newLon = lon.toDouble();
 
-          // Check if position changed
-          final positionChanged = _ownLat != newLat || _ownLon != newLon;
+        // Check if position changed
+        final positionChanged = _ownLat != newLat || _ownLon != newLon;
 
-          _ownLat = newLat;
-          _ownLon = newLon;
-          _lastPositionUpdate = positionData.timestamp;
+        _ownLat = newLat;
+        _ownLon = newLon;
+        _lastPositionUpdate = positionData.timestamp;
 
-          _vessels.clear();
-          _fetchNearbyVessels();
+        // Fetch vessels (this will call setState once at the end)
+        _fetchNearbyVessels();
 
-          // Auto-follow if enabled and in map view
-          if (_mapAutoFollow && _showMapView && positionChanged) {
-            _centerMapOnSelf();
-          }
+        // Auto-follow if enabled and in map view
+        if (_mapAutoFollow && _showMapView && positionChanged) {
+          _centerMapOnSelf();
         }
       }
-    });
+    }
   }
 
   void _fetchNearbyVessels() {
