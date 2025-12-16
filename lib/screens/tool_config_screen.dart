@@ -745,7 +745,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      '1. Select Tool Type',
+                      'Select Tool Type',
                       style: Theme.of(context).textTheme.titleMedium,
                     ),
                     const SizedBox(height: 16),
@@ -800,7 +800,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         Text(
-                          '2. Configure Data Sources',
+                          'Configure Data Sources',
                           style: Theme.of(context).textTheme.titleMedium,
                         ),
                         if (_selectedToolTypeId != null)
@@ -967,7 +967,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        '3. Configure Size',
+                        'Configure Size',
                         style: Theme.of(context).textTheme.titleMedium,
                       ),
                       const SizedBox(height: 16),
@@ -1042,16 +1042,8 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                     children: [
                       Text(
                         _selectedToolTypeId == 'webview'
-                            ? '2. Configure URL'
-                            : (_selectedToolTypeId == 'historical_chart' ||
-                                _selectedToolTypeId == 'polar_radar_chart' ||
-                                _selectedToolTypeId == 'ais_polar_chart')
-                                ? '4. Configure Style'
-                                : (_selectedToolTypeId == 'gnss_status' ||
-                                    _selectedToolTypeId == 'attitude_indicator' ||
-                                    _selectedToolTypeId == 'weatherflow_forecast')
-                                    ? '2. Configure Style'
-                                    : '3. Configure Style',
+                            ? 'Configure URL'
+                            : 'Configure Style',
                         style: Theme.of(context).textTheme.titleMedium,
                       ),
                       const SizedBox(height: 16),
@@ -1072,19 +1064,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        _selectedToolTypeId == 'server_manager' || _selectedToolTypeId == 'system_monitor'
-                            ? '2. Preview'
-                            : (_selectedToolTypeId == 'webview' || _selectedToolTypeId == 'rpi_monitor')
-                                ? '3. Preview'
-                                : (_selectedToolTypeId == 'historical_chart' ||
-                                    _selectedToolTypeId == 'polar_radar_chart' ||
-                                    _selectedToolTypeId == 'ais_polar_chart')
-                                    ? '5. Preview'
-                                    : (_selectedToolTypeId == 'gnss_status' ||
-                                        _selectedToolTypeId == 'attitude_indicator' ||
-                                        _selectedToolTypeId == 'weatherflow_forecast')
-                                        ? '3. Preview'
-                                        : '4. Preview',
+                        'Preview',
                         style: Theme.of(context).textTheme.titleMedium,
                       ),
                       const SizedBox(height: 16),
