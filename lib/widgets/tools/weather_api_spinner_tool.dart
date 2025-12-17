@@ -54,9 +54,18 @@ class _WeatherApiSpinnerToolState extends State<WeatherApiSpinnerTool>
     try {
       // Get provider from config
       final provider = widget.config.style.customProperties?['provider'] as String?;
+      // Get forecast days from config (default: 5 days)
+      final forecastDays = widget.config.style.customProperties?['forecastDays'] as int? ?? 5;
 
-      _weatherService = WeatherApiService(widget.signalKService, provider: provider);
+      // Dynamically subscribe to sun/moon paths based on forecastDays
+      _subscribeSunMoonPaths(forecastDays);
+
+      _weatherService = WeatherApiService(widget.signalKService, provider: provider, forecastDays: forecastDays);
       _weatherService!.addListener(_onDataChanged);
+
+      // Fetch unit categories for fallback conversions
+      ConversionUtils.fetchCategories(widget.signalKService);
+
       // Delay first fetch to allow position data to arrive
       Future.delayed(const Duration(seconds: 2), () {
         if (mounted && !_fetchScheduled) {
@@ -67,6 +76,35 @@ class _WeatherApiSpinnerToolState extends State<WeatherApiSpinnerTool>
     } catch (e) {
       debugPrint('WeatherApiSpinnerTool init error: $e');
     }
+  }
+
+  /// Dynamically subscribe to sun/moon paths based on forecast days
+  void _subscribeSunMoonPaths(int forecastDays) {
+    final paths = <String>[
+      'environment.sunlight.times',  // Today
+      'environment.moon',            // Moon data
+      'navigation.position',         // Position for weather API
+    ];
+
+    // Add paths for each additional forecast day (today is base path, .1 is tomorrow, etc.)
+    for (int i = 1; i < forecastDays; i++) {
+      paths.add('environment.sunlight.times.$i');
+      paths.add('environment.moon.$i');
+    }
+
+    debugPrint('WeatherSpinner: Subscribing to ${paths.length} sun/moon paths for $forecastDays days');
+    widget.signalKService.subscribeToPaths(paths);
+
+    // Refresh sun/moon times after data arrives via WebSocket
+    Future.delayed(const Duration(seconds: 3), () {
+      if (mounted) {
+        debugPrint('WeatherSpinner: Refreshing sun/moon times after delay');
+        setState(() {
+          _cachedSunMoonTimes = _getSunMoonTimes();
+        });
+        debugPrint('WeatherSpinner: Got ${_cachedSunMoonTimes?.days.length ?? 0} days of sun/moon data');
+      }
+    });
   }
 
   @override
@@ -120,10 +158,21 @@ class _WeatherApiSpinnerToolState extends State<WeatherApiSpinnerTool>
       fallback: Colors.blue,
     ) ?? Colors.blue;
 
-    // Get unit symbols from SignalK conversions
-    final tempUnit = widget.signalKService.getUnitSymbol(_getConversionPath('airTemperature')) ?? '';
-    final windUnit = widget.signalKService.getUnitSymbol(_getConversionPath('windAvg')) ?? '';
-    final pressureUnit = widget.signalKService.getUnitSymbol(_getConversionPath('seaLevelPressure')) ?? '';
+    // Get unit symbols from SignalK conversions (with fallback to server preferences)
+    var tempUnit = widget.signalKService.getUnitSymbol(_getConversionPath('airTemperature')) ?? '';
+    var windUnit = widget.signalKService.getUnitSymbol(_getConversionPath('windAvg')) ?? '';
+    var pressureUnit = widget.signalKService.getUnitSymbol(_getConversionPath('seaLevelPressure')) ?? '';
+
+    // Use fallback symbols if no conversion available
+    if (tempUnit.isEmpty) {
+      tempUnit = ConversionUtils.getWeatherUnitSymbol(WeatherFieldType.temperature);
+    }
+    if (windUnit.isEmpty) {
+      windUnit = ConversionUtils.getWeatherUnitSymbol(WeatherFieldType.speed);
+    }
+    if (pressureUnit.isEmpty) {
+      pressureUnit = ConversionUtils.getWeatherUnitSymbol(WeatherFieldType.pressure);
+    }
 
     // Use cached forecasts (updated in _onDataChanged)
     // Always rebuild if cache is empty but service has data (handles swipe away/back)
@@ -201,15 +250,40 @@ class _WeatherApiSpinnerToolState extends State<WeatherApiSpinnerTool>
 
     final showWeatherAnimation = widget.config.style.customProperties?['showWeatherAnimation'] as bool? ?? true;
 
-    return ForecastSpinner(
-      hourlyForecasts: hourlyForecasts,
-      sunMoonTimes: sunMoonTimes,
-      tempUnit: tempUnit,
-      windUnit: windUnit,
-      pressureUnit: pressureUnit,
-      primaryColor: primaryColor,
-      providerName: _getProviderDisplayName(),
-      showWeatherAnimation: showWeatherAnimation,
+    return Stack(
+      children: [
+        ForecastSpinner(
+          hourlyForecasts: hourlyForecasts,
+          sunMoonTimes: sunMoonTimes,
+          tempUnit: tempUnit,
+          windUnit: windUnit,
+          pressureUnit: pressureUnit,
+          primaryColor: primaryColor,
+          providerName: _getProviderDisplayName(),
+          showWeatherAnimation: showWeatherAnimation,
+        ),
+        // Refresh button with loading/success indicator
+        Positioned(
+          top: 4,
+          right: 4,
+          child: SizedBox(
+            width: 32,
+            height: 32,
+            child: weatherService.isLoading
+                ? Padding(
+                    padding: const EdgeInsets.all(6),
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: primaryColor.withValues(alpha: 0.7),
+                    ),
+                  )
+                : _RefreshButton(
+                    primaryColor: primaryColor,
+                    onRefresh: () => weatherService.fetchForecasts(force: true),
+                  ),
+          ),
+        ),
+      ],
     );
   }
 
@@ -241,6 +315,20 @@ class _WeatherApiSpinnerToolState extends State<WeatherApiSpinnerTool>
     }
   }
 
+  /// Convert a value using standard conversions, with fallback to weather-specific conversions
+  double? _convertWithFallback(SignalKService service, String path, double rawValue, WeatherFieldType fieldType) {
+    // Try standard conversion first
+    final converted = ConversionUtils.convertValue(service, path, rawValue);
+
+    // If conversion returned the raw value unchanged (no conversion available),
+    // use fallback weather conversions based on server preferences
+    if (converted == rawValue) {
+      return ConversionUtils.convertWeatherValue(service, fieldType, rawValue);
+    }
+
+    return converted;
+  }
+
   /// Convert WeatherApiForecast to HourlyForecast for the spinner
   /// Uses ConversionUtils to apply the same unit conversions as WeatherFlow spinner
   List<HourlyForecast> _buildHourlyForecasts() {
@@ -260,26 +348,27 @@ class _WeatherApiSpinnerToolState extends State<WeatherApiSpinnerTool>
 
       // Apply conversions using ConversionUtils
       // Raw values from API are in SI units (Kelvin, Pa, m/s, radians, ratios)
+      // Use fallback conversions if standard conversions return unchanged value
       final temp = apiFC.airTemperature != null
-          ? ConversionUtils.convertValue(service, _getConversionPath('airTemperature'), apiFC.airTemperature!)
+          ? _convertWithFallback(service, _getConversionPath('airTemperature'), apiFC.airTemperature!, WeatherFieldType.temperature)
           : null;
       final feelsLike = apiFC.feelsLike != null
-          ? ConversionUtils.convertValue(service, _getConversionPath('airTemperature'), apiFC.feelsLike!)
+          ? _convertWithFallback(service, _getConversionPath('airTemperature'), apiFC.feelsLike!, WeatherFieldType.temperature)
           : null;
       final windSpeed = apiFC.windAvg != null
-          ? ConversionUtils.convertValue(service, _getConversionPath('windAvg'), apiFC.windAvg!)
+          ? _convertWithFallback(service, _getConversionPath('windAvg'), apiFC.windAvg!, WeatherFieldType.speed)
           : null;
       final windDir = apiFC.windDirection != null
-          ? ConversionUtils.convertValue(service, _getConversionPath('windDirection'), apiFC.windDirection!)
+          ? _convertWithFallback(service, _getConversionPath('windDirection'), apiFC.windDirection!, WeatherFieldType.angle)
           : null;
       final pressure = apiFC.pressure != null
-          ? ConversionUtils.convertValue(service, _getConversionPath('seaLevelPressure'), apiFC.pressure!)
+          ? _convertWithFallback(service, _getConversionPath('seaLevelPressure'), apiFC.pressure!, WeatherFieldType.pressure)
           : null;
       final humidity = apiFC.relativeHumidity != null
-          ? ConversionUtils.convertValue(service, _getConversionPath('relativeHumidity'), apiFC.relativeHumidity!)
+          ? _convertWithFallback(service, _getConversionPath('relativeHumidity'), apiFC.relativeHumidity!, WeatherFieldType.percentage)
           : null;
       final precipProb = apiFC.precipProbability != null
-          ? ConversionUtils.convertValue(service, _getConversionPath('precipProbability'), apiFC.precipProbability!)
+          ? _convertWithFallback(service, _getConversionPath('precipProbability'), apiFC.precipProbability!, WeatherFieldType.percentage)
           : null;
 
       forecasts.add(HourlyForecast(
@@ -307,8 +396,9 @@ class _WeatherApiSpinnerToolState extends State<WeatherApiSpinnerTool>
 
     final days = <DaySunTimes>[];
 
-    // Load up to 5 days of sun/moon data
-    for (int i = 0; i < 5; i++) {
+    // Load sun/moon data for configured forecast days
+    final forecastDays = widget.config.style.customProperties?['forecastDays'] as int? ?? 5;
+    for (int i = 0; i < forecastDays; i++) {
       final sunPrefix = i == 0 ? sunlightBasePath : '$sunlightBasePath.$i';
       final moonPrefix = i == 0 ? moonBasePath : '$moonBasePath.$i';
 
@@ -382,6 +472,7 @@ class WeatherApiSpinnerToolBuilder extends ToolBuilder {
         styleOptions: const [
           'primaryColor',
           'provider',
+          'forecastDays',
         ],
       ),
     );
@@ -391,23 +482,15 @@ class WeatherApiSpinnerToolBuilder extends ToolBuilder {
   ToolConfig? getDefaultConfig(String vesselId) {
     return ToolConfig(
       vesselId: vesselId,
-      dataSources: [
-        // Sun times for coloring (from derived-data plugin)
-        DataSource(path: 'environment.sunlight.times', label: 'Sun Times Today'),
-        DataSource(path: 'environment.sunlight.times.1', label: 'Sun Times Day 1'),
-        DataSource(path: 'environment.sunlight.times.2', label: 'Sun Times Day 2'),
-        DataSource(path: 'environment.sunlight.times.3', label: 'Sun Times Day 3'),
-        // Moon data
-        DataSource(path: 'environment.moon', label: 'Moon Data'),
-        // Position for weather API
-        DataSource(path: 'navigation.position', label: 'Vessel Position'),
-      ],
+      dataSources: const [],  // Sun/moon paths are dynamically subscribed based on forecastDays
       style: StyleConfig(
         primaryColor: '#2196F3',
         customProperties: {
           // Weather API provider (e.g., 'signalk-weatherflow', 'signalk-openweather')
           // Leave empty to use default/first available provider
           'provider': '',
+          // Number of days to fetch forecast for (1-10, default: 5)
+          'forecastDays': 5,
         },
       ),
     );
@@ -418,6 +501,63 @@ class WeatherApiSpinnerToolBuilder extends ToolBuilder {
     return WeatherApiSpinnerTool(
       config: config,
       signalKService: signalKService,
+    );
+  }
+}
+
+/// Refresh button that shows a brief checkmark after successful refresh
+class _RefreshButton extends StatefulWidget {
+  final Color primaryColor;
+  final VoidCallback onRefresh;
+
+  const _RefreshButton({
+    required this.primaryColor,
+    required this.onRefresh,
+  });
+
+  @override
+  State<_RefreshButton> createState() => _RefreshButtonState();
+}
+
+class _RefreshButtonState extends State<_RefreshButton> {
+  bool _showSuccess = false;
+
+  void _handleRefresh() async {
+    widget.onRefresh();
+    // Show success indicator after a delay (assumes refresh completes)
+    await Future.delayed(const Duration(milliseconds: 1500));
+    if (mounted) {
+      setState(() => _showSuccess = true);
+      await Future.delayed(const Duration(milliseconds: 1200));
+      if (mounted) {
+        setState(() => _showSuccess = false);
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return IconButton(
+      icon: AnimatedSwitcher(
+        duration: const Duration(milliseconds: 300),
+        child: _showSuccess
+            ? Icon(
+                Icons.check_circle,
+                key: const ValueKey('check'),
+                size: 18,
+                color: Colors.green.shade400,
+              )
+            : Icon(
+                Icons.refresh,
+                key: const ValueKey('refresh'),
+                size: 18,
+                color: widget.primaryColor.withValues(alpha: 0.7),
+              ),
+      ),
+      onPressed: _showSuccess ? null : _handleRefresh,
+      tooltip: 'Refresh forecast',
+      constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+      padding: EdgeInsets.zero,
     );
   }
 }

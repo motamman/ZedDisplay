@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'signalk_service.dart';
@@ -226,6 +227,7 @@ class WeatherApiForecast {
 class WeatherApiService extends ChangeNotifier {
   final SignalKService _signalKService;
   final String? _provider;
+  final int? _forecastDays;
 
   // Static cache of instances by provider key
   static final Map<String, WeatherApiService> _instances = {};
@@ -242,22 +244,24 @@ class WeatherApiService extends ChangeNotifier {
   // Auto-refresh interval
   static const Duration _refreshInterval = Duration(minutes: 30);
 
-  /// Get or create a shared instance for the given provider
-  factory WeatherApiService(SignalKService signalKService, {String? provider}) {
-    final key = provider ?? '_default_';
+  /// Get or create a shared instance for the given provider and forecast days
+  factory WeatherApiService(SignalKService signalKService, {String? provider, int? forecastDays}) {
+    final key = '${provider ?? '_default_'}_${forecastDays ?? 5}';
 
     if (_instances.containsKey(key)) {
       _refCounts[key] = (_refCounts[key] ?? 0) + 1;
       return _instances[key]!;
     }
 
-    final instance = WeatherApiService._internal(signalKService, provider: provider);
+    final instance = WeatherApiService._internal(signalKService, provider: provider, forecastDays: forecastDays);
     _instances[key] = instance;
     _refCounts[key] = 1;
     return instance;
   }
 
-  WeatherApiService._internal(this._signalKService, {String? provider}) : _provider = provider {
+  WeatherApiService._internal(this._signalKService, {String? provider, int? forecastDays})
+      : _provider = provider,
+        _forecastDays = forecastDays {
     // Start auto-refresh timer (every 30 minutes)
     _refreshTimer = Timer.periodic(_refreshInterval, (_) => fetchForecasts());
   }
@@ -312,7 +316,7 @@ class WeatherApiService extends ChangeNotifier {
     try {
       // Build API URL
       final serverUrl = _signalKService.serverUrl;
-      final useSecure = serverUrl.startsWith('wss://') || serverUrl.startsWith('https://');
+      final useSecure = _signalKService.useSecureConnection;
       final host = serverUrl.replaceAll(RegExp(r'^wss?://|^https?://'), '').split('/').first;
       final scheme = useSecure ? 'https' : 'http';
 
@@ -320,6 +324,11 @@ class WeatherApiService extends ChangeNotifier {
       if (_provider != null && _provider.isNotEmpty) {
         url += '&provider=$_provider';
       }
+      // Add count parameter: (days - 1) * 24 hours to get N days total (today + N-1 more)
+      // Minimum 24 hours to ensure we get at least today's forecast
+      final days = _forecastDays ?? 5;
+      final count = math.max(24, (days - 1) * 24);
+      url += '&count=$count';
 
       if (kDebugMode) {
         print('WeatherApiService: Fetching from $url');
@@ -414,7 +423,7 @@ class WeatherApiService extends ChangeNotifier {
 
   /// Release this instance - decrements ref count but keeps instance alive for caching
   void release() {
-    final key = _provider ?? '_default_';
+    final key = '${_provider ?? '_default_'}_${_forecastDays ?? 5}';
     final count = (_refCounts[key] ?? 1) - 1;
     _refCounts[key] = count < 0 ? 0 : count;
     // Keep instance alive for caching - don't dispose even when ref count is 0

@@ -128,9 +128,9 @@ class _ForecastSpinnerState extends State<ForecastSpinner>
   void _updateSegmentColors() {
     _cachedNow = DateTime.now();
 
-    // Compute colors for 72 segments (72 hours at 1 hour each)
-    // Reduced from 144 to improve paint performance
-    const segmentCount = 72;
+    // Compute colors dynamically based on forecast length (1-10 days)
+    // Each segment = 1 hour, clamp to reasonable range
+    final segmentCount = widget.hourlyForecasts.length.clamp(24, 240);
     const minutesPerSegment = 60;
 
     _cachedSegmentColors = List<Color>.generate(segmentCount, (i) {
@@ -360,6 +360,7 @@ class _ForecastSpinnerState extends State<ForecastSpinner>
                           selectedHourOffset: _selectedHourOffset,
                           cachedSegmentColors: _cachedSegmentColors,
                           cachedNow: _cachedNow,
+                          maxForecastHours: widget.hourlyForecasts.length,
                         ),
                       );
                     },
@@ -789,6 +790,7 @@ class _ForecastRimPainter extends CustomPainter {
   final int selectedHourOffset;
   final List<Color>? cachedSegmentColors;
   final DateTime cachedNow;
+  final int maxForecastHours;
 
   _ForecastRimPainter({
     required this.times,
@@ -797,6 +799,7 @@ class _ForecastRimPainter extends CustomPainter {
     required this.selectedHourOffset,
     this.cachedSegmentColors,
     required this.cachedNow,
+    required this.maxForecastHours,
   });
 
   @override
@@ -980,7 +983,7 @@ class _ForecastRimPainter extends CustomPainter {
 
       // Only show if within visible window AND within forecast range
       if (hoursFromNow < minVisibleHour || hoursFromNow > maxVisibleHour) return null;
-      if (hoursFromNow < -2 || hoursFromNow > 72) return null;
+      if (hoursFromNow < -2 || hoursFromNow > maxForecastHours) return null;
 
       // Each hour = 15 degrees = pi/12 radians, starting from top (-pi/2)
       return -math.pi / 2 + (hoursFromNow * math.pi / 12);

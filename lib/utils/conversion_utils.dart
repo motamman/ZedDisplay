@@ -1,8 +1,219 @@
+import 'dart:convert';
+import 'package:flutter/foundation.dart';
+import 'package:http/http.dart' as http;
 import 'package:math_expressions/math_expressions.dart';
 import '../services/signalk_service.dart';
 
+/// Weather field type for fallback conversions
+enum WeatherFieldType {
+  temperature, // K → user preference (F, C)
+  speed,       // m/s → user preference (kn, mph, m/s)
+  pressure,    // Pa → user preference (hPa, mbar, inHg)
+  angle,       // rad → deg
+  percentage,  // ratio → %
+}
+
+/// Simple conversion formula holder
+class _ConversionFormula {
+  final String formula;
+  final String symbol;
+  const _ConversionFormula(this.formula, this.symbol);
+}
+
+/// Cached unit categories from server
+class UnitCategories {
+  final Map<String, dynamic> categories;
+  final DateTime fetchedAt;
+
+  UnitCategories(this.categories) : fetchedAt = DateTime.now();
+
+  bool get isStale => DateTime.now().difference(fetchedAt).inMinutes > 30;
+
+  String? getTargetUnit(String category) {
+    final cat = categories[category];
+    if (cat is Map) {
+      return cat['targetUnit'] as String?;
+    }
+    return null;
+  }
+}
+
 /// Utility for applying client-side unit conversions using formulas from SignalK server
 class ConversionUtils {
+  // Cache for unit categories
+  static UnitCategories? _categoriesCache;
+
+  /// Standard SI unit conversion formulas
+  static const Map<String, Map<String, _ConversionFormula>> _standardConversions = {
+    'temperature': {
+      'F': _ConversionFormula('(value - 273.15) * 9/5 + 32', '°F'),
+      'C': _ConversionFormula('value - 273.15', '°C'),
+      'K': _ConversionFormula('value', 'K'),
+    },
+    'speed': {
+      'kn': _ConversionFormula('value * 1.94384', 'kn'),
+      'mph': _ConversionFormula('value * 2.23694', 'mph'),
+      'm/s': _ConversionFormula('value', 'm/s'),
+      'km/h': _ConversionFormula('value * 3.6', 'km/h'),
+    },
+    'pressure': {
+      'hPa': _ConversionFormula('value / 100', 'hPa'),
+      'mbar': _ConversionFormula('value / 100', 'mbar'),
+      'inHg': _ConversionFormula('value * 0.0002953', 'inHg'),
+      'psi': _ConversionFormula('value * 0.000145038', 'psi'),
+      'Pa': _ConversionFormula('value', 'Pa'),
+    },
+    'angle': {
+      'degree': _ConversionFormula('value * 180 / 3.14159265359', '°'),
+      'deg': _ConversionFormula('value * 180 / 3.14159265359', '°'),
+      'rad': _ConversionFormula('value', 'rad'),
+    },
+    'percentage': {
+      'percent': _ConversionFormula('value * 100', '%'),
+      '%': _ConversionFormula('value * 100', '%'),
+      'ratio': _ConversionFormula('value', ''),
+    },
+  };
+
+  /// Fetch unit categories from server
+  static Future<void> fetchCategories(SignalKService service) async {
+    if (_categoriesCache != null && !_categoriesCache!.isStale) {
+      return; // Use cached
+    }
+
+    try {
+      final serverUrl = service.serverUrl;
+      final useSecure = service.useSecureConnection;
+      final host = serverUrl.replaceAll(RegExp(r'^wss?://|^https?://'), '').split('/').first;
+      final scheme = useSecure ? 'https' : 'http';
+
+      final url = '$scheme://$host/plugins/signalk-units-preference/categories';
+
+      final response = await http.get(
+        Uri.parse(url),
+        headers: service.authToken != null
+            ? {'Authorization': 'Bearer ${service.authToken!.token}'}
+            : null,
+      ).timeout(const Duration(seconds: 10));
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        if (data is Map<String, dynamic>) {
+          _categoriesCache = UnitCategories(data);
+          if (kDebugMode) {
+            print('ConversionUtils: Loaded ${data.length} unit categories from server');
+          }
+        }
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('ConversionUtils: Error fetching categories: $e');
+      }
+    }
+  }
+
+  /// Convert weather value using fallback conversions
+  /// Uses server preferences if available, otherwise uses sensible defaults
+  static double? convertWeatherValue(
+    SignalKService service,
+    WeatherFieldType fieldType,
+    double rawValue,
+  ) {
+    String category;
+    String defaultTarget;
+
+    switch (fieldType) {
+      case WeatherFieldType.temperature:
+        category = 'temperature';
+        defaultTarget = 'F';
+        break;
+      case WeatherFieldType.speed:
+        category = 'speed';
+        defaultTarget = 'kn';
+        break;
+      case WeatherFieldType.pressure:
+        category = 'pressure';
+        defaultTarget = 'hPa';
+        break;
+      case WeatherFieldType.angle:
+        category = 'angle';
+        defaultTarget = 'degree';
+        break;
+      case WeatherFieldType.percentage:
+        category = 'percentage';
+        defaultTarget = 'percent';
+        break;
+    }
+
+    // Try to get user's preferred target unit from server
+    String targetUnit = defaultTarget;
+    if (_categoriesCache != null) {
+      final serverTarget = _categoriesCache!.getTargetUnit(category);
+      if (serverTarget != null) {
+        targetUnit = serverTarget;
+      }
+    }
+
+    // Get conversion formula
+    final categoryConversions = _standardConversions[category];
+    if (categoryConversions == null) {
+      return rawValue;
+    }
+
+    final conversion = categoryConversions[targetUnit] ?? categoryConversions[defaultTarget];
+    if (conversion == null) {
+      return rawValue;
+    }
+
+    return evaluateFormula(conversion.formula, rawValue);
+  }
+
+  /// Get unit symbol for weather field type
+  static String getWeatherUnitSymbol(WeatherFieldType fieldType) {
+    String category;
+    String defaultTarget;
+
+    switch (fieldType) {
+      case WeatherFieldType.temperature:
+        category = 'temperature';
+        defaultTarget = 'F';
+        break;
+      case WeatherFieldType.speed:
+        category = 'speed';
+        defaultTarget = 'kn';
+        break;
+      case WeatherFieldType.pressure:
+        category = 'pressure';
+        defaultTarget = 'hPa';
+        break;
+      case WeatherFieldType.angle:
+        category = 'angle';
+        defaultTarget = 'degree';
+        break;
+      case WeatherFieldType.percentage:
+        category = 'percentage';
+        defaultTarget = 'percent';
+        break;
+    }
+
+    // Try to get user's preferred target unit from server
+    String targetUnit = defaultTarget;
+    if (_categoriesCache != null) {
+      final serverTarget = _categoriesCache!.getTargetUnit(category);
+      if (serverTarget != null) {
+        targetUnit = serverTarget;
+      }
+    }
+
+    // Get symbol
+    final categoryConversions = _standardConversions[category];
+    if (categoryConversions == null) {
+      return '';
+    }
+
+    final conversion = categoryConversions[targetUnit] ?? categoryConversions[defaultTarget];
+    return conversion?.symbol ?? '';
+  }
   /// Evaluate a math formula with a given value
   /// Formula example: "value * 1.94384" or "(value - 273.15) * 9/5 + 32"
   static double? evaluateFormula(String formula, double rawValue) {

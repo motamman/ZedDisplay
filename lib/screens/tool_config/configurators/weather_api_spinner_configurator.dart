@@ -42,6 +42,7 @@ class WeatherApiSpinnerConfigurator extends ToolConfigurator {
   bool loadingProviders = false;
   String? loadError;
   bool showWeatherAnimation = true;
+  int forecastDays = 5;
 
   @override
   void reset() {
@@ -50,6 +51,7 @@ class WeatherApiSpinnerConfigurator extends ToolConfigurator {
     loadingProviders = false;
     loadError = null;
     showWeatherAnimation = true;
+    forecastDays = 5;
   }
 
   @override
@@ -64,6 +66,12 @@ class WeatherApiSpinnerConfigurator extends ToolConfigurator {
       final provider = style.customProperties!['provider'];
       selectedProvider = (provider is String && provider.isNotEmpty) ? provider : null;
       showWeatherAnimation = style.customProperties!['showWeatherAnimation'] as bool? ?? true;
+      final days = style.customProperties!['forecastDays'];
+      if (days is int) {
+        forecastDays = days.clamp(1, 10);
+      } else if (days is num) {
+        forecastDays = days.toInt().clamp(1, 10);
+      }
     }
   }
 
@@ -75,6 +83,7 @@ class WeatherApiSpinnerConfigurator extends ToolConfigurator {
         customProperties: {
           'provider': selectedProvider ?? '',
           'showWeatherAnimation': showWeatherAnimation,
+          'forecastDays': forecastDays,
         },
       ),
     );
@@ -95,7 +104,7 @@ class WeatherApiSpinnerConfigurator extends ToolConfigurator {
 
     try {
       final serverUrl = signalKService.serverUrl;
-      final useSecure = serverUrl.startsWith('wss://') || serverUrl.startsWith('https://');
+      final useSecure = signalKService.useSecureConnection;
       final host = serverUrl.replaceAll(RegExp(r'^wss?://|^https?://'), '').split('/').first;
       final scheme = useSecure ? 'https' : 'http';
 
@@ -313,6 +322,35 @@ class WeatherApiSpinnerConfigurator extends ToolConfigurator {
             ],
 
             const SizedBox(height: 24),
+            const Divider(),
+            const SizedBox(height: 8),
+
+            // Forecast settings
+            Text(
+              'Forecast Settings',
+              style: Theme.of(context).textTheme.titleSmall,
+            ),
+            const SizedBox(height: 8),
+
+            ListTile(
+              title: const Text('Forecast Days'),
+              subtitle: Text('Show forecast for $forecastDays day${forecastDays == 1 ? '' : 's'}'),
+              trailing: SizedBox(
+                width: 200,
+                child: Slider(
+                  value: forecastDays.toDouble(),
+                  min: 1,
+                  max: 10,
+                  divisions: 9,
+                  label: '$forecastDays days',
+                  onChanged: (value) {
+                    setState(() => forecastDays = value.round());
+                  },
+                ),
+              ),
+            ),
+
+            const SizedBox(height: 16),
             const Divider(),
             const SizedBox(height: 8),
 
