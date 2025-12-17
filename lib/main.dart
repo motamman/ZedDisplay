@@ -106,6 +106,9 @@ void main() async {
   );
   await setupService.initialize();
 
+  // Connect crew service to setup service (for device name in crew profiles)
+  crewService.setSetupService(setupService);
+
   // Register all built-in tool types
   final toolRegistry = ToolRegistry();
   toolRegistry.registerDefaults();

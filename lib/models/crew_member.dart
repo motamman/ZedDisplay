@@ -46,6 +46,9 @@ class CrewMember {
   /// Device ID for this crew member's device
   final String deviceId;
 
+  /// Device name for display (setup name or device model)
+  final String? deviceName;
+
   /// Optional avatar (base64 encoded or URL)
   final String? avatar;
 
@@ -61,6 +64,7 @@ class CrewMember {
     this.role = CrewRole.crew,
     this.status = CrewStatus.offWatch,
     required this.deviceId,
+    this.deviceName,
     this.avatar,
     DateTime? createdAt,
     DateTime? updatedAt,
@@ -74,6 +78,7 @@ class CrewMember {
     CrewRole? role,
     CrewStatus? status,
     String? deviceId,
+    String? deviceName,
     String? avatar,
     DateTime? createdAt,
     DateTime? updatedAt,
@@ -84,6 +89,7 @@ class CrewMember {
       role: role ?? this.role,
       status: status ?? this.status,
       deviceId: deviceId ?? this.deviceId,
+      deviceName: deviceName ?? this.deviceName,
       avatar: avatar ?? this.avatar,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? DateTime.now(),

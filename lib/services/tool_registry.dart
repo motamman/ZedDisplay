@@ -39,6 +39,7 @@ import '../widgets/tools/clock_alarm_tool.dart';
 import '../widgets/tools/anchor_alarm_tool.dart';
 import '../widgets/tools/position_display_tool.dart';
 import '../widgets/tools/victron_flow_tool.dart';
+import '../widgets/tools/device_access_manager_tool.dart';
 
 /// Abstract builder for tool widgets
 abstract class ToolBuilder {
@@ -149,6 +150,7 @@ class ToolRegistry {
     register('anchor_alarm', AnchorAlarmToolBuilder());
     register('position_display', PositionDisplayToolBuilder());
     register('victron_flow', VictronFlowToolBuilder());
+    register('device_access_manager', DeviceAccessManagerToolBuilder());
     // register('webview', WebViewToolBuilder()); // Hidden for now - uncomment to enable
   }
 }

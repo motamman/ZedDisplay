@@ -1,8 +1,10 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:uuid/uuid.dart';
+import 'package:device_info_plus/device_info_plus.dart';
 import '../models/auth_token.dart';
 import '../models/access_request.dart';
 import 'storage_service.dart';
@@ -21,6 +23,46 @@ class AuthService extends ChangeNotifier {
   /// Generate a unique client ID for this device
   String generateClientId() {
     return const Uuid().v4();
+  }
+
+  /// Generate a device description for access requests
+  /// Uses setupName if provided, otherwise falls back to device model
+  static Future<String> generateDeviceDescription({String? setupName}) async {
+    String identifier = '';
+
+    if (setupName != null && setupName.isNotEmpty) {
+      identifier = setupName;
+    } else {
+      // Get device model as fallback
+      try {
+        final deviceInfo = DeviceInfoPlugin();
+        if (Platform.isAndroid) {
+          final androidInfo = await deviceInfo.androidInfo;
+          identifier = '${androidInfo.manufacturer} ${androidInfo.model}';
+        } else if (Platform.isIOS) {
+          final iosInfo = await deviceInfo.iosInfo;
+          identifier = iosInfo.model;
+        } else if (Platform.isMacOS) {
+          final macInfo = await deviceInfo.macOsInfo;
+          identifier = macInfo.model;
+        } else if (Platform.isWindows) {
+          final windowsInfo = await deviceInfo.windowsInfo;
+          identifier = windowsInfo.computerName;
+        } else if (Platform.isLinux) {
+          final linuxInfo = await deviceInfo.linuxInfo;
+          identifier = linuxInfo.prettyName;
+        }
+      } catch (e) {
+        if (kDebugMode) {
+          print('Error getting device info: $e');
+        }
+      }
+    }
+
+    if (identifier.isNotEmpty) {
+      return 'ZedDisplay - $identifier';
+    }
+    return 'ZedDisplay Marine Dashboard';
   }
 
   /// Submit an access request to SignalK server

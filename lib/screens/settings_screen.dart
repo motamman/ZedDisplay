@@ -8,6 +8,7 @@ import '../services/auth_service.dart';
 import '../services/dashboard_service.dart';
 import '../services/foreground_service.dart';
 import '../services/notification_service.dart';
+import '../services/setup_service.dart';
 import '../models/server_connection.dart';
 import 'connection_screen.dart';
 import 'dashboard_manager_screen.dart';
@@ -845,17 +846,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
       } else {
         // No saved token, start device registration
         if (mounted) {
-          Navigator.of(context).push(
-            MaterialPageRoute(
-              builder: (context) => DeviceRegistrationScreen(
-                serverUrl: connection.serverUrl,
-                secure: connection.useSecure,
-                clientId: authService.generateClientId(),
-                description: 'ZedDisplay Marine Dashboard',
-                connectionId: connection.id,
+          // Generate device description with setup name or device model
+          final setupService = Provider.of<SetupService>(context, listen: false);
+          final setupName = await setupService.getActiveSetupName();
+          final description = await AuthService.generateDeviceDescription(setupName: setupName);
+
+          if (mounted) {
+            Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (context) => DeviceRegistrationScreen(
+                  serverUrl: connection.serverUrl,
+                  secure: connection.useSecure,
+                  clientId: authService.generateClientId(),
+                  description: description,
+                  connectionId: connection.id,
+                ),
               ),
-            ),
-          );
+            );
+          }
         }
       }
     } catch (e) {

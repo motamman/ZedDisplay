@@ -5,11 +5,19 @@ import 'package:uuid/uuid.dart';
 import '../models/crew_member.dart';
 import 'signalk_service.dart';
 import 'storage_service.dart';
+import 'auth_service.dart';
+import 'setup_service.dart';
 
 /// Service for managing crew identity, presence, and communication
 class CrewService extends ChangeNotifier {
   final SignalKService _signalKService;
   final StorageService _storageService;
+  SetupService? _setupService;
+
+  /// Set the setup service (called after initialization when SetupService is available)
+  void setSetupService(SetupService setupService) {
+    _setupService = setupService;
+  }
 
   // Local crew profile
   CrewMember? _localProfile;
@@ -45,7 +53,7 @@ class CrewService extends ChangeNotifier {
   static const String _localProfileKey = 'crew_local_profile';
   static const String _deviceIdKey = 'crew_device_id';
 
-  CrewService(this._signalKService, this._storageService);
+  CrewService(this._signalKService, this._storageService, [this._setupService]);
 
   /// Initialize the crew service
   Future<void> initialize() async {
@@ -82,6 +90,29 @@ class CrewService extends ChangeNotifier {
       await _storageService.saveSetting(_deviceIdKey, deviceId);
     }
     return deviceId;
+  }
+
+  /// Get the device name (setup name or device model)
+  Future<String?> _getDeviceName() async {
+    try {
+      // Try to get setup name first
+      String? setupName;
+      if (_setupService != null) {
+        setupName = await _setupService!.getActiveSetupName();
+      }
+      // Generate device description (will use setup name or fall back to device model)
+      final description = await AuthService.generateDeviceDescription(setupName: setupName);
+      // Remove "ZedDisplay - " prefix if present to get just the identifier
+      if (description.startsWith('ZedDisplay - ')) {
+        return description.substring(13);
+      }
+      return description;
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error getting device name: $e');
+      }
+      return null;
+    }
   }
 
   /// Load local profile from storage
@@ -121,6 +152,7 @@ class CrewService extends ChangeNotifier {
     String? avatar,
   }) async {
     final deviceId = await _getDeviceId();
+    final deviceName = await _getDeviceName();
 
     if (_localProfile == null) {
       // Create new profile
@@ -130,14 +162,16 @@ class CrewService extends ChangeNotifier {
         role: role,
         status: status,
         deviceId: deviceId,
+        deviceName: deviceName,
         avatar: avatar,
       );
     } else {
-      // Update existing profile
+      // Update existing profile (also update device name in case setup changed)
       _localProfile = _localProfile!.copyWith(
         name: name,
         role: role,
         status: status,
+        deviceName: deviceName,
         avatar: avatar,
       );
     }
