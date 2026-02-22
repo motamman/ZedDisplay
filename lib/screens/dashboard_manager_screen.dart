@@ -1162,12 +1162,6 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen>
           },
         ),
         actions: [
-          // "+" button to add tools (primary action)
-          IconButton(
-            icon: const Icon(Icons.add),
-            onPressed: _openToolSelector,
-            tooltip: 'Add Widget',
-          ),
           // Edit mode indicator when active
           if (_isEditMode)
             IconButton(
