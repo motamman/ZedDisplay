@@ -391,4 +391,12 @@ class DashboardService extends ChangeNotifier {
         ? screen.portraitPlacements
         : screen.landscapePlacements;
   }
+
+  /// Reorder screens by moving from oldIndex to newIndex
+  Future<void> reorderScreens(int oldIndex, int newIndex) async {
+    if (_currentLayout == null) return;
+    _currentLayout = _currentLayout!.reorderScreens(oldIndex, newIndex);
+    notifyListeners();
+    await saveDashboard();
+  }
 }

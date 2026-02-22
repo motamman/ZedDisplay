@@ -25,53 +25,175 @@ class DashboardManagerScreen extends StatefulWidget {
   State<DashboardManagerScreen> createState() => _DashboardManagerScreenState();
 }
 
-class _DashboardManagerScreenState extends State<DashboardManagerScreen> {
+class _DashboardManagerScreenState extends State<DashboardManagerScreen>
+    with WidgetsBindingObserver {
+  // PageController for screen transitions with wrap-around
   late PageController _pageController;
+  static const int _virtualPageOffset = 10000;
+  bool _pageControllerInitialized = false;
+  bool _isSwipeInProgress = false;  // Prevents listener feedback loop
+
+  // Track screen count to detect add/remove
+  int _lastScreenCount = 0;
+
+  // Screen selector auto-hide
+  bool _showScreenSelectorDots = true;
+  Timer? _selectorHideTimer;
+
+  // Height reserved at bottom for screen selector dots
+  static const double _selectorHeight = 50.0;
+
   bool _isEditMode = false;
   bool _isFullScreen = false;
   bool _showAppBar = true;
   Timer? _appBarHideTimer;
 
-  // For swipe gesture handling with IndexedStack
-  double _dragStartX = 0;
-  double _dragDelta = 0;
-  bool _isDragging = false;
-
-
   @override
   void initState() {
     super.initState();
-    // PageController kept for potential future use
+
+    // Register for app lifecycle events
+    WidgetsBinding.instance.addObserver(this);
+
+    // Start screen selector auto-hide timer
+    _startSelectorHideTimer();
+
+    // Initialize PageController after first frame
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final dashboardService = Provider.of<DashboardService>(context, listen: false);
+      _initializePageController(dashboardService);
+    });
+  }
+
+  /// Initialize PageController for smooth screen transitions
+  void _initializePageController(DashboardService dashboardService) {
+    if (_pageControllerInitialized) return;
+
+    final layout = dashboardService.currentLayout;
+    final screenCount = layout?.screens.length ?? 1;
+
+    // Determine initial screen index:
+    // 1. If startupScreenId is set, use that screen
+    // 2. Otherwise, use activeScreenIndex (last viewed)
+    final storageService = Provider.of<StorageService>(context, listen: false);
+    final startupScreenId = storageService.startupScreenId;
+    int initialIndex;
+
+    if (startupScreenId != null && layout != null) {
+      // Find the index of the startup screen
+      final startupIndex = layout.screens.indexWhere((s) => s.id == startupScreenId);
+      initialIndex = startupIndex >= 0 ? startupIndex : (layout.activeScreenIndex);
+    } else {
+      initialIndex = layout?.activeScreenIndex ?? 0;
+    }
+
+    final initialPage = _virtualPageOffset * screenCount + initialIndex;
+
+    _pageController = PageController(initialPage: initialPage);
+    _pageControllerInitialized = true;
+    _lastScreenCount = screenCount;
+
+    // Listen for programmatic screen changes (e.g., from screen selector)
+    dashboardService.addListener(_onDashboardServiceChanged);
+
+    // Trigger a rebuild now that PageController is ready
+    if (mounted) setState(() {});
+  }
+
+  /// Handle programmatic screen changes (e.g., from screen selector bottom sheet)
+  void _onDashboardServiceChanged() {
+    if (!_pageControllerInitialized || !mounted) return;
+
+    // Skip if this change came from a swipe (already handled by PageView)
+    if (_isSwipeInProgress) {
+      _isSwipeInProgress = false;
+      return;
+    }
+
     final dashboardService = Provider.of<DashboardService>(context, listen: false);
-    final initialIndex = dashboardService.currentLayout?.activeScreenIndex ?? 0;
-    _pageController = PageController(initialPage: initialIndex);
+    final layout = dashboardService.currentLayout;
+    if (layout == null || !_pageController.hasClients) return;
+
+    final targetIndex = layout.activeScreenIndex;
+    final screenCount = layout.screens.length;
+    if (screenCount == 0) return;
+
+    // Handle screen count change (add/remove) - jump to correct position
+    if (screenCount != _lastScreenCount) {
+      _lastScreenCount = screenCount;
+      final newVirtualPage = _virtualPageOffset * screenCount + targetIndex;
+      _pageController.jumpToPage(newVirtualPage);
+      return;
+    }
+
+    final currentPage = _pageController.page?.round() ?? 0;
+    final currentActualIndex = currentPage % screenCount;
+
+    // Only animate if we're on a different screen
+    if (currentActualIndex != targetIndex) {
+      // Calculate nearest virtual page (shortest path for wrap-around)
+      final baseVirtual = (currentPage ~/ screenCount) * screenCount;
+      int targetPage = baseVirtual + targetIndex;
+
+      // Choose shortest path for wrap-around
+      final diff = targetIndex - currentActualIndex;
+      if (diff.abs() > screenCount / 2) {
+        targetPage += (diff > 0) ? -screenCount : screenCount;
+      }
+
+      _pageController.animateToPage(
+        targetPage,
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeInOut,
+      );
+    }
   }
 
   @override
   void dispose() {
+    // Remove lifecycle observer
+    WidgetsBinding.instance.removeObserver(this);
+
     _appBarHideTimer?.cancel();
-    _pageController.dispose();
+    _selectorHideTimer?.cancel();
+
+    // Cleanup PageController
+    if (_pageControllerInitialized) {
+      _pageController.dispose();
+      // Remove listener from dashboard service
+      try {
+        final dashboardService = Provider.of<DashboardService>(context, listen: false);
+        dashboardService.removeListener(_onDashboardServiceChanged);
+      } catch (_) {
+        // Context may not be available during dispose
+      }
+    }
+
     super.dispose();
   }
 
-  /// Handle swipe to change screens with wrap-around
-  void _onHorizontalSwipe(int direction, DashboardService dashboardService) {
-    final totalScreens = dashboardService.currentLayout?.screens.length ?? 0;
-    if (totalScreens <= 1) return;
-
-    final currentIndex = dashboardService.currentLayout!.activeScreenIndex;
-    int newIndex;
-
-    if (direction > 0) {
-      // Swipe left (next screen)
-      newIndex = (currentIndex + 1) % totalScreens;
-    } else {
-      // Swipe right (previous screen)
-      newIndex = (currentIndex - 1 + totalScreens) % totalScreens;
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Show screen selector when app resumes from background
+    if (state == AppLifecycleState.resumed) {
+      _revealSelectorDots();
     }
+  }
 
-    dashboardService.setActiveScreen(newIndex);
-    _showAppBarTemporarily();
+  /// Reveal the screen selector dots and restart the hide timer
+  void _revealSelectorDots() {
+    setState(() => _showScreenSelectorDots = true);
+    _startSelectorHideTimer();
+  }
+
+  /// Start the auto-hide timer for screen selector dots
+  void _startSelectorHideTimer() {
+    _selectorHideTimer?.cancel();
+    _selectorHideTimer = Timer(const Duration(seconds: 4), () {
+      if (mounted) {
+        setState(() => _showScreenSelectorDots = false);
+      }
+    });
   }
 
   void _startAppBarHideTimer() {
@@ -220,66 +342,248 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen> {
 
   void _showScreenSelector(BuildContext context) {
     final dashboardService = Provider.of<DashboardService>(context, listen: false);
-    final layout = dashboardService.currentLayout;
+    final storageService = Provider.of<StorageService>(context, listen: false);
 
-    if (layout == null) return;
+    if (dashboardService.currentLayout == null) return;
 
     showModalBottomSheet(
       context: context,
-      builder: (context) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Padding(
-              padding: const EdgeInsets.all(16),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    'Select Screen',
-                    style: Theme.of(context).textTheme.titleLarge,
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.close),
-                    onPressed: () => Navigator.pop(context),
-                  ),
-                ],
-              ),
-            ),
-            const Divider(height: 1),
-            Flexible(
-              child: ListView.builder(
-                shrinkWrap: true,
-                itemCount: layout.screens.length,
-                itemBuilder: (context, index) {
-                  final screen = layout.screens[index];
-                  final isActive = index == layout.activeScreenIndex;
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (sheetContext, setSheetState) {
+          // Read layout inside builder so it updates after reorder
+          final layout = dashboardService.currentLayout!;
+          final startupScreenId = storageService.startupScreenId;
 
-                  return ListTile(
-                    leading: Icon(
-                      Icons.dashboard,
-                      color: isActive ? Theme.of(context).colorScheme.primary : null,
-                    ),
-                    title: Text(
-                      screen.name,
-                      style: TextStyle(
-                        fontWeight: isActive ? FontWeight.bold : FontWeight.normal,
-                        color: isActive ? Theme.of(context).colorScheme.primary : null,
+          return SafeArea(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        'Screens',
+                        style: Theme.of(sheetContext).textTheme.titleLarge,
                       ),
-                    ),
-                    trailing: isActive ? const Icon(Icons.check, color: Colors.green) : null,
-                    onTap: () {
-                      Navigator.pop(context);
-                      dashboardService.setActiveScreen(index);
+                      IconButton(
+                        icon: const Icon(Icons.close),
+                        onPressed: () => Navigator.pop(sheetContext),
+                      ),
+                    ],
+                  ),
+                ),
+                const Divider(height: 1),
+                Flexible(
+                  child: ReorderableListView.builder(
+                    shrinkWrap: true,
+                    buildDefaultDragHandles: false,
+                    itemCount: layout.screens.length,
+                    proxyDecorator: (child, index, animation) {
+                      return AnimatedBuilder(
+                        animation: animation,
+                        builder: (context, child) {
+                          final double elevation = Tween<double>(begin: 0, end: 6)
+                              .animate(animation).value;
+                          return Material(
+                            elevation: elevation,
+                            shadowColor: Colors.black54,
+                            child: child,
+                          );
+                        },
+                        child: child,
+                      );
                     },
-                  );
-                },
-              ),
+                    onReorder: (oldIndex, newIndex) {
+                      // ReorderableListView gives newIndex as position before removal
+                      if (newIndex > oldIndex) {
+                        newIndex -= 1;
+                      }
+                      dashboardService.reorderScreens(oldIndex, newIndex);
+                      setSheetState(() {}); // Refresh bottom sheet UI
+                    },
+                    itemBuilder: (sheetContext, index) {
+                      final screen = layout.screens[index];
+                      final isActive = index == layout.activeScreenIndex;
+                      final isStartupScreen = screen.id == startupScreenId;
+
+                      return ListTile(
+                        key: ValueKey(screen.id),
+                        leading: Icon(
+                          Icons.dashboard,
+                          color: isActive ? Theme.of(sheetContext).colorScheme.primary : null,
+                        ),
+                        title: Text(
+                          screen.name,
+                          style: TextStyle(
+                            fontWeight: isActive ? FontWeight.bold : FontWeight.normal,
+                            color: isActive ? Theme.of(sheetContext).colorScheme.primary : null,
+                          ),
+                        ),
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            // Startup screen toggle
+                            IconButton(
+                              icon: Icon(
+                                isStartupScreen ? Icons.home : Icons.home_outlined,
+                                color: isStartupScreen ? Colors.orange : Colors.grey,
+                              ),
+                              onPressed: () async {
+                                // Toggle: if already startup, clear it; otherwise set it
+                                final newId = isStartupScreen ? null : screen.id;
+                                await storageService.setStartupScreenId(newId);
+                                setSheetState(() {}); // Rebuild bottom sheet
+                              },
+                              tooltip: isStartupScreen ? 'Clear startup screen' : 'Set as startup screen',
+                              visualDensity: VisualDensity.compact,
+                            ),
+                            // Active screen indicator
+                            if (isActive)
+                              const Icon(Icons.check, color: Colors.green),
+                            // Drag handle for reordering
+                            ReorderableDragStartListener(
+                              index: index,
+                              child: const Padding(
+                                padding: EdgeInsets.only(left: 8),
+                                child: Icon(Icons.drag_indicator, color: Colors.grey),
+                              ),
+                            ),
+                          ],
+                        ),
+                        onTap: () {
+                          Navigator.pop(sheetContext);
+                          dashboardService.setActiveScreen(index);
+                        },
+                      );
+                    },
+                  ),
+                ),
+                const Divider(height: 1),
+                // Screen management actions
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                    children: [
+                      TextButton.icon(
+                        onPressed: () {
+                          Navigator.pop(sheetContext);
+                          _showAddScreenDialog();
+                        },
+                        icon: const Icon(Icons.add, size: 18),
+                        label: const Text('Add'),
+                      ),
+                      TextButton.icon(
+                        onPressed: () {
+                          Navigator.pop(sheetContext);
+                          final activeScreen = dashboardService.currentLayout?.activeScreen;
+                          if (activeScreen != null) {
+                            _showRenameDialog(activeScreen.id, activeScreen.name);
+                          }
+                        },
+                        icon: const Icon(Icons.edit, size: 18),
+                        label: const Text('Rename'),
+                      ),
+                      if (layout.screens.length > 1)
+                        TextButton.icon(
+                          onPressed: () {
+                            Navigator.pop(sheetContext);
+                            final activeScreen = dashboardService.currentLayout?.activeScreen;
+                            if (activeScreen != null) {
+                              _confirmRemoveScreen(activeScreen.id, activeScreen.name);
+                            }
+                          },
+                          icon: const Icon(Icons.delete, size: 18, color: Colors.red),
+                          label: const Text('Delete', style: TextStyle(color: Colors.red)),
+                        ),
+                      TextButton.icon(
+                        onPressed: () {
+                          Navigator.pop(sheetContext);
+                          _showIntendedUseDialog();
+                        },
+                        icon: const Icon(Icons.devices, size: 18),
+                        label: const Text('Device'),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ),
-          ],
-        ),
+          );
+        },
       ),
     );
+  }
+
+  void _showAddScreenDialog() async {
+    final nameController = TextEditingController();
+    final result = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Add Screen'),
+        content: TextField(
+          controller: nameController,
+          decoration: const InputDecoration(
+            labelText: 'Screen Name',
+            hintText: 'e.g., Navigation, Engine, Weather',
+          ),
+          autofocus: true,
+          textCapitalization: TextCapitalization.words,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () {
+              final name = nameController.text.trim();
+              if (name.isNotEmpty) {
+                Navigator.pop(context, name);
+              }
+            },
+            child: const Text('Add'),
+          ),
+        ],
+      ),
+    );
+
+    if (result != null && mounted) {
+      final dashboardService = Provider.of<DashboardService>(context, listen: false);
+      await dashboardService.addScreen(name: result);
+
+      // Jump to new screen
+      final newIndex = dashboardService.currentLayout!.screens.length - 1;
+      dashboardService.setActiveScreen(newIndex);
+    }
+  }
+
+  void _confirmRemoveScreen(String screenId, String screenName) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete Screen?'),
+        content: Text('Are you sure you want to delete "$screenName"? This will remove all tools on this screen.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true && mounted) {
+      final dashboardService = Provider.of<DashboardService>(context, listen: false);
+      await dashboardService.removeScreen(screenId);
+    }
   }
 
   Future<void> _editTool(Tool tool, String placementToolId) async {
@@ -368,72 +672,6 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen> {
             child: const Text('Remove'),
           ),
         ],
-      ),
-    );
-  }
-
-  void _showScreenManagementMenu() {
-    final dashboardService = Provider.of<DashboardService>(context, listen: false);
-
-    showModalBottomSheet(
-      context: context,
-      builder: (context) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: const Icon(Icons.add),
-              title: const Text('Add Screen'),
-              onTap: () async {
-                Navigator.pop(context);
-                await dashboardService.addScreen();
-                // Jump to the new screen
-                final newIndex = dashboardService.currentLayout!.screens.length - 1;
-                dashboardService.setActiveScreen(newIndex);
-              },
-            ),
-            if (dashboardService.currentLayout!.screens.length > 1)
-              ListTile(
-                leading: const Icon(Icons.delete),
-                title: const Text('Remove Current Screen'),
-                onTap: () async {
-                  Navigator.pop(context);
-                  final activeScreen = dashboardService.currentLayout!.activeScreen;
-                  if (activeScreen != null) {
-                    await dashboardService.removeScreen(activeScreen.id);
-                  }
-                },
-              ),
-            ListTile(
-              leading: const Icon(Icons.edit),
-              title: const Text('Rename Current Screen'),
-              onTap: () async {
-                Navigator.pop(context);
-                final activeScreen = dashboardService.currentLayout!.activeScreen;
-                if (activeScreen != null) {
-                  _showRenameDialog(activeScreen.id, activeScreen.name);
-                }
-              },
-            ),
-            const Divider(),
-            ListTile(
-              leading: const Icon(Icons.devices),
-              title: const Text('Intended Use'),
-              subtitle: Text(
-                dashboardService.currentLayout?.intendedUse ?? 'Not set',
-                style: TextStyle(
-                  color: dashboardService.currentLayout?.intendedUse != null
-                      ? null
-                      : Colors.grey,
-                ),
-              ),
-              onTap: () {
-                Navigator.pop(context);
-                _showIntendedUseDialog();
-              },
-            ),
-          ],
-        ),
       ),
     );
   }
@@ -644,11 +882,6 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen> {
             },
             tooltip: _isEditMode ? 'Exit Edit Mode' : 'Edit Mode',
           ),
-          IconButton(
-            icon: const Icon(Icons.view_carousel),
-            onPressed: _showScreenManagementMenu,
-            tooltip: 'Manage Screens',
-          ),
           // Theme mode toggle
           Consumer<StorageService>(
             builder: (context, storageService, child) {
@@ -743,89 +976,127 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen> {
               );
             }
 
-            return Stack(
-            children: [
-              // IndexedStack keeps ALL children built and alive - state is preserved
-              // No caching needed - IndexedStack handles state preservation internally
-              GestureDetector(
-                behavior: HitTestBehavior.translucent,
-                onHorizontalDragStart: (_isEditMode || _toolBeingPlaced != null) ? null : (details) {
-                  _dragStartX = details.localPosition.dx;
-                  _dragDelta = 0;
-                  _isDragging = true;
-                },
-                onHorizontalDragUpdate: (_isEditMode || _toolBeingPlaced != null) ? null : (details) {
-                  _dragDelta = details.localPosition.dx - _dragStartX;
-                },
-                onHorizontalDragEnd: (_isEditMode || _toolBeingPlaced != null) ? null : (details) {
-                  if (_isDragging && _dragDelta.abs() > 50) {
-                    _onHorizontalSwipe(_dragDelta < 0 ? 1 : -1, dashboardService);
-                  }
-                  _isDragging = false;
-                  _dragDelta = 0;
-                },
-                child: IndexedStack(
-                  index: layout.activeScreenIndex,
-                  children: layout.screens.map((screen) {
-                    return _buildScreenContent(screen, signalKService);
-                  }).toList(),
-                ),
-              ),
+            // Build dashboard with PageView navigation
+            return _buildDashboard(layout, dashboardService, signalKService);
+        },
+          ),
+        ),
+      ),
+    );
+  }
 
-              // Screen selector button (only show if multiple screens)
-              if (layout.screens.length > 1)
-                Positioned(
-                  bottom: 16,
-                  left: 0,
-                  right: 0,
-                  child: Center(
+  Widget _buildDashboard(dynamic layout, DashboardService dashboardService, SignalKService signalKService) {
+    if (layout.screens.isEmpty) {
+      return const Center(child: Text('No screens available'));
+    }
+
+    final int screenCount = layout.screens.length;
+
+    // Disable swipe in edit mode, placement mode, or single screen
+    final disableSwipe = _isEditMode || _toolBeingPlaced != null || screenCount <= 1;
+
+    // Ensure PageController is initialized before building
+    if (!_pageControllerInitialized) {
+      _initializePageController(dashboardService);
+      // Return loading indicator while initializing
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    return Stack(
+      children: [
+        // PageView for smooth slide transitions with live drag preview
+        PageView.builder(
+          controller: _pageController,
+          physics: disableSwipe
+              ? const NeverScrollableScrollPhysics()
+              : const BouncingScrollPhysics(),
+          onPageChanged: (virtualPage) {
+            // Convert virtual page to actual index (wrap-around)
+            final int actualIndex = virtualPage % screenCount;
+
+            // Only update service if index actually changed
+            if (actualIndex != layout.activeScreenIndex) {
+              // Mark as swipe to prevent listener feedback loop
+              _isSwipeInProgress = true;
+              dashboardService.setActiveScreen(actualIndex);
+              _showAppBarTemporarily();
+              _revealSelectorDots();
+            }
+          },
+          itemBuilder: (context, virtualPage) {
+            // Convert virtual page to actual screen index (wrap-around)
+            final int actualIndex = virtualPage % screenCount;
+            final screen = layout.screens[actualIndex];
+            return _buildScreenContent(screen, signalKService);
+          },
+          // No itemCount = infinite scrolling for wrap-around
+        ),
+
+        // Screen indicator dots at bottom (only if multiple screens)
+        // Auto-hides after 4 seconds, tap bottom zone to reveal
+        if (layout.screens.length > 1)
+          Positioned(
+            bottom: 0,
+            left: 0,
+            right: 0,
+            child: GestureDetector(
+              behavior: HitTestBehavior.translucent,
+              onTap: () {
+                if (!_showScreenSelectorDots) {
+                  _revealSelectorDots();
+                }
+              },
+              child: Container(
+                height: _selectorHeight, // Tap zone height for revealing hidden dots
+                alignment: Alignment.topCenter,
+                padding: const EdgeInsets.only(top: 10),
+                child: AnimatedOpacity(
+                  opacity: _showScreenSelectorDots ? 1.0 : 0.0,
+                  duration: const Duration(milliseconds: 300),
+                  child: IgnorePointer(
+                    ignoring: !_showScreenSelectorDots,
                     child: Material(
                       color: Colors.transparent,
                       child: InkWell(
-                        onTap: () => _showScreenSelector(context),
-                        borderRadius: BorderRadius.circular(20),
+                        onTap: () {
+                          _revealSelectorDots(); // Reset timer on interaction
+                          _showScreenSelector(context);
+                        },
+                        borderRadius: BorderRadius.circular(16),
                         child: Container(
                           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                           decoration: BoxDecoration(
-                            color: Colors.black.withValues(alpha: 0.6),
-                            borderRadius: BorderRadius.circular(20),
+                            color: Colors.white.withValues(alpha: 0.3),
+                            borderRadius: BorderRadius.circular(16),
                           ),
                           child: Row(
                             mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const Icon(
-                                Icons.dashboard,
-                                color: Colors.white,
-                                size: 18,
-                              ),
-                              const SizedBox(width: 8),
-                              Text(
-                                layout.activeScreen?.name ?? 'Dashboard',
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w500,
+                            children: List.generate(layout.screens.length, (index) {
+                              final isActive = index == layout.activeScreenIndex;
+                              return Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 4),
+                                child: Container(
+                                  width: 8,
+                                  height: 8,
+                                  decoration: BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    color: isActive
+                                        ? Colors.grey.shade800
+                                        : Colors.grey.shade400,
+                                  ),
                                 ),
-                              ),
-                              const SizedBox(width: 4),
-                              const Icon(
-                                Icons.arrow_drop_up,
-                                color: Colors.white,
-                                size: 20,
-                              ),
-                            ],
+                              );
+                            }),
                           ),
                         ),
                       ),
                     ),
                   ),
                 ),
-            ],
-          );
-        },
+              ),
+            ),
           ),
-        ),
-      ),
+      ],
     );
   }
 

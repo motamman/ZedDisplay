@@ -15,6 +15,7 @@ class StorageService extends ChangeNotifier {
   static const String _connectionsBoxName = 'connections';
   static const String _setupsBoxName = 'saved_setups';
   static const String _conversionsBoxName = 'conversions_cache';
+  static const String _startupScreenIdKey = 'startup_screen_id';
 
   late Box<String> _dashboardsBox;
   late Box<String> _templatesBox;
@@ -251,6 +252,21 @@ class StorageService extends ChangeNotifier {
   Future<void> deleteSetting(String key) async {
     if (!_initialized) throw Exception('StorageService not initialized');
     await _settingsBox.delete(key);
+  }
+
+  // ============ Startup Screen ============
+
+  /// Get startup screen ID (null = use last viewed)
+  String? get startupScreenId => _settingsBox.get(_startupScreenIdKey);
+
+  /// Set startup screen ID (null to clear and use last viewed)
+  Future<void> setStartupScreenId(String? screenId) async {
+    if (screenId == null) {
+      await _settingsBox.delete(_startupScreenIdKey);
+    } else {
+      await _settingsBox.put(_startupScreenIdKey, screenId);
+    }
+    notifyListeners();
   }
 
   // ===== Theme Settings =====
