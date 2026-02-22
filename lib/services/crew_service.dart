@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
 import '../models/crew_member.dart';
+import '../models/auth_token.dart';
 import 'signalk_service.dart';
 import 'storage_service.dart';
 import 'auth_service.dart';
@@ -49,21 +50,69 @@ class CrewService extends ChangeNotifier {
   // Track if Resources API is available
   bool _resourcesApiAvailable = true;
 
-  // Storage keys
-  static const String _localProfileKey = 'crew_local_profile';
+  // Storage key prefixes
+  static const String _userProfileKeyPrefix = 'crew_profile_user_';
+  static const String _deviceProfileKeyPrefix = 'crew_profile_device_';
   static const String _deviceIdKey = 'crew_device_id';
+
+  // Cached device ID for synchronous access
+  String? _cachedDeviceId;
+
+  // Track previous auth state for detecting login/logout transitions
+  AuthType? _previousAuthType;
+  String? _previousUsername;
 
   CrewService(this._signalKService, this._storageService, [this._setupService]);
 
+  // Auth-aware profile identity helpers
+
+  /// Get the current auth type from SignalK service
+  AuthType get _authType =>
+      _signalKService.authToken?.authType ?? AuthType.device;
+
+  /// Get the username if using user authentication
+  String? get _username => _signalKService.authToken?.username;
+
+  /// Check if currently logged in as a user (vs device)
+  bool get _isUserLogin => _authType == AuthType.user && _username != null;
+
+  /// Get the profile identifier based on auth type
+  /// Returns 'user:{username}' for user login, 'device:{deviceId}' for device login
+  Future<String> _getProfileIdentifier() async {
+    if (_isUserLogin) {
+      return 'user:${_username!}';
+    } else {
+      final deviceId = await _getDeviceId();
+      return 'device:$deviceId';
+    }
+  }
+
+  /// Get storage key for the current auth context
+  String _getStorageKey() {
+    if (_isUserLogin) {
+      return '$_userProfileKeyPrefix${_username!}';
+    } else {
+      // For device login, use cached device ID (must be loaded first)
+      return '$_deviceProfileKeyPrefix${_cachedDeviceId ?? 'unknown'}';
+    }
+  }
+
   /// Initialize the crew service
   Future<void> initialize() async {
+    // Cache device ID early for synchronous storage key access
+    await _getDeviceId();
+
+    // Track initial auth state
+    _previousAuthType = _authType;
+    _previousUsername = _username;
+
     // Load local profile from storage
     await _loadLocalProfile();
 
     // Register connection callback for sequential execution (prevents HTTP overload)
     _signalKService.registerConnectionCallback(_onConnected);
 
-    // Listen to SignalK connection changes for disconnection handling
+    // Listen to SignalK connection changes for disconnection and auth state changes
     _signalKService.addListener(_onSignalKChanged);
 
     // If already connected, start presence
@@ -86,13 +135,17 @@ class CrewService extends ChangeNotifier {
     super.dispose();
   }
 
-  /// Get or generate a unique device ID
+  /// Get or generate a unique device ID (also caches for synchronous access)
   Future<String> _getDeviceId() async {
+    if (_cachedDeviceId != null) {
+      return _cachedDeviceId!;
+    }
     String? deviceId = _storageService.getSetting(_deviceIdKey);
     if (deviceId == null) {
       deviceId = const Uuid().v4();
       await _storageService.saveSetting(_deviceIdKey, deviceId);
     }
+    _cachedDeviceId = deviceId;
     return deviceId;
   }
 
@@ -119,29 +172,78 @@ class CrewService extends ChangeNotifier {
     }
   }
 
-  /// Load local profile from storage
+  /// Load local profile from storage based on current auth context
   Future<void> _loadLocalProfile() async {
-    final profileJson = _storageService.getSetting(_localProfileKey);
+    final storageKey = _getStorageKey();
+    final profileJson = _storageService.getSetting(storageKey);
+
     if (profileJson != null) {
       try {
         final map = jsonDecode(profileJson) as Map<String, dynamic>;
         _localProfile = CrewMember.fromJson(map);
         if (kDebugMode) {
-          print('Loaded local crew profile: ${_localProfile?.name}');
+          print(
+              'Loaded local crew profile: ${_localProfile?.name} (key: $storageKey)');
         }
       } catch (e) {
         if (kDebugMode) {
           print('Error loading crew profile: $e');
         }
       }
+    } else {
+      _localProfile = null;
+      if (kDebugMode) {
+        print('No crew profile found for key: $storageKey');
+      }
     }
   }
 
-  /// Save local profile to storage
+  /// Try to fetch user profile from server (for user login)
+  /// Returns true if profile was loaded from server
+  Future<bool> _fetchUserProfileFromServer() async {
+    if (!_isUserLogin || !_signalKService.isConnected || !_resourcesApiAvailable) {
+      return false;
+    }
+
+    try {
+      final profileId = await _getProfileIdentifier();
+      final resources = await _signalKService.getResources(_crewResourceType);
+
+      for (final entry in resources.entries) {
+        if (entry.key == profileId) {
+          final resourceData = entry.value as Map<String, dynamic>;
+          final descriptionJson = resourceData['description'] as String?;
+          if (descriptionJson == null) continue;
+
+          final crewData = jsonDecode(descriptionJson) as Map<String, dynamic>;
+          _localProfile = CrewMember.fromJson(crewData);
+
+          // Save to local storage for offline access
+          await _saveLocalProfile();
+
+          if (kDebugMode) {
+            print('Loaded user profile from server: ${_localProfile?.name}');
+          }
+          return true;
+        }
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error fetching user profile from server: $e');
+      }
+    }
+    return false;
+  }
+
+  /// Save local profile to storage (uses auth-aware storage key)
   Future<void> _saveLocalProfile() async {
     if (_localProfile != null) {
+      final storageKey = _getStorageKey();
       final json = jsonEncode(_localProfile!.toJson());
-      await _storageService.saveSetting(_localProfileKey, json);
+      await _storageService.saveSetting(storageKey, json);
+      if (kDebugMode) {
+        print('Saved crew profile to: $storageKey');
+      }
     }
   }
 
@@ -149,19 +251,21 @@ class CrewService extends ChangeNotifier {
   bool get hasProfile => _localProfile != null;
 
   /// Create or update the local crew profile
+  /// Profile ID is based on auth type: 'user:{username}' or 'device:{deviceId}'
   Future<void> setProfile({
     required String name,
     CrewRole role = CrewRole.crew,
     CrewStatus status = CrewStatus.offWatch,
     String? avatar,
   }) async {
+    final profileId = await _getProfileIdentifier();
     final deviceId = await _getDeviceId();
     final deviceName = await _getDeviceName();
 
     if (_localProfile == null) {
-      // Create new profile
+      // Create new profile with auth-aware ID
       _localProfile = CrewMember(
-        id: const Uuid().v4(),
+        id: profileId,
         name: name,
         role: role,
         status: status,
@@ -170,8 +274,11 @@ class CrewService extends ChangeNotifier {
         avatar: avatar,
       );
     } else {
-      // Update existing profile (also update device name in case setup changed)
+      // Update existing profile
+      // Update ID if it doesn't match current auth context (shouldn't happen normally)
+      final newId = _localProfile!.id == profileId ? profileId : profileId;
       _localProfile = _localProfile!.copyWith(
+        id: newId,
         name: name,
         role: role,
         status: status,
@@ -189,7 +296,7 @@ class CrewService extends ChangeNotifier {
     }
 
     if (kDebugMode) {
-      print('Crew profile updated: $name ($role)');
+      print('Crew profile updated: $name ($role) [id: $profileId]');
     }
   }
 
@@ -206,12 +313,30 @@ class CrewService extends ChangeNotifier {
     }
   }
 
-  /// Handle SignalK connection changes (only for disconnection)
+  /// Handle SignalK connection changes and auth state transitions
   /// Connection is handled via registerConnectionCallback for sequential execution
   void _onSignalKChanged() {
     final isConnected = _signalKService.isConnected;
+    final currentAuthType = _authType;
+    final currentUsername = _username;
 
-    // Only handle actual state changes
+    // Check for auth state change (login/logout or user switch)
+    final authChanged = currentAuthType != _previousAuthType ||
+        (currentAuthType == AuthType.user && currentUsername != _previousUsername);
+
+    if (authChanged) {
+      if (kDebugMode) {
+        print('CrewService: Auth state changed from $_previousAuthType/$_previousUsername '
+            'to $currentAuthType/$currentUsername');
+      }
+      _previousAuthType = currentAuthType;
+      _previousUsername = currentUsername;
+
+      // Handle the auth transition
+      _handleAuthTransition();
+    }
+
+    // Handle connection state changes
     if (isConnected == _wasConnected) return;
     _wasConnected = isConnected;
 
@@ -221,14 +346,47 @@ class CrewService extends ChangeNotifier {
     }
   }
 
+  /// Handle auth state transitions (login/logout, user switch)
+  Future<void> _handleAuthTransition() async {
+    // Clear current profile - we'll load the appropriate one
+    _localProfile = null;
+
+    // Load profile for new auth context
+    await _loadLocalProfile();
+
+    // If user login and connected, try to fetch profile from server
+    if (_isUserLogin && _signalKService.isConnected) {
+      if (_localProfile == null) {
+        // No local profile, try server
+        await _fetchUserProfileFromServer();
+      }
+      // If still no profile, user will need to create one
+    }
+
+    notifyListeners();
+
+    // Re-announce presence with new identity if connected and have profile
+    if (_signalKService.isConnected && _localProfile != null) {
+      await _announcePresence();
+    }
+  }
+
   /// Handle connection to SignalK
   Future<void> _onConnected() async {
     if (kDebugMode) {
-      print('CrewService: SignalK connected');
+      print('CrewService: SignalK connected (auth: $_authType, user: $_username)');
     }
 
     // Ensure custom resource type exists on server
     await _ensureResourceType();
+
+    // For user login, try to fetch profile from server if we don't have one locally
+    if (_isUserLogin && _localProfile == null) {
+      final fetched = await _fetchUserProfileFromServer();
+      if (fetched) {
+        notifyListeners();
+      }
+    }
 
     // Start heartbeat timer
     _startHeartbeat();
@@ -416,9 +574,13 @@ class CrewService extends ChangeNotifier {
 
           final crewData = jsonDecode(descriptionJson) as Map<String, dynamic>;
 
-          // Parse crew member
+          // Parse crew member - use resourceId as canonical ID to match presence
           final member = CrewMember.fromJson(crewData);
-          _crewMembers[resourceId] = member;
+          // Ensure member ID matches resource ID (in case JSON has old UUID)
+          final normalizedMember = member.id != resourceId
+              ? member.copyWith(id: resourceId)
+              : member;
+          _crewMembers[resourceId] = normalizedMember;
 
           // Parse presence data
           final lastSeenStr = crewData['lastSeen'] as String?;
@@ -473,19 +635,26 @@ class CrewService extends ChangeNotifier {
     }
   }
 
-  /// Get list of online crew members
+  /// Get list of online crew members (deduplicated by ID)
   List<CrewMember> get onlineCrew {
+    if (kDebugMode && _crewMembers.isNotEmpty) {
+      print('CrewService: _crewMembers has ${_crewMembers.length} entries: ${_crewMembers.keys.toList()}');
+    }
+    final seen = <String>{};
     return _crewMembers.values
         .where((member) =>
-            _presence[member.id]?.online == true)
+            _presence[member.id]?.online == true &&
+            seen.add(member.id)) // add returns false if already present
         .toList();
   }
 
-  /// Get list of offline crew members
+  /// Get list of offline crew members (deduplicated by ID)
   List<CrewMember> get offlineCrew {
+    final seen = <String>{};
     return _crewMembers.values
         .where((member) =>
-            _presence[member.id]?.online != true)
+            _presence[member.id]?.online != true &&
+            seen.add(member.id)) // add returns false if already present
         .toList();
   }
 
@@ -552,8 +721,9 @@ class CrewService extends ChangeNotifier {
 
   /// Clear the local profile (removes from device storage only)
   Future<void> clearLocalProfile() async {
+    final storageKey = _getStorageKey();
     _localProfile = null;
-    await _storageService.deleteSetting(_localProfileKey);
+    await _storageService.deleteSetting(storageKey);
 
     // Stop heartbeat since we no longer have a profile
     _heartbeatTimer?.cancel();
@@ -562,7 +732,7 @@ class CrewService extends ChangeNotifier {
     notifyListeners();
 
     if (kDebugMode) {
-      print('CrewService: Local profile cleared');
+      print('CrewService: Local profile cleared (key: $storageKey)');
     }
   }
 }

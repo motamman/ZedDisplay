@@ -592,10 +592,12 @@ class StorageService extends ChangeNotifier {
     if (!_initialized) throw Exception('StorageService not initialized');
 
     try {
-      // Create token with connectionId
+      // Create token with connectionId (preserve all fields including auth type)
       final tokenWithConnection = AuthToken(
         token: token.token,
         clientId: token.clientId,
+        username: token.username,
+        authType: token.authType,
         expiresAt: token.expiresAt,
         issuedAt: token.issuedAt,
         serverUrl: token.serverUrl,
