@@ -1280,6 +1280,118 @@ class SignalKService extends ChangeNotifier implements DataService {
     notifyListeners(); // Notify UI to update
   }
 
+  /// Fetch and cache user's unit preferences if logged in with user auth
+  /// GET /signalk/v1/applicationData/user/unitpreferences/1.0
+  /// This stores preferences locally for offline access
+  Future<void> fetchUserUnitPreferences() async {
+    if (_authToken == null || _authToken!.authType != AuthType.user) {
+      if (kDebugMode) {
+        print('Skipping user unit preferences fetch - not user auth');
+      }
+      return;
+    }
+
+    final connectionId = _authToken!.connectionId;
+    if (connectionId == null) {
+      if (kDebugMode) {
+        print('Skipping user unit preferences fetch - no connection ID');
+      }
+      return;
+    }
+
+    final protocol = _useSecureConnection ? 'https' : 'http';
+
+    try {
+      // First, get the user's active preset
+      final prefsResponse = await http.get(
+        Uri.parse('$protocol://$_serverUrl/signalk/v1/applicationData/user/unitpreferences/1.0'),
+        headers: _getHeaders(),
+      ).timeout(const Duration(seconds: 10));
+
+      if (kDebugMode) {
+        print('User unit preferences response: ${prefsResponse.statusCode}');
+      }
+
+      if (prefsResponse.statusCode == 200) {
+        final data = jsonDecode(prefsResponse.body);
+        final activePreset = data['activePreset'] as String?;
+
+        if (activePreset != null && activePreset.isNotEmpty) {
+          // Fetch the full preset data
+          await _fetchAndCacheUserPreset(connectionId, activePreset);
+        }
+      } else if (prefsResponse.statusCode == 404) {
+        if (kDebugMode) {
+          print('No user unit preferences found (404)');
+        }
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error fetching user unit preferences: $e');
+      }
+    }
+  }
+
+  /// Fetch a specific preset and cache it locally
+  Future<void> _fetchAndCacheUserPreset(String connectionId, String presetName) async {
+    final protocol = _useSecureConnection ? 'https' : 'http';
+
+    try {
+      // Fetch the preset from the units-preference plugin
+      final presetResponse = await http.get(
+        Uri.parse('$protocol://$_serverUrl/plugins/signalk-units-preference/presets/$presetName'),
+        headers: _getHeaders(),
+      ).timeout(const Duration(seconds: 10));
+
+      if (kDebugMode) {
+        print('Preset fetch response: ${presetResponse.statusCode}');
+      }
+
+      if (presetResponse.statusCode == 200) {
+        final presetData = jsonDecode(presetResponse.body) as Map<String, dynamic>;
+
+        // Cache locally via StorageService
+        await _storageService?.saveUserUnitPreferences(
+          connectionId: connectionId,
+          presetName: presetName,
+          presetData: presetData,
+        );
+
+        if (kDebugMode) {
+          print('User preset "$presetName" cached for offline use');
+        }
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error fetching/caching preset "$presetName": $e');
+      }
+    }
+  }
+
+  /// Get cached user unit preferences if available
+  Map<String, dynamic>? getCachedUserUnitPreferences() {
+    if (_authToken == null || _authToken!.authType != AuthType.user) {
+      return null;
+    }
+
+    final connectionId = _authToken!.connectionId;
+    if (connectionId == null) return null;
+
+    return _storageService?.getUserUnitPreset(connectionId);
+  }
+
+  /// Get the name of the cached user preset
+  String? getCachedUserPresetName() {
+    if (_authToken == null || _authToken!.authType != AuthType.user) {
+      return null;
+    }
+
+    final connectionId = _authToken!.connectionId;
+    if (connectionId == null) return null;
+
+    return _storageService?.getUserUnitPresetName(connectionId);
+  }
+
   /// Get conversion data for a specific path
   PathConversionData? getConversionDataForPath(String path) {
     return _conversionManager.getConversionDataForPath(path);

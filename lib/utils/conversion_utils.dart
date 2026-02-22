@@ -38,10 +38,30 @@ class UnitCategories {
   }
 }
 
+/// Cached user unit preferences (from user login)
+class UserUnitPreferences {
+  final Map<String, dynamic> preset;
+  final String presetName;
+
+  UserUnitPreferences(this.preset, this.presetName);
+
+  /// Get target unit for a category from user's preset
+  String? getTargetUnit(String category) {
+    final cat = preset[category];
+    if (cat is Map) {
+      return cat['targetUnit'] as String?;
+    }
+    return null;
+  }
+}
+
 /// Utility for applying client-side unit conversions using formulas from SignalK server
 class ConversionUtils {
-  // Cache for unit categories
+  // Cache for unit categories (server-wide defaults)
   static UnitCategories? _categoriesCache;
+
+  // Cache for user-specific preferences (when logged in with user auth)
+  static UserUnitPreferences? _userPreferencesCache;
 
   /// Standard SI unit conversion formulas
   static const Map<String, Map<String, _ConversionFormula>> _standardConversions = {
@@ -112,6 +132,50 @@ class ConversionUtils {
     }
   }
 
+  /// Load user unit preferences from cached storage
+  /// Call this after user login to enable user-specific conversions
+  static void loadUserPreferences(SignalKService service) {
+    final userPreset = service.getCachedUserUnitPreferences();
+    final presetName = service.getCachedUserPresetName();
+
+    if (userPreset != null && presetName != null) {
+      _userPreferencesCache = UserUnitPreferences(userPreset, presetName);
+      if (kDebugMode) {
+        print('ConversionUtils: Loaded user preferences (preset: $presetName)');
+      }
+    } else {
+      _userPreferencesCache = null;
+    }
+  }
+
+  /// Clear user preferences cache (call on logout or switch to device auth)
+  static void clearUserPreferences() {
+    _userPreferencesCache = null;
+    if (kDebugMode) {
+      print('ConversionUtils: User preferences cleared');
+    }
+  }
+
+  /// Check if user preferences are loaded
+  static bool get hasUserPreferences => _userPreferencesCache != null;
+
+  /// Get target unit for a category, preferring user preferences over server defaults
+  static String? _getTargetUnitForCategory(String category) {
+    // Priority: User preferences > Server categories > null
+    if (_userPreferencesCache != null) {
+      final userTarget = _userPreferencesCache!.getTargetUnit(category);
+      if (userTarget != null) {
+        return userTarget;
+      }
+    }
+
+    if (_categoriesCache != null) {
+      return _categoriesCache!.getTargetUnit(category);
+    }
+
+    return null;
+  }
+
   /// Convert weather value using fallback conversions
   /// Uses server preferences if available, otherwise uses sensible defaults
   static double? convertWeatherValue(
@@ -145,14 +209,8 @@ class ConversionUtils {
         break;
     }
 
-    // Try to get user's preferred target unit from server
-    String targetUnit = defaultTarget;
-    if (_categoriesCache != null) {
-      final serverTarget = _categoriesCache!.getTargetUnit(category);
-      if (serverTarget != null) {
-        targetUnit = serverTarget;
-      }
-    }
+    // Try to get user's preferred target unit (user prefs > server > default)
+    String targetUnit = _getTargetUnitForCategory(category) ?? defaultTarget;
 
     // Get conversion formula
     final categoryConversions = _standardConversions[category];
@@ -196,14 +254,8 @@ class ConversionUtils {
         break;
     }
 
-    // Try to get user's preferred target unit from server
-    String targetUnit = defaultTarget;
-    if (_categoriesCache != null) {
-      final serverTarget = _categoriesCache!.getTargetUnit(category);
-      if (serverTarget != null) {
-        targetUnit = serverTarget;
-      }
-    }
+    // Try to get user's preferred target unit (user prefs > server > default)
+    String targetUnit = _getTargetUnitForCategory(category) ?? defaultTarget;
 
     // Get symbol
     final categoryConversions = _standardConversions[category];
