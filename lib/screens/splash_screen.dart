@@ -142,9 +142,9 @@ class _SplashScreenState extends State<SplashScreen> {
                 ),
                 const SizedBox(height: 24),
                 const Text(
-                  'ZedDisplay',
+                  'ZedDisplay +SignalK',
                   style: TextStyle(
-                    fontSize: 48,
+                    fontSize: 36,
                     fontWeight: FontWeight.bold,
                     color: Colors.white,
                   ),

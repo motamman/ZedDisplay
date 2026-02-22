@@ -486,7 +486,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       Icon(Icons.info_outline, color: Colors.blue),
                       SizedBox(width: 8),
                       Text(
-                        'About ZedDisplay',
+                        'About ZedDisplay +SignalK',
                         style: TextStyle(
                           fontSize: 18,
                           fontWeight: FontWeight.bold,

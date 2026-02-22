@@ -210,9 +210,9 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
               ),
               const SizedBox(height: 24),
               const Text(
-                'The ZedDisplay',
+                'ZedDisplay +SignalK',
                 style: TextStyle(
-                  fontSize: 32,
+                  fontSize: 28,
                   fontWeight: FontWeight.bold,
                 ),
                 textAlign: TextAlign.center,
