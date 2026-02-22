@@ -56,12 +56,15 @@ class FileShareService extends ChangeNotifier {
     // Load cached file metadata from storage
     await _loadCachedFiles();
 
-    // Listen to SignalK connection changes
+    // Register connection callback for sequential execution (prevents HTTP overload)
+    _signalKService.registerConnectionCallback(_onConnected);
+
+    // Listen to SignalK connection changes for disconnection handling
     _signalKService.addListener(_onSignalKChanged);
 
     // If already connected, start polling
     if (_signalKService.isConnected) {
-      _onConnected();
+      await _onConnected();
     }
 
     if (kDebugMode) {
@@ -80,6 +83,7 @@ class FileShareService extends ChangeNotifier {
   @override
   void dispose() {
     _pollTimer?.cancel();
+    _signalKService.unregisterConnectionCallback(_onConnected);
     _signalKService.removeListener(_onSignalKChanged);
     super.dispose();
   }
@@ -120,26 +124,26 @@ class FileShareService extends ChangeNotifier {
     await _storageService.saveSetting(_filesStorageKey, jsonEncode(fileList));
   }
 
-  /// Handle SignalK connection changes
+  /// Handle SignalK connection changes (only for disconnection)
+  /// Connection is handled via registerConnectionCallback for sequential execution
   void _onSignalKChanged() {
     final isConnected = _signalKService.isConnected;
     if (isConnected == _wasConnected) return;
     _wasConnected = isConnected;
 
-    if (isConnected) {
-      _onConnected();
-    } else {
+    // Only handle disconnection here - connection is handled via callback
+    if (!isConnected) {
       _onDisconnected();
     }
   }
 
-  void _onConnected() {
+  Future<void> _onConnected() async {
     if (kDebugMode) {
       print('FileShareService: Connected');
     }
-    _ensureResourceType();
+    await _ensureResourceType();
     _startPolling();
-    _fetchFiles();
+    await _fetchFiles();
   }
 
   /// Ensure the custom resource type exists on the server

@@ -60,6 +60,9 @@ class SignalKService extends ChangeNotifier implements DataService {
   // RTC signaling callback for real-time WebRTC signaling
   void Function(String path, dynamic value)? _rtcDeltaCallback;
 
+  // Connection callbacks - executed sequentially after connection to avoid HTTP overload
+  final List<Future<void> Function()> _connectionCallbacks = [];
+
   // Storage service for caching conversions
   final StorageService? _storageService;
 
@@ -141,6 +144,18 @@ class SignalKService extends ChangeNotifier implements DataService {
 
   AuthToken? get authToken => _authToken;
   ZonesCacheService? get zonesCache => _zonesCache;
+
+  /// Register a callback to be executed sequentially after SignalK connects.
+  /// This prevents HTTP request overload when multiple services need to
+  /// initialize resources (e.g., ensureResourceTypeExists) on connection.
+  void registerConnectionCallback(Future<void> Function() callback) {
+    _connectionCallbacks.add(callback);
+  }
+
+  /// Unregister a previously registered connection callback.
+  void unregisterConnectionCallback(Future<void> Function() callback) {
+    _connectionCallbacks.remove(callback);
+  }
 
   /// Connect to SignalK server (optionally with authentication)
   Future<void> connect(
@@ -241,6 +256,20 @@ class SignalKService extends ChangeNotifier implements DataService {
       // Auto-connect notification channel if notifications are enabled
       if (_notificationManager.notificationsEnabled && _authToken != null) {
         await _notificationManager.connectNotificationChannel();
+      }
+
+      // Execute connection callbacks sequentially to prevent HTTP overload
+      // Services like CrewService, MessagingService, etc. register callbacks
+      // that need to make HTTP requests (e.g., ensureResourceTypeExists)
+      for (final callback in _connectionCallbacks) {
+        try {
+          await callback();
+        } catch (e) {
+          if (kDebugMode) {
+            print('Connection callback error: $e');
+          }
+          // Continue with other callbacks even if one fails
+        }
       }
     } catch (e) {
       _errorMessage = 'Connection failed: $e';

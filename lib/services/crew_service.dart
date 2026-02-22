@@ -60,7 +60,10 @@ class CrewService extends ChangeNotifier {
     // Load local profile from storage
     await _loadLocalProfile();
 
-    // Listen to SignalK connection changes
+    // Register connection callback for sequential execution (prevents HTTP overload)
+    _signalKService.registerConnectionCallback(_onConnected);
+
+    // Listen to SignalK connection changes for disconnection handling
     _signalKService.addListener(_onSignalKChanged);
 
     // If already connected, start presence
@@ -78,6 +81,7 @@ class CrewService extends ChangeNotifier {
   void dispose() {
     _heartbeatTimer?.cancel();
     _pollTimer?.cancel();
+    _signalKService.unregisterConnectionCallback(_onConnected);
     _signalKService.removeListener(_onSignalKChanged);
     super.dispose();
   }
@@ -202,7 +206,8 @@ class CrewService extends ChangeNotifier {
     }
   }
 
-  /// Handle SignalK connection changes
+  /// Handle SignalK connection changes (only for disconnection)
+  /// Connection is handled via registerConnectionCallback for sequential execution
   void _onSignalKChanged() {
     final isConnected = _signalKService.isConnected;
 
@@ -210,9 +215,8 @@ class CrewService extends ChangeNotifier {
     if (isConnected == _wasConnected) return;
     _wasConnected = isConnected;
 
-    if (isConnected) {
-      _onConnected();
-    } else {
+    // Only handle disconnection here - connection is handled via callback
+    if (!isConnected) {
       _onDisconnected();
     }
   }

@@ -51,12 +51,15 @@ class MessagingService extends ChangeNotifier {
     // Load cached messages from storage
     await _loadCachedMessages();
 
-    // Listen to SignalK connection changes
+    // Register connection callback for sequential execution (prevents HTTP overload)
+    _signalKService.registerConnectionCallback(_onConnected);
+
+    // Listen to SignalK connection changes for disconnection handling
     _signalKService.addListener(_onSignalKChanged);
 
     // If already connected, start polling
     if (_signalKService.isConnected) {
-      _onConnected();
+      await _onConnected();
     }
 
     if (kDebugMode) {
@@ -67,6 +70,7 @@ class MessagingService extends ChangeNotifier {
   @override
   void dispose() {
     _pollTimer?.cancel();
+    _signalKService.unregisterConnectionCallback(_onConnected);
     _signalKService.removeListener(_onSignalKChanged);
     super.dispose();
   }
@@ -103,26 +107,26 @@ class MessagingService extends ChangeNotifier {
     await _storageService.saveSetting(_messagesStorageKey, jsonEncode(messageList));
   }
 
-  /// Handle SignalK connection changes
+  /// Handle SignalK connection changes (only for disconnection)
+  /// Connection is handled via registerConnectionCallback for sequential execution
   void _onSignalKChanged() {
     final isConnected = _signalKService.isConnected;
     if (isConnected == _wasConnected) return;
     _wasConnected = isConnected;
 
-    if (isConnected) {
-      _onConnected();
-    } else {
+    // Only handle disconnection here - connection is handled via callback
+    if (!isConnected) {
       _onDisconnected();
     }
   }
 
-  void _onConnected() {
+  Future<void> _onConnected() async {
     if (kDebugMode) {
       print('MessagingService: Connected');
     }
-    _ensureResourceType();
+    await _ensureResourceType();
     _startPolling();
-    _fetchMessages();
+    await _fetchMessages();
   }
 
   /// Ensure the custom resource type exists on the server
