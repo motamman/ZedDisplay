@@ -254,6 +254,14 @@ class StorageService extends ChangeNotifier {
     await _settingsBox.delete(key);
   }
 
+  /// Get all settings as a map (for bulk operations like clearing crew data)
+  Map<String, String> getAllSettings() {
+    if (!_initialized) return {};
+    return Map.fromEntries(
+      _settingsBox.keys.map((key) => MapEntry(key as String, _settingsBox.get(key)!)),
+    );
+  }
+
   // ============ Startup Screen ============
 
   /// Get startup screen ID (null = use last viewed)

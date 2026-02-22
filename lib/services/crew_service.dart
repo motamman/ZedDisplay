@@ -198,10 +198,13 @@ class CrewService extends ChangeNotifier {
     }
   }
 
-  /// Try to fetch user profile from server (for user login)
+  /// Try to fetch user profile from server
   /// Returns true if profile was loaded from server
   Future<bool> _fetchUserProfileFromServer() async {
-    if (!_isUserLogin || !_signalKService.isConnected || !_resourcesApiAvailable) {
+    if (!_signalKService.isConnected || !_resourcesApiAvailable) {
+      if (kDebugMode) {
+        print('CrewService: _fetchUserProfileFromServer skipped - connected: ${_signalKService.isConnected}, resourcesApi: $_resourcesApiAvailable');
+      }
       return false;
     }
 
@@ -210,7 +213,11 @@ class CrewService extends ChangeNotifier {
       final resources = await _signalKService.getResources(_crewResourceType);
 
       for (final entry in resources.entries) {
-        if (entry.key == profileId) {
+        final key = entry.key;
+        // Flexible key matching - handle URL-encoded keys
+        final keyMatches = key == profileId || Uri.decodeComponent(key) == profileId;
+
+        if (keyMatches) {
           final resourceData = entry.value as Map<String, dynamic>;
           final descriptionJson = resourceData['description'] as String?;
           if (descriptionJson == null) continue;
@@ -222,10 +229,27 @@ class CrewService extends ChangeNotifier {
           await _saveLocalProfile();
 
           if (kDebugMode) {
-            print('Loaded user profile from server: ${_localProfile?.name}');
+            print('Loaded user profile from server: ${_localProfile?.name} (key: $key)');
           }
           return true;
         }
+
+        // Also check by profile ID in the crew data
+        try {
+          final resourceData = entry.value as Map<String, dynamic>;
+          final descriptionJson = resourceData['description'] as String?;
+          if (descriptionJson != null) {
+            final crewData = jsonDecode(descriptionJson) as Map<String, dynamic>;
+            if (crewData['id'] == profileId) {
+              _localProfile = CrewMember.fromJson(crewData);
+              await _saveLocalProfile();
+              if (kDebugMode) {
+                print('Loaded user profile from server by ID match: ${_localProfile?.name}');
+              }
+              return true;
+            }
+          }
+        } catch (_) {}
       }
     } catch (e) {
       if (kDebugMode) {
@@ -374,38 +398,154 @@ class CrewService extends ChangeNotifier {
   /// Handle connection to SignalK
   Future<void> _onConnected() async {
     if (kDebugMode) {
-      print('CrewService: SignalK connected (auth: $_authType, user: $_username)');
+      print('CrewService: SignalK connected (auth: $_authType, user: $_username, resourcesApi: $_resourcesApiAvailable)');
     }
 
     // Ensure custom resource type exists on server
-    await _ensureResourceType();
-
-    // For user login, try to fetch profile from server if we don't have one locally
-    if (_isUserLogin && _localProfile == null) {
-      final fetched = await _fetchUserProfileFromServer();
-      if (fetched) {
-        notifyListeners();
-      }
+    final typeExists = await _ensureResourceType();
+    if (kDebugMode) {
+      print('CrewService: Resource type ensured: $typeExists');
     }
 
-    // Start heartbeat timer
-    _startHeartbeat();
+    // Validate profile against server FIRST - server is source of truth
+    if (kDebugMode) {
+      print('CrewService: Starting profile validation...');
+    }
+    final validated = await _validateProfileWithServer();
+    if (kDebugMode) {
+      print('CrewService: Validation result: $validated, localProfile: ${_localProfile?.name}');
+    }
 
-    // Start polling for crew updates
-    _startPolling();
+    if (validated && _localProfile != null) {
+      // Start heartbeat timer
+      _startHeartbeat();
 
-    // Announce our presence
-    if (_localProfile != null) {
+      // Start polling for crew updates
+      _startPolling();
+
+      // Announce our presence only after server validation
       await _announcePresence();
+    } else {
+      // No valid profile - still start polling to see other crew
+      _startPolling();
     }
 
     // Fetch existing crew members
     await _fetchCrewMembers();
   }
 
+  /// Validate local profile against server
+  /// Server is source of truth - if profile doesn't exist on server, clear local cache
+  /// Returns true if profile is valid (exists on server or was fetched from server)
+  Future<bool> _validateProfileWithServer() async {
+    if (!_signalKService.isConnected || !_resourcesApiAvailable) {
+      // Can't validate - keep local state but don't announce
+      return false;
+    }
+
+    try {
+      final profileId = await _getProfileIdentifier();
+      final resources = await _signalKService.getResources(_crewResourceType);
+
+      if (kDebugMode) {
+        print('CrewService: Validating profile $profileId against ${resources.length} server resources');
+        print('CrewService: Server resource keys: ${resources.keys.toList()}');
+      }
+
+      // Check if server has this profile - be flexible with key matching
+      // Resource keys may be URL-encoded (e.g., "user%3Amaurice" vs "user:maurice")
+      // Also handle legacy format where key might be just username instead of "user:username"
+      String? matchingKey;
+      final username = _username; // For user login, extract username for flexible matching
+
+      for (final key in resources.keys) {
+        // Check exact match or URL-decoded match
+        if (key == profileId || Uri.decodeComponent(key) == profileId) {
+          matchingKey = key;
+          break;
+        }
+
+        // For user login, also match if key is just the username (legacy format)
+        if (_isUserLogin && username != null) {
+          if (key == username || Uri.decodeComponent(key) == username) {
+            matchingKey = key;
+            if (kDebugMode) {
+              print('CrewService: Matched legacy key format: $key -> $profileId');
+            }
+            break;
+          }
+        }
+
+        // Also check the profile ID inside the resource data
+        try {
+          final resourceData = resources[key] as Map<String, dynamic>;
+          final descriptionJson = resourceData['description'] as String?;
+          if (descriptionJson != null) {
+            final crewData = jsonDecode(descriptionJson) as Map<String, dynamic>;
+            final embeddedId = crewData['id'] as String?;
+            // Match exact ID or legacy username format
+            if (embeddedId == profileId ||
+                (_isUserLogin && username != null && embeddedId == username)) {
+              matchingKey = key;
+              break;
+            }
+          }
+        } catch (_) {}
+      }
+
+      if (matchingKey != null) {
+        // Server has this profile - load it to ensure we have latest data
+        final loaded = await _fetchUserProfileFromServer();
+
+        // Fallback: if fetch failed but we found the profile, load it directly
+        if (!loaded && _localProfile == null) {
+          try {
+            final resourceData = resources[matchingKey] as Map<String, dynamic>;
+            final descriptionJson = resourceData['description'] as String?;
+            if (descriptionJson != null) {
+              final crewData = jsonDecode(descriptionJson) as Map<String, dynamic>;
+              _localProfile = CrewMember.fromJson(crewData);
+              await _saveLocalProfile();
+              if (kDebugMode) {
+                print('CrewService: Profile loaded via fallback from key: $matchingKey');
+              }
+            }
+          } catch (e) {
+            if (kDebugMode) {
+              print('CrewService: Fallback profile load failed: $e');
+            }
+          }
+        }
+
+        if (kDebugMode) {
+          print('CrewService: Profile validated against server: $profileId (key: $matchingKey, loaded: ${_localProfile != null})');
+        }
+        return _localProfile != null;
+      } else {
+        // Server does NOT have this profile - clear local cache
+        // This prevents auto-pushing stale local profiles to server
+        if (_localProfile != null) {
+          if (kDebugMode) {
+            print('CrewService: Profile not found on server, clearing local cache: $profileId');
+          }
+          _localProfile = null;
+          await _storageService.deleteSetting(_getStorageKey());
+          notifyListeners();
+        }
+        return false;
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('CrewService: Error validating profile with server: $e');
+      }
+      // On error, don't clear local profile but don't announce either
+      return false;
+    }
+  }
+
   /// Ensure the custom resource type exists on the server
-  Future<void> _ensureResourceType() async {
-    await _signalKService.ensureResourceTypeExists(
+  Future<bool> _ensureResourceType() async {
+    return await _signalKService.ensureResourceTypeExists(
       _crewResourceType,
       description: 'ZedDisplay crew profiles and presence',
     );
@@ -547,13 +687,25 @@ class CrewService extends ChangeNotifier {
 
   /// Fetch crew members from Resources API
   Future<void> _fetchCrewMembers() async {
-    if (!_signalKService.isConnected || !_resourcesApiAvailable) return;
+    if (!_signalKService.isConnected || !_resourcesApiAvailable) {
+      if (kDebugMode) {
+        print('CrewService: _fetchCrewMembers skipped - connected: ${_signalKService.isConnected}, resourcesApi: $_resourcesApiAvailable');
+      }
+      return;
+    }
 
     try {
       final resources = await _signalKService.getResources(_crewResourceType);
 
+      if (kDebugMode) {
+        print('CrewService: _fetchCrewMembers got ${resources.length} resources: ${resources.keys.toList()}');
+      }
+
       if (resources.isEmpty) {
         // No notes resources found
+        if (kDebugMode) {
+          print('CrewService: No crew resources found on server');
+        }
         return;
       }
 
@@ -565,7 +717,10 @@ class CrewService extends ChangeNotifier {
         final resourceData = entry.value as Map<String, dynamic>;
 
         // Skip our own profile (we already have it locally)
+        // Check exact match, or username match for legacy format
         if (resourceId == _localProfile?.id) continue;
+        if (_isUserLogin && _username != null && resourceId == _username) continue;
+        if (_localProfile != null && resourceId == Uri.decodeComponent(_localProfile!.id)) continue;
 
         try {
           // Parse crew data from description field (JSON string)
@@ -574,13 +729,17 @@ class CrewService extends ChangeNotifier {
 
           final crewData = jsonDecode(descriptionJson) as Map<String, dynamic>;
 
-          // Parse crew member - use resourceId as canonical ID to match presence
+          // Parse crew member
           final member = CrewMember.fromJson(crewData);
-          // Ensure member ID matches resource ID (in case JSON has old UUID)
-          final normalizedMember = member.id != resourceId
-              ? member.copyWith(id: resourceId)
+
+          // Use the embedded ID if it's in the new format (user: or device:)
+          // Otherwise fall back to resource key
+          final useEmbeddedId = member.id.startsWith('user:') || member.id.startsWith('device:');
+          final canonicalId = useEmbeddedId ? member.id : resourceId;
+          final normalizedMember = member.id != canonicalId
+              ? member.copyWith(id: canonicalId)
               : member;
-          _crewMembers[resourceId] = normalizedMember;
+          _crewMembers[canonicalId] = normalizedMember;
 
           // Parse presence data
           final lastSeenStr = crewData['lastSeen'] as String?;
@@ -733,6 +892,77 @@ class CrewService extends ChangeNotifier {
 
     if (kDebugMode) {
       print('CrewService: Local profile cleared (key: $storageKey)');
+    }
+  }
+
+  /// Delete my profile from server and clear local cache
+  /// Use this when user explicitly wants to remove their profile
+  Future<bool> deleteMyProfile() async {
+    if (_localProfile == null) return true; // Already no profile
+
+    final profileId = _localProfile!.id;
+
+    // Remove from server if connected
+    if (_signalKService.isConnected && _resourcesApiAvailable) {
+      final success = await _signalKService.deleteResource(_crewResourceType, profileId);
+      if (!success) {
+        if (kDebugMode) {
+          print('CrewService: Failed to delete profile from server: $profileId');
+        }
+        return false;
+      }
+    }
+
+    // Clear local cache
+    await clearLocalProfile();
+
+    // Remove from crew members map
+    _crewMembers.remove(profileId);
+    _presence.remove(profileId);
+
+    notifyListeners();
+
+    if (kDebugMode) {
+      print('CrewService: Deleted my profile: $profileId');
+    }
+
+    return true;
+  }
+
+  /// Clear ALL local crew caches (nuclear option for troubleshooting)
+  /// This clears all crew-related storage but does NOT remove profiles from server
+  Future<void> clearAllLocalCrewData() async {
+    // Clear current profile
+    _localProfile = null;
+
+    // Stop timers
+    _heartbeatTimer?.cancel();
+    _heartbeatTimer = null;
+    _pollTimer?.cancel();
+    _pollTimer = null;
+
+    // Clear all crew-related storage keys
+    final allSettings = _storageService.getAllSettings();
+    for (final key in allSettings.keys) {
+      if (key.startsWith('crew_profile_') ||
+          key.startsWith(_userProfileKeyPrefix) ||
+          key.startsWith(_deviceProfileKeyPrefix) ||
+          key == _deviceIdKey) {
+        await _storageService.deleteSetting(key);
+      }
+    }
+
+    // Clear cached device ID so a new one is generated
+    _cachedDeviceId = null;
+
+    // Clear in-memory state
+    _crewMembers.clear();
+    _presence.clear();
+
+    notifyListeners();
+
+    if (kDebugMode) {
+      print('CrewService: Cleared all local crew data');
     }
   }
 }

@@ -295,28 +295,24 @@ class _CrewProfileScreenState extends State<CrewProfileScreen> {
 
     try {
       final crewService = context.read<CrewService>();
-      final profileId = crewService.localProfile?.id;
+      final success = await crewService.deleteMyProfile();
 
-      if (profileId != null) {
-        final success = await crewService.deleteCrewMember(profileId);
-
-        if (mounted) {
-          if (success) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Profile deleted'),
-                backgroundColor: Colors.green,
-              ),
-            );
-            Navigator.of(context).pop();
-          } else {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Failed to delete profile from server'),
-                backgroundColor: Colors.red,
-              ),
-            );
-          }
+      if (mounted) {
+        if (success) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Profile deleted'),
+              backgroundColor: Colors.green,
+            ),
+          );
+          Navigator.of(context).pop();
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Failed to delete profile from server'),
+              backgroundColor: Colors.red,
+            ),
+          );
         }
       }
     } catch (e) {

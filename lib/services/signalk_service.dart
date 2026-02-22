@@ -903,12 +903,20 @@ class SignalKService extends ChangeNotifier implements DataService {
   /// Returns a Map of resource IDs to resource data
   Future<Map<String, dynamic>> getResources(String resourceType) async {
     final protocol = _useSecureConnection ? 'https' : 'http';
+    final url = '$protocol://$_serverUrl/signalk/v2/api/resources/$resourceType';
 
     try {
       final response = await http.get(
-        Uri.parse('$protocol://$_serverUrl/signalk/v2/api/resources/$resourceType'),
+        Uri.parse(url),
         headers: _getHeaders(),
       ).timeout(const Duration(seconds: 10));
+
+      if (kDebugMode) {
+        print('getResources($resourceType): status=${response.statusCode}, bodyLength=${response.body.length}');
+        if (response.body.length < 500) {
+          print('getResources($resourceType): body=${response.body}');
+        }
+      }
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
@@ -917,6 +925,9 @@ class SignalKService extends ChangeNotifier implements DataService {
         }
       } else if (response.statusCode == 404) {
         // Resource type doesn't exist yet, return empty map
+        if (kDebugMode) {
+          print('getResources($resourceType): 404 - resource type not found');
+        }
         return {};
       }
     } catch (e) {
@@ -955,13 +966,25 @@ class SignalKService extends ChangeNotifier implements DataService {
   /// Returns true if successful
   Future<bool> putResource(String resourceType, String id, Map<String, dynamic> data) async {
     final protocol = _useSecureConnection ? 'https' : 'http';
+    final url = '$protocol://$_serverUrl/signalk/v2/api/resources/$resourceType/$id';
+
+    if (kDebugMode) {
+      print('putResource: PUT $url');
+    }
 
     try {
       final response = await http.put(
-        Uri.parse('$protocol://$_serverUrl/signalk/v2/api/resources/$resourceType/$id'),
+        Uri.parse(url),
         headers: _getHeaders(),
         body: jsonEncode(data),
       ).timeout(const Duration(seconds: 10));
+
+      if (kDebugMode) {
+        print('putResource($resourceType/$id): status=${response.statusCode}');
+        if (response.statusCode != 200 && response.statusCode != 201) {
+          print('putResource($resourceType/$id): body=${response.body}');
+        }
+      }
 
       if (response.statusCode == 200 || response.statusCode == 201) {
         return true;
