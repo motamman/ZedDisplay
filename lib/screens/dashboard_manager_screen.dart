@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../services/dashboard_service.dart';
+import '../services/scale_service.dart';
 import '../services/setup_service.dart';
 import '../services/signalk_service.dart';
 import '../services/storage_service.dart';
@@ -820,6 +821,109 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen>
     );
   }
 
+  /// Get display name from saved connection (falls back to hostname)
+  String _getServerDisplayName(String? serverUrl, StorageService storageService) {
+    if (serverUrl == null || serverUrl.isEmpty) return 'Not Connected';
+
+    // Look up the saved connection by URL to get its name
+    final connection = storageService.findConnectionByUrl(serverUrl);
+    if (connection != null && connection.name.isNotEmpty) {
+      return connection.name;
+    }
+
+    // Fallback to hostname if no saved connection found
+    try {
+      final uri = Uri.parse(serverUrl);
+      return uri.host.isNotEmpty ? uri.host : 'Server';
+    } catch (_) {
+      return 'Server';
+    }
+  }
+
+  /// Handle menu item selection
+  void _handleMenuSelection(String value, StorageService storageService) {
+    switch (value) {
+      case 'addTool':
+        _addTool();
+        break;
+      case 'editMode':
+        setState(() => _isEditMode = !_isEditMode);
+        break;
+      case 'theme':
+        final isDark = storageService.getThemeMode() == 'dark';
+        storageService.saveThemeMode(isDark ? 'light' : 'dark');
+        break;
+      case 'fullscreen':
+        _toggleFullScreen();
+        break;
+      case 'crew':
+        Navigator.of(context).push(
+          MaterialPageRoute(builder: (_) => const CrewScreen()),
+        );
+        break;
+      case 'settings':
+        Navigator.of(context).push(
+          MaterialPageRoute(builder: (_) => const SettingsScreen()),
+        );
+        break;
+    }
+  }
+
+  /// Build a menu item with icon and label (OpenMeteo pattern)
+  PopupMenuItem<String> _buildMenuItem(
+    MenuItemDefinition? menuItem,
+    String fallbackId, {
+    bool isActive = false,
+    IconData? customIcon,
+    String? customLabel,
+  }) {
+    final icon = customIcon ?? menuItem?.iconData ?? Icons.help_outline;
+    final label = customLabel ?? menuItem?.label ?? fallbackId;
+
+    return PopupMenuItem<String>(
+      value: fallbackId,
+      child: Row(
+        children: [
+          Icon(
+            icon,
+            size: 20,
+            color: isActive ? Colors.green : null,
+          ),
+          const SizedBox(width: 12),
+          Text(
+            label,
+            style: TextStyle(
+              fontWeight: isActive ? FontWeight.bold : FontWeight.normal,
+              color: isActive ? Colors.green : null,
+            ),
+          ),
+          if (isActive) ...[
+            const Spacer(),
+            const Icon(Icons.check, size: 16, color: Colors.green),
+          ],
+        ],
+      ),
+    );
+  }
+
+  /// Show server picker bottom sheet (equivalent to OpenMeteo's location picker)
+  void _showServerPicker(BuildContext context, SignalKService signalKService) {
+    final storageService = Provider.of<StorageService>(context, listen: false);
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (sheetContext) => _ServerPickerSheet(
+        signalKService: signalKService,
+        storageService: storageService,
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return IncomingCallOverlay(
@@ -835,96 +939,72 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen>
           : null,
       floatingActionButtonLocation: FloatingActionButtonLocation.endTop,
       appBar: (!_isFullScreen || _showAppBar || _toolBeingPlaced != null) ? AppBar(
-        actions: [
-          // Compact connection status indicator
-          Consumer<SignalKService>(
-            builder: (context, service, child) {
-              return IconButton(
-                icon: Icon(
-                  service.isConnected ? Icons.cloud_done : Icons.cloud_off,
-                  color: service.isConnected ? Colors.green : Colors.red,
-                  size: 22,
+        automaticallyImplyLeading: false,
+        titleSpacing: 8,
+        title: Consumer2<SignalKService, StorageService>(
+          builder: (context, signalKService, storageService, child) {
+            return Row(
+              children: [
+                // Connection indicator (compact)
+                Icon(
+                  signalKService.isConnected ? Icons.cloud_done : Icons.cloud_off,
+                  color: signalKService.isConnected ? Colors.green : Colors.red,
+                  size: 18,
                 ),
-                onPressed: () {
-                  if (service.isConnected) {
-                    // Show connection details on tap
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text('Connected to ${service.serverUrl}'),
-                        duration: const Duration(seconds: 2),
-                        backgroundColor: Colors.green,
-                      ),
-                    );
-                  } else {
-                    // Navigate to settings to connect (with connections expanded)
-                    Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (context) => const SettingsScreen(
-                          showConnections: true,
-                        ),
-                      ),
-                    );
-                  }
-                },
-                tooltip: service.isConnected ? 'Connected to ${service.serverUrl}' : 'Tap to connect',
-              );
-            },
-          ),
-          IconButton(
-            icon: const Icon(Icons.add),
-            onPressed: _addTool,
-            tooltip: 'Add Tool',
-          ),
-          IconButton(
-            icon: Icon(_isEditMode ? Icons.done : Icons.edit),
-            onPressed: () {
-              setState(() => _isEditMode = !_isEditMode);
-            },
-            tooltip: _isEditMode ? 'Exit Edit Mode' : 'Edit Mode',
-          ),
-          // Theme mode toggle
+                const SizedBox(width: 8),
+                // Server name (tappable to show server picker)
+                Flexible(
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: () => _showServerPicker(context, signalKService),
+                    child: Text(
+                      signalKService.isConnected
+                          ? _getServerDisplayName(signalKService.serverUrl, storageService)
+                          : 'Not Connected',
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ),
+              ],
+            );
+          },
+        ),
+        actions: [
+          // Edit mode indicator when active
+          if (_isEditMode)
+            IconButton(
+              icon: const Icon(Icons.done, color: Colors.green),
+              onPressed: () => setState(() => _isEditMode = false),
+              tooltip: 'Exit Edit Mode',
+            ),
+          // Main menu dropdown (hamburger)
           Consumer<StorageService>(
             builder: (context, storageService, child) {
-              final themeMode = storageService.getThemeMode();
-              final isDark = themeMode == 'dark';
-              return IconButton(
-                icon: Icon(isDark ? Icons.light_mode : Icons.dark_mode),
-                onPressed: () async {
-                  final newMode = isDark ? 'light' : 'dark';
-                  await storageService.saveThemeMode(newMode);
+              final isDark = storageService.getThemeMode() == 'dark';
+              return PopupMenuButton<String>(
+                icon: const Icon(Icons.menu),
+                tooltip: 'Menu',
+                onSelected: (value) => _handleMenuSelection(value, storageService),
+                itemBuilder: (context) {
+                  final scaleService = ScaleService.instance;
+                  return [
+                    _buildMenuItem(scaleService.getMenuItem('addTool'), 'addTool'),
+                    _buildMenuItem(scaleService.getMenuItem('editMode'), 'editMode',
+                        isActive: _isEditMode),
+                    _buildMenuItem(
+                      scaleService.getMenuItem('theme'),
+                      'theme',
+                      customIcon: isDark ? Icons.light_mode : Icons.dark_mode,
+                      customLabel: isDark ? 'Light Mode' : 'Dark Mode',
+                    ),
+                    _buildMenuItem(scaleService.getMenuItem('fullscreen'), 'fullscreen',
+                        isActive: _isFullScreen),
+                    _buildMenuItem(scaleService.getMenuItem('crew'), 'crew'),
+                    _buildMenuItem(scaleService.getMenuItem('settings'), 'settings'),
+                  ];
                 },
-                tooltip: isDark ? 'Switch to Light Mode' : 'Switch to Dark Mode',
               );
             },
-          ),
-          // Fullscreen toggle
-          IconButton(
-            icon: Icon(_isFullScreen ? Icons.fullscreen_exit : Icons.fullscreen),
-            onPressed: _toggleFullScreen,
-            tooltip: _isFullScreen ? 'Exit Full Screen' : 'Enter Full Screen',
-          ),
-          // Crew communications
-          IconButton(
-            icon: const Icon(Icons.group),
-            onPressed: () {
-              Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (context) => const CrewScreen(),
-                ),
-              );
-            },
-            tooltip: 'Crew',
-          ),
-          IconButton(
-            icon: const Icon(Icons.settings),
-            onPressed: () {
-              Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (context) => const SettingsScreen(),
-                ),
-              );
-            },
-            tooltip: 'Settings',
           ),
         ],
       ) : null,
@@ -1587,6 +1667,175 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen>
 
         return contentWidget;
       },
+    );
+  }
+}
+
+/// Server picker bottom sheet (replicates OpenMeteo's _LocationPickerSheet)
+class _ServerPickerSheet extends StatefulWidget {
+  final SignalKService signalKService;
+  final StorageService storageService;
+
+  const _ServerPickerSheet({
+    required this.signalKService,
+    required this.storageService,
+  });
+
+  @override
+  State<_ServerPickerSheet> createState() => _ServerPickerSheetState();
+}
+
+class _ServerPickerSheetState extends State<_ServerPickerSheet> {
+  @override
+  Widget build(BuildContext context) {
+    final savedConnections = widget.storageService.getAllConnections();
+    final currentUrl = widget.signalKService.serverUrl;
+
+    return DraggableScrollableSheet(
+      initialChildSize: 0.5,
+      minChildSize: 0.3,
+      maxChildSize: 0.8,
+      expand: false,
+      builder: (context, scrollController) => Column(
+        children: [
+          // Handle bar
+          Container(
+            margin: const EdgeInsets.symmetric(vertical: 8),
+            width: 40,
+            height: 4,
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.4),
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+          // Header
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: Row(
+              children: [
+                Text(
+                  'Select Server',
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const Spacer(),
+                IconButton(
+                  icon: const Icon(Icons.close),
+                  onPressed: () => Navigator.pop(context),
+                  visualDensity: VisualDensity.compact,
+                ),
+              ],
+            ),
+          ),
+          const Divider(height: 1),
+          // Add Server button
+          ListTile(
+            leading: Icon(
+              Icons.add_circle_outline,
+              color: Theme.of(context).colorScheme.primary,
+            ),
+            title: Text(
+              'Add Server',
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.primary,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+            onTap: () {
+              Navigator.pop(context);
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => const SettingsScreen(showConnections: true),
+                ),
+              );
+            },
+          ),
+          const Divider(height: 1),
+          // Saved servers list
+          Expanded(
+            child: savedConnections.isEmpty
+                ? Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.cloud_off,
+                            size: 48,
+                            color: Theme.of(context).colorScheme.outline,
+                          ),
+                          const SizedBox(height: 16),
+                          Text(
+                            'No saved servers',
+                            style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                              color: Theme.of(context).colorScheme.outline,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            'Tap "Add Server" to connect',
+                            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: Theme.of(context).colorScheme.outline,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  )
+                : ListView.builder(
+                    controller: scrollController,
+                    itemCount: savedConnections.length,
+                    itemBuilder: (context, index) {
+                      final connection = savedConnections[index];
+                      final isSelected = currentUrl == connection.serverUrl;
+
+                      return ListTile(
+                        leading: Icon(
+                          isSelected ? Icons.cloud_done : Icons.cloud_outlined,
+                          color: isSelected
+                              ? Theme.of(context).colorScheme.primary
+                              : null,
+                        ),
+                        title: Text(
+                          connection.name,
+                          style: isSelected
+                              ? TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                  color: Theme.of(context).colorScheme.primary,
+                                )
+                              : null,
+                        ),
+                        subtitle: Text(
+                          connection.serverUrl,
+                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            fontFamily: 'monospace',
+                            color: Theme.of(context).colorScheme.outline,
+                          ),
+                        ),
+                        trailing: isSelected
+                            ? Icon(
+                                Icons.check_circle,
+                                color: Theme.of(context).colorScheme.primary,
+                              )
+                            : null,
+                        onTap: () async {
+                          Navigator.pop(context);
+                          if (!isSelected) {
+                            // Connect to selected server
+                            await widget.signalKService.connect(
+                              connection.serverUrl,
+                              secure: connection.useSecure,
+                            );
+                          }
+                        },
+                      );
+                    },
+                  ),
+          ),
+        ],
+      ),
     );
   }
 }

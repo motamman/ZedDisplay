@@ -1,0 +1,28 @@
+# ZedDisplay +SignalK Scale Definitions
+# Menu items for hamburger menu
+
+menuItems:
+  addTool:
+    icon: add
+    label: Add Tool
+    description: Add a new widget to the dashboard
+  editMode:
+    icon: edit
+    label: Edit Mode
+    description: Resize and move widgets
+  theme:
+    icon: brightness_auto
+    label: Theme
+    description: Toggle dark/light mode
+  fullscreen:
+    icon: fullscreen
+    label: Full Screen
+    description: Toggle full screen mode
+  crew:
+    icon: group
+    label: Crew
+    description: Crew communications
+  settings:
+    icon: settings
+    label: Settings
+    description: App settings and preferences
