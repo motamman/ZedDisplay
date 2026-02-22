@@ -14,6 +14,7 @@ import '../models/tool.dart';
 import '../models/tool_config.dart';
 import '../models/tool_placement.dart';
 import 'tool_config_screen.dart';
+import 'tool_selector_screen.dart';
 // Removed: template_library_screen import (deprecated)
 import 'settings_screen.dart';
 import 'crew/crew_screen.dart';
@@ -108,7 +109,10 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen>
     dashboardService.addListener(_onDashboardServiceChanged);
 
     // Trigger a rebuild now that PageController is ready
-    if (mounted) setState(() {});
+    // Use post-frame callback to ensure we're not in a build phase
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) setState(() {});
+    });
   }
 
   /// Handle programmatic screen changes (e.g., from screen selector bottom sheet)
@@ -229,12 +233,10 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen>
     }
   }
 
-  Future<void> _addTool() async {
-    print('🔧 _addTool: START');
-
-    // Prevent opening tool config if already in placement mode
+  /// Open the visual tool selector screen (new "+" button flow)
+  Future<void> _openToolSelector() async {
+    // Prevent opening if already in placement mode
     if (_toolBeingPlaced != null) {
-      print('⚠️ _addTool: Already in placement mode, ignoring');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -251,36 +253,24 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen>
     final toolService = Provider.of<ToolService>(context, listen: false);
     final activeScreen = dashboardService.currentLayout?.activeScreen;
 
-    if (activeScreen == null) {
-      print('❌ _addTool: No active screen');
-      return;
-    }
+    if (activeScreen == null) return;
 
-    print('🔧 _addTool: Opening ToolConfigScreen for screen ${activeScreen.id}');
-
+    // Navigate to tool selector
     final result = await Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (context) => ToolConfigScreen(screenId: activeScreen.id),
+        builder: (context) => ToolSelectorScreen(screenId: activeScreen.id),
       ),
     );
 
-    print('🔧 _addTool: Got result: ${result.runtimeType}');
-    print('🔧 _addTool: Result content: $result');
-    print('🔧 _addTool: mounted = $mounted');
-
     if (result is Map<String, dynamic> && mounted) {
-      print('🔧 _addTool: Result is Map and mounted, processing...');
       try {
         final tool = result['tool'] as Tool;
-        final width = result['width'] as int? ?? 1;
-        final height = result['height'] as int? ?? 1;
+        final width = result['width'] as int? ?? 2;
+        final height = result['height'] as int? ?? 2;
 
-        print('🔧 _addTool: Tool=${tool.id}, width=$width, height=$height');
-
-        // Get screen dimensions to constrain initial widget size
+        // Get screen dimensions for grid calculations
         final screenSize = MediaQuery.of(context).size;
         final screenWidth = screenSize.width;
-        // Reserve bottom space for screen selector dots
         final screenHeight = screenSize.height - kToolbarHeight - MediaQuery.of(context).padding.top - _selectorHeight;
         final cellWidth = screenWidth / 8;
         final cellHeight = screenHeight / 8;
@@ -291,10 +281,10 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen>
             ? activeScreen.portraitPlacements
             : activeScreen.landscapePlacements;
 
-        // Find largest available space to auto-fill
+        // Find largest available space
         final availableSpace = _findLargestAvailableSpace(existingPlacements);
 
-        // Check if screen is full (no space available)
+        // Check if screen is full
         if (availableSpace.width == 0 || availableSpace.height == 0) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
@@ -305,7 +295,7 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen>
           return;
         }
 
-        // Create placement at the available space
+        // Create placement at available space
         final placement = toolService.createPlacement(
           toolId: tool.id,
           screenId: activeScreen.id,
@@ -313,26 +303,24 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen>
           height: availableSpace.height.clamp(1, height),
         );
 
-        // Update placement position to available space
+        // Update placement position
         final positionedPlacement = placement.copyWith(
           position: placement.position.copyWith(
             col: availableSpace.col,
             row: availableSpace.row,
-            width: availableSpace.width,
-            height: availableSpace.height,
+            width: availableSpace.width.clamp(1, width),
+            height: availableSpace.height.clamp(1, height),
           ),
         );
 
-        print('🔧 _addTool: Entering placement mode for drag-to-position');
-
-        // Enter placement mode - user will drag to position
+        // Enter placement mode
         setState(() {
           _toolBeingPlaced = tool;
           _placementBeingPlaced = positionedPlacement;
           _placingX = availableSpace.col * cellWidth;
           _placingY = availableSpace.row * cellHeight;
-          _placingWidth = availableSpace.width * cellWidth;
-          _placingHeight = availableSpace.height * cellHeight;
+          _placingWidth = availableSpace.width.clamp(1, width) * cellWidth;
+          _placingHeight = availableSpace.height.clamp(1, height) * cellHeight;
         });
 
         if (mounted) {
@@ -344,11 +332,7 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen>
             ),
           );
         }
-
-        print('✅ _addTool: Entered placement mode successfully');
-      } catch (e, stack) {
-        print('❌ _addTool: Error: $e');
-        print('❌ _addTool: Stack trace: $stack');
+      } catch (e) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -358,13 +342,8 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen>
           );
         }
       }
-    } else {
-      print('❌ _addTool: Result is NOT Map or not mounted');
     }
   }
-
-  // Removed: _browseTemplates() and _showAddMenu() - deprecated
-  // "+" button now goes directly to tool configuration
 
   void _toggleFullScreen() {
     setState(() {
@@ -1057,7 +1036,7 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen>
   void _handleMenuSelection(String value, StorageService storageService) {
     switch (value) {
       case 'addTool':
-        _addTool();
+        _openToolSelector();
         break;
       case 'editMode':
         setState(() => _isEditMode = !_isEditMode);
@@ -1183,6 +1162,12 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen>
           },
         ),
         actions: [
+          // "+" button to add tools (primary action)
+          IconButton(
+            icon: const Icon(Icons.add),
+            onPressed: _openToolSelector,
+            tooltip: 'Add Widget',
+          ),
           // Edit mode indicator when active
           if (_isEditMode)
             IconButton(
@@ -1434,7 +1419,7 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen>
           ),
           const SizedBox(height: 8),
           ElevatedButton.icon(
-            onPressed: _addTool,
+            onPressed: _openToolSelector,
             icon: const Icon(Icons.add),
             label: const Text('Add Your First Tool'),
           ),
