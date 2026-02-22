@@ -11,12 +11,22 @@ import '../services/tool_registry.dart';
 import '../services/tool_service.dart';
 import '../models/dashboard_screen.dart';
 import '../models/tool.dart';
+import '../models/tool_config.dart';
 import '../models/tool_placement.dart';
 import 'tool_config_screen.dart';
 // Removed: template_library_screen import (deprecated)
 import 'settings_screen.dart';
 import 'crew/crew_screen.dart';
 import '../widgets/crew/incoming_call_overlay.dart';
+
+/// Resize zone for corner resizing
+enum _ResizeZone {
+  none,
+  topLeft,
+  topRight,
+  bottomLeft,
+  bottomRight,
+}
 
 /// Main dashboard screen with multi-screen support using PageView
 class DashboardManagerScreen extends StatefulWidget {
@@ -267,12 +277,50 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen>
 
         print('🔧 _addTool: Tool=${tool.id}, width=$width, height=$height');
 
-        // Create a placement for this tool with size (starting at center)
+        // Get screen dimensions to constrain initial widget size
+        final screenSize = MediaQuery.of(context).size;
+        final screenWidth = screenSize.width;
+        // Reserve bottom space for screen selector dots
+        final screenHeight = screenSize.height - kToolbarHeight - MediaQuery.of(context).padding.top - _selectorHeight;
+        final cellWidth = screenWidth / 8;
+        final cellHeight = screenHeight / 8;
+
+        // Get existing placements for current orientation
+        final orientation = MediaQuery.of(context).orientation;
+        final existingPlacements = orientation == Orientation.portrait
+            ? activeScreen.portraitPlacements
+            : activeScreen.landscapePlacements;
+
+        // Find largest available space to auto-fill
+        final availableSpace = _findLargestAvailableSpace(existingPlacements);
+
+        // Check if screen is full (no space available)
+        if (availableSpace.width == 0 || availableSpace.height == 0) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('No space available. Remove or resize existing widgets first.'),
+              backgroundColor: Colors.orange,
+            ),
+          );
+          return;
+        }
+
+        // Create placement at the available space
         final placement = toolService.createPlacement(
           toolId: tool.id,
           screenId: activeScreen.id,
-          width: width,
-          height: height,
+          width: availableSpace.width.clamp(1, width),
+          height: availableSpace.height.clamp(1, height),
+        );
+
+        // Update placement position to available space
+        final positionedPlacement = placement.copyWith(
+          position: placement.position.copyWith(
+            col: availableSpace.col,
+            row: availableSpace.row,
+            width: availableSpace.width,
+            height: availableSpace.height,
+          ),
         );
 
         print('🔧 _addTool: Entering placement mode for drag-to-position');
@@ -280,17 +328,17 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen>
         // Enter placement mode - user will drag to position
         setState(() {
           _toolBeingPlaced = tool;
-          _placementBeingPlaced = placement;
-          _placingX = 0; // Start at 0,0
-          _placingY = 0;
-          _placingWidth = width * 100.0; // Initial pixel width (approximate)
-          _placingHeight = height * 100.0; // Initial pixel height (approximate)
+          _placementBeingPlaced = positionedPlacement;
+          _placingX = availableSpace.col * cellWidth;
+          _placingY = availableSpace.row * cellHeight;
+          _placingWidth = availableSpace.width * cellWidth;
+          _placingHeight = availableSpace.height * cellHeight;
         });
 
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-              content: Text('Drag to position • Drag corner to resize • Release to place'),
+              content: Text('Tap to place here, or drag to reposition'),
               backgroundColor: Colors.blue,
               duration: Duration(seconds: 4),
             ),
@@ -339,6 +387,171 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen>
         _showAppBar = true;
       }
     });
+  }
+
+  /// Start resize operation
+  void _startResize(String toolId, double x, double y, double width, double height, _ResizeZone zone) {
+    setState(() {
+      _resizingWidgetId = toolId;
+      _resizingX = x;
+      _resizingY = y;
+      _resizingWidth = width;
+      _resizingHeight = height;
+      _activeResizeZone = zone;
+    });
+    HapticFeedback.lightImpact();
+  }
+
+  /// Update resize based on drag delta and active zone
+  void _updateResize(DragUpdateDetails details, double screenWidth, double screenHeight) {
+    if (_resizingWidgetId == null) return;
+
+    setState(() {
+      switch (_activeResizeZone) {
+        case _ResizeZone.bottomRight:
+          _resizingWidth += details.delta.dx;
+          _resizingHeight += details.delta.dy;
+          break;
+        case _ResizeZone.bottomLeft:
+          final newX = _resizingX + details.delta.dx;
+          final newWidth = _resizingWidth - details.delta.dx;
+          if (newWidth >= 100.0 && newX >= 0) {
+            _resizingX = newX;
+            _resizingWidth = newWidth;
+          }
+          _resizingHeight += details.delta.dy;
+          break;
+        case _ResizeZone.topRight:
+          _resizingWidth += details.delta.dx;
+          final newY = _resizingY + details.delta.dy;
+          final newHeight = _resizingHeight - details.delta.dy;
+          if (newHeight >= 100.0 && newY >= 0) {
+            _resizingY = newY;
+            _resizingHeight = newHeight;
+          }
+          break;
+        case _ResizeZone.topLeft:
+          final newX = _resizingX + details.delta.dx;
+          final newWidth = _resizingWidth - details.delta.dx;
+          if (newWidth >= 100.0 && newX >= 0) {
+            _resizingX = newX;
+            _resizingWidth = newWidth;
+          }
+          final newY = _resizingY + details.delta.dy;
+          final newHeight = _resizingHeight - details.delta.dy;
+          if (newHeight >= 100.0 && newY >= 0) {
+            _resizingY = newY;
+            _resizingHeight = newHeight;
+          }
+          break;
+        case _ResizeZone.none:
+          break;
+      }
+
+      // Apply constraints
+      _resizingWidth = _resizingWidth.clamp(100.0, screenWidth - _resizingX);
+      _resizingHeight = _resizingHeight.clamp(100.0, screenHeight - _resizingY);
+    });
+  }
+
+  /// End resize and save to placement
+  void _endResize(
+    ToolPlacement placement,
+    DashboardScreen screen,
+    DashboardService dashboardService,
+    double cellWidth,
+    double cellHeight,
+    Orientation orientation,
+  ) {
+    final updatedPlacement = placement.copyWith(
+      position: placement.position.copyWith(
+        col: (_resizingX / cellWidth).round(),
+        row: (_resizingY / cellHeight).round(),
+        width: (_resizingWidth / cellWidth).round().clamp(1, 8),
+        height: (_resizingHeight / cellHeight).round().clamp(1, 8),
+      ),
+    );
+
+    final isPortrait = orientation == Orientation.portrait;
+    final updatedScreen = isPortrait
+        ? screen.copyWith(
+            portraitPlacements: screen.portraitPlacements
+                .map((p) => p.toolId == updatedPlacement.toolId ? updatedPlacement : p)
+                .toList(),
+          )
+        : screen.copyWith(
+            landscapePlacements: screen.landscapePlacements
+                .map((p) => p.toolId == updatedPlacement.toolId ? updatedPlacement : p)
+                .toList(),
+          );
+
+    dashboardService.updateScreen(updatedScreen);
+    setState(() {
+      _resizingWidgetId = null;
+      _activeResizeZone = _ResizeZone.none;
+    });
+  }
+
+  /// Find the largest available rectangle in the 8x8 grid for a new widget.
+  /// Returns a GridPosition with optimal position and size.
+  /// If the screen is full, returns position (0,0) with size (0,0).
+  GridPosition _findLargestAvailableSpace(List<ToolPlacement> placements) {
+    const gridRows = 8;
+    const gridCols = 8;
+
+    // Create occupancy grid (true = occupied)
+    final occupied = List.generate(gridRows, (_) => List.filled(gridCols, false));
+
+    // Mark all occupied cells from existing placements
+    for (final placement in placements) {
+      final pos = placement.position;
+      for (int r = pos.row; r < pos.row + pos.height && r < gridRows; r++) {
+        for (int c = pos.col; c < pos.col + pos.width && c < gridCols; c++) {
+          occupied[r][c] = true;
+        }
+      }
+    }
+
+    // Find largest available rectangle
+    int maxArea = 0;
+    GridPosition best = GridPosition(row: 0, col: 0, width: 0, height: 0);
+
+    // For each possible top-left corner
+    for (int startRow = 0; startRow < gridRows; startRow++) {
+      for (int startCol = 0; startCol < gridCols; startCol++) {
+        if (occupied[startRow][startCol]) continue;
+
+        // Expand rectangle from this corner
+        for (int endRow = startRow; endRow < gridRows; endRow++) {
+          for (int endCol = startCol; endCol < gridCols; endCol++) {
+            // Check if this rectangle is fully available
+            bool available = true;
+            for (int r = startRow; r <= endRow && available; r++) {
+              for (int c = startCol; c <= endCol && available; c++) {
+                if (occupied[r][c]) available = false;
+              }
+            }
+
+            if (available) {
+              final width = endCol - startCol + 1;
+              final height = endRow - startRow + 1;
+              final area = width * height;
+              if (area > maxArea) {
+                maxArea = area;
+                best = GridPosition(
+                  row: startRow,
+                  col: startCol,
+                  width: width,
+                  height: height,
+                );
+              }
+            }
+          }
+        }
+      }
+    }
+
+    return best;
   }
 
   void _showScreenSelector(BuildContext context) {
@@ -1180,10 +1393,13 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen>
     );
   }
 
-  // Track widget being resized
+  // Track widget being resized (with zone support)
   String? _resizingWidgetId;
   double _resizingWidth = 0;
   double _resizingHeight = 0;
+  double _resizingX = 0;  // For left/top edge resizing (position changes)
+  double _resizingY = 0;
+  _ResizeZone _activeResizeZone = _ResizeZone.none;
 
   // Track widget being moved
   String? _movingWidgetId;
@@ -1262,220 +1478,238 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen>
             final cellWidth = screenWidth / 8;
             final cellHeight = screenHeight / 8;
 
-            // Use moving position if this widget is being moved, otherwise use placement position
+            // Calculate position - use resizing position if resizing from left/top
             final isBeingMoved = _movingWidgetId == placement.toolId;
-            final x = isBeingMoved ? _movingX : placement.position.col * cellWidth;
-            final y = isBeingMoved ? _movingY : placement.position.row * cellHeight;
-
-            // Use resizing dimensions if this widget is being resized, otherwise use placement dimensions
             final isBeingResized = _resizingWidgetId == placement.toolId;
-            final width = isBeingResized ? _resizingWidth : placement.position.width * cellWidth;
-            final height = isBeingResized ? _resizingHeight : placement.position.height * cellHeight;
+            final baseX = placement.position.col * cellWidth;
+            final baseY = placement.position.row * cellHeight;
+            final x = isBeingMoved ? _movingX : (isBeingResized ? _resizingX : baseX);
+            final y = isBeingMoved ? _movingY : (isBeingResized ? _resizingY : baseY);
+
+            // Calculate size
+            final baseWidth = placement.position.width * cellWidth;
+            final baseHeight = placement.position.height * cellHeight;
+            final width = isBeingResized ? _resizingWidth : baseWidth;
+            final height = isBeingResized ? _resizingHeight : baseHeight;
 
             // Build the widget content
             Widget widgetContent;
 
             if (_isEditMode) {
-              // In edit mode, show controls
-              widgetContent = Container(
-                        decoration: BoxDecoration(
-                          border: Border.all(
-                            color: Theme.of(context).colorScheme.primary,
-                            width: 2,
+              // Determine if this widget is being actively manipulated
+              final isLifted = isBeingMoved || isBeingResized;
+              final dashboardService = Provider.of<DashboardService>(context, listen: false);
+
+              // Helper to build a corner resize handle
+              Widget buildCornerHandle(_ResizeZone zone, {
+                required double? top,
+                required double? bottom,
+                required double? left,
+                required double? right,
+                required BorderRadius borderRadius,
+                required double rotationAngle,
+              }) {
+                return Positioned(
+                  top: top,
+                  bottom: bottom,
+                  left: left,
+                  right: right,
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onPanStart: (_) => _startResize(placement.toolId, x, y, width, height, zone),
+                    onPanUpdate: (d) => _updateResize(d, screenWidth, screenHeight),
+                    onPanEnd: (_) => _endResize(placement, screen, dashboardService, cellWidth, cellHeight, orientation),
+                    child: Container(
+                      width: 48,
+                      height: 48,
+                      decoration: BoxDecoration(
+                        color: Colors.blue.withValues(alpha: 0.85),
+                        borderRadius: borderRadius,
+                        border: Border.all(color: Colors.white, width: 2),
+                      ),
+                      child: Transform.rotate(
+                        angle: rotationAngle,
+                        child: const Icon(Icons.open_in_full, size: 24, color: Colors.white),
+                      ),
+                    ),
+                  ),
+                );
+              }
+
+              // Edit mode with long-press move and corner resize handles
+              widgetContent = GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                // Long-press to move
+                onLongPressStart: (details) {
+                  setState(() {
+                    _movingWidgetId = placement.toolId;
+                    _movingX = x;
+                    _movingY = y;
+                  });
+                  HapticFeedback.mediumImpact();
+                },
+                onLongPressMoveUpdate: (details) {
+                  if (_movingWidgetId == placement.toolId) {
+                    setState(() {
+                      _movingX = (details.globalPosition.dx - width / 2).clamp(0, screenWidth - width);
+                      _movingY = (details.globalPosition.dy - height / 2 - kToolbarHeight).clamp(0, screenHeight - height);
+                    });
+                  }
+                },
+                onLongPressEnd: (details) {
+                  if (_movingWidgetId == placement.toolId) {
+                    final updatedPlacement = placement.copyWith(
+                      position: placement.position.copyWith(
+                        col: (_movingX / cellWidth).round(),
+                        row: (_movingY / cellHeight).round(),
+                      ),
+                    );
+
+                    final isPortrait = orientation == Orientation.portrait;
+                    final updatedScreen = isPortrait
+                        ? screen.copyWith(
+                            portraitPlacements: screen.portraitPlacements
+                                .map((p) => p.toolId == updatedPlacement.toolId ? updatedPlacement : p)
+                                .toList(),
+                          )
+                        : screen.copyWith(
+                            landscapePlacements: screen.landscapePlacements
+                                .map((p) => p.toolId == updatedPlacement.toolId ? updatedPlacement : p)
+                                .toList(),
+                          );
+
+                    dashboardService.updateScreen(updatedScreen);
+                    setState(() => _movingWidgetId = null);
+                  }
+                },
+                child: Container(
+                  decoration: BoxDecoration(
+                    border: Border.all(
+                      color: isLifted ? Colors.orange : Theme.of(context).colorScheme.primary,
+                      width: isLifted ? 3 : 2,
+                    ),
+                    borderRadius: BorderRadius.circular(8),
+                    boxShadow: isLifted
+                        ? [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: 0.3),
+                              blurRadius: 12,
+                              spreadRadius: 2,
+                              offset: const Offset(0, 4),
+                            ),
+                          ]
+                        : null,
+                  ),
+                  child: Stack(
+                    clipBehavior: Clip.none,
+                    children: [
+                      // Tool widget content
+                      Positioned.fill(
+                        child: Padding(
+                          padding: const EdgeInsets.all(8),
+                          child: registry.buildTool(
+                            tool.toolTypeId,
+                            tool.config,
+                            signalKService,
                           ),
-                          borderRadius: BorderRadius.circular(8),
                         ),
-                        child: Stack(
-                          fit: StackFit.expand,
+                      ),
+
+                      // Top toolbar row with delete and settings buttons
+                      Positioned(
+                        top: 8,
+                        left: 56,
+                        right: 56,
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            // Tool widget
-                            Padding(
-                              padding: const EdgeInsets.all(8),
-                              child: registry.buildTool(
-                                tool.toolTypeId,
-                                tool.config,
-                                signalKService,
+                            // Delete button
+                            IconButton(
+                              icon: const Icon(Icons.delete, size: 20),
+                              onPressed: () => _confirmRemovePlacement(screen.id, placement.toolId, tool.name),
+                              style: IconButton.styleFrom(
+                                backgroundColor: Colors.red.withValues(alpha: 0.85),
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.all(8),
+                                minimumSize: const Size(36, 36),
                               ),
+                              tooltip: 'Remove',
                             ),
-
-                            // Edit mode buttons
-                            // Edit button at top-right
-                            Positioned(
-                              top: 4,
-                              right: 4,
-                              child: IconButton(
-                                icon: const Icon(Icons.edit, size: 16),
-                                onPressed: () => _editTool(tool, placement.toolId),
-                                style: IconButton.styleFrom(
-                                  backgroundColor: Colors.blue.withValues(alpha: 0.7),
-                                  foregroundColor: Colors.white,
-                                  padding: const EdgeInsets.all(4),
-                                  minimumSize: const Size(24, 24),
-                                ),
-                                tooltip: 'Edit Tool',
+                            // Settings/Edit button
+                            IconButton(
+                              icon: const Icon(Icons.settings, size: 20),
+                              onPressed: () => _editTool(tool, placement.toolId),
+                              style: IconButton.styleFrom(
+                                backgroundColor: Colors.green.withValues(alpha: 0.85),
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.all(8),
+                                minimumSize: const Size(36, 36),
                               ),
-                            ),
-                            // Drag-to-move handle at top-left
-                            Positioned(
-                              top: 4,
-                              left: 4,
-                              child: GestureDetector(
-                                behavior: HitTestBehavior.opaque,
-                                onPanStart: (details) {
-                                  // Start moving
-                                  setState(() {
-                                    _movingWidgetId = placement.toolId;
-                                    _movingX = x;
-                                    _movingY = y;
-                                  });
-                                },
-                                onPanUpdate: (details) {
-                                  // Update position in real-time
-                                  setState(() {
-                                    _movingX = (_movingX + details.delta.dx).clamp(0, screenWidth - width);
-                                    _movingY = (_movingY + details.delta.dy).clamp(0, screenHeight - height);
-                                  });
-                                },
-                                onPanEnd: (details) {
-                                  // Save final position
-                                  final dashboardService = Provider.of<DashboardService>(context, listen: false);
-
-                                  final updatedPlacement = placement.copyWith(
-                                    position: placement.position.copyWith(
-                                      col: (_movingX / cellWidth).round(),
-                                      row: (_movingY / cellHeight).round(),
-                                    ),
-                                  );
-
-                                  final isPortrait = orientation == Orientation.portrait;
-                                  final updatedScreen = isPortrait
-                                      ? screen.copyWith(
-                                          portraitPlacements: screen.portraitPlacements
-                                              .map((p) => p.toolId == updatedPlacement.toolId ? updatedPlacement : p)
-                                              .toList(),
-                                        )
-                                      : screen.copyWith(
-                                          landscapePlacements: screen.landscapePlacements
-                                              .map((p) => p.toolId == updatedPlacement.toolId ? updatedPlacement : p)
-                                              .toList(),
-                                        );
-
-                                  dashboardService.updateScreen(updatedScreen);
-
-                                  // Clear moving state
-                                  setState(() {
-                                    _movingWidgetId = null;
-                                  });
-                                },
-                                child: Container(
-                                  width: 32,
-                                  height: 32,
-                                  decoration: BoxDecoration(
-                                    color: Colors.purple.withValues(alpha: 0.8),
-                                    borderRadius: BorderRadius.circular(4),
-                                    border: Border.all(color: Colors.white, width: 2),
-                                  ),
-                                  child: const Icon(
-                                    Icons.open_with,
-                                    size: 20,
-                                    color: Colors.white,
-                                  ),
-                                ),
-                              ),
-                            ),
-
-                            // Delete button at bottom-left
-                            Positioned(
-                              bottom: 4,
-                              left: 4,
-                              child: IconButton(
-                                icon: const Icon(Icons.close, size: 16),
-                                onPressed: () => _confirmRemovePlacement(screen.id, placement.toolId, tool.name),
-                                style: IconButton.styleFrom(
-                                  backgroundColor: Colors.red.withValues(alpha: 0.7),
-                                  foregroundColor: Colors.white,
-                                  padding: const EdgeInsets.all(4),
-                                  minimumSize: const Size(24, 24),
-                                ),
-                                tooltip: 'Remove',
-                              ),
-                            ),
-
-                            // Resize handle at bottom-right corner (larger hit area)
-                            Positioned(
-                              bottom: -4,
-                              right: -4,
-                              child: GestureDetector(
-                                behavior: HitTestBehavior.opaque,
-                                onPanStart: (details) {
-                                  // Start resizing
-                                  setState(() {
-                                    _resizingWidgetId = placement.toolId;
-                                    _resizingWidth = width;
-                                    _resizingHeight = height;
-                                  });
-                                },
-                                onPanUpdate: (details) {
-                                  // Update widget size based on drag in real-time
-                                  setState(() {
-                                    _resizingWidth = (_resizingWidth + details.delta.dx).clamp(100.0, screenWidth - x);
-                                    _resizingHeight = (_resizingHeight + details.delta.dy).clamp(100.0, screenHeight - y);
-                                  });
-                                },
-                                onPanEnd: (details) {
-                                  // Save final size to placement
-                                  final updatedPlacement = placement.copyWith(
-                                    position: placement.position.copyWith(
-                                      width: (_resizingWidth / cellWidth).round(),
-                                      height: (_resizingHeight / cellHeight).round(),
-                                    ),
-                                  );
-
-                                  // Save to dashboard - ONLY update the current orientation
-                                  final dashboardService = Provider.of<DashboardService>(context, listen: false);
-                                  final isPortrait = orientation == Orientation.portrait;
-
-                                  // Update the screen with the new placement in the current orientation only
-                                  final updatedScreen = isPortrait
-                                      ? screen.copyWith(
-                                          portraitPlacements: screen.portraitPlacements
-                                              .map((p) => p.toolId == updatedPlacement.toolId ? updatedPlacement : p)
-                                              .toList(),
-                                        )
-                                      : screen.copyWith(
-                                          landscapePlacements: screen.landscapePlacements
-                                              .map((p) => p.toolId == updatedPlacement.toolId ? updatedPlacement : p)
-                                              .toList(),
-                                        );
-
-                                  dashboardService.updateScreen(updatedScreen);
-
-                                  // Clear resizing state
-                                  setState(() {
-                                    _resizingWidgetId = null;
-                                  });
-                                },
-                                child: Container(
-                                  width: 40,
-                                  height: 40,
-                                  decoration: BoxDecoration(
-                                    color: Colors.blue.withValues(alpha: 0.8),
-                                    borderRadius: const BorderRadius.only(
-                                      topLeft: Radius.circular(8),
-                                    ),
-                                    border: Border.all(color: Colors.white, width: 2),
-                                  ),
-                                  child: const Icon(
-                                    Icons.zoom_out_map,
-                                    size: 24,
-                                    color: Colors.white,
-                                  ),
-                                ),
-                              ),
+                              tooltip: 'Configure',
                             ),
                           ],
                         ),
-                      );
+                      ),
+
+                      // Corner resize handles (all 4 corners)
+                      buildCornerHandle(
+                        _ResizeZone.topLeft,
+                        top: -4, left: -4, bottom: null, right: null,
+                        borderRadius: const BorderRadius.only(bottomRight: Radius.circular(8)),
+                        rotationAngle: 1.5708, // 90° for ↖↘
+                      ),
+                      buildCornerHandle(
+                        _ResizeZone.topRight,
+                        top: -4, right: -4, bottom: null, left: null,
+                        borderRadius: const BorderRadius.only(bottomLeft: Radius.circular(8)),
+                        rotationAngle: 0, // ↗↙ default
+                      ),
+                      buildCornerHandle(
+                        _ResizeZone.bottomLeft,
+                        bottom: -4, left: -4, top: null, right: null,
+                        borderRadius: const BorderRadius.only(topRight: Radius.circular(8)),
+                        rotationAngle: 0, // ↗↙ default
+                      ),
+                      buildCornerHandle(
+                        _ResizeZone.bottomRight,
+                        bottom: -4, right: -4, top: null, left: null,
+                        borderRadius: const BorderRadius.only(topLeft: Radius.circular(8)),
+                        rotationAngle: 1.5708, // 90° for ↖↘
+                      ),
+
+                      // Visual hint for move (center, visible when not lifted)
+                      Positioned.fill(
+                        child: IgnorePointer(
+                          child: AnimatedOpacity(
+                            opacity: isLifted ? 0.0 : 1.0,
+                            duration: const Duration(milliseconds: 150),
+                            child: Center(
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: Colors.black.withValues(alpha: 0.5),
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                                child: const Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(Icons.open_with, size: 14, color: Colors.white70),
+                                    SizedBox(width: 4),
+                                    Text(
+                                      'Hold to move',
+                                      style: TextStyle(color: Colors.white70, fontSize: 10),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
             } else {
               // Normal mode - just show the tool
               widgetContent = Padding(
@@ -1503,6 +1737,8 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen>
         if (_toolBeingPlaced != null && _placementBeingPlaced != null) {
           final screenWidth = constraints.maxWidth;
           final screenHeight = constraints.maxHeight;
+          final cellWidth = screenWidth / 8;
+          final cellHeight = screenHeight / 8;
 
           contentWidget = Stack(
             children: [
@@ -1514,6 +1750,38 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen>
                 width: _placingWidth,
                 height: _placingHeight,
                 child: GestureDetector(
+                  onTap: () async {
+                    // Tap to place at current position
+                    final dashboardService = Provider.of<DashboardService>(context, listen: false);
+                    final messenger = ScaffoldMessenger.of(context);
+
+                    final updatedPlacement = _placementBeingPlaced!.copyWith(
+                      position: _placementBeingPlaced!.position.copyWith(
+                        col: (_placingX / cellWidth).round(),
+                        row: (_placingY / cellHeight).round(),
+                        width: (_placingWidth / cellWidth).round().clamp(1, 8),
+                        height: (_placingHeight / cellHeight).round().clamp(1, 8),
+                      ),
+                    );
+
+                    final updatedScreen = screen.addPlacement(updatedPlacement);
+                    await dashboardService.updateScreen(updatedScreen);
+
+                    final toolName = _toolBeingPlaced!.name;
+                    setState(() {
+                      _toolBeingPlaced = null;
+                      _placementBeingPlaced = null;
+                    });
+
+                    if (mounted) {
+                      messenger.showSnackBar(
+                        SnackBar(
+                          content: Text('Tool "$toolName" placed'),
+                          backgroundColor: Colors.green,
+                        ),
+                      );
+                    }
+                  },
                   onPanUpdate: (details) {
                     setState(() {
                       // Ensure max is always >= 0 to avoid clamp error
@@ -1527,8 +1795,6 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen>
                     // Save the tool at this position
                     final dashboardService = Provider.of<DashboardService>(context, listen: false);
                     final messenger = ScaffoldMessenger.of(context);
-                    final cellWidth = screenWidth / 8;
-                    final cellHeight = screenHeight / 8;
 
                     // Convert pixel position and size to grid position
                     final updatedPlacement = _placementBeingPlaced!.copyWith(
@@ -1585,7 +1851,7 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen>
                             child: Column(
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: [
-                                Icon(Icons.pan_tool, size: 64, color: Colors.orange[900]),
+                                Icon(Icons.touch_app, size: 64, color: Colors.orange[900]),
                                 const SizedBox(height: 16),
                                 Text(
                                   _toolBeingPlaced!.name,
@@ -1598,9 +1864,9 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen>
                                 ),
                                 const SizedBox(height: 12),
                                 Text(
-                                  'DRAG ME TO POSITION',
+                                  'TAP TO PLACE HERE',
                                   style: TextStyle(
-                                    color: Colors.red[900],
+                                    color: Colors.green[900],
                                     fontWeight: FontWeight.bold,
                                     fontSize: 18,
                                   ),
@@ -1608,11 +1874,8 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen>
                                 ),
                                 const SizedBox(height: 8),
                                 const Text(
-                                  'Drag corner to resize • Release to place',
-                                  style: TextStyle(
-                                    color: Colors.black87,
-                                    fontSize: 14,
-                                  ),
+                                  'or drag to reposition • drag corner to resize',
+                                  style: TextStyle(color: Colors.black87, fontSize: 14),
                                   textAlign: TextAlign.center,
                                 ),
                               ],
@@ -1636,16 +1899,10 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen>
                               height: 40,
                               decoration: BoxDecoration(
                                 color: Colors.green.withValues(alpha: 0.8),
-                                borderRadius: const BorderRadius.only(
-                                  topLeft: Radius.circular(8),
-                                ),
+                                borderRadius: const BorderRadius.only(topLeft: Radius.circular(8)),
                                 border: Border.all(color: Colors.white, width: 2),
                               ),
-                              child: const Icon(
-                                Icons.zoom_out_map,
-                                size: 24,
-                                color: Colors.white,
-                              ),
+                              child: const Icon(Icons.zoom_out_map, size: 24, color: Colors.white),
                             ),
                           ),
                         ),
