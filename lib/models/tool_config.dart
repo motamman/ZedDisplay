@@ -31,8 +31,6 @@ class StyleConfig {
   final String? unit;            // Unit override (use server's unit if null)
   final String? primaryColor;    // Hex color string (e.g., "#0000FF")
   final String? secondaryColor;
-  final double? fontSize;
-  final double? strokeWidth;
   final bool? showLabel;
   final bool? showValue;
   final bool? showUnit;
@@ -56,8 +54,6 @@ class StyleConfig {
     this.unit,
     this.primaryColor,
     this.secondaryColor,
-    this.fontSize,
-    this.strokeWidth,
     this.showLabel = true,
     this.showValue = true,
     this.showUnit = true,

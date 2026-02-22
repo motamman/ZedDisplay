@@ -73,11 +73,11 @@ class _ConfigureDataSourceDialogState extends State<ConfigureDataSourceDialog> {
       title: const Text('Configure Data Source'),
       content: SizedBox(
         width: 400,
-        child: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
+        height: _showSourceSelection ? 400 : null,
+        child: Column(
+          mainAxisSize: _showSourceSelection ? MainAxisSize.max : MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
               // Show selected path
               Text(
                 'Path',
@@ -157,8 +157,7 @@ class _ConfigureDataSourceDialogState extends State<ConfigureDataSourceDialog> {
                     ),
                   )
                 else
-                  ConstrainedBox(
-                    constraints: const BoxConstraints(maxHeight: 200),
+                  Flexible(
                     child: ListView(
                       shrinkWrap: true,
                       children: [
@@ -182,6 +181,7 @@ class _ConfigureDataSourceDialogState extends State<ConfigureDataSourceDialog> {
                             title: Text(
                               sourceId,
                               style: const TextStyle(fontSize: 12, fontFamily: 'monospace'),
+                              overflow: TextOverflow.ellipsis,
                             ),
                             subtitle: isActive
                                 ? const Text(
@@ -198,8 +198,7 @@ class _ConfigureDataSourceDialogState extends State<ConfigureDataSourceDialog> {
                     ),
                   ),
               ],
-            ],
-          ),
+          ],
         ),
       ),
       actions: [

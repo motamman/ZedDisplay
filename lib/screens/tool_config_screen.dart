@@ -51,7 +51,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
   double? _maxValue;
   String? _unit;
   String? _primaryColor;
-  double? _fontSize;
+  String? _secondaryColor;
   bool _showLabel = true;
   bool _showValue = true;
   bool _showUnit = true;
@@ -122,7 +122,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
     _maxValue = null;
     _unit = null;
     _primaryColor = null;
-    _fontSize = null;
+    _secondaryColor = null;
     _showLabel = true;
     _showValue = true;
     _showUnit = true;
@@ -245,7 +245,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
     _maxValue = style.maxValue;
     _unit = style.unit;
     _primaryColor = style.primaryColor;
-    _fontSize = style.fontSize;
+    _secondaryColor = style.secondaryColor;
     _showLabel = style.showLabel ?? true;
     _showValue = style.showValue ?? true;
     _showUnit = style.showUnit ?? true;
@@ -411,6 +411,57 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
     );
   }
 
+  Future<void> _selectSecondaryColor() async {
+    // Parse current color or use default
+    Color currentColor = Colors.grey;
+    if (_secondaryColor != null && _secondaryColor!.isNotEmpty) {
+      try {
+        final hexColor = _secondaryColor!.replaceAll('#', '');
+        currentColor = Color(int.parse('FF$hexColor', radix: 16));
+      } catch (e) {
+        // Invalid color, use default
+      }
+    }
+
+    Color? pickedColor;
+
+    await showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Pick secondary color'),
+        content: SingleChildScrollView(
+          child: ColorPicker(
+            pickerColor: currentColor,
+            onColorChanged: (color) {
+              pickedColor = color;
+            },
+            pickerAreaHeightPercent: 0.8,
+            enableAlpha: false,
+            displayThumbColor: true,
+            labelTypes: const [],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () {
+              if (pickedColor != null) {
+                setState(() {
+                  _secondaryColor = '#${pickedColor!.toARGB32().toRadixString(16).substring(2).toUpperCase()}';
+                });
+              }
+              Navigator.of(context).pop();
+            },
+            child: const Text('Select'),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _saveTool() async {
     if (!_formKey.currentState!.validate()) return;
     // WebView, server_manager, system_monitor, and crew tools don't need data sources
@@ -431,7 +482,6 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
       maxValue: _maxValue,
       unit: _unit,
       primaryColor: _primaryColor,
-      fontSize: _fontSize,
       showLabel: _showLabel,
       showValue: _showValue,
       showUnit: _showUnit,
@@ -481,7 +531,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
           maxValue: configuratorConfig.style.maxValue ?? config.style.maxValue,
           unit: configuratorConfig.style.unit ?? config.style.unit,
           primaryColor: configuratorConfig.style.primaryColor ?? config.style.primaryColor,
-          fontSize: configuratorConfig.style.fontSize ?? config.style.fontSize,
+          secondaryColor: configuratorConfig.style.secondaryColor ?? _secondaryColor,
           // Use screen state directly - StyleConfig defaults (true) would override user's settings
           showLabel: _showLabel,
           showValue: _showValue,
@@ -510,7 +560,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
           maxValue: config.style.maxValue,
           unit: config.style.unit,
           primaryColor: config.style.primaryColor,
-          fontSize: config.style.fontSize,
+          secondaryColor: _secondaryColor,
           showLabel: config.style.showLabel,
           showValue: config.style.showValue,
           showUnit: config.style.showUnit,
@@ -896,7 +946,6 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                               maxValue: _maxValue,
                               unit: _unit,
                               primaryColor: _primaryColor,
-                              fontSize: _fontSize,
                               showLabel: _showLabel,
                               showValue: _showValue,
                               showUnit: _showUnit,
@@ -1051,8 +1100,46 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
             side: BorderSide(color: Colors.grey.shade300),
           ),
         ),
-        const SizedBox(height: 16),
+        const SizedBox(height: 8),
       ]);
+
+      // Secondary color picker (only for tools that use it)
+      const secondaryColorTools = ['switch', 'checkbox', 'wind_compass', 'autopilot', 'windsteer'];
+      if (secondaryColorTools.contains(_selectedToolTypeId)) {
+        widgets.addAll([
+          ListTile(
+            leading: Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: _secondaryColor != null && _secondaryColor!.isNotEmpty
+                    ? () {
+                        try {
+                          final hexColor = _secondaryColor!.replaceAll('#', '');
+                          return Color(int.parse('FF$hexColor', radix: 16));
+                        } catch (e) {
+                          return Colors.grey;
+                        }
+                      }()
+                    : Colors.grey,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.grey.shade400, width: 2),
+              ),
+            ),
+            title: const Text('Secondary Color'),
+            subtitle: Text(_secondaryColor ?? 'Default (Grey)'),
+            trailing: const Icon(Icons.edit),
+            onTap: _selectSecondaryColor,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(8),
+              side: BorderSide(color: Colors.grey.shade300),
+            ),
+          ),
+          const SizedBox(height: 16),
+        ]);
+      } else {
+        widgets.add(const SizedBox(height: 8));
+      }
     }
 
     // Show/Hide Options (not applicable for certain tools)

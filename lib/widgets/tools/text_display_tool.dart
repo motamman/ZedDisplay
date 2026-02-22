@@ -36,8 +36,8 @@ class TextDisplayTool extends StatelessWidget {
       fallback: Theme.of(context).colorScheme.onSurface
     ) ?? Theme.of(context).colorScheme.onSurface;
 
-    // Get font size from config or use default
-    final fontSize = config.style.fontSize ?? 48.0;
+    // Use default font size (scales based on widget size)
+    const fontSize = 48.0;
 
     // Get the data point to check if it's an object
     final dataPoint = signalKService.getValue(dataSource.path);
@@ -242,7 +242,6 @@ class TextDisplayBuilder extends ToolBuilder {
         styleOptions: const [
           'unit',
           'primaryColor',
-          'fontSize',
           'showLabel',
           'showValue',
           'showUnit',
