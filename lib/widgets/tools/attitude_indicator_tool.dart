@@ -1,9 +1,11 @@
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import '../../models/tool_definition.dart';
 import '../../models/tool_config.dart';
 import '../../services/signalk_service.dart';
 import '../../services/tool_registry.dart';
 import '../../utils/color_extensions.dart';
+import '../../utils/conversion_utils.dart';
 import '../attitude_indicator.dart';
 
 /// Config-driven attitude/heel indicator tool
@@ -50,14 +52,24 @@ class AttitudeIndicatorTool extends StatelessWidget {
     if (attitudeData?.value is Map) {
       final attitude = attitudeData!.value as Map<String, dynamic>;
 
-      // Roll is in radians, convert to degrees
+      // Roll is in radians, convert to degrees using user preferences
       if (attitude['roll'] is num) {
-        rollDegrees = (attitude['roll'] as num).toDouble() * 180 / 3.14159265359;
+        final rollRaw = (attitude['roll'] as num).toDouble();
+        rollDegrees = ConversionUtils.convertWeatherValue(
+          signalKService,
+          WeatherFieldType.angle,
+          rollRaw,
+        ) ?? rollRaw * 180 / math.pi;
       }
 
-      // Pitch is in radians, convert to degrees
+      // Pitch is in radians, convert to degrees using user preferences
       if (attitude['pitch'] is num) {
-        pitchDegrees = (attitude['pitch'] as num).toDouble() * 180 / 3.14159265359;
+        final pitchRaw = (attitude['pitch'] as num).toDouble();
+        pitchDegrees = ConversionUtils.convertWeatherValue(
+          signalKService,
+          WeatherFieldType.angle,
+          pitchRaw,
+        ) ?? pitchRaw * 180 / math.pi;
       }
     }
 

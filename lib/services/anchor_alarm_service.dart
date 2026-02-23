@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:audioplayers/audioplayers.dart';
 import '../models/anchor_state.dart';
+import '../utils/conversion_utils.dart';
 import 'signalk_service.dart';
 import 'notification_service.dart';
 import 'messaging_service.dart';
@@ -466,13 +467,23 @@ class AnchorAlarmService extends ChangeNotifier {
     double? vesselHeading;
     final headingData = _signalKService.getValue(_paths.heading);
     if (headingData?.value is num) {
-      // Convert radians to degrees
-      vesselHeading = (headingData!.value as num).toDouble() * 180 / 3.14159265359;
+      // Convert radians to degrees using user preferences
+      final headingRaw = (headingData!.value as num).toDouble();
+      vesselHeading = ConversionUtils.convertWeatherValue(
+        _signalKService,
+        WeatherFieldType.angle,
+        headingRaw,
+      ) ?? headingRaw * 180 / math.pi;
     } else {
       // Fallback to magnetic if true heading not available
       final headingMag = _signalKService.getValue('navigation.headingMagnetic');
       if (headingMag?.value is num) {
-        vesselHeading = (headingMag!.value as num).toDouble() * 180 / 3.14159265359;
+        final headingRaw = (headingMag!.value as num).toDouble();
+        vesselHeading = ConversionUtils.convertWeatherValue(
+          _signalKService,
+          WeatherFieldType.angle,
+          headingRaw,
+        ) ?? headingRaw * 180 / math.pi;
       }
     }
 

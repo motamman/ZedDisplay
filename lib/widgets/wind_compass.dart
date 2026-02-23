@@ -84,10 +84,18 @@ class WindCompass extends StatefulWidget {
   final double? speedOverGround;
   final String? sogFormatted;
   final double? cogDegrees;
+  final String? cogFormatted;
 
   // Waypoint navigation
   final double? waypointBearing;   // True bearing to waypoint (degrees)
+  final String? waypointBearingFormatted;
   final double? waypointDistance;  // Distance to waypoint (meters)
+  final String? waypointDistanceFormatted;
+
+  // Pre-formatted display strings for wind directions
+  final String? windDirectionTrueFormatted;
+  final String? windDirectionApparentFormatted;
+  final String? windAngleApparentFormatted;
 
   // Target AWA configuration
   final double targetAWA;          // Optimal close-hauled angle from polar data (degrees)
@@ -114,8 +122,14 @@ class WindCompass extends StatefulWidget {
     this.speedOverGround,
     this.sogFormatted,
     this.cogDegrees,
+    this.cogFormatted,
     this.waypointBearing,
+    this.waypointBearingFormatted,
     this.waypointDistance,
+    this.waypointDistanceFormatted,
+    this.windDirectionTrueFormatted,
+    this.windDirectionApparentFormatted,
+    this.windAngleApparentFormatted,
     this.targetAWA = 40.0,
     this.targetTolerance = 3.0,
     this.showAWANumbers = true,
@@ -771,17 +785,17 @@ class _WindCompassState extends State<WindCompass> {
           mainAxisSize: MainAxisSize.min,
           children: [
             Text(
-              'WPT: ${waypointBearing.toStringAsFixed(0)}°',
+              'WPT: ${widget.waypointBearingFormatted ?? '${waypointBearing.toStringAsFixed(0)}°'}',
               style: const TextStyle(
                 fontSize: 14,
                 color: Colors.white,
                 fontWeight: FontWeight.bold,
               ),
             ),
-            if (widget.waypointDistance != null) ...[
+            if (widget.waypointDistanceFormatted != null) ...[
               const SizedBox(width: 8),
               Text(
-                '${(widget.waypointDistance! / 1852).toStringAsFixed(1)}nm',
+                widget.waypointDistanceFormatted!,
                 style: const TextStyle(
                   fontSize: 11,
                   color: Colors.white60,
@@ -924,7 +938,7 @@ class _WindCompassState extends State<WindCompass> {
                   ],
                 ),
                 Text(
-                  '${widget.windDirectionTrueDegrees!.toStringAsFixed(0)}°',
+                  widget.windDirectionTrueFormatted ?? '${widget.windDirectionTrueDegrees!.toStringAsFixed(0)}°',
                   style: const TextStyle(
                     fontSize: 20,
                     color: Colors.white,
@@ -982,7 +996,7 @@ class _WindCompassState extends State<WindCompass> {
                   ],
                 ),
                 Text(
-                  '${widget.windDirectionApparentDegrees!.toStringAsFixed(0)}°',
+                  widget.windDirectionApparentFormatted ?? '${widget.windDirectionApparentDegrees!.toStringAsFixed(0)}°',
                   style: const TextStyle(
                     fontSize: 20,
                     color: Colors.white,
@@ -1064,9 +1078,9 @@ class _WindCompassState extends State<WindCompass> {
                 ],
               ),
               Text(
-                widget.cogDegrees != null
+                widget.cogFormatted ?? (widget.cogDegrees != null
                     ? '${widget.cogDegrees!.toStringAsFixed(0)}°'
-                    : '--',
+                    : '--'),
                 style: const TextStyle(
                   fontSize: 20,
                   color: Colors.white,

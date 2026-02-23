@@ -23,10 +23,6 @@ class SignalKService extends ChangeNotifier implements DataService {
   WebSocketChannel? _autopilotChannel;
   StreamSubscription? _autopilotSubscription;
 
-  // Conversions WebSocket (real-time conversion updates)
-  WebSocketChannel? _conversionsChannel;
-  StreamSubscription? _conversionsSubscription;
-
   // Connection state
   bool _isConnected = false;
   String? _errorMessage;
@@ -48,6 +44,10 @@ class SignalKService extends ChangeNotifier implements DataService {
   final Set<String> _activePaths = {};
   final Set<String> _autopilotPaths = {}; // Separate tracking for autopilot paths
   String? _vesselContext;
+
+  // User's display unit preferences from WebSocket meta (sendMeta=all on URL)
+  // Maps path to displayUnits configuration: {category, targetUnit, formula, inverseFormula, symbol}
+  final Map<String, Map<String, dynamic>> _displayUnitsCache = {};
 
   // Configuration
   String _serverUrl = 'localhost:3000';
@@ -239,8 +239,9 @@ class SignalKService extends ChangeNotifier implements DataService {
       // The auth token is used only for HTTP requests to the API
       // The WebSocket connection is already authenticated at the HTTP upgrade level
 
-      // Connect to conversions WebSocket stream for real-time updates
-      await _connectConversionsChannel();
+      // Fetch unit preferences from server (replaces broken /conversions endpoint)
+      await _conversionManager.fetchConversions();
+      _conversionsDataView = null;
 
       // Subscribe to paths immediately
       await _sendSubscription();
@@ -292,6 +293,7 @@ class SignalKService extends ChangeNotifier implements DataService {
 
   /// Discover WebSocket endpoint - ALWAYS use standard SignalK stream
   /// Client-side conversions are applied using formulas from /signalk/v1/conversions
+  /// Uses sendMeta=all to receive displayUnits with user's unit preferences
   Future<String> _discoverWebSocketEndpoint() async {
     final wsProtocol = _useSecureConnection ? 'wss' : 'ws';
 
@@ -299,29 +301,36 @@ class SignalKService extends ChangeNotifier implements DataService {
     // Many servers are behind reverse proxies and don't need explicit ports
     // ALWAYS use standard SignalK stream (no units-preference plugin)
     // Conversions are applied client-side using formulas from /signalk/v1/conversions
-    final endpoint = '$wsProtocol://$_serverUrl/signalk/v1/stream';
+    // sendMeta=all: receive metadata with displayUnits for each path
+    // token: pass auth token as query param (more reliable than Authorization header for WebSocket)
+    var endpoint = '$wsProtocol://$_serverUrl/signalk/v1/stream?subscribe=none&sendMeta=all';
+    if (_authToken != null) {
+      endpoint += '&token=${Uri.encodeComponent(_authToken!.token)}';
+    }
     return endpoint;
   }
 
   /// Get notification WebSocket endpoint (always standard SignalK)
   String _getNotificationEndpoint() {
     final wsProtocol = _useSecureConnection ? 'wss' : 'ws';
-    return '$wsProtocol://$_serverUrl/signalk/v1/stream?subscribe=none';
+    var endpoint = '$wsProtocol://$_serverUrl/signalk/v1/stream?subscribe=none';
+    if (_authToken != null) {
+      endpoint += '&token=${Uri.encodeComponent(_authToken!.token)}';
+    }
+    return endpoint;
   }
 
   /// Get autopilot WebSocket endpoint (always standard SignalK stream)
   String _getAutopilotEndpoint() {
     final wsProtocol = _useSecureConnection ? 'wss' : 'ws';
-    return '$wsProtocol://$_serverUrl/signalk/v1/stream';
+    var endpoint = '$wsProtocol://$_serverUrl/signalk/v1/stream';
+    if (_authToken != null) {
+      endpoint += '?token=${Uri.encodeComponent(_authToken!.token)}';
+    }
+    return endpoint;
   }
 
-  /// Get conversions WebSocket endpoint
-  String _getConversionsEndpoint() {
-    final wsProtocol = _useSecureConnection ? 'wss' : 'ws';
-    return '$wsProtocol://$_serverUrl/signalk/v1/conversions/stream';
-  }
-
-  /// Connect conversions channel for real-time conversion updates
+  /// Connect autopilot channel for real-time autopilot data
   Future<void> _connectAutopilotChannel() async {
     if (_autopilotChannel != null) {
       if (kDebugMode) {
@@ -378,97 +387,6 @@ class SignalKService extends ChangeNotifier implements DataService {
       _autopilotChannel = null;
       _autopilotSubscription = null;
     }
-  }
-
-  /// Connect conversions channel for real-time conversion updates
-  Future<void> _connectConversionsChannel() async {
-    // Ensure main connection is established first
-    if (!_isConnected) {
-      if (kDebugMode) {
-        print('Cannot connect conversions channel: main connection not established');
-      }
-      return;
-    }
-
-    if (_conversionsChannel != null) {
-      if (kDebugMode) {
-        print('Conversions channel already connected');
-      }
-      return;
-    }
-
-    try {
-      final wsUrl = _getConversionsEndpoint();
-
-      if (kDebugMode) {
-        print('Attempting to connect conversions channel: $wsUrl');
-      }
-
-      if (_authToken != null) {
-        final headers = <String, String>{
-          'Authorization': 'Bearer ${_authToken!.token}',
-        };
-        final socket = await WebSocket.connect(wsUrl, headers: headers).timeout(
-          const Duration(seconds: 5),
-          onTimeout: () {
-            throw TimeoutException('Conversions WebSocket connection timeout');
-          },
-        );
-        socket.pingInterval = const Duration(seconds: 30);
-        _conversionsChannel = IOWebSocketChannel(socket);
-      } else {
-        _conversionsChannel = WebSocketChannel.connect(Uri.parse(wsUrl));
-      }
-
-      // Listen to conversion messages
-      _conversionsSubscription = _conversionsChannel!.stream.listen(
-        _handleConversionMessage,
-        onError: (error) {
-          if (kDebugMode) {
-            print('⚠️ Conversions channel error: $error');
-          }
-          // Don't crash - just cleanup
-          _conversionsChannel = null;
-          _conversionsSubscription = null;
-        },
-        onDone: () {
-          if (kDebugMode) {
-            print('Conversions channel disconnected');
-          }
-          _conversionsChannel = null;
-          _conversionsSubscription = null;
-        },
-      );
-
-      if (kDebugMode) {
-        print('✅ Conversions channel connected successfully');
-      }
-
-      // Also fetch via HTTP to ensure we have data immediately
-      // WebSocket may not push until there's a change
-      await _conversionManager.fetchConversions();
-      _conversionsDataView = null;
-      notifyListeners();
-    } catch (e) {
-      if (kDebugMode) {
-        print('⚠️ Failed to connect conversions channel (will use HTTP fallback): $e');
-      }
-      // Clean up on error
-      _conversionsChannel = null;
-      _conversionsSubscription = null;
-      // Use HTTP fallback to fetch conversions
-      await _conversionManager.fetchConversions();
-      _conversionsDataView = null;
-      notifyListeners();
-    }
-  }
-
-  /// Handle incoming conversion data from WebSocket stream
-  void _handleConversionMessage(dynamic message) {
-    _conversionManager.handleConversionMessage(message);
-    // Invalidate cache and notify listeners that conversions have updated
-    _conversionsDataView = null;
-    notifyListeners();
   }
 
   /// Send WebSocket authentication with token (currently unused, kept for future)
@@ -621,17 +539,43 @@ class SignalKService extends ChangeNotifier implements DataService {
 
       // Check if it's a delta update
       if (data['updates'] != null) {
-        // Verbose logging disabled
+        // DEBUG: Log raw meta data from WebSocket
+        if (kDebugMode) {
+          for (final rawUpdate in (data['updates'] as List)) {
+            if (rawUpdate['meta'] != null) {
+              print('🔍 RAW META FROM SERVER: ${jsonEncode(rawUpdate['meta'])}');
+            }
+          }
+        }
+
         final update = SignalKUpdate.fromJson(data);
 
         // Process each value update
         for (final updateValue in update.updates) {
           final source = updateValue.source; // Source label (e.g., "can0.115", "pypilot")
 
-          // if (kDebugMode) {
-          //   print('🔍 Processing update from source: $source (${updateValue.values.length} values)');
-          // }
+          // Process meta entries (from sendMeta=all) - extract displayUnits
+          for (final metaEntry in updateValue.metaEntries) {
+            if (metaEntry.displayUnits != null) {
+              final existingUnits = _displayUnitsCache[metaEntry.path];
+              final isNew = existingUnits == null;
+              final isChanged = !isNew &&
+                  (existingUnits['targetUnit'] != metaEntry.displayUnits!['targetUnit'] ||
+                   existingUnits['symbol'] != metaEntry.displayUnits!['symbol']);
 
+              _displayUnitsCache[metaEntry.path] = metaEntry.displayUnits!;
+
+              if (kDebugMode) {
+                if (isChanged) {
+                  print('📐 Updated displayUnits for ${metaEntry.path}: ${metaEntry.displayUnits}');
+                } else if (isNew) {
+                  print('📐 Cached displayUnits for ${metaEntry.path}: ${metaEntry.displayUnits}');
+                }
+              }
+            }
+          }
+
+          // Process value updates
           for (final value in updateValue.values) {
             // Check for RTC signaling notifications - route to callback immediately
             if (value.path.startsWith('notifications.crew.rtc.') && _rtcDeltaCallback != null) {
@@ -1391,6 +1335,39 @@ class SignalKService extends ChangeNotifier implements DataService {
     }
   }
 
+  /// Fetch the active unit preferences preset from the server
+  /// GET /signalk/v1/unitpreferences/active
+  /// This returns the fully-resolved preset with conversion formulas per category
+  /// Used for REST API data that doesn't include meta.displayUnits
+  Future<Map<String, dynamic>?> fetchActiveUnitPreferences() async {
+    final protocol = _useSecureConnection ? 'https' : 'http';
+
+    try {
+      final response = await http.get(
+        Uri.parse('$protocol://$_serverUrl/signalk/v1/unitpreferences/active'),
+        headers: _getHeaders(),
+      ).timeout(const Duration(seconds: 10));
+
+      if (kDebugMode) {
+        print('Active unit preferences response: ${response.statusCode}');
+      }
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body) as Map<String, dynamic>;
+        if (kDebugMode) {
+          print('Active unit preferences loaded: ${data.keys.length} categories');
+        }
+        return data;
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error fetching active unit preferences: $e');
+      }
+    }
+
+    return null;
+  }
+
   /// Get cached user unit preferences if available
   Map<String, dynamic>? getCachedUserUnitPreferences() {
     if (_authToken == null || _authToken!.authType != AuthType.user) {
@@ -1438,6 +1415,62 @@ class SignalKService extends ChangeNotifier implements DataService {
   /// Get the category for a specific path
   String getCategory(String path) {
     return _conversionManager.getCategory(path);
+  }
+
+  /// Get conversion using unitpreferences pattern matching (Data Browser approach)
+  /// This is the new approach that works for paths without explicit displayUnits
+  ConversionInfo? getUnitPreferencesConversion(String path, String siUnit) {
+    return _conversionManager.getUnitPreferencesConversion(path, siUnit);
+  }
+
+  /// Find category for a path using default-categories patterns
+  String? findCategoryForPath(String path) {
+    return _conversionManager.findCategoryForPath(path);
+  }
+
+  /// Get the unit definitions map (siUnit → conversions)
+  Map<String, dynamic>? get unitDefinitions => _conversionManager.unitDefinitions;
+
+  /// Get the default categories map (category → path patterns)
+  Map<String, dynamic>? get defaultCategories => _conversionManager.defaultCategories;
+
+  /// Get the preset details map (category → targetUnit/symbol)
+  Map<String, dynamic>? get presetDetails => _conversionManager.presetDetails;
+
+  /// Get the active preset name
+  String? get activePresetName => _conversionManager.activePresetName;
+
+  /// Get user's display unit preferences for a path (from WebSocket meta)
+  /// Returns displayUnits map containing: {units, formula, symbol}
+  Map<String, dynamic>? getDisplayUnits(String path) {
+    return _displayUnitsCache[path];
+  }
+
+  /// Check if we have display unit preferences for a path
+  bool hasDisplayUnits(String path) {
+    return _displayUnitsCache.containsKey(path);
+  }
+
+  /// Get display unit formula for a path (for client-side conversion)
+  String? getDisplayUnitFormula(String path) {
+    final displayUnits = _displayUnitsCache[path];
+    if (displayUnits == null) return null;
+    return displayUnits['formula'] as String?;
+  }
+
+  /// Get display unit symbol for a path
+  String? getDisplayUnitSymbol(String path) {
+    final displayUnits = _displayUnitsCache[path];
+    if (displayUnits == null) return null;
+    return displayUnits['symbol'] as String?;
+  }
+
+  /// Clear display units cache (called on disconnect or user logout)
+  void clearDisplayUnitsCache() {
+    _displayUnitsCache.clear();
+    if (kDebugMode) {
+      print('Display units cache cleared');
+    }
   }
 
   /// Internal helper to convert a value using the formula for this path
@@ -1592,14 +1625,13 @@ class SignalKService extends ChangeNotifier implements DataService {
     if (pathsToSubscribe.isEmpty) return;
 
     // ALWAYS use standard SignalK subscription format
-    // Include sendMeta: 'all' to receive displayUnits with user's unit preferences
+    // sendMeta=all is set on the WebSocket URL to receive displayUnits
     final subscription = {
       'context': 'vessels.self',
       'subscribe': pathsToSubscribe.map((path) => {
         'path': path,
         'format': 'delta',
         'policy': 'instant',
-        'sendMeta': 'all',
       }).toList(),
     };
 
@@ -1710,18 +1742,13 @@ class SignalKService extends ChangeNotifier implements DataService {
       _autopilotPaths.clear();
       _vesselContext = null;
       _ensuredResourceTypes.clear();
+      _displayUnitsCache.clear();
 
       // Disconnect autopilot channel
       await _autopilotSubscription?.cancel();
       _autopilotSubscription = null;
       await _autopilotChannel?.sink.close();
       _autopilotChannel = null;
-
-      // Disconnect conversions channel
-      await _conversionsSubscription?.cancel();
-      _conversionsSubscription = null;
-      await _conversionsChannel?.sink.close();
-      _conversionsChannel = null;
 
       // Also disconnect notification channel if it's connected
       await _notificationManager.disconnectNotificationChannel();
@@ -1939,10 +1966,16 @@ class _DataCacheManager {
 }
 
 /// Internal manager for unit conversion operations
-/// Handles conversions data and conversion-related methods
+/// Uses /signalk/v1/unitpreferences/* endpoints (like Data Browser)
 class _ConversionManager {
-  // Conversion data - unit conversion formulas from server
+  // Legacy conversion data (for backward compatibility)
   final Map<String, PathConversionData> _conversionsData = {};
+
+  // New unitpreferences data (from Data Browser approach)
+  Map<String, dynamic>? _unitDefinitions;      // siUnit → conversions
+  Map<String, dynamic>? _defaultCategories;    // category → path patterns
+  Map<String, dynamic>? _presetDetails;        // category → targetUnit/symbol
+  String? _activePresetName;
 
   // Dependencies injected via function getters
   final String Function() getServerUrl;
@@ -1959,126 +1992,261 @@ class _ConversionManager {
     required this.loadFromCache,
   });
 
-  // Direct access to internal map
+  // Direct access to internal map (legacy)
   Map<String, PathConversionData> get internalDataMap => _conversionsData;
+
+  // New accessors for unitpreferences data
+  Map<String, dynamic>? get unitDefinitions => _unitDefinitions;
+  Map<String, dynamic>? get defaultCategories => _defaultCategories;
+  Map<String, dynamic>? get presetDetails => _presetDetails;
+  String? get activePresetName => _activePresetName;
 
   /// Load conversions from local cache (used at startup before server data)
   void loadFromLocalCache() {
     final cached = loadFromCache();
-    if (cached != null && _conversionsData.isEmpty) {
-      _conversionsData.clear();
-      cached.forEach((path, conversionJson) {
-        if (conversionJson is Map<String, dynamic>) {
-          _conversionsData[path] = PathConversionData.fromJson(conversionJson);
+    if (cached != null) {
+      // Load new unitpreferences format if available
+      if (cached.containsKey('_unitDefinitions')) {
+        _unitDefinitions = cached['_unitDefinitions'] as Map<String, dynamic>?;
+        _defaultCategories = cached['_defaultCategories'] as Map<String, dynamic>?;
+        _presetDetails = cached['_presetDetails'] as Map<String, dynamic>?;
+        _activePresetName = cached['_activePresetName'] as String?;
+        if (kDebugMode) {
+          print('📦 Loaded unitpreferences from local cache (preset: $_activePresetName)');
         }
-      });
-      if (kDebugMode) {
-        print('📦 Loaded ${_conversionsData.length} conversions from local cache');
+      } else if (_conversionsData.isEmpty) {
+        // Legacy format - path-based conversions
+        _conversionsData.clear();
+        cached.forEach((path, conversionJson) {
+          if (conversionJson is Map<String, dynamic> && !path.startsWith('_')) {
+            _conversionsData[path] = PathConversionData.fromJson(conversionJson);
+          }
+        });
+        if (kDebugMode) {
+          print('📦 Loaded ${_conversionsData.length} legacy conversions from local cache');
+        }
       }
     }
   }
 
-  /// Fetch conversions from server REST API
+  /// Fetch unit preferences from server using Data Browser endpoints
+  /// GET /signalk/v1/unitpreferences/definitions
+  /// GET /signalk/v1/unitpreferences/default-categories
+  /// GET /signalk/v1/unitpreferences/config
+  /// GET /signalk/v1/unitpreferences/presets/{name}
   Future<void> fetchConversions() async {
     final protocol = useSecureConnection() ? 'https' : 'http';
     final serverUrl = getServerUrl();
+    final headers = getHeaders();
 
     try {
-      final response = await http.get(
-        Uri.parse('$protocol://$serverUrl/signalk/v1/conversions'),
-        headers: getHeaders(),
-      ).timeout(const Duration(seconds: 10));
+      // Fetch all three endpoints in parallel
+      final results = await Future.wait([
+        http.get(
+          Uri.parse('$protocol://$serverUrl/signalk/v1/unitpreferences/definitions'),
+          headers: headers,
+        ).timeout(const Duration(seconds: 10)),
+        http.get(
+          Uri.parse('$protocol://$serverUrl/signalk/v1/unitpreferences/default-categories'),
+          headers: headers,
+        ).timeout(const Duration(seconds: 10)),
+        http.get(
+          Uri.parse('$protocol://$serverUrl/signalk/v1/unitpreferences/config'),
+          headers: headers,
+        ).timeout(const Duration(seconds: 10)),
+      ]);
 
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body) as Map<String, dynamic>;
+      final definitionsResponse = results[0];
+      final categoriesResponse = results[1];
+      final configResponse = results[2];
 
-        _conversionsData.clear();
-        data.forEach((path, conversionJson) {
-          if (conversionJson is Map<String, dynamic>) {
-            _conversionsData[path] = PathConversionData.fromJson(conversionJson);
-          }
-        });
-
+      // Parse unit definitions
+      if (definitionsResponse.statusCode == 200) {
+        _unitDefinitions = jsonDecode(definitionsResponse.body) as Map<String, dynamic>;
         if (kDebugMode) {
-          print('Fetched ${_conversionsData.length} path conversions from server');
+          print('✅ Loaded ${_unitDefinitions!.length} unit definitions');
         }
-
-        // Save to local cache for next startup
-        await saveToCache(data);
-      }
-    } catch (e) {
-      if (kDebugMode) {
-        print('Error fetching conversions: $e');
-      }
-    }
-  }
-
-  /// Handle conversion WebSocket message
-  void handleConversionMessage(dynamic message) {
-    try {
-      final data = jsonDecode(message) as Map<String, dynamic>;
-      final type = data['type'] as String?;
-      final conversions = data['conversions'] as Map<String, dynamic>?;
-
-      if (conversions == null) {
-        if (kDebugMode) {
-          print('⚠️ Conversions message missing "conversions" field');
-        }
-        return;
-      }
-
-      if (type == 'full' || type == 'update') {
-        _conversionsData.clear();
-        conversions.forEach((path, conversionJson) {
-          if (conversionJson is Map<String, dynamic>) {
-            _conversionsData[path] = PathConversionData.fromJson(conversionJson);
-          }
-        });
-        if (kDebugMode) {
-          print('✅ Loaded ${_conversionsData.length} conversions from stream (type: $type)');
-        }
-        // Save to local cache
-        saveToCache(conversions);
-      } else if (type == 'delta') {
-        conversions.forEach((path, conversionJson) {
-          if (conversionJson is Map<String, dynamic>) {
-            _conversionsData[path] = PathConversionData.fromJson(conversionJson);
-          }
-        });
-        if (kDebugMode) {
-          print('✅ Updated ${conversions.length} conversion(s) from delta');
-        }
-        // Save updated data to cache
-        final allData = <String, dynamic>{};
-        _conversionsData.forEach((path, data) {
-          allData[path] = {
-            'baseUnit': data.baseUnit,
-            'category': data.category,
-            'conversions': data.conversions.map((key, info) => MapEntry(key, {
-              'formula': info.formula,
-              'inverseFormula': info.inverseFormula,
-              'symbol': info.symbol,
-              if (info.dateFormat != null) 'dateFormat': info.dateFormat,
-              if (info.useLocalTime != null) 'useLocalTime': info.useLocalTime,
-            })),
-          };
-        });
-        saveToCache(allData);
       } else {
         if (kDebugMode) {
-          print('⚠️ Unknown conversions message type: $type');
+          print('⚠️ Failed to fetch unit definitions: ${definitionsResponse.statusCode}');
         }
       }
+
+      // Parse default categories (path patterns)
+      if (categoriesResponse.statusCode == 200) {
+        _defaultCategories = jsonDecode(categoriesResponse.body) as Map<String, dynamic>;
+        if (kDebugMode) {
+          print('✅ Loaded ${_defaultCategories!.length} default categories');
+        }
+      } else {
+        if (kDebugMode) {
+          print('⚠️ Failed to fetch default categories: ${categoriesResponse.statusCode}');
+        }
+      }
+
+      // Parse config to get active preset name
+      if (configResponse.statusCode == 200) {
+        final config = jsonDecode(configResponse.body) as Map<String, dynamic>;
+        _activePresetName = config['activePreset'] as String?;
+        if (kDebugMode) {
+          print('✅ Active preset: $_activePresetName');
+        }
+
+        // Fetch the active preset details
+        if (_activePresetName != null && _activePresetName!.isNotEmpty) {
+          try {
+            final presetResponse = await http.get(
+              Uri.parse('$protocol://$serverUrl/signalk/v1/unitpreferences/presets/$_activePresetName'),
+              headers: headers,
+            ).timeout(const Duration(seconds: 10));
+
+            if (presetResponse.statusCode == 200) {
+              final presetData = jsonDecode(presetResponse.body) as Map<String, dynamic>;
+              _presetDetails = presetData['categories'] as Map<String, dynamic>?;
+              if (kDebugMode) {
+                print('✅ Loaded preset "$_activePresetName" with ${_presetDetails?.length ?? 0} categories');
+              }
+            } else {
+              if (kDebugMode) {
+                print('⚠️ Failed to fetch preset $_activePresetName: ${presetResponse.statusCode}');
+              }
+            }
+          } catch (e) {
+            if (kDebugMode) {
+              print('⚠️ Error fetching preset $_activePresetName: $e');
+            }
+          }
+        }
+      } else {
+        if (kDebugMode) {
+          print('⚠️ Failed to fetch config: ${configResponse.statusCode}');
+        }
+      }
+
+      // Save to local cache
+      await saveToCache({
+        '_unitDefinitions': _unitDefinitions,
+        '_defaultCategories': _defaultCategories,
+        '_presetDetails': _presetDetails,
+        '_activePresetName': _activePresetName,
+      });
     } catch (e) {
       if (kDebugMode) {
-        print('❌ Error parsing conversion message: $e');
+        print('⚠️ Error fetching unit preferences: $e');
       }
     }
   }
 
+  /// Find category for a path using defaultCategories patterns
+  /// Matches patterns like "*.temperature*", "navigation.heading*"
+  String? findCategoryForPath(String path) {
+    if (_defaultCategories == null) return null;
+
+    for (final entry in _defaultCategories!.entries) {
+      final category = entry.key;
+      final categoryData = entry.value;
+
+      if (categoryData is! Map<String, dynamic>) continue;
+
+      final paths = categoryData['paths'];
+      if (paths is! List) continue;
+
+      for (final pattern in paths) {
+        if (pattern is! String) continue;
+
+        // Convert wildcard pattern to regex
+        // *.temperature* → .*\.temperature.*
+        // navigation.heading* → navigation\.heading.*
+        final regexPattern = pattern
+            .replaceAll('.', r'\.')
+            .replaceAll('*', '.*');
+
+        try {
+          final regex = RegExp('^$regexPattern\$', caseSensitive: false);
+          if (regex.hasMatch(path)) {
+            return category;
+          }
+        } catch (e) {
+          // Invalid regex, skip this pattern
+          continue;
+        }
+      }
+    }
+
+    return null;
+  }
+
+  /// Get conversion formula for a path using unitpreferences data
+  /// Returns ConversionInfo if found, null otherwise
+  ConversionInfo? getUnitPreferencesConversion(String path, String siUnit) {
+    if (_unitDefinitions == null || _presetDetails == null) return null;
+
+    // Find category for this path
+    final category = findCategoryForPath(path);
+    if (category == null) return null;
+
+    // Get target unit from preset
+    final categoryPrefs = _presetDetails![category];
+    if (categoryPrefs is! Map<String, dynamic>) return null;
+
+    final targetUnit = categoryPrefs['targetUnit'] as String?;
+    if (targetUnit == null) return null;
+
+    // Get conversion formula from unit definitions
+    final siUnitDef = _unitDefinitions![siUnit];
+    if (siUnitDef is! Map<String, dynamic>) return null;
+
+    final conversions = siUnitDef['conversions'];
+    if (conversions is! Map<String, dynamic>) return null;
+
+    final conversion = conversions[targetUnit];
+    if (conversion is! Map<String, dynamic>) return null;
+
+    final formula = conversion['formula'] as String?;
+    final symbol = conversion['symbol'] as String?;
+
+    if (formula == null) return null;
+
+    // Build inverse formula if available
+    final inverseFormula = conversion['inverseFormula'] as String? ?? '';
+
+    return ConversionInfo(
+      formula: formula,
+      inverseFormula: inverseFormula,
+      symbol: symbol ?? targetUnit,
+    );
+  }
+
+  /// Get the target unit for a category from the active preset
+  String? getTargetUnitForCategory(String category) {
+    if (_presetDetails == null) return null;
+
+    final categoryPrefs = _presetDetails![category];
+    if (categoryPrefs is! Map<String, dynamic>) return null;
+
+    return categoryPrefs['targetUnit'] as String?;
+  }
+
+  /// Get symbol for a category from the active preset
+  String? getSymbolForCategory(String category) {
+    if (_presetDetails == null) return null;
+
+    final categoryPrefs = _presetDetails![category];
+    if (categoryPrefs is! Map<String, dynamic>) return null;
+
+    return categoryPrefs['symbol'] as String?;
+  }
+
+  // Legacy methods for backward compatibility
   PathConversionData? getConversionDataForPath(String path) => _conversionsData[path];
   String? getBaseUnit(String path) => _conversionsData[path]?.baseUnit;
-  String getCategory(String path) => _conversionsData[path]?.category ?? 'none';
+  String getCategory(String path) {
+    // Try new approach first
+    final category = findCategoryForPath(path);
+    if (category != null) return category;
+    // Fall back to legacy
+    return _conversionsData[path]?.category ?? 'none';
+  }
 
   List<String> getAvailableUnits(String path) {
     final conversionData = _conversionsData[path];
@@ -2092,6 +2260,10 @@ class _ConversionManager {
 
   void dispose() {
     _conversionsData.clear();
+    _unitDefinitions = null;
+    _defaultCategories = null;
+    _presetDetails = null;
+    _activePresetName = null;
   }
 }
 
