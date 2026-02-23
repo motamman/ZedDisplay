@@ -4,6 +4,8 @@ import '../services/signalk_service.dart';
 import '../services/auth_service.dart';
 import '../services/storage_service.dart';
 import '../services/dashboard_service.dart';
+import '../models/auth_token.dart';
+import '../utils/conversion_utils.dart';
 import 'server_list_screen.dart';
 import 'dashboard_manager_screen.dart';
 
@@ -65,6 +67,13 @@ class _SplashScreenState extends State<SplashScreen> {
               secure: storageService.getLastUseSecure(),
               authToken: savedToken,
             );
+
+            // If user auth, load user unit preferences
+            if (savedToken.authType == AuthType.user) {
+              await signalKService.fetchUserUnitPreferences();
+              ConversionUtils.loadUserPreferences(signalKService);
+              debugPrint('Auto-connect: Loaded user unit preferences');
+            }
 
             // Set up dashboard subscriptions
             if (dashboardService.currentLayout != null) {
@@ -142,9 +151,9 @@ class _SplashScreenState extends State<SplashScreen> {
                 ),
                 const SizedBox(height: 24),
                 const Text(
-                  'ZedDisplay',
+                  'ZedDisplay +SignalK',
                   style: TextStyle(
-                    fontSize: 48,
+                    fontSize: 36,
                     fontWeight: FontWeight.bold,
                     color: Colors.white,
                   ),

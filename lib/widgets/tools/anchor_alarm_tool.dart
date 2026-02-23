@@ -230,7 +230,12 @@ class _AnchorAlarmToolState extends State<AnchorAlarmTool> {
     final maxRadius = state.maxRadius;
 
     if (bearing != null && vesselPos != null && maxRadius != null) {
-      final bearingDegrees = bearing * 180 / math.pi;
+      // Convert bearing from radians to degrees using ConversionUtils
+      final bearingDegrees = ConversionUtils.convertWeatherValue(
+        widget.signalKService,
+        WeatherFieldType.angle,
+        bearing,
+      ) ?? (bearing * 180 / math.pi); // Fallback only if conversion unavailable
       final (lat, lon) = AnchorAlarmService.calculateAnchorPosition(
         vesselLat: vesselPos.latitude,
         vesselLon: vesselPos.longitude,
@@ -270,10 +275,14 @@ class _AnchorAlarmToolState extends State<AnchorAlarmTool> {
     }
 
     // Get magnetic variation to convert compass (magnetic) to true bearing
-    final magVarData = widget.signalKService.getValue('navigation.magneticVariation');
+    final magVarRaw = ConversionUtils.getRawValue(widget.signalKService, 'navigation.magneticVariation');
     double magneticVariation = 0.0;
-    if (magVarData?.value is num) {
-      magneticVariation = (magVarData!.value as num).toDouble() * 180 / math.pi;
+    if (magVarRaw != null) {
+      magneticVariation = ConversionUtils.convertWeatherValue(
+        widget.signalKService,
+        WeatherFieldType.angle,
+        magVarRaw,
+      ) ?? 0.0;
     }
 
     // Convert magnetic compass heading to true bearing
@@ -313,6 +322,18 @@ class _AnchorAlarmToolState extends State<AnchorAlarmTool> {
       meters,
       decimalPlaces: 0,
     );
+  }
+
+  // Format bearing with user's preferred angle units
+  String _formatBearing(double radians) {
+    final converted = ConversionUtils.convertWeatherValue(
+      widget.signalKService,
+      WeatherFieldType.angle,
+      radians,
+    );
+    final degrees = converted ?? (radians * 180 / math.pi);
+    final symbol = ConversionUtils.getWeatherUnitSymbol(WeatherFieldType.angle);
+    return '${((degrees + 360) % 360).toStringAsFixed(0)}$symbol';
   }
 
   @override
@@ -911,8 +932,8 @@ class _AnchorAlarmToolState extends State<AnchorAlarmTool> {
             _buildStatusRow('Distance', _formatDistance(state.currentRadius, 'navigation.anchor.currentRadius')),
             _buildStatusRow('Alarm', _formatDistance(state.maxRadius, 'navigation.anchor.maxRadius')),
             _buildStatusRow('Rode', _formatDistance(state.rodeLength, 'navigation.anchor.rodeLength')),
-            if (state.bearingDegrees != null)
-              _buildStatusRow('Bearing', '${state.bearingDegrees!.toStringAsFixed(0)}°'),
+            if (state.bearingTrue != null)
+              _buildStatusRow('Bearing', _formatBearing(state.bearingTrue!)),
             _buildStatusRow('Track', '${_alarmService.trackHistory.length} pts'),
           ],
         ],

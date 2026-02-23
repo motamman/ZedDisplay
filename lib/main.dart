@@ -20,6 +20,7 @@ import 'services/messaging_service.dart';
 import 'services/file_share_service.dart';
 import 'services/file_server_service.dart';
 import 'services/intercom_service.dart';
+import 'services/scale_service.dart';
 import 'models/auth_token.dart';
 import 'screens/splash_screen.dart';
 import 'screens/setup_management_screen.dart';
@@ -106,9 +107,15 @@ void main() async {
   );
   await setupService.initialize();
 
+  // Connect crew service to setup service (for device name in crew profiles)
+  crewService.setSetupService(setupService);
+
   // Register all built-in tool types
   final toolRegistry = ToolRegistry();
   toolRegistry.registerDefaults();
+
+  // Initialize scale service (for menu items)
+  await ScaleService.instance.initialize();
 
   runApp(ZedDisplayApp(
     storageService: storageService,

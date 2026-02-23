@@ -21,6 +21,7 @@ class ToolConfigScreen extends StatefulWidget {
   final String screenId;
   final int? existingWidth;
   final int? existingHeight;
+  final String? initialToolTypeId; // Pre-select tool type (from ToolSelectorScreen)
 
   const ToolConfigScreen({
     super.key,
@@ -28,6 +29,7 @@ class ToolConfigScreen extends StatefulWidget {
     required this.screenId,
     this.existingWidth,
     this.existingHeight,
+    this.initialToolTypeId,
   });
 
   @override
@@ -42,7 +44,6 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
 
   // Configuration state
   String? _selectedToolTypeId;
-  String? _selectedCategory; // Filter by category
   List<DataSource> _dataSources = [];
 
   // Style configuration
@@ -50,7 +51,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
   double? _maxValue;
   String? _unit;
   String? _primaryColor;
-  double? _fontSize;
+  String? _secondaryColor;
   bool _showLabel = true;
   bool _showValue = true;
   bool _showUnit = true;
@@ -77,6 +78,13 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
     super.initState();
     if (widget.existingTool != null) {
       _loadExistingTool();
+    } else if (widget.initialToolTypeId != null) {
+      // Pre-select tool type from ToolSelectorScreen
+      _selectedToolTypeId = widget.initialToolTypeId;
+      // Load defaults after first frame when context is available
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _initializeForToolType(widget.initialToolTypeId!);
+      });
     }
     // Load existing size if provided
     if (widget.existingWidth != null) {
@@ -87,6 +95,25 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
     }
   }
 
+  /// Initialize configurator and defaults for a tool type (called after context available)
+  void _initializeForToolType(String toolId) {
+    if (!mounted) return;
+    setState(() {
+      // Create tool-specific configurator
+      final signalKService = Provider.of<SignalKService>(context, listen: false);
+      _configurator = ToolConfiguratorFactory.create(toolId);
+      _configurator?.loadDefaults(signalKService);
+
+      // Set default size from configurator if available
+      if (_configurator != null) {
+        _toolWidth = _configurator!.defaultSize.width.toInt();
+        _toolHeight = _configurator!.defaultSize.height.toInt();
+      }
+
+      _loadDefaultsForToolType(toolId);
+    });
+  }
+
   /// Reset all form fields to default values
   void _resetFormFields() {
     // Reset common configuration
@@ -95,7 +122,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
     _maxValue = null;
     _unit = null;
     _primaryColor = null;
-    _fontSize = null;
+    _secondaryColor = null;
     _showLabel = true;
     _showValue = true;
     _showUnit = true;
@@ -203,173 +230,6 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
     }
   }
 
-  /// Filter tool definitions by selected category
-  List<def.ToolDefinition> _getFilteredToolDefinitions(List<def.ToolDefinition> allTools) {
-    List<def.ToolDefinition> filtered;
-
-    if (_selectedCategory == null || _selectedCategory == 'all') {
-      filtered = allTools;
-    } else {
-      filtered = allTools.where((toolDef) {
-        switch (_selectedCategory) {
-          case 'navigation':
-            return toolDef.category == def.ToolCategory.navigation;
-          case 'instruments':
-            return toolDef.category == def.ToolCategory.instruments;
-          case 'charts':
-            return toolDef.category == def.ToolCategory.charts;
-          case 'weather':
-            return toolDef.category == def.ToolCategory.weather;
-          case 'electrical':
-            return toolDef.category == def.ToolCategory.electrical;
-          case 'ais':
-            return toolDef.category == def.ToolCategory.ais;
-          case 'controls':
-            return toolDef.category == def.ToolCategory.controls;
-          case 'communication':
-            return toolDef.category == def.ToolCategory.communication;
-          case 'system':
-            return toolDef.category == def.ToolCategory.system;
-          default:
-            return true;
-        }
-      }).toList();
-    }
-
-    // Sort by category then alphabetically
-    filtered.sort((a, b) {
-      int categoryOrder(def.ToolCategory cat) {
-        switch (cat) {
-          case def.ToolCategory.navigation:
-            return 0;
-          case def.ToolCategory.instruments:
-            return 1;
-          case def.ToolCategory.charts:
-            return 2;
-          case def.ToolCategory.weather:
-            return 3;
-          case def.ToolCategory.electrical:
-            return 4;
-          case def.ToolCategory.ais:
-            return 5;
-          case def.ToolCategory.controls:
-            return 6;
-          case def.ToolCategory.communication:
-            return 7;
-          case def.ToolCategory.system:
-            return 8;
-        }
-      }
-
-      final orderA = categoryOrder(a.category);
-      final orderB = categoryOrder(b.category);
-
-      if (orderA != orderB) {
-        return orderA.compareTo(orderB);
-      }
-      return a.name.compareTo(b.name);
-    });
-
-    return filtered;
-  }
-
-  /// Get color for a category
-  Color _getCategoryColor(def.ToolCategory category) {
-    switch (category) {
-      case def.ToolCategory.navigation:
-        return Colors.blue;
-      case def.ToolCategory.instruments:
-        return Colors.teal;
-      case def.ToolCategory.charts:
-        return Colors.green;
-      case def.ToolCategory.weather:
-        return Colors.orange;
-      case def.ToolCategory.electrical:
-        return Colors.amber.shade700;
-      case def.ToolCategory.ais:
-        return Colors.cyan;
-      case def.ToolCategory.controls:
-        return Colors.purple;
-      case def.ToolCategory.communication:
-        return Colors.pink;
-      case def.ToolCategory.system:
-        return Colors.red.shade700;
-    }
-  }
-
-  /// Build a category filter button
-  Widget _buildCategoryButton(String categoryId, String label, Color color) {
-    final isSelected = _selectedCategory == categoryId;
-
-    return FilledButton(
-      onPressed: () {
-        setState(() {
-          _selectedCategory = categoryId;
-        });
-      },
-      style: FilledButton.styleFrom(
-        backgroundColor: isSelected ? color : color.withValues(alpha: 0.3),
-        foregroundColor: Colors.white,
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(20),
-          side: isSelected
-              ? BorderSide(color: color, width: 2)
-              : BorderSide.none,
-        ),
-      ),
-      child: Text(
-        label,
-        style: TextStyle(
-          fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-        ),
-      ),
-    );
-  }
-
-  /// Build a tool selection button
-  Widget _buildToolButton(String toolId, String toolName, Color categoryColor, bool isSelected) {
-    return OutlinedButton(
-      onPressed: () {
-        setState(() {
-          // If selecting a different tool, reset form and load new defaults
-          if (_selectedToolTypeId != toolId) {
-            _resetFormFields();
-            _selectedToolTypeId = toolId;
-
-            // Create tool-specific configurator
-            final signalKService = Provider.of<SignalKService>(context, listen: false);
-            _configurator = ToolConfiguratorFactory.create(toolId);
-            _configurator?.loadDefaults(signalKService);
-
-            // Set default size from configurator if available
-            if (_configurator != null) {
-              _toolWidth = _configurator!.defaultSize.width.toInt();
-              _toolHeight = _configurator!.defaultSize.height.toInt();
-            }
-
-            _loadDefaultsForToolType(toolId);
-          }
-        });
-      },
-      style: OutlinedButton.styleFrom(
-        foregroundColor: isSelected ? Colors.white : categoryColor,
-        backgroundColor: isSelected ? categoryColor : Colors.transparent,
-        side: BorderSide(color: categoryColor, width: 2),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(8),
-        ),
-      ),
-      child: Text(
-        toolName,
-        style: TextStyle(
-          fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-        ),
-      ),
-    );
-  }
-
   void _loadExistingTool() {
     final tool = widget.existingTool!;
     _selectedToolTypeId = tool.toolTypeId;
@@ -385,7 +245,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
     _maxValue = style.maxValue;
     _unit = style.unit;
     _primaryColor = style.primaryColor;
-    _fontSize = style.fontSize;
+    _secondaryColor = style.secondaryColor;
     _showLabel = style.showLabel ?? true;
     _showValue = style.showValue ?? true;
     _showUnit = style.showUnit ?? true;
@@ -551,11 +411,62 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
     );
   }
 
+  Future<void> _selectSecondaryColor() async {
+    // Parse current color or use default
+    Color currentColor = Colors.grey;
+    if (_secondaryColor != null && _secondaryColor!.isNotEmpty) {
+      try {
+        final hexColor = _secondaryColor!.replaceAll('#', '');
+        currentColor = Color(int.parse('FF$hexColor', radix: 16));
+      } catch (e) {
+        // Invalid color, use default
+      }
+    }
+
+    Color? pickedColor;
+
+    await showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Pick secondary color'),
+        content: SingleChildScrollView(
+          child: ColorPicker(
+            pickerColor: currentColor,
+            onColorChanged: (color) {
+              pickedColor = color;
+            },
+            pickerAreaHeightPercent: 0.8,
+            enableAlpha: false,
+            displayThumbColor: true,
+            labelTypes: const [],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () {
+              if (pickedColor != null) {
+                setState(() {
+                  _secondaryColor = '#${pickedColor!.toARGB32().toRadixString(16).substring(2).toUpperCase()}';
+                });
+              }
+              Navigator.of(context).pop();
+            },
+            child: const Text('Select'),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _saveTool() async {
     if (!_formKey.currentState!.validate()) return;
     // WebView, server_manager, system_monitor, and crew tools don't need data sources
     if (_selectedToolTypeId == null) return;
-    if (_selectedToolTypeId != 'webview' && _selectedToolTypeId != 'server_manager' && _selectedToolTypeId != 'system_monitor' && _selectedToolTypeId != 'crew_messages' && _selectedToolTypeId != 'crew_list' && _selectedToolTypeId != 'intercom' && _selectedToolTypeId != 'file_share' && _selectedToolTypeId != 'weather_alerts' && _selectedToolTypeId != 'clock_alarm' && _selectedToolTypeId != 'weather_api_spinner' && _selectedToolTypeId != 'victron_flow' && _dataSources.isEmpty) return;
+    if (_selectedToolTypeId != 'webview' && _selectedToolTypeId != 'server_manager' && _selectedToolTypeId != 'system_monitor' && _selectedToolTypeId != 'crew_messages' && _selectedToolTypeId != 'crew_list' && _selectedToolTypeId != 'intercom' && _selectedToolTypeId != 'file_share' && _selectedToolTypeId != 'weather_alerts' && _selectedToolTypeId != 'clock_alarm' && _selectedToolTypeId != 'weather_api_spinner' && _selectedToolTypeId != 'victron_flow' && _selectedToolTypeId != 'device_access_manager' && _dataSources.isEmpty) return;
 
     final toolService = Provider.of<ToolService>(context, listen: false);
 
@@ -571,7 +482,6 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
       maxValue: _maxValue,
       unit: _unit,
       primaryColor: _primaryColor,
-      fontSize: _fontSize,
       showLabel: _showLabel,
       showValue: _showValue,
       showUnit: _showUnit,
@@ -621,7 +531,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
           maxValue: configuratorConfig.style.maxValue ?? config.style.maxValue,
           unit: configuratorConfig.style.unit ?? config.style.unit,
           primaryColor: configuratorConfig.style.primaryColor ?? config.style.primaryColor,
-          fontSize: configuratorConfig.style.fontSize ?? config.style.fontSize,
+          secondaryColor: configuratorConfig.style.secondaryColor ?? _secondaryColor,
           // Use screen state directly - StyleConfig defaults (true) would override user's settings
           showLabel: _showLabel,
           showValue: _showValue,
@@ -650,7 +560,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
           maxValue: config.style.maxValue,
           unit: config.style.unit,
           primaryColor: config.style.primaryColor,
-          fontSize: config.style.fontSize,
+          secondaryColor: _secondaryColor,
           showLabel: config.style.showLabel,
           showValue: config.style.showValue,
           showUnit: config.style.showUnit,
@@ -725,7 +635,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
         title: Text(widget.existingTool == null ? 'Add Tool' : 'Edit Tool'),
         actions: [
           TextButton.icon(
-            onPressed: _selectedToolTypeId != null && (_dataSources.isNotEmpty || _selectedToolTypeId == 'webview' || _selectedToolTypeId == 'server_manager' || _selectedToolTypeId == 'system_monitor' || _selectedToolTypeId == 'crew_messages' || _selectedToolTypeId == 'crew_list' || _selectedToolTypeId == 'intercom' || _selectedToolTypeId == 'file_share' || _selectedToolTypeId == 'weather_alerts' || _selectedToolTypeId == 'clock_alarm' || _selectedToolTypeId == 'weather_api_spinner' || _selectedToolTypeId == 'victron_flow')
+            onPressed: _selectedToolTypeId != null && (_dataSources.isNotEmpty || _selectedToolTypeId == 'webview' || _selectedToolTypeId == 'server_manager' || _selectedToolTypeId == 'system_monitor' || _selectedToolTypeId == 'crew_messages' || _selectedToolTypeId == 'crew_list' || _selectedToolTypeId == 'intercom' || _selectedToolTypeId == 'file_share' || _selectedToolTypeId == 'weather_alerts' || _selectedToolTypeId == 'clock_alarm' || _selectedToolTypeId == 'weather_api_spinner' || _selectedToolTypeId == 'victron_flow' || _selectedToolTypeId == 'device_access_manager')
                 ? _saveTool
                 : null,
             icon: const Icon(Icons.check),
@@ -738,61 +648,8 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
-            // Tool Type Selection (only show for new tools)
-            if (widget.existingTool == null)
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Select Tool Type',
-                        style: Theme.of(context).textTheme.titleMedium,
-                      ),
-                      const SizedBox(height: 16),
-                      // Category filter chips with colors
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: [
-                          _buildCategoryButton('all', 'All', Colors.grey),
-                          _buildCategoryButton('navigation', 'Navigation', Colors.blue),
-                          _buildCategoryButton('instruments', 'Instruments', Colors.teal),
-                          _buildCategoryButton('charts', 'Charts', Colors.green),
-                          _buildCategoryButton('weather', 'Weather', Colors.orange),
-                          _buildCategoryButton('electrical', 'Electrical', Colors.amber.shade700),
-                          _buildCategoryButton('ais', 'AIS', Colors.cyan),
-                          _buildCategoryButton('controls', 'Controls', Colors.purple),
-                          _buildCategoryButton('communication', 'Crew', Colors.pink),
-                          _buildCategoryButton('system', 'System', Colors.red.shade700),
-                        ],
-                      ),
-                      const SizedBox(height: 16),
-                      // Tool type chips (filtered by category)
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: _getFilteredToolDefinitions(toolDefinitions).map((toolDef) {
-                          final isSelected = _selectedToolTypeId == toolDef.id;
-                          final categoryColor = _getCategoryColor(toolDef.category);
-                          return _buildToolButton(
-                            toolDef.id,
-                            toolDef.name,
-                            categoryColor,
-                            isSelected,
-                          );
-                        }).toList(),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            if (widget.existingTool == null)
-              const SizedBox(height: 16),
-
-            // Data Source Configuration (hide for webview, server_manager, system_monitor, crew tools, weather_alerts, clock_alarm, weather_api_spinner, victron_flow)
-            if (_selectedToolTypeId != 'webview' && _selectedToolTypeId != 'server_manager' && _selectedToolTypeId != 'system_monitor' && _selectedToolTypeId != 'crew_messages' && _selectedToolTypeId != 'crew_list' && _selectedToolTypeId != 'intercom' && _selectedToolTypeId != 'file_share' && _selectedToolTypeId != 'weather_alerts' && _selectedToolTypeId != 'clock_alarm' && _selectedToolTypeId != 'weather_api_spinner' && _selectedToolTypeId != 'victron_flow')
+            // Data Source Configuration (hide for webview, server_manager, system_monitor, crew tools, weather_alerts, clock_alarm, weather_api_spinner, victron_flow, device_access_manager)
+            if (_selectedToolTypeId != 'webview' && _selectedToolTypeId != 'server_manager' && _selectedToolTypeId != 'system_monitor' && _selectedToolTypeId != 'crew_messages' && _selectedToolTypeId != 'crew_list' && _selectedToolTypeId != 'intercom' && _selectedToolTypeId != 'file_share' && _selectedToolTypeId != 'weather_alerts' && _selectedToolTypeId != 'clock_alarm' && _selectedToolTypeId != 'weather_api_spinner' && _selectedToolTypeId != 'victron_flow' && _selectedToolTypeId != 'device_access_manager')
               Card(
               child: Padding(
                 padding: const EdgeInsets.all(16),
@@ -963,7 +820,8 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                 _selectedToolTypeId != 'webview' &&
                 _selectedToolTypeId != 'gnss_status' &&
                 _selectedToolTypeId != 'attitude_indicator' &&
-                _selectedToolTypeId != 'weatherflow_forecast')
+                _selectedToolTypeId != 'weatherflow_forecast' &&
+                _selectedToolTypeId != 'device_access_manager')
               Card(
                 child: Padding(
                   padding: const EdgeInsets.all(16),
@@ -1036,8 +894,8 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
             // Chart-specific Configuration
             const SizedBox(height: 16),
 
-            // Style Configuration (hide for conversion_test, server_manager, rpi_monitor, system_monitor, crew tools, and weather_alerts)
-            if (_selectedToolTypeId != null && _selectedToolTypeId != 'conversion_test' && _selectedToolTypeId != 'server_manager' && _selectedToolTypeId != 'rpi_monitor' && _selectedToolTypeId != 'system_monitor' && _selectedToolTypeId != 'crew_messages' && _selectedToolTypeId != 'crew_list' && _selectedToolTypeId != 'intercom' && _selectedToolTypeId != 'file_share' && _selectedToolTypeId != 'weather_alerts')
+            // Style Configuration (hide for conversion_test, server_manager, rpi_monitor, system_monitor, crew tools, weather_alerts, and device_access_manager)
+            if (_selectedToolTypeId != null && _selectedToolTypeId != 'conversion_test' && _selectedToolTypeId != 'server_manager' && _selectedToolTypeId != 'rpi_monitor' && _selectedToolTypeId != 'system_monitor' && _selectedToolTypeId != 'crew_messages' && _selectedToolTypeId != 'crew_list' && _selectedToolTypeId != 'intercom' && _selectedToolTypeId != 'file_share' && _selectedToolTypeId != 'weather_alerts' && _selectedToolTypeId != 'device_access_manager')
               Card(
                 child: Padding(
                   padding: const EdgeInsets.all(16),
@@ -1088,7 +946,6 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                               maxValue: _maxValue,
                               unit: _unit,
                               primaryColor: _primaryColor,
-                              fontSize: _fontSize,
                               showLabel: _showLabel,
                               showValue: _showValue,
                               showUnit: _showUnit,
@@ -1197,7 +1054,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
     }
 
     // Unit (not applicable for certain complex tools)
-    const excludeUnitOptions = ['autopilot', 'wind_compass', 'weatherflow_forecast', 'tanks', 'clock_alarm', 'weather_api_spinner', 'anchor_alarm', 'position_display', 'victron_flow'];
+    const excludeUnitOptions = ['autopilot', 'wind_compass', 'weatherflow_forecast', 'tanks', 'clock_alarm', 'weather_api_spinner', 'anchor_alarm', 'position_display', 'victron_flow', 'device_access_manager'];
     if (!excludeUnitOptions.contains(_selectedToolTypeId)) {
       widgets.addAll([
         TextFormField(
@@ -1243,12 +1100,50 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
             side: BorderSide(color: Colors.grey.shade300),
           ),
         ),
-        const SizedBox(height: 16),
+        const SizedBox(height: 8),
       ]);
+
+      // Secondary color picker (only for tools that use it)
+      const secondaryColorTools = ['switch', 'checkbox', 'wind_compass', 'autopilot', 'windsteer'];
+      if (secondaryColorTools.contains(_selectedToolTypeId)) {
+        widgets.addAll([
+          ListTile(
+            leading: Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: _secondaryColor != null && _secondaryColor!.isNotEmpty
+                    ? () {
+                        try {
+                          final hexColor = _secondaryColor!.replaceAll('#', '');
+                          return Color(int.parse('FF$hexColor', radix: 16));
+                        } catch (e) {
+                          return Colors.grey;
+                        }
+                      }()
+                    : Colors.grey,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.grey.shade400, width: 2),
+              ),
+            ),
+            title: const Text('Secondary Color'),
+            subtitle: Text(_secondaryColor ?? 'Default (Grey)'),
+            trailing: const Icon(Icons.edit),
+            onTap: _selectSecondaryColor,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(8),
+              side: BorderSide(color: Colors.grey.shade300),
+            ),
+          ),
+          const SizedBox(height: 16),
+        ]);
+      } else {
+        widgets.add(const SizedBox(height: 8));
+      }
     }
 
     // Show/Hide Options (not applicable for certain tools)
-    const excludeShowHideOptions = ['autopilot', 'wind_compass', 'weatherflow_forecast', 'tanks', 'clock_alarm', 'weather_api_spinner', 'anchor_alarm', 'position_display', 'victron_flow'];
+    const excludeShowHideOptions = ['autopilot', 'wind_compass', 'weatherflow_forecast', 'tanks', 'clock_alarm', 'weather_api_spinner', 'anchor_alarm', 'position_display', 'victron_flow', 'device_access_manager'];
     if (!excludeShowHideOptions.contains(_selectedToolTypeId)) {
       widgets.addAll([
         SwitchListTile(
@@ -1281,7 +1176,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
     }
 
     // TTL (not applicable for certain tools that have their own state management)
-    const excludeTTLOptions = ['clock_alarm', 'anchor_alarm', 'server_manager', 'crew_messages', 'crew_list', 'intercom', 'file_share', 'position_display', 'victron_flow'];
+    const excludeTTLOptions = ['clock_alarm', 'anchor_alarm', 'server_manager', 'crew_messages', 'crew_list', 'intercom', 'file_share', 'position_display', 'victron_flow', 'device_access_manager'];
     if (!excludeTTLOptions.contains(_selectedToolTypeId)) {
       widgets.addAll([
         DropdownButtonFormField<int?>(

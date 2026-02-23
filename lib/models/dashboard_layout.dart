@@ -97,4 +97,31 @@ class DashboardLayout {
 
     return toolIds.toList();
   }
+
+  /// Reorder screens by moving from oldIndex to newIndex
+  /// Adjusts activeScreenIndex to follow the currently active screen
+  DashboardLayout reorderScreens(int oldIndex, int newIndex) {
+    if (oldIndex < 0 || oldIndex >= screens.length ||
+        newIndex < 0 || newIndex >= screens.length ||
+        oldIndex == newIndex) {
+      return this;
+    }
+
+    // Track active screen by ID so it follows the move
+    final activeScreenId = activeScreen?.id;
+
+    // Create mutable copy and reorder
+    final newScreens = List<DashboardScreen>.from(screens);
+    final movedScreen = newScreens.removeAt(oldIndex);
+    newScreens.insert(newIndex, movedScreen);
+
+    // Find new index of active screen
+    int newActiveIndex = activeScreenIndex;
+    if (activeScreenId != null) {
+      newActiveIndex = newScreens.indexWhere((s) => s.id == activeScreenId);
+      if (newActiveIndex < 0) newActiveIndex = 0;
+    }
+
+    return copyWith(screens: newScreens, activeScreenIndex: newActiveIndex);
+  }
 }

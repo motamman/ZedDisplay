@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../../models/tool_definition.dart';
@@ -8,6 +9,7 @@ import '../../services/signalk_service.dart';
 import '../../services/autopilot_state_verifier.dart';
 import '../../services/tool_registry.dart';
 import '../../utils/color_extensions.dart';
+import '../../utils/conversion_utils.dart';
 import '../../config/ui_constants.dart';
 
 /// Simple Autopilot control tool - text-based display with controls
@@ -116,7 +118,14 @@ class _AutopilotSimpleToolState extends State<AutopilotSimpleTool> with Automati
   }
 
   double _radiansToDegrees(num radians) {
-    return (radians * 180 / 3.14159265359) % 360;
+    final raw = radians.toDouble();
+    // Use ConversionUtils for angle conversion with user preferences
+    final converted = ConversionUtils.convertWeatherValue(
+      widget.signalKService,
+      WeatherFieldType.angle,
+      raw,
+    );
+    return (converted ?? raw * 180 / math.pi) % 360;
   }
 
   Future<void> _sendV1Command(String path, dynamic value) async {

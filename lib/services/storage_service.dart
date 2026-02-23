@@ -15,6 +15,7 @@ class StorageService extends ChangeNotifier {
   static const String _connectionsBoxName = 'connections';
   static const String _setupsBoxName = 'saved_setups';
   static const String _conversionsBoxName = 'conversions_cache';
+  static const String _startupScreenIdKey = 'startup_screen_id';
 
   late Box<String> _dashboardsBox;
   late Box<String> _templatesBox;
@@ -251,6 +252,29 @@ class StorageService extends ChangeNotifier {
   Future<void> deleteSetting(String key) async {
     if (!_initialized) throw Exception('StorageService not initialized');
     await _settingsBox.delete(key);
+  }
+
+  /// Get all settings as a map (for bulk operations like clearing crew data)
+  Map<String, String> getAllSettings() {
+    if (!_initialized) return {};
+    return Map.fromEntries(
+      _settingsBox.keys.map((key) => MapEntry(key as String, _settingsBox.get(key)!)),
+    );
+  }
+
+  // ============ Startup Screen ============
+
+  /// Get startup screen ID (null = use last viewed)
+  String? get startupScreenId => _settingsBox.get(_startupScreenIdKey);
+
+  /// Set startup screen ID (null to clear and use last viewed)
+  Future<void> setStartupScreenId(String? screenId) async {
+    if (screenId == null) {
+      await _settingsBox.delete(_startupScreenIdKey);
+    } else {
+      await _settingsBox.put(_startupScreenIdKey, screenId);
+    }
+    notifyListeners();
   }
 
   // ===== Theme Settings =====
@@ -576,10 +600,12 @@ class StorageService extends ChangeNotifier {
     if (!_initialized) throw Exception('StorageService not initialized');
 
     try {
-      // Create token with connectionId
+      // Create token with connectionId (preserve all fields including auth type)
       final tokenWithConnection = AuthToken(
         token: token.token,
         clientId: token.clientId,
+        username: token.username,
+        authType: token.authType,
         expiresAt: token.expiresAt,
         issuedAt: token.issuedAt,
         serverUrl: token.serverUrl,
@@ -802,6 +828,79 @@ class StorageService extends ChangeNotifier {
 
     if (kDebugMode) {
       print('All conversions caches cleared');
+    }
+  }
+
+  // ===== User Unit Preferences Management =====
+
+  /// Save user's unit preferences preset (cached locally for offline use)
+  /// This stores the actual preset data, not just the name
+  Future<void> saveUserUnitPreferences({
+    required String connectionId,
+    required String presetName,
+    required Map<String, dynamic> presetData,
+  }) async {
+    if (!_initialized) throw Exception('StorageService not initialized');
+
+    try {
+      final cacheEntry = {
+        'presetName': presetName,
+        'timestamp': DateTime.now().toIso8601String(),
+        'preset': presetData,
+      };
+      final json = jsonEncode(cacheEntry);
+      await _settingsBox.put('user_unit_preferences_$connectionId', json);
+
+      if (kDebugMode) {
+        print('User unit preferences saved for connection $connectionId (preset: $presetName)');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error saving user unit preferences: $e');
+      }
+    }
+  }
+
+  /// Load cached user unit preferences for a connection
+  /// Returns null if no cache exists
+  Map<String, dynamic>? loadUserUnitPreferences(String connectionId) {
+    if (!_initialized) return null;
+
+    try {
+      final json = _settingsBox.get('user_unit_preferences_$connectionId');
+      if (json == null) return null;
+
+      final cacheEntry = jsonDecode(json) as Map<String, dynamic>;
+      return cacheEntry;
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error loading user unit preferences: $e');
+      }
+      return null;
+    }
+  }
+
+  /// Get just the preset data from cached user unit preferences
+  Map<String, dynamic>? getUserUnitPreset(String connectionId) {
+    final cached = loadUserUnitPreferences(connectionId);
+    if (cached == null) return null;
+    return cached['preset'] as Map<String, dynamic>?;
+  }
+
+  /// Get the preset name from cached user unit preferences
+  String? getUserUnitPresetName(String connectionId) {
+    final cached = loadUserUnitPreferences(connectionId);
+    if (cached == null) return null;
+    return cached['presetName'] as String?;
+  }
+
+  /// Clear user unit preferences for a connection
+  Future<void> clearUserUnitPreferences(String connectionId) async {
+    if (!_initialized) throw Exception('StorageService not initialized');
+    await _settingsBox.delete('user_unit_preferences_$connectionId');
+
+    if (kDebugMode) {
+      print('User unit preferences cleared for connection $connectionId');
     }
   }
 }

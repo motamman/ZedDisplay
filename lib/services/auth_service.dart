@@ -1,8 +1,10 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:uuid/uuid.dart';
+import 'package:device_info_plus/device_info_plus.dart';
 import '../models/auth_token.dart';
 import '../models/access_request.dart';
 import 'storage_service.dart';
@@ -21,6 +23,46 @@ class AuthService extends ChangeNotifier {
   /// Generate a unique client ID for this device
   String generateClientId() {
     return const Uuid().v4();
+  }
+
+  /// Generate a device description for access requests
+  /// Uses setupName if provided, otherwise falls back to device model
+  static Future<String> generateDeviceDescription({String? setupName}) async {
+    String identifier = '';
+
+    if (setupName != null && setupName.isNotEmpty) {
+      identifier = setupName;
+    } else {
+      // Get device model as fallback
+      try {
+        final deviceInfo = DeviceInfoPlugin();
+        if (Platform.isAndroid) {
+          final androidInfo = await deviceInfo.androidInfo;
+          identifier = '${androidInfo.manufacturer} ${androidInfo.model}';
+        } else if (Platform.isIOS) {
+          final iosInfo = await deviceInfo.iosInfo;
+          identifier = iosInfo.model;
+        } else if (Platform.isMacOS) {
+          final macInfo = await deviceInfo.macOsInfo;
+          identifier = macInfo.model;
+        } else if (Platform.isWindows) {
+          final windowsInfo = await deviceInfo.windowsInfo;
+          identifier = windowsInfo.computerName;
+        } else if (Platform.isLinux) {
+          final linuxInfo = await deviceInfo.linuxInfo;
+          identifier = linuxInfo.prettyName;
+        }
+      } catch (e) {
+        if (kDebugMode) {
+          print('Error getting device info: $e');
+        }
+      }
+    }
+
+    if (identifier.isNotEmpty) {
+      return 'ZedDisplay - $identifier';
+    }
+    return 'ZedDisplay Marine Dashboard';
   }
 
   /// Submit an access request to SignalK server
@@ -333,6 +375,138 @@ class AuthService extends ChangeNotifier {
     _currentRequest = null;
     stopPolling();
     notifyListeners();
+  }
+
+  /// Login with username and password (user authentication)
+  /// POST /signalk/v1/auth/login
+  /// Body: { "username": "...", "password": "..." }
+  /// Response: { "token": "jwt..." }
+  Future<AuthToken?> loginUser({
+    required String serverUrl,
+    required String username,
+    required String password,
+    bool secure = false,
+    String? connectionId,
+  }) async {
+    final protocol = secure ? 'https' : 'http';
+
+    try {
+      final response = await http.post(
+        Uri.parse('$protocol://$serverUrl/signalk/v1/auth/login'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'username': username,
+          'password': password,
+        }),
+      ).timeout(const Duration(seconds: 10));
+
+      if (kDebugMode) {
+        print('User login response: ${response.statusCode}');
+      }
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body) as Map<String, dynamic>;
+        final token = data['token'] as String?;
+
+        if (token == null) {
+          throw Exception('No token in response');
+        }
+
+        // Parse JWT to extract expiration
+        DateTime? expiresAt;
+        try {
+          final parts = token.split('.');
+          if (parts.length == 3) {
+            final payload = parts[1];
+            // Add padding if needed
+            final normalized = base64.normalize(payload);
+            final decoded = utf8.decode(base64.decode(normalized));
+            final payloadData = jsonDecode(decoded) as Map<String, dynamic>;
+
+            if (payloadData.containsKey('exp')) {
+              final exp = payloadData['exp'] as int;
+              expiresAt = DateTime.fromMillisecondsSinceEpoch(exp * 1000);
+            }
+          }
+        } catch (e) {
+          if (kDebugMode) {
+            print('Error parsing JWT expiration: $e');
+          }
+        }
+
+        final authToken = AuthToken(
+          token: token,
+          username: username,
+          authType: AuthType.user,
+          expiresAt: expiresAt,
+          serverUrl: serverUrl,
+          connectionId: connectionId,
+        );
+
+        // Save token if connectionId is provided
+        if (connectionId != null) {
+          await _storage.saveAuthToken(authToken, connectionId: connectionId);
+          if (kDebugMode) {
+            print('User token saved for connection $connectionId');
+          }
+        }
+
+        return authToken;
+      } else if (response.statusCode == 401) {
+        throw Exception('Invalid username or password');
+      } else {
+        throw Exception('Login failed: ${response.statusCode}');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('User login error: $e');
+      }
+      rethrow;
+    }
+  }
+
+  /// Logout user and optionally clear token
+  /// PUT /signalk/v1/auth/logout
+  Future<void> logoutUser({
+    required String serverUrl,
+    required AuthToken token,
+    bool secure = false,
+    bool clearToken = true,
+  }) async {
+    final protocol = secure ? 'https' : 'http';
+
+    try {
+      await http.put(
+        Uri.parse('$protocol://$serverUrl/signalk/v1/auth/logout'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ${token.token}',
+        },
+      ).timeout(const Duration(seconds: 10));
+
+      if (kDebugMode) {
+        print('User logged out from server');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('Logout request error (may be expected if token expired): $e');
+      }
+    }
+
+    // Clear the user token from storage if requested
+    if (clearToken && token.connectionId != null) {
+      await _storage.deleteAuthToken(token.connectionId!);
+      if (kDebugMode) {
+        print('User token cleared for connection ${token.connectionId}');
+      }
+    }
+
+    notifyListeners();
+  }
+
+  /// Check if a token is a user token
+  bool isUserToken(AuthToken? token) {
+    return token?.authType == AuthType.user;
   }
 
   @override

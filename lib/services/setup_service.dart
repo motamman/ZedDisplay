@@ -76,6 +76,20 @@ class SetupService extends ChangeNotifier {
 
   String? get activeSetupId => _activeSetupId;
 
+  /// Get the name of the active setup (async)
+  Future<String?> getActiveSetupName() async {
+    if (_activeSetupId == null) return null;
+    try {
+      final setup = await _storageService.loadSetup(_activeSetupId!);
+      return setup?.metadata.name;
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error getting active setup name: $e');
+      }
+      return null;
+    }
+  }
+
   /// Clear the active setup (when creating a new blank dashboard)
   void clearActiveSetup() {
     _activeSetupId = null;

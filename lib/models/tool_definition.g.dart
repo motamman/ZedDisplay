@@ -38,6 +38,8 @@ ToolDefinition _$ToolDefinitionFromJson(Map<String, dynamic> json) =>
       configSchema: ConfigSchema.fromJson(
         json['configSchema'] as Map<String, dynamic>,
       ),
+      defaultWidth: (json['defaultWidth'] as num?)?.toInt() ?? 2,
+      defaultHeight: (json['defaultHeight'] as num?)?.toInt() ?? 2,
     );
 
 Map<String, dynamic> _$ToolDefinitionToJson(ToolDefinition instance) =>
@@ -47,6 +49,8 @@ Map<String, dynamic> _$ToolDefinitionToJson(ToolDefinition instance) =>
       'description': instance.description,
       'category': _$ToolCategoryEnumMap[instance.category]!,
       'configSchema': instance.configSchema,
+      'defaultWidth': instance.defaultWidth,
+      'defaultHeight': instance.defaultHeight,
     };
 
 const _$ToolCategoryEnumMap = {

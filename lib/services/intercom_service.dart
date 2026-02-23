@@ -92,7 +92,10 @@ class IntercomService extends ChangeNotifier {
     // Check microphone permission
     await _checkMicPermission();
 
-    // Listen to SignalK connection changes
+    // Register connection callback for sequential execution (prevents HTTP overload)
+    _signalKService.registerConnectionCallback(_onConnected);
+
+    // Listen to SignalK connection changes for disconnection handling
     _signalKService.addListener(_onSignalKChanged);
 
     // Register for real-time RTC signaling via WebSocket
@@ -100,7 +103,7 @@ class IntercomService extends ChangeNotifier {
 
     // If already connected, start
     if (_signalKService.isConnected) {
-      _onConnected();
+      await _onConnected();
     }
 
     _initialized = true;
@@ -113,6 +116,7 @@ class IntercomService extends ChangeNotifier {
   @override
   void dispose() {
     _pollTimer?.cancel();
+    _signalKService.unregisterConnectionCallback(_onConnected);
     _signalKService.removeListener(_onSignalKChanged);
     _signalKService.unregisterRtcDeltaCallback();
     _cleanup();
@@ -258,26 +262,26 @@ class IntercomService extends ChangeNotifier {
     await _storageService.saveSetting(_channelsStorageKey, jsonEncode(channelList));
   }
 
-  /// Handle SignalK connection changes
+  /// Handle SignalK connection changes (only for disconnection)
+  /// Connection is handled via registerConnectionCallback for sequential execution
   void _onSignalKChanged() {
     final isConnected = _signalKService.isConnected;
     if (isConnected == _wasConnected) return;
     _wasConnected = isConnected;
 
-    if (isConnected) {
-      _onConnected();
-    } else {
+    // Only handle disconnection here - connection is handled via callback
+    if (!isConnected) {
       _onDisconnected();
     }
   }
 
-  void _onConnected() {
+  Future<void> _onConnected() async {
     if (kDebugMode) {
       print('IntercomService: Connected');
     }
-    _ensureResourceType();
+    await _ensureResourceType();
     _startPolling();
-    _syncChannels();
+    await _syncChannels();
   }
 
   /// Ensure the custom resource type exists on the server

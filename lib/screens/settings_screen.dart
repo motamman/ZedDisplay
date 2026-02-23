@@ -8,10 +8,14 @@ import '../services/auth_service.dart';
 import '../services/dashboard_service.dart';
 import '../services/foreground_service.dart';
 import '../services/notification_service.dart';
+import '../services/setup_service.dart';
 import '../models/server_connection.dart';
+import '../models/auth_token.dart';
+import '../utils/conversion_utils.dart';
 import 'connection_screen.dart';
 import 'dashboard_manager_screen.dart';
 import 'device_registration_screen.dart';
+import 'user_login_screen.dart';
 import 'setup_management_screen.dart';
 import 'crew/crew_screen.dart';
 
@@ -485,7 +489,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       Icon(Icons.info_outline, color: Colors.blue),
                       SizedBox(width: 8),
                       Text(
-                        'About ZedDisplay',
+                        'About ZedDisplay +SignalK',
                         style: TextStyle(
                           fontSize: 18,
                           fontWeight: FontWeight.bold,
@@ -566,6 +570,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
       );
     }
 
+    final authToken = signalKService.authToken;
+    final isUserAuth = authToken?.authType == AuthType.user;
+
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 16),
       child: Padding(
@@ -593,7 +600,40 @@ class _SettingsScreenState extends State<SettingsScreen> {
               'Protocol',
               signalKService.useSecureConnection ? 'HTTPS/WSS' : 'HTTP/WS',
             ),
+            _buildInfoRow(
+              'Auth Type',
+              isUserAuth
+                  ? 'User (${authToken?.username ?? "unknown"})'
+                  : 'Device',
+            ),
+            if (isUserAuth && ConversionUtils.hasUserPreferences)
+              _buildInfoRow(
+                'Unit Preset',
+                signalKService.getCachedUserPresetName() ?? 'Default',
+              ),
             const SizedBox(height: 16),
+
+            // Auth action button
+            if (!isUserAuth)
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: () => _switchToUserAuth(signalKService),
+                  icon: const Icon(Icons.person),
+                  label: const Text('Switch to User Login'),
+                ),
+              ),
+            if (isUserAuth)
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: () => _logoutUser(signalKService, storageService),
+                  icon: const Icon(Icons.person_off),
+                  label: const Text('Logout User'),
+                ),
+              ),
+            const SizedBox(height: 8),
+
             SizedBox(
               width: double.infinity,
               child: ElevatedButton.icon(
@@ -610,6 +650,78 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ),
       ),
     );
+  }
+
+  Future<void> _switchToUserAuth(SignalKService signalKService) async {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => UserLoginScreen(
+          serverUrl: signalKService.serverUrl,
+          secure: signalKService.useSecureConnection,
+          connectionId: signalKService.authToken?.connectionId,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _logoutUser(SignalKService signalKService, StorageService storageService) async {
+    final authService = Provider.of<AuthService>(context, listen: false);
+    final token = signalKService.authToken;
+
+    if (token == null || token.authType != AuthType.user) return;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Logout User'),
+        content: Text(
+          'Are you sure you want to logout "${token.username}"?\n\n'
+          'You will need to re-authenticate to access user-specific unit preferences.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Logout'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true && mounted) {
+      // Logout from server and clear token
+      await authService.logoutUser(
+        serverUrl: signalKService.serverUrl,
+        token: token,
+        secure: signalKService.useSecureConnection,
+      );
+
+      // Clear user preferences from ConversionUtils
+      ConversionUtils.clearUserPreferences();
+
+      // Clear cached user preferences from storage
+      if (token.connectionId != null) {
+        await storageService.clearUserUnitPreferences(token.connectionId!);
+      }
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('User logged out. Reconnect with device or user auth.'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+
+        // Navigate to connection screen to reconnect
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(builder: (context) => const ConnectionScreen()),
+          (route) => false,
+        );
+      }
+    }
   }
 
   Widget _buildInfoRow(String label, String value) {
@@ -814,6 +926,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
           connection.useSecure,
         );
 
+        // If user auth, load user preferences
+        if (savedToken.authType == AuthType.user) {
+          await signalKService.fetchUserUnitPreferences();
+          ConversionUtils.loadUserPreferences(signalKService);
+        }
+
         // Trigger dashboard subscription update to ensure subscriptions are set up
         if (dashboardService.currentLayout != null) {
           await dashboardService.updateLayout(dashboardService.currentLayout!);
@@ -843,19 +961,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
           });
         }
       } else {
-        // No saved token, start device registration
+        // No saved token, offer choice of auth methods
         if (mounted) {
-          Navigator.of(context).push(
-            MaterialPageRoute(
-              builder: (context) => DeviceRegistrationScreen(
-                serverUrl: connection.serverUrl,
-                secure: connection.useSecure,
-                clientId: authService.generateClientId(),
-                description: 'ZedDisplay Marine Dashboard',
-                connectionId: connection.id,
-              ),
-            ),
-          );
+          await _showAuthMethodDialog(connection, authService);
         }
       }
     } catch (e) {
@@ -864,6 +972,71 @@ class _SettingsScreenState extends State<SettingsScreen> {
           SnackBar(
             content: Text('Connection failed: $e'),
             backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _showAuthMethodDialog(ServerConnection connection, AuthService authService) async {
+    final result = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Choose Authentication'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('How would you like to authenticate?'),
+            const SizedBox(height: 16),
+            ListTile(
+              leading: const Icon(Icons.person, color: Colors.blue),
+              title: const Text('User Login'),
+              subtitle: const Text('Personal unit preferences'),
+              onTap: () => Navigator.pop(context, 'user'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.devices, color: Colors.green),
+              title: const Text('Device Auth'),
+              subtitle: const Text('Server-wide settings'),
+              onTap: () => Navigator.pop(context, 'device'),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+        ],
+      ),
+    );
+
+    if (result == 'user' && mounted) {
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (context) => UserLoginScreen(
+            serverUrl: connection.serverUrl,
+            secure: connection.useSecure,
+            connectionId: connection.id,
+          ),
+        ),
+      );
+    } else if (result == 'device' && mounted) {
+      final setupService = Provider.of<SetupService>(context, listen: false);
+      final setupName = await setupService.getActiveSetupName();
+      final description = await AuthService.generateDeviceDescription(setupName: setupName);
+
+      if (mounted) {
+        Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (context) => DeviceRegistrationScreen(
+              serverUrl: connection.serverUrl,
+              secure: connection.useSecure,
+              clientId: authService.generateClientId(),
+              description: description,
+              connectionId: connection.id,
+            ),
           ),
         );
       }

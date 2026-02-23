@@ -41,11 +41,13 @@ class CrewList extends StatelessWidget {
           children: [
             if (onlineCrew.isNotEmpty) ...[
               _SectionHeader(
+                key: const ValueKey('online_header'),
                 title: 'Online',
                 count: onlineCrew.length,
                 color: Colors.green,
               ),
               ...onlineCrew.map((member) => _CrewMemberTile(
+                    key: ValueKey('online_${member.id}'),
                     member: member,
                     isOnline: true,
                     isLocalUser: member.id == crewService.localProfile?.id,
@@ -53,11 +55,13 @@ class CrewList extends StatelessWidget {
             ],
             if (offlineCrew.isNotEmpty) ...[
               _SectionHeader(
+                key: const ValueKey('offline_header'),
                 title: 'Offline',
                 count: offlineCrew.length,
                 color: Colors.grey,
               ),
               ...offlineCrew.map((member) => _CrewMemberTile(
+                    key: ValueKey('offline_${member.id}'),
                     member: member,
                     isOnline: false,
                     isLocalUser: member.id == crewService.localProfile?.id,
@@ -77,6 +81,7 @@ class _SectionHeader extends StatelessWidget {
   final Color color;
 
   const _SectionHeader({
+    super.key,
     required this.title,
     required this.count,
     required this.color,
@@ -123,10 +128,27 @@ class _CrewMemberTile extends StatelessWidget {
   final bool isLocalUser;
 
   const _CrewMemberTile({
+    super.key,
     required this.member,
     required this.isOnline,
     required this.isLocalUser,
   });
+
+  /// Extract a display-friendly identity from the member ID
+  /// Returns "user:xxx" or "device:xxx" or abbreviated UUID for old profiles
+  String _getIdentityDisplay() {
+    final id = member.id;
+    if (id.startsWith('user:')) {
+      return id; // Already user:username format
+    } else if (id.startsWith('device:')) {
+      // Shorten device ID to first 8 chars
+      final deviceId = id.substring(7);
+      return 'device:${deviceId.length > 8 ? deviceId.substring(0, 8) : deviceId}…';
+    } else {
+      // Old UUID format - show abbreviated
+      return 'id:${id.length > 8 ? id.substring(0, 8) : id}…';
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -166,6 +188,15 @@ class _CrewMemberTile extends StatelessWidget {
       title: Row(
         children: [
           Text(member.name),
+          const SizedBox(width: 6),
+          Text(
+            '(${_getIdentityDisplay()})',
+            style: TextStyle(
+              fontSize: 11,
+              color: Colors.grey.shade500,
+              fontWeight: FontWeight.normal,
+            ),
+          ),
           if (isLocalUser) ...[
             const SizedBox(width: 8),
             Container(

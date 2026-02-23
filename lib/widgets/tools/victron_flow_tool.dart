@@ -4,6 +4,7 @@ import '../../models/tool_config.dart';
 import '../../models/tool_definition.dart';
 import '../../services/signalk_service.dart';
 import '../../services/tool_registry.dart';
+import '../../utils/conversion_utils.dart';
 
 /// Configuration for a power source (e.g., Shore, Solar, Alternator, Generator)
 class PowerSourceConfig {
@@ -762,7 +763,15 @@ class _VictronFlowToolState extends State<VictronFlowTool> with SingleTickerProv
                         if (timeText.isNotEmpty)
                           Text(timeText, style: const TextStyle(color: Colors.white70, fontSize: 13)),
                         if (temp != null)
-                          Text('${(temp - 273.15).toStringAsFixed(0)}°C', style: const TextStyle(color: Colors.white70, fontSize: 13)),
+                          Text(
+                            ConversionUtils.formatValue(
+                              widget.signalKService,
+                              _batteryConfig.temperaturePath ?? 'electrical.batteries.house.temperature',
+                              temp,
+                              decimalPlaces: 0,
+                            ),
+                            style: const TextStyle(color: Colors.white70, fontSize: 13),
+                          ),
                       ],
                     ),
                   ),
@@ -805,7 +814,15 @@ class _VictronFlowToolState extends State<VictronFlowTool> with SingleTickerProv
                     ),
                     if (temp != null) ...[
                       const SizedBox(width: 16),
-                      Text('${(temp - 273.15).toStringAsFixed(0)}°C', style: const TextStyle(color: Colors.white70, fontSize: 14)),
+                      Text(
+                        ConversionUtils.formatValue(
+                          widget.signalKService,
+                          _batteryConfig.temperaturePath ?? 'electrical.batteries.house.temperature',
+                          temp,
+                          decimalPlaces: 0,
+                        ),
+                        style: const TextStyle(color: Colors.white70, fontSize: 14),
+                      ),
                     ],
                   ],
                 ),

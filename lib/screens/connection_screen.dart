@@ -5,9 +5,13 @@ import '../services/signalk_service.dart';
 import '../services/auth_service.dart';
 import '../services/dashboard_service.dart';
 import '../services/storage_service.dart';
+import '../services/setup_service.dart';
 import '../models/server_connection.dart';
+import '../models/auth_token.dart';
+import '../utils/conversion_utils.dart';
 import 'dashboard_manager_screen.dart';
 import 'device_registration_screen.dart';
+import 'user_login_screen.dart';
 import 'settings_screen.dart';
 
 class ConnectionScreen extends StatefulWidget {
@@ -132,6 +136,12 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
           _useSecure,
         );
 
+        // If user auth, load user preferences
+        if (savedToken.authType == AuthType.user) {
+          await signalKService.fetchUserUnitPreferences();
+          ConversionUtils.loadUserPreferences(signalKService);
+        }
+
         // Trigger dashboard subscription update (happens automatically in DashboardService)
         // Force an update to ensure subscriptions are set up
         await dashboardService.updateLayout(dashboardService.currentLayout!);
@@ -144,19 +154,9 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
           );
         }
       } else {
-        // No saved token, start device registration
+        // No saved token, offer choice of auth methods
         if (mounted) {
-          Navigator.of(context).push(
-            MaterialPageRoute(
-              builder: (context) => DeviceRegistrationScreen(
-                serverUrl: _serverController.text,
-                secure: _useSecure,
-                clientId: _clientId,
-                description: 'ZedDisplay Marine Dashboard',
-                connectionId: connection.id,
-              ),
-            ),
-          );
+          await _showAuthMethodDialog(connection, authService);
         }
       }
     } catch (e) {
@@ -173,6 +173,71 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
         setState(() {
           _isConnecting = false;
         });
+      }
+    }
+  }
+
+  Future<void> _showAuthMethodDialog(ServerConnection connection, AuthService authService) async {
+    final result = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Choose Authentication'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('How would you like to authenticate?'),
+            const SizedBox(height: 16),
+            ListTile(
+              leading: const Icon(Icons.person, color: Colors.blue),
+              title: const Text('User Login'),
+              subtitle: const Text('Personal unit preferences'),
+              onTap: () => Navigator.pop(context, 'user'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.devices, color: Colors.green),
+              title: const Text('Device Auth'),
+              subtitle: const Text('Server-wide settings'),
+              onTap: () => Navigator.pop(context, 'device'),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+        ],
+      ),
+    );
+
+    if (result == 'user' && mounted) {
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (context) => UserLoginScreen(
+            serverUrl: connection.serverUrl,
+            secure: connection.useSecure,
+            connectionId: connection.id,
+          ),
+        ),
+      );
+    } else if (result == 'device' && mounted) {
+      final setupService = Provider.of<SetupService>(context, listen: false);
+      final setupName = await setupService.getActiveSetupName();
+      final description = await AuthService.generateDeviceDescription(setupName: setupName);
+
+      if (mounted) {
+        Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (context) => DeviceRegistrationScreen(
+              serverUrl: connection.serverUrl,
+              secure: connection.useSecure,
+              clientId: authService.generateClientId(),
+              description: description,
+              connectionId: connection.id,
+            ),
+          ),
+        );
       }
     }
   }
@@ -202,9 +267,9 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
               ),
               const SizedBox(height: 24),
               const Text(
-                'The ZedDisplay',
+                'ZedDisplay +SignalK',
                 style: TextStyle(
-                  fontSize: 32,
+                  fontSize: 28,
                   fontWeight: FontWeight.bold,
                 ),
                 textAlign: TextAlign.center,

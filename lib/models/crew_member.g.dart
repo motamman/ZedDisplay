@@ -14,6 +14,7 @@ CrewMember _$CrewMemberFromJson(Map<String, dynamic> json) => CrewMember(
       $enumDecodeNullable(_$CrewStatusEnumMap, json['status']) ??
       CrewStatus.offWatch,
   deviceId: json['deviceId'] as String,
+  deviceName: json['deviceName'] as String?,
   avatar: json['avatar'] as String?,
   createdAt: json['createdAt'] == null
       ? null
@@ -30,6 +31,7 @@ Map<String, dynamic> _$CrewMemberToJson(CrewMember instance) =>
       'role': _$CrewRoleEnumMap[instance.role]!,
       'status': _$CrewStatusEnumMap[instance.status]!,
       'deviceId': instance.deviceId,
+      'deviceName': instance.deviceName,
       'avatar': instance.avatar,
       'createdAt': instance.createdAt.toIso8601String(),
       'updatedAt': instance.updatedAt.toIso8601String(),

@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'signalk_service.dart';
@@ -167,54 +168,63 @@ class WeatherApiForecast {
   }
 
   /// Convert temperature from Kelvin to Fahrenheit
+  /// @deprecated Use ConversionUtils.convertWeatherValue() for user-preferred units
   double? get temperatureF {
     if (airTemperature == null) return null;
     return (airTemperature! - 273.15) * 9 / 5 + 32;
   }
 
   /// Convert temperature from Kelvin to Celsius
+  /// @deprecated Use ConversionUtils.convertWeatherValue() for user-preferred units
   double? get temperatureC {
     if (airTemperature == null) return null;
     return airTemperature! - 273.15;
   }
 
   /// Convert feels like from Kelvin to Fahrenheit
+  /// @deprecated Use ConversionUtils.convertWeatherValue() for user-preferred units
   double? get feelsLikeF {
     if (feelsLike == null) return null;
     return (feelsLike! - 273.15) * 9 / 5 + 32;
   }
 
   /// Convert feels like from Kelvin to Celsius
+  /// @deprecated Use ConversionUtils.convertWeatherValue() for user-preferred units
   double? get feelsLikeC {
     if (feelsLike == null) return null;
     return feelsLike! - 273.15;
   }
 
   /// Convert humidity from 0-1 ratio to percentage
+  /// @deprecated Use ConversionUtils.convertWeatherValue() for user-preferred units
   double? get humidityPercent {
     if (relativeHumidity == null) return null;
     return relativeHumidity! * 100;
   }
 
   /// Convert precip probability from 0-1 ratio to percentage
+  /// @deprecated Use ConversionUtils.convertWeatherValue() for user-preferred units
   double? get precipProbabilityPercent {
     if (precipProbability == null) return null;
     return precipProbability! * 100;
   }
 
   /// Convert wind speed from m/s to knots
+  /// @deprecated Use ConversionUtils.convertWeatherValue() for user-preferred units
   double? get windSpeedKnots {
     if (windAvg == null) return null;
     return windAvg! * 1.94384;
   }
 
   /// Convert wind direction from radians to degrees
+  /// @deprecated Use ConversionUtils.convertWeatherValue() for user-preferred units
   double? get windDirectionDegrees {
     if (windDirection == null) return null;
     return windDirection! * 180 / 3.14159265359;
   }
 
   /// Convert pressure from Pa to hPa (mbar)
+  /// @deprecated Use ConversionUtils.convertWeatherValue() for user-preferred units
   double? get pressureHpa {
     if (pressure == null) return null;
     return pressure! / 100;
@@ -226,6 +236,7 @@ class WeatherApiForecast {
 class WeatherApiService extends ChangeNotifier {
   final SignalKService _signalKService;
   final String? _provider;
+  final int? _forecastDays;
 
   // Static cache of instances by provider key
   static final Map<String, WeatherApiService> _instances = {};
@@ -242,22 +253,24 @@ class WeatherApiService extends ChangeNotifier {
   // Auto-refresh interval
   static const Duration _refreshInterval = Duration(minutes: 30);
 
-  /// Get or create a shared instance for the given provider
-  factory WeatherApiService(SignalKService signalKService, {String? provider}) {
-    final key = provider ?? '_default_';
+  /// Get or create a shared instance for the given provider and forecast days
+  factory WeatherApiService(SignalKService signalKService, {String? provider, int? forecastDays}) {
+    final key = '${provider ?? '_default_'}_${forecastDays ?? 5}';
 
     if (_instances.containsKey(key)) {
       _refCounts[key] = (_refCounts[key] ?? 0) + 1;
       return _instances[key]!;
     }
 
-    final instance = WeatherApiService._internal(signalKService, provider: provider);
+    final instance = WeatherApiService._internal(signalKService, provider: provider, forecastDays: forecastDays);
     _instances[key] = instance;
     _refCounts[key] = 1;
     return instance;
   }
 
-  WeatherApiService._internal(this._signalKService, {String? provider}) : _provider = provider {
+  WeatherApiService._internal(this._signalKService, {String? provider, int? forecastDays})
+      : _provider = provider,
+        _forecastDays = forecastDays {
     // Start auto-refresh timer (every 30 minutes)
     _refreshTimer = Timer.periodic(_refreshInterval, (_) => fetchForecasts());
   }
@@ -312,7 +325,7 @@ class WeatherApiService extends ChangeNotifier {
     try {
       // Build API URL
       final serverUrl = _signalKService.serverUrl;
-      final useSecure = serverUrl.startsWith('wss://') || serverUrl.startsWith('https://');
+      final useSecure = _signalKService.useSecureConnection;
       final host = serverUrl.replaceAll(RegExp(r'^wss?://|^https?://'), '').split('/').first;
       final scheme = useSecure ? 'https' : 'http';
 
@@ -320,6 +333,11 @@ class WeatherApiService extends ChangeNotifier {
       if (_provider != null && _provider.isNotEmpty) {
         url += '&provider=$_provider';
       }
+      // Add count parameter: (days - 1) * 24 hours to get N days total (today + N-1 more)
+      // Minimum 24 hours to ensure we get at least today's forecast
+      final days = _forecastDays ?? 5;
+      final count = math.max(24, (days - 1) * 24);
+      url += '&count=$count';
 
       if (kDebugMode) {
         print('WeatherApiService: Fetching from $url');
@@ -414,7 +432,7 @@ class WeatherApiService extends ChangeNotifier {
 
   /// Release this instance - decrements ref count but keeps instance alive for caching
   void release() {
-    final key = _provider ?? '_default_';
+    final key = '${_provider ?? '_default_'}_${_forecastDays ?? 5}';
     final count = (_refCounts[key] ?? 1) - 1;
     _refCounts[key] = count < 0 ? 0 : count;
     // Keep instance alive for caching - don't dispose even when ref count is 0

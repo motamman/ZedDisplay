@@ -50,20 +50,29 @@ class WindCompassTool extends StatelessWidget {
     // Get wind direction true (optional) - need raw radians for rotation, converted for display
     double? windDirectionTrueRadians;
     double? windDirectionTrueDegrees;
+    String? windDirectionTrueFormatted;
     if (config.dataSources.length > 2) {
       windDirectionTrueRadians = ConversionUtils.getRawValue(signalKService, config.dataSources[2].path);
       windDirectionTrueDegrees = ConversionUtils.getConvertedValue(signalKService, config.dataSources[2].path);
+      if (windDirectionTrueRadians != null) {
+        windDirectionTrueFormatted = ConversionUtils.formatValue(signalKService, config.dataSources[2].path, windDirectionTrueRadians);
+      }
     }
 
     // Get wind angle apparent (relative to boat) - need raw for calculations
     double? windDirectionApparentRadians;
     double? windDirectionApparentDegrees;
     double? windAngleApparent;
+    String? windAngleApparentFormatted;
+    String? windDirectionApparentFormatted;
     if (config.dataSources.length > 3) {
       final angleApparentRadians = ConversionUtils.getRawValue(signalKService, config.dataSources[3].path);
       final angleApparentDegrees = ConversionUtils.getConvertedValue(signalKService, config.dataSources[3].path);
 
       windAngleApparent = angleApparentDegrees;
+      if (angleApparentRadians != null) {
+        windAngleApparentFormatted = ConversionUtils.formatValue(signalKService, config.dataSources[3].path, angleApparentRadians);
+      }
 
       // Convert relative angle to absolute direction
       if (angleApparentRadians != null && (headingTrueRadians != null || headingMagneticRadians != null)) {
@@ -73,6 +82,8 @@ class WindCompassTool extends StatelessWidget {
       if (angleApparentDegrees != null && (headingTrueDegrees != null || headingMagneticDegrees != null)) {
         final headingDeg = headingMagneticDegrees ?? headingTrueDegrees!;
         windDirectionApparentDegrees = (headingDeg + angleApparentDegrees) % 360;
+        // Format the computed apparent direction
+        windDirectionApparentFormatted = '${windDirectionApparentDegrees.toStringAsFixed(0)}°';
       }
     }
 
@@ -111,20 +122,35 @@ class WindCompassTool extends StatelessWidget {
 
     // Get course over ground (optional) - always use converted
     double? cogDegrees;
+    String? cogFormatted;
     if (config.dataSources.length > 7) {
       cogDegrees = ConversionUtils.getConvertedValue(signalKService, config.dataSources[7].path);
+      final rawCog = ConversionUtils.getRawValue(signalKService, config.dataSources[7].path);
+      if (rawCog != null) {
+        cogFormatted = ConversionUtils.formatValue(signalKService, config.dataSources[7].path, rawCog);
+      }
     }
 
     // Get waypoint bearing (optional) - always use converted
     double? waypointBearing;
+    String? waypointBearingFormatted;
     if (config.dataSources.length > 8) {
       waypointBearing = ConversionUtils.getConvertedValue(signalKService, config.dataSources[8].path);
+      final rawBearing = ConversionUtils.getRawValue(signalKService, config.dataSources[8].path);
+      if (rawBearing != null) {
+        waypointBearingFormatted = ConversionUtils.formatValue(signalKService, config.dataSources[8].path, rawBearing);
+      }
     }
 
     // Get waypoint distance (optional) - always use converted
     double? waypointDistance;
+    String? waypointDistanceFormatted;
     if (config.dataSources.length > 9) {
       waypointDistance = ConversionUtils.getConvertedValue(signalKService, config.dataSources[9].path);
+      final rawDistance = ConversionUtils.getRawValue(signalKService, config.dataSources[9].path);
+      if (rawDistance != null) {
+        waypointDistanceFormatted = ConversionUtils.formatValue(signalKService, config.dataSources[9].path, rawDistance);
+      }
     }
 
     // Get style configuration
@@ -162,7 +188,10 @@ class WindCompassTool extends StatelessWidget {
       windDirectionApparentRadians: windDirectionApparentRadians,
       windDirectionTrueDegrees: windDirectionTrueDegrees,
       windDirectionApparentDegrees: windDirectionApparentDegrees,
+      windDirectionTrueFormatted: windDirectionTrueFormatted,
+      windDirectionApparentFormatted: windDirectionApparentFormatted,
       windAngleApparent: windAngleApparent,
+      windAngleApparentFormatted: windAngleApparentFormatted,
       windSpeedTrue: windSpeedTrue,
       windSpeedTrueFormatted: windSpeedTrueFormatted,
       windSpeedApparent: windSpeedApparent,
@@ -170,8 +199,11 @@ class WindCompassTool extends StatelessWidget {
       speedOverGround: speedOverGround,
       sogFormatted: sogFormatted,
       cogDegrees: cogDegrees,
+      cogFormatted: cogFormatted,
       waypointBearing: waypointBearing,
+      waypointBearingFormatted: waypointBearingFormatted,
       waypointDistance: waypointDistance,
+      waypointDistanceFormatted: waypointDistanceFormatted,
       targetAWA: targetAWA,
       targetTolerance: targetTolerance,
       showAWANumbers: showAWANumbers,

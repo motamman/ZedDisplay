@@ -98,7 +98,23 @@ class CrewScreen extends StatelessWidget {
                 onPressed: () => _openProfile(context),
                 tooltip: crewService.hasProfile ? 'Edit Profile' : 'Set Up Profile',
               ),
-              const SizedBox(width: 8),
+              // More options menu
+              PopupMenuButton<String>(
+                icon: const Icon(Icons.more_vert),
+                tooltip: 'More options',
+                onSelected: (value) => _handleMenuOption(context, value),
+                itemBuilder: (context) => [
+                  const PopupMenuItem(
+                    value: 'clear_cache',
+                    child: ListTile(
+                      leading: Icon(Icons.cleaning_services),
+                      title: Text('Clear Local Cache'),
+                      contentPadding: EdgeInsets.zero,
+                      dense: true,
+                    ),
+                  ),
+                ],
+              ),
             ],
           ),
           body: Column(
@@ -195,6 +211,52 @@ class CrewScreen extends StatelessWidget {
         builder: (context) => const IntercomScreen(),
       ),
     );
+  }
+
+  Future<void> _handleMenuOption(BuildContext context, String option) async {
+    switch (option) {
+      case 'clear_cache':
+        await _confirmClearCache(context);
+        break;
+    }
+  }
+
+  Future<void> _confirmClearCache(BuildContext context) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Clear Local Cache?'),
+        content: const Text(
+          'This will clear all locally cached crew data on this device. '
+          'Your profile on the server will not be affected. '
+          'Use this if you\'re experiencing display issues.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Clear Cache'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true && context.mounted) {
+      final crewService = context.read<CrewService>();
+      await crewService.clearAllLocalCrewData();
+
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Local cache cleared'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    }
   }
 
   Color _getRoleColor(CrewRole role) {

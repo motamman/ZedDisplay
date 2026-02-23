@@ -47,6 +47,9 @@ dependencies:
   # Math expression evaluation
   math_expressions: ^3.1.0
 
+  # YAML parsing
+  yaml: ^3.1.2
+
   # Maps
   flutter_map: ^8.2.2
   latlong2: ^0.9.1
@@ -116,6 +119,7 @@ flutter:
   assets:
     - assets/
     - assets/sounds/
+    - assets/defaults/
     - assets/weather_icons/
     - assets/weather_icons/meteoblue_specific/monochrome_hollow_hourly/
     - assets/weather_icons/bas_weather/production/fill/all/

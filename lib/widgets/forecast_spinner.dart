@@ -128,9 +128,9 @@ class _ForecastSpinnerState extends State<ForecastSpinner>
   void _updateSegmentColors() {
     _cachedNow = DateTime.now();
 
-    // Compute colors for 72 segments (72 hours at 1 hour each)
-    // Reduced from 144 to improve paint performance
-    const segmentCount = 72;
+    // Compute colors dynamically based on forecast length (1-10 days)
+    // Each segment = 1 hour, clamp to reasonable range
+    final segmentCount = widget.hourlyForecasts.length.clamp(24, 240);
     const minutesPerSegment = 60;
 
     _cachedSegmentColors = List<Color>.generate(segmentCount, (i) {
@@ -360,6 +360,7 @@ class _ForecastSpinnerState extends State<ForecastSpinner>
                           selectedHourOffset: _selectedHourOffset,
                           cachedSegmentColors: _cachedSegmentColors,
                           cachedNow: _cachedNow,
+                          maxForecastHours: widget.hourlyForecasts.length,
                         ),
                       );
                     },
@@ -789,6 +790,7 @@ class _ForecastRimPainter extends CustomPainter {
   final int selectedHourOffset;
   final List<Color>? cachedSegmentColors;
   final DateTime cachedNow;
+  final int maxForecastHours;
 
   _ForecastRimPainter({
     required this.times,
@@ -797,6 +799,7 @@ class _ForecastRimPainter extends CustomPainter {
     required this.selectedHourOffset,
     this.cachedSegmentColors,
     required this.cachedNow,
+    required this.maxForecastHours,
   });
 
   @override
@@ -831,17 +834,18 @@ class _ForecastRimPainter extends CustomPainter {
       return;
     }
 
-    // Save canvas state and apply rotation
+    // Save canvas state and apply rotation for smooth animation
     canvas.save();
     canvas.translate(center.dx, center.dy);
     canvas.rotate(rotationAngle);
     canvas.translate(-center.dx, -center.dy);
 
-    // Draw segments for 72 hours (one segment per hour = 72 segments)
-    // Reduced from 144 segments for better performance
-    const segmentCount = 72;
+    // Calculate which hour is at the selection point (top of wheel)
+    final currentViewHour = (-rotationAngle / (math.pi / 12)).round().clamp(0, maxForecastHours);
+
+    // Draw segments with canvas rotation for smooth spinning
     const minutesPerSegment = 60;
-    const radiansPerSegment = (2 * math.pi) / 24; // 24 segments per 24 hours (one per hour)
+    const radiansPerSegment = (2 * math.pi) / 24;
 
     final arcRect = Rect.fromCircle(center: center, radius: (outerRadius + innerRadius) / 2);
     final segmentPaint = Paint()
@@ -849,23 +853,53 @@ class _ForecastRimPainter extends CustomPainter {
       ..strokeWidth = rimWidth
       ..strokeCap = StrokeCap.butt;
 
-    for (int i = 0; i < segmentCount; i++) {
-      // Each segment represents 1 hour, positioned by hours from now
-      final startAngle = -math.pi / 2 + (i * math.pi / 12);
-      const sweepAngle = radiansPerSegment + 0.01; // Slight overlap
+    // Draw enough segments to cover the visible area plus buffer
+    // Include negative hours (before "now") so they appear muted, not empty
+    final startHour = currentViewHour - 14;
+    final endHour = currentViewHour + 14;
 
-      // Use cached color if available, otherwise fallback to simple calculation
-      segmentPaint.color = cachedSegmentColors != null && i < cachedSegmentColors!.length
-          ? cachedSegmentColors![i]
-          : _getFallbackColor(i * minutesPerSegment);
+    for (int hourIndex = startHour; hourIndex < endHour; hourIndex++) {
+      // Position on the canvas (segment hourIndex at its natural position)
+      final startAngle = -math.pi / 2 + (hourIndex * math.pi / 12);
+      const sweepAngle = radiansPerSegment + 0.01;
 
-      canvas.drawArc(
-        arcRect,
-        startAngle,
-        sweepAngle,
-        false,
-        segmentPaint,
-      );
+      // Get base color for this hour
+      Color color = Colors.transparent;
+      bool shouldDraw = true;
+
+      if (hourIndex >= 0 && hourIndex < maxForecastHours) {
+        // Valid forecast hour - use cached color
+        color = cachedSegmentColors != null && hourIndex < cachedSegmentColors!.length
+            ? cachedSegmentColors![hourIndex]
+            : _getFallbackColor(hourIndex * minutesPerSegment);
+      } else if (hourIndex < 0) {
+        // Before "now" (hour 0) - muted, but skip if it overlaps a valid segment
+        final overlappingHour = hourIndex + 24;
+        if (overlappingHour >= 0 && overlappingHour < maxForecastHours) {
+          shouldDraw = false; // Don't draw muted over valid
+        } else {
+          color = _muteColor(_getFallbackColor(0));
+        }
+      } else {
+        // Beyond forecast range - muted, but skip if it overlaps a valid segment
+        final overlappingHour = hourIndex - 24;
+        if (overlappingHour >= 0 && overlappingHour < maxForecastHours) {
+          shouldDraw = false; // Don't draw muted over valid
+        } else {
+          color = _muteColor(_getFallbackColor((maxForecastHours - 1) * minutesPerSegment));
+        }
+      }
+
+      if (shouldDraw) {
+        segmentPaint.color = color;
+        canvas.drawArc(
+          arcRect,
+          startAngle,
+          sweepAngle,
+          false,
+          segmentPaint,
+        );
+      }
     }
 
     // Unused but kept for compatibility
@@ -980,7 +1014,7 @@ class _ForecastRimPainter extends CustomPainter {
 
       // Only show if within visible window AND within forecast range
       if (hoursFromNow < minVisibleHour || hoursFromNow > maxVisibleHour) return null;
-      if (hoursFromNow < -2 || hoursFromNow > 72) return null;
+      if (hoursFromNow < -2 || hoursFromNow > maxForecastHours) return null;
 
       // Each hour = 15 degrees = pi/12 radians, starting from top (-pi/2)
       return -math.pi / 2 + (hoursFromNow * math.pi / 12);
@@ -1483,6 +1517,17 @@ class _ForecastRimPainter extends CustomPainter {
     if (hour >= 17 && hour < 18) return Colors.deepOrange.shade400; // Civil dusk
     if (hour >= 18 && hour < 19) return Colors.indigo.shade700;    // Nautical dusk
     return Colors.indigo.shade900;                                  // Night
+  }
+
+  /// Mute a color by reducing saturation and adding transparency
+  /// Used for segments outside the valid forecast range or already passed
+  Color _muteColor(Color color) {
+    final hsl = HSLColor.fromColor(color);
+    return hsl
+        .withSaturation((hsl.saturation * 0.3).clamp(0.0, 1.0))
+        .withLightness((hsl.lightness * 0.7).clamp(0.0, 1.0))
+        .toColor()
+        .withValues(alpha: 0.4);
   }
 
   @override
