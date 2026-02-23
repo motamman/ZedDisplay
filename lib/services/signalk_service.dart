@@ -45,7 +45,7 @@ class SignalKService extends ChangeNotifier implements DataService {
   final Set<String> _autopilotPaths = {}; // Separate tracking for autopilot paths
   String? _vesselContext;
 
-  // User's display unit preferences from WebSocket meta (sendMeta=all on URL)
+  // User's display unit preferences from WebSocket meta (sendMeta=all per subscription)
   // Maps path to displayUnits configuration: {category, targetUnit, formula, inverseFormula, symbol}
   final Map<String, Map<String, dynamic>> _displayUnitsCache = {};
 
@@ -291,18 +291,12 @@ class SignalKService extends ChangeNotifier implements DataService {
     return headers;
   }
 
-  /// Discover WebSocket endpoint - ALWAYS use standard SignalK stream
-  /// Client-side conversions are applied using formulas from /signalk/v1/conversions
-  /// Uses sendMeta=all to receive displayUnits with user's unit preferences
+  /// Discover WebSocket endpoint - standard SignalK stream
+  /// sendMeta=all on URL to receive displayUnits with each path's metadata
   Future<String> _discoverWebSocketEndpoint() async {
     final wsProtocol = _useSecureConnection ? 'wss' : 'ws';
 
-    // Use the server URL as-is - don't add default ports
-    // Many servers are behind reverse proxies and don't need explicit ports
-    // ALWAYS use standard SignalK stream (no units-preference plugin)
-    // Conversions are applied client-side using formulas from /signalk/v1/conversions
-    // sendMeta=all: receive metadata with displayUnits for each path
-    // token: pass auth token as query param (more reliable than Authorization header for WebSocket)
+    // Standard SignalK stream with sendMeta=all to receive displayUnits
     var endpoint = '$wsProtocol://$_serverUrl/signalk/v1/stream?subscribe=none&sendMeta=all';
     if (_authToken != null) {
       endpoint += '&token=${Uri.encodeComponent(_authToken!.token)}';
@@ -1247,66 +1241,48 @@ class SignalKService extends ChangeNotifier implements DataService {
     notifyListeners(); // Notify UI to update
   }
 
-  /// Fetch and cache user's unit preferences if logged in with user auth
-  /// GET /signalk/v1/applicationData/user/unitpreferences/1.0
-  /// This stores preferences locally for offline access
+  /// Fetch and cache user's unit preferences
+  /// GET /signalk/v1/unitpreferences/config - get active preset name
+  /// GET /signalk/v1/unitpreferences/presets/:name - get preset details
   Future<void> fetchUserUnitPreferences() async {
-    if (_authToken == null || _authToken!.authType != AuthType.user) {
-      if (kDebugMode) {
-        print('Skipping user unit preferences fetch - not user auth');
-      }
-      return;
-    }
-
-    final connectionId = _authToken!.connectionId;
-    if (connectionId == null) {
-      if (kDebugMode) {
-        print('Skipping user unit preferences fetch - no connection ID');
-      }
-      return;
-    }
-
+    final connectionId = _authToken?.connectionId;
     final protocol = _useSecureConnection ? 'https' : 'http';
 
     try {
-      // First, get the user's active preset
-      final prefsResponse = await http.get(
-        Uri.parse('$protocol://$_serverUrl/signalk/v1/applicationData/user/unitpreferences/1.0'),
+      // Get the current unit preferences config (active preset name)
+      final configResponse = await http.get(
+        Uri.parse('$protocol://$_serverUrl/signalk/v1/unitpreferences/config'),
         headers: _getHeaders(),
       ).timeout(const Duration(seconds: 10));
 
       if (kDebugMode) {
-        print('User unit preferences response: ${prefsResponse.statusCode}');
+        print('Unit preferences config response: ${configResponse.statusCode}');
       }
 
-      if (prefsResponse.statusCode == 200) {
-        final data = jsonDecode(prefsResponse.body);
+      if (configResponse.statusCode == 200) {
+        final data = jsonDecode(configResponse.body);
         final activePreset = data['activePreset'] as String?;
 
         if (activePreset != null && activePreset.isNotEmpty) {
           // Fetch the full preset data
           await _fetchAndCacheUserPreset(connectionId, activePreset);
         }
-      } else if (prefsResponse.statusCode == 404) {
-        if (kDebugMode) {
-          print('No user unit preferences found (404)');
-        }
       }
     } catch (e) {
       if (kDebugMode) {
-        print('Error fetching user unit preferences: $e');
+        print('Error fetching unit preferences: $e');
       }
     }
   }
 
   /// Fetch a specific preset and cache it locally
-  Future<void> _fetchAndCacheUserPreset(String connectionId, String presetName) async {
+  Future<void> _fetchAndCacheUserPreset(String? connectionId, String presetName) async {
     final protocol = _useSecureConnection ? 'https' : 'http';
 
     try {
-      // Fetch the preset from the units-preference plugin
+      // Fetch the preset details
       final presetResponse = await http.get(
-        Uri.parse('$protocol://$_serverUrl/plugins/signalk-units-preference/presets/$presetName'),
+        Uri.parse('$protocol://$_serverUrl/signalk/v1/unitpreferences/presets/$presetName'),
         headers: _getHeaders(),
       ).timeout(const Duration(seconds: 10));
 
@@ -1317,20 +1293,22 @@ class SignalKService extends ChangeNotifier implements DataService {
       if (presetResponse.statusCode == 200) {
         final presetData = jsonDecode(presetResponse.body) as Map<String, dynamic>;
 
-        // Cache locally via StorageService
-        await _storageService?.saveUserUnitPreferences(
-          connectionId: connectionId,
-          presetName: presetName,
-          presetData: presetData,
-        );
+        // Cache locally via StorageService if we have a connection ID
+        if (connectionId != null) {
+          await _storageService?.saveUserUnitPreferences(
+            connectionId: connectionId,
+            presetName: presetName,
+            presetData: presetData,
+          );
+        }
 
         if (kDebugMode) {
-          print('User preset "$presetName" cached for offline use');
+          print('Preset "$presetName" fetched successfully');
         }
       }
     } catch (e) {
       if (kDebugMode) {
-        print('Error fetching/caching preset "$presetName": $e');
+        print('Error fetching preset "$presetName": $e');
       }
     }
   }
@@ -1624,14 +1602,14 @@ class SignalKService extends ChangeNotifier implements DataService {
 
     if (pathsToSubscribe.isEmpty) return;
 
-    // ALWAYS use standard SignalK subscription format
-    // sendMeta=all is set on the WebSocket URL to receive displayUnits
+    // Standard SignalK subscription format with sendMeta per path
     final subscription = {
       'context': 'vessels.self',
       'subscribe': pathsToSubscribe.map((path) => {
         'path': path,
         'format': 'delta',
         'policy': 'instant',
+        'sendMeta': 'all',
       }).toList(),
     };
 
@@ -1679,7 +1657,8 @@ class SignalKService extends ChangeNotifier implements DataService {
       'subscribe': _autopilotPaths.map((path) => {
         'path': path,
         'format': 'delta',
-        'policy': 'instant',  // Use 'instant' to only send updates when data changes (no period needed)
+        'policy': 'instant',
+        'sendMeta': 'all',
       }).toList(),
     };
 

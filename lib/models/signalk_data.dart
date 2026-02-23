@@ -23,11 +23,13 @@ class SignalKUpdateValue {
   final String? source;
   final DateTime timestamp;
   final List<SignalKValue> values;
+  final List<SignalKMetaEntry> metaEntries;
 
   SignalKUpdateValue({
     this.source,
     required this.timestamp,
     required this.values,
+    this.metaEntries = const [],
   });
 
   factory SignalKUpdateValue.fromJson(Map<String, dynamic> json) {
@@ -53,7 +55,36 @@ class SignalKUpdateValue {
               ?.map((v) => SignalKValue.fromJson(v))
               .toList() ??
           [],
+      // Parse meta array (sent with sendMeta=all for displayUnits)
+      metaEntries: (json['meta'] as List?)
+              ?.map((m) => SignalKMetaEntry.fromJson(m))
+              .toList() ??
+          [],
     );
+  }
+}
+
+/// Meta entry from sendMeta=all WebSocket updates
+/// Contains path metadata including displayUnits for unit conversions
+class SignalKMetaEntry {
+  final String path;
+  final Map<String, dynamic> value;
+
+  SignalKMetaEntry({
+    required this.path,
+    required this.value,
+  });
+
+  factory SignalKMetaEntry.fromJson(Map<String, dynamic> json) {
+    return SignalKMetaEntry(
+      path: json['path'] ?? '',
+      value: json['value'] as Map<String, dynamic>? ?? {},
+    );
+  }
+
+  /// Get displayUnits from meta value if available
+  Map<String, dynamic>? get displayUnits {
+    return value['displayUnits'] as Map<String, dynamic>?;
   }
 }
 

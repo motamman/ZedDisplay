@@ -287,32 +287,26 @@ class ConversionUtils {
     }
   }
 
-  /// Convert a raw value using THE conversion formula for this path
+  /// Convert a raw value using the conversion formula from server displayUnits
+  /// The server provides exact conversion for each path via WebSocket meta (sendMeta=all)
   /// Returns converted value, or raw value if no conversion available
   static double? convertValue(
     SignalKService service,
     String path,
     double rawValue,
   ) {
-    // Get available units for this path
-    final availableUnits = service.getAvailableUnits(path);
-    if (availableUnits.isEmpty) {
-      // No conversion available, return raw value
-      return rawValue;
+    // Use displayUnits from WebSocket meta - server provides exact conversion per path
+    final displayUnitFormula = service.getDisplayUnitFormula(path);
+    if (displayUnitFormula != null) {
+      return evaluateFormula(displayUnitFormula, rawValue);
     }
 
-    // Get THE conversion for this path (there's only one)
-    final unit = availableUnits.first;
-    final conversionInfo = service.getConversionInfo(path, unit);
-    if (conversionInfo == null) {
-      return rawValue;
-    }
-
-    // Apply the formula
-    return evaluateFormula(conversionInfo.formula, rawValue);
+    // No conversion available, return raw value
+    return rawValue;
   }
 
-  /// Format a value with unit symbol using THE conversion for this path
+  /// Format a value with unit symbol using the conversion from server displayUnits
+  /// The server provides exact conversion for each path via WebSocket meta (sendMeta=all)
   /// Returns a formatted string like "12.6 kn" or "45.2°"
   /// Set [includeUnit] to false to return just the numeric value without unit
   static String formatValue(
@@ -322,32 +316,33 @@ class ConversionUtils {
     int decimalPlaces = 1,
     bool includeUnit = true,
   }) {
-    // Get available units
-    final availableUnits = service.getAvailableUnits(path);
-    if (availableUnits.isEmpty) {
-      // No conversion available, format raw value
-      return rawValue.toStringAsFixed(decimalPlaces);
-    }
-
-    // Get THE conversion for this path
-    final unit = availableUnits.first;
-    final conversionInfo = service.getConversionInfo(path, unit);
-    if (conversionInfo == null) {
-      return rawValue.toStringAsFixed(decimalPlaces);
-    }
-
-    // Convert value
-    final converted = evaluateFormula(conversionInfo.formula, rawValue);
-    if (converted == null) {
-      return rawValue.toStringAsFixed(decimalPlaces);
-    }
-
-    // Format with symbol (if requested)
+    // Check if server already provided a formatted string
     if (includeUnit) {
-      final symbol = conversionInfo.symbol;
-      return '${converted.toStringAsFixed(decimalPlaces)} $symbol';
+      final dataPoint = service.getValue(path);
+      if (dataPoint?.formatted != null) {
+        return dataPoint!.formatted!;
+      }
     }
-    return converted.toStringAsFixed(decimalPlaces);
+
+    // Use displayUnits from WebSocket meta - server provides exact conversion per path
+    final displayUnits = service.getDisplayUnits(path);
+    if (displayUnits != null) {
+      final formula = displayUnits['formula'] as String?;
+      final symbol = displayUnits['symbol'] as String?;
+
+      if (formula != null) {
+        final converted = evaluateFormula(formula, rawValue);
+        if (converted != null) {
+          if (includeUnit && symbol != null) {
+            return '${converted.toStringAsFixed(decimalPlaces)} $symbol';
+          }
+          return converted.toStringAsFixed(decimalPlaces);
+        }
+      }
+    }
+
+    // No conversion available, format raw value
+    return rawValue.toStringAsFixed(decimalPlaces);
   }
 
   /// Get converted value from a data point
@@ -361,17 +356,27 @@ class ConversionUtils {
     final dataPoint = service.getValue(path, source: source);
     if (dataPoint == null) return null;
 
-    // Get raw value and apply conversion
-    if (dataPoint.value is num) {
-      final rawValue = (dataPoint.value as num).toDouble();
+    // Priority 1: If server already provided converted value (units-preference format),
+    // use it directly to avoid double conversion
+    if (dataPoint.converted != null) {
+      return dataPoint.converted;
+    }
+
+    // Priority 2: Get raw value and apply conversion (standard stream)
+    // Use 'original' if available, otherwise 'value'
+    final rawValue = dataPoint.original is num
+        ? (dataPoint.original as num).toDouble()
+        : (dataPoint.value is num ? (dataPoint.value as num).toDouble() : null);
+
+    if (rawValue != null) {
       return convertValue(service, path, rawValue);
     }
 
     return null;
   }
 
-  /// Get raw SI value from standard SignalK stream
-  /// With standard stream, dataPoint.value IS the raw SI value
+  /// Get raw SI value from SignalK stream
+  /// Handles both standard format and units-preference format
   /// If [source] is specified, gets value from that specific source
   static double? getRawValue(
     SignalKService service,
@@ -381,7 +386,13 @@ class ConversionUtils {
     final dataPoint = service.getValue(path, source: source);
     if (dataPoint == null) return null;
 
-    // Standard stream: value IS the raw SI value
+    // Priority 1: Use 'original' field if available (units-preference format)
+    // This contains the raw SI value when server sends pre-converted data
+    if (dataPoint.original is num) {
+      return (dataPoint.original as num).toDouble();
+    }
+
+    // Priority 2: Standard stream - value IS the raw SI value
     if (dataPoint.value is num) {
       return (dataPoint.value as num).toDouble();
     }
@@ -390,6 +401,7 @@ class ConversionUtils {
   }
 
   /// Convert a display value back to raw SI value using inverse formula
+  /// The server provides exact conversion for each path via WebSocket meta (sendMeta=all)
   /// Used when sending PUT requests - converts user-entered display value
   /// back to the raw value that SignalK expects
   static double convertToRaw(
@@ -397,22 +409,26 @@ class ConversionUtils {
     String path,
     double displayValue,
   ) {
-    // Get available units for this path
-    final availableUnits = service.getAvailableUnits(path);
-    if (availableUnits.isEmpty) {
-      // No conversion available, return as-is
-      return displayValue;
+    // Use displayUnits from WebSocket meta - server provides exact conversion per path
+    final displayUnits = service.getDisplayUnits(path);
+    if (displayUnits != null) {
+      final inverseFormula = displayUnits['inverseFormula'] as String?;
+      if (inverseFormula != null) {
+        final rawValue = evaluateFormula(inverseFormula, displayValue);
+        if (rawValue != null) {
+          return rawValue;
+        }
+      }
     }
 
-    // Get THE conversion for this path
-    final unit = availableUnits.first;
-    final conversionInfo = service.getConversionInfo(path, unit);
-    if (conversionInfo == null) {
-      return displayValue;
-    }
+    // No conversion available, return as-is
+    return displayValue;
+  }
 
-    // Apply the inverse formula
-    final rawValue = evaluateFormula(conversionInfo.inverseFormula, displayValue);
-    return rawValue ?? displayValue;
+  /// Get the unit symbol for a path
+  /// The server provides exact conversion for each path via WebSocket meta (sendMeta=all)
+  static String? getUnitSymbol(SignalKService service, String path) {
+    // Use displayUnits from WebSocket meta - server provides exact symbol per path
+    return service.getDisplayUnitSymbol(path);
   }
 }
