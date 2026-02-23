@@ -41,7 +41,10 @@ class _AnchorAlarmToolState extends State<AnchorAlarmTool> {
   bool _mapAutoFollow = true;
   double _rodeSliderValue = 30.0;
   bool _isRodeSliderDragging = false;
+  double _alarmRadiusValue = 30.0;
+  bool _isAlarmRadiusSliderDragging = false;
   bool _showPolarView = false; // Toggle between map and polar view
+  double _manualDepthValue = 5.0;
 
   @override
   void initState() {
@@ -104,6 +107,14 @@ class _AnchorAlarmToolState extends State<AnchorAlarmTool> {
         final rodeLength = _alarmService.state.rodeLength;
         if (rodeLength != null && (_rodeSliderValue - rodeLength).abs() > 1) {
           _rodeSliderValue = rodeLength.clamp(5.0, 100.0);
+        }
+      }
+
+      // Update alarm radius slider from current maxRadius (only when not actively dragging)
+      if (!_isAlarmRadiusSliderDragging) {
+        final maxRadius = _alarmService.state.maxRadius;
+        if (maxRadius != null && (_alarmRadiusValue - maxRadius).abs() > 1) {
+          _alarmRadiusValue = maxRadius.clamp(5.0, 100.0);
         }
       }
 
@@ -215,35 +226,14 @@ class _AnchorAlarmToolState extends State<AnchorAlarmTool> {
   }
 
   Future<void> _setRodeLength(double length) async {
-    // Get bearing BEFORE changing rode (it will change after position update)
-    final bearingBefore = _alarmService.state.bearingTrue;
+    // Determine depth to use: sensor value if available, otherwise manual
+    final depth = _alarmService.hasDepthSensor
+        ? _alarmService.currentDepth
+        : _manualDepthValue;
 
-    await _alarmService.setRodeLength(length);
-
-    // Wait for SignalK to update with new maxRadius from plugin
-    await Future.delayed(const Duration(milliseconds: 200));
-
-    // Recalculate anchor position using existing bearing + new maxRadius
-    final state = _alarmService.state;
-    final bearing = bearingBefore ?? state.bearingTrue; // use pre-change bearing
-    final vesselPos = state.vesselPosition;
-    final maxRadius = state.maxRadius;
-
-    if (bearing != null && vesselPos != null && maxRadius != null) {
-      // Convert bearing from radians to degrees using ConversionUtils
-      final bearingDegrees = ConversionUtils.convertWeatherValue(
-        widget.signalKService,
-        WeatherFieldType.angle,
-        bearing,
-      ) ?? (bearing * 180 / math.pi); // Fallback only if conversion unavailable
-      final (lat, lon) = AnchorAlarmService.calculateAnchorPosition(
-        vesselLat: vesselPos.latitude,
-        vesselLon: vesselPos.longitude,
-        bearingDegrees: bearingDegrees,
-        distanceMeters: maxRadius,
-      );
-      await _alarmService.setAnchorPosition(lat, lon);
-    }
+    // Call plugin API - it calculates maxRadius from rode/depth/gpsFromBow/fudge
+    // Does NOT recalculate anchor position (anchor position is set separately)
+    await _alarmService.setRodeLength(length, depth: depth);
   }
 
   /// Open compass overlay to set anchor direction
@@ -313,6 +303,14 @@ class _AnchorAlarmToolState extends State<AnchorAlarmTool> {
     }
   }
 
+  /// Handle manual depth change - re-sends rode length with new depth
+  Future<void> _onDepthChanged(double depth) async {
+    _manualDepthValue = depth;
+    // Re-send rode length with new depth value
+    await _setRodeLength(_rodeSliderValue);
+  }
+
+
   // Format distance with user's preferred units
   String _formatDistance(double? meters, String path) {
     if (meters == null) return '--';
@@ -321,6 +319,18 @@ class _AnchorAlarmToolState extends State<AnchorAlarmTool> {
       path,
       meters,
       decimalPlaces: 0,
+    );
+  }
+
+  // Format depth with user's preferred units
+  // Uses maxRadius path since it shares the same length category and has metadata
+  String _formatDepth(double? meters) {
+    if (meters == null) return '--';
+    return ConversionUtils.formatValue(
+      widget.signalKService,
+      'navigation.anchor.maxRadius',
+      meters,
+      decimalPlaces: 1,
     );
   }
 
@@ -932,6 +942,9 @@ class _AnchorAlarmToolState extends State<AnchorAlarmTool> {
             _buildStatusRow('Distance', _formatDistance(state.currentRadius, 'navigation.anchor.currentRadius')),
             _buildStatusRow('Alarm', _formatDistance(state.maxRadius, 'navigation.anchor.maxRadius')),
             _buildStatusRow('Rode', _formatDistance(state.rodeLength, 'navigation.anchor.rodeLength')),
+            // Show depth from sensor or manual value
+            if (_alarmService.hasDepthSensor || _manualDepthValue > 0)
+              _buildStatusRow('Depth', _formatDepth(_alarmService.currentDepth ?? _manualDepthValue)),
             if (state.bearingTrue != null)
               _buildStatusRow('Bearing', _formatBearing(state.bearingTrue!)),
             _buildStatusRow('Track', '${_alarmService.trackHistory.length} pts'),
@@ -968,18 +981,8 @@ class _AnchorAlarmToolState extends State<AnchorAlarmTool> {
   }
 
   Widget _buildControlPanel(AnchorState state) {
-    // Get unit info for rode length display
-    final availableUnits = widget.signalKService.getAvailableUnits('navigation.anchor.rodeLength');
-    final unitSymbol = availableUnits.isNotEmpty
-        ? widget.signalKService.getConversionInfo('navigation.anchor.rodeLength', availableUnits.first)?.symbol ?? 'm'
-        : 'm';
-
-    // Convert current slider value to display units
-    final displayValue = ConversionUtils.convertValue(
-      widget.signalKService,
-      'navigation.anchor.rodeLength',
-      _rodeSliderValue,
-    ) ?? _rodeSliderValue;
+    // Format rode using server's displayUnits metadata
+    final rodeFormatted = _formatDistance(_rodeSliderValue, 'navigation.anchor.rodeLength');
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -1049,7 +1052,7 @@ class _AnchorAlarmToolState extends State<AnchorAlarmTool> {
               children: [
                 const Text('Rode: ', style: TextStyle(color: Colors.black87, fontSize: 12)),
                 Text(
-                  '${displayValue.toStringAsFixed(0)} $unitSymbol',
+                  rodeFormatted,
                   style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black, fontSize: 14),
                 ),
                 Expanded(
@@ -1076,6 +1079,83 @@ class _AnchorAlarmToolState extends State<AnchorAlarmTool> {
                     ),
                   ),
                 ),
+              ],
+            ),
+            // Alarm radius slider - directly sets maxRadius via setRadius API
+            const SizedBox(height: 4),
+            Row(
+              children: [
+                const Text('Alarm: ', style: TextStyle(color: Colors.black87, fontSize: 12)),
+                Text(
+                  _formatDistance(_alarmRadiusValue, 'navigation.anchor.maxRadius'),
+                  style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black, fontSize: 14),
+                ),
+                Expanded(
+                  child: SliderTheme(
+                    data: SliderThemeData(
+                      activeTrackColor: Colors.red,
+                      inactiveTrackColor: Colors.red.shade100,
+                      thumbColor: Colors.red,
+                      overlayColor: Colors.red.withValues(alpha: 0.2),
+                      trackHeight: 3,
+                      thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 8),
+                    ),
+                    child: Slider(
+                      value: _alarmRadiusValue,
+                      min: 5,
+                      max: 100,
+                      divisions: 19,
+                      onChangeStart: (_) => _isAlarmRadiusSliderDragging = true,
+                      onChanged: (value) => setState(() => _alarmRadiusValue = value),
+                      onChangeEnd: (value) {
+                        _isAlarmRadiusSliderDragging = false;
+                        _alarmService.setRadius(radius: value);
+                      },
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            // Depth row - auto from sensor or manual slider
+            const SizedBox(height: 4),
+            Row(
+              children: [
+                const Text('Depth: ', style: TextStyle(color: Colors.black87, fontSize: 12)),
+                if (_alarmService.hasDepthSensor) ...[
+                  // Read-only display from sensor
+                  Text(
+                    _formatDepth(_alarmService.currentDepth),
+                    style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black, fontSize: 14),
+                  ),
+                  const SizedBox(width: 4),
+                  const Icon(Icons.sensors, size: 14, color: Colors.green),
+                ] else ...[
+                  // Manual slider when no sensor
+                  Text(
+                    _formatDepth(_manualDepthValue),
+                    style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black, fontSize: 14),
+                  ),
+                  Expanded(
+                    child: SliderTheme(
+                      data: SliderThemeData(
+                        activeTrackColor: Colors.teal,
+                        inactiveTrackColor: Colors.teal.shade100,
+                        thumbColor: Colors.teal,
+                        overlayColor: Colors.teal.withValues(alpha: 0.2),
+                        trackHeight: 3,
+                        thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 8),
+                      ),
+                      child: Slider(
+                        value: _manualDepthValue,
+                        min: 1,
+                        max: 50,
+                        divisions: 49,
+                        onChanged: (value) => setState(() => _manualDepthValue = value),
+                        onChangeEnd: (value) => _onDepthChanged(value),
+                      ),
+                    ),
+                  ),
+                ],
               ],
             ),
           ],
@@ -1192,7 +1272,7 @@ class AnchorAlarmToolBuilder extends ToolBuilder {
         allowsColorCustomization: false,
         allowsMultiplePaths: true,
         minPaths: 0,
-        maxPaths: 8,
+        maxPaths: 11,
         styleOptions: const [],
       ),
     );
@@ -1211,6 +1291,9 @@ class AnchorAlarmToolBuilder extends ToolBuilder {
         DataSource(path: 'navigation.position', label: 'Vessel Position'),
         DataSource(path: 'navigation.headingTrue', label: 'Vessel Heading'),
         DataSource(path: 'sensors.gps.fromBow', label: 'GPS from Bow'),
+        DataSource(path: 'environment.depth.belowSurface', label: 'Water Depth'),
+        DataSource(path: 'navigation.anchor.fudgeFactor', label: 'Radius Buffer'),
+        DataSource(path: 'design.length', label: 'Vessel Length'),
       ],
       style: StyleConfig(
         customProperties: {
