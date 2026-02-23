@@ -79,6 +79,11 @@ A customizable SignalK marine dashboard and crew comms application to display re
 
 - **Polar Radar Chart**: Polar chart showing magnitude vs angle with area fill (e.g., wind speed/direction)
 - **AIS Polar Chart**: Display nearby AIS vessels on polar chart relative to own position
+  - Dual views: polar chart and map with OpenSeaMap overlay
+  - Vessel freshness colors (green → yellow → red based on age)
+  - CPA/TCPA calculations for collision avoidance
+  - Range control (auto-scaling or manual)
+  - Tap vessels for detailed info
 
   <img src="screenshots/AIS_display.png" alt="AIS Polar Chart" width="300">
 
@@ -94,6 +99,12 @@ A customizable SignalK marine dashboard and crew comms application to display re
 
   <img src="screenshots/wind_compass.png" alt="Wind Compass" width="320">
 
+- **Windsteer Gauge**: Comprehensive wind analysis gauge (mirrors B&G/Kip implementation)
+  - Apparent and true wind display with sectors (min/mid/max historic)
+  - Laylines and current/drift vectors
+  - Waypoint bearing overlay
+  - Multiple configurable data overlays
+
 - **Autopilot**: Full autopilot control with compass display, mode selection, and tacking
 - **Autopilot V2**: Redesigned circular autopilot with nested controls
   - Banana-shaped heading adjustment buttons (+1, -1, +10, -10) arced around inner circle
@@ -103,7 +114,7 @@ A customizable SignalK marine dashboard and crew comms application to display re
   - Draggable target heading arrow with long-press activation
   - Incremental command queue with acknowledgment tracking
   - Rudder indicator when space permits
-  - Responsive portrait/landscape layouts
+  - Responsive layout: wide screens show controls beside compass, narrow screens stack controls below
 
   <img src="screenshots/autopilot.png" alt="Autopilot" width="280">
   <img src="screenshots/autopilotv2.png" alt="Autopilot v2" width="280">
@@ -130,6 +141,8 @@ A customizable SignalK marine dashboard and crew comms application to display re
   - Drop anchor with one tap (rode length auto-set to GPS-from-bow distance + 10%)
   - Configurable alarm radius with visual circle overlay
   - Rode length adjustment via slider (5-100m)
+  - Vessel length and fudge factor settings for accurate swing calculations
+  - Depth integration for scope calculations
   - Distance from anchor displayed in real-time
   - Alarm triggers when vessel exceeds set radius from anchor point
   - Raise anchor to clear and reset
@@ -200,6 +213,24 @@ A customizable SignalK marine dashboard and crew comms application to display re
   - Requires signalk-rpi-monitor and signalk-rpi-uptime plugins
 
   <img src="screenshots/RPI_monitor.png" alt="RPi Monitor" width="350">
+
+- **User Management**: SignalK user account administration
+  - View and manage server users
+  - Create new user accounts
+  - Set user permissions and roles
+  - Change passwords
+  - Requires admin authentication
+
+- **Device Access Manager**: Manage connected device permissions
+  - View all registered devices
+  - Approve or revoke device access
+  - See device connection status
+  - Requires admin authentication
+
+- **WebView**: Embedded web content display
+  - Display any web page within the dashboard
+  - Useful for integrating external web apps or documentation
+  - Configurable URL
 
 **Crew Communication Tools**
 - **Crew Messages**: View recent crew messages in a compact widget

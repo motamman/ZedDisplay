@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **GitHub Actions CI/CD**: Automated app store deployment workflows
+  - `release.yml` - Android build and Google Play upload (internal track, draft)
+  - `ios-release.yml` - iOS build and TestFlight upload
+  - Triggered by git tags (`v*.*.*`, `v*.*.*-android`, `v*.*.*-ios`)
+  - Retry logic for flaky Gradle downloads
+  - Automatic GitHub Release creation with APK/AAB/IPA artifacts
+- **Release Notes Templates**: Store-compliant release notes
+  - `WHATSNEW.md` - Primary release notes (Google Play 500 char / App Store 4000 char sections)
+  - `distribution/whatsnew/` - Auto-extracted Google Play notes
+- **iOS Export Configuration**: `ios/ExportOptions.plist` for App Store builds
+
+### Changed
+- **Autopilot Widget**: Responsive layout for wide screens
+  - Wide layout (>=600px): Controls panel appears to the right of compass
+  - Narrow layout (<600px): Controls stacked below compass (existing behavior)
+  - Extracted `_buildCompassArea()` and `_buildControlsPanel()` for cleaner code
+- **iOS Deployment Target**: Updated from iOS 13.0 to iOS 16.0
+  - Podfile updated with dSYM generation for crash reporting
+  - Enforced minimum deployment target across all pods
+
+### Documentation
+- **README.md**: Added missing tool documentation
+  - Windsteer Gauge (B&G/Kip-style wind analysis)
+  - User Management (SignalK user administration)
+  - Device Access Manager (device permissions)
+  - WebView (embedded web content)
+  - Enhanced AIS Polar Chart description (dual views, CPA/TCPA, OpenSeaMap)
+  - Enhanced Anchor Alarm description (vessel length, fudge factor, depth)
+  - Updated Autopilot V2 with responsive layout info
+
 ## [0.5.6+23] - 2025-12-16
 
 ### Changed

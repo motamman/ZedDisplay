@@ -1,0 +1,138 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'          # Both platforms
+      - 'v*.*.*-android'  # Android only
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    # Skip if this is an iOS-only tag
+    if: ${{ !endsWith(github.ref, '-ios') }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Extract release notes from WHATSNEW.md
+        run: |
+          # Extract Google Play release notes (between header and first ---)
+          # Skip the header line, capture until delimiter
+          awk '
+            /^## Release Notes \(Google Play/{ found=1; next }
+            found && /^---$|^## |^# Previous/{ exit }
+            found { print }
+          ' WHATSNEW.md | sed '/^$/N;/^\n$/d' | head -c 500 > distribution/whatsnew/whatsnew-en-US
+          echo "--- Release notes extracted ---"
+          cat distribution/whatsnew/whatsnew-en-US
+          echo ""
+          echo "--- Character count: $(wc -c < distribution/whatsnew/whatsnew-en-US) ---"
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: false
+
+      - name: Verify Flutter version
+        run: |
+          flutter --version
+          flutter doctor -v
+
+      - name: Clean and get dependencies
+        run: |
+          flutter clean
+          flutter pub get
+
+      - name: Setup Gradle (no cache)
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-disabled: true
+
+      - name: Create key.properties
+        run: |
+          echo "storePassword=${{ secrets.KEYSTOREPASSWORD }}" > android/key.properties
+          echo "keyPassword=${{ secrets.KEYPASSWORD }}" >> android/key.properties
+          echo "keyAlias=${{ secrets.KEYALIAS }}" >> android/key.properties
+          echo "storeFile=${{ github.workspace }}/android/app/upload-keystore.jks" >> android/key.properties
+
+      - name: Decode keystore
+        run: |
+          printf '%s' "${{ secrets.KEYSTOREBASE64 }}" | base64 -d > android/app/upload-keystore.jks
+          echo "Keystore created:"
+          ls -la android/app/upload-keystore.jks
+          file android/app/upload-keystore.jks
+
+      - name: Get dependencies
+        env:
+          GRADLE_OPTS: "-Dorg.gradle.internal.http.connectionTimeout=120000 -Dorg.gradle.internal.http.socketTimeout=120000"
+        run: flutter pub get
+
+      - name: Pre-warm Gradle (with retry)
+        env:
+          GRADLE_OPTS: "-Dorg.gradle.internal.http.connectionTimeout=120000 -Dorg.gradle.internal.http.socketTimeout=120000"
+        uses: nick-fields/retry@v3
+        with:
+          timeout_minutes: 10
+          max_attempts: 5
+          retry_wait_seconds: 60
+          command: |
+            cd android
+            ./gradlew --version
+            ./gradlew dependencies --refresh-dependencies || true
+
+      - name: Build APK (with retry)
+        env:
+          GRADLE_OPTS: "-Dorg.gradle.internal.http.connectionTimeout=120000 -Dorg.gradle.internal.http.socketTimeout=120000"
+        uses: nick-fields/retry@v3
+        with:
+          timeout_minutes: 20
+          max_attempts: 3
+          retry_wait_seconds: 120
+          command: flutter build apk --release
+
+      - name: Build App Bundle (with retry)
+        env:
+          GRADLE_OPTS: "-Dorg.gradle.internal.http.connectionTimeout=120000 -Dorg.gradle.internal.http.socketTimeout=120000"
+        uses: nick-fields/retry@v3
+        with:
+          timeout_minutes: 20
+          max_attempts: 3
+          retry_wait_seconds: 120
+          command: flutter build appbundle --release
+
+      - name: Get version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Release ${{ steps.version.outputs.VERSION }}
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          files: |
+            build/app/outputs/flutter-apk/app-release.apk
+            build/app/outputs/bundle/release/app-release.aab
+
+      - name: Upload to Google Play
+        uses: r0adkll/upload-google-play@v1
+        with:
+          serviceAccountJsonPlainText: ${{ secrets.GOOGLEPLAYSERVICEACCOUNT }}
+          packageName: com.zennora.zed_display
+          releaseFiles: build/app/outputs/bundle/release/app-release.aab
+          track: internal
+          status: draft
+          whatsNewDirectory: distribution/whatsnew
