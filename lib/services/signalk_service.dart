@@ -1592,12 +1592,14 @@ class SignalKService extends ChangeNotifier implements DataService {
     if (pathsToSubscribe.isEmpty) return;
 
     // ALWAYS use standard SignalK subscription format
+    // Include sendMeta: 'all' to receive displayUnits with user's unit preferences
     final subscription = {
       'context': 'vessels.self',
       'subscribe': pathsToSubscribe.map((path) => {
         'path': path,
         'format': 'delta',
         'policy': 'instant',
+        'sendMeta': 'all',
       }).toList(),
     };
 

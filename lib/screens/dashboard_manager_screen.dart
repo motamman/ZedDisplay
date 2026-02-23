@@ -1304,10 +1304,9 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen>
           // No itemCount = infinite scrolling for wrap-around
         ),
 
-        // Screen indicator dots at bottom (only if multiple screens)
+        // Screen indicator dots at bottom
         // Auto-hides after 4 seconds, tap bottom zone to reveal
-        if (layout.screens.length > 1)
-          Positioned(
+        Positioned(
             bottom: 0,
             left: 0,
             right: 0,
