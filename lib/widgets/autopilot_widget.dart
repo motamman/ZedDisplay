@@ -426,6 +426,234 @@ class _AutopilotWidgetState extends State<AutopilotWidget> {
   }
 
 
+  /// Build the compass area with overlays (target box, heading label, tack buttons, route info)
+  Widget _buildCompassArea(double headingRadians) {
+    return Stack(
+      children: [
+        // Compass with overlaid controls (85% size, centered)
+        Center(
+          child: FractionallySizedBox(
+            widthFactor: 0.85,
+            heightFactor: 0.85,
+            child: BaseCompass(
+              headingTrueRadians: widget.headingTrue ? headingRadians : null,
+              headingMagneticRadians: !widget.headingTrue ? headingRadians : null,
+              headingTrueDegrees: widget.headingTrue ? widget.currentHeading : null,
+              headingMagneticDegrees: !widget.headingTrue ? widget.currentHeading : null,
+              isSailingVessel: widget.isSailingVessel,
+              apparentWindAngle: widget.apparentWindAngle,
+              targetAWA: widget.targetAWA,
+              targetTolerance: widget.targetTolerance,
+              rangesBuilder: _buildAutopilotZones,
+              pointersBuilder: _buildAutopilotPointers,
+              customPaintersBuilder: _buildCustomPainters,
+              overlayBuilder: _buildAutopilotOverlay,
+              magneticHeadingDisplayBuilder: _buildEmptyHeadingDisplay,
+              trueHeadingDisplayBuilder: _buildEmptyHeadingDisplay,
+              allowHeadingModeToggle: false, // Autopilot uses one mode
+            ),
+          ),
+        ),
+
+        // Target box - top left corner
+        Positioned(
+          left: 16,
+          top: 16,
+          child: _buildTargetInfoBox(),
+        ),
+
+        // Heading label - top right corner
+        Positioned(
+          right: 16,
+          top: 16,
+          child: _buildHeadingLabel(widget.currentHeading, widget.headingTrue),
+        ),
+
+        // Tack Port button - left side, aligned with compass midline (only for sailing vessels in Auto/Wind mode)
+        if (widget.isSailingVessel && widget.engaged && (widget.mode == 'Auto' || widget.mode == 'Wind'))
+          Positioned(
+            left: 0,
+            top: 0,
+            bottom: 0,
+            child: AnimatedOpacity(
+              opacity: _controlsOpacity,
+              duration: const Duration(milliseconds: 300),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: SizedBox(
+                  width: 75,
+                  child: ElevatedButton(
+                    onPressed: () {
+                      widget.onTack?.call('port');
+                      _onHeadingAdjustmentSent();
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.red.withValues(alpha: 0.6),
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                    ),
+                    child: const Text('TACK\nPORT',
+                      style: TextStyle(fontSize: 9),
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+
+        // Tack Starboard button - right side, aligned with compass midline (only for sailing vessels in Auto/Wind mode)
+        if (widget.isSailingVessel && widget.engaged && (widget.mode == 'Auto' || widget.mode == 'Wind'))
+          Positioned(
+            right: 0,
+            top: 0,
+            bottom: 0,
+            child: AnimatedOpacity(
+              opacity: _controlsOpacity,
+              duration: const Duration(milliseconds: 300),
+              child: Align(
+                alignment: Alignment.centerRight,
+                child: SizedBox(
+                  width: 75,
+                  child: ElevatedButton(
+                    onPressed: () {
+                      widget.onTack?.call('starboard');
+                      _onHeadingAdjustmentSent();
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.green.withValues(alpha: 0.6),
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                    ),
+                    child: const Text('TACK\nSTBD',
+                      style: TextStyle(fontSize: 9),
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+
+        // Route info panel - middle area (only in route/nav mode with route data, hidden during dodge)
+        if ((widget.mode.toLowerCase() == 'route' || widget.mode.toLowerCase() == 'nav') &&
+            widget.nextWaypoint != null &&
+            !widget.dodgeActive)
+          Positioned(
+            bottom: 20,
+            left: 20,
+            right: 20,
+            child: AnimatedOpacity(
+              opacity: _controlsOpacity,
+              duration: const Duration(milliseconds: 300),
+              child: RouteInfoPanel(
+                nextWaypoint: widget.nextWaypoint,
+                eta: widget.eta,
+                distanceToWaypoint: widget.distanceToWaypoint,
+                timeToWaypoint: widget.timeToWaypoint,
+                crossTrackError: widget.crossTrackError,
+                onlyShowXTEWhenNear: widget.onlyShowXTEWhenNear,
+              ),
+            ),
+          ),
+
+        // Dodge mode indicator (top center when active)
+        if (widget.dodgeActive)
+          Positioned(
+            top: 20,
+            left: 0,
+            right: 0,
+            child: Center(
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                decoration: BoxDecoration(
+                  color: Colors.orange.withValues(alpha: 0.9),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.warning, color: Colors.white, size: 20),
+                    SizedBox(width: 8),
+                    Text(
+                      'DODGE MODE ACTIVE',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 14,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  /// Build the controls panel (mode, heading adj, gybe, dodge, advance WP, rudder)
+  Widget _buildControlsPanel({bool isWideLayout = false}) {
+    return AnimatedOpacity(
+      opacity: _controlsOpacity,
+      duration: const Duration(milliseconds: 300),
+      child: Container(
+        decoration: isWideLayout
+            ? BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.7),
+                borderRadius: BorderRadius.circular(12),
+              )
+            : BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    Colors.black.withValues(alpha: 0.0),
+                    Colors.black.withValues(alpha: 0.7),
+                    Colors.black.withValues(alpha: 0.9),
+                  ],
+                ),
+              ),
+        padding: isWideLayout ? const EdgeInsets.all(12) : EdgeInsets.zero,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          mainAxisAlignment: isWideLayout ? MainAxisAlignment.center : MainAxisAlignment.start,
+          children: [
+            const SizedBox(height: 12),
+
+            // Mode selector and engage/disengage
+            _buildModeControls(context),
+
+            const SizedBox(height: 10),
+
+            // Heading adjustment buttons (for all vessels in Auto/Compass/Wind mode)
+            if (widget.engaged && (widget.mode == 'Auto' || widget.mode == 'Compass' || widget.mode == 'Wind'))
+              _buildHeadingControls(),
+
+            // Gybe buttons (V2 only, sailing vessels, wind mode for downwind sailing)
+            if (widget.isV2Api && widget.isSailingVessel && widget.engaged && widget.mode == 'Wind')
+              _buildGybeControls(),
+
+            // Dodge mode toggle (V2 only, route/nav mode)
+            if (widget.isV2Api && widget.engaged && (widget.mode.toLowerCase() == 'route' || widget.mode.toLowerCase() == 'nav'))
+              _buildDodgeModeToggle(),
+
+            // Advance waypoint button (only in route/nav mode, hidden during dodge)
+            if (widget.engaged &&
+                (widget.mode.toLowerCase() == 'route' || widget.mode.toLowerCase() == 'nav') &&
+                !widget.dodgeActive)
+              _buildAdvanceWaypointButton(),
+
+            const SizedBox(height: 10),
+
+            // Rudder indicator
+            _buildRudderIndicator(),
+
+            const SizedBox(height: 12),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     // Convert heading to radians for rotation
@@ -439,228 +667,50 @@ class _AutopilotWidgetState extends State<AutopilotWidget> {
         onTap: _onScreenTap,
         behavior: HitTestBehavior.translucent,
         child: Container(
-        padding: const EdgeInsets.all(16),
-        child: Stack(
-          children: [
-          // Compass with overlaid controls (85% size, centered)
-          Center(
-            child: FractionallySizedBox(
-              widthFactor: 0.85,
-              heightFactor: 0.85,
-              child: BaseCompass(
-                headingTrueRadians: widget.headingTrue ? headingRadians : null,
-                headingMagneticRadians: !widget.headingTrue ? headingRadians : null,
-                headingTrueDegrees: widget.headingTrue ? widget.currentHeading : null,
-                headingMagneticDegrees: !widget.headingTrue ? widget.currentHeading : null,
-                isSailingVessel: widget.isSailingVessel,
-                apparentWindAngle: widget.apparentWindAngle,
-                targetAWA: widget.targetAWA,
-                targetTolerance: widget.targetTolerance,
-                rangesBuilder: _buildAutopilotZones,
-                pointersBuilder: _buildAutopilotPointers,
-                customPaintersBuilder: _buildCustomPainters,
-                overlayBuilder: _buildAutopilotOverlay,
-                magneticHeadingDisplayBuilder: _buildEmptyHeadingDisplay,
-                trueHeadingDisplayBuilder: _buildEmptyHeadingDisplay,
-                allowHeadingModeToggle: false, // Autopilot uses one mode
-              ),
-            ),
-          ),
+          padding: const EdgeInsets.all(16),
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final isWide = constraints.maxWidth >= 600;
 
-          // Target box - top left corner
-          Positioned(
-            left: 16,
-            top: 16,
-            child: _buildTargetInfoBox(),
-          ),
+              final compassWidget = _buildCompassArea(headingRadians);
+              final controlsWidget = _buildControlsPanel(isWideLayout: isWide);
 
-          // Heading label - top right corner
-          Positioned(
-            right: 16,
-            top: 16,
-            child: _buildHeadingLabel(widget.currentHeading, widget.headingTrue),
-          ),
-
-          // Tack Port button - left side, aligned with compass midline (only for sailing vessels in Auto/Wind mode)
-          if (widget.isSailingVessel && widget.engaged && (widget.mode == 'Auto' || widget.mode == 'Wind'))
-            Positioned(
-              left: 0,
-              top: 0,
-              bottom: 0,
-              child: AnimatedOpacity(
-                opacity: _controlsOpacity,
-                duration: const Duration(milliseconds: 300),
-                child: Align(
-                  alignment: Alignment.centerLeft,
-                  child: SizedBox(
-                    width: 75,
-                    child: ElevatedButton(
-                      onPressed: () {
-                        widget.onTack?.call('port');
-                        _onHeadingAdjustmentSent();
-                      },
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.red.withValues(alpha: 0.6),
-                        padding: const EdgeInsets.symmetric(vertical: 8),
-                      ),
-                      child: const Text('TACK\nPORT',
-                        style: TextStyle(fontSize: 9),
-                        textAlign: TextAlign.center,
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-
-          // Tack Starboard button - right side, aligned with compass midline (only for sailing vessels in Auto/Wind mode)
-          if (widget.isSailingVessel && widget.engaged && (widget.mode == 'Auto' || widget.mode == 'Wind'))
-            Positioned(
-              right: 0,
-              top: 0,
-              bottom: 0,
-              child: AnimatedOpacity(
-                opacity: _controlsOpacity,
-                duration: const Duration(milliseconds: 300),
-                child: Align(
-                  alignment: Alignment.centerRight,
-                  child: SizedBox(
-                    width: 75,
-                    child: ElevatedButton(
-                      onPressed: () {
-                        widget.onTack?.call('starboard');
-                        _onHeadingAdjustmentSent();
-                      },
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.green.withValues(alpha: 0.6),
-                        padding: const EdgeInsets.symmetric(vertical: 8),
-                      ),
-                      child: const Text('TACK\nSTBD',
-                        style: TextStyle(fontSize: 9),
-                        textAlign: TextAlign.center,
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-
-          // Route info panel - middle area (only in route/nav mode with route data, hidden during dodge)
-          if ((widget.mode.toLowerCase() == 'route' || widget.mode.toLowerCase() == 'nav') &&
-              widget.nextWaypoint != null &&
-              !widget.dodgeActive)
-            Positioned(
-              bottom: 160,
-              left: 20,
-              right: 20,
-              child: AnimatedOpacity(
-                opacity: _controlsOpacity,
-                duration: const Duration(milliseconds: 300),
-                child: RouteInfoPanel(
-                  nextWaypoint: widget.nextWaypoint,
-                  eta: widget.eta,
-                  distanceToWaypoint: widget.distanceToWaypoint,
-                  timeToWaypoint: widget.timeToWaypoint,
-                  crossTrackError: widget.crossTrackError,
-                  onlyShowXTEWhenNear: widget.onlyShowXTEWhenNear,
-                ),
-              ),
-            ),
-
-          // Dodge mode indicator (top center when active)
-          if (widget.dodgeActive)
-            Positioned(
-              top: 20,
-              left: 0,
-              right: 0,
-              child: Center(
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: Colors.orange.withOpacity(0.9),
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: const Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.warning, color: Colors.white, size: 20),
-                      SizedBox(width: 8),
-                      Text(
-                        'DODGE MODE ACTIVE',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 14,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-
-          // Controls overlay - bottom third of compass
-          Positioned(
-            left: 0,
-            right: 0,
-            bottom: 0,
-            child: AnimatedOpacity(
-              opacity: _controlsOpacity,
-              duration: const Duration(milliseconds: 300),
-              child: Container(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [
-                      Colors.black.withValues(alpha: 0.0),
-                      Colors.black.withValues(alpha: 0.7),
-                      Colors.black.withValues(alpha: 0.9),
-                    ],
-                  ),
-                ),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
+              if (isWide) {
+                // Side-by-side: compass left (max 50%), controls right
+                return Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    const SizedBox(height: 12),
-
-                    // Mode selector and engage/disengage
-                    _buildModeControls(context),
-
-                    const SizedBox(height: 10),
-
-                    // Heading adjustment buttons (for all vessels in Auto/Compass/Wind mode)
-                    if (widget.engaged && (widget.mode == 'Auto' || widget.mode == 'Compass' || widget.mode == 'Wind'))
-                      _buildHeadingControls(),
-
-                    // Gybe buttons (V2 only, sailing vessels, wind mode for downwind sailing)
-                    if (widget.isV2Api && widget.isSailingVessel && widget.engaged && widget.mode == 'Wind')
-                      _buildGybeControls(),
-
-                    // Dodge mode toggle (V2 only, route/nav mode)
-                    if (widget.isV2Api && widget.engaged && (widget.mode.toLowerCase() == 'route' || widget.mode.toLowerCase() == 'nav'))
-                      _buildDodgeModeToggle(),
-
-                    // Advance waypoint button (only in route/nav mode, hidden during dodge)
-                    if (widget.engaged &&
-                        (widget.mode.toLowerCase() == 'route' || widget.mode.toLowerCase() == 'nav') &&
-                        !widget.dodgeActive)
-                      _buildAdvanceWaypointButton(),
-
-                    const SizedBox(height: 10),
-
-                    // Rudder indicator
-                    _buildRudderIndicator(),
-
-                    const SizedBox(height: 12),
+                    // Compass area - max 50% width
+                    SizedBox(
+                      width: constraints.maxWidth * 0.5 - 8,
+                      child: compassWidget,
+                    ),
+                    const SizedBox(width: 16),
+                    // Controls - remaining space, centered vertically
+                    Expanded(
+                      child: Center(child: controlsWidget),
+                    ),
                   ],
-                ),
-              ),
-            ),
+                );
+              } else {
+                // Stacked: compass top, controls below
+                return Stack(
+                  children: [
+                    // Compass fills available space
+                    Positioned.fill(child: compassWidget),
+                    // Controls overlay at bottom
+                    Positioned(
+                      left: 0,
+                      right: 0,
+                      bottom: 0,
+                      child: controlsWidget,
+                    ),
+                  ],
+                );
+              }
+            },
           ),
-          ],
         ),
-      ),
       ),
     );
   }

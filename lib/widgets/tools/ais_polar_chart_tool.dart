@@ -42,6 +42,7 @@ class AISPolarChartTool extends StatelessWidget {
     // Get configuration from custom properties
     final showLabels = config.style.customProperties?['showLabels'] as bool? ?? true;
     final showGrid = config.style.customProperties?['showGrid'] as bool? ?? true;
+    final pruneMinutes = config.style.customProperties?['pruneMinutes'] as int? ?? 15;
 
     // Get paths from data sources (with defaults)
     final positionPath = _getPath(0);
@@ -64,6 +65,7 @@ class AISPolarChartTool extends StatelessWidget {
       vesselColor: vesselColor,
       showLabels: showLabels,
       showGrid: showGrid,
+      pruneMinutes: pruneMinutes,
     );
   }
 }
@@ -88,6 +90,7 @@ class AISPolarChartBuilder extends ToolBuilder {
           'title',             // Chart title
           'showLabel',         // Show compass labels (N, NE, E, etc.)
           'showGrid',          // Show grid lines
+          'pruneMinutes',      // Minutes before vessel is removed from display
         ],
       ),
     );
@@ -115,6 +118,7 @@ class AISPolarChartBuilder extends ToolBuilder {
           'showLabels': true,
           'showGrid': true,
           'title': 'AIS Vessels',
+          'pruneMinutes': 15,
         },
       ),
     );
