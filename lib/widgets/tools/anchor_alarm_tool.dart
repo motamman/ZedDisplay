@@ -387,23 +387,12 @@ class _AnchorAlarmToolState extends State<AnchorAlarmTool> {
             return Stack(
               children: [
                 Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     Expanded(child: mapWidget),
                     const SizedBox(width: 8),
                     Expanded(child: controlsWidget),
                   ],
-                ),
-                // View controls (centered at top of map half)
-                Positioned(
-                  top: 8,
-                  left: constraints.maxWidth * 0.5 - 48,
-                  child: _buildViewControls(),
-                ),
-                // Status panel (top left)
-                Positioned(
-                  top: 8,
-                  left: 8,
-                  child: _buildStatusPanel(state),
                 ),
                 // Check-in overlay
                 if (_alarmService.awaitingCheckIn)
@@ -427,18 +416,6 @@ class _AnchorAlarmToolState extends State<AnchorAlarmTool> {
                     const SizedBox(height: 8),
                     Expanded(flex: 1, child: controlsWidget),
                   ],
-                ),
-                // View controls (top right of map)
-                Positioned(
-                  top: 8,
-                  right: 8,
-                  child: _buildViewControls(),
-                ),
-                // Status panel (top left)
-                Positioned(
-                  top: 8,
-                  left: 8,
-                  child: _buildStatusPanel(state),
                 ),
                 // Check-in overlay
                 if (_alarmService.awaitingCheckIn)
@@ -534,91 +511,111 @@ class _AnchorAlarmToolState extends State<AnchorAlarmTool> {
       center = LatLng(vesselPos.latitude, vesselPos.longitude);
     }
 
-    return FlutterMap(
-      mapController: _mapController,
-      options: MapOptions(
-        initialCenter: center,
-        initialZoom: 16,
-        minZoom: 5,
-        maxZoom: 18,
-        onPositionChanged: (position, hasGesture) {
-          if (hasGesture && _mapAutoFollow) {
-            setState(() => _mapAutoFollow = false);
-          }
-        },
-      ),
+    return Column(
       children: [
-        // Base map
-        TileLayer(
-          urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-          userAgentPackageName: 'com.zennora.signalk',
+        Padding(
+          padding: const EdgeInsets.all(8),
+          child: _buildStatusPanel(state),
         ),
-        // OpenSeaMap overlay
-        TileLayer(
-          urlTemplate: 'https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png',
-          userAgentPackageName: 'com.zennora.signalk',
-        ),
-        // Track history
-        if (_alarmService.trackHistory.isNotEmpty)
-          PolylineLayer(
-            polylines: [
-              Polyline(
-                points: _alarmService.trackHistory
-                    .map((p) => LatLng(p.latitude, p.longitude))
-                    .toList(),
-                color: Colors.blue.withValues(alpha: 0.7),
-                strokeWidth: 2,
+        Expanded(
+          child: Stack(
+            children: [
+              FlutterMap(
+                mapController: _mapController,
+                options: MapOptions(
+                  initialCenter: center,
+                  initialZoom: 16,
+                  minZoom: 5,
+                  maxZoom: 18,
+                  onPositionChanged: (position, hasGesture) {
+                    if (hasGesture && _mapAutoFollow) {
+                      setState(() => _mapAutoFollow = false);
+                    }
+                  },
+                ),
+                children: [
+                  // Base map
+                  TileLayer(
+                    urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                    userAgentPackageName: 'com.zennora.signalk',
+                  ),
+                  // OpenSeaMap overlay
+                  TileLayer(
+                    urlTemplate: 'https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png',
+                    userAgentPackageName: 'com.zennora.signalk',
+                  ),
+                  // Track history
+                  if (_alarmService.trackHistory.isNotEmpty)
+                    PolylineLayer(
+                      polylines: [
+                        Polyline(
+                          points: _alarmService.trackHistory
+                              .map((p) => LatLng(p.latitude, p.longitude))
+                              .toList(),
+                          color: Colors.blue.withValues(alpha: 0.7),
+                          strokeWidth: 2,
+                        ),
+                      ],
+                    ),
+                  // Alarm radius circle
+                  if (anchorPos != null && state.maxRadius != null)
+                    CircleLayer(
+                      circles: [
+                        // Alarm radius (red)
+                        CircleMarker(
+                          point: LatLng(anchorPos.latitude, anchorPos.longitude),
+                          radius: state.maxRadius!,
+                          useRadiusInMeter: true,
+                          color: Colors.red.withValues(alpha: 0.1),
+                          borderColor: Colors.red,
+                          borderStrokeWidth: 2,
+                        ),
+                        // Current distance indicator
+                        if (state.currentRadius != null)
+                          CircleMarker(
+                            point: LatLng(anchorPos.latitude, anchorPos.longitude),
+                            radius: state.currentRadius!,
+                            useRadiusInMeter: true,
+                            color: Colors.transparent,
+                            borderColor: _getDistanceColor(state),
+                            borderStrokeWidth: 1,
+                          ),
+                      ],
+                    ),
+                  // Markers
+                  MarkerLayer(
+                    markers: [
+                      // Anchor position
+                      if (anchorPos != null)
+                        Marker(
+                          point: LatLng(anchorPos.latitude, anchorPos.longitude),
+                          width: 32,
+                          height: 32,
+                          child: const Icon(Icons.anchor, color: Colors.brown, size: 28),
+                        ),
+                      // Vessel position
+                      if (vesselPos != null)
+                        Marker(
+                          point: LatLng(vesselPos.latitude, vesselPos.longitude),
+                          width: 28,
+                          height: 28,
+                          child: Transform.rotate(
+                            angle: (state.vesselHeading ?? 0) * math.pi / 180,
+                            child: const Icon(Icons.navigation, color: Colors.green, size: 24),
+                          ),
+                        ),
+                    ],
+                  ),
+                ],
+              ),
+              // View controls
+              Positioned(
+                top: 8,
+                right: 8,
+                child: _buildViewControls(),
               ),
             ],
           ),
-        // Alarm radius circle
-        if (anchorPos != null && state.maxRadius != null)
-          CircleLayer(
-            circles: [
-              // Alarm radius (red)
-              CircleMarker(
-                point: LatLng(anchorPos.latitude, anchorPos.longitude),
-                radius: state.maxRadius!,
-                useRadiusInMeter: true,
-                color: Colors.red.withValues(alpha: 0.1),
-                borderColor: Colors.red,
-                borderStrokeWidth: 2,
-              ),
-              // Current distance indicator
-              if (state.currentRadius != null)
-                CircleMarker(
-                  point: LatLng(anchorPos.latitude, anchorPos.longitude),
-                  radius: state.currentRadius!,
-                  useRadiusInMeter: true,
-                  color: Colors.transparent,
-                  borderColor: _getDistanceColor(state),
-                  borderStrokeWidth: 1,
-                ),
-            ],
-          ),
-        // Markers
-        MarkerLayer(
-          markers: [
-            // Anchor position
-            if (anchorPos != null)
-              Marker(
-                point: LatLng(anchorPos.latitude, anchorPos.longitude),
-                width: 32,
-                height: 32,
-                child: const Icon(Icons.anchor, color: Colors.brown, size: 28),
-              ),
-            // Vessel position
-            if (vesselPos != null)
-              Marker(
-                point: LatLng(vesselPos.latitude, vesselPos.longitude),
-                width: 28,
-                height: 28,
-                child: Transform.rotate(
-                  angle: (state.vesselHeading ?? 0) * math.pi / 180,
-                  child: const Icon(Icons.navigation, color: Colors.green, size: 24),
-                ),
-              ),
-          ],
         ),
       ],
     );
@@ -632,18 +629,37 @@ class _AnchorAlarmToolState extends State<AnchorAlarmTool> {
     if (!state.isActive || state.anchorPosition == null) {
       return Container(
         color: backgroundColor,
-        child: const Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.anchor_outlined, size: 48, color: Colors.grey),
-              SizedBox(height: 16),
-              Text(
-                'Drop anchor to see polar view',
-                style: TextStyle(color: Colors.grey, fontSize: 16),
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.all(8),
+              child: _buildStatusPanel(state),
+            ),
+            Expanded(
+              child: Stack(
+                children: [
+                  const Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.anchor_outlined, size: 48, color: Colors.grey),
+                        SizedBox(height: 16),
+                        Text(
+                          'Drop anchor to see polar view',
+                          style: TextStyle(color: Colors.grey, fontSize: 16),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Positioned(
+                    top: 8,
+                    right: 8,
+                    child: _buildViewControls(),
+                  ),
+                ],
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       );
     }
@@ -717,107 +733,126 @@ class _AnchorAlarmToolState extends State<AnchorAlarmTool> {
 
     return Container(
       color: backgroundColor,
-      child: Center(
-        child: AspectRatio(
-          aspectRatio: 1.0,
-          child: Padding(
+      child: Column(
+        children: [
+          Padding(
             padding: const EdgeInsets.all(8),
-            child: SfCartesianChart(
-          plotAreaBackgroundColor: Colors.transparent,
-          margin: const EdgeInsets.all(5),
-          primaryXAxis: NumericAxis(
-            minimum: -displayRange,
-            maximum: displayRange,
-            isVisible: false,
-            majorGridLines: const MajorGridLines(width: 0),
+            child: _buildStatusPanel(state),
           ),
-          primaryYAxis: NumericAxis(
-            minimum: -displayRange,
-            maximum: displayRange,
-            isVisible: false,
-            majorGridLines: const MajorGridLines(width: 0),
-          ),
-          plotAreaBorderWidth: 0,
-          annotations: _buildPolarAnnotations(
-            displayRange,
-            isDark,
-            vesselX: chartData.where((p) => p.type == 'vessel').firstOrNull?.x,
-            vesselY: chartData.where((p) => p.type == 'vessel').firstOrNull?.y,
-            vesselHeading: state.vesselHeading,
-          ),
-          series: <CartesianSeries>[
-            // Grid circles
-            ..._buildPolarGridSeries(displayRange, isDark),
+          Expanded(
+            child: Stack(
+              children: [
+                Center(
+                  child: AspectRatio(
+                    aspectRatio: 1.0,
+                    child: Padding(
+                      padding: const EdgeInsets.all(8),
+                      child: SfCartesianChart(
+                        plotAreaBackgroundColor: Colors.transparent,
+                        margin: const EdgeInsets.all(5),
+                        primaryXAxis: NumericAxis(
+                          minimum: -displayRange,
+                          maximum: displayRange,
+                          isVisible: false,
+                          majorGridLines: const MajorGridLines(width: 0),
+                        ),
+                        primaryYAxis: NumericAxis(
+                          minimum: -displayRange,
+                          maximum: displayRange,
+                          isVisible: false,
+                          majorGridLines: const MajorGridLines(width: 0),
+                        ),
+                        plotAreaBorderWidth: 0,
+                        annotations: _buildPolarAnnotations(
+                          displayRange,
+                          isDark,
+                          vesselX: chartData.where((p) => p.type == 'vessel').firstOrNull?.x,
+                          vesselY: chartData.where((p) => p.type == 'vessel').firstOrNull?.y,
+                          vesselHeading: state.vesselHeading,
+                        ),
+                        series: <CartesianSeries>[
+                          // Grid circles
+                          ..._buildPolarGridSeries(displayRange, isDark),
 
-            // Track history line (connects all points)
-            if (trackPoints.isNotEmpty)
-              LineSeries<_PolarPoint, double>(
-                dataSource: trackPoints,
-                xValueMapper: (p, _) => p.x,
-                yValueMapper: (p, _) => p.y,
-                color: Colors.blue,
-                width: 2,
-                animationDuration: 0,
-              ),
+                          // Track history line (connects all points)
+                          if (trackPoints.isNotEmpty)
+                            LineSeries<_PolarPoint, double>(
+                              dataSource: trackPoints,
+                              xValueMapper: (p, _) => p.x,
+                              yValueMapper: (p, _) => p.y,
+                              color: Colors.blue,
+                              width: 2,
+                              animationDuration: 0,
+                            ),
 
-            // Track history points (dots along the track, larger than line)
-            if (trackPoints.isNotEmpty)
-              ScatterSeries<_PolarPoint, double>(
-                dataSource: trackPoints,
-                xValueMapper: (p, _) => p.x,
-                yValueMapper: (p, _) => p.y,
-                color: Colors.blue,
-                animationDuration: 0,
-                markerSettings: const MarkerSettings(
-                  height: 5,
-                  width: 5,
-                  shape: DataMarkerType.circle,
+                          // Track history points (dots along the track, larger than line)
+                          if (trackPoints.isNotEmpty)
+                            ScatterSeries<_PolarPoint, double>(
+                              dataSource: trackPoints,
+                              xValueMapper: (p, _) => p.x,
+                              yValueMapper: (p, _) => p.y,
+                              color: Colors.blue,
+                              animationDuration: 0,
+                              markerSettings: const MarkerSettings(
+                                height: 5,
+                                width: 5,
+                                shape: DataMarkerType.circle,
+                              ),
+                            ),
+
+                          // Alarm radius circle (red)
+                          LineSeries<_PolarPoint, double>(
+                            dataSource: alarmCircle,
+                            xValueMapper: (p, _) => p.x,
+                            yValueMapper: (p, _) => p.y,
+                            color: Colors.red.withValues(alpha: 0.7),
+                            width: 2,
+                            animationDuration: 0,
+                          ),
+
+                          // Current distance circle (color-coded)
+                          if (currentCircle.isNotEmpty)
+                            LineSeries<_PolarPoint, double>(
+                              dataSource: currentCircle,
+                              xValueMapper: (p, _) => p.x,
+                              yValueMapper: (p, _) => p.y,
+                              color: _getDistanceColor(state).withValues(alpha: 0.5),
+                              width: 1,
+                              dashArray: const <double>[5, 3],
+                              animationDuration: 0,
+                            ),
+
+                          // Anchor point (center)
+                          ScatterSeries<_PolarPoint, double>(
+                            dataSource: chartData.where((p) => p.type == 'anchor').toList(),
+                            xValueMapper: (p, _) => p.x,
+                            yValueMapper: (p, _) => p.y,
+                            color: Colors.brown,
+                            animationDuration: 0,
+                            markerSettings: const MarkerSettings(
+                              height: 16,
+                              width: 16,
+                              shape: DataMarkerType.diamond,
+                              borderColor: Colors.white,
+                              borderWidth: 2,
+                            ),
+                          ),
+
+                          // Vessel is now rendered as an annotation with rotated icon
+                        ],
+                      ),
+                    ),
+                  ),
                 ),
-              ),
-
-            // Alarm radius circle (red)
-            LineSeries<_PolarPoint, double>(
-              dataSource: alarmCircle,
-              xValueMapper: (p, _) => p.x,
-              yValueMapper: (p, _) => p.y,
-              color: Colors.red.withValues(alpha: 0.7),
-              width: 2,
-              animationDuration: 0,
-            ),
-
-            // Current distance circle (color-coded)
-            if (currentCircle.isNotEmpty)
-              LineSeries<_PolarPoint, double>(
-                dataSource: currentCircle,
-                xValueMapper: (p, _) => p.x,
-                yValueMapper: (p, _) => p.y,
-                color: _getDistanceColor(state).withValues(alpha: 0.5),
-                width: 1,
-                dashArray: const <double>[5, 3],
-                animationDuration: 0,
-              ),
-
-            // Anchor point (center)
-            ScatterSeries<_PolarPoint, double>(
-              dataSource: chartData.where((p) => p.type == 'anchor').toList(),
-              xValueMapper: (p, _) => p.x,
-              yValueMapper: (p, _) => p.y,
-              color: Colors.brown,
-              animationDuration: 0,
-              markerSettings: const MarkerSettings(
-                height: 16,
-                width: 16,
-                shape: DataMarkerType.diamond,
-                borderColor: Colors.white,
-                borderWidth: 2,
-              ),
-            ),
-
-            // Vessel is now rendered as an annotation with rotated icon
-          ],
+                Positioned(
+                  top: 8,
+                  right: 8,
+                  child: _buildViewControls(),
+                ),
+              ],
             ),
           ),
-        ),
+        ],
       ),
     );
   }
@@ -975,29 +1010,28 @@ class _AnchorAlarmToolState extends State<AnchorAlarmTool> {
 
   Widget _buildStatusPanel(AnchorState state) {
     return Container(
-      padding: const EdgeInsets.all(10),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
         color: Colors.black.withValues(alpha: 0.8),
         borderRadius: BorderRadius.circular(8),
       ),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
+          // Row 1: Anchored status
           Row(
-            mainAxisSize: MainAxisSize.min,
             children: [
               Icon(
                 state.isActive ? Icons.anchor : Icons.anchor_outlined,
                 color: state.isActive ? Colors.orange : Colors.grey,
-                size: 20,
+                size: 18,
               ),
               const SizedBox(width: 6),
               Text(
                 state.isActive ? 'ANCHORED' : 'NOT SET',
                 style: TextStyle(
                   fontWeight: FontWeight.bold,
-                  fontSize: 14,
+                  fontSize: 13,
                   color: state.isActive ? Colors.green : Colors.grey,
                 ),
               ),
@@ -1005,44 +1039,47 @@ class _AnchorAlarmToolState extends State<AnchorAlarmTool> {
           ),
           if (state.isActive) ...[
             const SizedBox(height: 6),
-            _buildStatusRow('Distance', _formatDistance(state.currentRadius, 'navigation.anchor.currentRadius')),
-            _buildStatusRow('Alarm', _formatDistance(state.maxRadius, 'navigation.anchor.maxRadius')),
-            _buildStatusRow('Rode', _formatDistance(state.rodeLength, 'navigation.anchor.rodeLength')),
-            // Show depth from sensor or manual value
-            if (_alarmService.hasDepthSensor || _manualDepthValue > 0)
-              _buildStatusRow('Depth', _formatDepth(_alarmService.currentDepth ?? _manualDepthValue)),
-            if (state.bearingTrue != null)
-              _buildStatusRow('Bearing', _formatBearing(state.bearingTrue!)),
-            _buildStatusRow('Track', '${_alarmService.trackHistory.length} pts'),
+            // Row 2: Distance, Bearing, Alarm
+            Row(
+              children: [
+                Expanded(child: _buildStatusItem('Dist', _formatDistance(state.currentRadius, 'navigation.anchor.currentRadius'))),
+                Expanded(child: _buildStatusItem('Brg', state.bearingTrue != null ? _formatBearing(state.bearingTrue!) : '--')),
+                Expanded(child: _buildStatusItem('Alarm', _formatDistance(state.maxRadius, 'navigation.anchor.maxRadius'))),
+              ],
+            ),
+            const SizedBox(height: 2),
+            // Row 3: Rode, Depth, Track
+            Row(
+              children: [
+                Expanded(child: _buildStatusItem('Rode', _formatDistance(state.rodeLength, 'navigation.anchor.rodeLength'))),
+                Expanded(child: _buildStatusItem('Depth', _formatDepth(_alarmService.currentDepth ?? _manualDepthValue))),
+                Expanded(child: _buildStatusItem('Track', '${_alarmService.trackHistory.length} pts')),
+              ],
+            ),
           ],
         ],
       ),
     );
   }
 
-  Widget _buildStatusRow(String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 1),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          SizedBox(
-            width: 55,
-            child: Text(
-              label,
-              style: const TextStyle(color: Colors.white60, fontSize: 11),
-            ),
+  Widget _buildStatusItem(String label, String value) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(color: Colors.white60, fontSize: 9),
+        ),
+        Text(
+          value,
+          style: const TextStyle(
+            fontWeight: FontWeight.bold,
+            fontSize: 12,
+            color: Colors.white,
           ),
-          Text(
-            value,
-            style: const TextStyle(
-              fontWeight: FontWeight.bold,
-              fontSize: 13,
-              color: Colors.white,
-            ),
-          ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 
