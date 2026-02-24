@@ -110,10 +110,6 @@ class DashboardService extends ChangeNotifier {
 
     if (requiredPaths.isNotEmpty) {
       await _signalKService.setActiveTemplatePaths(requiredPaths);
-
-      if (kDebugMode) {
-        print('Updated SignalK subscriptions: ${requiredPaths.length} paths from ${toolIds.length} tools');
-      }
     }
   }
 

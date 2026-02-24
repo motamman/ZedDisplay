@@ -62,9 +62,6 @@ class MessagingService extends ChangeNotifier {
       await _onConnected();
     }
 
-    if (kDebugMode) {
-      print('MessagingService initialized with ${_messages.length} cached messages');
-    }
   }
 
   @override
@@ -121,9 +118,6 @@ class MessagingService extends ChangeNotifier {
   }
 
   Future<void> _onConnected() async {
-    if (kDebugMode) {
-      print('MessagingService: Connected');
-    }
     await _ensureResourceType();
     _startPolling();
     await _fetchMessages();
@@ -138,9 +132,6 @@ class MessagingService extends ChangeNotifier {
   }
 
   void _onDisconnected() {
-    if (kDebugMode) {
-      print('MessagingService: Disconnected');
-    }
     _pollTimer?.cancel();
     _pollTimer = null;
   }

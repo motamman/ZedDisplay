@@ -66,10 +66,6 @@ class FileShareService extends ChangeNotifier {
     if (_signalKService.isConnected) {
       await _onConnected();
     }
-
-    if (kDebugMode) {
-      print('FileShareService initialized with ${_files.length} cached files');
-    }
   }
 
   Future<void> _initDownloadsDir() async {
@@ -138,9 +134,6 @@ class FileShareService extends ChangeNotifier {
   }
 
   Future<void> _onConnected() async {
-    if (kDebugMode) {
-      print('FileShareService: Connected');
-    }
     await _ensureResourceType();
     _startPolling();
     await _fetchFiles();
@@ -155,9 +148,6 @@ class FileShareService extends ChangeNotifier {
   }
 
   void _onDisconnected() {
-    if (kDebugMode) {
-      print('FileShareService: Disconnected');
-    }
     _pollTimer?.cancel();
     _pollTimer = null;
   }
