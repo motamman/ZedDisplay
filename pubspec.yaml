@@ -3,6 +3,7 @@ description: A SignalK data display app with gauges and charts
 publish_to: 'none'
 version: 0.5.8+26
 
+
 environment:
   sdk: '>=3.8.0 <4.0.0'
 
