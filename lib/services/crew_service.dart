@@ -749,8 +749,9 @@ class CrewService extends ChangeNotifier {
 
           final isOnline = now.difference(lastSeen) < _presenceTimeout;
 
-          _presence[resourceId] = CrewPresence(
-            crewId: resourceId,
+          // Store presence using canonicalId to match crew member lookup
+          _presence[canonicalId] = CrewPresence(
+            crewId: canonicalId,
             online: isOnline,
             lastSeen: lastSeen,
           );
