@@ -3,9 +3,19 @@
 library;
 
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import '../models/tool.dart';
+import '../models/tool_config.dart';
 import '../models/tool_definition.dart' as def;
 import '../services/tool_registry.dart';
+import '../services/tool_service.dart';
 import 'tool_config_screen.dart';
+
+/// Tools that require no configuration and can be placed directly
+const _noConfigTools = {
+  'rpi_monitor',
+  'system_monitor',
+};
 
 /// Screen for selecting a tool type to add to the dashboard
 class ToolSelectorScreen extends StatefulWidget {
@@ -234,8 +244,17 @@ class _ToolSelectorScreenState extends State<ToolSelectorScreen> {
     );
   }
 
-  /// Open ToolConfigScreen with pre-selected tool type
+  /// Open ToolConfigScreen with pre-selected tool type, or place directly if no config needed
   Future<void> _openToolConfig(BuildContext context, def.ToolDefinition definition) async {
+    // For tools that don't need configuration, create and place directly
+    if (_noConfigTools.contains(definition.id)) {
+      final result = await _createToolDirectly(context, definition);
+      if (result != null && mounted && context.mounted) {
+        Navigator.of(context).pop(result);
+      }
+      return;
+    }
+
     final result = await Navigator.of(context).push(
       MaterialPageRoute(
         builder: (context) => ToolConfigScreen(
@@ -249,6 +268,41 @@ class _ToolSelectorScreenState extends State<ToolSelectorScreen> {
     if (result != null && mounted && context.mounted) {
       Navigator.of(context).pop(result);
     }
+  }
+
+  /// Create a tool directly without configuration screen
+  Future<Map<String, dynamic>?> _createToolDirectly(
+    BuildContext context,
+    def.ToolDefinition definition,
+  ) async {
+    final toolService = Provider.of<ToolService>(context, listen: false);
+
+    // Create tool with empty/default config
+    final config = ToolConfig(
+      dataSources: [],
+      style: StyleConfig(),
+    );
+
+    final tool = toolService.createTool(
+      toolTypeId: definition.id,
+      config: config,
+      name: definition.name,
+      description: definition.description,
+      author: 'Local User',
+      defaultWidth: definition.defaultWidth,
+      defaultHeight: definition.defaultHeight,
+      category: ToolCategory.other,
+      tags: [definition.id],
+    );
+
+    // Save the tool
+    await toolService.saveTool(tool);
+
+    return {
+      'tool': tool,
+      'width': definition.defaultWidth,
+      'height': definition.defaultHeight,
+    };
   }
 }
 

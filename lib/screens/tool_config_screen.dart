@@ -164,20 +164,6 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
         DataSource(path: 'navigation.courseGreatCircle.nextPoint.bearingTrue'),
         DataSource(path: 'navigation.courseGreatCircle.nextPoint.distance'),
       ];
-    } else if (toolTypeId == 'rpi_monitor') {
-      // Special handling for rpi_monitor - add default paths
-      _dataSources = [
-        DataSource(path: 'environment.rpi.cpu.utilisation', label: 'CPU Overall'),
-        DataSource(path: 'environment.rpi.cpu.core.1.utilisation', label: 'CPU Core 1'),
-        DataSource(path: 'environment.rpi.cpu.core.2.utilisation', label: 'CPU Core 2'),
-        DataSource(path: 'environment.rpi.cpu.core.3.utilisation', label: 'CPU Core 3'),
-        DataSource(path: 'environment.rpi.cpu.core.4.utilisation', label: 'CPU Core 4'),
-        DataSource(path: 'environment.rpi.cpu.temperature', label: 'CPU Temperature'),
-        DataSource(path: 'environment.rpi.gpu.temperature', label: 'GPU Temperature'),
-        DataSource(path: 'environment.rpi.memory.utilisation', label: 'Memory'),
-        DataSource(path: 'environment.rpi.storage.utilisation', label: 'Storage'),
-        DataSource(path: 'environment.rpi.uptime', label: 'Uptime'),
-      ];
     } else {
       final defaultConfig = registry.getDefaultConfig(toolTypeId, vesselId);
       if (defaultConfig != null && defaultConfig.dataSources.isNotEmpty) {
@@ -466,7 +452,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
     if (!_formKey.currentState!.validate()) return;
     // WebView, server_manager, system_monitor, and crew tools don't need data sources
     if (_selectedToolTypeId == null) return;
-    if (_selectedToolTypeId != 'webview' && _selectedToolTypeId != 'server_manager' && _selectedToolTypeId != 'system_monitor' && _selectedToolTypeId != 'crew_messages' && _selectedToolTypeId != 'crew_list' && _selectedToolTypeId != 'intercom' && _selectedToolTypeId != 'file_share' && _selectedToolTypeId != 'weather_alerts' && _selectedToolTypeId != 'clock_alarm' && _selectedToolTypeId != 'weather_api_spinner' && _selectedToolTypeId != 'victron_flow' && _selectedToolTypeId != 'device_access_manager' && _dataSources.isEmpty) return;
+    if (_selectedToolTypeId != 'webview' && _selectedToolTypeId != 'server_manager' && _selectedToolTypeId != 'system_monitor' && _selectedToolTypeId != 'crew_messages' && _selectedToolTypeId != 'crew_list' && _selectedToolTypeId != 'intercom' && _selectedToolTypeId != 'file_share' && _selectedToolTypeId != 'weather_alerts' && _selectedToolTypeId != 'clock_alarm' && _selectedToolTypeId != 'weather_api_spinner' && _selectedToolTypeId != 'victron_flow' && _selectedToolTypeId != 'device_access_manager' && _selectedToolTypeId != 'rpi_monitor' && _dataSources.isEmpty) return;
 
     final toolService = Provider.of<ToolService>(context, listen: false);
 
@@ -635,7 +621,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
         title: Text(widget.existingTool == null ? 'Add Tool' : 'Edit Tool'),
         actions: [
           TextButton.icon(
-            onPressed: _selectedToolTypeId != null && (_dataSources.isNotEmpty || _selectedToolTypeId == 'webview' || _selectedToolTypeId == 'server_manager' || _selectedToolTypeId == 'system_monitor' || _selectedToolTypeId == 'crew_messages' || _selectedToolTypeId == 'crew_list' || _selectedToolTypeId == 'intercom' || _selectedToolTypeId == 'file_share' || _selectedToolTypeId == 'weather_alerts' || _selectedToolTypeId == 'clock_alarm' || _selectedToolTypeId == 'weather_api_spinner' || _selectedToolTypeId == 'victron_flow' || _selectedToolTypeId == 'device_access_manager')
+            onPressed: _selectedToolTypeId != null && (_dataSources.isNotEmpty || _selectedToolTypeId == 'webview' || _selectedToolTypeId == 'server_manager' || _selectedToolTypeId == 'system_monitor' || _selectedToolTypeId == 'crew_messages' || _selectedToolTypeId == 'crew_list' || _selectedToolTypeId == 'intercom' || _selectedToolTypeId == 'file_share' || _selectedToolTypeId == 'weather_alerts' || _selectedToolTypeId == 'clock_alarm' || _selectedToolTypeId == 'weather_api_spinner' || _selectedToolTypeId == 'victron_flow' || _selectedToolTypeId == 'device_access_manager' || _selectedToolTypeId == 'rpi_monitor')
                 ? _saveTool
                 : null,
             icon: const Icon(Icons.check),
@@ -648,8 +634,8 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
-            // Data Source Configuration (hide for webview, server_manager, system_monitor, crew tools, weather_alerts, clock_alarm, weather_api_spinner, victron_flow, device_access_manager)
-            if (_selectedToolTypeId != 'webview' && _selectedToolTypeId != 'server_manager' && _selectedToolTypeId != 'system_monitor' && _selectedToolTypeId != 'crew_messages' && _selectedToolTypeId != 'crew_list' && _selectedToolTypeId != 'intercom' && _selectedToolTypeId != 'file_share' && _selectedToolTypeId != 'weather_alerts' && _selectedToolTypeId != 'clock_alarm' && _selectedToolTypeId != 'weather_api_spinner' && _selectedToolTypeId != 'victron_flow' && _selectedToolTypeId != 'device_access_manager')
+            // Data Source Configuration (hide for webview, server_manager, system_monitor, crew tools, weather_alerts, clock_alarm, weather_api_spinner, victron_flow, device_access_manager, rpi_monitor)
+            if (_selectedToolTypeId != 'webview' && _selectedToolTypeId != 'server_manager' && _selectedToolTypeId != 'system_monitor' && _selectedToolTypeId != 'crew_messages' && _selectedToolTypeId != 'crew_list' && _selectedToolTypeId != 'intercom' && _selectedToolTypeId != 'file_share' && _selectedToolTypeId != 'weather_alerts' && _selectedToolTypeId != 'clock_alarm' && _selectedToolTypeId != 'weather_api_spinner' && _selectedToolTypeId != 'victron_flow' && _selectedToolTypeId != 'device_access_manager' && _selectedToolTypeId != 'rpi_monitor')
               Card(
               child: Padding(
                 padding: const EdgeInsets.all(16),
