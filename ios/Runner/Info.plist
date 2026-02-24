@@ -48,6 +48,15 @@
 	<!-- Microphone permission for voice intercom -->
 	<key>NSMicrophoneUsageDescription</key>
 	<string>ZedDisplay needs microphone access for crew voice intercom</string>
+	<!-- Photo library permission (required by dependencies) -->
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>ZedDisplay may save dashboard screenshots to your photo library</string>
+	<!-- Camera permission (required by dependencies) -->
+	<key>NSCameraUsageDescription</key>
+	<string>ZedDisplay may use the camera for QR code scanning</string>
+	<!-- Document handling -->
+	<key>LSSupportsOpeningDocumentsInPlace</key>
+	<true/>
 	<!-- Document types for .zedjson files -->
 	<key>CFBundleDocumentTypes</key>
 	<array>
