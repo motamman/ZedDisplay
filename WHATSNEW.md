@@ -1,4 +1,23 @@
-# What's New in v0.5.23
+# What's New in v0.5.24
+
+## Release Notes (Google Play - max 500 chars)
+
+v0.5.24 Anchor Widget Layout
+
+IMPROVED: Anchor alarm widget now uses responsive layout. On wider screens (≥600px), map and controls display side-by-side. On narrow screens, they stack vertically. Controls no longer overlay the map - each gets 50% of the widget area.
+
+## Release Notes (App Store / TestFlight - max 4000 chars)
+
+### Anchor Widget Responsive Layout (IMPROVED)
+- **Wide Mode** - Map and controls side-by-side on screens ≥600px wide
+- **Narrow Mode** - Map and controls stacked vertically on smaller screens
+- **Space Sharing** - Each section gets 50% of widget area (no more overlay)
+- **Scrollable Controls** - Control panel scrolls when space is limited
+- **Adaptive View Controls** - Buttons positioned appropriately for each layout
+
+---
+
+# Previous: v0.5.23
 
 ## Release Notes (Google Play - max 500 chars)
 

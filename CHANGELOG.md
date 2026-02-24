@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.24+33] - 2026-02-24
+
+### Changed
+- **Anchor Widget Responsive Layout**: Redesigned anchor alarm widget with adaptive layout
+  - Wide mode (≥600px): Map and controls side-by-side (50%/50% split)
+  - Narrow mode (<600px): Map and controls stacked vertically (50%/50% split)
+  - Controls no longer overlay the map - they share space properly
+  - Added SingleChildScrollView to control panel for overflow handling
+  - View controls positioned appropriately for each layout mode
+
 ## [0.5.23+32] - 2026-02-24
 
 ### Fixed

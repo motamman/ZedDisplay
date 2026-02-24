@@ -137,14 +137,18 @@ A customizable SignalK marine dashboard and crew comms application to display re
   <img src="screenshots/gnss.png" alt="GNSS Status" width="280">
 
 - **Anchor Alarm**: Comprehensive anchor watch with visual monitoring
+  - Responsive layout: side-by-side on wide screens, stacked on narrow screens
   - Real-time map display showing anchor position, current position, and swing radius
+  - Polar/radar view alternative when map isn't needed
   - Drop anchor with one tap (rode length auto-set to GPS-from-bow distance + 10%)
+  - Set anchor direction using compass overlay
   - Configurable alarm radius with visual circle overlay
   - Rode length adjustment via slider (5-100m)
   - Vessel length and fudge factor settings for accurate swing calculations
-  - Depth integration for scope calculations
+  - Depth integration for scope calculations (auto from sensor or manual slider)
   - Distance from anchor displayed in real-time
   - Alarm triggers when vessel exceeds set radius from anchor point
+  - Check-in system with configurable intervals
   - Raise anchor to clear and reset
   - Works with SignalK anchor alarm plugin
 - **Position Display**: Current vessel position in configurable formats
