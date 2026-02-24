@@ -1,4 +1,21 @@
-# What's New in v0.5.21
+# What's New in v0.5.22
+
+## Release Notes (Google Play - max 500 chars)
+
+v0.5.22 iOS App Icons
+
+FIXED: iOS app now uses custom branded icons matching Android. Previously iOS was using generic Flutter default icons.
+
+## Release Notes (App Store / TestFlight - max 4000 chars)
+
+### iOS App Icons (FIXED)
+- **Branded Icons** - iOS app now displays custom ZedDisplay icons matching Android
+- **App Store Ready** - Alpha channel removed for App Store compliance
+- **All Sizes** - Generated all 22 required iOS icon sizes
+
+---
+
+# Previous: v0.5.21
 
 ## Release Notes (Google Play - max 500 chars)
 
