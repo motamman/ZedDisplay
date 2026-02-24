@@ -535,6 +535,7 @@ class SignalKService extends ChangeNotifier implements DataService {
                   path: value.path,
                   value: numericValue ?? convertedValue ?? originalValue,
                   timestamp: updateValue.timestamp,
+                  lastSeen: DateTime.now(),
                   converted: numericValue,
                   formatted: formattedString,
                   symbol: symbolString,
@@ -546,6 +547,7 @@ class SignalKService extends ChangeNotifier implements DataService {
                   path: value.path,
                   value: valueMap, // Keep the object as-is
                   timestamp: updateValue.timestamp,
+                  lastSeen: DateTime.now(),
                 );
               }
             } else {
@@ -554,6 +556,7 @@ class SignalKService extends ChangeNotifier implements DataService {
                 path: value.path,
                 value: value.value,
                 timestamp: updateValue.timestamp,
+                lastSeen: DateTime.now(),
               );
             }
 
@@ -2339,7 +2342,7 @@ class _AISManager {
             'cog': cog,
             'sog': sog,
             'sogRaw': sogRaw, // Raw SI value (m/s) for CPA calculations
-            'timestamp': positionData.timestamp,
+            'timestamp': positionData.lastSeen, // Use lastSeen for freshness checks
             'fromGET': positionData.fromGET,
           };
         }

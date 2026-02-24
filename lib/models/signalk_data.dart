@@ -109,7 +109,8 @@ class SignalKValue {
 class SignalKDataPoint {
   final String path;
   final dynamic value;          // Raw value (for compatibility)
-  final DateTime timestamp;
+  final DateTime timestamp;     // Original data timestamp (from server)
+  final DateTime lastSeen;      // When client received this data (for freshness checks)
   final String? unit;
 
   // Units-preference plugin fields
@@ -125,13 +126,14 @@ class SignalKDataPoint {
     required this.path,
     required this.value,
     required this.timestamp,
+    DateTime? lastSeen,         // Defaults to now if not provided
     this.unit,
     this.converted,
     this.formatted,
     this.symbol,
     this.original,
     this.fromGET = false,       // Default to WebSocket
-  });
+  }) : lastSeen = lastSeen ?? DateTime.now();
 
   /// Check if this data point has converted values from units-preference plugin
   bool get hasConvertedValue => formatted != null;
