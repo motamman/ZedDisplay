@@ -372,85 +372,126 @@ class _AnchorAlarmToolState extends State<AnchorAlarmTool> {
 
     return Card(
       clipBehavior: Clip.antiAlias,
-      child: Stack(
-        children: [
-          // Main view - map or polar
-          Positioned.fill(
-            child: _showPolarView ? _buildPolarView(state) : _buildMap(state),
-          ),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final isWide = constraints.maxWidth >= 600;
 
-          // View controls (top right)
-          Positioned(
-            top: 8,
-            right: 8,
-            child: Column(
+          final mapWidget = _showPolarView ? _buildPolarView(state) : _buildMap(state);
+          final controlsWidget = _buildControlPanel(state, isWide: isWide);
+
+          if (isWide) {
+            // Side-by-side: Map (50%) | Controls (50%)
+            return Stack(
               children: [
-                // Map/Polar toggle
-                _buildMapButton(
-                  icon: _showPolarView ? Icons.map : Icons.radar,
-                  onPressed: () => setState(() => _showPolarView = !_showPolarView),
+                Row(
+                  children: [
+                    Expanded(child: mapWidget),
+                    Expanded(child: controlsWidget),
+                  ],
                 ),
-                const SizedBox(height: 8),
-                if (!_showPolarView) ...[
-                  _buildMapButton(
-                    icon: Icons.add,
-                    onPressed: () => _mapController.move(
-                      _mapController.camera.center,
-                      _mapController.camera.zoom + 1,
-                    ),
+                // View controls (centered at top of map half)
+                Positioned(
+                  top: 8,
+                  left: constraints.maxWidth * 0.5 - 48,
+                  child: _buildViewControls(),
+                ),
+                // Status panel (top left)
+                Positioned(
+                  top: 8,
+                  left: 8,
+                  child: _buildStatusPanel(state),
+                ),
+                // Check-in overlay
+                if (_alarmService.awaitingCheckIn)
+                  Positioned.fill(
+                    child: _buildCheckInOverlay(),
                   ),
-                  const SizedBox(height: 4),
-                  _buildMapButton(
-                    icon: Icons.remove,
-                    onPressed: () => _mapController.move(
-                      _mapController.camera.center,
-                      _mapController.camera.zoom - 1,
-                    ),
+                // Alarm overlay
+                if (state.alarmState.isAlarming)
+                  Positioned.fill(
+                    child: _buildAlarmOverlay(state),
                   ),
-                  const SizedBox(height: 8),
-                  _buildMapButton(
-                    icon: Icons.anchor,
-                    onPressed: _centerOnAnchor,
-                  ),
-                  const SizedBox(height: 4),
-                  _buildMapButton(
-                    icon: _mapAutoFollow ? Icons.gps_fixed : Icons.gps_not_fixed,
-                    onPressed: _toggleAutoFollow,
-                    color: _mapAutoFollow ? _getPrimaryColor() : null,
-                  ),
-                ],
               ],
-            ),
-          ),
-
-          // Status panel (top left)
-          Positioned(
-            top: 8,
-            left: 8,
-            child: _buildStatusPanel(state),
-          ),
-
-          // Control panel (bottom)
-          Positioned(
-            left: 0,
-            right: 0,
-            bottom: 0,
-            child: _buildControlPanel(state),
-          ),
-
-          // Check-in overlay
-          if (_alarmService.awaitingCheckIn)
-            Positioned.fill(
-              child: _buildCheckInOverlay(),
-            ),
-
-          // Alarm overlay
-          if (state.alarmState.isAlarming)
-            Positioned.fill(
-              child: _buildAlarmOverlay(state),
-            ),
-        ],
+            );
+          } else {
+            // Stacked: Map (flex 1) / Controls (flex 1)
+            return Stack(
+              children: [
+                Column(
+                  children: [
+                    Expanded(flex: 1, child: mapWidget),
+                    Expanded(flex: 1, child: controlsWidget),
+                  ],
+                ),
+                // View controls (top right of map)
+                Positioned(
+                  top: 8,
+                  right: 8,
+                  child: _buildViewControls(),
+                ),
+                // Status panel (top left)
+                Positioned(
+                  top: 8,
+                  left: 8,
+                  child: _buildStatusPanel(state),
+                ),
+                // Check-in overlay
+                if (_alarmService.awaitingCheckIn)
+                  Positioned.fill(
+                    child: _buildCheckInOverlay(),
+                  ),
+                // Alarm overlay
+                if (state.alarmState.isAlarming)
+                  Positioned.fill(
+                    child: _buildAlarmOverlay(state),
+                  ),
+              ],
+            );
+          }
+        },
       ),
+    );
+  }
+
+  /// Build view controls (map/polar toggle, zoom, center buttons)
+  Widget _buildViewControls() {
+    return Column(
+      children: [
+        // Map/Polar toggle
+        _buildMapButton(
+          icon: _showPolarView ? Icons.map : Icons.radar,
+          onPressed: () => setState(() => _showPolarView = !_showPolarView),
+        ),
+        const SizedBox(height: 8),
+        if (!_showPolarView) ...[
+          _buildMapButton(
+            icon: Icons.add,
+            onPressed: () => _mapController.move(
+              _mapController.camera.center,
+              _mapController.camera.zoom + 1,
+            ),
+          ),
+          const SizedBox(height: 4),
+          _buildMapButton(
+            icon: Icons.remove,
+            onPressed: () => _mapController.move(
+              _mapController.camera.center,
+              _mapController.camera.zoom - 1,
+            ),
+          ),
+          const SizedBox(height: 8),
+          _buildMapButton(
+            icon: Icons.anchor,
+            onPressed: _centerOnAnchor,
+          ),
+          const SizedBox(height: 4),
+          _buildMapButton(
+            icon: _mapAutoFollow ? Icons.gps_fixed : Icons.gps_not_fixed,
+            onPressed: _toggleAutoFollow,
+            color: _mapAutoFollow ? _getPrimaryColor() : null,
+          ),
+        ],
+      ],
     );
   }
 
@@ -1000,7 +1041,7 @@ class _AnchorAlarmToolState extends State<AnchorAlarmTool> {
     );
   }
 
-  Widget _buildControlPanel(AnchorState state) {
+  Widget _buildControlPanel(AnchorState state, {bool isWide = false}) {
     // Format rode using server's displayUnits metadata
     final rodeFormatted = _formatDistance(_rodeSliderValue, 'navigation.anchor.rodeLength');
 
@@ -1008,178 +1049,183 @@ class _AnchorAlarmToolState extends State<AnchorAlarmTool> {
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
         color: Colors.white.withValues(alpha: 0.95),
-        borderRadius: const BorderRadius.only(
-          topLeft: Radius.circular(12),
-          topRight: Radius.circular(12),
-        ),
+        // Only round corners when stacked (narrow mode), not side-by-side
+        borderRadius: isWide
+            ? null
+            : const BorderRadius.only(
+                topLeft: Radius.circular(12),
+                topRight: Radius.circular(12),
+              ),
       ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          // Main action buttons
-          Row(
-            children: [
-              Expanded(
-                child: ElevatedButton.icon(
-                  onPressed: state.isActive ? null : _dropAnchor,
-                  icon: const Icon(Icons.anchor, size: 18),
-                  label: const Text('Drop'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.green,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 8),
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Main action buttons
+            Row(
+              children: [
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: state.isActive ? null : _dropAnchor,
+                    icon: const Icon(Icons.anchor, size: 18),
+                    label: const Text('Drop'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.green,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                    ),
                   ),
                 ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: ElevatedButton.icon(
-                  onPressed: state.isActive ? _raiseAnchor : null,
-                  icon: const Icon(Icons.eject, size: 18),
-                  label: const Text('Raise'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.orange,
-                    foregroundColor: Colors.white,
+                const SizedBox(width: 8),
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: state.isActive ? _raiseAnchor : null,
+                    icon: const Icon(Icons.eject, size: 18),
+                    label: const Text('Raise'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.orange,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+
+            // Set Direction button (only when active)
+            if (state.isActive) ...[
+              const SizedBox(height: 8),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: _setAnchorDirection,
+                  icon: const Icon(Icons.explore, size: 18),
+                  label: const Text('Set Direction'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.blue,
+                    side: const BorderSide(color: Colors.blue),
                     padding: const EdgeInsets.symmetric(vertical: 8),
                   ),
                 ),
               ),
             ],
-          ),
 
-          // Set Direction button (only when active)
-          if (state.isActive) ...[
-            const SizedBox(height: 8),
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton.icon(
-                onPressed: _setAnchorDirection,
-                icon: const Icon(Icons.explore, size: 18),
-                label: const Text('Set Direction'),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: Colors.blue,
-                  side: const BorderSide(color: Colors.blue),
-                  padding: const EdgeInsets.symmetric(vertical: 8),
-                ),
-              ),
-            ),
-          ],
-
-          // Rode length slider (only when active)
-          if (state.isActive) ...[
-            const SizedBox(height: 4),
-            Row(
-              children: [
-                const Text('Rode: ', style: TextStyle(color: Colors.black87, fontSize: 12)),
-                Text(
-                  rodeFormatted,
-                  style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black, fontSize: 14),
-                ),
-                Expanded(
-                  child: SliderTheme(
-                    data: SliderThemeData(
-                      activeTrackColor: Colors.blue,
-                      inactiveTrackColor: Colors.blue.shade100,
-                      thumbColor: Colors.blue,
-                      overlayColor: Colors.blue.withValues(alpha: 0.2),
-                      trackHeight: 3,
-                      thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 8),
-                    ),
-                    child: Slider(
-                      value: _rodeSliderValue,
-                      min: 5,
-                      max: 100,
-                      divisions: 19,
-                      onChangeStart: (_) => _isRodeSliderDragging = true,
-                      onChanged: (value) => setState(() => _rodeSliderValue = value),
-                      onChangeEnd: (value) {
-                        _isRodeSliderDragging = false;
-                        _setRodeLength(value);
-                      },
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            // Alarm radius slider - directly sets maxRadius via setRadius API
-            const SizedBox(height: 4),
-            Row(
-              children: [
-                const Text('Alarm: ', style: TextStyle(color: Colors.black87, fontSize: 12)),
-                Text(
-                  _formatDistance(_alarmRadiusValue, 'navigation.anchor.maxRadius'),
-                  style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black, fontSize: 14),
-                ),
-                Expanded(
-                  child: SliderTheme(
-                    data: SliderThemeData(
-                      activeTrackColor: Colors.red,
-                      inactiveTrackColor: Colors.red.shade100,
-                      thumbColor: Colors.red,
-                      overlayColor: Colors.red.withValues(alpha: 0.2),
-                      trackHeight: 3,
-                      thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 8),
-                    ),
-                    child: Slider(
-                      value: _alarmRadiusValue,
-                      min: 5,
-                      max: 100,
-                      divisions: 19,
-                      onChangeStart: (_) => _isAlarmRadiusSliderDragging = true,
-                      onChanged: (value) => setState(() => _alarmRadiusValue = value),
-                      onChangeEnd: (value) {
-                        _isAlarmRadiusSliderDragging = false;
-                        _alarmService.setRadius(radius: value);
-                      },
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            // Depth row - auto from sensor or manual slider
-            const SizedBox(height: 4),
-            Row(
-              children: [
-                const Text('Depth: ', style: TextStyle(color: Colors.black87, fontSize: 12)),
-                if (_alarmService.hasDepthSensor) ...[
-                  // Read-only display from sensor
+            // Rode length slider (only when active)
+            if (state.isActive) ...[
+              const SizedBox(height: 4),
+              Row(
+                children: [
+                  const Text('Rode: ', style: TextStyle(color: Colors.black87, fontSize: 12)),
                   Text(
-                    _formatDepth(_alarmService.currentDepth),
-                    style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black, fontSize: 14),
-                  ),
-                  const SizedBox(width: 4),
-                  const Icon(Icons.sensors, size: 14, color: Colors.green),
-                ] else ...[
-                  // Manual slider when no sensor
-                  Text(
-                    _formatDepth(_manualDepthValue),
+                    rodeFormatted,
                     style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black, fontSize: 14),
                   ),
                   Expanded(
                     child: SliderTheme(
                       data: SliderThemeData(
-                        activeTrackColor: Colors.teal,
-                        inactiveTrackColor: Colors.teal.shade100,
-                        thumbColor: Colors.teal,
-                        overlayColor: Colors.teal.withValues(alpha: 0.2),
+                        activeTrackColor: Colors.blue,
+                        inactiveTrackColor: Colors.blue.shade100,
+                        thumbColor: Colors.blue,
+                        overlayColor: Colors.blue.withValues(alpha: 0.2),
                         trackHeight: 3,
                         thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 8),
                       ),
                       child: Slider(
-                        value: _manualDepthValue,
-                        min: 1,
-                        max: 50,
-                        divisions: 49,
-                        onChanged: (value) => setState(() => _manualDepthValue = value),
-                        onChangeEnd: (value) => _onDepthChanged(value),
+                        value: _rodeSliderValue,
+                        min: 5,
+                        max: 100,
+                        divisions: 19,
+                        onChangeStart: (_) => _isRodeSliderDragging = true,
+                        onChanged: (value) => setState(() => _rodeSliderValue = value),
+                        onChangeEnd: (value) {
+                          _isRodeSliderDragging = false;
+                          _setRodeLength(value);
+                        },
                       ),
                     ),
                   ),
                 ],
-              ],
-            ),
+              ),
+              // Alarm radius slider - directly sets maxRadius via setRadius API
+              const SizedBox(height: 4),
+              Row(
+                children: [
+                  const Text('Alarm: ', style: TextStyle(color: Colors.black87, fontSize: 12)),
+                  Text(
+                    _formatDistance(_alarmRadiusValue, 'navigation.anchor.maxRadius'),
+                    style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black, fontSize: 14),
+                  ),
+                  Expanded(
+                    child: SliderTheme(
+                      data: SliderThemeData(
+                        activeTrackColor: Colors.red,
+                        inactiveTrackColor: Colors.red.shade100,
+                        thumbColor: Colors.red,
+                        overlayColor: Colors.red.withValues(alpha: 0.2),
+                        trackHeight: 3,
+                        thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 8),
+                      ),
+                      child: Slider(
+                        value: _alarmRadiusValue,
+                        min: 5,
+                        max: 100,
+                        divisions: 19,
+                        onChangeStart: (_) => _isAlarmRadiusSliderDragging = true,
+                        onChanged: (value) => setState(() => _alarmRadiusValue = value),
+                        onChangeEnd: (value) {
+                          _isAlarmRadiusSliderDragging = false;
+                          _alarmService.setRadius(radius: value);
+                        },
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              // Depth row - auto from sensor or manual slider
+              const SizedBox(height: 4),
+              Row(
+                children: [
+                  const Text('Depth: ', style: TextStyle(color: Colors.black87, fontSize: 12)),
+                  if (_alarmService.hasDepthSensor) ...[
+                    // Read-only display from sensor
+                    Text(
+                      _formatDepth(_alarmService.currentDepth),
+                      style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black, fontSize: 14),
+                    ),
+                    const SizedBox(width: 4),
+                    const Icon(Icons.sensors, size: 14, color: Colors.green),
+                  ] else ...[
+                    // Manual slider when no sensor
+                    Text(
+                      _formatDepth(_manualDepthValue),
+                      style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black, fontSize: 14),
+                    ),
+                    Expanded(
+                      child: SliderTheme(
+                        data: SliderThemeData(
+                          activeTrackColor: Colors.teal,
+                          inactiveTrackColor: Colors.teal.shade100,
+                          thumbColor: Colors.teal,
+                          overlayColor: Colors.teal.withValues(alpha: 0.2),
+                          trackHeight: 3,
+                          thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 8),
+                        ),
+                        child: Slider(
+                          value: _manualDepthValue,
+                          min: 1,
+                          max: 50,
+                          divisions: 49,
+                          onChanged: (value) => setState(() => _manualDepthValue = value),
+                          onChangeEnd: (value) => _onDepthChanged(value),
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ],
           ],
-        ],
+        ),
       ),
     );
   }
