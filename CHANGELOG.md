@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.23+32] - 2026-02-24
+
+### Fixed
+- **Anchor Widget Unit Display**: Fixed unit conversion for anchor alarm paths (maxRadius, currentRadius, rodeLength)
+  - Anchor-alarm plugin sends `displayUnits: {category: "length", explicit: true}` without formula
+  - Added `getConversionForCategory()` to look up conversion from category directly
+  - Handles identity conversion (m→m) when user's preferred unit matches SI unit
+  - Values now display with proper unit symbols (e.g., "29 m" instead of "29.0")
+
 ## [0.5.22+31] - 2026-02-24
 
 ### Fixed

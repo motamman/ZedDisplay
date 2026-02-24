@@ -1,4 +1,24 @@
-# What's New in v0.5.22
+# What's New in v0.5.23
+
+## Release Notes (Google Play - max 500 chars)
+
+v0.5.23 Anchor Widget Fix
+
+FIXED: Anchor alarm widget now displays values with proper unit symbols. Previously showed raw numbers without units (e.g., "29.0" instead of "29 m").
+
+The anchor-alarm plugin uses a different metadata format that wasn't being handled correctly.
+
+## Release Notes (App Store / TestFlight - max 4000 chars)
+
+### Anchor Widget Unit Display (FIXED)
+- **Unit Symbols** - Anchor values (distance, alarm radius, rode length) now show with proper units
+- **Root Cause** - Anchor-alarm plugin sends `explicit: true` in displayUnits, skipping formula expansion
+- **Solution** - Added category-based conversion lookup when formula not provided
+- **Identity Handling** - Correctly handles when user's preferred unit matches SI unit (m→m)
+
+---
+
+# Previous: v0.5.22
 
 ## Release Notes (Google Play - max 500 chars)
 
