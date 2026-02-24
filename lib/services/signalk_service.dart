@@ -1540,8 +1540,12 @@ class SignalKService extends ChangeNotifier implements DataService {
 
       }
 
-      _connectionState = SignalKConnectionState.disconnected;
-      _connectionStateController.add(SignalKConnectionState.disconnected);
+      // Only emit disconnected if not in the middle of reconnecting
+      // This prevents the "Connection Lost" overlay from flashing during retry attempts
+      if (_connectionState != SignalKConnectionState.reconnecting) {
+        _connectionState = SignalKConnectionState.disconnected;
+        _connectionStateController.add(SignalKConnectionState.disconnected);
+      }
       notifyListeners();
     } catch (e) {
       if (kDebugMode) {
