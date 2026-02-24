@@ -1402,15 +1402,11 @@ class SignalKService extends ChangeNotifier implements DataService {
 
     _activePaths.removeAll(removedPaths);
 
-    // Send unsubscribe message for units-preference plugin
-    if (_authToken != null && _vesselContext != null) {
-      final unsubscribeMessage = {
-        'context': _vesselContext,
-        'unsubscribe': removedPaths.map((path) => {'path': path}).toList(),
-      };
-
-      _channel?.sink.add(jsonEncode(unsubscribeMessage));
-    }
+    // NOTE: Per-path unsubscribe is NOT supported by SignalK server.
+    // Server only supports wildcard: {"context":"*","unsubscribe":[{"path":"*"}]}
+    // Sending per-path unsubscribe causes server to throw error and close socket.
+    // Subscriptions are cleaned up automatically when WebSocket disconnects/reconnects.
+    // Internal state (_activePaths) is still updated above for accurate tracking.
   }
 
   /// Update subscription with current active paths
