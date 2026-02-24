@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.21+30] - 2026-02-24
+
+### Fixed
+- **Server Load Reduction**: Reduced aggressive polling that was causing SignalK server issues
+  - MessagingService: Increased poll interval from 5s to 15s (67% reduction)
+  - CrewService: Increased poll interval from 15s to 30s (50% reduction)
+  - UserManagementTool: Increased poll interval from 10s to 30s
+  - DeviceAccessManagerTool: Increased poll interval from 10s to 30s
+- **401 Auth Spam**: Admin tools (User Management, Device Access) now skip polling when no valid auth token
+  - Prevents thousands of failed requests per day to security endpoints
+  - Tools still render but won't spam server with unauthorized requests
+- **Connection Lost Overlay**: Prevented "Connection Lost" overlay from flashing during reconnect attempts
+  - Overlay now only shows after connection is truly lost, not during brief reconnection cycles
+
+### Changed
+- **Code Cleanup**: Removed debug print statements from various services and utilities
+
 ## [0.5.20+29] - 2026-02-23
 
 ### Fixed
