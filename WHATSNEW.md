@@ -1,35 +1,24 @@
-# What's New in v0.5.6
+# What's New in v0.5.20
 
 ## Release Notes (Google Play - max 500 chars)
 
-v0.5.6 Custom Resources & Auth Fixes
+v0.5.20 Crew Presence Fix
 
-NEW: ZedDisplay now uses dedicated SignalK resource types for crew messaging, profiles, files, channels, and alarms. Other apps won't see your ZedDisplay data.
+FIXED: Crew members now correctly show as online when connected to the same SignalK server. Previously, other crew appeared offline even when messaging worked.
 
-FIXED: Auth tokens now stored per connection ID, not server URL. Multiple connections to same server work correctly.
-
-FIXED: Deleting a connection removes its auth token.
+The bug was caused by a key mismatch between URL-encoded and canonical user IDs in presence tracking.
 
 ## Release Notes (App Store / TestFlight - max 4000 chars)
 
-### Custom Resource Types (NEW)
-- **Dedicated Resources** - Migrated from generic `notes` to custom resource types:
-  - `zeddisplay-messages` for crew messaging
-  - `zeddisplay-crew` for crew profiles and presence
-  - `zeddisplay-files` for file sharing metadata
-  - `zeddisplay-channels` for intercom channels
-  - `zeddisplay-alarms` for shared alarms
-- **Privacy Improvement** - Other apps reading `notes` will no longer see ZedDisplay data
-- **Auto-creation** - Resource types are automatically created on first connection
-
-### Authentication (FIXED)
-- **Token Storage** - Auth tokens now stored by connection ID instead of server URL
-- **Multiple Connections** - Each connection maintains its own authentication state
-- **Connection Deletion** - Deleting a connection now removes its associated auth token
+### Crew Presence (FIXED)
+- **Online Status** - Crew members now correctly appear online when connected
+- **Root Cause** - Presence was stored with URL-encoded keys (`user%3Arima`) but looked up with canonical IDs (`user:rima`)
+- **Impact** - Direct voice calls and online indicators now work correctly
+- **Messaging** - Text messaging was unaffected (used different lookup path)
 
 ---
 
-# Previous: v0.5.5
+# Previous: v0.5.6
 
 ## Release Notes (Google Play - max 500 chars)
 

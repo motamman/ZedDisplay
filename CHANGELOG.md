@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.20+29] - 2026-02-23
+
+### Fixed
+- **Crew Presence Detection**: Fixed bug where crew members appeared offline even when connected
+  - Presence was stored using URL-encoded resource ID (e.g., `user%3Arima`) but looked up by canonical ID (`user:rima`)
+  - Now uses canonical ID consistently for both storage and lookup
+  - Crew members should correctly show as online when connected to the same SignalK server
+
 ## [Unreleased]
 
 ### Added
