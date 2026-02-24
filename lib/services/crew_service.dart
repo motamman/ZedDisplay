@@ -45,7 +45,7 @@ class CrewService extends ChangeNotifier {
 
   // Polling timer for fetching crew updates
   Timer? _pollTimer;
-  static const Duration _pollInterval = Duration(seconds: 15);
+  static const Duration _pollInterval = Duration(seconds: 30);
 
   // Track if Resources API is available
   bool _resourcesApiAvailable = true;

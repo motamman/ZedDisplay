@@ -28,7 +28,7 @@ class MessagingService extends ChangeNotifier {
 
   // Polling timer
   Timer? _pollTimer;
-  static const Duration _pollInterval = Duration(seconds: 5);
+  static const Duration _pollInterval = Duration(seconds: 15);
 
   // Track if Resources API is available
   bool _resourcesApiAvailable = true;

@@ -76,8 +76,8 @@ class _DeviceAccessManagerToolState extends State<DeviceAccessManagerTool> {
   void initState() {
     super.initState();
     _loadData();
-    // Auto-refresh every 10 seconds
-    _refreshTimer = Timer.periodic(const Duration(seconds: 10), (_) {
+    // Auto-refresh every 30 seconds
+    _refreshTimer = Timer.periodic(const Duration(seconds: 30), (_) {
       _loadPendingRequests();
     });
   }
@@ -110,6 +110,12 @@ class _DeviceAccessManagerToolState extends State<DeviceAccessManagerTool> {
 
   Future<void> _loadPendingRequests() async {
     if (!widget.signalKService.isConnected) return;
+
+    // Skip polling if no valid auth token (prevents 401 spam)
+    final token = widget.signalKService.authToken?.token;
+    if (token == null || token.isEmpty) {
+      return;
+    }
 
     if (mounted) {
       setState(() {
