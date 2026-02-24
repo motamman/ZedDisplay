@@ -107,10 +107,6 @@ class IntercomService extends ChangeNotifier {
     }
 
     _initialized = true;
-
-    if (kDebugMode) {
-      print('IntercomService initialized with ${_channels.length} channels');
-    }
   }
 
   @override
@@ -276,9 +272,6 @@ class IntercomService extends ChangeNotifier {
   }
 
   Future<void> _onConnected() async {
-    if (kDebugMode) {
-      print('IntercomService: Connected');
-    }
     await _ensureResourceType();
     _startPolling();
     await _syncChannels();
@@ -293,9 +286,6 @@ class IntercomService extends ChangeNotifier {
   }
 
   void _onDisconnected() {
-    if (kDebugMode) {
-      print('IntercomService: Disconnected');
-    }
     _pollTimer?.cancel();
     _pollTimer = null;
     _leaveChannel();

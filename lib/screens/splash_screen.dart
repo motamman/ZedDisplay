@@ -72,7 +72,6 @@ class _SplashScreenState extends State<SplashScreen> {
             if (savedToken.authType == AuthType.user) {
               await signalKService.fetchUserUnitPreferences();
               ConversionUtils.loadUserPreferences(signalKService);
-              debugPrint('Auto-connect: Loaded user unit preferences');
             }
 
             // Set up dashboard subscriptions
@@ -81,14 +80,10 @@ class _SplashScreenState extends State<SplashScreen> {
             }
 
             connected = true;
-            debugPrint('Auto-connect succeeded on attempt ${attempts + 1}');
           } catch (e) {
             attempts++;
             if (attempts < maxAttempts) {
-              debugPrint('Auto-connect attempt $attempts failed, retrying... ($e)');
               await Future.delayed(const Duration(milliseconds: 800));
-            } else {
-              debugPrint('Auto-connect failed after $maxAttempts attempts: $e');
             }
           }
         }

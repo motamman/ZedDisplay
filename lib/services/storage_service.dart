@@ -767,13 +767,8 @@ class StorageService extends ChangeNotifier {
       final json = jsonEncode(cacheEntry);
       await _conversionsBox.put(serverUrl, json);
 
-      if (kDebugMode) {
-        print('Conversions cache saved for $serverUrl (${conversionsData.length} paths)');
-      }
-    } catch (e) {
-      if (kDebugMode) {
-        print('Error saving conversions cache: $e');
-      }
+    } catch (_) {
+      // Ignore cache save errors
     }
   }
 
@@ -791,22 +786,10 @@ class StorageService extends ChangeNotifier {
       final age = DateTime.now().difference(timestamp);
 
       // Check if cache is expired
-      if (age > maxAge) {
-        if (kDebugMode) {
-          print('Conversions cache expired for $serverUrl (age: ${age.inDays} days)');
-        }
-        return null;
-      }
+      if (age > maxAge) return null;
 
-      final conversions = cacheEntry['conversions'] as Map<String, dynamic>;
-      if (kDebugMode) {
-        print('Loaded conversions cache for $serverUrl (${conversions.length} paths, age: ${age.inHours}h)');
-      }
-      return conversions;
-    } catch (e) {
-      if (kDebugMode) {
-        print('Error loading conversions cache: $e');
-      }
+      return cacheEntry['conversions'] as Map<String, dynamic>;
+    } catch (_) {
       return null;
     }
   }
@@ -850,14 +833,8 @@ class StorageService extends ChangeNotifier {
       };
       final json = jsonEncode(cacheEntry);
       await _settingsBox.put('user_unit_preferences_$connectionId', json);
-
-      if (kDebugMode) {
-        print('User unit preferences saved for connection $connectionId (preset: $presetName)');
-      }
-    } catch (e) {
-      if (kDebugMode) {
-        print('Error saving user unit preferences: $e');
-      }
+    } catch (_) {
+      // Ignore user unit preferences save errors
     }
   }
 

@@ -1,4 +1,30 @@
-# What's New in v0.5.20
+# What's New in v0.5.21
+
+## Release Notes (Google Play - max 500 chars)
+
+v0.5.21 Server Load & Connection Fixes
+
+FIXED: Reduced aggressive polling causing SignalK server issues. Polling intervals increased for messaging (5s→15s), crew presence (15s→30s), admin tools (10s→30s). Admin tools skip polling without valid auth token.
+
+FIXED: "Connection Lost" overlay no longer flashes during reconnect attempts.
+
+## Release Notes (App Store / TestFlight - max 4000 chars)
+
+### Server Load Reduction (FIXED)
+- **Polling Intervals** - Reduced server load by increasing poll intervals
+  - Messaging: 5s → 15s (67% fewer requests)
+  - Crew presence: 15s → 30s (50% fewer requests)
+  - Admin tools: 10s → 30s (67% fewer requests)
+- **Auth Spam** - User Management and Device Access tools now skip polling when no valid auth token, eliminating thousands of failed 401 requests per day
+- **Race Conditions** - Reduced probability of concurrent read/write collisions on SignalK resources
+
+### Connection Overlay (FIXED)
+- **No More Flashing** - "Connection Lost" overlay no longer flashes during brief reconnect cycles
+- **Smoother UX** - Overlay only appears when connection is truly lost
+
+---
+
+# Previous: v0.5.20
 
 ## Release Notes (Google Play - max 500 chars)
 
@@ -15,6 +41,10 @@ The bug was caused by a key mismatch between URL-encoded and canonical user IDs 
 - **Root Cause** - Presence was stored with URL-encoded keys (`user%3Arima`) but looked up with canonical IDs (`user:rima`)
 - **Impact** - Direct voice calls and online indicators now work correctly
 - **Messaging** - Text messaging was unaffected (used different lookup path)
+
+### iOS Background Audio (NEW)
+- **Background Modes** - Voice calls now continue when app is backgrounded
+- **VoIP Support** - Calls stay connected when switching apps or locking screen
 
 ---
 

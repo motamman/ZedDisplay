@@ -13,6 +13,13 @@ import 'zones_cache_service.dart';
 import 'interfaces/data_service.dart';
 import 'storage_service.dart';
 
+/// Connection state for SignalK server
+enum SignalKConnectionState {
+  connected,
+  reconnecting,
+  disconnected,
+}
+
 /// Service to connect to SignalK server and stream data
 class SignalKService extends ChangeNotifier implements DataService {
   // Main data WebSocket (units-preference endpoint)
@@ -30,6 +37,11 @@ class SignalKService extends ChangeNotifier implements DataService {
   int _reconnectAttempts = 0;
   static const int _maxReconnectAttempts = 5;
   bool _intentionalDisconnect = false;
+  bool _wasConnected = false;
+
+  // Connection state stream (for UI overlay without triggering rebuilds)
+  final _connectionStateController = StreamController<SignalKConnectionState>.broadcast();
+  SignalKConnectionState _connectionState = SignalKConnectionState.disconnected;
 
   // Data cache cleanup
   Timer? _cacheCleanupTimer;
@@ -137,6 +149,13 @@ class SignalKService extends ChangeNotifier implements DataService {
   bool get notificationsEnabled => _notificationManager.notificationsEnabled;
   Stream<SignalKNotification> get notificationStream => _notificationManager.notificationStream;
 
+  // Connection state stream and properties
+  Stream<SignalKConnectionState> get connectionStateStream => _connectionStateController.stream;
+  SignalKConnectionState get connectionState => _connectionState;
+  int get reconnectAttempt => _reconnectAttempts;
+  int get maxReconnectAttempts => _maxReconnectAttempts;
+  bool get wasConnected => _wasConnected;
+
   /// Get recent notifications (last 10 seconds by default)
   List<SignalKNotification> getRecentNotifications({Duration maxAge = const Duration(seconds: 10)}) {
     return _notificationManager.getRecentNotifications(maxAge: maxAge);
@@ -165,16 +184,9 @@ class SignalKService extends ChangeNotifier implements DataService {
   }) async {
     // Disconnect any existing connection first
     if (_isConnected || _channel != null) {
-      if (kDebugMode) {
-        print('Disconnecting existing connection before new connect...');
-      }
       await disconnect();
       // Give the socket time to fully close
       await Future.delayed(const Duration(milliseconds: 800));
-
-      if (kDebugMode) {
-        print('Old connection closed, starting new connection...');
-      }
     }
 
     _serverUrl = serverUrl;
@@ -229,9 +241,12 @@ class SignalKService extends ChangeNotifier implements DataService {
       );
 
       _isConnected = true;
+      _wasConnected = true;
       _errorMessage = null;
       _reconnectAttempts = 0; // Reset reconnect attempts on successful connection
       _intentionalDisconnect = false;
+      _connectionState = SignalKConnectionState.connected;
+      _connectionStateController.add(SignalKConnectionState.connected);
       notifyListeners();
 
 
@@ -326,19 +341,10 @@ class SignalKService extends ChangeNotifier implements DataService {
 
   /// Connect autopilot channel for real-time autopilot data
   Future<void> _connectAutopilotChannel() async {
-    if (_autopilotChannel != null) {
-      if (kDebugMode) {
-        print('Autopilot channel already connected');
-      }
-      return;
-    }
+    if (_autopilotChannel != null) return;
 
     try {
       final wsUrl = _getAutopilotEndpoint();
-
-      if (kDebugMode) {
-        print('Connecting autopilot channel to standard stream: $wsUrl');
-      }
 
       if (_authToken != null) {
         final headers = <String, String>{
@@ -354,29 +360,18 @@ class SignalKService extends ChangeNotifier implements DataService {
       // Listen to autopilot messages (same handler as main channel for data)
       _autopilotSubscription = _autopilotChannel!.stream.listen(
         _handleMessage,
-        onError: (error) {
-          if (kDebugMode) {
-            print('Autopilot channel error: $error');
-          }
-        },
+        onError: (_) {},
         onDone: () {
-          if (kDebugMode) {
-            print('Autopilot channel disconnected');
-          }
           _autopilotChannel = null;
           _autopilotSubscription = null;
         },
       );
 
-      if (kDebugMode) {
-        print('Autopilot channel connected successfully');
-      }
-
       // Send subscription for autopilot paths if any exist
       await _sendAutopilotSubscription();
     } catch (e) {
       if (kDebugMode) {
-        print('Failed to connect autopilot channel: $e');
+        print('Autopilot channel error: $e');
       }
       _autopilotChannel = null;
       _autopilotSubscription = null;
@@ -407,15 +402,8 @@ class SignalKService extends ChangeNotifier implements DataService {
       final vesselId = await getVesselSelfId();
       _vesselContext = vesselId != null ? 'vessels.$vesselId' : 'vessels.self';
 
-      if (kDebugMode) {
-        print('Vessel context: $_vesselContext');
-      }
-
       // For units-preference plugin, wait for template paths
       if (_authToken != null) {
-        if (kDebugMode) {
-          print('Waiting for template paths to subscribe...');
-        }
         // Don't subscribe yet - wait for setActiveTemplatePaths() to be called
         return;
       }
@@ -433,13 +421,9 @@ class SignalKService extends ChangeNotifier implements DataService {
       };
 
       _channel?.sink.add(jsonEncode(subscription));
-
-      if (kDebugMode) {
-        print('Subscribed to all paths with wildcard (*)');
-      }
     } catch (e) {
       if (kDebugMode) {
-        print('Error in subscription setup: $e');
+        print('Subscription setup error: $e');
       }
     }
   }
@@ -447,12 +431,7 @@ class SignalKService extends ChangeNotifier implements DataService {
   /// Set paths from active templates and subscribe to them
   /// Call this when dashboards/templates change
   Future<void> setActiveTemplatePaths(List<String> paths) async {
-    if (!_isConnected || _channel == null) {
-      if (kDebugMode) {
-        print('Cannot subscribe: not connected');
-      }
-      return;
-    }
+    if (!_isConnected || _channel == null) return;
 
     // Check if paths have actually changed
     final pathsSet = Set<String>.from(paths);
@@ -460,20 +439,12 @@ class SignalKService extends ChangeNotifier implements DataService {
 
     if (pathsSet.length == currentPathsSet.length &&
         pathsSet.containsAll(currentPathsSet)) {
-      if (kDebugMode) {
-        print('Template paths unchanged, skipping re-subscription');
-      }
       return;
     }
 
     // Clear old subscriptions and set new ones
     _activePaths.clear();
     _activePaths.addAll(paths);
-
-    if (kDebugMode) {
-      print('Setting active template paths: ${_activePaths.length} paths');
-    }
-
     await _updateSubscription();
   }
 
@@ -485,62 +456,25 @@ class SignalKService extends ChangeNotifier implements DataService {
       final data = jsonDecode(message);
 
       // Handle plain string messages (server warnings/info)
-      if (data is String) {
-        if (kDebugMode) {
-          print('Server message: $data');
-        }
-        return;
-      }
+      if (data is String) return;
 
       // Must be a Map to process
-      if (data is! Map<String, dynamic>) {
-        return;
-      }
-
-      // if (kDebugMode) {
-      //   print('Decoded message keys: ${data.keys.toList()}');
-      //   // Log autopilot-related updates
-      //   if (data['updates'] != null) {
-      //     for (final update in data['updates']) {
-      //       if (update['values'] != null) {
-      //         for (final value in update['values']) {
-      //           final path = value['path'] as String?;
-      //           if (path != null && (path.contains('autopilot') || path.contains('steering'))) {
-      //             print('🤖 AUTOPILOT UPDATE: $path = ${value['value']}');
-      //           }
-      //         }
-      //       }
-      //     }
-      //   }
-      // }
+      if (data is! Map<String, dynamic>) return;
 
       // Check if it's an authentication response
       if (data['requestId'] != null && data['state'] != null) {
-        if (kDebugMode) {
-          print('Auth response: ${data['state']} - ${data['statusCode']}');
-        }
-        if (data['state'] == 'COMPLETED' && data['statusCode'] == 200) {
-          if (kDebugMode) {
-            print('WebSocket authentication successful');
-          }
-        } else {
-          if (kDebugMode) {
-            print('WebSocket authentication failed: ${data['message']}');
-          }
-        }
+        // Auth response - no logging needed
         return;
       }
 
       // Check if it's a delta update
       if (data['updates'] != null) {
-        // DEBUG: Log raw meta data from WebSocket
-        if (kDebugMode) {
-          for (final rawUpdate in (data['updates'] as List)) {
-            if (rawUpdate['meta'] != null) {
-              print('🔍 RAW META FROM SERVER: ${jsonEncode(rawUpdate['meta'])}');
-            }
-          }
-        }
+        // DEBUG: Raw meta logging disabled - too verbose
+        // for (final rawUpdate in (data['updates'] as List)) {
+        //   if (rawUpdate['meta'] != null) {
+        //     print('🔍 RAW META FROM SERVER: ${jsonEncode(rawUpdate['meta'])}');
+        //   }
+        // }
 
         final update = SignalKUpdate.fromJson(data);
 
@@ -551,21 +485,7 @@ class SignalKService extends ChangeNotifier implements DataService {
           // Process meta entries (from sendMeta=all) - extract displayUnits
           for (final metaEntry in updateValue.metaEntries) {
             if (metaEntry.displayUnits != null) {
-              final existingUnits = _displayUnitsCache[metaEntry.path];
-              final isNew = existingUnits == null;
-              final isChanged = !isNew &&
-                  (existingUnits['targetUnit'] != metaEntry.displayUnits!['targetUnit'] ||
-                   existingUnits['symbol'] != metaEntry.displayUnits!['symbol']);
-
               _displayUnitsCache[metaEntry.path] = metaEntry.displayUnits!;
-
-              if (kDebugMode) {
-                if (isChanged) {
-                  print('📐 Updated displayUnits for ${metaEntry.path}: ${metaEntry.displayUnits}');
-                } else if (isNew) {
-                  print('📐 Cached displayUnits for ${metaEntry.path}: ${metaEntry.displayUnits}');
-                }
-              }
             }
           }
 
@@ -688,7 +608,7 @@ class SignalKService extends ChangeNotifier implements DataService {
   /// Handle WebSocket disconnect
   void _handleDisconnect() {
     _isConnected = false;
-    notifyListeners();
+    // Don't call notifyListeners() for connection state change - use stream instead
 
     if (kDebugMode) {
       print('Disconnected from SignalK server');
@@ -696,7 +616,12 @@ class SignalKService extends ChangeNotifier implements DataService {
 
     // Attempt reconnection if not intentional disconnect
     if (!_intentionalDisconnect && _serverUrl.isNotEmpty) {
+      _connectionState = SignalKConnectionState.reconnecting;
+      _connectionStateController.add(SignalKConnectionState.reconnecting);
       _attemptReconnect();
+    } else {
+      _connectionState = SignalKConnectionState.disconnected;
+      _connectionStateController.add(SignalKConnectionState.disconnected);
     }
   }
 
@@ -706,13 +631,19 @@ class SignalKService extends ChangeNotifier implements DataService {
       if (kDebugMode) {
         print('Max reconnect attempts reached. Giving up.');
       }
+      _connectionState = SignalKConnectionState.disconnected;
+      _connectionStateController.add(SignalKConnectionState.disconnected);
       _errorMessage = 'Connection lost. Please reconnect manually.';
-      notifyListeners();
+      // notifyListeners() only for error message if needed
       return;
     }
 
     _reconnectAttempts++;
     final delay = Duration(seconds: 2 * _reconnectAttempts); // Exponential backoff: 2s, 4s, 6s, 8s, 10s
+
+    // Re-emit reconnecting state so UI updates with new attempt count
+    _connectionState = SignalKConnectionState.reconnecting;
+    _connectionStateController.add(SignalKConnectionState.reconnecting);
 
     if (kDebugMode) {
       print('Attempting reconnect #$_reconnectAttempts in ${delay.inSeconds}s...');
@@ -733,7 +664,9 @@ class SignalKService extends ChangeNotifier implements DataService {
         if (kDebugMode) {
           print('Reconnect attempt #$_reconnectAttempts failed: $e');
         }
-        // _handleDisconnect will be called again, triggering next attempt
+        // connect() failure doesn't trigger _handleDisconnect (that's only for established connections)
+        // So we need to manually trigger the next attempt
+        _attemptReconnect();
       }
     });
   }
@@ -796,10 +729,6 @@ class SignalKService extends ChangeNotifier implements DataService {
     };
 
     _channel?.sink.add(jsonEncode(subscribeMessage));
-
-    if (kDebugMode) {
-      print('Subscribed to notifications.crew.rtc.* for RTC signaling');
-    }
   }
 
   /// Send RTC signaling data via SignalK notification (broadcasts to all clients)
@@ -827,10 +756,6 @@ class SignalKService extends ChangeNotifier implements DataService {
     };
 
     _channel?.sink.add(jsonEncode(notification));
-
-    if (kDebugMode) {
-      print('Sent RTC notification: notifications.crew.rtc.$signalingPath');
-    }
   }
 
   // ===== Resources API (v2) =====
@@ -849,13 +774,6 @@ class SignalKService extends ChangeNotifier implements DataService {
         headers: _getHeaders(),
       ).timeout(const Duration(seconds: 10));
 
-      if (kDebugMode) {
-        print('getResources($resourceType): status=${response.statusCode}, bodyLength=${response.body.length}');
-        if (response.body.length < 500) {
-          print('getResources($resourceType): body=${response.body}');
-        }
-      }
-
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         if (data is Map<String, dynamic>) {
@@ -863,15 +781,10 @@ class SignalKService extends ChangeNotifier implements DataService {
         }
       } else if (response.statusCode == 404) {
         // Resource type doesn't exist yet, return empty map
-        if (kDebugMode) {
-          print('getResources($resourceType): 404 - resource type not found');
-        }
         return {};
       }
-    } catch (e) {
-      if (kDebugMode) {
-        print('Error getting resources ($resourceType): $e');
-      }
+    } catch (_) {
+      // Ignore resource fetch errors
     }
     return {};
   }
@@ -892,10 +805,8 @@ class SignalKService extends ChangeNotifier implements DataService {
           return data;
         }
       }
-    } catch (e) {
-      if (kDebugMode) {
-        print('Error getting resource ($resourceType/$id): $e');
-      }
+    } catch (_) {
+      // Ignore resource fetch errors
     }
     return null;
   }
@@ -906,10 +817,6 @@ class SignalKService extends ChangeNotifier implements DataService {
     final protocol = _useSecureConnection ? 'https' : 'http';
     final url = '$protocol://$_serverUrl/signalk/v2/api/resources/$resourceType/$id';
 
-    if (kDebugMode) {
-      print('putResource: PUT $url');
-    }
-
     try {
       final response = await http.put(
         Uri.parse(url),
@@ -917,24 +824,11 @@ class SignalKService extends ChangeNotifier implements DataService {
         body: jsonEncode(data),
       ).timeout(const Duration(seconds: 10));
 
-      if (kDebugMode) {
-        print('putResource($resourceType/$id): status=${response.statusCode}');
-        if (response.statusCode != 200 && response.statusCode != 201) {
-          print('putResource($resourceType/$id): body=${response.body}');
-        }
-      }
-
       if (response.statusCode == 200 || response.statusCode == 201) {
         return true;
-      } else {
-        if (kDebugMode) {
-          print('PUT resource failed ($resourceType/$id): ${response.statusCode} - ${response.body}');
-        }
       }
-    } catch (e) {
-      if (kDebugMode) {
-        print('Error putting resource ($resourceType/$id): $e');
-      }
+    } catch (_) {
+      // Ignore put errors
     }
     return false;
   }
@@ -953,10 +847,8 @@ class SignalKService extends ChangeNotifier implements DataService {
       if (response.statusCode == 200 || response.statusCode == 204) {
         return true;
       }
-    } catch (e) {
-      if (kDebugMode) {
-        print('Error deleting resource ($resourceType/$id): $e');
-      }
+    } catch (_) {
+      // Ignore delete errors
     }
     return false;
   }
@@ -985,9 +877,6 @@ class SignalKService extends ChangeNotifier implements DataService {
       if (checkResponse.statusCode == 200) {
         // Resource type exists
         _ensuredResourceTypes.add(resourceType);
-        if (kDebugMode) {
-          print('Resource type "$resourceType" already exists');
-        }
         return true;
       }
 
@@ -1002,20 +891,10 @@ class SignalKService extends ChangeNotifier implements DataService {
 
       if (createResponse.statusCode == 200 || createResponse.statusCode == 201) {
         _ensuredResourceTypes.add(resourceType);
-        if (kDebugMode) {
-          print('Created custom resource type "$resourceType"');
-        }
         return true;
-      } else {
-        if (kDebugMode) {
-          print('Failed to create resource type "$resourceType": ${createResponse.statusCode} - ${createResponse.body}');
-        }
-        return false;
       }
-    } catch (e) {
-      if (kDebugMode) {
-        print('Error ensuring resource type "$resourceType": $e');
-      }
+      return false;
+    } catch (_) {
       return false;
     }
   }
@@ -1182,16 +1061,10 @@ class SignalKService extends ChangeNotifier implements DataService {
         final vesselId = selfRef.startsWith('vessels.')
             ? selfRef.substring('vessels.'.length)
             : selfRef;
-
-        if (kDebugMode) {
-          print('Vessel self ID from /self endpoint: $vesselId');
-        }
         return vesselId;
       }
-    } catch (e) {
-      if (kDebugMode) {
-        print('Error fetching vessel self ID: $e');
-      }
+    } catch (_) {
+      // Ignore vessel ID fetch errors
     }
 
     return null;
@@ -1209,18 +1082,10 @@ class SignalKService extends ChangeNotifier implements DataService {
       ).timeout(const Duration(seconds: 30)); // Increased from 10s for busy servers
 
       if (response.statusCode == 200) {
-        final data = jsonDecode(response.body) as Map<String, dynamic>;
-
-        if (kDebugMode) {
-          print('Fetched vessel data tree');
-        }
-
-        return data;
+        return jsonDecode(response.body) as Map<String, dynamic>;
       }
-    } catch (e) {
-      if (kDebugMode) {
-        print('Error fetching available paths: $e');
-      }
+    } catch (_) {
+      // Ignore path fetch errors
     }
 
     return null;
@@ -1255,10 +1120,6 @@ class SignalKService extends ChangeNotifier implements DataService {
         headers: _getHeaders(),
       ).timeout(const Duration(seconds: 10));
 
-      if (kDebugMode) {
-        print('Unit preferences config response: ${configResponse.statusCode}');
-      }
-
       if (configResponse.statusCode == 200) {
         final data = jsonDecode(configResponse.body);
         final activePreset = data['activePreset'] as String?;
@@ -1268,10 +1129,8 @@ class SignalKService extends ChangeNotifier implements DataService {
           await _fetchAndCacheUserPreset(connectionId, activePreset);
         }
       }
-    } catch (e) {
-      if (kDebugMode) {
-        print('Error fetching unit preferences: $e');
-      }
+    } catch (_) {
+      // Ignore unit preferences fetch errors
     }
   }
 
@@ -1286,10 +1145,6 @@ class SignalKService extends ChangeNotifier implements DataService {
         headers: _getHeaders(),
       ).timeout(const Duration(seconds: 10));
 
-      if (kDebugMode) {
-        print('Preset fetch response: ${presetResponse.statusCode}');
-      }
-
       if (presetResponse.statusCode == 200) {
         final presetData = jsonDecode(presetResponse.body) as Map<String, dynamic>;
 
@@ -1301,15 +1156,9 @@ class SignalKService extends ChangeNotifier implements DataService {
             presetData: presetData,
           );
         }
-
-        if (kDebugMode) {
-          print('Preset "$presetName" fetched successfully');
-        }
       }
-    } catch (e) {
-      if (kDebugMode) {
-        print('Error fetching preset "$presetName": $e');
-      }
+    } catch (_) {
+      // Ignore preset fetch errors
     }
   }
 
@@ -1326,21 +1175,11 @@ class SignalKService extends ChangeNotifier implements DataService {
         headers: _getHeaders(),
       ).timeout(const Duration(seconds: 10));
 
-      if (kDebugMode) {
-        print('Active unit preferences response: ${response.statusCode}');
-      }
-
       if (response.statusCode == 200) {
-        final data = jsonDecode(response.body) as Map<String, dynamic>;
-        if (kDebugMode) {
-          print('Active unit preferences loaded: ${data.keys.length} categories');
-        }
-        return data;
+        return jsonDecode(response.body) as Map<String, dynamic>;
       }
-    } catch (e) {
-      if (kDebugMode) {
-        print('Error fetching active unit preferences: $e');
-      }
+    } catch (_) {
+      // Ignore active unit preferences fetch errors
     }
 
     return null;
@@ -1446,9 +1285,6 @@ class SignalKService extends ChangeNotifier implements DataService {
   /// Clear display units cache (called on disconnect or user logout)
   void clearDisplayUnitsCache() {
     _displayUnitsCache.clear();
-    if (kDebugMode) {
-      print('Display units cache cleared');
-    }
   }
 
   /// Internal helper to convert a value using the formula for this path
@@ -1496,11 +1332,6 @@ class SignalKService extends ChangeNotifier implements DataService {
         Uri.parse('$protocol://$_serverUrl/signalk/v1/api/vessels/self/$apiPath'),
         headers: _getHeaders(),
       ).timeout(const Duration(seconds: 20)); // Increased from 5s for busy servers
-
-      if (kDebugMode) {
-        print('Sources API Response: ${response.statusCode}');
-        print('Sources API Body: ${response.body}');
-      }
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body) as Map<String, dynamic>;
@@ -1553,19 +1384,9 @@ class SignalKService extends ChangeNotifier implements DataService {
     }
 
     final newPaths = paths.where((p) => !_activePaths.contains(p)).toList();
-    if (newPaths.isEmpty) {
-      if (kDebugMode) {
-        print('All requested paths already subscribed');
-      }
-      return;
-    }
+    if (newPaths.isEmpty) return;
 
     _activePaths.addAll(newPaths);
-
-    if (kDebugMode) {
-      print('Adding ${newPaths.length} new paths to subscription (total: ${_activePaths.length})');
-    }
-
     await _updateSubscription();
   }
 
@@ -1577,10 +1398,6 @@ class SignalKService extends ChangeNotifier implements DataService {
     if (removedPaths.isEmpty) return;
 
     _activePaths.removeAll(removedPaths);
-
-    if (kDebugMode) {
-      print('Removing ${removedPaths.length} paths from subscription (remaining: ${_activePaths.length})');
-    }
 
     // Send unsubscribe message for units-preference plugin
     if (_authToken != null && _vesselContext != null) {
@@ -1627,18 +1444,9 @@ class SignalKService extends ChangeNotifier implements DataService {
     }
 
     final newPaths = paths.where((p) => !_autopilotPaths.contains(p)).toList();
-    if (newPaths.isEmpty) {
-      if (kDebugMode) {
-        print('All autopilot paths already subscribed');
-      }
-      return;
-    }
+    if (newPaths.isEmpty) return;
 
     _autopilotPaths.addAll(newPaths);
-
-    if (kDebugMode) {
-      print('Adding ${newPaths.length} autopilot paths (total: ${_autopilotPaths.length})');
-    }
 
     // Connect autopilot channel if not already connected
     if (_autopilotChannel == null) {
@@ -1663,11 +1471,6 @@ class SignalKService extends ChangeNotifier implements DataService {
     };
 
     _autopilotChannel?.sink.add(jsonEncode(subscription));
-
-    if (kDebugMode) {
-      print('Sent autopilot subscription: ${_autopilotPaths.length} paths to standard stream (instant policy)');
-      print('Autopilot paths: ${_autopilotPaths.join(", ")}');
-    }
   }
 
   /// Load initial AIS vessel data and subscribe for updates
@@ -1737,6 +1540,12 @@ class SignalKService extends ChangeNotifier implements DataService {
 
       }
 
+      // Only emit disconnected if not in the middle of reconnecting
+      // This prevents the "Connection Lost" overlay from flashing during retry attempts
+      if (_connectionState != SignalKConnectionState.reconnecting) {
+        _connectionState = SignalKConnectionState.disconnected;
+        _connectionStateController.add(SignalKConnectionState.disconnected);
+      }
       notifyListeners();
     } catch (e) {
       if (kDebugMode) {
@@ -1745,9 +1554,35 @@ class SignalKService extends ChangeNotifier implements DataService {
     }
   }
 
+  /// Manually trigger reconnection (e.g., from retry button)
+  Future<void> reconnect() async {
+    if (_serverUrl.isEmpty) return;
+
+    _reconnectAttempts = 0;
+    _intentionalDisconnect = false;
+    _connectionState = SignalKConnectionState.reconnecting;
+    _connectionStateController.add(SignalKConnectionState.reconnecting);
+
+    try {
+      await connect(
+        _serverUrl,
+        secure: _useSecureConnection,
+        authToken: _authToken,
+      );
+    } catch (e) {
+      if (kDebugMode) {
+        print('Manual reconnect failed: $e');
+      }
+      // connect() failure doesn't trigger _handleDisconnect (that's only for established connections)
+      // Start the auto-retry loop
+      _attemptReconnect();
+    }
+  }
+
   @override
   void dispose() {
     disconnect();
+    _connectionStateController.close();
     _dataCache.dispose();
     _conversionManager.dispose();
     _notificationManager.dispose();
@@ -1930,9 +1765,6 @@ class _DataCacheManager {
     final afterSize = _latestData.length;
     final removed = beforeSize - afterSize;
     if (removed > 0) {
-      if (kDebugMode) {
-        print('Cache pruned: removed $removed stale entries, $afterSize remaining');
-      }
       // Notify parent to invalidate cached views
       onCacheChanged?.call();
     }
@@ -1990,9 +1822,6 @@ class _ConversionManager {
         _defaultCategories = cached['_defaultCategories'] as Map<String, dynamic>?;
         _presetDetails = cached['_presetDetails'] as Map<String, dynamic>?;
         _activePresetName = cached['_activePresetName'] as String?;
-        if (kDebugMode) {
-          print('📦 Loaded unitpreferences from local cache (preset: $_activePresetName)');
-        }
       } else if (_conversionsData.isEmpty) {
         // Legacy format - path-based conversions
         _conversionsData.clear();
@@ -2001,9 +1830,6 @@ class _ConversionManager {
             _conversionsData[path] = PathConversionData.fromJson(conversionJson);
           }
         });
-        if (kDebugMode) {
-          print('📦 Loaded ${_conversionsData.length} legacy conversions from local cache');
-        }
       }
     }
   }
@@ -2042,34 +1868,17 @@ class _ConversionManager {
       // Parse unit definitions
       if (definitionsResponse.statusCode == 200) {
         _unitDefinitions = jsonDecode(definitionsResponse.body) as Map<String, dynamic>;
-        if (kDebugMode) {
-          print('✅ Loaded ${_unitDefinitions!.length} unit definitions');
-        }
-      } else {
-        if (kDebugMode) {
-          print('⚠️ Failed to fetch unit definitions: ${definitionsResponse.statusCode}');
-        }
       }
 
       // Parse default categories (path patterns)
       if (categoriesResponse.statusCode == 200) {
         _defaultCategories = jsonDecode(categoriesResponse.body) as Map<String, dynamic>;
-        if (kDebugMode) {
-          print('✅ Loaded ${_defaultCategories!.length} default categories');
-        }
-      } else {
-        if (kDebugMode) {
-          print('⚠️ Failed to fetch default categories: ${categoriesResponse.statusCode}');
-        }
       }
 
       // Parse config to get active preset name
       if (configResponse.statusCode == 200) {
         final config = jsonDecode(configResponse.body) as Map<String, dynamic>;
         _activePresetName = config['activePreset'] as String?;
-        if (kDebugMode) {
-          print('✅ Active preset: $_activePresetName');
-        }
 
         // Fetch the active preset details
         if (_activePresetName != null && _activePresetName!.isNotEmpty) {
@@ -2082,23 +1891,10 @@ class _ConversionManager {
             if (presetResponse.statusCode == 200) {
               final presetData = jsonDecode(presetResponse.body) as Map<String, dynamic>;
               _presetDetails = presetData['categories'] as Map<String, dynamic>?;
-              if (kDebugMode) {
-                print('✅ Loaded preset "$_activePresetName" with ${_presetDetails?.length ?? 0} categories');
-              }
-            } else {
-              if (kDebugMode) {
-                print('⚠️ Failed to fetch preset $_activePresetName: ${presetResponse.statusCode}');
-              }
             }
-          } catch (e) {
-            if (kDebugMode) {
-              print('⚠️ Error fetching preset $_activePresetName: $e');
-            }
+          } catch (_) {
+            // Ignore preset fetch errors
           }
-        }
-      } else {
-        if (kDebugMode) {
-          print('⚠️ Failed to fetch config: ${configResponse.statusCode}');
         }
       }
 
@@ -2111,7 +1907,7 @@ class _ConversionManager {
       });
     } catch (e) {
       if (kDebugMode) {
-        print('⚠️ Error fetching unit preferences: $e');
+        print('Unit preferences fetch error: $e');
       }
     }
   }
@@ -2562,30 +2358,15 @@ class _AISManager {
     // Use standard SignalK vessels endpoint
     final endpoint = '$protocol://${getServerUrl()}/signalk/v1/api/vessels';
 
-    if (kDebugMode) {
-      print('🌐 Fetching AIS vessels from: $endpoint');
-    }
-
     try {
       final response = await http.get(
         Uri.parse(endpoint),
         headers: getHeaders(),
       ).timeout(const Duration(seconds: 5));
 
-      if (kDebugMode) {
-        print('🌐 Response status: ${response.statusCode}');
-        if (response.statusCode != 200) {
-          print('🌐 Response body: ${response.body}');
-        }
-      }
-
       if (response.statusCode == 200) {
         // Response has vessels at root level, NOT wrapped in 'vessels' object
         final vesselsData = jsonDecode(response.body) as Map<String, dynamic>;
-
-        if (kDebugMode) {
-          print('🌐 Received ${vesselsData.length} vessel entries');
-        }
 
         // Fetch self vessel ID directly from /self endpoint
         String? selfVesselId;
@@ -2602,14 +2383,9 @@ class _AISManager {
                 : selfRef;
             // Cache for use by getLiveAISVessels()
             _cachedSelfVesselId = selfVesselId;
-            if (kDebugMode) {
-              print('🌐 Self vessel ID: $selfVesselId');
-            }
           }
-        } catch (e) {
-          if (kDebugMode) {
-            print('🌐 Error fetching self: $e');
-          }
+        } catch (_) {
+          // Ignore self-fetch errors
         }
 
         for (final entry in vesselsData.entries) {
@@ -2617,9 +2393,6 @@ class _AISManager {
 
           // Skip self vessel - check both the literal 'self' key and the actual vessel ID
           if (vesselId == 'self' || vesselId == selfVesselId) {
-            if (kDebugMode) {
-              print('🌐 Skipping self vessel: $vesselId');
-            }
             continue;
           }
 
@@ -2678,12 +2451,8 @@ class _AISManager {
       }
     } catch (e) {
       if (kDebugMode) {
-        print('🌐 Error fetching AIS vessels: $e');
+        print('AIS fetch error: $e');
       }
-    }
-
-    if (kDebugMode) {
-      print('🌐 Returning ${vessels.length} vessels with position data');
     }
 
     return vessels;
@@ -2756,10 +2525,6 @@ class _AISManager {
       if (!isConnected()) {
         timer.cancel();
         return;
-      }
-
-      if (kDebugMode) {
-        print('🔄 Running periodic AIS GET refresh...');
       }
 
       final vessels = await getAllAISVessels();

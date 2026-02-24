@@ -48,6 +48,12 @@
 	<!-- Microphone permission for voice intercom -->
 	<key>NSMicrophoneUsageDescription</key>
 	<string>ZedDisplay needs microphone access for crew voice intercom</string>
+	<!-- Background modes for voice calls -->
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>audio</string>
+		<string>voip</string>
+	</array>
 	<!-- Photo library permission (required by dependencies) -->
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>ZedDisplay may save dashboard screenshots to your photo library</string>

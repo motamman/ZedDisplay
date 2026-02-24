@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:math_expressions/math_expressions.dart';
 import '../services/signalk_service.dart';
@@ -120,15 +119,10 @@ class ConversionUtils {
         final data = json.decode(response.body);
         if (data is Map<String, dynamic>) {
           _categoriesCache = UnitCategories(data);
-          if (kDebugMode) {
-            print('ConversionUtils: Loaded ${data.length} unit categories from server');
-          }
         }
       }
-    } catch (e) {
-      if (kDebugMode) {
-        print('ConversionUtils: Error fetching categories: $e');
-      }
+    } catch (_) {
+      // Ignore category fetch errors
     }
   }
 
@@ -140,9 +134,6 @@ class ConversionUtils {
 
     if (userPreset != null && presetName != null) {
       _userPreferencesCache = UserUnitPreferences(userPreset, presetName);
-      if (kDebugMode) {
-        print('ConversionUtils: Loaded user preferences (preset: $presetName)');
-      }
     } else {
       _userPreferencesCache = null;
     }
@@ -151,9 +142,6 @@ class ConversionUtils {
   /// Clear user preferences cache (call on logout or switch to device auth)
   static void clearUserPreferences() {
     _userPreferencesCache = null;
-    if (kDebugMode) {
-      print('ConversionUtils: User preferences cleared');
-    }
   }
 
   /// Check if user preferences are loaded
