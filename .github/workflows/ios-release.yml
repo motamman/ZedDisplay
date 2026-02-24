@@ -54,6 +54,16 @@ jobs:
           provisioning-profile-base64: ${{ secrets.IOS_PROVISIONING_PROFILE_BASE64 }}
           keychain-password: ${{ secrets.IOS_KEYCHAIN_PASSWORD }}
 
+      - name: Find IPA file
+        id: find_ipa
+        run: |
+          echo "=== Looking for IPA files ==="
+          find build -name "*.ipa" 2>/dev/null || true
+          ls -la build/ios/ipa/ 2>/dev/null || true
+          IPA_PATH=$(find build -name "*.ipa" -type f | head -1)
+          echo "IPA_PATH=$IPA_PATH" >> $GITHUB_OUTPUT
+          echo "Found IPA at: $IPA_PATH"
+
       - name: Get version from tag
         id: version
         run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
@@ -74,11 +84,10 @@ jobs:
       - name: Upload to TestFlight
         uses: apple-actions/upload-testflight-build@v3
         with:
-          app-path: build/ios/ipa/zed_display.ipa
+          app-path: ${{ steps.find_ipa.outputs.IPA_PATH }}
           issuer-id: ${{ secrets.APPSTORE_ISSUER_ID }}
           api-key-id: ${{ secrets.APPSTORE_API_KEY_ID }}
           api-private-key: ${{ secrets.APPSTORE_API_PRIVATE_KEY }}
-          release-notes: ${{ steps.release_notes.outputs.NOTES }}
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
