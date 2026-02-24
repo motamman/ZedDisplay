@@ -388,6 +388,26 @@ class _ZedDisplayAppState extends State<ZedDisplayApp> with WidgetsBindingObserv
                 child ?? const SizedBox.shrink(),
                 // Intercom status indicator overlay (shows when receiving transmission)
                 const IntercomStatusIndicator(),
+                // Global reconnection overlay
+                StreamBuilder<SignalKConnectionState>(
+                  stream: widget.signalKService.connectionStateStream,
+                  builder: (context, snapshot) {
+                    final state = snapshot.data ?? widget.signalKService.connectionState;
+                    if (state == SignalKConnectionState.reconnecting) {
+                      return _ReconnectingOverlay(
+                        attempt: widget.signalKService.reconnectAttempt,
+                        maxAttempts: widget.signalKService.maxReconnectAttempts,
+                      );
+                    }
+                    if (state == SignalKConnectionState.disconnected &&
+                        widget.signalKService.wasConnected) {
+                      return _DisconnectedOverlay(
+                        onRetry: () => widget.signalKService.reconnect(),
+                      );
+                    }
+                    return const SizedBox.shrink();
+                  },
+                ),
               ],
             ),
           );
@@ -586,5 +606,77 @@ class _SignalKNotificationListenerState extends State<SignalKNotificationListene
   @override
   Widget build(BuildContext context) {
     return widget.child;
+  }
+}
+
+/// Overlay shown when attempting to reconnect to SignalK server
+class _ReconnectingOverlay extends StatelessWidget {
+  final int attempt;
+  final int maxAttempts;
+
+  const _ReconnectingOverlay({
+    required this.attempt,
+    required this.maxAttempts,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      color: Colors.black54,
+      child: Center(
+        child: Card(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const CircularProgressIndicator(),
+                const SizedBox(height: 16),
+                const Text('Reconnecting...', style: TextStyle(fontSize: 18)),
+                const SizedBox(height: 8),
+                Text('Attempt $attempt of $maxAttempts'),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Overlay shown when connection to SignalK server is lost
+class _DisconnectedOverlay extends StatelessWidget {
+  final VoidCallback onRetry;
+
+  const _DisconnectedOverlay({
+    required this.onRetry,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      color: Colors.black54,
+      child: Center(
+        child: Card(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.cloud_off, size: 48, color: Colors.red),
+                const SizedBox(height: 16),
+                const Text('Connection Lost', style: TextStyle(fontSize: 18)),
+                const SizedBox(height: 16),
+                ElevatedButton.icon(
+                  onPressed: onRetry,
+                  icon: const Icon(Icons.refresh),
+                  label: const Text('Retry'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }

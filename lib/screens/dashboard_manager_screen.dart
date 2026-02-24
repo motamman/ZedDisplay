@@ -1013,6 +1013,18 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen>
     );
   }
 
+  /// Get color for connection state indicator dot
+  Color _getConnectionColor(SignalKConnectionState state) {
+    switch (state) {
+      case SignalKConnectionState.connected:
+        return Colors.green;
+      case SignalKConnectionState.reconnecting:
+        return Colors.orange;
+      case SignalKConnectionState.disconnected:
+        return Colors.red;
+    }
+  }
+
   /// Get display name from saved connection (falls back to hostname)
   String _getServerDisplayName(String? serverUrl, StorageService storageService) {
     if (serverUrl == null || serverUrl.isEmpty) return 'Not Connected';
@@ -1135,29 +1147,38 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen>
         titleSpacing: 8,
         title: Consumer2<SignalKService, StorageService>(
           builder: (context, signalKService, storageService, child) {
-            return Row(
-              children: [
-                // Connection indicator (compact)
-                Icon(
-                  signalKService.isConnected ? Icons.cloud_done : Icons.cloud_off,
-                  color: signalKService.isConnected ? Colors.green : Colors.red,
-                  size: 18,
-                ),
-                const SizedBox(width: 8),
-                // Server name (tappable to show server picker)
-                Flexible(
-                  child: GestureDetector(
-                    behavior: HitTestBehavior.opaque,
-                    onTap: () => _showServerPicker(context, signalKService),
-                    child: Text(
-                      signalKService.isConnected
-                          ? _getServerDisplayName(signalKService.serverUrl, storageService)
-                          : 'Not Connected',
-                      overflow: TextOverflow.ellipsis,
+            return StreamBuilder<SignalKConnectionState>(
+              stream: signalKService.connectionStateStream,
+              builder: (context, snapshot) {
+                final state = snapshot.data ?? signalKService.connectionState;
+                return Row(
+                  children: [
+                    // Colored dot indicator
+                    Container(
+                      width: 10,
+                      height: 10,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: _getConnectionColor(state),
+                      ),
                     ),
-                  ),
-                ),
-              ],
+                    const SizedBox(width: 8),
+                    // Server name (tappable to show server picker)
+                    Flexible(
+                      child: GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onTap: () => _showServerPicker(context, signalKService),
+                        child: Text(
+                          signalKService.serverUrl.isNotEmpty
+                              ? _getServerDisplayName(signalKService.serverUrl, storageService)
+                              : 'Not Connected',
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ),
+                  ],
+                );
+              },
             );
           },
         ),
@@ -1218,35 +1239,8 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen>
               );
             }
 
-            if (!signalKService.isConnected) {
-              return Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const Icon(Icons.cloud_off, size: 64, color: Colors.grey),
-                    const SizedBox(height: 16),
-                    const Text(
-                      'Not connected to SignalK server',
-                      style: TextStyle(fontSize: 18, color: Colors.grey),
-                    ),
-                    const SizedBox(height: 16),
-                    ElevatedButton.icon(
-                      onPressed: () {
-                        Navigator.of(context).push(
-                          MaterialPageRoute(
-                            builder: (context) => const SettingsScreen(
-                              showConnections: true,
-                            ),
-                          ),
-                        );
-                      },
-                      icon: const Icon(Icons.settings),
-                      label: const Text('Connection Settings'),
-                    ),
-                  ],
-                ),
-              );
-            }
+            // Note: Connection state overlay is handled globally in main.dart
+            // Dashboard remains visible (dimmed) during reconnection
 
             // Build dashboard with PageView navigation
             return _buildDashboard(layout, dashboardService, signalKService);

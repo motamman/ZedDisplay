@@ -16,6 +16,10 @@ The bug was caused by a key mismatch between URL-encoded and canonical user IDs 
 - **Impact** - Direct voice calls and online indicators now work correctly
 - **Messaging** - Text messaging was unaffected (used different lookup path)
 
+### iOS Background Audio (NEW)
+- **Background Modes** - Voice calls now continue when app is backgrounded
+- **VoIP Support** - Calls stay connected when switching apps or locking screen
+
 ---
 
 # Previous: v0.5.6

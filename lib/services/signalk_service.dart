@@ -13,6 +13,13 @@ import 'zones_cache_service.dart';
 import 'interfaces/data_service.dart';
 import 'storage_service.dart';
 
+/// Connection state for SignalK server
+enum SignalKConnectionState {
+  connected,
+  reconnecting,
+  disconnected,
+}
+
 /// Service to connect to SignalK server and stream data
 class SignalKService extends ChangeNotifier implements DataService {
   // Main data WebSocket (units-preference endpoint)
@@ -30,6 +37,11 @@ class SignalKService extends ChangeNotifier implements DataService {
   int _reconnectAttempts = 0;
   static const int _maxReconnectAttempts = 5;
   bool _intentionalDisconnect = false;
+  bool _wasConnected = false;
+
+  // Connection state stream (for UI overlay without triggering rebuilds)
+  final _connectionStateController = StreamController<SignalKConnectionState>.broadcast();
+  SignalKConnectionState _connectionState = SignalKConnectionState.disconnected;
 
   // Data cache cleanup
   Timer? _cacheCleanupTimer;
@@ -137,6 +149,13 @@ class SignalKService extends ChangeNotifier implements DataService {
   bool get notificationsEnabled => _notificationManager.notificationsEnabled;
   Stream<SignalKNotification> get notificationStream => _notificationManager.notificationStream;
 
+  // Connection state stream and properties
+  Stream<SignalKConnectionState> get connectionStateStream => _connectionStateController.stream;
+  SignalKConnectionState get connectionState => _connectionState;
+  int get reconnectAttempt => _reconnectAttempts;
+  int get maxReconnectAttempts => _maxReconnectAttempts;
+  bool get wasConnected => _wasConnected;
+
   /// Get recent notifications (last 10 seconds by default)
   List<SignalKNotification> getRecentNotifications({Duration maxAge = const Duration(seconds: 10)}) {
     return _notificationManager.getRecentNotifications(maxAge: maxAge);
@@ -229,9 +248,12 @@ class SignalKService extends ChangeNotifier implements DataService {
       );
 
       _isConnected = true;
+      _wasConnected = true;
       _errorMessage = null;
       _reconnectAttempts = 0; // Reset reconnect attempts on successful connection
       _intentionalDisconnect = false;
+      _connectionState = SignalKConnectionState.connected;
+      _connectionStateController.add(SignalKConnectionState.connected);
       notifyListeners();
 
 
@@ -688,7 +710,7 @@ class SignalKService extends ChangeNotifier implements DataService {
   /// Handle WebSocket disconnect
   void _handleDisconnect() {
     _isConnected = false;
-    notifyListeners();
+    // Don't call notifyListeners() for connection state change - use stream instead
 
     if (kDebugMode) {
       print('Disconnected from SignalK server');
@@ -696,7 +718,12 @@ class SignalKService extends ChangeNotifier implements DataService {
 
     // Attempt reconnection if not intentional disconnect
     if (!_intentionalDisconnect && _serverUrl.isNotEmpty) {
+      _connectionState = SignalKConnectionState.reconnecting;
+      _connectionStateController.add(SignalKConnectionState.reconnecting);
       _attemptReconnect();
+    } else {
+      _connectionState = SignalKConnectionState.disconnected;
+      _connectionStateController.add(SignalKConnectionState.disconnected);
     }
   }
 
@@ -706,13 +733,19 @@ class SignalKService extends ChangeNotifier implements DataService {
       if (kDebugMode) {
         print('Max reconnect attempts reached. Giving up.');
       }
+      _connectionState = SignalKConnectionState.disconnected;
+      _connectionStateController.add(SignalKConnectionState.disconnected);
       _errorMessage = 'Connection lost. Please reconnect manually.';
-      notifyListeners();
+      // notifyListeners() only for error message if needed
       return;
     }
 
     _reconnectAttempts++;
     final delay = Duration(seconds: 2 * _reconnectAttempts); // Exponential backoff: 2s, 4s, 6s, 8s, 10s
+
+    // Re-emit reconnecting state so UI updates with new attempt count
+    _connectionState = SignalKConnectionState.reconnecting;
+    _connectionStateController.add(SignalKConnectionState.reconnecting);
 
     if (kDebugMode) {
       print('Attempting reconnect #$_reconnectAttempts in ${delay.inSeconds}s...');
@@ -733,7 +766,9 @@ class SignalKService extends ChangeNotifier implements DataService {
         if (kDebugMode) {
           print('Reconnect attempt #$_reconnectAttempts failed: $e');
         }
-        // _handleDisconnect will be called again, triggering next attempt
+        // connect() failure doesn't trigger _handleDisconnect (that's only for established connections)
+        // So we need to manually trigger the next attempt
+        _attemptReconnect();
       }
     });
   }
@@ -1737,6 +1772,8 @@ class SignalKService extends ChangeNotifier implements DataService {
 
       }
 
+      _connectionState = SignalKConnectionState.disconnected;
+      _connectionStateController.add(SignalKConnectionState.disconnected);
       notifyListeners();
     } catch (e) {
       if (kDebugMode) {
@@ -1745,9 +1782,35 @@ class SignalKService extends ChangeNotifier implements DataService {
     }
   }
 
+  /// Manually trigger reconnection (e.g., from retry button)
+  Future<void> reconnect() async {
+    if (_serverUrl.isEmpty) return;
+
+    _reconnectAttempts = 0;
+    _intentionalDisconnect = false;
+    _connectionState = SignalKConnectionState.reconnecting;
+    _connectionStateController.add(SignalKConnectionState.reconnecting);
+
+    try {
+      await connect(
+        _serverUrl,
+        secure: _useSecureConnection,
+        authToken: _authToken,
+      );
+    } catch (e) {
+      if (kDebugMode) {
+        print('Manual reconnect failed: $e');
+      }
+      // connect() failure doesn't trigger _handleDisconnect (that's only for established connections)
+      // Start the auto-retry loop
+      _attemptReconnect();
+    }
+  }
+
   @override
   void dispose() {
     disconnect();
+    _connectionStateController.close();
     _dataCache.dispose();
     _conversionManager.dispose();
     _notificationManager.dispose();

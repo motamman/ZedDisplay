@@ -48,6 +48,11 @@ post_install do |installer|
       if config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'].to_f < 16.0
         config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '16.0'
       end
+      # Enable permission_handler permissions for iOS
+      config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] ||= [
+        '$(inherited)',
+        'PERMISSION_MICROPHONE=1',
+      ]
     end
   end
 end

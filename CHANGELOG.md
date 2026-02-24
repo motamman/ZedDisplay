@@ -13,6 +13,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Now uses canonical ID consistently for both storage and lookup
   - Crew members should correctly show as online when connected to the same SignalK server
 
+### Added
+- **iOS Background Audio**: Added `UIBackgroundModes` for voice intercom
+  - `audio` mode allows audio playback when app is backgrounded
+  - `voip` mode keeps voice calls alive when switching apps or locking screen
+
 ## [Unreleased]
 
 ### Added
