@@ -509,54 +509,72 @@ class _AISPolarChartState extends State<AISPolarChart>
 
             final radarWidget = _showMapView
                 ? _buildMapView(vesselColor, isDark)
-                : Center(
-                    child: AspectRatio(
-                      aspectRatio: 1.0,
-                      child: _buildRadarChart(vesselColor, isDark),
+                : Container(
+                    decoration: BoxDecoration(
+                      color: isDark ? Colors.grey.shade900 : Colors.grey.shade100,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Center(
+                      child: AspectRatio(
+                        aspectRatio: 1.0,
+                        child: _buildRadarChart(vesselColor, isDark),
+                      ),
                     ),
                   );
 
             final listWidget = _buildVesselList(context, isDark);
 
+            final radarClipped = ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: radarWidget,
+            );
+            final listClipped = ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: listWidget,
+            );
+
+            // Radar with overlay controls
+            final radarWithOverlay = Stack(
+              children: [
+                Positioned.fill(child: radarClipped),
+                // Status badge (top left)
+                Positioned(
+                  top: 8,
+                  left: 8,
+                  child: _buildStatusBadge(context),
+                ),
+                // View controls (top right)
+                Positioned(
+                  top: 8,
+                  right: 8,
+                  child: _buildOverlayControls(context),
+                ),
+              ],
+            );
+
             if (isWide) {
-              // Side-by-side: radar left (max 50%), list right
-              return Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+              // Side-by-side: radar left (50%), list right (50%)
+              return Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  _buildHeader(context),
-                  const SizedBox(height: 16),
-                  Expanded(
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        // Radar/map - max 50% width
-                        SizedBox(
-                          width: constraints.maxWidth * 0.5 - 8,
-                          child: radarWidget,
-                        ),
-                        const SizedBox(width: 16),
-                        // Vessel list - remaining space
-                        Expanded(child: listWidget),
-                      ],
-                    ),
-                  ),
+                  Expanded(child: radarWithOverlay),
+                  const SizedBox(width: 8),
+                  Expanded(child: listClipped),
                 ],
               );
             } else {
               // Stacked: radar top (50%), list below (50%)
               return Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  _buildHeader(context),
-                  const SizedBox(height: 16),
                   Expanded(
                     flex: 1,
-                    child: radarWidget,
+                    child: radarWithOverlay,
                   ),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 8),
                   Expanded(
                     flex: 1,
-                    child: listWidget,
+                    child: listClipped,
                   ),
                 ],
               );
@@ -567,113 +585,99 @@ class _AISPolarChartState extends State<AISPolarChart>
     );
   }
 
-  Widget _buildHeader(BuildContext context) {
+  /// Build status badge showing vessel count (top left overlay)
+  Widget _buildStatusBadge(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.8),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.directions_boat, color: Colors.white, size: 16),
+          const SizedBox(width: 6),
+          Text(
+            '${_vessels.length} vessels',
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.bold,
+              fontSize: 13,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Build overlay controls (top right, vertical column like anchor alarm)
+  Widget _buildOverlayControls(BuildContext context) {
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
       children: [
-        // Title and vessel count on first line
-        Row(
-          children: [
-            Text(
-              'AIS Display',
-              style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
-            ),
-            const SizedBox(width: 12),
-            Text(
-              '${_vessels.length} vessels',
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: Colors.grey,
-                  ),
-            ),
-          ],
+        // Map/Polar toggle
+        _buildOverlayButton(
+          icon: _showMapView ? Icons.radar : Icons.map,
+          onPressed: () => setState(() => _showMapView = !_showMapView),
         ),
         const SizedBox(height: 8),
-        // Controls on second line
-        SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          child: Row(
-            children: [
-              // Map/Polar toggle
-              IconButton(
-                icon: Icon(_showMapView ? Icons.radar : Icons.map, size: 20),
-                onPressed: () {
-                  setState(() {
-                    _showMapView = !_showMapView;
-                  });
-                },
-                tooltip: _showMapView ? 'Show Polar Chart' : 'Show Map',
-                padding: EdgeInsets.zero,
-                constraints: const BoxConstraints(),
-              ),
-              const SizedBox(width: 8),
-              // Center on self button (only show in map view)
-              if (_showMapView)
-                IconButton(
-                  icon: const Icon(Icons.my_location, size: 20),
-                  onPressed: _centerMapOnSelf,
-                  tooltip: 'Center on own vessel',
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(),
-                ),
-              if (_showMapView) const SizedBox(width: 8),
-              // Auto-follow toggle (only show in map view)
-              if (_showMapView)
-                IconButton(
-                  icon: Icon(
-                    _mapAutoFollow ? Icons.gps_fixed : Icons.gps_not_fixed,
-                    size: 20,
-                    color: _mapAutoFollow ? Colors.blue : null,
-                  ),
-                  onPressed: _toggleAutoFollow,
-                  tooltip: _mapAutoFollow ? 'Auto-follow enabled' : 'Auto-follow disabled',
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(),
-                ),
-              const SizedBox(width: 16),
-              // Zoom out button
-              IconButton(
-                icon: const Icon(Icons.zoom_out, size: 20),
-                onPressed: _zoomOut,
-                tooltip: 'Zoom Out',
-                padding: EdgeInsets.zero,
-                constraints: const BoxConstraints(),
-              ),
-              // Range display with auto indicator (only show in polar view)
-              if (!_showMapView) ...[
-                const SizedBox(width: 4),
-                InkWell(
-                  onTap: _toggleAutoRange,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: _autoRange ? Colors.blue.withValues(alpha: 0.2) : Colors.grey.withValues(alpha: 0.2),
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    child: Text(
-                      '${_convertDistance(_getDisplayRange()).toStringAsFixed(1)} ${_getDistanceUnit()}${_autoRange ? ' (auto)' : ''}',
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: _autoRange ? Colors.blue : Colors.grey,
-                            fontWeight: FontWeight.w500,
-                          ),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 4),
-              ],
-              // Zoom in button
-              IconButton(
-                icon: const Icon(Icons.zoom_in, size: 20),
-                onPressed: _zoomIn,
-                tooltip: 'Zoom In',
-                padding: EdgeInsets.zero,
-                constraints: const BoxConstraints(),
-              ),
-            ],
-          ),
+        // Zoom controls
+        _buildOverlayButton(
+          icon: Icons.add,
+          onPressed: _zoomIn,
         ),
+        const SizedBox(height: 4),
+        _buildOverlayButton(
+          icon: Icons.remove,
+          onPressed: _zoomOut,
+        ),
+        // Auto-range toggle (polar view only)
+        if (!_showMapView) ...[
+          const SizedBox(height: 8),
+          _buildOverlayButton(
+            icon: _autoRange ? Icons.auto_fix_high : Icons.auto_fix_off,
+            onPressed: _toggleAutoRange,
+            color: _autoRange ? Colors.blue : null,
+          ),
+        ],
+        // Map-specific controls
+        if (_showMapView) ...[
+          const SizedBox(height: 8),
+          _buildOverlayButton(
+            icon: Icons.my_location,
+            onPressed: _centerMapOnSelf,
+          ),
+          const SizedBox(height: 4),
+          _buildOverlayButton(
+            icon: _mapAutoFollow ? Icons.gps_fixed : Icons.gps_not_fixed,
+            onPressed: _toggleAutoFollow,
+            color: _mapAutoFollow ? Colors.blue : null,
+          ),
+        ],
       ],
+    );
+  }
+
+  Widget _buildOverlayButton({
+    required IconData icon,
+    required VoidCallback onPressed,
+    Color? color,
+  }) {
+    return Material(
+      color: Colors.white.withValues(alpha: 0.9),
+      borderRadius: BorderRadius.circular(6),
+      elevation: 2,
+      child: InkWell(
+        onTap: onPressed,
+        borderRadius: BorderRadius.circular(6),
+        child: Container(
+          width: 32,
+          height: 32,
+          alignment: Alignment.center,
+          child: Icon(icon, color: color ?? Colors.black87, size: 18),
+        ),
+      ),
     );
   }
 
@@ -1051,10 +1055,16 @@ class _AISPolarChartState extends State<AISPolarChart>
   /// Build vessel list
   Widget _buildVesselList(BuildContext context, bool isDark) {
     if (_vessels.isEmpty) {
-      return Center(
-        child: Text(
-          'No vessels in range',
-          style: TextStyle(color: isDark ? Colors.white70 : Colors.black54),
+      return Container(
+        decoration: BoxDecoration(
+          color: isDark ? Colors.grey.shade900 : Colors.grey.shade100,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Center(
+          child: Text(
+            'No vessels in range',
+            style: TextStyle(color: isDark ? Colors.white70 : Colors.black54),
+          ),
         ),
       );
     }
@@ -1076,20 +1086,27 @@ class _AISPolarChartState extends State<AISPolarChart>
       }
     }
 
-    return Column(
-      children: [
-        Padding(
-          padding: const EdgeInsets.only(bottom: 8.0),
-          child: Text(
-            'Last update: $lastUpdateText',
-            style: TextStyle(
-              fontSize: 11,
-              color: isDark ? Colors.white70 : Colors.black54,
+    return Container(
+      decoration: BoxDecoration(
+        color: isDark ? Colors.grey.shade900 : Colors.grey.shade100,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(top: 8.0, bottom: 8.0),
+            child: Text(
+              'Last update: $lastUpdateText',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 11,
+                color: isDark ? Colors.white70 : Colors.black54,
+              ),
             ),
           ),
-        ),
-        Expanded(
-          child: ListView.builder(
+          Expanded(
+            child: ListView.builder(
             itemCount: sortedVessels.length,
             itemBuilder: (context, index) {
               final vessel = sortedVessels[index];
@@ -1187,7 +1204,8 @@ class _AISPolarChartState extends State<AISPolarChart>
             },
           ),
         ),
-      ],
+        ],
+      ),
     );
   }
 

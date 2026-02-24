@@ -376,8 +376,11 @@ class _AnchorAlarmToolState extends State<AnchorAlarmTool> {
         builder: (context, constraints) {
           final isWide = constraints.maxWidth >= 600;
 
-          final mapWidget = _showPolarView ? _buildPolarView(state) : _buildMap(state);
-          final controlsWidget = _buildControlPanel(state, isWide: isWide);
+          final mapWidget = ClipRRect(
+            borderRadius: BorderRadius.circular(12),
+            child: _showPolarView ? _buildPolarView(state) : _buildMap(state),
+          );
+          final controlsWidget = _buildControlPanel(state);
 
           if (isWide) {
             // Side-by-side: Map (50%) | Controls (50%)
@@ -386,6 +389,7 @@ class _AnchorAlarmToolState extends State<AnchorAlarmTool> {
                 Row(
                   children: [
                     Expanded(child: mapWidget),
+                    const SizedBox(width: 8),
                     Expanded(child: controlsWidget),
                   ],
                 ),
@@ -420,6 +424,7 @@ class _AnchorAlarmToolState extends State<AnchorAlarmTool> {
                 Column(
                   children: [
                     Expanded(flex: 1, child: mapWidget),
+                    const SizedBox(height: 8),
                     Expanded(flex: 1, child: controlsWidget),
                   ],
                 ),
@@ -1041,7 +1046,7 @@ class _AnchorAlarmToolState extends State<AnchorAlarmTool> {
     );
   }
 
-  Widget _buildControlPanel(AnchorState state, {bool isWide = false}) {
+  Widget _buildControlPanel(AnchorState state) {
     // Format rode using server's displayUnits metadata
     final rodeFormatted = _formatDistance(_rodeSliderValue, 'navigation.anchor.rodeLength');
 
@@ -1049,13 +1054,7 @@ class _AnchorAlarmToolState extends State<AnchorAlarmTool> {
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
         color: Colors.white.withValues(alpha: 0.95),
-        // Only round corners when stacked (narrow mode), not side-by-side
-        borderRadius: isWide
-            ? null
-            : const BorderRadius.only(
-                topLeft: Radius.circular(12),
-                topRight: Radius.circular(12),
-              ),
+        borderRadius: BorderRadius.circular(12),
       ),
       child: SingleChildScrollView(
         child: Column(
