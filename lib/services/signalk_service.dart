@@ -60,6 +60,7 @@ class SignalKService extends ChangeNotifier implements DataService {
   // User's display unit preferences from WebSocket meta (sendMeta=all per subscription)
   // Maps path to displayUnits configuration: {category, targetUnit, formula, inverseFormula, symbol}
   final Map<String, Map<String, dynamic>> _displayUnitsCache = {};
+  Timer? _displayUnitsSaveTimer;
 
   // Configuration
   String _serverUrl = 'localhost:3000';
@@ -129,6 +130,22 @@ class SignalKService extends ChangeNotifier implements DataService {
     return _storageService?.loadConversionsCache(_serverUrl);
   }
 
+  // Load cached displayUnits for instant unit conversions on startup
+  void _loadDisplayUnitsFromCache() {
+    final cached = _storageService?.loadDisplayUnitsCache(_serverUrl);
+    if (cached != null) {
+      _displayUnitsCache.addAll(cached);
+    }
+  }
+
+  // Save displayUnits cache with debounce to avoid excessive writes
+  void _saveDisplayUnitsToCache() {
+    _displayUnitsSaveTimer?.cancel();
+    _displayUnitsSaveTimer = Timer(const Duration(seconds: 2), () {
+      _storageService?.saveDisplayUnitsCache(_serverUrl, _displayUnitsCache);
+    });
+  }
+
   // Getters
   @override
   bool get isConnected => _isConnected;
@@ -196,6 +213,7 @@ class SignalKService extends ChangeNotifier implements DataService {
     // Load cached conversions immediately for instant display
     // Server data will replace this when it arrives
     _conversionManager.loadFromLocalCache();
+    _loadDisplayUnitsFromCache(); // Load displayUnits for instant unit conversions
     _conversionsDataView = null; // Invalidate cache view
     notifyListeners();
 
@@ -469,12 +487,6 @@ class SignalKService extends ChangeNotifier implements DataService {
 
       // Check if it's a delta update
       if (data['updates'] != null) {
-        // DEBUG: Raw meta logging disabled - too verbose
-        // for (final rawUpdate in (data['updates'] as List)) {
-        //   if (rawUpdate['meta'] != null) {
-        //     print('🔍 RAW META FROM SERVER: ${jsonEncode(rawUpdate['meta'])}');
-        //   }
-        // }
 
         final update = SignalKUpdate.fromJson(data);
 
@@ -483,10 +495,16 @@ class SignalKService extends ChangeNotifier implements DataService {
           final source = updateValue.source; // Source label (e.g., "can0.115", "pypilot")
 
           // Process meta entries (from sendMeta=all) - extract displayUnits
+          bool displayUnitsChanged = false;
           for (final metaEntry in updateValue.metaEntries) {
             if (metaEntry.displayUnits != null) {
               _displayUnitsCache[metaEntry.path] = metaEntry.displayUnits!;
+              displayUnitsChanged = true;
             }
+          }
+          if (displayUnitsChanged) {
+            _saveDisplayUnitsToCache(); // Persist for instant display on restart
+            notifyListeners(); // Trigger widget rebuild to show new units
           }
 
           // Process value updates
@@ -1243,6 +1261,12 @@ class SignalKService extends ChangeNotifier implements DataService {
     return _conversionManager.getUnitPreferencesConversion(path, siUnit);
   }
 
+  /// Get conversion for a known category and SI unit
+  /// Use this when you already know the category (e.g., from displayUnits with explicit:true)
+  ConversionInfo? getConversionForCategory(String category, String siUnit) {
+    return _conversionManager.getConversionForCategory(category, siUnit);
+  }
+
   /// Find category for a path using default-categories patterns
   String? findCategoryForPath(String path) {
     return _conversionManager.findCategoryForPath(path);
@@ -1503,6 +1527,11 @@ class SignalKService extends ChangeNotifier implements DataService {
       // Mark as intentional disconnect to prevent auto-reconnect
       _intentionalDisconnect = true;
       _reconnectTimer?.cancel();
+      // Flush displayUnits cache immediately before clearing
+      if (_displayUnitsSaveTimer?.isActive ?? false) {
+        _displayUnitsSaveTimer!.cancel();
+        await _storageService?.saveDisplayUnitsCache(_serverUrl, _displayUnitsCache);
+      }
       _aisManager.dispose();
       _cacheCleanupTimer?.cancel();
       _reconnectAttempts = 0;
@@ -1959,12 +1988,32 @@ class _ConversionManager {
     final category = findCategoryForPath(path);
     if (category == null) return null;
 
+    return getConversionForCategory(category, siUnit);
+  }
+
+  /// Get conversion formula for a known category and SI unit
+  /// Use this when you already know the category (e.g., from displayUnits)
+  ConversionInfo? getConversionForCategory(String category, String siUnit) {
+    if (_presetDetails == null) return null;
+
     // Get target unit from preset
     final categoryPrefs = _presetDetails![category];
     if (categoryPrefs is! Map<String, dynamic>) return null;
 
     final targetUnit = categoryPrefs['targetUnit'] as String?;
     if (targetUnit == null) return null;
+
+    // If target equals source, no conversion needed - identity
+    if (targetUnit == siUnit) {
+      return ConversionInfo(
+        formula: 'value',
+        inverseFormula: 'value',
+        symbol: siUnit,
+      );
+    }
+
+    // Need unit definitions for non-identity conversions
+    if (_unitDefinitions == null) return null;
 
     // Get conversion formula from unit definitions
     final siUnitDef = _unitDefinitions![siUnit];

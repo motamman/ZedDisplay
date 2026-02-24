@@ -751,6 +751,39 @@ class StorageService extends ChangeNotifier {
     return getInAppNotificationFilter(level);
   }
 
+  // ===== DisplayUnits Cache Management =====
+
+  /// Save displayUnits cache for a server
+  /// This allows instant unit conversions on app startup before WebSocket meta arrives
+  Future<void> saveDisplayUnitsCache(String serverUrl, Map<String, Map<String, dynamic>> displayUnits) async {
+    if (!_initialized) throw Exception('StorageService not initialized');
+    try {
+      final cacheEntry = {
+        'serverUrl': serverUrl,
+        'timestamp': DateTime.now().toIso8601String(),
+        'displayUnits': displayUnits,
+      };
+      final json = jsonEncode(cacheEntry);
+      await _conversionsBox.put('displayUnits_$serverUrl', json);
+    } catch (_) {
+      // Ignore cache save errors
+    }
+  }
+
+  /// Load cached displayUnits for a server
+  Map<String, Map<String, dynamic>>? loadDisplayUnitsCache(String serverUrl) {
+    if (!_initialized) return null;
+    try {
+      final json = _conversionsBox.get('displayUnits_$serverUrl');
+      if (json == null) return null;
+      final cacheEntry = jsonDecode(json) as Map<String, dynamic>;
+      final displayUnits = cacheEntry['displayUnits'] as Map<String, dynamic>;
+      return displayUnits.map((k, v) => MapEntry(k, v as Map<String, dynamic>));
+    } catch (_) {
+      return null;
+    }
+  }
+
   // ===== Conversions Cache Management =====
 
   /// Save conversions data to local cache

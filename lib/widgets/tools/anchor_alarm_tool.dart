@@ -65,8 +65,18 @@ class _AnchorAlarmToolState extends State<AnchorAlarmTool> {
     _alarmService.initialize();
     _alarmService.addListener(_onStateChanged);
 
+    // Listen to SignalKService for displayUnits changes (unit preference updates)
+    widget.signalKService.addListener(_onSignalKChanged);
+
     // Configure from tool settings
     _configureFromSettings();
+  }
+
+  void _onSignalKChanged() {
+    // Rebuild when SignalK data changes (including displayUnits)
+    if (mounted) {
+      setState(() {});
+    }
   }
 
   void _configureFromSettings() {
@@ -92,8 +102,18 @@ class _AnchorAlarmToolState extends State<AnchorAlarmTool> {
   }
 
   @override
+  void didUpdateWidget(AnchorAlarmTool oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.signalKService != widget.signalKService) {
+      oldWidget.signalKService.removeListener(_onSignalKChanged);
+      widget.signalKService.addListener(_onSignalKChanged);
+    }
+  }
+
+  @override
   void dispose() {
     _alarmService.removeListener(_onStateChanged);
+    widget.signalKService.removeListener(_onSignalKChanged);
     _alarmService.dispose();
     super.dispose();
   }

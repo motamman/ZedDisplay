@@ -164,6 +164,21 @@ class ConversionUtils {
     return null;
   }
 
+  /// Map category names to their SI base units
+  /// Used when displayUnits has explicit:true (no formula) and we need to look up conversion
+  static String? _getSiUnitForCategory(String category) {
+    const categoryToSiUnit = {
+      'length': 'm',
+      'speed': 'm/s',
+      'temperature': 'K',
+      'pressure': 'Pa',
+      'angle': 'rad',
+      'depth': 'm',
+      'distance': 'm',
+    };
+    return categoryToSiUnit[category];
+  }
+
   /// Convert weather value using fallback conversions
   /// Uses server preferences if available, otherwise uses sensible defaults
   static double? convertWeatherValue(
@@ -315,8 +330,25 @@ class ConversionUtils {
     // Use displayUnits from WebSocket meta - server provides exact conversion per path
     final displayUnits = service.getDisplayUnits(path);
     if (displayUnits != null) {
-      final formula = displayUnits['formula'] as String?;
-      final symbol = displayUnits['symbol'] as String?;
+      // Check for direct formula/symbol (full displayUnits format)
+      var formula = displayUnits['formula'] as String?;
+      var symbol = displayUnits['symbol'] as String?;
+
+      // If no direct formula (explicit:true case from anchor-alarm plugin),
+      // look up conversion using the category we already have
+      if (formula == null) {
+        final category = displayUnits['category'] as String?;
+        if (category != null) {
+          final siUnit = _getSiUnitForCategory(category);
+          if (siUnit != null) {
+            final conversionInfo = service.getConversionForCategory(category, siUnit);
+            if (conversionInfo != null) {
+              formula = conversionInfo.formula;
+              symbol = conversionInfo.symbol;
+            }
+          }
+        }
+      }
 
       if (formula != null) {
         final converted = evaluateFormula(formula, rawValue);
@@ -400,7 +432,22 @@ class ConversionUtils {
     // Use displayUnits from WebSocket meta - server provides exact conversion per path
     final displayUnits = service.getDisplayUnits(path);
     if (displayUnits != null) {
-      final inverseFormula = displayUnits['inverseFormula'] as String?;
+      var inverseFormula = displayUnits['inverseFormula'] as String?;
+
+      // If no direct inverse formula (explicit:true case), look up from category
+      if (inverseFormula == null) {
+        final category = displayUnits['category'] as String?;
+        if (category != null) {
+          final siUnit = _getSiUnitForCategory(category);
+          if (siUnit != null) {
+            final conversionInfo = service.getConversionForCategory(category, siUnit);
+            if (conversionInfo != null && conversionInfo.inverseFormula.isNotEmpty) {
+              inverseFormula = conversionInfo.inverseFormula;
+            }
+          }
+        }
+      }
+
       if (inverseFormula != null) {
         final rawValue = evaluateFormula(inverseFormula, displayValue);
         if (rawValue != null) {
