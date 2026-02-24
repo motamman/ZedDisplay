@@ -29,6 +29,8 @@ class DeviceRegistrationScreen extends StatefulWidget {
 }
 
 class _DeviceRegistrationScreenState extends State<DeviceRegistrationScreen> {
+  bool _hasNavigated = false;
+
   @override
   void initState() {
     super.initState();
@@ -203,10 +205,13 @@ class _DeviceRegistrationScreenState extends State<DeviceRegistrationScreen> {
       case AccessRequestState.approved:
         title = 'Approved!';
         message = 'Your device has been approved. Connecting...';
-        // Auto-navigate after a short delay
-        Future.delayed(const Duration(seconds: 1), () {
-          if (mounted) _navigateToDashboard();
-        });
+        // Auto-navigate after a short delay (only once)
+        if (!_hasNavigated) {
+          _hasNavigated = true;
+          Future.delayed(const Duration(seconds: 1), () {
+            if (mounted) _navigateToDashboard();
+          });
+        }
         break;
       case AccessRequestState.denied:
         title = 'Access Denied';

@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:math_expressions/math_expressions.dart';
 import '../../models/tool_definition.dart';
 import '../../models/tool_config.dart';
 import '../../services/signalk_service.dart';
 import '../../services/tool_registry.dart';
+import '../../utils/conversion_utils.dart';
 
 /// Simple test tool to display conversion data from SignalK
 /// Uses STANDARD SignalK WebSocket: ws://[server]/signalk/v1/stream
@@ -22,44 +22,6 @@ class ConversionTestTool extends StatefulWidget {
 }
 
 class _ConversionTestToolState extends State<ConversionTestTool> {
-  /// Default paths for new conversion test tools (kept for reference)
-  // static const List<String> defaultPaths = [
-  //   'navigation.position',
-  //   'navigation.headingTrue',
-  //   'navigation.headingMagnetic',
-  //   'environment.wind.directionTrue',
-  //   'environment.wind.angleApparent',
-  //   'environment.wind.speedTrue',
-  //   'environment.wind.speedApparent',
-  //   'navigation.speedOverGround',
-  //   'navigation.courseOverGroundTrue',
-  //   'navigation.courseGreatCircle.nextPoint.bearingTrue',
-  //   'navigation.courseGreatCircle.nextPoint.distance',
-  // ];
-
-  /// Evaluate a math formula with a given value
-  /// Formula example: "value * 1.94384" or "(value - 273.15) * 9/5 + 32"
-  double? _evaluateFormula(String formula, double rawValue) {
-    try {
-      // Replace 'value' with the actual number in the formula
-      final formulaWithValue = formula.replaceAll('value', rawValue.toString());
-
-      // Parse and evaluate the expression
-      Parser parser = Parser();
-      Expression exp = parser.parse(formulaWithValue);
-
-      // Create context (empty since we already substituted the value)
-      ContextModel cm = ContextModel();
-
-      // Evaluate
-      double result = exp.evaluate(EvaluationType.REAL, cm);
-      return result;
-    } catch (e) {
-      // If evaluation fails, return null
-      return null;
-    }
-  }
-
   @override
   void initState() {
     super.initState();
@@ -99,54 +61,57 @@ class _ConversionTestToolState extends State<ConversionTestTool> {
       itemBuilder: (context, index) {
         final path = widget.config.dataSources[index].path;
         final dataPoint = widget.signalKService.getValue(path);
-        final baseUnit = widget.signalKService.getBaseUnit(path);
-        final availableUnits = widget.signalKService.getAvailableUnits(path);
-        final category = widget.signalKService.getCategory(path);
 
-        // Get the first available target unit (if any)
-        final targetUnit = availableUnits.isNotEmpty ? availableUnits.first : null;
-        final conversionInfo = targetUnit != null
-            ? widget.signalKService.getConversionInfo(path, targetUnit)
-            : null;
+        // Get displayUnits from server (the ACTIVE conversion from WebSocket meta)
+        final displayUnits = widget.signalKService.getDisplayUnits(path);
+        final targetUnit = displayUnits?['targetUnit'] as String?;
+        final formula = displayUnits?['formula'] as String?;
+        final symbol = displayUnits?['symbol'] as String?;
 
-        // Calculate converted value using the formula
-        double? calculatedValue;
-        if (conversionInfo != null && dataPoint?.value is num) {
-          final rawValue = (dataPoint!.value as num).toDouble();
-          calculatedValue = _evaluateFormula(conversionInfo.formula, rawValue);
-        }
+        // Get raw SI value using ConversionUtils
+        final rawValue = ConversionUtils.getRawValue(widget.signalKService, path);
+
+        // Get converted value using ConversionUtils (applies server's formula)
+        final convertedValue = ConversionUtils.getConvertedValue(widget.signalKService, path);
+
+        final hasDisplayUnits = displayUnits != null;
 
         return Card(
           margin: const EdgeInsets.all(4.0),
+          color: hasDisplayUnits ? null : Colors.red.withOpacity(0.1),
           child: Padding(
             padding: const EdgeInsets.all(8.0),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  path,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 11,
-                  ),
+                Row(
+                  children: [
+                    Icon(
+                      hasDisplayUnits ? Icons.check_circle : Icons.error,
+                      size: 14,
+                      color: hasDisplayUnits ? Colors.green : Colors.red,
+                    ),
+                    const SizedBox(width: 4),
+                    Expanded(
+                      child: Text(
+                        path,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 11,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
                 const SizedBox(height: 4),
-                _buildRow('Category', category),
-                _buildRow('Base Unit', baseUnit ?? 'N/A'),
-                _buildRow('Target Unit', targetUnit ?? 'N/A'),
-                const Divider(height: 8),
-                _buildRow('Raw Value', dataPoint?.value?.toString() ?? '---'),
-                _buildRow('Value Type', dataPoint?.value?.runtimeType.toString() ?? '---'),
-                _buildRow('Calculated', calculatedValue != null
-                    ? '${calculatedValue.toStringAsFixed(4)} ${conversionInfo?.symbol ?? ''}'
-                    : '---'),
-                const Divider(height: 8),
-                _buildRow('From Plugin', dataPoint?.converted?.toString() ?? '---'),
-                _buildRow('Formatted', dataPoint?.formatted ?? '---'),
-                if (conversionInfo != null) ...[
-                  const Divider(height: 8),
-                  _buildRow('Formula', conversionInfo.formula),
-                  _buildRow('Symbol', conversionInfo.symbol),
+                if (hasDisplayUnits) ...[
+                  _buildRow('Target', '$targetUnit (${symbol ?? "?"})',),
+                  _buildRow('Raw (SI)', rawValue?.toStringAsFixed(4) ?? '---'),
+                  _buildRow('Converted', convertedValue?.toStringAsFixed(2) ?? '---'),
+                  _buildRow('Formula', formula ?? '---'),
+                ] else ...[
+                  _buildRow('Status', 'NO displayUnits from server'),
+                  _buildRow('Raw value', dataPoint?.value?.toString() ?? '---'),
                 ],
               ],
             ),

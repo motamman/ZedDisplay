@@ -194,7 +194,7 @@ class _RealtimeSplineChartState extends State<RealtimeSplineChart> with Automati
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     // Get unit from first path
-    final unit = widget.signalKService.getUnitSymbol(widget.dataSources.first.path);
+    final unit = ConversionUtils.getUnitSymbol(widget.signalKService, widget.dataSources.first.path);
 
     return Card(
       child: Padding(
@@ -409,7 +409,7 @@ class _RealtimeSplineChartState extends State<RealtimeSplineChart> with Automati
 
     // Get current value and unit
     final currentValue = data.last.value.toStringAsFixed(1);
-    final unit = widget.signalKService.getUnitSymbol(dataSource.path);
+    final unit = ConversionUtils.getUnitSymbol(widget.signalKService, dataSource.path);
 
     // Return label with value and unit
     return '$baseLabel ($currentValue${unit != null && unit.isNotEmpty ? ' $unit' : ''})';

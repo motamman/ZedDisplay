@@ -1,0 +1,100 @@
+name: iOS Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'      # Both platforms
+      - 'v*.*.*-ios'  # iOS only
+
+permissions:
+  contents: write
+
+jobs:
+  build-ios:
+    runs-on: macos-15
+    # Skip if this is an Android-only tag
+    if: ${{ !endsWith(github.ref, '-android') }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Select Xcode 26
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: '26'
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: false
+
+      - name: Clean all caches
+        run: |
+          flutter clean
+          rm -rf pubspec.lock
+          rm -rf ~/.pub-cache
+          rm -rf ios/Pods ios/Podfile.lock
+          rm -rf ~/Library/Developer/Xcode/DerivedData/*
+          pod cache clean --all || true
+
+      - name: Get fresh dependencies
+        run: |
+          flutter pub get
+          echo "=== Analyzing ==="
+          flutter analyze --no-fatal-infos || true
+
+      - name: Build iOS IPA
+        uses: cedvdb/action-flutter-build-ios@v1
+        with:
+          build-cmd: flutter build ipa --release --export-options-plist=ios/ExportOptions.plist
+          certificate-base64: ${{ secrets.IOS_CERTIFICATE_BASE64 }}
+          certificate-password: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
+          provisioning-profile-base64: ${{ secrets.IOS_PROVISIONING_PROFILE_BASE64 }}
+          keychain-password: ${{ secrets.IOS_KEYCHAIN_PASSWORD }}
+
+      - name: Find IPA file
+        id: find_ipa
+        run: |
+          echo "=== Looking for IPA files ==="
+          find build -name "*.ipa" 2>/dev/null || true
+          ls -la build/ios/ipa/ 2>/dev/null || true
+          IPA_PATH=$(find build -name "*.ipa" -type f | head -1)
+          echo "IPA_PATH=$IPA_PATH" >> $GITHUB_OUTPUT
+          echo "Found IPA at: $IPA_PATH"
+
+      - name: Get version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+
+      - name: Read release notes
+        id: release_notes
+        run: |
+          # Use TESTFLIGHT.txt if available, otherwise WHATSNEW.md
+          if [ -f TESTFLIGHT.txt ]; then
+            NOTES=$(cat TESTFLIGHT.txt)
+          else
+            NOTES=$(cat WHATSNEW.md)
+          fi
+          echo "NOTES<<EOF" >> $GITHUB_OUTPUT
+          echo "$NOTES" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Upload to TestFlight
+        uses: apple-actions/upload-testflight-build@v3
+        with:
+          app-path: ${{ steps.find_ipa.outputs.IPA_PATH }}
+          issuer-id: ${{ secrets.APPSTORE_ISSUER_ID }}
+          api-key-id: ${{ secrets.APPSTORE_API_KEY_ID }}
+          api-private-key: ${{ secrets.APPSTORE_API_PRIVATE_KEY }}
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Release ${{ steps.version.outputs.VERSION }}
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          files: |
+            build/ios/ipa/*.ipa

@@ -12,7 +12,6 @@ import '../utils/conversion_utils.dart';
 import 'dashboard_manager_screen.dart';
 import 'device_registration_screen.dart';
 import 'user_login_screen.dart';
-import 'settings_screen.dart';
 
 class ConnectionScreen extends StatefulWidget {
   const ConnectionScreen({super.key});
@@ -24,47 +23,13 @@ class ConnectionScreen extends StatefulWidget {
 class _ConnectionScreenState extends State<ConnectionScreen> {
   final _formKey = GlobalKey<FormState>();
   final _nameController = TextEditingController();
-  final _serverController = TextEditingController(text: '192.168.1.88:3000');
+  final _serverController = TextEditingController();
   bool _useSecure = false;
   bool _isConnecting = false;
-  String _clientId = '';
-  bool _autoConnecting = false;
 
   @override
   void initState() {
     super.initState();
-    // Generate or load client ID
-    final authService = Provider.of<AuthService>(context, listen: false);
-    _clientId = authService.generateClientId();
-
-    // Try auto-connect if we have saved connection
-    _tryAutoConnect();
-  }
-
-  Future<void> _tryAutoConnect() async {
-    final storageService = Provider.of<StorageService>(context, listen: false);
-    final lastServerUrl = storageService.getLastServerUrl();
-
-    if (lastServerUrl != null) {
-      setState(() {
-        _autoConnecting = true;
-        _serverController.text = lastServerUrl;
-        _useSecure = storageService.getLastUseSecure();
-      });
-
-      // Wait a moment for UI to settle
-      await Future.delayed(const Duration(milliseconds: 500));
-
-      if (mounted) {
-        await _connect(silent: true);
-      }
-
-      if (mounted) {
-        setState(() {
-          _autoConnecting = false;
-        });
-      }
-    }
   }
 
   @override
@@ -178,6 +143,13 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
   }
 
   Future<void> _showAuthMethodDialog(ServerConnection connection, AuthService authService) async {
+    // Pre-generate device description to show in dialog
+    final setupService = Provider.of<SetupService>(context, listen: false);
+    final setupName = await setupService.getActiveSetupName();
+    final deviceDescription = await AuthService.generateDeviceDescription(setupName: setupName);
+
+    if (!mounted) return;
+
     final result = await showDialog<String>(
       context: context,
       builder: (context) => AlertDialog(
@@ -197,7 +169,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
             ListTile(
               leading: const Icon(Icons.devices, color: Colors.green),
               title: const Text('Device Auth'),
-              subtitle: const Text('Server-wide settings'),
+              subtitle: Text('As: $deviceDescription'),
               onTap: () => Navigator.pop(context, 'device'),
             ),
           ],
@@ -222,23 +194,17 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
         ),
       );
     } else if (result == 'device' && mounted) {
-      final setupService = Provider.of<SetupService>(context, listen: false);
-      final setupName = await setupService.getActiveSetupName();
-      final description = await AuthService.generateDeviceDescription(setupName: setupName);
-
-      if (mounted) {
-        Navigator.of(context).push(
-          MaterialPageRoute(
-            builder: (context) => DeviceRegistrationScreen(
-              serverUrl: connection.serverUrl,
-              secure: connection.useSecure,
-              clientId: authService.generateClientId(),
-              description: description,
-              connectionId: connection.id,
-            ),
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (context) => DeviceRegistrationScreen(
+            serverUrl: connection.serverUrl,
+            secure: connection.useSecure,
+            clientId: authService.generateClientId(),
+            description: deviceDescription,
+            connectionId: connection.id,
           ),
-        );
-      }
+        ),
+      );
     }
   }
 
@@ -298,7 +264,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
                 controller: _serverController,
                 decoration: const InputDecoration(
                   labelText: 'SignalK Server',
-                  hintText: 'demo.signalk.org or localhost:3000',
+                  hintText: 'e.g., 192.168.1.100:3000 or demo.signalk.org',
                   prefixIcon: Icon(Icons.dns),
                   border: OutlineInputBorder(),
                 ),
@@ -320,60 +286,22 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
                 },
               ),
               const SizedBox(height: 24),
-              if (_autoConnecting)
-                const Column(
-                  children: [
-                    CircularProgressIndicator(),
-                    SizedBox(height: 16),
-                    Text(
-                      'Auto-connecting to saved server...',
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: Colors.grey,
-                      ),
-                    ),
-                  ],
-                )
-              else
-                Column(
-                  children: [
-                    ElevatedButton(
-                      onPressed: _isConnecting ? null : () => _connect(),
-                      style: ElevatedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                      ),
-                      child: _isConnecting
-                          ? const SizedBox(
-                              height: 20,
-                              width: 20,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Text(
-                              'Connect',
-                              style: TextStyle(fontSize: 18),
-                            ),
-                    ),
-                    const SizedBox(height: 12),
-                    OutlinedButton.icon(
-                      onPressed: _isConnecting
-                          ? null
-                          : () {
-                              Navigator.of(context).push(
-                                MaterialPageRoute(
-                                  builder: (context) => const SettingsScreen(
-                                    showConnections: true,
-                                  ),
-                                ),
-                              );
-                            },
-                      icon: const Icon(Icons.list),
-                      label: const Text('Other Connections'),
-                      style: OutlinedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                      ),
-                    ),
-                  ],
+              ElevatedButton(
+                onPressed: _isConnecting ? null : () => _connect(),
+                style: ElevatedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 16),
                 ),
+                child: _isConnecting
+                    ? const SizedBox(
+                        height: 20,
+                        width: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Text(
+                        'Connect',
+                        style: TextStyle(fontSize: 18),
+                      ),
+              ),
               const SizedBox(height: 16),
               const Text(
                 'The app will request access to the SignalK server.\nApprove the request in the server Admin UI.',
@@ -395,11 +323,11 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
                 textAlign: TextAlign.center,
               ),
             ],
-              ),
-            ),
           ),
         ),
       ),
-    );
+    ),
+  ),
+);
   }
 }

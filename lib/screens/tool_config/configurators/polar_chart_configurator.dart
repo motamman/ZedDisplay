@@ -20,12 +20,14 @@ class PolarChartConfigurator extends ToolConfigurator {
   int historySeconds = 60; // For polar_radar_chart
   double maxRangeNm = 5.0; // For ais_polar_chart
   int updateIntervalSeconds = 10; // For ais_polar_chart (stored as seconds in UI, milliseconds in config)
+  int pruneMinutes = 15; // For ais_polar_chart - minutes before vessel removed from display
 
   @override
   void reset() {
     historySeconds = 60;
     maxRangeNm = 5.0;
     updateIntervalSeconds = 10;
+    pruneMinutes = 15;
   }
 
   @override
@@ -39,6 +41,7 @@ class PolarChartConfigurator extends ToolConfigurator {
     if (style.customProperties != null) {
       historySeconds = style.customProperties!['historySeconds'] as int? ?? 60;
       maxRangeNm = (style.customProperties!['maxRangeNm'] as num?)?.toDouble() ?? 5.0;
+      pruneMinutes = style.customProperties!['pruneMinutes'] as int? ?? 15;
 
       // Convert milliseconds back to seconds for UI
       final updateIntervalMs = style.customProperties!['updateInterval'] as int? ?? 10000;
@@ -57,6 +60,7 @@ class PolarChartConfigurator extends ToolConfigurator {
       customProps['maxRangeNm'] = maxRangeNm;
       // Convert seconds to milliseconds for storage
       customProps['updateInterval'] = updateIntervalSeconds * 1000;
+      customProps['pruneMinutes'] = pruneMinutes;
     }
 
     return ToolConfig(
@@ -78,6 +82,9 @@ class PolarChartConfigurator extends ToolConfigurator {
       }
       if (updateIntervalSeconds < 1) {
         return 'Update interval must be at least 1 second';
+      }
+      if (pruneMinutes < 1) {
+        return 'Prune time must be at least 1 minute';
       }
     }
     return null;
@@ -163,6 +170,28 @@ class PolarChartConfigurator extends ToolConfigurator {
                   onChanged: (value) {
                     if (value != null) {
                       setState(() => updateIntervalSeconds = value);
+                    }
+                  },
+                ),
+                const SizedBox(height: 16),
+                DropdownButtonFormField<int>(
+                  decoration: const InputDecoration(
+                    labelText: 'Vessel Timeout',
+                    border: OutlineInputBorder(),
+                    helperText: 'Remove vessels with no data after this time',
+                  ),
+                  initialValue: pruneMinutes,
+                  items: const [
+                    DropdownMenuItem(value: 5, child: Text('5 minutes')),
+                    DropdownMenuItem(value: 10, child: Text('10 minutes')),
+                    DropdownMenuItem(value: 15, child: Text('15 minutes')),
+                    DropdownMenuItem(value: 20, child: Text('20 minutes')),
+                    DropdownMenuItem(value: 30, child: Text('30 minutes')),
+                    DropdownMenuItem(value: 60, child: Text('1 hour')),
+                  ],
+                  onChanged: (value) {
+                    if (value != null) {
+                      setState(() => pruneMinutes = value);
                     }
                   },
                 ),

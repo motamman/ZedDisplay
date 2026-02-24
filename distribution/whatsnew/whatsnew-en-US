@@ -1,0 +1,7 @@
+v0.5.6 Custom Resources & Auth Fixes
+
+NEW: ZedDisplay now uses dedicated SignalK resource types for crew messaging, profiles, files, channels, and alarms. Other apps won't see your ZedDisplay data.
+
+FIXED: Auth tokens now stored per connection ID, not server URL. Multiple connections to same server work correctly.
+
+FIXED: Deleting a connection removes its auth token.

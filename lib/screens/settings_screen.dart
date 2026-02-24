@@ -12,12 +12,12 @@ import '../services/setup_service.dart';
 import '../models/server_connection.dart';
 import '../models/auth_token.dart';
 import '../utils/conversion_utils.dart';
-import 'connection_screen.dart';
 import 'dashboard_manager_screen.dart';
 import 'device_registration_screen.dart';
 import 'user_login_screen.dart';
 import 'setup_management_screen.dart';
 import 'crew/crew_screen.dart';
+import 'server_list_screen.dart';
 
 /// Settings screen with connection management
 class SettingsScreen extends StatefulWidget {
@@ -707,6 +707,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
         await storageService.clearUserUnitPreferences(token.connectionId!);
       }
 
+      // Clear last connection to prevent auto-reconnect attempts
+      await storageService.clearLastConnection();
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -715,9 +718,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
         );
 
-        // Navigate to connection screen to reconnect
+        // Navigate to server list to select a connection
         Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(builder: (context) => const ConnectionScreen()),
+          MaterialPageRoute(builder: (context) => const ServerListScreen()),
           (route) => false,
         );
       }
@@ -890,9 +893,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
         );
 
-        // Navigate back to connection screen
+        // Navigate to server list to select a connection
         Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(builder: (context) => const ConnectionScreen()),
+          MaterialPageRoute(builder: (context) => const ServerListScreen()),
           (route) => false,
         );
       }
@@ -979,6 +982,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _showAuthMethodDialog(ServerConnection connection, AuthService authService) async {
+    // Pre-generate device description to show in dialog
+    final setupService = Provider.of<SetupService>(context, listen: false);
+    final setupName = await setupService.getActiveSetupName();
+    final deviceDescription = await AuthService.generateDeviceDescription(setupName: setupName);
+
+    if (!mounted) return;
+
     final result = await showDialog<String>(
       context: context,
       builder: (context) => AlertDialog(
@@ -998,7 +1008,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ListTile(
               leading: const Icon(Icons.devices, color: Colors.green),
               title: const Text('Device Auth'),
-              subtitle: const Text('Server-wide settings'),
+              subtitle: Text('As: $deviceDescription'),
               onTap: () => Navigator.pop(context, 'device'),
             ),
           ],
@@ -1023,23 +1033,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ),
       );
     } else if (result == 'device' && mounted) {
-      final setupService = Provider.of<SetupService>(context, listen: false);
-      final setupName = await setupService.getActiveSetupName();
-      final description = await AuthService.generateDeviceDescription(setupName: setupName);
-
-      if (mounted) {
-        Navigator.of(context).push(
-          MaterialPageRoute(
-            builder: (context) => DeviceRegistrationScreen(
-              serverUrl: connection.serverUrl,
-              secure: connection.useSecure,
-              clientId: authService.generateClientId(),
-              description: description,
-              connectionId: connection.id,
-            ),
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (context) => DeviceRegistrationScreen(
+            serverUrl: connection.serverUrl,
+            secure: connection.useSecure,
+            clientId: authService.generateClientId(),
+            description: deviceDescription,
+            connectionId: connection.id,
           ),
-        );
-      }
+        ),
+      );
     }
   }
 
@@ -1070,7 +1074,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   controller: urlController,
                   decoration: const InputDecoration(
                     labelText: 'Server URL',
-                    hintText: '192.168.1.88:3000',
+                    hintText: 'e.g., 192.168.1.100:3000 or demo.signalk.org',
                     border: OutlineInputBorder(),
                   ),
                 ),
@@ -1094,8 +1098,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             ElevatedButton(
               onPressed: () {
-                if (nameController.text.trim().isEmpty ||
-                    urlController.text.trim().isEmpty) {
+                final url = urlController.text.trim();
+                if (nameController.text.trim().isEmpty || url.isEmpty) {
+                  return;
+                }
+                // Basic URL validation (host:port or domain format)
+                if (!RegExp(r'^[\w\-.]+(:\d+)?$').hasMatch(url)) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Invalid server address format'),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
                   return;
                 }
                 Navigator.pop(context, true);
@@ -1182,8 +1196,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             ElevatedButton(
               onPressed: () {
-                if (nameController.text.trim().isEmpty ||
-                    urlController.text.trim().isEmpty) {
+                final url = urlController.text.trim();
+                if (nameController.text.trim().isEmpty || url.isEmpty) {
+                  return;
+                }
+                // Basic URL validation (host:port or domain format)
+                if (!RegExp(r'^[\w\-.]+(:\d+)?$').hasMatch(url)) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Invalid server address format'),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
                   return;
                 }
                 Navigator.pop(context, true);

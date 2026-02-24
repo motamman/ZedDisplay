@@ -19,6 +19,9 @@ class AnchorAlarmPaths {
   final String vesselPosition;
   final String heading;
   final String gpsFromBow;
+  final String depth;
+  final String fudgeFactor;
+  final String vesselLength;
 
   // Default paths
   static const _defaults = [
@@ -30,6 +33,9 @@ class AnchorAlarmPaths {
     'navigation.position',             // 5
     'navigation.headingTrue',          // 6
     'sensors.gps.fromBow',             // 7
+    'environment.depth.belowSurface',  // 8
+    'navigation.anchor.fudgeFactor',   // 9
+    'design.length',                   // 10
   ];
 
   const AnchorAlarmPaths({
@@ -41,6 +47,9 @@ class AnchorAlarmPaths {
     this.vesselPosition = 'navigation.position',
     this.heading = 'navigation.headingTrue',
     this.gpsFromBow = 'sensors.gps.fromBow',
+    this.depth = 'environment.depth.belowSurface',
+    this.fudgeFactor = 'navigation.anchor.fudgeFactor',
+    this.vesselLength = 'design.length',
   });
 
   /// Create from dataSources list (from ToolConfig)
@@ -68,6 +77,9 @@ class AnchorAlarmPaths {
       vesselPosition: getPath(5),
       heading: getPath(6),
       gpsFromBow: getPath(7),
+      depth: getPath(8),
+      fudgeFactor: getPath(9),
+      vesselLength: getPath(10),
     );
   }
 }
@@ -117,6 +129,19 @@ class AnchorAlarmService extends ChangeNotifier {
   double? _gpsFromBow;
   double? get gpsFromBow => _gpsFromBow;
 
+  // Current depth from sensor
+  double? _currentDepth;
+  double? get currentDepth => _currentDepth;
+  bool get hasDepthSensor => _currentDepth != null;
+
+  // Fudge factor (margin) from plugin
+  double? _fudgeFactor;
+  double? get fudgeFactor => _fudgeFactor;
+
+  // Vessel LOA (Length Overall) from design.length.overall
+  double? _vesselLOA;
+  double? get vesselLOA => _vesselLOA;
+
   // Available alarm sounds
   static const Map<String, String> alarmSounds = {
     'bell': 'sounds/alarm_bell.mp3',
@@ -139,14 +164,58 @@ class AnchorAlarmService extends ChangeNotifier {
   void initialize() {
     _signalKService.addListener(_onSignalKUpdate);
 
+    // Subscribe to anchor paths via WebSocket
+    _subscribeToAnchorPaths();
+
     if (_signalKService.isConnected) {
       _wasConnected = true;
       _refreshState();
     }
   }
 
+  /// Subscribe to all anchor-related paths
+  void _subscribeToAnchorPaths() {
+    final paths = [
+      _paths.anchorPosition,
+      _paths.maxRadius,
+      _paths.currentRadius,
+      _paths.rodeLength,
+      _paths.bearing,
+      _paths.vesselPosition,
+      _paths.heading,
+      _paths.gpsFromBow,
+      _paths.depth,
+      _paths.fudgeFactor,
+      _paths.vesselLength,
+      'navigation.anchor.distanceFromBow',
+      'navigation.headingMagnetic',
+    ];
+    _signalKService.subscribeToPaths(paths);
+  }
+
+  /// Unsubscribe from anchor paths
+  void _unsubscribeFromAnchorPaths() {
+    final paths = [
+      _paths.anchorPosition,
+      _paths.maxRadius,
+      _paths.currentRadius,
+      _paths.rodeLength,
+      _paths.bearing,
+      _paths.vesselPosition,
+      _paths.heading,
+      _paths.gpsFromBow,
+      _paths.depth,
+      _paths.fudgeFactor,
+      _paths.vesselLength,
+      'navigation.anchor.distanceFromBow',
+      'navigation.headingMagnetic',
+    ];
+    _signalKService.unsubscribeFromPaths(paths);
+  }
+
   @override
   void dispose() {
+    _unsubscribeFromAnchorPaths();
     _signalKService.removeListener(_onSignalKUpdate);
     _checkInTimer?.cancel();
     _checkInGraceTimer?.cancel();
@@ -463,66 +532,46 @@ class AnchorAlarmService extends ChangeNotifier {
       }
     }
 
-    // Get vessel heading
+    // Get vessel heading - use raw SI value (radians)
     double? vesselHeading;
-    final headingData = _signalKService.getValue(_paths.heading);
-    if (headingData?.value is num) {
+    var headingRaw = ConversionUtils.getRawValue(_signalKService, _paths.heading);
+    if (headingRaw == null) {
+      // Fallback to magnetic if true heading not available
+      headingRaw = ConversionUtils.getRawValue(_signalKService, 'navigation.headingMagnetic');
+    }
+    if (headingRaw != null) {
       // Convert radians to degrees using user preferences
-      final headingRaw = (headingData!.value as num).toDouble();
       vesselHeading = ConversionUtils.convertWeatherValue(
         _signalKService,
         WeatherFieldType.angle,
         headingRaw,
       ) ?? headingRaw * 180 / math.pi;
+    }
+
+    // Get GPS distance from bow (vessel design data) - use raw SI value
+    _gpsFromBow = ConversionUtils.getRawValue(_signalKService, _paths.gpsFromBow);
+
+    // Get current depth from sensor - use raw SI value
+    _currentDepth = ConversionUtils.getRawValue(_signalKService, _paths.depth);
+
+    // Get fudge factor (margin) from plugin - use raw SI value
+    _fudgeFactor = ConversionUtils.getRawValue(_signalKService, _paths.fudgeFactor);
+
+    // Get vessel LOA from design.length.overall
+    final lengthData = _signalKService.getValue(_paths.vesselLength);
+    if (lengthData?.value is Map) {
+      final overall = (lengthData!.value as Map)['overall'];
+      _vesselLOA = overall is num ? overall.toDouble() : null;
     } else {
-      // Fallback to magnetic if true heading not available
-      final headingMag = _signalKService.getValue('navigation.headingMagnetic');
-      if (headingMag?.value is num) {
-        final headingRaw = (headingMag!.value as num).toDouble();
-        vesselHeading = ConversionUtils.convertWeatherValue(
-          _signalKService,
-          WeatherFieldType.angle,
-          headingRaw,
-        ) ?? headingRaw * 180 / math.pi;
-      }
+      _vesselLOA = null;
     }
 
-    // Get GPS distance from bow (vessel design data)
-    final gpsFromBowData = _signalKService.getValue(_paths.gpsFromBow);
-    if (gpsFromBowData?.value is num) {
-      _gpsFromBow = (gpsFromBowData!.value as num).toDouble();
-    }
-
-    // Get other values
-    double? maxRadius;
-    final maxRadiusData = _signalKService.getValue(_paths.maxRadius);
-    if (maxRadiusData?.value is num) {
-      maxRadius = (maxRadiusData!.value as num).toDouble();
-    }
-
-    double? currentRadius;
-    final currentRadiusData = _signalKService.getValue(_paths.currentRadius);
-    if (currentRadiusData?.value is num) {
-      currentRadius = (currentRadiusData!.value as num).toDouble();
-    }
-
-    double? rodeLength;
-    final rodeLengthData = _signalKService.getValue(_paths.rodeLength);
-    if (rodeLengthData?.value is num) {
-      rodeLength = (rodeLengthData!.value as num).toDouble();
-    }
-
-    double? distanceFromBow;
-    final distanceData = _signalKService.getValue('navigation.anchor.distanceFromBow');
-    if (distanceData?.value is num) {
-      distanceFromBow = (distanceData!.value as num).toDouble();
-    }
-
-    double? bearingTrue;
-    final bearingData = _signalKService.getValue(_paths.bearing);
-    if (bearingData?.value is num) {
-      bearingTrue = (bearingData!.value as num).toDouble();
-    }
+    // Get other values - use raw SI values via ConversionUtils
+    final maxRadius = ConversionUtils.getRawValue(_signalKService, _paths.maxRadius);
+    final currentRadius = ConversionUtils.getRawValue(_signalKService, _paths.currentRadius);
+    final rodeLength = ConversionUtils.getRawValue(_signalKService, _paths.rodeLength);
+    final distanceFromBow = ConversionUtils.getRawValue(_signalKService, 'navigation.anchor.distanceFromBow');
+    final bearingTrue = ConversionUtils.getRawValue(_signalKService, _paths.bearing);
 
     // Get notification/alarm state
     AnchorAlarmState alarmState = AnchorAlarmState.normal;

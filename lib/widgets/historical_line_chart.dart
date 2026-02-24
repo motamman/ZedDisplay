@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:syncfusion_flutter_charts/charts.dart';
 import '../models/historical_data.dart';
 import '../services/signalk_service.dart';
+import '../utils/conversion_utils.dart';
 import 'package:intl/intl.dart';
 
 /// Available chart display styles
@@ -83,7 +84,7 @@ class HistoricalLineChart extends StatelessWidget {
     // Get unit symbol from first series (all series should have same unit)
     String? unit;
     if (signalKService != null && series.isNotEmpty) {
-      unit = signalKService!.getUnitSymbol(series.first.path);
+      unit = ConversionUtils.getUnitSymbol(signalKService!, series.first.path);
     }
 
     return SfCartesianChart(
