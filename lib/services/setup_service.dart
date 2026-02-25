@@ -6,6 +6,21 @@ import 'storage_service.dart';
 import 'tool_service.dart';
 import 'dashboard_service.dart';
 
+/// Result of an import operation
+class ImportResult {
+  final bool success;
+  final List<String> warnings;
+  final String? setupName;
+
+  ImportResult({
+    required this.success,
+    this.warnings = const [],
+    this.setupName,
+  });
+
+  bool get hasWarnings => warnings.isNotEmpty;
+}
+
 /// Service for managing dashboard setups (export, import, share, switch)
 class SetupService extends ChangeNotifier {
   final StorageService _storageService;
@@ -208,17 +223,19 @@ class SetupService extends ChangeNotifier {
   }
 
   /// Import setup from JSON string
+  /// Returns the setup even if some tools are missing (they will show as placeholders)
   DashboardSetup importFromJson(String jsonString) {
     try {
       final json = jsonDecode(jsonString) as Map<String, dynamic>;
       final setup = DashboardSetup.fromJson(json);
 
-      // Validate the setup
+      // Log warning for missing tools (but don't block import)
+      // ToolRegistry.buildTool() will show "Unknown tool" placeholders for missing tools
       if (!setup.isValid()) {
         final missingIds = setup.getMissingToolIds();
-        throw Exception(
-          'Invalid setup: Missing tools with IDs: ${missingIds.join(", ")}',
-        );
+        if (kDebugMode) {
+          print('Warning: Dashboard has ${missingIds.length} missing tools: ${missingIds.join(", ")}');
+        }
       }
 
       return setup;
@@ -351,10 +368,18 @@ class SetupService extends ChangeNotifier {
   }
 
   /// Import a setup from JSON and save it (without activating)
-  Future<void> importSetup(String jsonString) async {
+  /// Returns ImportResult with success status and any warnings
+  Future<ImportResult> importSetup(String jsonString) async {
     try {
       // Import the setup
       final setup = importFromJson(jsonString);
+      final warnings = <String>[];
+
+      // Check for missing tools and add warning
+      if (!setup.isValid()) {
+        final missingIds = setup.getMissingToolIds();
+        warnings.add('${missingIds.length} tool(s) could not be found and will show as placeholders');
+      }
 
       // Generate a new unique ID for the layout to avoid overwriting existing setups
       final newLayoutId = 'layout_${DateTime.now().millisecondsSinceEpoch}';
@@ -376,6 +401,12 @@ class SetupService extends ChangeNotifier {
       if (kDebugMode) {
         print('Setup imported with new ID: ${newSetup.metadata.name}');
       }
+
+      return ImportResult(
+        success: true,
+        warnings: warnings,
+        setupName: newSetup.metadata.name,
+      );
     } catch (e) {
       if (kDebugMode) {
         print('Error importing setup: $e');
@@ -385,10 +416,18 @@ class SetupService extends ChangeNotifier {
   }
 
   /// Import and immediately activate a setup from JSON
-  Future<void> importAndLoadSetup(String jsonString) async {
+  /// Returns ImportResult with success status and any warnings
+  Future<ImportResult> importAndLoadSetup(String jsonString) async {
     try {
       // Import the setup
       final setup = importFromJson(jsonString);
+      final warnings = <String>[];
+
+      // Check for missing tools and add warning
+      if (!setup.isValid()) {
+        final missingIds = setup.getMissingToolIds();
+        warnings.add('${missingIds.length} tool(s) could not be found and will show as placeholders');
+      }
 
       // Save all tools
       for (final tool in setup.tools) {
@@ -406,6 +445,12 @@ class SetupService extends ChangeNotifier {
       if (kDebugMode) {
         print('Setup imported and loaded: ${setup.metadata.name}');
       }
+
+      return ImportResult(
+        success: true,
+        warnings: warnings,
+        setupName: setup.metadata.name,
+      );
     } catch (e) {
       if (kDebugMode) {
         print('Error importing and loading setup: $e');
