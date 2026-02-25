@@ -1287,9 +1287,9 @@ class SignalKService extends ChangeNotifier implements DataService {
     return _conversionManager.getUnitPreferencesConversion(path, siUnit);
   }
 
-  /// Get conversion for a known category and SI unit
-  /// Use this when you already know the category (e.g., from displayUnits with explicit:true)
-  ConversionInfo? getConversionForCategory(String category, String siUnit) {
+  /// Get conversion for a known category
+  /// Looks up the SI unit from categoryToBaseUnit, or uses provided siUnit as fallback
+  ConversionInfo? getConversionForCategory(String category, [String? siUnit]) {
     return _conversionManager.getConversionForCategory(category, siUnit);
   }
 
@@ -1840,6 +1840,7 @@ class _ConversionManager {
   Map<String, dynamic>? _unitDefinitions;      // siUnit → conversions
   Map<String, dynamic>? _defaultCategories;    // category → path patterns
   Map<String, dynamic>? _presetDetails;        // category → targetUnit/symbol
+  Map<String, String>? _categoryToBaseUnit;    // category → SI unit (e.g., "distance" → "m")
   String? _activePresetName;
 
   // Dependencies injected via function getters
@@ -1864,6 +1865,7 @@ class _ConversionManager {
   Map<String, dynamic>? get unitDefinitions => _unitDefinitions;
   Map<String, dynamic>? get defaultCategories => _defaultCategories;
   Map<String, dynamic>? get presetDetails => _presetDetails;
+  Map<String, String>? get categoryToBaseUnit => _categoryToBaseUnit;
   String? get activePresetName => _activePresetName;
 
   /// Load conversions from local cache (used at startup before server data)
@@ -1876,6 +1878,11 @@ class _ConversionManager {
         _defaultCategories = cached['_defaultCategories'] as Map<String, dynamic>?;
         _presetDetails = cached['_presetDetails'] as Map<String, dynamic>?;
         _activePresetName = cached['_activePresetName'] as String?;
+        // Load categoryToBaseUnit if available
+        final ctbu = cached['_categoryToBaseUnit'];
+        if (ctbu is Map<String, dynamic>) {
+          _categoryToBaseUnit = ctbu.map((k, v) => MapEntry(k, v as String));
+        }
       } else if (_conversionsData.isEmpty) {
         // Legacy format - path-based conversions
         _conversionsData.clear();
@@ -1891,6 +1898,7 @@ class _ConversionManager {
   /// Fetch unit preferences from server using Data Browser endpoints
   /// GET /signalk/v1/unitpreferences/definitions
   /// GET /signalk/v1/unitpreferences/default-categories
+  /// GET /signalk/v1/unitpreferences/categories
   /// GET /signalk/v1/unitpreferences/config
   /// GET /signalk/v1/unitpreferences/presets/{name}
   Future<void> fetchConversions() async {
@@ -1899,7 +1907,7 @@ class _ConversionManager {
     final headers = getHeaders();
 
     try {
-      // Fetch all three endpoints in parallel
+      // Fetch all four endpoints in parallel
       final results = await Future.wait([
         http.get(
           Uri.parse('$protocol://$serverUrl/signalk/v1/unitpreferences/definitions'),
@@ -1913,11 +1921,16 @@ class _ConversionManager {
           Uri.parse('$protocol://$serverUrl/signalk/v1/unitpreferences/config'),
           headers: headers,
         ).timeout(const Duration(seconds: 10)),
+        http.get(
+          Uri.parse('$protocol://$serverUrl/signalk/v1/unitpreferences/categories'),
+          headers: headers,
+        ).timeout(const Duration(seconds: 10)),
       ]);
 
       final definitionsResponse = results[0];
-      final categoriesResponse = results[1];
+      final defaultCategoriesResponse = results[1];
       final configResponse = results[2];
+      final categoriesResponse = results[3];
 
       // Parse unit definitions
       if (definitionsResponse.statusCode == 200) {
@@ -1925,31 +1938,71 @@ class _ConversionManager {
       }
 
       // Parse default categories (path patterns)
-      if (categoriesResponse.statusCode == 200) {
-        _defaultCategories = jsonDecode(categoriesResponse.body) as Map<String, dynamic>;
+      if (defaultCategoriesResponse.statusCode == 200) {
+        _defaultCategories = jsonDecode(defaultCategoriesResponse.body) as Map<String, dynamic>;
       }
 
-      // Parse config to get active preset name
-      if (configResponse.statusCode == 200) {
-        final config = jsonDecode(configResponse.body) as Map<String, dynamic>;
-        _activePresetName = config['activePreset'] as String?;
-
-        // Fetch the active preset details
-        if (_activePresetName != null && _activePresetName!.isNotEmpty) {
-          try {
-            final presetResponse = await http.get(
-              Uri.parse('$protocol://$serverUrl/signalk/v1/unitpreferences/presets/$_activePresetName'),
-              headers: headers,
-            ).timeout(const Duration(seconds: 10));
-
-            if (presetResponse.statusCode == 200) {
-              final presetData = jsonDecode(presetResponse.body) as Map<String, dynamic>;
-              _presetDetails = presetData['categories'] as Map<String, dynamic>?;
-            }
-          } catch (_) {
-            // Ignore preset fetch errors
-          }
+      // Parse categories (categoryToBaseUnit mapping)
+      if (categoriesResponse.statusCode == 200) {
+        final data = jsonDecode(categoriesResponse.body) as Map<String, dynamic>;
+        final ctbu = data['categoryToBaseUnit'] as Map<String, dynamic>?;
+        if (ctbu != null) {
+          _categoryToBaseUnit = ctbu.map((k, v) => MapEntry(k, v as String));
         }
+      }
+
+      // Get user's active preset - try user applicationData first, then fall back to global config
+      String? activePreset;
+
+      // Try user-specific preference first
+      try {
+        final userResponse = await http.get(
+          Uri.parse('$protocol://$serverUrl/signalk/v1/applicationData/user/unitpreferences/1.0.0'),
+          headers: headers,
+        ).timeout(const Duration(seconds: 10));
+
+        if (userResponse.statusCode == 200) {
+          final userConfig = jsonDecode(userResponse.body) as Map<String, dynamic>;
+          activePreset = userConfig['activePreset'] as String?;
+        }
+      } catch (_) {
+        // Ignore user applicationData fetch errors
+      }
+
+      // Fall back to global config if no user preference
+      if (activePreset == null || activePreset.isEmpty) {
+        if (configResponse.statusCode == 200) {
+          final config = jsonDecode(configResponse.body) as Map<String, dynamic>;
+          activePreset = config['activePreset'] as String?;
+        }
+      }
+
+      _activePresetName = activePreset;
+
+      // Fetch the preset details using the active preset name
+      if (_activePresetName != null && _activePresetName!.isNotEmpty) {
+        try {
+          final presetResponse = await http.get(
+            Uri.parse('$protocol://$serverUrl/signalk/v1/unitpreferences/presets/$_activePresetName'),
+            headers: headers,
+          ).timeout(const Duration(seconds: 10));
+
+          if (presetResponse.statusCode == 200) {
+            final presetData = jsonDecode(presetResponse.body) as Map<String, dynamic>;
+            _presetDetails = presetData['categories'] as Map<String, dynamic>?;
+          }
+        } catch (_) {
+          // Ignore preset fetch errors
+        }
+      }
+
+      // Debug: print what we got
+      if (kDebugMode) {
+        print('categoryToBaseUnit: $_categoryToBaseUnit');
+        print('presetDetails: $_presetDetails');
+        print('distance SI unit: ${_categoryToBaseUnit?['distance']}');
+        print('distance targetUnit: ${(_presetDetails?['distance'] as Map?)?['targetUnit']}');
+        print('unitDefinitions[m]: ${_unitDefinitions?['m']}');
       }
 
       // Save to local cache
@@ -1957,6 +2010,7 @@ class _ConversionManager {
         '_unitDefinitions': _unitDefinitions,
         '_defaultCategories': _defaultCategories,
         '_presetDetails': _presetDetails,
+        '_categoryToBaseUnit': _categoryToBaseUnit,
         '_activePresetName': _activePresetName,
       });
     } catch (e) {
@@ -2017,12 +2071,16 @@ class _ConversionManager {
     return getConversionForCategory(category, siUnit);
   }
 
-  /// Get conversion formula for a known category and SI unit
-  /// Use this when you already know the category (e.g., from displayUnits)
-  ConversionInfo? getConversionForCategory(String category, String siUnit) {
+  /// Get conversion formula for a known category
+  /// Looks up SI unit from categoryToBaseUnit, target unit from user's active preset
+  ConversionInfo? getConversionForCategory(String category, [String? siUnit]) {
     if (_presetDetails == null) return null;
 
-    // Get target unit from preset
+    // Step 1: Get SI unit from categoryToBaseUnit (static mapping), fallback to siUnit param
+    final resolvedSiUnit = _categoryToBaseUnit?[category] ?? siUnit;
+    if (resolvedSiUnit == null) return null;
+
+    // Step 2: Get user's target unit from their active preset
     final categoryPrefs = _presetDetails![category];
     if (categoryPrefs is! Map<String, dynamic>) return null;
 
@@ -2030,19 +2088,19 @@ class _ConversionManager {
     if (targetUnit == null) return null;
 
     // If target equals source, no conversion needed - identity
-    if (targetUnit == siUnit) {
+    if (targetUnit == resolvedSiUnit) {
       return ConversionInfo(
         formula: 'value',
         inverseFormula: 'value',
-        symbol: siUnit,
+        symbol: resolvedSiUnit,
       );
     }
 
     // Need unit definitions for non-identity conversions
     if (_unitDefinitions == null) return null;
 
-    // Get conversion formula from unit definitions
-    final siUnitDef = _unitDefinitions![siUnit];
+    // Step 3: Get conversion formula from unit definitions
+    final siUnitDef = _unitDefinitions![resolvedSiUnit];
     if (siUnitDef is! Map<String, dynamic>) return null;
 
     final conversions = siUnitDef['conversions'];
@@ -2084,6 +2142,55 @@ class _ConversionManager {
     if (categoryPrefs is! Map<String, dynamic>) return null;
 
     return categoryPrefs['symbol'] as String?;
+  }
+
+  /// Save user's unit preference for a category to the server
+  Future<bool> setTargetUnitForCategory(String category, String targetUnit) async {
+    final protocol = useSecureConnection() ? 'https' : 'http';
+    final serverUrl = getServerUrl();
+    final headers = getHeaders();
+    headers['Content-Type'] = 'application/json';
+
+    try {
+      // Update the category's targetUnit
+      final body = jsonEncode({
+        'categories': {
+          category: {
+            'targetUnit': targetUnit,
+          }
+        }
+      });
+
+      final response = await http.put(
+        Uri.parse('$protocol://$serverUrl/signalk/v1/unitpreferences/active'),
+        headers: headers,
+        body: body,
+      ).timeout(const Duration(seconds: 10));
+
+      if (response.statusCode == 200) {
+        // Update local cache
+        _presetDetails ??= {};
+        final categoryPrefs = _presetDetails![category] as Map<String, dynamic>? ?? {};
+        categoryPrefs['targetUnit'] = targetUnit;
+        _presetDetails![category] = categoryPrefs;
+
+        await saveToCache({
+          '_unitDefinitions': _unitDefinitions,
+          '_defaultCategories': _defaultCategories,
+          '_presetDetails': _presetDetails,
+          '_categoryToBaseUnit': _categoryToBaseUnit,
+          '_activePresetName': _activePresetName,
+        });
+
+        return true;
+      }
+      return false;
+    } catch (e) {
+      if (kDebugMode) {
+        print('setTargetUnitForCategory error: $e');
+      }
+      return false;
+    }
   }
 
   // Legacy methods for backward compatibility

@@ -106,7 +106,7 @@ class ConversionUtils {
       final host = serverUrl.replaceAll(RegExp(r'^wss?://|^https?://'), '').split('/').first;
       final scheme = useSecure ? 'https' : 'http';
 
-      final url = '$scheme://$host/plugins/signalk-units-preference/categories';
+      final url = '$scheme://$host/signalk/v1/unitpreferences/categories';
 
       final response = await http.get(
         Uri.parse(url),

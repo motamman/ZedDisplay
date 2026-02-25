@@ -4,8 +4,6 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'dart:async';
 import 'dart:math' as math;
-import 'dart:convert';
-import 'package:http/http.dart' as http;
 import '../services/signalk_service.dart';
 import '../utils/conversion_utils.dart';
 
@@ -67,13 +65,6 @@ class _AISPolarChartState extends State<AISPolarChart>
   // Map controller for centering on own vessel
   final MapController _mapController = MapController();
 
-  // Distance conversion from categories endpoint
-  String? _distanceFormula;
-  String? _distanceSymbol;
-
-  // Speed conversion from categories endpoint
-  String? _speedFormula;
-  String? _speedSymbol;
 
   @override
   bool get wantKeepAlive => true;
@@ -103,52 +94,8 @@ class _AISPolarChartState extends State<AISPolarChart>
       widget.signalKService.loadAndSubscribeAISVessels();
     }
 
-    // Fetch distance conversion preferences
-    _fetchDistanceConversion();
-
     // Fetch immediately on init
     _updateVesselData();
-  }
-
-  /// Fetch distance and speed conversion formulas and symbols from categories endpoint
-  Future<void> _fetchDistanceConversion() async {
-    try {
-      final protocol = widget.signalKService.useSecureConnection ? 'https' : 'http';
-      final url = '$protocol://${widget.signalKService.serverUrl}/signalk/v1/categories';
-
-      final response = await http.get(Uri.parse(url)).timeout(
-        const Duration(seconds: 5),
-      );
-
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body) as Map<String, dynamic>;
-        final distance = data['distance'] as Map<String, dynamic>?;
-        final speed = data['speed'] as Map<String, dynamic>?;
-
-        if (mounted) {
-          setState(() {
-            if (distance != null) {
-              _distanceFormula = distance['formula'] as String?;
-              _distanceSymbol = distance['symbol'] as String?;
-            }
-            if (speed != null) {
-              _speedFormula = speed['formula'] as String?;
-              _speedSymbol = speed['symbol'] as String?;
-            }
-          });
-        }
-      }
-    } catch (e) {
-      // Silently fail, fallback to meters and m/s
-      if (mounted) {
-        setState(() {
-          _distanceFormula = null;
-          _distanceSymbol = 'm';
-          _speedFormula = null;
-          _speedSymbol = 'm/s';
-        });
-      }
-    }
   }
 
   void _subscribeIfConnected() {
@@ -431,36 +378,41 @@ class _AISPolarChartState extends State<AISPolarChart>
     return R * c; // Returns meters
   }
 
-  /// Convert distance from meters to user's preferred unit using categories endpoint
+  /// Convert distance from meters to user's preferred unit using server unit preferences
   double _convertDistance(double meters) {
-    if (_distanceFormula == null) {
+    final conversionInfo = widget.signalKService.getConversionForCategory('distance');
+    if (conversionInfo == null) {
       return meters; // No conversion available, return raw meters
     }
 
-    // Use the formula from categories endpoint
-    final converted = ConversionUtils.evaluateFormula(_distanceFormula!, meters);
+    final converted = ConversionUtils.evaluateFormula(conversionInfo.formula, meters);
     return converted ?? meters; // Fallback to meters if evaluation fails
   }
 
-  /// Get distance unit symbol from categories endpoint
+  /// Get distance unit symbol from server unit preferences
   String _getDistanceUnit() {
-    return _distanceSymbol ?? 'm'; // Default to meters if not loaded
+    final conversionInfo = widget.signalKService.getConversionForCategory('distance');
+    return conversionInfo?.symbol ?? 'm'; // Default to meters if not loaded
   }
 
-  /// Convert speed from m/s to user's preferred unit using categories endpoint
+  /// Convert speed from m/s to user's preferred unit using SOG path's displayUnits
   double _convertSpeed(double metersPerSecond) {
-    if (_speedFormula == null) {
+    final displayUnits = widget.signalKService.getDisplayUnits(widget.sogPath);
+    if (displayUnits == null) {
       return metersPerSecond; // No conversion available, return raw m/s
     }
 
-    // Use the formula from categories endpoint
-    final converted = ConversionUtils.evaluateFormula(_speedFormula!, metersPerSecond);
+    final formula = displayUnits['formula'] as String?;
+    if (formula == null) return metersPerSecond;
+
+    final converted = ConversionUtils.evaluateFormula(formula, metersPerSecond);
     return converted ?? metersPerSecond; // Fallback to m/s if evaluation fails
   }
 
-  /// Get speed unit symbol from categories endpoint
+  /// Get speed unit symbol from SOG path's displayUnits
   String _getSpeedUnit() {
-    return _speedSymbol ?? 'm/s'; // Default to m/s if not loaded
+    final displayUnits = widget.signalKService.getDisplayUnits(widget.sogPath);
+    return displayUnits?['symbol'] as String? ?? 'm/s'; // Default to m/s if not loaded
   }
 
   @override
