@@ -4,7 +4,7 @@
 menuItems:
   addTool:
     icon: add
-    label: Add Tool
+    label: Add Widget
     description: Add a new widget to the dashboard
   editMode:
     icon: edit

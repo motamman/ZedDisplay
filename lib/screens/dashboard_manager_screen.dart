@@ -17,6 +17,7 @@ import 'tool_config_screen.dart';
 import 'tool_selector_screen.dart';
 // Removed: template_library_screen import (deprecated)
 import 'settings_screen.dart';
+import '../config/ui_constants.dart';
 import 'crew/crew_screen.dart';
 import '../widgets/crew/incoming_call_overlay.dart';
 
@@ -272,8 +273,8 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen>
         final screenSize = MediaQuery.of(context).size;
         final screenWidth = screenSize.width;
         final screenHeight = screenSize.height - kToolbarHeight - MediaQuery.of(context).padding.top - _selectorHeight;
-        final cellWidth = screenWidth / 8;
-        final cellHeight = screenHeight / 8;
+        final cellWidth = screenWidth / UIConstants.gridCols;
+        final cellHeight = screenHeight / UIConstants.gridRows;
 
         // Get existing placements for current orientation
         final orientation = MediaQuery.of(context).orientation;
@@ -446,8 +447,8 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen>
       position: placement.position.copyWith(
         col: (_resizingX / cellWidth).round(),
         row: (_resizingY / cellHeight).round(),
-        width: (_resizingWidth / cellWidth).round().clamp(1, 8),
-        height: (_resizingHeight / cellHeight).round().clamp(1, 8),
+        width: (_resizingWidth / cellWidth).round().clamp(1, UIConstants.gridCols),
+        height: (_resizingHeight / cellHeight).round().clamp(1, UIConstants.gridRows),
       ),
     );
 
@@ -471,12 +472,12 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen>
     });
   }
 
-  /// Find the largest available rectangle in the 8x8 grid for a new widget.
+  /// Find the largest available rectangle in the grid for a new widget.
   /// Returns a GridPosition with optimal position and size.
   /// If the screen is full, returns position (0,0) with size (0,0).
   GridPosition _findLargestAvailableSpace(List<ToolPlacement> placements) {
-    const gridRows = 8;
-    const gridCols = 8;
+    const gridRows = UIConstants.gridRows;
+    const gridCols = UIConstants.gridCols;
 
     // Create occupancy grid (true = occupied)
     final occupied = List.generate(gridRows, (_) => List.filled(gridCols, false));
@@ -1447,8 +1448,8 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen>
             // TODO: Update placements to use PixelPosition instead of GridPosition
             final screenWidth = constraints.maxWidth;
             final screenHeight = constraints.maxHeight;
-            final cellWidth = screenWidth / 8;
-            final cellHeight = screenHeight / 8;
+            final cellWidth = screenWidth / UIConstants.gridCols;
+            final cellHeight = screenHeight / UIConstants.gridRows;
 
             // Calculate position - use resizing position if resizing from left/top
             final isBeingMoved = _movingWidgetId == placement.toolId;
@@ -1709,8 +1710,8 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen>
         if (_toolBeingPlaced != null && _placementBeingPlaced != null) {
           final screenWidth = constraints.maxWidth;
           final screenHeight = constraints.maxHeight;
-          final cellWidth = screenWidth / 8;
-          final cellHeight = screenHeight / 8;
+          final cellWidth = screenWidth / UIConstants.gridCols;
+          final cellHeight = screenHeight / UIConstants.gridRows;
 
           contentWidget = Stack(
             children: [
@@ -1731,8 +1732,8 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen>
                       position: _placementBeingPlaced!.position.copyWith(
                         col: (_placingX / cellWidth).round(),
                         row: (_placingY / cellHeight).round(),
-                        width: (_placingWidth / cellWidth).round().clamp(1, 8),
-                        height: (_placingHeight / cellHeight).round().clamp(1, 8),
+                        width: (_placingWidth / cellWidth).round().clamp(1, UIConstants.gridCols),
+                        height: (_placingHeight / cellHeight).round().clamp(1, UIConstants.gridRows),
                       ),
                     );
 
@@ -1773,8 +1774,8 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen>
                       position: _placementBeingPlaced!.position.copyWith(
                         col: (_placingX / cellWidth).round(),
                         row: (_placingY / cellHeight).round(),
-                        width: (_placingWidth / cellWidth).round().clamp(1, 8),
-                        height: (_placingHeight / cellHeight).round().clamp(1, 8),
+                        width: (_placingWidth / cellWidth).round().clamp(1, UIConstants.gridCols),
+                        height: (_placingHeight / cellHeight).round().clamp(1, UIConstants.gridRows),
                       ),
                     );
 

@@ -42,11 +42,17 @@ class _ServerManagerToolState extends State<ServerManagerTool> {
   bool _loadingPlugins = false;
   bool _loadingWebapps = false;
 
+  // Unit preferences
+  List<Map<String, dynamic>> _availablePresets = [];
+  String? _activePreset;
+  bool _loadingPresets = false;
+
   @override
   void initState() {
     super.initState();
     _setupServerEventsListener();
     _loadPluginsAndWebapps();
+    _loadUnitPresets();
   }
 
   @override
@@ -324,6 +330,117 @@ class _ServerManagerToolState extends State<ServerManagerTool> {
     }
   }
 
+  Future<void> _loadUnitPresets() async {
+    if (!widget.signalKService.isConnected) return;
+
+    setState(() => _loadingPresets = true);
+
+    final protocol = widget.signalKService.useSecureConnection ? 'https' : 'http';
+    final headers = <String, String>{};
+    if (widget.signalKService.authToken != null) {
+      headers['Authorization'] = 'Bearer ${widget.signalKService.authToken!.token}';
+    }
+
+    try {
+      // Fetch available presets
+      final presetsResponse = await http.get(
+        Uri.parse('$protocol://${widget.signalKService.serverUrl}/signalk/v1/unitpreferences/presets'),
+        headers: headers,
+      );
+
+      // Try user-specific preferences first, then fall back to global config
+      String? activePreset;
+
+      // Try user applicationData first (user-specific preference)
+      final userResponse = await http.get(
+        Uri.parse('$protocol://${widget.signalKService.serverUrl}/signalk/v1/applicationData/user/unitpreferences/1.0.0'),
+        headers: headers,
+      );
+      if (userResponse.statusCode == 200) {
+        final userConfig = jsonDecode(userResponse.body);
+        activePreset = userConfig['activePreset'] as String?;
+      }
+
+      // Fall back to global config if no user preference
+      if (activePreset == null || activePreset.isEmpty) {
+        final configResponse = await http.get(
+          Uri.parse('$protocol://${widget.signalKService.serverUrl}/signalk/v1/unitpreferences/config'),
+          headers: headers,
+        );
+        if (configResponse.statusCode == 200) {
+          final config = jsonDecode(configResponse.body);
+          activePreset = config['activePreset'] as String?;
+        }
+      }
+
+      if (mounted) {
+        setState(() {
+          if (presetsResponse.statusCode == 200) {
+            final data = jsonDecode(presetsResponse.body) as Map<String, dynamic>;
+            // Combine builtIn and custom presets
+            final builtIn = (data['builtIn'] as List?)?.cast<Map<String, dynamic>>() ?? [];
+            final custom = (data['custom'] as List?)?.cast<Map<String, dynamic>>() ?? [];
+            _availablePresets = [...builtIn, ...custom];
+          }
+          _activePreset = activePreset;
+          _loadingPresets = false;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading unit presets: $e');
+      if (mounted) setState(() => _loadingPresets = false);
+    }
+  }
+
+  Future<void> _setActivePreset(String presetName) async {
+    if (!widget.signalKService.isConnected) return;
+
+    final previousPreset = _activePreset;
+    setState(() => _activePreset = presetName); // Optimistic update
+
+    final protocol = widget.signalKService.useSecureConnection ? 'https' : 'http';
+    final headers = <String, String>{
+      'Content-Type': 'application/json',
+    };
+    if (widget.signalKService.authToken != null) {
+      headers['Authorization'] = 'Bearer ${widget.signalKService.authToken!.token}';
+    }
+
+    try {
+      // Save to user's applicationData (user-specific preference)
+      final response = await http.post(
+        Uri.parse('$protocol://${widget.signalKService.serverUrl}/signalk/v1/applicationData/user/unitpreferences/1.0.0'),
+        headers: headers,
+        body: jsonEncode({'activePreset': presetName}),
+      );
+
+      if (response.statusCode == 200) {
+        // Refresh conversions to apply new preset
+        await widget.signalKService.loadConversions();
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Unit preset changed to "$presetName"')),
+          );
+        }
+      } else if (response.statusCode == 401) {
+        setState(() => _activePreset = previousPreset); // Revert
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Not authorized to change unit preferences'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      } else {
+        setState(() => _activePreset = previousPreset); // Revert
+      }
+    } catch (e) {
+      setState(() => _activePreset = previousPreset); // Revert
+      debugPrint('Error setting unit preset: $e');
+    }
+  }
+
   Future<void> _restartServer() async {
     if (!widget.signalKService.isConnected) return;
 
@@ -440,6 +557,11 @@ class _ServerManagerToolState extends State<ServerManagerTool> {
 
             // Server Statistics
             _buildStatisticsSection(theme),
+
+            const SizedBox(height: 8),
+
+            // Unit Preferences
+            _buildUnitPreferencesSection(theme),
 
             const SizedBox(height: 8),
 
@@ -571,6 +693,81 @@ class _ServerManagerToolState extends State<ServerManagerTool> {
                 ),
               ],
             ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildUnitPreferencesSection(ThemeData theme) {
+    return Container(
+      decoration: BoxDecoration(
+        border: Border.all(color: Colors.grey.withValues(alpha: 0.3)),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Header
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: Colors.teal.withValues(alpha: 0.1),
+              borderRadius: const BorderRadius.only(
+                topLeft: Radius.circular(6),
+                topRight: Radius.circular(6),
+              ),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.straighten, size: 14, color: Colors.teal),
+                const SizedBox(width: 8),
+                const Text(
+                  'Unit Preferences',
+                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                ),
+                const Spacer(),
+                if (_loadingPresets)
+                  const SizedBox(
+                    width: 12,
+                    height: 12,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                else
+                  InkWell(
+                    onTap: _loadUnitPresets,
+                    child: const Icon(Icons.refresh, size: 14),
+                  ),
+              ],
+            ),
+          ),
+          // Dropdown
+          Padding(
+            padding: const EdgeInsets.all(8),
+            child: _availablePresets.isEmpty
+                ? Text(
+                    _loadingPresets ? 'Loading...' : 'No presets available',
+                    style: const TextStyle(fontSize: 11),
+                  )
+                : DropdownButton<String>(
+                    value: _activePreset,
+                    isExpanded: true,
+                    underline: const SizedBox(),
+                    items: _availablePresets
+                        .map((preset) => DropdownMenuItem(
+                              value: preset['name'] as String?,
+                              child: Text(
+                                preset['displayName'] as String? ?? preset['name'] as String? ?? 'Unknown',
+                                style: const TextStyle(fontSize: 12),
+                              ),
+                            ))
+                        .toList(),
+                    onChanged: (value) {
+                      if (value != null && value != _activePreset) {
+                        _setActivePreset(value);
+                      }
+                    },
+                  ),
           ),
         ],
       ),
