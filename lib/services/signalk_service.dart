@@ -181,6 +181,32 @@ class SignalKService extends ChangeNotifier implements DataService {
   AuthToken? get authToken => _authToken;
   ZonesCacheService? get zonesCache => _zonesCache;
 
+  /// Check if current user has admin permissions
+  /// Decodes the JWT token to check the permissions claim
+  bool get isAdmin {
+    if (_authToken == null) return false;
+    try {
+      // JWT format: header.payload.signature
+      final parts = _authToken!.token.split('.');
+      if (parts.length != 3) return false;
+
+      // Decode the payload (middle part)
+      String payload = parts[1];
+      // Add padding if needed for base64
+      while (payload.length % 4 != 0) {
+        payload += '=';
+      }
+      final decoded = utf8.decode(base64Url.decode(payload));
+      final data = jsonDecode(decoded) as Map<String, dynamic>;
+
+      // Check permissions field (SignalK uses 'permissions' with value like 'admin')
+      final permissions = data['permissions'] as String?;
+      return permissions == 'admin';
+    } catch (e) {
+      return false;
+    }
+  }
+
   /// Register a callback to be executed sequentially after SignalK connects.
   /// This prevents HTTP request overload when multiple services need to
   /// initialize resources (e.g., ensureResourceTypeExists) on connection.

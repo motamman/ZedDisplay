@@ -2,9 +2,11 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'package:provider/provider.dart';
 import '../../models/tool_definition.dart';
 import '../../models/tool_config.dart';
 import '../../services/signalk_service.dart';
+import '../../services/intercom_service.dart';
 import '../../services/tool_registry.dart';
 
 /// Permission levels for SignalK users
@@ -548,6 +550,14 @@ class _UserManagementToolState extends State<UserManagementTool> {
     bool changePassword = false;
     String? errorText;
 
+    // Get intercom service for channel subscriptions
+    final intercomService = Provider.of<IntercomService>(context, listen: false);
+    final channels = intercomService.channels;
+
+    // Get current subscriptions for this user (use username as user ID for SignalK users)
+    final userId = 'user:${user.username}';
+    Set<String> selectedChannels = intercomService.getSubscribedChannels(userId);
+
     showDialog(
       context: context,
       builder: (context) => StatefulBuilder(
@@ -620,6 +630,72 @@ class _UserManagementToolState extends State<UserManagementTool> {
                     obscureText: true,
                   ),
                 ],
+                // Channel Subscriptions section
+                if (channels.isNotEmpty) ...[
+                  const SizedBox(height: 16),
+                  const Divider(),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Channel Subscriptions',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 14,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Select which audio channels this user receives',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.grey.shade600,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  ...channels.map((channel) {
+                    final isEmergency = channel.isEmergency;
+                    final isSubscribed = selectedChannels.contains(channel.id);
+
+                    return CheckboxListTile(
+                      title: Row(
+                        children: [
+                          if (isEmergency)
+                            const Icon(Icons.warning, size: 16, color: Colors.red),
+                          if (isEmergency) const SizedBox(width: 8),
+                          Text(
+                            channel.name,
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: isEmergency ? Colors.red : null,
+                            ),
+                          ),
+                        ],
+                      ),
+                      subtitle: channel.description != null
+                          ? Text(
+                              channel.description!,
+                              style: const TextStyle(fontSize: 11),
+                            )
+                          : null,
+                      value: isSubscribed,
+                      dense: true,
+                      contentPadding: EdgeInsets.zero,
+                      // Emergency channel cannot be toggled off
+                      onChanged: isEmergency
+                          ? null
+                          : (value) {
+                              setDialogState(() {
+                                if (value == true) {
+                                  selectedChannels = {...selectedChannels, channel.id};
+                                } else {
+                                  selectedChannels = selectedChannels
+                                      .where((id) => id != channel.id)
+                                      .toSet();
+                                }
+                              });
+                            },
+                    );
+                  }),
+                ],
                 if (errorText != null) ...[
                   const SizedBox(height: 12),
                   Text(
@@ -670,6 +746,9 @@ class _UserManagementToolState extends State<UserManagementTool> {
                   password: newPassword,
                   permission: selectedPermission != user.permission ? selectedPermission : null,
                 );
+
+                // Save channel subscriptions
+                intercomService.setUserSubscriptions(userId, selectedChannels);
               },
               child: const Text('SAVE'),
             ),

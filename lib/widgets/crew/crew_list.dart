@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../models/crew_member.dart';
+import '../../models/intercom_channel.dart';
 import '../../services/crew_service.dart';
 import '../../services/intercom_service.dart';
 import '../../screens/crew/direct_chat_screen.dart';
@@ -216,11 +217,30 @@ class _CrewMemberTile extends StatelessWidget {
           ],
         ],
       ),
-      subtitle: Row(
+      subtitle: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _RoleBadge(role: member.role),
-          const SizedBox(width: 8),
-          _StatusBadge(status: member.status),
+          Row(
+            children: [
+              _RoleBadge(role: member.role),
+              const SizedBox(width: 8),
+              _StatusBadge(status: member.status),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Consumer<CrewService>(
+            builder: (context, crewService, child) {
+              // Captains and first mates can edit any crew member's subscriptions
+              final localRole = crewService.localProfile?.role;
+              final isAdmin = localRole == CrewRole.captain || localRole == CrewRole.firstMate;
+              final canEdit = isLocalUser || isAdmin;
+
+              return _ChannelSubscriptionIcons(
+                memberId: member.id,
+                canEdit: canEdit,
+              );
+            },
+          ),
         ],
       ),
       trailing: !isLocalUser
@@ -466,5 +486,140 @@ class _StatusBadge extends StatelessWidget {
       case CrewStatus.away:
         return Colors.purple;
     }
+  }
+}
+
+/// Channel subscription toggle icons
+class _ChannelSubscriptionIcons extends StatelessWidget {
+  final String memberId;
+  final bool canEdit;
+
+  const _ChannelSubscriptionIcons({
+    required this.memberId,
+    required this.canEdit,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Consumer<IntercomService>(
+      builder: (context, intercomService, child) {
+        final channels = intercomService.channels;
+        if (channels.isEmpty) {
+          return const SizedBox.shrink();
+        }
+
+        return Wrap(
+          spacing: 4,
+          runSpacing: 2,
+          children: channels.map((channel) {
+            final isSubscribed = intercomService.isSubscribed(memberId, channel.id);
+            final isEmergency = channel.isEmergency;
+
+            return _ChannelChip(
+              channel: channel,
+              isSubscribed: isSubscribed,
+              isEmergency: isEmergency,
+              canToggle: canEdit && !isEmergency,
+              onToggle: canEdit && !isEmergency
+                  ? () => intercomService.toggleChannelSubscription(memberId, channel.id)
+                  : null,
+            );
+          }).toList(),
+        );
+      },
+    );
+  }
+}
+
+/// Individual channel subscription chip
+class _ChannelChip extends StatelessWidget {
+  final IntercomChannel channel;
+  final bool isSubscribed;
+  final bool isEmergency;
+  final bool canToggle;
+  final VoidCallback? onToggle;
+
+  const _ChannelChip({
+    required this.channel,
+    required this.isSubscribed,
+    required this.isEmergency,
+    required this.canToggle,
+    this.onToggle,
+  });
+
+  /// Get a short label for the channel (2-3 chars)
+  String _getShortLabel() {
+    final name = channel.name;
+    if (isEmergency) return '16';
+    // Use channel ID number if available (ch01 -> 01)
+    if (channel.id.startsWith('ch') && channel.id.length >= 4) {
+      return channel.id.substring(2, 4);
+    }
+    // Otherwise use first 2 letters of name
+    if (name.length >= 2) {
+      return name.substring(0, 2).toUpperCase();
+    }
+    return name.toUpperCase();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final color = isEmergency
+        ? Colors.red
+        : (isSubscribed ? Colors.green : Colors.grey);
+
+    return Tooltip(
+      message: isEmergency
+          ? '${channel.name} (always on)'
+          : (isSubscribed
+              ? '${channel.name} - subscribed${canToggle ? ' (tap to unsubscribe)' : ''}'
+              : '${channel.name} - not subscribed${canToggle ? ' (tap to subscribe)' : ''}'),
+      child: InkWell(
+        onTap: canToggle ? onToggle : null,
+        borderRadius: BorderRadius.circular(4),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+          decoration: BoxDecoration(
+            color: isSubscribed
+                ? color.withValues(alpha: 0.2)
+                : Colors.transparent,
+            borderRadius: BorderRadius.circular(4),
+            border: Border.all(
+              color: color.withValues(alpha: isSubscribed ? 0.6 : 0.3),
+              width: 1,
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (isEmergency) ...[
+                Icon(
+                  Icons.warning,
+                  size: 10,
+                  color: color,
+                ),
+                const SizedBox(width: 2),
+              ],
+              Text(
+                _getShortLabel(),
+                style: TextStyle(
+                  fontSize: 9,
+                  fontWeight: isSubscribed ? FontWeight.bold : FontWeight.normal,
+                  color: isSubscribed ? color : color.withValues(alpha: 0.6),
+                ),
+              ),
+              if (isSubscribed && !isEmergency) ...[
+                const SizedBox(width: 2),
+                Icon(
+                  Icons.check,
+                  size: 8,
+                  color: color,
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }
