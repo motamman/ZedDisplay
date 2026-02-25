@@ -1,4 +1,31 @@
-# What's New in v0.5.24
+# What's New in v0.5.25
+
+## Release Notes (Google Play - max 500 chars)
+
+v0.5.25 Channel Subscriptions
+
+NEW: Subscribe/unsubscribe from intercom audio channels. Tap channel icons in Crew List to toggle. Emergency channel (CH16) always on. Captains and First Mates can manage any crew member's subscriptions.
+
+IMPROVED: Tools now default to full grid size. Tools without config can be placed directly.
+
+## Release Notes (App Store / TestFlight - max 4000 chars)
+
+### Channel Subscriptions (NEW)
+- **Per-User Subscriptions** - Each crew member can choose which audio channels to receive
+- **Crew List Icons** - Channel subscription status shown as icons next to each crew member
+- **Toggle Subscriptions** - Tap channel icons to subscribe/unsubscribe from channels
+- **Emergency Always On** - CH16 (Emergency) cannot be disabled - always subscribed
+- **Admin Control** - Captains and First Mates can manage any crew member's subscriptions
+- **Persistence** - Subscriptions saved locally and persist across app restarts
+- **User Management** - Admins can also edit subscriptions in User Management Tool
+
+### Tool Placement Improvements (IMPROVED)
+- **Default Full Grid** - New tools default to 8x8 size for simpler initial placement
+- **Direct Placement** - Tools without required configuration skip config dialog and place directly
+
+---
+
+# Previous: v0.5.24
 
 ## Release Notes (Google Play - max 500 chars)
 

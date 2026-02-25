@@ -292,6 +292,10 @@ SignalK acts as the message broker and data store:
 **Voice Intercom**
 - VHF radio-style channel system for shipboard communication
 - Default channels: Emergency, Helm, Salon, Forward Cabin, Aft Cabin (customizable)
+- **Channel Subscriptions**: Choose which channels to receive audio from
+  - Toggle subscriptions in Crew List (icons next to each crew member)
+  - Emergency channel (CH16) always subscribed—cannot be disabled
+  - Captains/First Mates can manage any crew member's subscriptions
 - **PTT Mode** (Push-to-Talk): Hold button to transmit, release to listen—like a handheld radio
 - **Duplex Mode**: Open two-way audio—like a phone call, both parties hear each other continuously
 - **Direct Calls**: Private one-on-one voice calls to specific crew members
@@ -461,6 +465,10 @@ Simply go to Settings → Dashboard Setups and tap the setup you want to activat
 4. **Voice Intercom (Channel Mode)**
    - Tap the Intercom tab in the Crew screen
    - Select a channel (Emergency, Helm, Salon, Forward Cabin, or Aft Cabin)
+   - **Channel Subscriptions**: Manage which channels you receive in the Crew List
+     - Channel icons appear next to each crew member showing subscription status
+     - Tap icons to toggle subscription (except Emergency—always on)
+     - Captains/First Mates can manage subscriptions for any crew member
    - **PTT Mode** (default): Hold the microphone button to talk, release to listen
      - Works like a handheld VHF radio—only one person transmits at a time
    - **Duplex Mode**: Toggle the duplex switch for open two-way audio
