@@ -15,6 +15,8 @@ import 'tool_config_screen.dart';
 const _noConfigTools = {
   'rpi_monitor',
   'system_monitor',
+  'device_access_manager',
+  'user_management',
 };
 
 /// Screen for selecting a tool type to add to the dashboard
@@ -283,14 +285,17 @@ class _ToolSelectorScreenState extends State<ToolSelectorScreen> {
       style: StyleConfig(),
     );
 
+    // All tools default to full grid 8x8 - user can resize on dashboard
+    const defaultSize = 8;
+
     final tool = toolService.createTool(
       toolTypeId: definition.id,
       config: config,
       name: definition.name,
       description: definition.description,
       author: 'Local User',
-      defaultWidth: definition.defaultWidth,
-      defaultHeight: definition.defaultHeight,
+      defaultWidth: defaultSize,
+      defaultHeight: defaultSize,
       category: ToolCategory.other,
       tags: [definition.id],
     );
@@ -300,8 +305,8 @@ class _ToolSelectorScreenState extends State<ToolSelectorScreen> {
 
     return {
       'tool': tool,
-      'width': definition.defaultWidth,
-      'height': definition.defaultHeight,
+      'width': defaultSize,
+      'height': defaultSize,
     };
   }
 }
