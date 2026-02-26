@@ -2058,6 +2058,14 @@ class _ServerPickerSheetState extends State<_ServerPickerSheet> {
                               connection.serverUrl,
                               secure: connection.useSecure,
                             );
+                            // Save as last connection so it's remembered on restart
+                            await widget.storageService.saveLastConnection(
+                              connection.serverUrl,
+                              connection.useSecure,
+                            );
+                            await widget.storageService.updateConnectionLastConnected(
+                              connection.id,
+                            );
                           }
                         },
                       );
