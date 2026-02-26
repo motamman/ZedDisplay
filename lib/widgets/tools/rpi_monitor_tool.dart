@@ -85,6 +85,12 @@ class RpiMonitorTool extends StatelessWidget {
       'environment.rpi.storage.utilisation',
     );
 
+    // Check if we have any data
+    final hasData = cpuUtil != null ||
+        cpuTempK != null ||
+        gpuTempK != null ||
+        uptimeSeconds != null;
+
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -107,125 +113,8 @@ class RpiMonitorTool extends StatelessWidget {
 
             const SizedBox(height: 16),
 
-            // CPU Section
-            _buildSectionHeader('CPU', Icons.speed, Colors.blue, theme),
-            const SizedBox(height: 8),
-
-            if (cpuUtil != null)
-              _buildMetricRow(
-                'Overall',
-                '${(cpuUtil * 100).toStringAsFixed(1)}%',
-                cpuUtil,
-                Colors.blue,
-                theme,
-              ),
-
-            const SizedBox(height: 4),
-
-            // CPU Cores
-            Row(
-              children: [
-                if (core1Util != null)
-                  Expanded(
-                    child: _buildCoreCard('Core 1', core1Util, Colors.blue.shade300),
-                  ),
-                if (core2Util != null) ...[
-                  const SizedBox(width: 4),
-                  Expanded(
-                    child: _buildCoreCard('Core 2', core2Util, Colors.blue.shade400),
-                  ),
-                ],
-              ],
-            ),
-            const SizedBox(height: 4),
-            Row(
-              children: [
-                if (core3Util != null)
-                  Expanded(
-                    child: _buildCoreCard('Core 3', core3Util, Colors.blue.shade500),
-                  ),
-                if (core4Util != null) ...[
-                  const SizedBox(width: 4),
-                  Expanded(
-                    child: _buildCoreCard('Core 4', core4Util, Colors.blue.shade600),
-                  ),
-                ],
-              ],
-            ),
-
-            const SizedBox(height: 16),
-
-            // Temperature Section
-            _buildSectionHeader('Temperature', Icons.thermostat, Colors.orange, theme),
-            const SizedBox(height: 8),
-
-            Row(
-              children: [
-                if (cpuTempK != null && cpuTempFormatted != null)
-                  Expanded(
-                    child: _buildTempCard(
-                      'CPU',
-                      cpuTempFormatted,
-                      Icons.memory,
-                      _getTempColor(cpuTempK),
-                    ),
-                  ),
-                if (gpuTempK != null && gpuTempFormatted != null) ...[
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: _buildTempCard(
-                      'GPU',
-                      gpuTempFormatted,
-                      Icons.videocam,
-                      _getTempColor(gpuTempK),
-                    ),
-                  ),
-                ],
-              ],
-            ),
-
-            const SizedBox(height: 16),
-
-            // Memory & Storage Section
-            if (memoryUtil != null || storageUtil != null) ...[
-              _buildSectionHeader('Resources', Icons.storage, Colors.purple, theme),
-              const SizedBox(height: 8),
-
-              if (memoryUtil != null)
-                _buildMetricRow(
-                  'Memory',
-                  '${(memoryUtil * 100).toStringAsFixed(1)}%',
-                  memoryUtil,
-                  Colors.purple,
-                  theme,
-                ),
-
-              if (storageUtil != null) ...[
-                const SizedBox(height: 4),
-                _buildMetricRow(
-                  'Storage',
-                  '${(storageUtil * 100).toStringAsFixed(1)}%',
-                  storageUtil,
-                  Colors.purple,
-                  theme,
-                ),
-              ],
-
-              const SizedBox(height: 16),
-            ],
-
-            // Uptime Section
-            if (uptimeSeconds != null) ...[
-              _buildSectionHeader('System', Icons.access_time, Colors.green, theme),
-              const SizedBox(height: 8),
-              _buildUptimeCard(uptimeSeconds, theme),
-            ],
-
             // No data message
-            if (cpuUtil == null &&
-                cpuTempK == null &&
-                gpuTempK == null &&
-                uptimeSeconds == null)
+            if (!hasData)
               Center(
                 child: Padding(
                   padding: const EdgeInsets.all(24),
@@ -255,9 +144,201 @@ class RpiMonitorTool extends StatelessWidget {
                   ),
                 ),
               ),
+
+            // Responsive layout for data sections
+            if (hasData)
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  final isWide = constraints.maxWidth >= 600;
+
+                  final leftColumn = _buildLeftColumn(
+                    theme: theme,
+                    cpuUtil: cpuUtil,
+                    core1Util: core1Util,
+                    core2Util: core2Util,
+                    core3Util: core3Util,
+                    core4Util: core4Util,
+                  );
+
+                  final rightColumn = _buildRightColumn(
+                    theme: theme,
+                    cpuTempK: cpuTempK,
+                    cpuTempFormatted: cpuTempFormatted,
+                    gpuTempK: gpuTempK,
+                    gpuTempFormatted: gpuTempFormatted,
+                    memoryUtil: memoryUtil,
+                    storageUtil: storageUtil,
+                    uptimeSeconds: uptimeSeconds,
+                  );
+
+                  if (isWide) {
+                    return Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(child: leftColumn),
+                        const SizedBox(width: 16),
+                        Expanded(child: rightColumn),
+                      ],
+                    );
+                  } else {
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        leftColumn,
+                        const SizedBox(height: 16),
+                        rightColumn,
+                      ],
+                    );
+                  }
+                },
+              ),
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildLeftColumn({
+    required ThemeData theme,
+    required double? cpuUtil,
+    required double? core1Util,
+    required double? core2Util,
+    required double? core3Util,
+    required double? core4Util,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // CPU Section
+        _buildSectionHeader('CPU', Icons.speed, Colors.blue, theme),
+        const SizedBox(height: 8),
+
+        if (cpuUtil != null)
+          _buildMetricRow(
+            'Overall',
+            '${(cpuUtil * 100).toStringAsFixed(1)}%',
+            cpuUtil,
+            Colors.blue,
+            theme,
+          ),
+
+        const SizedBox(height: 4),
+
+        // CPU Cores
+        Row(
+          children: [
+            if (core1Util != null)
+              Expanded(
+                child: _buildCoreCard('Core 1', core1Util, Colors.blue.shade300),
+              ),
+            if (core2Util != null) ...[
+              const SizedBox(width: 4),
+              Expanded(
+                child: _buildCoreCard('Core 2', core2Util, Colors.blue.shade400),
+              ),
+            ],
+          ],
+        ),
+        const SizedBox(height: 4),
+        Row(
+          children: [
+            if (core3Util != null)
+              Expanded(
+                child: _buildCoreCard('Core 3', core3Util, Colors.blue.shade500),
+              ),
+            if (core4Util != null) ...[
+              const SizedBox(width: 4),
+              Expanded(
+                child: _buildCoreCard('Core 4', core4Util, Colors.blue.shade600),
+              ),
+            ],
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildRightColumn({
+    required ThemeData theme,
+    required double? cpuTempK,
+    required String? cpuTempFormatted,
+    required double? gpuTempK,
+    required String? gpuTempFormatted,
+    required double? memoryUtil,
+    required double? storageUtil,
+    required double? uptimeSeconds,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Temperature Section
+        if (cpuTempK != null || gpuTempK != null) ...[
+          _buildSectionHeader('Temperature', Icons.thermostat, Colors.orange, theme),
+          const SizedBox(height: 8),
+
+          Row(
+            children: [
+              if (cpuTempK != null && cpuTempFormatted != null)
+                Expanded(
+                  child: _buildTempCard(
+                    'CPU',
+                    cpuTempFormatted,
+                    Icons.memory,
+                    _getTempColor(cpuTempK),
+                  ),
+                ),
+              if (gpuTempK != null && gpuTempFormatted != null) ...[
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _buildTempCard(
+                    'GPU',
+                    gpuTempFormatted,
+                    Icons.videocam,
+                    _getTempColor(gpuTempK),
+                  ),
+                ),
+              ],
+            ],
+          ),
+
+          const SizedBox(height: 16),
+        ],
+
+        // Memory & Storage Section
+        if (memoryUtil != null || storageUtil != null) ...[
+          _buildSectionHeader('Resources', Icons.storage, Colors.purple, theme),
+          const SizedBox(height: 8),
+
+          if (memoryUtil != null)
+            _buildMetricRow(
+              'Memory',
+              '${(memoryUtil * 100).toStringAsFixed(1)}%',
+              memoryUtil,
+              Colors.purple,
+              theme,
+            ),
+
+          if (storageUtil != null) ...[
+            const SizedBox(height: 4),
+            _buildMetricRow(
+              'Storage',
+              '${(storageUtil * 100).toStringAsFixed(1)}%',
+              storageUtil,
+              Colors.purple,
+              theme,
+            ),
+          ],
+
+          const SizedBox(height: 16),
+        ],
+
+        // Uptime Section
+        if (uptimeSeconds != null) ...[
+          _buildSectionHeader('System', Icons.access_time, Colors.green, theme),
+          const SizedBox(height: 8),
+          _buildUptimeCard(uptimeSeconds, theme),
+        ],
+      ],
     );
   }
 
