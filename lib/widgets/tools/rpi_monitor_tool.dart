@@ -91,30 +91,28 @@ class RpiMonitorTool extends StatelessWidget {
         gpuTempK != null ||
         uptimeSeconds != null;
 
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Header
-            Row(
-              children: [
-                Icon(Icons.memory, color: theme.colorScheme.primary, size: 24),
-                const SizedBox(width: 8),
-                Text(
-                  'Raspberry Pi Monitor',
-                  style: theme.textTheme.titleLarge?.copyWith(
-                    fontWeight: FontWeight.bold,
+    // No data message
+    if (!hasData) {
+      return Card(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Header
+              Row(
+                children: [
+                  Icon(Icons.memory, color: theme.colorScheme.primary, size: 24),
+                  const SizedBox(width: 8),
+                  Text(
+                    'Raspberry Pi Monitor',
+                    style: theme.textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
-                ),
-              ],
-            ),
-
-            const SizedBox(height: 16),
-
-            // No data message
-            if (!hasData)
+                ],
+              ),
+              const SizedBox(height: 16),
               Center(
                 child: Padding(
                   padding: const EdgeInsets.all(24),
@@ -144,55 +142,60 @@ class RpiMonitorTool extends StatelessWidget {
                   ),
                 ),
               ),
+            ],
+          ),
+        ),
+      );
+    }
 
-            // Responsive layout for data sections
-            if (hasData)
-              LayoutBuilder(
-                builder: (context, constraints) {
-                  final isWide = constraints.maxWidth >= 600;
+    // Responsive layout for data sections
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final isWide = constraints.maxWidth >= 600;
 
-                  final leftColumn = _buildLeftColumn(
-                    theme: theme,
-                    cpuUtil: cpuUtil,
-                    core1Util: core1Util,
-                    core2Util: core2Util,
-                    core3Util: core3Util,
-                    core4Util: core4Util,
-                  );
+            final leftColumn = _buildLeftColumn(
+              theme: theme,
+              cpuUtil: cpuUtil,
+              core1Util: core1Util,
+              core2Util: core2Util,
+              core3Util: core3Util,
+              core4Util: core4Util,
+            );
 
-                  final rightColumn = _buildRightColumn(
-                    theme: theme,
-                    cpuTempK: cpuTempK,
-                    cpuTempFormatted: cpuTempFormatted,
-                    gpuTempK: gpuTempK,
-                    gpuTempFormatted: gpuTempFormatted,
-                    memoryUtil: memoryUtil,
-                    storageUtil: storageUtil,
-                    uptimeSeconds: uptimeSeconds,
-                  );
+            final rightColumn = _buildRightColumn(
+              theme: theme,
+              cpuTempK: cpuTempK,
+              cpuTempFormatted: cpuTempFormatted,
+              gpuTempK: gpuTempK,
+              gpuTempFormatted: gpuTempFormatted,
+              memoryUtil: memoryUtil,
+              storageUtil: storageUtil,
+              uptimeSeconds: uptimeSeconds,
+            );
 
-                  if (isWide) {
-                    return Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Expanded(child: leftColumn),
-                        const SizedBox(width: 16),
-                        Expanded(child: rightColumn),
-                      ],
-                    );
-                  } else {
-                    return Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        leftColumn,
-                        const SizedBox(height: 16),
-                        rightColumn,
-                      ],
-                    );
-                  }
-                },
-              ),
-          ],
+            if (isWide) {
+              return Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(child: leftColumn),
+                  const SizedBox(width: 16),
+                  Expanded(child: rightColumn),
+                ],
+              );
+            } else {
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  leftColumn,
+                  const SizedBox(height: 16),
+                  rightColumn,
+                ],
+              );
+            }
+          },
         ),
       ),
     );
@@ -209,6 +212,25 @@ class RpiMonitorTool extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        // Header
+        Row(
+          children: [
+            Icon(Icons.memory, color: theme.colorScheme.primary, size: 20),
+            const SizedBox(width: 6),
+            Flexible(
+              child: Text(
+                'RPi Monitor',
+                style: theme.textTheme.titleSmall?.copyWith(
+                  fontWeight: FontWeight.bold,
+                ),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+        ),
+
+        const SizedBox(height: 12),
+
         // CPU Section
         _buildSectionHeader('CPU', Icons.speed, Colors.blue, theme),
         const SizedBox(height: 8),

@@ -47,10 +47,8 @@ class _ServerManagerToolState extends State<ServerManagerTool> {
   String? _activePreset;
   bool _loadingPresets = false;
 
-  // Accordion expanded states
-  bool _providersExpanded = true;
-  bool _pluginsExpanded = true;
-  bool _webappsExpanded = false;
+  // Accordion state - only one section open at a time
+  String? _expandedSection = 'providers';
 
   @override
   void initState() {
@@ -565,31 +563,36 @@ class _ServerManagerToolState extends State<ServerManagerTool> {
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Text(
-              'Server Status',
-              style: theme.textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.bold,
+            Flexible(
+              child: Text(
+                'Server Status',
+                style: theme.textTheme.titleSmall?.copyWith(
+                  fontWeight: FontWeight.bold,
+                ),
+                overflow: TextOverflow.ellipsis,
               ),
             ),
             ElevatedButton.icon(
               onPressed: _restartServer,
-              icon: const Icon(Icons.restart_alt, size: 16),
-              label: const Text('Restart', style: TextStyle(fontSize: 12)),
+              icon: const Icon(Icons.restart_alt, size: 14),
+              label: const Text('Restart', style: TextStyle(fontSize: 10)),
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.orange,
                 foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                minimumSize: Size.zero,
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
               ),
             ),
           ],
         ),
 
-        const SizedBox(height: 8),
+        const SizedBox(height: 6),
 
         // Server Statistics
         _buildStatisticsSection(theme),
 
-        const SizedBox(height: 8),
+        const SizedBox(height: 6),
 
         // Unit Preferences
         _buildUnitPreferencesSection(theme),
@@ -598,423 +601,420 @@ class _ServerManagerToolState extends State<ServerManagerTool> {
   }
 
   Widget _buildRightColumn(ThemeData theme) {
-    return SingleChildScrollView(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Data Providers Accordion
-          _buildAccordionSection(
-            theme: theme,
-            title: 'Data Providers (${_providerStats.length})',
-            icon: Icons.dns,
-            color: Colors.blue,
-            isExpanded: _providersExpanded,
-            onExpansionChanged: (expanded) => setState(() => _providersExpanded = expanded),
-            child: _buildProvidersContent(theme),
-          ),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Data Providers Accordion
+        _buildAccordionHeader(
+          theme: theme,
+          sectionId: 'providers',
+          title: 'Data Providers (${_providerStats.length})',
+          icon: Icons.dns,
+          color: Colors.blue,
+        ),
 
-          const SizedBox(height: 8),
+        if (_expandedSection == 'providers')
+          Expanded(child: _buildProvidersScrollableContent(theme)),
 
-          // Plugins Accordion
-          _buildAccordionSection(
-            theme: theme,
-            title: 'Plugins (${_plugins.length})',
-            icon: Icons.extension,
-            color: Colors.green,
-            isExpanded: _pluginsExpanded,
-            onExpansionChanged: (expanded) => setState(() => _pluginsExpanded = expanded),
-            trailing: _loadingPlugins
-                ? const SizedBox(
-                    width: 12,
-                    height: 12,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : InkWell(
-                    onTap: _loadPlugins,
-                    child: const Icon(Icons.refresh, size: 14),
-                  ),
-            child: _buildPluginsContent(theme),
-          ),
+        const SizedBox(height: 4),
 
-          const SizedBox(height: 8),
+        // Plugins Accordion
+        _buildAccordionHeader(
+          theme: theme,
+          sectionId: 'plugins',
+          title: 'Plugins (${_plugins.length})',
+          icon: Icons.extension,
+          color: Colors.green,
+          trailing: _loadingPlugins
+              ? const SizedBox(
+                  width: 12,
+                  height: 12,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : InkWell(
+                  onTap: _loadPlugins,
+                  child: const Icon(Icons.refresh, size: 14),
+                ),
+        ),
 
-          // Webapps Accordion
-          _buildAccordionSection(
-            theme: theme,
-            title: 'Webapps (${_webapps.length})',
-            icon: Icons.web,
-            color: Colors.purple,
-            isExpanded: _webappsExpanded,
-            onExpansionChanged: (expanded) => setState(() => _webappsExpanded = expanded),
-            trailing: _loadingWebapps
-                ? const SizedBox(
-                    width: 12,
-                    height: 12,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : InkWell(
-                    onTap: _loadWebapps,
-                    child: const Icon(Icons.refresh, size: 14),
-                  ),
-            child: _buildWebappsContent(theme),
-          ),
-        ],
-      ),
+        if (_expandedSection == 'plugins')
+          Expanded(child: _buildPluginsScrollableContent(theme)),
+
+        const SizedBox(height: 4),
+
+        // Webapps Accordion
+        _buildAccordionHeader(
+          theme: theme,
+          sectionId: 'webapps',
+          title: 'Webapps (${_webapps.length})',
+          icon: Icons.web,
+          color: Colors.purple,
+          trailing: _loadingWebapps
+              ? const SizedBox(
+                  width: 12,
+                  height: 12,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : InkWell(
+                  onTap: _loadWebapps,
+                  child: const Icon(Icons.refresh, size: 14),
+                ),
+        ),
+
+        if (_expandedSection == 'webapps')
+          Expanded(child: _buildWebappsScrollableContent(theme)),
+      ],
     );
   }
 
-  Widget _buildAccordionSection({
+  Widget _buildAccordionHeader({
     required ThemeData theme,
+    required String sectionId,
     required String title,
     required IconData icon,
     required Color color,
-    required bool isExpanded,
-    required ValueChanged<bool> onExpansionChanged,
-    required Widget child,
     Widget? trailing,
   }) {
+    final isExpanded = _expandedSection == sectionId;
+
+    return InkWell(
+      onTap: () => setState(() {
+        _expandedSection = isExpanded ? null : sectionId;
+      }),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.1),
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(color: color.withValues(alpha: 0.3)),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, size: 14, color: color),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                title,
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+            if (trailing != null) ...[
+              trailing,
+              const SizedBox(width: 8),
+            ],
+            Icon(
+              isExpanded ? Icons.expand_less : Icons.expand_more,
+              size: 18,
+              color: color,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildProvidersScrollableContent(ThemeData theme) {
     return Container(
       decoration: BoxDecoration(
-        border: Border.all(color: Colors.grey.withValues(alpha: 0.3)),
-        borderRadius: BorderRadius.circular(6),
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          // Header - tappable to expand/collapse
-          InkWell(
-            onTap: () => onExpansionChanged(!isExpanded),
-            borderRadius: BorderRadius.only(
-              topLeft: const Radius.circular(6),
-              topRight: const Radius.circular(6),
-              bottomLeft: Radius.circular(isExpanded ? 0 : 6),
-              bottomRight: Radius.circular(isExpanded ? 0 : 6),
-            ),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              decoration: BoxDecoration(
-                color: color.withValues(alpha: 0.1),
-                borderRadius: BorderRadius.only(
-                  topLeft: const Radius.circular(6),
-                  topRight: const Radius.circular(6),
-                  bottomLeft: Radius.circular(isExpanded ? 0 : 6),
-                  bottomRight: Radius.circular(isExpanded ? 0 : 6),
-                ),
-              ),
-              child: Row(
-                children: [
-                  Icon(icon, size: 14, color: color),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      title,
-                      style: const TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                  if (trailing != null) ...[
-                    trailing,
-                    const SizedBox(width: 8),
-                  ],
-                  Icon(
-                    isExpanded ? Icons.expand_less : Icons.expand_more,
-                    size: 18,
-                    color: color,
-                  ),
-                ],
-              ),
-            ),
-          ),
-          // Content
-          if (isExpanded) child,
-        ],
-      ),
-    );
-  }
-
-  Widget _buildProvidersContent(ThemeData theme) {
-    if (_providerStats.isEmpty) {
-      return const Padding(
-        padding: EdgeInsets.all(12),
-        child: Center(
-          child: Text('No providers', style: TextStyle(fontSize: 10)),
+        border: Border.all(color: Colors.blue.withValues(alpha: 0.3)),
+        borderRadius: const BorderRadius.only(
+          bottomLeft: Radius.circular(6),
+          bottomRight: Radius.circular(6),
         ),
-      );
-    }
-
-    return Padding(
-      padding: const EdgeInsets.all(6),
-      child: Column(
-        children: _providerStats.entries.map((entry) {
-          final stats = entry.value as Map<String, dynamic>;
-          final deltaRate = (stats['deltaRate'] as num?)?.toDouble() ?? 0;
-          final deltaCount = (stats['deltaCount'] as num?)?.toInt() ?? 0;
-
-          return Padding(
-            padding: const EdgeInsets.only(bottom: 4),
-            child: Container(
-              padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 8),
-              decoration: BoxDecoration(
-                color: Colors.blue.withValues(alpha: 0.05),
-                borderRadius: BorderRadius.circular(4),
-              ),
-              child: Row(
-                children: [
-                  Expanded(
-                    flex: 3,
-                    child: Text(
-                      entry.key,
-                      style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w500),
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  SizedBox(
-                    width: 60,
-                    child: Text(
-                      '${deltaRate.toStringAsFixed(1)}/s',
-                      style: TextStyle(
-                        fontSize: 10,
-                        color: theme.textTheme.bodySmall?.color,
-                      ),
-                      textAlign: TextAlign.right,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  SizedBox(
-                    width: 70,
-                    child: Text(
-                      '$deltaCount deltas',
-                      style: TextStyle(
-                        fontSize: 10,
-                        color: theme.textTheme.bodySmall?.color,
-                      ),
-                      textAlign: TextAlign.right,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          );
-        }).toList(),
       ),
-    );
-  }
+      child: _providerStats.isEmpty
+          ? const Center(
+              child: Text('No providers', style: TextStyle(fontSize: 10)),
+            )
+          : ListView.builder(
+              padding: const EdgeInsets.all(6),
+              itemCount: _providerStats.length,
+              itemBuilder: (context, index) {
+                final entry = _providerStats.entries.elementAt(index);
+                final stats = entry.value as Map<String, dynamic>;
+                final deltaRate = (stats['deltaRate'] as num?)?.toDouble() ?? 0;
+                final deltaCount = (stats['deltaCount'] as num?)?.toInt() ?? 0;
 
-  Widget _buildPluginsContent(ThemeData theme) {
-    if (_plugins.isEmpty && !_loadingPlugins) {
-      return const Padding(
-        padding: EdgeInsets.all(12),
-        child: Center(
-          child: Text('No plugins loaded', style: TextStyle(fontSize: 10)),
-        ),
-      );
-    }
-
-    return Padding(
-      padding: const EdgeInsets.all(6),
-      child: Column(
-        children: _plugins.map((plugin) {
-          final id = plugin['id'] as String? ?? 'Unknown';
-          final name = plugin['name'] as String? ?? id;
-          final enabled = plugin['enabled'] as bool? ?? false;
-
-          return Padding(
-            padding: const EdgeInsets.only(bottom: 2),
-            child: Container(
-              decoration: BoxDecoration(
-                color: enabled
-                    ? Colors.green.withValues(alpha: 0.1)
-                    : Colors.grey.withValues(alpha: 0.05),
-                borderRadius: BorderRadius.circular(4),
-              ),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 8),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: InkWell(
-                        onTap: () => _togglePlugin(id, enabled),
-                        child: Text(
-                          name,
-                          style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: enabled ? FontWeight.w500 : FontWeight.normal,
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 4),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 8),
+                    decoration: BoxDecoration(
+                      color: Colors.blue.withValues(alpha: 0.05),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          flex: 3,
+                          child: Text(
+                            entry.key,
+                            style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w500),
+                            overflow: TextOverflow.ellipsis,
                           ),
-                          overflow: TextOverflow.ellipsis,
                         ),
-                      ),
+                        const SizedBox(width: 12),
+                        SizedBox(
+                          width: 60,
+                          child: Text(
+                            '${deltaRate.toStringAsFixed(1)}/s',
+                            style: TextStyle(
+                              fontSize: 10,
+                              color: theme.textTheme.bodySmall?.color,
+                            ),
+                            textAlign: TextAlign.right,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        SizedBox(
+                          width: 70,
+                          child: Text(
+                            '$deltaCount deltas',
+                            style: TextStyle(
+                              fontSize: 10,
+                              color: theme.textTheme.bodySmall?.color,
+                            ),
+                            textAlign: TextAlign.right,
+                          ),
+                        ),
+                      ],
                     ),
-                    const SizedBox(width: 8),
-                    Transform.scale(
-                      scale: 0.8,
-                      child: Switch(
-                        value: enabled,
-                        onChanged: (_) => _togglePlugin(id, enabled),
-                        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
+                  ),
+                );
+              },
             ),
-          );
-        }).toList(),
-      ),
     );
   }
 
-  Widget _buildWebappsContent(ThemeData theme) {
-    if (_webapps.isEmpty && !_loadingWebapps) {
-      return const Padding(
-        padding: EdgeInsets.all(12),
-        child: Center(
-          child: Text('No webapps found', style: TextStyle(fontSize: 10)),
+  Widget _buildPluginsScrollableContent(ThemeData theme) {
+    return Container(
+      decoration: BoxDecoration(
+        border: Border.all(color: Colors.green.withValues(alpha: 0.3)),
+        borderRadius: const BorderRadius.only(
+          bottomLeft: Radius.circular(6),
+          bottomRight: Radius.circular(6),
         ),
-      );
-    }
-
-    return Padding(
-      padding: const EdgeInsets.all(6),
-      child: Column(
-        children: _webapps.map((webapp) {
-          final name = webapp['name'] as String? ?? 'Unknown';
-          final version = webapp['version'] as String? ?? '';
-
-          return Padding(
-            padding: const EdgeInsets.only(bottom: 2),
-            child: Container(
-              padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 8),
-              decoration: BoxDecoration(
-                color: Colors.purple.withValues(alpha: 0.05),
-                borderRadius: BorderRadius.circular(4),
-              ),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      name,
-                      style: const TextStyle(fontSize: 11),
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Text(
-                    version,
-                    style: TextStyle(
-                      fontSize: 9,
-                      color: theme.textTheme.bodySmall?.color,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          );
-        }).toList(),
       ),
+      child: _plugins.isEmpty && !_loadingPlugins
+          ? const Center(
+              child: Text('No plugins loaded', style: TextStyle(fontSize: 10)),
+            )
+          : ListView.builder(
+              padding: const EdgeInsets.all(6),
+              itemCount: _plugins.length,
+              itemBuilder: (context, index) {
+                final plugin = _plugins[index];
+                final id = plugin['id'] as String? ?? 'Unknown';
+                final name = plugin['name'] as String? ?? id;
+                final enabled = plugin['enabled'] as bool? ?? false;
+
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 2),
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: enabled
+                          ? Colors.green.withValues(alpha: 0.1)
+                          : Colors.grey.withValues(alpha: 0.05),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 8),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: InkWell(
+                              onTap: () => _togglePlugin(id, enabled),
+                              child: Text(
+                                name,
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: enabled ? FontWeight.w500 : FontWeight.normal,
+                                ),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Transform.scale(
+                            scale: 0.8,
+                            child: Switch(
+                              value: enabled,
+                              onChanged: (_) => _togglePlugin(id, enabled),
+                              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+    );
+  }
+
+  Widget _buildWebappsScrollableContent(ThemeData theme) {
+    return Container(
+      decoration: BoxDecoration(
+        border: Border.all(color: Colors.purple.withValues(alpha: 0.3)),
+        borderRadius: const BorderRadius.only(
+          bottomLeft: Radius.circular(6),
+          bottomRight: Radius.circular(6),
+        ),
+      ),
+      child: _webapps.isEmpty && !_loadingWebapps
+          ? const Center(
+              child: Text('No webapps found', style: TextStyle(fontSize: 10)),
+            )
+          : ListView.builder(
+              padding: const EdgeInsets.all(6),
+              itemCount: _webapps.length,
+              itemBuilder: (context, index) {
+                final webapp = _webapps[index];
+                final name = webapp['name'] as String? ?? 'Unknown';
+                final version = webapp['version'] as String? ?? '';
+
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 2),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 8),
+                    decoration: BoxDecoration(
+                      color: Colors.purple.withValues(alpha: 0.05),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            name,
+                            style: const TextStyle(fontSize: 11),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          version,
+                          style: TextStyle(
+                            fontSize: 9,
+                            color: theme.textTheme.bodySmall?.color,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
     );
   }
 
   Widget _buildNarrowLayout(ThemeData theme) {
-    return SingleChildScrollView(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Header with restart button
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Header with restart button
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Flexible(
+              child: Text(
                 'Server Status',
-                style: theme.textTheme.titleMedium?.copyWith(
+                style: theme.textTheme.titleSmall?.copyWith(
                   fontWeight: FontWeight.bold,
                 ),
+                overflow: TextOverflow.ellipsis,
               ),
-              ElevatedButton.icon(
-                onPressed: _restartServer,
-                icon: const Icon(Icons.restart_alt, size: 16),
-                label: const Text('Restart', style: TextStyle(fontSize: 12)),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.orange,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            ),
+            ElevatedButton.icon(
+              onPressed: _restartServer,
+              icon: const Icon(Icons.restart_alt, size: 14),
+              label: const Text('Restart', style: TextStyle(fontSize: 10)),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.orange,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                minimumSize: Size.zero,
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
+            ),
+          ],
+        ),
+
+        const SizedBox(height: 6),
+
+        // Server Statistics
+        _buildStatisticsSection(theme),
+
+        const SizedBox(height: 6),
+
+        // Unit Preferences
+        _buildUnitPreferencesSection(theme),
+
+        const SizedBox(height: 6),
+
+        // Data Providers Accordion
+        _buildAccordionHeader(
+          theme: theme,
+          sectionId: 'providers',
+          title: 'Data Providers (${_providerStats.length})',
+          icon: Icons.dns,
+          color: Colors.blue,
+        ),
+
+        if (_expandedSection == 'providers')
+          Expanded(child: _buildProvidersScrollableContent(theme)),
+
+        const SizedBox(height: 4),
+
+        // Plugins Accordion
+        _buildAccordionHeader(
+          theme: theme,
+          sectionId: 'plugins',
+          title: 'Plugins (${_plugins.length})',
+          icon: Icons.extension,
+          color: Colors.green,
+          trailing: _loadingPlugins
+              ? const SizedBox(
+                  width: 12,
+                  height: 12,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : InkWell(
+                  onTap: _loadPlugins,
+                  child: const Icon(Icons.refresh, size: 14),
                 ),
-              ),
-            ],
-          ),
+        ),
 
-          const SizedBox(height: 8),
+        if (_expandedSection == 'plugins')
+          Expanded(child: _buildPluginsScrollableContent(theme)),
 
-          // Server Statistics
-          _buildStatisticsSection(theme),
+        const SizedBox(height: 4),
 
-          const SizedBox(height: 8),
+        // Webapps Accordion
+        _buildAccordionHeader(
+          theme: theme,
+          sectionId: 'webapps',
+          title: 'Webapps (${_webapps.length})',
+          icon: Icons.web,
+          color: Colors.purple,
+          trailing: _loadingWebapps
+              ? const SizedBox(
+                  width: 12,
+                  height: 12,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : InkWell(
+                  onTap: _loadWebapps,
+                  child: const Icon(Icons.refresh, size: 14),
+                ),
+        ),
 
-          // Unit Preferences
-          _buildUnitPreferencesSection(theme),
-
-          const SizedBox(height: 8),
-
-          // Data Providers Accordion
-          _buildAccordionSection(
-            theme: theme,
-            title: 'Data Providers (${_providerStats.length})',
-            icon: Icons.dns,
-            color: Colors.blue,
-            isExpanded: _providersExpanded,
-            onExpansionChanged: (expanded) => setState(() => _providersExpanded = expanded),
-            child: _buildProvidersContent(theme),
-          ),
-
-          const SizedBox(height: 8),
-
-          // Plugins Accordion
-          _buildAccordionSection(
-            theme: theme,
-            title: 'Plugins (${_plugins.length})',
-            icon: Icons.extension,
-            color: Colors.green,
-            isExpanded: _pluginsExpanded,
-            onExpansionChanged: (expanded) => setState(() => _pluginsExpanded = expanded),
-            trailing: _loadingPlugins
-                ? const SizedBox(
-                    width: 12,
-                    height: 12,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : InkWell(
-                    onTap: _loadPlugins,
-                    child: const Icon(Icons.refresh, size: 14),
-                  ),
-            child: _buildPluginsContent(theme),
-          ),
-
-          const SizedBox(height: 8),
-
-          // Webapps Accordion
-          _buildAccordionSection(
-            theme: theme,
-            title: 'Webapps (${_webapps.length})',
-            icon: Icons.web,
-            color: Colors.purple,
-            isExpanded: _webappsExpanded,
-            onExpansionChanged: (expanded) => setState(() => _webappsExpanded = expanded),
-            trailing: _loadingWebapps
-                ? const SizedBox(
-                    width: 12,
-                    height: 12,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : InkWell(
-                    onTap: _loadWebapps,
-                    child: const Icon(Icons.refresh, size: 14),
-                  ),
-            child: _buildWebappsContent(theme),
-          ),
-        ],
-      ),
+        if (_expandedSection == 'webapps')
+          Expanded(child: _buildWebappsScrollableContent(theme)),
+      ],
     );
   }
 
@@ -1024,11 +1024,11 @@ class _ServerManagerToolState extends State<ServerManagerTool> {
       children: [
         Text(
           'Statistics',
-          style: theme.textTheme.titleSmall?.copyWith(
+          style: theme.textTheme.bodySmall?.copyWith(
             fontWeight: FontWeight.bold,
           ),
         ),
-        const SizedBox(height: 6),
+        const SizedBox(height: 4),
         Row(
           children: [
             Expanded(
@@ -1039,10 +1039,10 @@ class _ServerManagerToolState extends State<ServerManagerTool> {
                 Colors.blue,
               ),
             ),
-            const SizedBox(width: 6),
+            const SizedBox(width: 4),
             Expanded(
               child: _buildStatCard(
-                'Delta Rate',
+                'Delta',
                 '${_deltaRate.toStringAsFixed(1)}/s',
                 Icons.speed,
                 Colors.green,
@@ -1050,7 +1050,7 @@ class _ServerManagerToolState extends State<ServerManagerTool> {
             ),
           ],
         ),
-        const SizedBox(height: 6),
+        const SizedBox(height: 4),
         Row(
           children: [
             Expanded(
@@ -1061,7 +1061,7 @@ class _ServerManagerToolState extends State<ServerManagerTool> {
                 Colors.purple,
               ),
             ),
-            const SizedBox(width: 6),
+            const SizedBox(width: 4),
             Expanded(
               child: _buildStatCard(
                 'Clients',
@@ -1078,7 +1078,7 @@ class _ServerManagerToolState extends State<ServerManagerTool> {
 
   Widget _buildStatCard(String label, String value, IconData icon, Color color) {
     return Container(
-      padding: const EdgeInsets.all(8),
+      padding: const EdgeInsets.all(6),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(6),
@@ -1086,8 +1086,8 @@ class _ServerManagerToolState extends State<ServerManagerTool> {
       ),
       child: Row(
         children: [
-          Icon(icon, color: color, size: 20),
-          const SizedBox(width: 6),
+          Icon(icon, color: color, size: 16),
+          const SizedBox(width: 4),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -1095,7 +1095,7 @@ class _ServerManagerToolState extends State<ServerManagerTool> {
                 Text(
                   label,
                   style: TextStyle(
-                    fontSize: 10,
+                    fontSize: 9,
                     color: color,
                     fontWeight: FontWeight.w500,
                   ),
@@ -1103,7 +1103,7 @@ class _ServerManagerToolState extends State<ServerManagerTool> {
                 Text(
                   value,
                   style: TextStyle(
-                    fontSize: 14,
+                    fontSize: 12,
                     fontWeight: FontWeight.bold,
                     color: color,
                   ),
