@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.26+35] - 2026-02-26
+
+### Added
+- **Server Manager Webapp Icons**: Webapps now display their icons in the Server Manager list
+- **In-App Webapp Browser**: Tapping a webapp opens it in a built-in WebView instead of external browser
+  - Authentication token automatically passed via cookie for seamless login
+  - Shows webapp display name in app bar
+  - Includes loading indicator and refresh button
+
+### Fixed
+- **Debug Logging**: Removed verbose unit conversion debug prints from console output
+
 ## [0.5.25+34] - 2026-02-24
 
 ### Added

@@ -203,7 +203,7 @@ A customizable SignalK marine dashboard and crew comms application to display re
   - Live server statistics (uptime, delta rate, connected clients, available paths)
   - Per-provider statistics with delta rates
   - Plugin management (view all plugins, enable/disable with tap)
-  - Webapp listing with versions
+  - Webapp browser with icons - tap to open in-app with auth pass-through
   - Server restart functionality
   - Auto-updates every 5 seconds
 

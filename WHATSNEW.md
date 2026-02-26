@@ -1,4 +1,27 @@
-# What's New in v0.5.25
+# What's New in v0.5.26
+
+## Release Notes (Google Play - max 500 chars)
+
+v0.5.26 Server Manager Webapps
+
+NEW: Webapps now show icons and open in-app. Tap any webapp in Server Manager to launch it in a built-in browser with your SignalK authentication - no need to log in again.
+
+FIXED: Removed debug logging spam from unit conversion system.
+
+## Release Notes (App Store / TestFlight - max 4000 chars)
+
+### Server Manager Webapps (NEW)
+- **Webapp Icons** - Each webapp now displays its icon in the Server Manager list
+- **In-App Browser** - Tapping a webapp opens it in a built-in WebView instead of external browser
+- **Auth Pass-Through** - Your SignalK authentication token is automatically passed to webapps
+- **Display Names** - Shows webapp display name (from package.json) instead of package name
+
+### Code Cleanup (FIXED)
+- Removed verbose debug logging from unit conversion system
+
+---
+
+# Previous: v0.5.25
 
 ## Release Notes (Google Play - max 500 chars)
 
