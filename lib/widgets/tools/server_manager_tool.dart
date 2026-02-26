@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:web_socket_channel/io.dart';
+import 'package:webview_flutter/webview_flutter.dart';
 import '../../models/tool_definition.dart';
 import '../../models/tool_config.dart';
 import '../../services/signalk_service.dart';
@@ -306,7 +307,7 @@ class _ServerManagerToolState extends State<ServerManagerTool> {
 
     try {
       final protocol = widget.signalKService.useSecureConnection ? 'https' : 'http';
-      final url = '$protocol://${widget.signalKService.serverUrl}/signalk/v1/apps/list';
+      final url = '$protocol://${widget.signalKService.serverUrl}/skServer/webapps';
 
       final headers = <String, String>{};
       if (widget.signalKService.authToken != null) {
@@ -331,6 +332,37 @@ class _ServerManagerToolState extends State<ServerManagerTool> {
         setState(() => _loadingWebapps = false);
       }
     }
+  }
+
+  Future<void> _launchWebapp(String webappName, String displayName) async {
+    final protocol = widget.signalKService.useSecureConnection ? 'https' : 'http';
+    final url = '$protocol://${widget.signalKService.serverUrl}/$webappName/';
+
+    if (!mounted) return;
+
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => _WebappViewPage(
+          url: url,
+          title: displayName,
+          authToken: widget.signalKService.authToken?.token,
+          serverUrl: widget.signalKService.serverUrl,
+        ),
+      ),
+    );
+  }
+
+  String? _getWebappIconUrl(Map<String, dynamic> webapp) {
+    final name = webapp['name'] as String?;
+    final signalk = webapp['signalk'] as Map<String, dynamic>?;
+    final appIcon = signalk?['appIcon'] as String?;
+
+    if (name == null || appIcon == null) return null;
+
+    final protocol = widget.signalKService.useSecureConnection ? 'https' : 'http';
+    // appIcon path typically starts with ./ so we need to strip it
+    final iconPath = appIcon.startsWith('./') ? appIcon.substring(2) : appIcon;
+    return '$protocol://${widget.signalKService.serverUrl}/$name/$iconPath';
   }
 
   Future<void> _loadUnitPresets() async {
@@ -875,34 +907,56 @@ class _ServerManagerToolState extends State<ServerManagerTool> {
               itemBuilder: (context, index) {
                 final webapp = _webapps[index];
                 final name = webapp['name'] as String? ?? 'Unknown';
+                final signalk = webapp['signalk'] as Map<String, dynamic>?;
+                final displayName = signalk?['displayName'] as String? ?? name;
                 final version = webapp['version'] as String? ?? '';
+                final iconUrl = _getWebappIconUrl(webapp);
 
                 return Padding(
                   padding: const EdgeInsets.only(bottom: 2),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 8),
-                    decoration: BoxDecoration(
-                      color: Colors.purple.withValues(alpha: 0.05),
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            name,
-                            style: const TextStyle(fontSize: 11),
-                            overflow: TextOverflow.ellipsis,
+                  child: InkWell(
+                    onTap: () => _launchWebapp(name, displayName),
+                    borderRadius: BorderRadius.circular(4),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 8),
+                      decoration: BoxDecoration(
+                        color: Colors.purple.withValues(alpha: 0.05),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Row(
+                        children: [
+                          SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: iconUrl != null
+                                ? Image.network(
+                                    iconUrl,
+                                    width: 20,
+                                    height: 20,
+                                    fit: BoxFit.contain,
+                                    errorBuilder: (context, error, stackTrace) =>
+                                        const Icon(Icons.web, size: 16, color: Colors.purple),
+                                  )
+                                : const Icon(Icons.web, size: 16, color: Colors.purple),
                           ),
-                        ),
-                        const SizedBox(width: 8),
-                        Text(
-                          version,
-                          style: TextStyle(
-                            fontSize: 9,
-                            color: theme.textTheme.bodySmall?.color,
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              displayName,
+                              style: const TextStyle(fontSize: 11),
+                              overflow: TextOverflow.ellipsis,
+                            ),
                           ),
-                        ),
-                      ],
+                          const SizedBox(width: 8),
+                          Text(
+                            version,
+                            style: TextStyle(
+                              fontSize: 9,
+                              color: theme.textTheme.bodySmall?.color,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 );
@@ -1191,6 +1245,98 @@ class _ServerManagerToolState extends State<ServerManagerTool> {
     );
   }
 
+}
+
+/// Full-screen page for viewing webapps in a WebView with auth support
+class _WebappViewPage extends StatefulWidget {
+  final String url;
+  final String title;
+  final String? authToken;
+  final String serverUrl;
+
+  const _WebappViewPage({
+    required this.url,
+    required this.title,
+    this.authToken,
+    required this.serverUrl,
+  });
+
+  @override
+  State<_WebappViewPage> createState() => _WebappViewPageState();
+}
+
+class _WebappViewPageState extends State<_WebappViewPage> {
+  late final WebViewController _controller;
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _initWebView();
+  }
+
+  Future<void> _initWebView() async {
+    _controller = WebViewController()
+      ..setJavaScriptMode(JavaScriptMode.unrestricted)
+      ..setNavigationDelegate(
+        NavigationDelegate(
+          onPageStarted: (url) {
+            if (mounted) setState(() => _isLoading = true);
+          },
+          onPageFinished: (url) {
+            if (mounted) setState(() => _isLoading = false);
+          },
+          onWebResourceError: (error) {
+            debugPrint('WebView error: ${error.description}');
+          },
+        ),
+      );
+
+    // Set auth cookie if user is authenticated
+    if (widget.authToken != null) {
+      final cookieManager = WebViewCookieManager();
+      // Parse server URL to get domain
+      final uri = Uri.parse(widget.url);
+      final domain = uri.host;
+
+      // Set the JWT token as a cookie
+      await cookieManager.setCookie(
+        WebViewCookie(
+          name: 'JAUTHENTICATION',
+          value: widget.authToken!,
+          domain: domain,
+          path: '/',
+        ),
+      );
+    }
+
+    await _controller.loadRequest(Uri.parse(widget.url));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(widget.title),
+        actions: [
+          if (_isLoading)
+            const Padding(
+              padding: EdgeInsets.all(16),
+              child: SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+            ),
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: () => _controller.reload(),
+          ),
+        ],
+      ),
+      body: WebViewWidget(controller: _controller),
+    );
+  }
 }
 
 /// Builder for server manager tool

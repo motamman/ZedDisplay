@@ -1996,14 +1996,6 @@ class _ConversionManager {
         }
       }
 
-      // Debug: print what we got
-      if (kDebugMode) {
-        print('categoryToBaseUnit: $_categoryToBaseUnit');
-        print('presetDetails: $_presetDetails');
-        print('distance SI unit: ${_categoryToBaseUnit?['distance']}');
-        print('distance targetUnit: ${(_presetDetails?['distance'] as Map?)?['targetUnit']}');
-        print('unitDefinitions[m]: ${_unitDefinitions?['m']}');
-      }
 
       // Save to local cache
       await saveToCache({
