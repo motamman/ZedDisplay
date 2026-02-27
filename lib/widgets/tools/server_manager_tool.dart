@@ -10,6 +10,7 @@ import '../../models/tool_definition.dart';
 import '../../models/tool_config.dart';
 import '../../services/signalk_service.dart';
 import '../../services/tool_registry.dart';
+import 'plugin_config_tool.dart';
 
 /// Tool for managing and monitoring the SignalK server
 class ServerManagerTool extends StatefulWidget {
@@ -353,18 +354,14 @@ class _ServerManagerToolState extends State<ServerManagerTool> {
   }
 
   Future<void> _launchPluginConfig(String pluginId, String pluginName) async {
-    final protocol = widget.signalKService.useSecureConnection ? 'https' : 'http';
-    final url = '$protocol://${widget.signalKService.serverUrl}/admin/#/serverConfiguration/plugins/$pluginId';
-
     if (!mounted) return;
 
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (context) => _WebappViewPage(
-          url: url,
-          title: pluginName,
-          authToken: widget.signalKService.authToken?.token,
-          serverUrl: widget.signalKService.serverUrl,
+        builder: (context) => PluginConfigTool(
+          signalKService: widget.signalKService,
+          pluginId: pluginId,
+          pluginName: pluginName,
         ),
       ),
     );
