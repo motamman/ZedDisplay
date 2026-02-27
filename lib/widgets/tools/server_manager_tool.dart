@@ -352,6 +352,24 @@ class _ServerManagerToolState extends State<ServerManagerTool> {
     );
   }
 
+  Future<void> _launchPluginConfig(String pluginId, String pluginName) async {
+    final protocol = widget.signalKService.useSecureConnection ? 'https' : 'http';
+    final url = '$protocol://${widget.signalKService.serverUrl}/admin/#/serverConfiguration/plugins/$pluginId';
+
+    if (!mounted) return;
+
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => _WebappViewPage(
+          url: url,
+          title: pluginName,
+          authToken: widget.signalKService.authToken?.token,
+          serverUrl: widget.signalKService.serverUrl,
+        ),
+      ),
+    );
+  }
+
   String? _getWebappIconUrl(Map<String, dynamic> webapp) {
     final name = webapp['name'] as String?;
     final signalk = webapp['signalk'] as Map<String, dynamic>?;
@@ -858,7 +876,8 @@ class _ServerManagerToolState extends State<ServerManagerTool> {
                         children: [
                           Expanded(
                             child: InkWell(
-                              onTap: () => _togglePlugin(id, enabled),
+                              onTap: () => _launchPluginConfig(id, name),
+                              borderRadius: BorderRadius.circular(4),
                               child: Text(
                                 name,
                                 style: TextStyle(
