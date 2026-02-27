@@ -7,8 +7,8 @@ A customizable SignalK marine dashboard and crew comms application to display re
 ## SignalK Dependencies
 
 ### Required
-- **signalk-units-preference**: Must be installed to have base values converted. Without it many tools will not work.
-- **Admin access** - All devices need permission to access to data. ADMIN permission is required for several tools, including the Anchor Alarm and Server Manager.
+- **SignalK Server v2.x+** - Unit preferences API is built into the server core (no plugin needed)
+- **Admin access** - All devices need permission to access data. ADMIN permission is required for several tools, including the Anchor Alarm and Server Manager.
 
 ### Optional
 - **signalk-derived-data**: Provides computed values like true wind, VMG, and other derived navigational data
