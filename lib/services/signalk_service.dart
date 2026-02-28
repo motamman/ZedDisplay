@@ -12,6 +12,7 @@ import '../utils/conversion_utils.dart';
 import 'zones_cache_service.dart';
 import 'interfaces/data_service.dart';
 import 'storage_service.dart';
+import 'metadata_store.dart';
 
 /// Connection state for SignalK server
 enum SignalKConnectionState {
@@ -88,6 +89,9 @@ class SignalKService extends ChangeNotifier implements DataService {
   late final _NotificationManager _notificationManager;
   late final _AISManager _aisManager;
 
+  // Single source of truth for path metadata and conversions
+  final MetadataStore _metadataStore = MetadataStore();
+
   // Constructor
   SignalKService({StorageService? storageService}) : _storageService = storageService {
     _dataCache = _DataCacheManager(
@@ -135,6 +139,9 @@ class SignalKService extends ChangeNotifier implements DataService {
     final cached = _storageService?.loadDisplayUnitsCache(_serverUrl);
     if (cached != null) {
       _displayUnitsCache.addAll(cached);
+
+      // Also populate MetadataStore (single source of truth)
+      _metadataStore.updateFromMap(cached);
     }
   }
 
@@ -159,6 +166,11 @@ class SignalKService extends ChangeNotifier implements DataService {
     return _conversionsDataView!;
   }
   bool get hasConversions => _conversionManager.internalDataMap.isNotEmpty;
+
+  /// Single source of truth for path metadata and conversions.
+  /// Populated from WebSocket meta deltas (sendMeta=all).
+  MetadataStore get metadataStore => _metadataStore;
+
   @override
   String get serverUrl => _serverUrl;
   @override
@@ -521,9 +533,14 @@ class SignalKService extends ChangeNotifier implements DataService {
           final source = updateValue.source; // Source label (e.g., "can0.115", "pypilot")
 
           // Process meta entries (from sendMeta=all) - extract displayUnits
+          // Populate MetadataStore (single source of truth) and legacy cache
           bool displayUnitsChanged = false;
           for (final metaEntry in updateValue.metaEntries) {
             if (metaEntry.displayUnits != null) {
+              // Update single source of truth (MetadataStore)
+              _metadataStore.updateFromMeta(metaEntry.path, metaEntry.displayUnits!);
+
+              // Also update legacy cache for backward compatibility
               _displayUnitsCache[metaEntry.path] = metaEntry.displayUnits!;
               displayUnitsChanged = true;
             }
@@ -1579,6 +1596,7 @@ class SignalKService extends ChangeNotifier implements DataService {
       _vesselContext = null;
       _ensuredResourceTypes.clear();
       _displayUnitsCache.clear();
+      _metadataStore.clear();
 
       // Disconnect autopilot channel
       await _autopilotSubscription?.cancel();
@@ -1641,6 +1659,7 @@ class SignalKService extends ChangeNotifier implements DataService {
     _conversionManager.dispose();
     _notificationManager.dispose();
     _aisManager.dispose();
+    _metadataStore.dispose();
     super.dispose();
   }
 }

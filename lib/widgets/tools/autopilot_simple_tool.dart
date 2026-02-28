@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../../models/tool_definition.dart';
@@ -9,7 +8,6 @@ import '../../services/signalk_service.dart';
 import '../../services/autopilot_state_verifier.dart';
 import '../../services/tool_registry.dart';
 import '../../utils/color_extensions.dart';
-import '../../utils/conversion_utils.dart';
 import '../../config/ui_constants.dart';
 
 /// Simple Autopilot control tool - text-based display with controls
@@ -40,6 +38,21 @@ class _AutopilotSimpleToolState extends State<AutopilotSimpleTool> with Automati
 
   @override
   bool get wantKeepAlive => true;
+
+  /// Helper to get converted display value using MetadataStore (single source of truth)
+  double? _getConverted(String path) {
+    final dataPoint = widget.signalKService.getValue(path);
+    double? rawValue;
+    if (dataPoint?.original is num) {
+      rawValue = (dataPoint!.original as num).toDouble();
+    } else if (dataPoint?.value is num) {
+      rawValue = (dataPoint!.value as num).toDouble();
+    }
+    if (rawValue == null) return null;
+
+    final metadata = widget.signalKService.metadataStore.get(path);
+    return metadata?.convert(rawValue) ?? rawValue;
+  }
 
   @override
   void initState() {
@@ -95,37 +108,20 @@ class _AutopilotSimpleToolState extends State<AutopilotSimpleTool> with Automati
 
       // 3: Target heading
       if (dataSources.length > 3) {
-        final targetData = widget.signalKService.getValue(
-          dataSources[3].path,
-          source: dataSources[3].source,
-        );
-        if (targetData?.value != null) {
-          _targetHeading = _radiansToDegrees(targetData!.value as num);
+        final converted = _getConverted(dataSources[3].path);
+        if (converted != null) {
+          _targetHeading = converted % 360;
         }
       }
 
       // 4: Current heading
       if (dataSources.length > 4) {
-        final headingData = widget.signalKService.getValue(
-          dataSources[4].path,
-          source: dataSources[4].source,
-        );
-        if (headingData?.value != null) {
-          _currentHeading = _radiansToDegrees(headingData!.value as num);
+        final converted = _getConverted(dataSources[4].path);
+        if (converted != null) {
+          _currentHeading = converted % 360;
         }
       }
     });
-  }
-
-  double _radiansToDegrees(num radians) {
-    final raw = radians.toDouble();
-    // Use ConversionUtils for angle conversion with user preferences
-    final converted = ConversionUtils.convertWeatherValue(
-      widget.signalKService,
-      WeatherFieldType.angle,
-      raw,
-    );
-    return (converted ?? raw * 180 / math.pi) % 360;
   }
 
   Future<void> _sendV1Command(String path, dynamic value) async {
