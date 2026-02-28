@@ -22,6 +22,7 @@ class PathSelectorDialog extends StatefulWidget {
 class _PathSelectorDialogState extends State<PathSelectorDialog> {
   List<String> _allPaths = [];
   List<String> _filteredPaths = [];
+  Set<String> _pathsWithHistory = {}; // Paths that have historical data
   bool _loading = true;
   String _searchQuery = '';
   String? _selectedCategory;
@@ -50,12 +51,34 @@ class _PathSelectorDialogState extends State<PathSelectorDialog> {
       List<String> paths;
 
       if (widget.useHistoricalPaths) {
-        // Load paths that have historical data
-        final historicalService = HistoricalDataService(
-          serverUrl: widget.signalKService.serverUrl,
-          useSecureConnection: widget.signalKService.useSecureConnection,
-        );
-        paths = await historicalService.getAvailablePaths();
+        // For historical chart: show ALL numeric paths from live data
+        // but mark which ones have historical data available
+        final numericPaths = <String>[];
+        for (final entry in widget.signalKService.latestData.entries) {
+          final path = entry.key;
+          final value = entry.value.value;
+
+          // Skip source-specific paths (contain ::)
+          if (path.contains('::')) continue;
+
+          // Only include paths with numeric values
+          if (value is num) {
+            numericPaths.add(path);
+          }
+        }
+        paths = numericPaths;
+
+        // Fetch paths that have historical data (for badge indicator)
+        try {
+          final historicalService = HistoricalDataService(
+            serverUrl: widget.signalKService.serverUrl,
+            useSecureConnection: widget.signalKService.useSecureConnection,
+          );
+          final historyPaths = await historicalService.getAvailablePaths();
+          _pathsWithHistory = historyPaths.toSet();
+        } catch (e) {
+          debugPrint('Error loading history paths: $e');
+        }
       } else {
         // Load all SignalK paths
         final tree = await widget.signalKService.getAvailablePaths();
@@ -153,12 +176,40 @@ class _PathSelectorDialogState extends State<PathSelectorDialog> {
             // Helper text for historical paths
             if (widget.useHistoricalPaths)
               Padding(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-                child: Text(
-                  'Only showing paths with recorded historical data',
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: Theme.of(context).colorScheme.secondary,
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'Showing numeric paths',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: Theme.of(context).colorScheme.secondary,
+                            ),
                       ),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: Colors.green.withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.history, size: 14, color: Colors.green.shade700),
+                          const SizedBox(width: 4),
+                          Text(
+                            'has history',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: Colors.green.shade700,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
               ),
 
@@ -247,9 +298,17 @@ class _PathSelectorDialogState extends State<PathSelectorDialog> {
                                 widget.signalKService.getConvertedValue(path);
                             final unit =
                                 widget.signalKService.getUnitSymbol(path);
+                            final hasHistory = _pathsWithHistory.contains(path);
 
                             return ListTile(
                               dense: true,
+                              leading: hasHistory
+                                  ? Icon(
+                                      Icons.history,
+                                      size: 18,
+                                      color: Colors.green.shade700,
+                                    )
+                                  : const SizedBox(width: 18),
                               title: Text(
                                 path,
                                 style: const TextStyle(

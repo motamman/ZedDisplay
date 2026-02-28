@@ -15,6 +15,9 @@ enum ChartStyle {
 
 /// A line chart widget that displays up to 3 historical data series
 /// Now powered by Syncfusion for professional charting
+///
+/// Smoothed series (SMA/EMA) are rendered as dashed lines when provided
+/// from the server via path:aggregation:smoothing:param syntax.
 class HistoricalLineChart extends StatelessWidget {
   final List<ChartDataSeries> series;
   final String title;
@@ -23,8 +26,6 @@ class HistoricalLineChart extends StatelessWidget {
   final SignalKService? signalKService;
   final ChartStyle chartStyle;
   final Color? primaryColor;
-  final bool showMovingAverage;
-  final int movingAverageWindow;
 
   const HistoricalLineChart({
     super.key,
@@ -35,8 +36,6 @@ class HistoricalLineChart extends StatelessWidget {
     this.signalKService,
     this.chartStyle = ChartStyle.area,
     this.primaryColor,
-    this.showMovingAverage = false,
-    this.movingAverageWindow = 5,
   });
 
   @override
@@ -134,24 +133,16 @@ class HistoricalLineChart extends StatelessWidget {
         labelStyle: const TextStyle(fontSize: 10),
       ),
 
-      // Series data
-      series: [
-        // Main data series
-        ...List.generate(
-          series.length,
-          (index) => _buildSeries(series[index], colors[index]),
-        ),
-        // Moving average series (if enabled)
-        if (showMovingAverage)
-          ...List.generate(
-            series.length,
-            (index) => _buildMovingAverageSeries(series[index], colors[index]),
-          ),
-      ],
+      // Series data - smoothed series are styled differently (dashed line)
+      series: List.generate(
+        series.length,
+        (index) => _buildSeries(series[index], colors[index % colors.length]),
+      ),
     );
   }
 
   /// Build series based on chart style
+  /// Smoothed series (SMA/EMA) are rendered as dashed spline lines
   CartesianSeries<_ChartPoint, DateTime> _buildSeries(
     ChartDataSeries seriesData,
     Color color,
@@ -159,6 +150,23 @@ class HistoricalLineChart extends StatelessWidget {
     final dataPoints = seriesData.points
         .map((point) => _ChartPoint(point.timestamp, point.value))
         .toList();
+
+    // Smoothed series always render as dashed spline line
+    if (seriesData.isSmoothed) {
+      return SplineSeries<_ChartPoint, DateTime>(
+        name: _getSeriesLabel(seriesData),
+        dataSource: dataPoints,
+        xValueMapper: (_ChartPoint point, _) => point.timestamp,
+        yValueMapper: (_ChartPoint point, _) => point.value,
+        color: color,
+        width: 3,
+        dashArray: const <double>[8, 4],
+        splineType: SplineType.natural,
+        markerSettings: const MarkerSettings(
+          isVisible: false,
+        ),
+      );
+    }
 
     switch (chartStyle) {
       case ChartStyle.line:
@@ -204,61 +212,23 @@ class HistoricalLineChart extends StatelessWidget {
           dataSource: dataPoints,
           xValueMapper: (_ChartPoint point, _) => point.timestamp,
           yValueMapper: (_ChartPoint point, _) => point.value,
-          color: color,
+          // Use gradient for fill to keep line solid while fading the area
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              color.withValues(alpha: 0.4),
+              color.withValues(alpha: 0.05),
+            ],
+          ),
           borderColor: color,
-          borderWidth: 2,
-          opacity: 0.1, // Area fill opacity
+          borderWidth: 2.5,
           splineType: SplineType.natural,
           markerSettings: const MarkerSettings(
             isVisible: false,
           ),
         );
     }
-  }
-
-  /// Build moving average series
-  SplineSeries<_ChartPoint, DateTime> _buildMovingAverageSeries(
-    ChartDataSeries seriesData,
-    Color color,
-  ) {
-    final dataPoints = seriesData.points
-        .map((point) => _ChartPoint(point.timestamp, point.value))
-        .toList();
-
-    // Calculate moving average
-    final movingAvgPoints = _calculateMovingAverage(dataPoints, movingAverageWindow);
-
-    return SplineSeries<_ChartPoint, DateTime>(
-      name: '${_getSeriesLabel(seriesData)} (MA$movingAverageWindow)',
-      dataSource: movingAvgPoints,
-      xValueMapper: (_ChartPoint point, _) => point.timestamp,
-      yValueMapper: (_ChartPoint point, _) => point.value,
-      color: color.withValues(alpha: 0.6),
-      width: 2,
-      dashArray: const <double>[5, 5], // Dashed line
-      splineType: SplineType.natural,
-      markerSettings: const MarkerSettings(
-        isVisible: false,
-      ),
-    );
-  }
-
-  /// Calculate moving average from data points
-  List<_ChartPoint> _calculateMovingAverage(List<_ChartPoint> data, int window) {
-    if (data.length < window) return [];
-
-    final result = <_ChartPoint>[];
-
-    for (int i = window - 1; i < data.length; i++) {
-      double sum = 0;
-      for (int j = 0; j < window; j++) {
-        sum += data[i - j].value;
-      }
-      final avg = sum / window;
-      result.add(_ChartPoint(data[i].timestamp, avg));
-    }
-
-    return result;
   }
 
   List<Color> _getSeriesColors() {
@@ -283,26 +253,27 @@ class HistoricalLineChart extends StatelessWidget {
   String _getSeriesLabel(ChartDataSeries series) {
     // Use custom label if provided
     if (series.label != null && series.label!.isNotEmpty) {
-      // Still append method suffix for EMA/SMA
-      if (series.method == 'ema') {
-        return '${series.label} (EMA)';
-      } else if (series.method == 'sma') {
-        return '${series.label} (SMA)';
-      }
       return series.label!;
     }
 
-    // Otherwise, extract the last part of the path for a shorter label
+    // Extract the last part of the path for a shorter label
     final pathParts = series.path.split('.');
     final shortPath = pathParts.length > 2
         ? pathParts.sublist(pathParts.length - 2).join('.')
         : series.path;
 
-    if (series.method == 'ema') {
-      return '$shortPath (EMA)';
-    } else if (series.method == 'sma') {
-      return '$shortPath (SMA)';
+    // Append smoothing info if this is a smoothed series
+    if (series.isSmoothed) {
+      final smoothingType = series.smoothing!.toUpperCase();
+      if (series.window != null) {
+        if (series.smoothing == 'ema') {
+          return '$shortPath ($smoothingType α=${series.window! / 1000})';
+        }
+        return '$shortPath ($smoothingType ${series.window})';
+      }
+      return '$shortPath ($smoothingType)';
     }
+
     return shortPath;
   }
 }

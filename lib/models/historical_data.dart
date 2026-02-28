@@ -51,21 +51,33 @@ class TimeRange {
 class ValueInfo {
   final String path;
   final String method;
+  final String? smoothing;  // 'sma' or 'ema' if smoothing applied
+  final int? window;        // Window size for SMA or alpha*1000 for EMA
 
   ValueInfo({
     required this.path,
     required this.method,
+    this.smoothing,
+    this.window,
   });
 
   factory ValueInfo.fromJson(Map<String, dynamic> json) {
     return ValueInfo(
       path: json['path'] ?? '',
       method: json['method'] ?? 'average',
+      smoothing: json['smoothing'] as String?,
+      window: json['window'] as int?,
     );
   }
 
-  /// Check if this is an EMA or SMA column
-  bool get isMovingAverage => method == 'ema' || method == 'sma';
+  /// Check if this is a smoothed column (has smoothing applied)
+  bool get isSmoothed => smoothing != null;
+
+  /// Check if this is an SMA smoothed column
+  bool get isSMA => smoothing == 'sma';
+
+  /// Check if this is an EMA smoothed column
+  bool get isEMA => smoothing == 'ema';
 }
 
 class DataRow {
@@ -95,6 +107,8 @@ class DataRow {
 class ChartDataSeries {
   final String path;
   final String method;
+  final String? smoothing;  // 'sma' or 'ema' if this is a smoothed series
+  final int? window;        // Smoothing window/parameter
   final List<ChartDataPoint> points;
   final double? minValue;
   final double? maxValue;
@@ -103,28 +117,43 @@ class ChartDataSeries {
   ChartDataSeries({
     required this.path,
     required this.method,
+    this.smoothing,
+    this.window,
     required this.points,
     this.minValue,
     this.maxValue,
     this.label,
   });
 
+  /// Check if this is a smoothed series
+  bool get isSmoothed => smoothing != null;
+
   /// Extract a series from historical data response with optional client-side unit conversion
+  /// Set smoothing to 'sma' or 'ema' to find the smoothed column instead of raw
   static ChartDataSeries? fromHistoricalData(
     HistoricalDataResponse response,
     String path, {
     String method = 'average',
+    String? smoothing,  // null for raw, 'sma' or 'ema' for smoothed
     SignalKService? signalKService,
   }) {
     // Find the index of this path in the values array
-    final valueIndex = response.values.indexWhere(
-      (v) => v.path == path && v.method == method,
-    );
+    final valueIndex = response.values.indexWhere((v) {
+      if (v.path != path || v.method != method) return false;
+      if (smoothing == null) {
+        // Looking for raw value (no smoothing)
+        return v.smoothing == null;
+      } else {
+        // Looking for smoothed value
+        return v.smoothing == smoothing;
+      }
+    });
 
     if (valueIndex == -1) {
       return null;
     }
 
+    final valueInfo = response.values[valueIndex];
     final points = <ChartDataPoint>[];
     double? min;
     double? max;
@@ -158,6 +187,8 @@ class ChartDataSeries {
     return ChartDataSeries(
       path: path,
       method: method,
+      smoothing: valueInfo.smoothing,
+      window: valueInfo.window,
       points: points,
       minValue: min,
       maxValue: max,
@@ -166,10 +197,10 @@ class ChartDataSeries {
 
   /// Get display name for this series
   String get displayName {
-    if (method == 'ema') {
-      return '$path (EMA)';
-    } else if (method == 'sma') {
-      return '$path (SMA)';
+    if (smoothing == 'ema') {
+      return '$path (EMA${window != null ? ' α=${window! / 1000}' : ''})';
+    } else if (smoothing == 'sma') {
+      return '$path (SMA${window != null ? ' $window' : ''})';
     }
     return path;
   }
