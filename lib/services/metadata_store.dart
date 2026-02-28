@@ -114,6 +114,17 @@ class MetadataStore extends ChangeNotifier {
   /// Get the category for a path.
   String? getCategory(String path) => _metadata[path]?.category;
 
+  /// Get the first metadata entry matching a category.
+  /// Used for category-based conversions (e.g., distance, speed).
+  PathMetadata? getByCategory(String category) {
+    for (final metadata in _metadata.values) {
+      if (metadata.category == category) {
+        return metadata;
+      }
+    }
+    return null;
+  }
+
   /// Clear all metadata.
   void clear() {
     if (_metadata.isNotEmpty) {

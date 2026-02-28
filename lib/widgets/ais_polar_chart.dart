@@ -5,7 +5,6 @@ import 'package:latlong2/latlong.dart';
 import 'dart:async';
 import 'dart:math' as math;
 import '../services/signalk_service.dart';
-import '../utils/conversion_utils.dart';
 
 /// AIS Polar Chart that displays nearby vessels relative to own position
 ///
@@ -77,6 +76,25 @@ class _AISPolarChartState extends State<AISPolarChart>
   // Throttle updates to prevent ANR on tablets
   DateTime? _lastUpdate;
   static const _updateThrottle = Duration(milliseconds: 500);
+
+  /// Helper to get raw SI value from a data point
+  double? _getRawValue(String path) {
+    final dataPoint = widget.signalKService.getValue(path);
+    if (dataPoint?.original is num) {
+      return (dataPoint!.original as num).toDouble();
+    }
+    if (dataPoint?.value is num) {
+      return (dataPoint!.value as num).toDouble();
+    }
+    return null;
+  }
+
+  /// Helper to get converted display value using MetadataStore
+  double? _getConverted(String path, double? rawValue) {
+    if (rawValue == null) return null;
+    final metadata = widget.signalKService.metadataStore.get(path);
+    return metadata?.convert(rawValue) ?? rawValue;
+  }
 
   @override
   void initState() {
@@ -380,39 +398,26 @@ class _AISPolarChartState extends State<AISPolarChart>
 
   /// Convert distance from meters to user's preferred unit using server unit preferences
   double _convertDistance(double meters) {
-    final conversionInfo = widget.signalKService.getConversionForCategory('distance');
-    if (conversionInfo == null) {
-      return meters; // No conversion available, return raw meters
-    }
-
-    final converted = ConversionUtils.evaluateFormula(conversionInfo.formula, meters);
-    return converted ?? meters; // Fallback to meters if evaluation fails
+    final metadata = widget.signalKService.metadataStore.getByCategory('distance');
+    return metadata?.convert(meters) ?? meters;
   }
 
   /// Get distance unit symbol from server unit preferences
   String _getDistanceUnit() {
-    final conversionInfo = widget.signalKService.getConversionForCategory('distance');
-    return conversionInfo?.symbol ?? 'm'; // Default to meters if not loaded
+    final metadata = widget.signalKService.metadataStore.getByCategory('distance');
+    return metadata?.symbol ?? 'm';
   }
 
   /// Convert speed from m/s to user's preferred unit using SOG path's displayUnits
   double _convertSpeed(double metersPerSecond) {
-    final displayUnits = widget.signalKService.getDisplayUnits(widget.sogPath);
-    if (displayUnits == null) {
-      return metersPerSecond; // No conversion available, return raw m/s
-    }
-
-    final formula = displayUnits['formula'] as String?;
-    if (formula == null) return metersPerSecond;
-
-    final converted = ConversionUtils.evaluateFormula(formula, metersPerSecond);
-    return converted ?? metersPerSecond; // Fallback to m/s if evaluation fails
+    final metadata = widget.signalKService.metadataStore.get(widget.sogPath);
+    return metadata?.convert(metersPerSecond) ?? metersPerSecond;
   }
 
   /// Get speed unit symbol from SOG path's displayUnits
   String _getSpeedUnit() {
-    final displayUnits = widget.signalKService.getDisplayUnits(widget.sogPath);
-    return displayUnits?['symbol'] as String? ?? 'm/s'; // Default to m/s if not loaded
+    final metadata = widget.signalKService.metadataStore.get(widget.sogPath);
+    return metadata?.symbol ?? 'm/s';
   }
 
   @override
@@ -785,10 +790,12 @@ class _AISPolarChartState extends State<AISPolarChart>
     // Get own vessel heading/COG for arrow rotation (client-side conversion from radians to degrees)
     // Prefer COG over heading, fallback to headingMagnetic
     double? ownHeading;
-    final cogTrue = ConversionUtils.getConvertedValue(widget.signalKService, 'navigation.courseOverGroundTrue');
-    final cogMagnetic = ConversionUtils.getConvertedValue(widget.signalKService, 'navigation.courseOverGroundMagnetic');
-    final headingMagnetic = ConversionUtils.getConvertedValue(widget.signalKService, 'navigation.headingMagnetic');
-
+    final cogTrueRaw = _getRawValue('navigation.courseOverGroundTrue');
+    final cogTrue = _getConverted('navigation.courseOverGroundTrue', cogTrueRaw);
+    final cogMagneticRaw = _getRawValue('navigation.courseOverGroundMagnetic');
+    final cogMagnetic = _getConverted('navigation.courseOverGroundMagnetic', cogMagneticRaw);
+    final headingMagneticRaw = _getRawValue('navigation.headingMagnetic');
+    final headingMagnetic = _getConverted('navigation.headingMagnetic', headingMagneticRaw);
     ownHeading = cogTrue ?? cogMagnetic ?? headingMagnetic ?? 0.0;
 
     // Calculate bounds to fit all vessels
@@ -1220,12 +1227,9 @@ class _AISPolarChartState extends State<AISPolarChart>
     required double? vesselSogRaw,
   }) {
     // Get own vessel COG (in degrees) and SOG (raw SI = m/s) using configured paths
-    final ownCog = ConversionUtils.getConvertedValue(
-      widget.signalKService, widget.cogPath
-    );
-    final ownSogMs = ConversionUtils.getRawValue(
-      widget.signalKService, widget.sogPath
-    ) ?? 0.0;
+    final ownCogRaw = _getRawValue(widget.cogPath);
+    final ownCog = _getConverted(widget.cogPath, ownCogRaw);
+    final ownSogMs = _getRawValue(widget.sogPath) ?? 0.0;
 
     // Own vessel velocity components (m/s)
     double ownVx = 0.0;

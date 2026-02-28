@@ -3,7 +3,6 @@ import '../../models/tool_definition.dart';
 import '../../models/tool_config.dart';
 import '../../services/signalk_service.dart';
 import '../../services/tool_registry.dart';
-import '../../utils/conversion_utils.dart';
 
 /// Tool for monitoring Raspberry Pi system metrics
 /// Requires signalk-rpi-monitor and signalk-rpi-uptime plugins
@@ -17,73 +16,56 @@ class RpiMonitorTool extends StatelessWidget {
     required this.signalKService,
   });
 
+  /// Helper to get raw SI value from a data point
+  double? _getRawValue(String path) {
+    final dataPoint = signalKService.getValue(path);
+    if (dataPoint?.original is num) {
+      return (dataPoint!.original as num).toDouble();
+    }
+    if (dataPoint?.value is num) {
+      return (dataPoint!.value as num).toDouble();
+    }
+    return null;
+  }
+
+  /// Helper to format a value using MetadataStore
+  String _formatValue(String path, double rawValue, {int decimals = 1}) {
+    final metadata = signalKService.metadataStore.get(path);
+    if (metadata != null) {
+      return metadata.format(rawValue, decimals: decimals);
+    }
+    return rawValue.toStringAsFixed(decimals);
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
     // Get CPU metrics
-    final cpuUtil = ConversionUtils.getRawValue(
-      signalKService,
-      'environment.rpi.cpu.utilisation',
-    );
-    final core1Util = ConversionUtils.getRawValue(
-      signalKService,
-      'environment.rpi.cpu.core.1.utilisation',
-    );
-    final core2Util = ConversionUtils.getRawValue(
-      signalKService,
-      'environment.rpi.cpu.core.2.utilisation',
-    );
-    final core3Util = ConversionUtils.getRawValue(
-      signalKService,
-      'environment.rpi.cpu.core.3.utilisation',
-    );
-    final core4Util = ConversionUtils.getRawValue(
-      signalKService,
-      'environment.rpi.cpu.core.4.utilisation',
-    );
+    final cpuUtil = _getRawValue('environment.rpi.cpu.utilisation');
+    final core1Util = _getRawValue('environment.rpi.cpu.core.1.utilisation');
+    final core2Util = _getRawValue('environment.rpi.cpu.core.2.utilisation');
+    final core3Util = _getRawValue('environment.rpi.cpu.core.3.utilisation');
+    final core4Util = _getRawValue('environment.rpi.cpu.core.4.utilisation');
 
     // Get temperature metrics
     // Use raw Kelvin values for color thresholds, formatted values for display
-    final cpuTempK = ConversionUtils.getRawValue(
-      signalKService,
-      'environment.rpi.cpu.temperature',
-    );
+    final cpuTempK = _getRawValue('environment.rpi.cpu.temperature');
     final cpuTempFormatted = cpuTempK != null
-        ? ConversionUtils.formatValue(
-            signalKService,
-            'environment.rpi.cpu.temperature',
-            cpuTempK,
-          )
+        ? _formatValue('environment.rpi.cpu.temperature', cpuTempK)
         : null;
 
-    final gpuTempK = ConversionUtils.getRawValue(
-      signalKService,
-      'environment.rpi.gpu.temperature',
-    );
+    final gpuTempK = _getRawValue('environment.rpi.gpu.temperature');
     final gpuTempFormatted = gpuTempK != null
-        ? ConversionUtils.formatValue(
-            signalKService,
-            'environment.rpi.gpu.temperature',
-            gpuTempK,
-          )
+        ? _formatValue('environment.rpi.gpu.temperature', gpuTempK)
         : null;
 
     // Get uptime (in seconds)
-    final uptimeSeconds = ConversionUtils.getRawValue(
-      signalKService,
-      'environment.rpi.uptime',
-    );
+    final uptimeSeconds = _getRawValue('environment.rpi.uptime');
 
     // Get memory and storage (if available)
-    final memoryUtil = ConversionUtils.getRawValue(
-      signalKService,
-      'environment.rpi.memory.utilisation',
-    );
-    final storageUtil = ConversionUtils.getRawValue(
-      signalKService,
-      'environment.rpi.storage.utilisation',
-    );
+    final memoryUtil = _getRawValue('environment.rpi.memory.utilisation');
+    final storageUtil = _getRawValue('environment.rpi.storage.utilisation');
 
     // Check if we have any data
     final hasData = cpuUtil != null ||
