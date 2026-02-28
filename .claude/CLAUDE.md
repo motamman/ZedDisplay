@@ -12,6 +12,8 @@ Read `.claude/METADATA_STORE_GUIDE.md` - the definitive guide to using MetadataS
 
 **Core Principle: SignalK uses SI units - NEVER hardcode conversions in widgets**
 
+**Single Source of Truth: `MetadataStore`** - populated from WebSocket meta deltas.
+
 ### SignalK Base Units
 
 | Data Type | SignalK Base Unit | Example Display Units |
@@ -26,59 +28,70 @@ Read `.claude/METADATA_STORE_GUIDE.md` - the definitive guide to using MetadataS
 ### Required Pattern for Display Values
 
 ```dart
-// CORRECT: Use ConversionUtils
-final rawValue = ConversionUtils.getRawValue(signalKService, path);
-final displayValue = ConversionUtils.getConvertedValue(signalKService, path);
-final formatted = ConversionUtils.formatValue(signalKService, path, rawValue);
+// CORRECT: Use MetadataStore
+final dataPoint = signalKService.getValue(path);
+final rawValue = (dataPoint?.value as num?)?.toDouble();
 
-// For weather/fallback conversions (when no server metadata):
-final converted = ConversionUtils.convertWeatherValue(
-  service, WeatherFieldType.temperature, rawValue);
-final symbol = ConversionUtils.getWeatherUnitSymbol(WeatherFieldType.temperature);
+final metadata = signalKService.metadataStore.get(path);
+final displayValue = metadata?.convert(rawValue);
+final formatted = metadata?.format(rawValue, decimals: 1); // "12.5 kn"
+final symbol = metadata?.symbol; // "kn"
 
 // WRONG: Never do manual conversions in widgets!
 final degrees = radians * 180 / pi;  // BAD!
 final fahrenheit = (kelvin - 273.15) * 9/5 + 32;  // BAD!
+
+// WRONG: Do not use ConversionUtils (LEGACY)
+final value = ConversionUtils.getConvertedValue(...);  // BAD - DEPRECATED!
 ```
 
 ### Required Pattern for PUT Requests
 
 ```dart
 // Convert display value back to SI before sending
-final siValue = ConversionUtils.convertToRaw(signalKService, path, displayValue);
+final metadata = signalKService.metadataStore.get(path);
+final siValue = metadata?.convertToSI(displayValue) ?? displayValue;
 await signalKService.putValue(path, siValue);
+```
+
+### Fallback When No Metadata
+
+```dart
+final metadata = signalKService.metadataStore.get(path);
+if (metadata != null) {
+  return metadata.format(rawValue);
+} else {
+  // No metadata from server - show raw SI value
+  return rawValue.toStringAsFixed(1);
+}
 ```
 
 ### Key Files Reference
 
-- `lib/utils/conversion_utils.dart` - All conversion methods, formula evaluation
-- `lib/services/signalk_service.dart` - Server connection, `getAvailableUnits()`, `getConversionInfo()`
-- `lib/models/signalk_data.dart` - SignalKDataPoint model
+| File | Purpose |
+|------|---------|
+| `lib/models/path_metadata.dart` | `PathMetadata` model with convert/format methods |
+| `lib/services/metadata_store.dart` | Store holding all path metadata |
+| `lib/services/signalk_service.dart` | Exposes `metadataStore` getter |
 
-### ConversionUtils Methods
+### DEPRECATED - Do Not Use
 
-| Method | Purpose |
-|--------|---------|
-| `getRawValue(service, path)` | Get SI value from SignalK stream |
-| `getConvertedValue(service, path)` | Get display value (converted) |
-| `convertValue(service, path, rawValue)` | Convert raw SI to display units |
-| `formatValue(service, path, rawValue)` | Get formatted string with unit symbol |
-| `convertToRaw(service, path, displayValue)` | Inverse conversion for PUT requests |
-| `convertWeatherValue(service, fieldType, rawValue)` | Fallback conversion using `WeatherFieldType` |
-| `getWeatherUnitSymbol(fieldType)` | Get unit symbol for weather fields |
-| `fetchCategories(service)` | Load server unit preferences (cached 30 min) |
+| File | Status |
+|------|--------|
+| `lib/utils/conversion_utils.dart` | **LEGACY** - Do not use for new code. Migrate existing uses to MetadataStore. |
 
 ## Rules for Future Sessions
 
 ### DO
-- Use `ConversionUtils` methods for ALL unit conversions
-- Get unit symbols from server metadata via `getConversionInfo()`
-- Support both server-provided and fallback conversions
-- Use `WeatherFieldType` enum for weather data without SignalK metadata
-- Use `convertToRaw()` for inverse conversion when sending PUT requests
+- Use `signalKService.metadataStore.get(path)` for ALL unit conversions
+- Use `metadata?.convert(rawValue)` for SI → display conversion
+- Use `metadata?.convertToSI(displayValue)` for display → SI (PUT requests)
+- Use `metadata?.format(rawValue)` for formatted string with symbol
+- Use `metadata?.symbol` for unit symbol
+- Handle null metadata gracefully (show raw value or "--")
 
 ### DON'T
 - Hardcode conversion formulas in widget code
+- Use ConversionUtils (LEGACY - migrate to MetadataStore)
 - Assume specific units - always check server preferences
 - Forget inverse conversion for PUT requests
-- Duplicate conversion logic that exists in ConversionUtils
