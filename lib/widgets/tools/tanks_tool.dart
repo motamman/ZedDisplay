@@ -4,7 +4,6 @@ import '../../models/tool_config.dart';
 import '../../services/signalk_service.dart';
 import '../../services/tool_registry.dart';
 import '../../utils/string_extensions.dart';
-import '../../utils/conversion_utils.dart';
 
 /// Tank display widget showing up to 5 tank levels
 class TanksTool extends StatelessWidget {
@@ -160,9 +159,10 @@ class TanksTool extends StatelessWidget {
       }
     }
 
-    // Get tank level (0-1 ratio)
+    // Get tank level (0-1 ratio) - raw SI value
     final levelPath = '$tankRoot.currentLevel';
-    final rawLevel = ConversionUtils.getRawValue(signalKService, levelPath);
+    final levelDataPoint = signalKService.getValue(levelPath);
+    final rawLevel = (levelDataPoint?.value as num?)?.toDouble();
 
     // Check data freshness
     final isDataFresh = signalKService.isDataFresh(
@@ -174,10 +174,13 @@ class TanksTool extends StatelessWidget {
     final level = isDataFresh ? (rawLevel ?? 0.0) : 0.0;
     final levelPercent = (level * 100).clamp(0.0, 100.0);
 
-    // Get capacity (uses conversion system for units)
+    // Get capacity using MetadataStore for conversion
     final capacityPath = '$tankRoot.capacity';
-    final capacityValue = ConversionUtils.getConvertedValue(signalKService, capacityPath);
-    final unit = signalKService.getUnitSymbol(capacityPath) ?? '';
+    final capacityDataPoint = signalKService.getValue(capacityPath);
+    final rawCapacity = (capacityDataPoint?.value as num?)?.toDouble();
+    final capacityMetadata = signalKService.metadataStore.get(capacityPath);
+    final capacityValue = rawCapacity != null ? capacityMetadata?.convert(rawCapacity) ?? rawCapacity : null;
+    final unit = capacityMetadata?.symbol ?? '';
 
     String? capacityText;
     String? remainingText;

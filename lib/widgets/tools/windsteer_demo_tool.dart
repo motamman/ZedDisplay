@@ -18,27 +18,45 @@ class WindsteerDemoTool extends StatelessWidget {
     required this.signalKService,
   });
 
+  /// Get converted value using MetadataStore
+  double? _getConverted(String path) {
+    final dataPoint = signalKService.getValue(path);
+    final rawValue = (dataPoint?.value as num?)?.toDouble();
+    if (rawValue == null) return null;
+    final metadata = signalKService.metadataStore.get(path);
+    return metadata?.convert(rawValue) ?? rawValue;
+  }
+
+  /// Get formatted value using MetadataStore
+  String? _getFormatted(String path) {
+    final dataPoint = signalKService.getValue(path);
+    final rawValue = (dataPoint?.value as num?)?.toDouble();
+    if (rawValue == null) return null;
+    final metadata = signalKService.metadataStore.get(path);
+    return metadata?.format(rawValue, decimals: 1);
+  }
+
   @override
   Widget build(BuildContext context) {
-    // Hardcoded common SignalK paths
-    final heading = signalKService.getConvertedValue('navigation.headingMagnetic') ??
-                    signalKService.getConvertedValue('navigation.headingTrue') ?? 0.0;
+    // Hardcoded common SignalK paths - using MetadataStore
+    final heading = _getConverted('navigation.headingMagnetic') ??
+                    _getConverted('navigation.headingTrue') ?? 0.0;
 
-    final apparentWindAngle = signalKService.getConvertedValue('environment.wind.angleApparent');
-    final trueWindAngle = signalKService.getConvertedValue('environment.wind.angleTrueWater');
+    final apparentWindAngle = _getConverted('environment.wind.angleApparent');
+    final trueWindAngle = _getConverted('environment.wind.angleTrueWater');
 
-    final apparentWindSpeed = signalKService.getConvertedValue('environment.wind.speedApparent');
-    final awsFormatted = signalKService.getValue('environment.wind.speedApparent')?.formatted;
+    final apparentWindSpeed = _getConverted('environment.wind.speedApparent');
+    final awsFormatted = _getFormatted('environment.wind.speedApparent');
 
-    final trueWindSpeed = signalKService.getConvertedValue('environment.wind.speedTrue');
-    final twsFormatted = signalKService.getValue('environment.wind.speedTrue')?.formatted;
+    final trueWindSpeed = _getConverted('environment.wind.speedTrue');
+    final twsFormatted = _getFormatted('environment.wind.speedTrue');
 
-    final courseOverGround = signalKService.getConvertedValue('navigation.courseOverGroundTrue');
-    final waypointBearing = signalKService.getConvertedValue('navigation.course.nextPoint.bearingTrue');
+    final courseOverGround = _getConverted('navigation.courseOverGroundTrue');
+    final waypointBearing = _getConverted('navigation.course.nextPoint.bearingTrue');
 
-    final driftSet = signalKService.getConvertedValue('environment.current.setTrue');
-    final driftFlow = signalKService.getConvertedValue('environment.current.drift');
-    final driftFormatted = signalKService.getValue('environment.current.drift')?.formatted;
+    final driftSet = _getConverted('environment.current.setTrue');
+    final driftFlow = _getConverted('environment.current.drift');
+    final driftFormatted = _getFormatted('environment.current.drift');
 
     // Get style configuration
     final style = config.style;

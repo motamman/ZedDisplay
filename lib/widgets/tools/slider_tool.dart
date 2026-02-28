@@ -8,7 +8,6 @@ import '../../services/signalk_service.dart';
 import '../../services/tool_registry.dart';
 import '../../utils/string_extensions.dart';
 import '../../utils/color_extensions.dart';
-import '../../utils/conversion_utils.dart';
 import '../../config/ui_constants.dart';
 import 'mixins/control_tool_mixin.dart';
 import 'common/control_tool_layout.dart';
@@ -55,12 +54,11 @@ class _SliderToolState extends State<SliderTool> with ControlToolMixin, Automati
     if (_currentSliderValue != null) {
       currentValue = _currentSliderValue!;
     } else {
-      // Use client-side conversions with source
-      final convertedValue = ConversionUtils.getConvertedValue(
-        widget.signalKService,
-        dataSource.path,
-        source: dataSource.source,
-      );
+      // Get raw SI value and convert using MetadataStore
+      final dataPoint = widget.signalKService.getValue(dataSource.path, source: dataSource.source);
+      final rawValue = (dataPoint?.value as num?)?.toDouble();
+      final metadata = widget.signalKService.metadataStore.get(dataSource.path);
+      final convertedValue = rawValue != null ? metadata?.convert(rawValue) ?? rawValue : null;
       if (convertedValue != null) {
         currentValue = convertedValue;
       } else {
@@ -79,12 +77,9 @@ class _SliderToolState extends State<SliderTool> with ControlToolMixin, Automati
       fallback: Theme.of(context).colorScheme.primary
     ) ?? Theme.of(context).colorScheme.primary;
 
-    // Get unit symbol from conversion info
-    final availableUnits = widget.signalKService.getAvailableUnits(dataSource.path);
-    final conversionInfo = availableUnits.isNotEmpty
-        ? widget.signalKService.getConversionInfo(dataSource.path, availableUnits.first)
-        : null;
-    final unit = style.unit ?? conversionInfo?.symbol ?? '';
+    // Get unit symbol from MetadataStore
+    final metadata = widget.signalKService.metadataStore.get(dataSource.path);
+    final unit = style.unit ?? metadata?.symbol ?? '';
 
     // Get decimal places from customProperties
     final decimalPlaces = style.customProperties?['decimalPlaces'] as int? ?? UIConstants.defaultDecimalPlaces;

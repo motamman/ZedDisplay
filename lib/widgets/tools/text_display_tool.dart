@@ -5,7 +5,6 @@ import '../../services/signalk_service.dart';
 import '../../services/tool_registry.dart';
 import '../../utils/string_extensions.dart';
 import '../../utils/color_extensions.dart';
-import '../../utils/conversion_utils.dart';
 import '../../config/ui_constants.dart';
 
 /// Config-driven text display for large numeric values
@@ -47,34 +46,30 @@ class TextDisplayTool extends StatelessWidget {
       return _buildObjectDisplay(context, dataPoint!.value as Map, label, textColor, fontSize);
     }
 
-    // Use client-side conversions for scalar values
-    final rawValue = ConversionUtils.getRawValue(signalKService, dataSource.path);
-    final convertedValue = ConversionUtils.getConvertedValue(signalKService, dataSource.path);
+    // Get raw SI value and convert using MetadataStore
+    final rawValue = (dataPoint?.value as num?)?.toDouble();
+    final metadata = signalKService.metadataStore.get(dataSource.path);
 
     // Format the display value
     String displayValue;
     String displayUnit = '';
 
-    if (rawValue != null && convertedValue != null) {
-      // Get formatted value with unit
-      final formatted = ConversionUtils.formatValue(
-        signalKService,
-        dataSource.path,
-        rawValue,
-        decimalPlaces: 1,
-      );
-      displayValue = formatted;
-      // Unit is already in formatted string, so leave displayUnit empty
+    if (rawValue != null) {
+      // Get formatted value with unit from MetadataStore
+      final formatted = metadata?.format(rawValue, decimals: 1);
+      if (formatted != null) {
+        displayValue = formatted;
+        // Unit is already in formatted string, so leave displayUnit empty
+      } else {
+        // No metadata - show raw value
+        displayValue = rawValue.toStringAsFixed(1);
+      }
     } else {
       // No data available
       displayValue = '--';
 
-      // Get unit symbol from conversion info or style override
-      final availableUnits = signalKService.getAvailableUnits(dataSource.path);
-      final conversionInfo = availableUnits.isNotEmpty
-          ? signalKService.getConversionInfo(dataSource.path, availableUnits.first)
-          : null;
-      displayUnit = config.style.unit ?? conversionInfo?.symbol ?? '';
+      // Get unit symbol from MetadataStore or style override
+      displayUnit = config.style.unit ?? metadata?.symbol ?? '';
     }
 
     return Container(

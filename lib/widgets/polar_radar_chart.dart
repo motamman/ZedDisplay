@@ -3,7 +3,6 @@ import 'package:fl_chart/fl_chart.dart';
 import 'dart:async';
 import 'dart:math' as math;
 import '../services/signalk_service.dart';
-import '../utils/conversion_utils.dart';
 
 /// A polar radar chart that displays velocity and angle data from SignalK
 ///
@@ -81,10 +80,17 @@ class _PolarRadarChartState extends State<PolarRadarChart>
 
   void _updateChartData() {
     setState(() {
-      // Read current angle and magnitude from SignalK using client-side conversions
+      // Read current angle and magnitude from SignalK using MetadataStore
       // Angle: convert from radians to degrees for display and calculations
-      final angleValue = ConversionUtils.getConvertedValue(widget.signalKService, widget.anglePath);
-      final magnitudeValue = ConversionUtils.getConvertedValue(widget.signalKService, widget.magnitudePath);
+      final angleDataPoint = widget.signalKService.getValue(widget.anglePath);
+      final angleRaw = (angleDataPoint?.value as num?)?.toDouble();
+      final angleMetadata = widget.signalKService.metadataStore.get(widget.anglePath);
+      final angleValue = angleRaw != null ? angleMetadata?.convert(angleRaw) ?? angleRaw : null;
+
+      final magnitudeDataPoint = widget.signalKService.getValue(widget.magnitudePath);
+      final magnitudeRaw = (magnitudeDataPoint?.value as num?)?.toDouble();
+      final magnitudeMetadata = widget.signalKService.metadataStore.get(widget.magnitudePath);
+      final magnitudeValue = magnitudeRaw != null ? magnitudeMetadata?.convert(magnitudeRaw) ?? magnitudeRaw : null;
 
       if (angleValue != null && magnitudeValue != null) {
         final now = DateTime.now();
@@ -199,13 +205,20 @@ class _PolarRadarChartState extends State<PolarRadarChart>
   }
 
   Widget _buildValueLabels(BuildContext context) {
-    // Get current values using client-side conversions
-    final angleValue = ConversionUtils.getConvertedValue(widget.signalKService, widget.anglePath);
-    final magnitudeValue = ConversionUtils.getConvertedValue(widget.signalKService, widget.magnitudePath);
+    // Get current values using MetadataStore
+    final angleDataPoint = widget.signalKService.getValue(widget.anglePath);
+    final angleRaw = (angleDataPoint?.value as num?)?.toDouble();
+    final angleMetadata = widget.signalKService.metadataStore.get(widget.anglePath);
+    final angleValue = angleRaw != null ? angleMetadata?.convert(angleRaw) ?? angleRaw : null;
 
-    // Get unit symbols for display
-    final angleSymbol = widget.signalKService.getUnitSymbol(widget.anglePath) ?? '°';
-    final magnitudeSymbol = widget.signalKService.getUnitSymbol(widget.magnitudePath) ?? '';
+    final magnitudeDataPoint = widget.signalKService.getValue(widget.magnitudePath);
+    final magnitudeRaw = (magnitudeDataPoint?.value as num?)?.toDouble();
+    final magnitudeMetadata = widget.signalKService.metadataStore.get(widget.magnitudePath);
+    final magnitudeValue = magnitudeRaw != null ? magnitudeMetadata?.convert(magnitudeRaw) ?? magnitudeRaw : null;
+
+    // Get unit symbols from MetadataStore
+    final angleSymbol = angleMetadata?.symbol ?? '°';
+    final magnitudeSymbol = magnitudeMetadata?.symbol ?? '';
 
     // Format display values with units
     final angleDisplay = angleValue != null

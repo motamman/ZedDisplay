@@ -6,7 +6,6 @@ import '../../services/tool_registry.dart';
 import '../radial_bar_chart.dart';
 import '../../utils/string_extensions.dart';
 import '../../utils/color_extensions.dart';
-import '../../utils/conversion_utils.dart';
 
 /// Config-driven radial bar chart tool
 /// Displays up to 4 SignalK paths as concentric circular rings
@@ -54,12 +53,15 @@ class RadialBarChartTool extends StatelessWidget {
       );
     }
 
-    // Build radial bar data from data sources using client-side conversions
+    // Build radial bar data from data sources using MetadataStore
     final radialBars = <RadialBarData>[];
     for (final dataSource in config.dataSources) {
-      final value = ConversionUtils.getConvertedValue(signalKService, dataSource.path) ?? 0.0;
+      final dataPoint = signalKService.getValue(dataSource.path);
+      final rawValue = (dataPoint?.value as num?)?.toDouble();
+      final metadata = signalKService.metadataStore.get(dataSource.path);
+      final value = rawValue != null ? metadata?.convert(rawValue) ?? rawValue : 0.0;
       final label = dataSource.label ?? dataSource.path.toReadableLabel();
-      final unit = signalKService.getUnitSymbol(dataSource.path) ?? '';
+      final unit = metadata?.symbol ?? '';
 
       // Get max value from style config or custom properties for this specific path
       final maxValue = config.style.maxValue ??
