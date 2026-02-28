@@ -7,7 +7,6 @@ import '../../services/signalk_service.dart';
 import '../../services/tool_registry.dart';
 import '../../utils/string_extensions.dart';
 import '../../utils/color_extensions.dart';
-import '../../utils/conversion_utils.dart';
 import 'mixins/zones_mixin.dart';
 
 /// Available linear gauge styles
@@ -51,6 +50,40 @@ class _LinearGaugeToolState extends State<LinearGaugeTool> with ZonesMixin, Auto
     super.dispose();
   }
 
+  /// Helper to get raw SI value from a data point
+  double? _getRawValue(String path) {
+    final dataPoint = widget.signalKService.getValue(path);
+    if (dataPoint?.original is num) {
+      return (dataPoint!.original as num).toDouble();
+    }
+    if (dataPoint?.value is num) {
+      return (dataPoint!.value as num).toDouble();
+    }
+    return null;
+  }
+
+  /// Helper to get converted display value using MetadataStore
+  double? _getConverted(String path, double? rawValue) {
+    if (rawValue == null) return null;
+    final metadata = widget.signalKService.metadataStore.get(path);
+    return metadata?.convert(rawValue) ?? rawValue;
+  }
+
+  /// Helper to format value with symbol using MetadataStore
+  String? _formatValue(String path, double? rawValue, {bool includeUnit = true}) {
+    if (rawValue == null) return null;
+    final metadata = widget.signalKService.metadataStore.get(path);
+    if (metadata != null) {
+      if (includeUnit) {
+        return metadata.format(rawValue, decimals: 1);
+      } else {
+        final converted = metadata.convert(rawValue);
+        return converted?.toStringAsFixed(1) ?? rawValue.toStringAsFixed(1);
+      }
+    }
+    return rawValue.toStringAsFixed(1);
+  }
+
   @override
   Widget build(BuildContext context) {
     super.build(context);
@@ -63,9 +96,9 @@ class _LinearGaugeToolState extends State<LinearGaugeTool> with ZonesMixin, Auto
     final dataSource = widget.config.dataSources.first;
     final style = widget.config.style;
 
-    // Use client-side conversions
-    final rawSIValue = ConversionUtils.getRawValue(widget.signalKService, dataSource.path);
-    final convertedValue = ConversionUtils.getConvertedValue(widget.signalKService, dataSource.path);
+    // Use MetadataStore for conversions
+    final rawSIValue = _getRawValue(dataSource.path);
+    final convertedValue = _getConverted(dataSource.path, rawSIValue);
 
     // Get style configuration
     final minValue = style.minValue ?? 0.0;
@@ -87,16 +120,10 @@ class _LinearGaugeToolState extends State<LinearGaugeTool> with ZonesMixin, Auto
     // Check if we should show the unit
     final showUnit = style.showUnit ?? true;
 
-    // Get formatted value using client-side conversion, or show "--" if stale
+    // Get formatted value using MetadataStore, or show "--" if stale
     String? formattedValue;
     if (isDataFresh && rawSIValue != null) {
-      formattedValue = ConversionUtils.formatValue(
-        widget.signalKService,
-        dataSource.path,
-        rawSIValue,
-        decimalPlaces: 1,
-        includeUnit: showUnit,
-      );
+      formattedValue = _formatValue(dataSource.path, rawSIValue, includeUnit: showUnit);
     } else {
       formattedValue = '--';
     }

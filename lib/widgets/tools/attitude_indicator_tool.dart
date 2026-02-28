@@ -5,7 +5,6 @@ import '../../models/tool_config.dart';
 import '../../services/signalk_service.dart';
 import '../../services/tool_registry.dart';
 import '../../utils/color_extensions.dart';
-import '../../utils/conversion_utils.dart';
 import '../attitude_indicator.dart';
 
 /// Config-driven attitude/heel indicator tool
@@ -52,24 +51,18 @@ class AttitudeIndicatorTool extends StatelessWidget {
     if (attitudeData?.value is Map) {
       final attitude = attitudeData!.value as Map<String, dynamic>;
 
-      // Roll is in radians, convert to degrees using user preferences
+      // Roll is in radians, convert to degrees using MetadataStore (single source of truth)
       if (attitude['roll'] is num) {
         final rollRaw = (attitude['roll'] as num).toDouble();
-        rollDegrees = ConversionUtils.convertWeatherValue(
-          signalKService,
-          WeatherFieldType.angle,
-          rollRaw,
-        ) ?? rollRaw * 180 / math.pi;
+        final rollMetadata = signalKService.metadataStore.get('$attitudePath.roll');
+        rollDegrees = rollMetadata?.convert(rollRaw) ?? rollRaw * 180 / math.pi;
       }
 
-      // Pitch is in radians, convert to degrees using user preferences
+      // Pitch is in radians, convert to degrees using MetadataStore (single source of truth)
       if (attitude['pitch'] is num) {
         final pitchRaw = (attitude['pitch'] as num).toDouble();
-        pitchDegrees = ConversionUtils.convertWeatherValue(
-          signalKService,
-          WeatherFieldType.angle,
-          pitchRaw,
-        ) ?? pitchRaw * 180 / math.pi;
+        final pitchMetadata = signalKService.metadataStore.get('$attitudePath.pitch');
+        pitchDegrees = pitchMetadata?.convert(pitchRaw) ?? pitchRaw * 180 / math.pi;
       }
     }
 

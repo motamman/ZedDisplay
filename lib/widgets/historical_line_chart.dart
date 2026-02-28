@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:syncfusion_flutter_charts/charts.dart';
 import '../models/historical_data.dart';
 import '../services/signalk_service.dart';
-import '../utils/conversion_utils.dart';
 import 'package:intl/intl.dart';
 
 /// Available chart display styles
@@ -80,10 +79,10 @@ class HistoricalLineChart extends StatelessWidget {
     final colors = _getSeriesColors();
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
-    // Get unit symbol from first series (all series should have same unit)
+    // Get unit symbol from first series using MetadataStore (single source of truth)
     String? unit;
     if (signalKService != null && series.isNotEmpty) {
-      unit = ConversionUtils.getUnitSymbol(signalKService!, series.first.path);
+      unit = signalKService!.metadataStore.get(series.first.path)?.symbol;
     }
 
     return SfCartesianChart(

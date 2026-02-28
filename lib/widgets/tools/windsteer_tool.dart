@@ -17,6 +17,32 @@ class WindsteerTool extends StatelessWidget {
     required this.signalKService,
   });
 
+  /// Helper to get raw SI value from a data point
+  double? _getRawValue(String path) {
+    final dataPoint = signalKService.getValue(path);
+    if (dataPoint?.original is num) {
+      return (dataPoint!.original as num).toDouble();
+    }
+    if (dataPoint?.value is num) {
+      return (dataPoint!.value as num).toDouble();
+    }
+    return null;
+  }
+
+  /// Helper to get converted display value using MetadataStore
+  double? _getConverted(String path, double? rawValue) {
+    if (rawValue == null) return null;
+    final metadata = signalKService.metadataStore.get(path);
+    return metadata?.convert(rawValue) ?? rawValue;
+  }
+
+  /// Helper to format value with symbol using MetadataStore
+  String? _formatValue(String path, double? rawValue) {
+    if (rawValue == null) return null;
+    final metadata = signalKService.metadataStore.get(path);
+    return metadata?.format(rawValue, decimals: 1) ?? rawValue.toStringAsFixed(1);
+  }
+
   @override
   Widget build(BuildContext context) {
     // Expected data sources (in order):
@@ -37,60 +63,72 @@ class WindsteerTool extends StatelessWidget {
 
     // Get heading (required)
     final headingPath = config.dataSources[0].path;
-    final heading = signalKService.getConvertedValue(headingPath) ?? 0.0;
+    final headingRaw = _getRawValue(headingPath);
+    final heading = _getConverted(headingPath, headingRaw) ?? 0.0;
 
     // Get apparent wind angle (optional)
     double? apparentWindAngle;
     if (config.dataSources.length > 1) {
-      apparentWindAngle = signalKService.getConvertedValue(config.dataSources[1].path);
+      final path = config.dataSources[1].path;
+      apparentWindAngle = _getConverted(path, _getRawValue(path));
     }
 
     // Get true wind angle (optional)
     double? trueWindAngle;
     if (config.dataSources.length > 2) {
-      trueWindAngle = signalKService.getConvertedValue(config.dataSources[2].path);
+      final path = config.dataSources[2].path;
+      trueWindAngle = _getConverted(path, _getRawValue(path));
     }
 
     // Get apparent wind speed (optional)
     double? apparentWindSpeed;
     String? awsFormatted;
     if (config.dataSources.length > 3) {
-      apparentWindSpeed = signalKService.getConvertedValue(config.dataSources[3].path);
-      awsFormatted = signalKService.getValue(config.dataSources[3].path)?.formatted;
+      final path = config.dataSources[3].path;
+      final rawValue = _getRawValue(path);
+      apparentWindSpeed = _getConverted(path, rawValue);
+      awsFormatted = _formatValue(path, rawValue);
     }
 
     // Get true wind speed (optional)
     double? trueWindSpeed;
     String? twsFormatted;
     if (config.dataSources.length > 4) {
-      trueWindSpeed = signalKService.getConvertedValue(config.dataSources[4].path);
-      twsFormatted = signalKService.getValue(config.dataSources[4].path)?.formatted;
+      final path = config.dataSources[4].path;
+      final rawValue = _getRawValue(path);
+      trueWindSpeed = _getConverted(path, rawValue);
+      twsFormatted = _formatValue(path, rawValue);
     }
 
     // Get course over ground (optional)
     double? courseOverGround;
     if (config.dataSources.length > 5) {
-      courseOverGround = signalKService.getConvertedValue(config.dataSources[5].path);
+      final path = config.dataSources[5].path;
+      courseOverGround = _getConverted(path, _getRawValue(path));
     }
 
     // Get waypoint bearing (optional)
     double? waypointBearing;
     if (config.dataSources.length > 6) {
-      waypointBearing = signalKService.getConvertedValue(config.dataSources[6].path);
+      final path = config.dataSources[6].path;
+      waypointBearing = _getConverted(path, _getRawValue(path));
     }
 
     // Get drift set - current direction (optional)
     double? driftSet;
     if (config.dataSources.length > 7) {
-      driftSet = signalKService.getConvertedValue(config.dataSources[7].path);
+      final path = config.dataSources[7].path;
+      driftSet = _getConverted(path, _getRawValue(path));
     }
 
     // Get drift flow - current speed (optional)
     double? driftFlow;
     String? driftFormatted;
     if (config.dataSources.length > 8) {
-      driftFlow = signalKService.getConvertedValue(config.dataSources[8].path);
-      driftFormatted = signalKService.getValue(config.dataSources[8].path)?.formatted;
+      final path = config.dataSources[8].path;
+      final rawValue = _getRawValue(path);
+      driftFlow = _getConverted(path, rawValue);
+      driftFormatted = _formatValue(path, rawValue);
     }
 
     // Get historical wind data for wind sectors (optional)
@@ -98,13 +136,16 @@ class WindsteerTool extends StatelessWidget {
     double? trueWindMidHistoric;
     double? trueWindMaxHistoric;
     if (config.dataSources.length > 9) {
-      trueWindMinHistoric = signalKService.getConvertedValue(config.dataSources[9].path);
+      final path = config.dataSources[9].path;
+      trueWindMinHistoric = _getConverted(path, _getRawValue(path));
     }
     if (config.dataSources.length > 10) {
-      trueWindMidHistoric = signalKService.getConvertedValue(config.dataSources[10].path);
+      final path = config.dataSources[10].path;
+      trueWindMidHistoric = _getConverted(path, _getRawValue(path));
     }
     if (config.dataSources.length > 11) {
-      trueWindMaxHistoric = signalKService.getConvertedValue(config.dataSources[11].path);
+      final path = config.dataSources[11].path;
+      trueWindMaxHistoric = _getConverted(path, _getRawValue(path));
     }
 
     // Get style configuration

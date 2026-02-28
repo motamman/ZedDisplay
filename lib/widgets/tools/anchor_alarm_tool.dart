@@ -12,7 +12,6 @@ import '../../services/anchor_alarm_service.dart';
 import '../../services/messaging_service.dart';
 import '../../models/anchor_state.dart';
 import '../../services/tool_registry.dart';
-import '../../utils/conversion_utils.dart';
 import 'anchor_compass_overlay.dart';
 
 /// Anchor Alarm Tool - Single unified widget with map and controls
@@ -285,14 +284,13 @@ class _AnchorAlarmToolState extends State<AnchorAlarmTool> {
     }
 
     // Get magnetic variation to convert compass (magnetic) to true bearing
-    final magVarRaw = ConversionUtils.getRawValue(widget.signalKService, 'navigation.magneticVariation');
+    // Use MetadataStore (single source of truth) for conversion
     double magneticVariation = 0.0;
-    if (magVarRaw != null) {
-      magneticVariation = ConversionUtils.convertWeatherValue(
-        widget.signalKService,
-        WeatherFieldType.angle,
-        magVarRaw,
-      ) ?? 0.0;
+    final magVarData = widget.signalKService.getValue('navigation.magneticVariation');
+    if (magVarData?.value is num) {
+      final magVarRaw = (magVarData!.value as num).toDouble();
+      final metadata = widget.signalKService.metadataStore.get('navigation.magneticVariation');
+      magneticVariation = metadata?.convert(magVarRaw) ?? (magVarRaw * 180 / math.pi);
     }
 
     // Convert magnetic compass heading to true bearing
@@ -331,38 +329,43 @@ class _AnchorAlarmToolState extends State<AnchorAlarmTool> {
   }
 
 
-  // Format distance with user's preferred units
+  // Format distance with user's preferred units using MetadataStore (single source of truth)
   String _formatDistance(double? meters, String path) {
     if (meters == null) return '--';
-    return ConversionUtils.formatValue(
-      widget.signalKService,
-      path,
-      meters,
-      decimalPlaces: 0,
-    );
+    final metadata = widget.signalKService.metadataStore.get(path);
+    if (metadata != null) {
+      return metadata.format(meters, decimals: 0);
+    }
+    // Fallback: return raw meters
+    return '${meters.toStringAsFixed(0)} m';
   }
 
-  // Format depth with user's preferred units
+  // Format depth with user's preferred units using MetadataStore
   // Uses maxRadius path since it shares the same length category and has metadata
   String _formatDepth(double? meters) {
     if (meters == null) return '--';
-    return ConversionUtils.formatValue(
-      widget.signalKService,
-      'navigation.anchor.maxRadius',
-      meters,
-      decimalPlaces: 1,
-    );
+    final metadata = widget.signalKService.metadataStore.get('navigation.anchor.maxRadius');
+    if (metadata != null) {
+      return metadata.format(meters, decimals: 1);
+    }
+    // Fallback: return raw meters
+    return '${meters.toStringAsFixed(1)} m';
   }
 
-  // Format bearing with user's preferred angle units
+  // Format bearing with user's preferred angle units using MetadataStore
   String _formatBearing(double radians) {
-    final converted = ConversionUtils.convertWeatherValue(
-      widget.signalKService,
-      WeatherFieldType.angle,
-      radians,
-    );
-    final degrees = converted ?? (radians * 180 / math.pi);
-    final symbol = ConversionUtils.getWeatherUnitSymbol(WeatherFieldType.angle);
+    // Try to get angle metadata from a bearing path
+    final metadata = widget.signalKService.metadataStore.get('navigation.anchor.bearingTrue');
+    double degrees;
+    String symbol;
+    if (metadata != null) {
+      degrees = metadata.convert(radians) ?? (radians * 180 / math.pi);
+      symbol = metadata.symbol ?? '°';
+    } else {
+      // Fallback: manual radians to degrees
+      degrees = radians * 180 / math.pi;
+      symbol = '°';
+    }
     return '${((degrees + 360) % 360).toStringAsFixed(0)}$symbol';
   }
 

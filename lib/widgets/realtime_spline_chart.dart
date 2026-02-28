@@ -4,7 +4,6 @@ import 'dart:async';
 import '../services/signalk_service.dart';
 import '../models/zone_data.dart';
 import '../models/tool_config.dart';
-import '../utils/conversion_utils.dart';
 
 /// A real-time spline chart that displays live data from up to 3 SignalK paths
 class RealtimeSplineChart extends StatefulWidget {
@@ -106,8 +105,14 @@ class _RealtimeSplineChartState extends State<RealtimeSplineChart> with Automati
 
       for (int i = 0; i < widget.dataSources.length; i++) {
         final dataSource = widget.dataSources[i];
-        // Use client-side conversions
-        final value = ConversionUtils.getConvertedValue(widget.signalKService, dataSource.path);
+        // Use MetadataStore (single source of truth) for conversions
+        final dataPoint = widget.signalKService.getValue(dataSource.path);
+        double? value;
+        if (dataPoint?.value is num) {
+          final rawValue = (dataPoint!.value as num).toDouble();
+          final metadata = widget.signalKService.metadataStore.get(dataSource.path);
+          value = metadata?.convert(rawValue) ?? rawValue;
+        }
 
         if (value != null) {
           // Create new list with updated data (don't mutate existing)
@@ -193,8 +198,8 @@ class _RealtimeSplineChartState extends State<RealtimeSplineChart> with Automati
     final colors = _getSeriesColors();
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
-    // Get unit from first path
-    final unit = ConversionUtils.getUnitSymbol(widget.signalKService, widget.dataSources.first.path);
+    // Get unit from first path using MetadataStore (single source of truth)
+    final unit = widget.signalKService.metadataStore.get(widget.dataSources.first.path)?.symbol;
 
     return Card(
       child: Padding(
@@ -407,9 +412,9 @@ class _RealtimeSplineChartState extends State<RealtimeSplineChart> with Automati
       return baseLabel;
     }
 
-    // Get current value and unit
+    // Get current value and unit using MetadataStore (single source of truth)
     final currentValue = data.last.value.toStringAsFixed(1);
-    final unit = ConversionUtils.getUnitSymbol(widget.signalKService, dataSource.path);
+    final unit = widget.signalKService.metadataStore.get(dataSource.path)?.symbol;
 
     // Return label with value and unit
     return '$baseLabel ($currentValue${unit != null && unit.isNotEmpty ? ' $unit' : ''})';

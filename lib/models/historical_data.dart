@@ -1,5 +1,4 @@
 import '../services/signalk_service.dart';
-import '../utils/conversion_utils.dart';
 
 /// Model classes for SignalK Historical Data from signalk-parquet History API
 class HistoricalDataResponse {
@@ -164,9 +163,9 @@ class ChartDataSeries {
         if (value is num) {
           final rawValue = value.toDouble();
 
-          // Apply client-side conversion if service is provided
+          // Apply client-side conversion using MetadataStore (single source of truth)
           final convertedValue = signalKService != null
-              ? ConversionUtils.convertValue(signalKService, path, rawValue) ?? rawValue
+              ? signalKService.metadataStore.convert(path, rawValue) ?? rawValue
               : rawValue;
 
           points.add(ChartDataPoint(
