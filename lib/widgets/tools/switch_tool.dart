@@ -151,7 +151,7 @@ class _SwitchToolState extends State<SwitchTool> with AutomaticKeepAliveClientMi
                 }
                 return const Icon(Icons.close, size: 16, color: Colors.white);
               }),
-              onChanged: isSending ? null : (value) => _toggleSwitch(value, dataSource.path),
+              onChanged: isSending ? null : (value) => _toggleSwitch(value, dataSource.path, dataSource.source),
             ),
           ),
           if (isSending)
@@ -182,7 +182,7 @@ class _SwitchToolState extends State<SwitchTool> with AutomaticKeepAliveClientMi
     return Card(
       elevation: 2,
       child: InkWell(
-        onTap: isSending ? null : () => _toggleSwitch(!currentValue, dataSource.path),
+        onTap: isSending ? null : () => _toggleSwitch(!currentValue, dataSource.path, dataSource.source),
         borderRadius: BorderRadius.circular(12),
         child: Container(
           padding: const EdgeInsets.all(8),
@@ -242,13 +242,13 @@ class _SwitchToolState extends State<SwitchTool> with AutomaticKeepAliveClientMi
     );
   }
 
-  Future<void> _toggleSwitch(bool newValue, String path) async {
+  Future<void> _toggleSwitch(bool newValue, String path, String? source) async {
     setState(() {
       _sendingPaths.add(path);
     });
 
     try {
-      await widget.signalKService.sendPutRequest(path, newValue);
+      await widget.signalKService.sendPutRequest(path, newValue, source: source);
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

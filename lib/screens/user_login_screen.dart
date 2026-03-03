@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../services/auth_service.dart';
 import '../services/signalk_service.dart';
@@ -42,7 +43,13 @@ class _UserLoginScreenState extends State<UserLoginScreen> {
     super.dispose();
   }
 
-  String get _connectionId => widget.connectionId ?? widget.serverUrl;
+  String get _connectionId {
+    if (widget.connectionId != null) return widget.connectionId!;
+    // Look up connection by URL to get proper ID
+    final storageService = Provider.of<StorageService>(context, listen: false);
+    final connection = storageService.findConnectionByUrl(widget.serverUrl);
+    return connection?.id ?? widget.serverUrl;
+  }
 
   Future<void> _login() async {
     if (!_formKey.currentState!.validate()) {
@@ -100,6 +107,9 @@ class _UserLoginScreenState extends State<UserLoginScreen> {
       }
 
       if (mounted) {
+        // Tell password manager to save credentials
+        TextInput.finishAutofillContext();
+
         // Navigate to dashboard
         Navigator.of(context).pushAndRemoveUntil(
           MaterialPageRoute(builder: (context) => const DashboardManagerScreen()),
@@ -223,52 +233,77 @@ class _UserLoginScreenState extends State<UserLoginScreen> {
                     const SizedBox(height: 16),
                   ],
 
-                  // Username field
-                  TextFormField(
-                    controller: _usernameController,
-                    decoration: const InputDecoration(
-                      labelText: 'Username',
-                      prefixIcon: Icon(Icons.person_outline),
-                      border: OutlineInputBorder(),
-                    ),
-                    textInputAction: TextInputAction.next,
-                    autocorrect: false,
-                    validator: (value) {
-                      if (value == null || value.trim().isEmpty) {
-                        return 'Please enter your username';
-                      }
-                      return null;
-                    },
-                  ),
-                  const SizedBox(height: 16),
-
-                  // Password field
-                  TextFormField(
-                    controller: _passwordController,
-                    decoration: InputDecoration(
-                      labelText: 'Password',
-                      prefixIcon: const Icon(Icons.lock_outline),
-                      border: const OutlineInputBorder(),
-                      suffixIcon: IconButton(
-                        icon: Icon(
-                          _obscurePassword ? Icons.visibility : Icons.visibility_off,
+                  // Autofill group with URL for password manager association
+                  AutofillGroup(
+                    child: Column(
+                      children: [
+                        // Server URL field (read-only, for password manager context)
+                        // Format as full URL so password managers treat it as a website
+                        TextFormField(
+                          initialValue: '${widget.secure ? "https" : "http"}://${widget.serverUrl}',
+                          readOnly: true,
+                          enabled: false,
+                          decoration: const InputDecoration(
+                            labelText: 'Server',
+                            prefixIcon: Icon(Icons.dns_outlined),
+                            border: OutlineInputBorder(),
+                            filled: true,
+                          ),
+                          autofillHints: const [AutofillHints.url],
                         ),
-                        onPressed: () {
-                          setState(() {
-                            _obscurePassword = !_obscurePassword;
-                          });
-                        },
-                      ),
+                        const SizedBox(height: 16),
+
+                        // Username field
+                        TextFormField(
+                          controller: _usernameController,
+                          decoration: const InputDecoration(
+                            labelText: 'Username',
+                            prefixIcon: Icon(Icons.person_outline),
+                            border: OutlineInputBorder(),
+                          ),
+                          textInputAction: TextInputAction.next,
+                          autocorrect: false,
+                          autofillHints: const [AutofillHints.username],
+                          validator: (value) {
+                            if (value == null || value.trim().isEmpty) {
+                              return 'Please enter your username';
+                            }
+                            return null;
+                          },
+                        ),
+                        const SizedBox(height: 16),
+
+                        // Password field
+                        TextFormField(
+                          controller: _passwordController,
+                          decoration: InputDecoration(
+                            labelText: 'Password',
+                            prefixIcon: const Icon(Icons.lock_outline),
+                            border: const OutlineInputBorder(),
+                            suffixIcon: IconButton(
+                              icon: Icon(
+                                _obscurePassword ? Icons.visibility : Icons.visibility_off,
+                              ),
+                              onPressed: () {
+                                setState(() {
+                                  _obscurePassword = !_obscurePassword;
+                                });
+                              },
+                            ),
+                          ),
+                          obscureText: _obscurePassword,
+                          textInputAction: TextInputAction.done,
+                          autofillHints: const [AutofillHints.password],
+                          onFieldSubmitted: (_) => _login(),
+                          validator: (value) {
+                            if (value == null || value.isEmpty) {
+                              return 'Please enter your password';
+                            }
+                            return null;
+                          },
+                        ),
+                      ],
                     ),
-                    obscureText: _obscurePassword,
-                    textInputAction: TextInputAction.done,
-                    onFieldSubmitted: (_) => _login(),
-                    validator: (value) {
-                      if (value == null || value.isEmpty) {
-                        return 'Please enter your password';
-                      }
-                      return null;
-                    },
                   ),
                   const SizedBox(height: 24),
 

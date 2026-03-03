@@ -185,6 +185,10 @@ class SignalKService extends ChangeNotifier implements DataService {
   int get maxReconnectAttempts => _maxReconnectAttempts;
   bool get wasConnected => _wasConnected;
 
+  /// The full vessel context path (e.g., 'vessels.urn:mrn:imo:mmsi:367780840')
+  /// Used for PUT requests to ensure proper routing
+  String? get vesselContext => _vesselContext;
+
   /// Get recent notifications (last 10 seconds by default)
   List<SignalKNotification> getRecentNotifications({Duration maxAge = const Duration(seconds: 10)}) {
     return _notificationManager.getRecentNotifications(maxAge: maxAge);
@@ -736,15 +740,23 @@ class SignalKService extends ChangeNotifier implements DataService {
   }
 
   /// Send PUT request to SignalK server
+  ///
+  /// If [source] is provided, it specifies which source/plugin should handle the PUT.
+  /// This is required when multiple sources exist for the same path.
   @override
-  Future<void> sendPutRequest(String path, dynamic value) async {
+  Future<void> sendPutRequest(String path, dynamic value, {String? source}) async {
     final protocol = _useSecureConnection ? 'https' : 'http';
 
     // Convert dot notation to slash notation for URL
-    // e.g., 'steering.autopilot.state' -> 'steering/autopilot/state'
+    // e.g., 'commands.captureMoored.auto' -> 'commands/captureMoored/auto'
+    // Use vessels/self as context - plugins register handlers for this context
+    // The 'source' in body selects which handler when multiple exist
     final urlPath = path.replaceAll('.', '/');
 
     final body = <String, dynamic>{'value': value};
+    if (source != null) {
+      body['source'] = source;
+    }
 
     try {
       final response = await http.put(
