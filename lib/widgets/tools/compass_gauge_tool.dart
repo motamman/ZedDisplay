@@ -3,7 +3,6 @@ import '../../models/tool_definition.dart';
 import '../../models/tool_config.dart';
 import '../../services/signalk_service.dart';
 import '../../services/tool_registry.dart';
-import '../../utils/conversion_utils.dart';
 import '../compass_gauge.dart';
 import '../../utils/string_extensions.dart';
 import '../../utils/color_extensions.dart';
@@ -19,6 +18,32 @@ class CompassGaugeTool extends StatelessWidget {
     required this.signalKService,
   });
 
+  /// Helper to get raw SI value from a data point
+  double? _getRawValue(String path) {
+    final dataPoint = signalKService.getValue(path);
+    if (dataPoint?.original is num) {
+      return (dataPoint!.original as num).toDouble();
+    }
+    if (dataPoint?.value is num) {
+      return (dataPoint!.value as num).toDouble();
+    }
+    return null;
+  }
+
+  /// Helper to get converted display value using MetadataStore
+  double? _getConverted(String path, double? rawValue) {
+    if (rawValue == null) return null;
+    final metadata = signalKService.metadataStore.get(path);
+    return metadata?.convert(rawValue) ?? rawValue;
+  }
+
+  /// Helper to format value with symbol using MetadataStore
+  String? _formatValue(String path, double? rawValue) {
+    if (rawValue == null) return null;
+    final metadata = signalKService.metadataStore.get(path);
+    return metadata?.format(rawValue, decimals: 1) ?? rawValue.toStringAsFixed(1);
+  }
+
   @override
   Widget build(BuildContext context) {
     // Get data from data sources (up to 4)
@@ -28,23 +53,15 @@ class CompassGaugeTool extends StatelessWidget {
 
     final dataSource = config.dataSources.first;
 
-    // Use client-side conversions
-    final rawValue = ConversionUtils.getRawValue(signalKService, dataSource.path);
-    final heading = ConversionUtils.getConvertedValue(signalKService, dataSource.path) ?? 0.0;
+    // Use MetadataStore for conversions
+    final rawValue = _getRawValue(dataSource.path);
+    final heading = _getConverted(dataSource.path, rawValue) ?? 0.0;
 
     // Get label from data source or style
     final label = dataSource.label ?? dataSource.path.toReadableLabel();
 
-    // Get formatted value using client-side conversion
-    String? formattedValue;
-    if (rawValue != null) {
-      formattedValue = ConversionUtils.formatValue(
-        signalKService,
-        dataSource.path,
-        rawValue,
-        decimalPlaces: 1,
-      );
-    }
+    // Get formatted value using MetadataStore
+    final formattedValue = _formatValue(dataSource.path, rawValue);
 
     // Parse color from hex string
     final primaryColor = config.style.primaryColor?.toColor(
@@ -67,7 +84,8 @@ class CompassGaugeTool extends StatelessWidget {
 
     for (int i = 1; i < config.dataSources.length && i < 4; i++) {
       final source = config.dataSources[i];
-      final value = ConversionUtils.getConvertedValue(signalKService, source.path);
+      final raw = _getRawValue(source.path);
+      final value = _getConverted(source.path, raw);
       if (value != null) {
         additionalHeadings.add(value);
         additionalLabels.add(source.label ?? source.path.toReadableLabel());

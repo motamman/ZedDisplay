@@ -5,6 +5,33 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.26+35] - 2026-02-26
+
+### Added
+- **Server Manager Webapp Icons**: Webapps now display their icons in the Server Manager list
+- **In-App Webapp Browser**: Tapping a webapp opens it in a built-in WebView instead of external browser
+  - Authentication token automatically passed via cookie for seamless login
+  - Shows webapp display name in app bar
+  - Includes loading indicator and refresh button
+
+### Fixed
+- **Debug Logging**: Removed verbose unit conversion debug prints from console output
+
+## [0.5.25+34] - 2026-02-24
+
+### Added
+- **Channel Subscriptions**: Users can now subscribe/unsubscribe from intercom audio channels
+  - Toggle channel subscriptions in the Crew List (icons shown next to each crew member)
+  - Emergency channel (CH16) is always subscribed - cannot be disabled
+  - Captains and First Mates can manage any crew member's subscriptions
+  - Regular crew can only manage their own subscriptions
+  - Subscriptions persist across app restarts
+  - Admins can also manage subscriptions via User Management Tool
+
+### Changed
+- **Default Tool Size**: New tools now default to full grid size (8x8) for simpler placement
+- **Direct Tool Placement**: Tools without required configuration can now be placed directly without opening config dialog first
+
 ## [0.5.24+33] - 2026-02-24
 
 ### Changed

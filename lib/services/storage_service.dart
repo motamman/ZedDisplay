@@ -847,6 +847,58 @@ class StorageService extends ChangeNotifier {
     }
   }
 
+  // ===== Channel Subscriptions Management =====
+
+  /// Save channel subscriptions for a user
+  /// Stores the set of channel IDs the user is subscribed to
+  Future<void> saveChannelSubscriptions(String userId, Set<String> channelIds) async {
+    if (!_initialized) throw Exception('StorageService not initialized');
+
+    try {
+      final json = jsonEncode(channelIds.toList());
+      await _settingsBox.put('channel_subscriptions_$userId', json);
+      notifyListeners();
+
+      if (kDebugMode) {
+        print('Saved channel subscriptions for $userId: ${channelIds.length} channels');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error saving channel subscriptions: $e');
+      }
+      rethrow;
+    }
+  }
+
+  /// Load channel subscriptions for a user
+  /// Returns null if no subscriptions exist (new user - defaults handled by caller)
+  Set<String>? loadChannelSubscriptions(String userId) {
+    if (!_initialized) return null;
+
+    try {
+      final json = _settingsBox.get('channel_subscriptions_$userId');
+      if (json == null) return null;
+
+      final List<dynamic> channelList = jsonDecode(json);
+      return channelList.map((e) => e as String).toSet();
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error loading channel subscriptions for $userId: $e');
+      }
+      return null;
+    }
+  }
+
+  /// Clear channel subscriptions for a user
+  Future<void> clearChannelSubscriptions(String userId) async {
+    if (!_initialized) throw Exception('StorageService not initialized');
+    await _settingsBox.delete('channel_subscriptions_$userId');
+
+    if (kDebugMode) {
+      print('Cleared channel subscriptions for $userId');
+    }
+  }
+
   // ===== User Unit Preferences Management =====
 
   /// Save user's unit preferences preset (cached locally for offline use)

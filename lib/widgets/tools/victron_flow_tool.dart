@@ -4,7 +4,6 @@ import '../../models/tool_config.dart';
 import '../../models/tool_definition.dart';
 import '../../services/signalk_service.dart';
 import '../../services/tool_registry.dart';
-import '../../utils/conversion_utils.dart';
 
 /// Configuration for a power source (e.g., Shore, Solar, Alternator, Generator)
 class PowerSourceConfig {
@@ -763,14 +762,13 @@ class _VictronFlowToolState extends State<VictronFlowTool> with SingleTickerProv
                         if (timeText.isNotEmpty)
                           Text(timeText, style: const TextStyle(color: Colors.white70, fontSize: 13)),
                         if (temp != null)
-                          Text(
-                            ConversionUtils.formatValue(
-                              widget.signalKService,
-                              _batteryConfig.temperaturePath ?? 'electrical.batteries.house.temperature',
-                              temp,
-                              decimalPlaces: 0,
-                            ),
-                            style: const TextStyle(color: Colors.white70, fontSize: 13),
+                          Builder(
+                            builder: (context) {
+                              final tempPath = _batteryConfig.temperaturePath ?? 'electrical.batteries.house.temperature';
+                              final metadata = widget.signalKService.metadataStore.get(tempPath);
+                              final formatted = metadata?.format(temp, decimals: 0) ?? temp.toStringAsFixed(0);
+                              return Text(formatted, style: const TextStyle(color: Colors.white70, fontSize: 13));
+                            },
                           ),
                       ],
                     ),
@@ -814,14 +812,13 @@ class _VictronFlowToolState extends State<VictronFlowTool> with SingleTickerProv
                     ),
                     if (temp != null) ...[
                       const SizedBox(width: 16),
-                      Text(
-                        ConversionUtils.formatValue(
-                          widget.signalKService,
-                          _batteryConfig.temperaturePath ?? 'electrical.batteries.house.temperature',
-                          temp,
-                          decimalPlaces: 0,
-                        ),
-                        style: const TextStyle(color: Colors.white70, fontSize: 14),
+                      Builder(
+                        builder: (context) {
+                          final tempPath = _batteryConfig.temperaturePath ?? 'electrical.batteries.house.temperature';
+                          final metadata = widget.signalKService.metadataStore.get(tempPath);
+                          final formatted = metadata?.format(temp, decimals: 0) ?? temp.toStringAsFixed(0);
+                          return Text(formatted, style: const TextStyle(color: Colors.white70, fontSize: 14));
+                        },
                       ),
                     ],
                   ],

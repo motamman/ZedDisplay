@@ -3,7 +3,6 @@ import '../../models/tool_definition.dart';
 import '../../models/tool_config.dart';
 import '../../services/signalk_service.dart';
 import '../../services/tool_registry.dart';
-import '../../utils/conversion_utils.dart';
 
 /// Tool for monitoring Raspberry Pi system metrics
 /// Requires signalk-rpi-monitor and signalk-rpi-uptime plugins
@@ -17,215 +16,85 @@ class RpiMonitorTool extends StatelessWidget {
     required this.signalKService,
   });
 
+  /// Helper to get raw SI value from a data point
+  double? _getRawValue(String path) {
+    final dataPoint = signalKService.getValue(path);
+    if (dataPoint?.original is num) {
+      return (dataPoint!.original as num).toDouble();
+    }
+    if (dataPoint?.value is num) {
+      return (dataPoint!.value as num).toDouble();
+    }
+    return null;
+  }
+
+  /// Helper to format a value using MetadataStore
+  String _formatValue(String path, double rawValue, {int decimals = 1}) {
+    final metadata = signalKService.metadataStore.get(path);
+    if (metadata != null) {
+      return metadata.format(rawValue, decimals: decimals);
+    }
+    return rawValue.toStringAsFixed(decimals);
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
     // Get CPU metrics
-    final cpuUtil = ConversionUtils.getRawValue(
-      signalKService,
-      'environment.rpi.cpu.utilisation',
-    );
-    final core1Util = ConversionUtils.getRawValue(
-      signalKService,
-      'environment.rpi.cpu.core.1.utilisation',
-    );
-    final core2Util = ConversionUtils.getRawValue(
-      signalKService,
-      'environment.rpi.cpu.core.2.utilisation',
-    );
-    final core3Util = ConversionUtils.getRawValue(
-      signalKService,
-      'environment.rpi.cpu.core.3.utilisation',
-    );
-    final core4Util = ConversionUtils.getRawValue(
-      signalKService,
-      'environment.rpi.cpu.core.4.utilisation',
-    );
+    final cpuUtil = _getRawValue('environment.rpi.cpu.utilisation');
+    final core1Util = _getRawValue('environment.rpi.cpu.core.1.utilisation');
+    final core2Util = _getRawValue('environment.rpi.cpu.core.2.utilisation');
+    final core3Util = _getRawValue('environment.rpi.cpu.core.3.utilisation');
+    final core4Util = _getRawValue('environment.rpi.cpu.core.4.utilisation');
 
     // Get temperature metrics
     // Use raw Kelvin values for color thresholds, formatted values for display
-    final cpuTempK = ConversionUtils.getRawValue(
-      signalKService,
-      'environment.rpi.cpu.temperature',
-    );
+    final cpuTempK = _getRawValue('environment.rpi.cpu.temperature');
     final cpuTempFormatted = cpuTempK != null
-        ? ConversionUtils.formatValue(
-            signalKService,
-            'environment.rpi.cpu.temperature',
-            cpuTempK,
-          )
+        ? _formatValue('environment.rpi.cpu.temperature', cpuTempK)
         : null;
 
-    final gpuTempK = ConversionUtils.getRawValue(
-      signalKService,
-      'environment.rpi.gpu.temperature',
-    );
+    final gpuTempK = _getRawValue('environment.rpi.gpu.temperature');
     final gpuTempFormatted = gpuTempK != null
-        ? ConversionUtils.formatValue(
-            signalKService,
-            'environment.rpi.gpu.temperature',
-            gpuTempK,
-          )
+        ? _formatValue('environment.rpi.gpu.temperature', gpuTempK)
         : null;
 
     // Get uptime (in seconds)
-    final uptimeSeconds = ConversionUtils.getRawValue(
-      signalKService,
-      'environment.rpi.uptime',
-    );
+    final uptimeSeconds = _getRawValue('environment.rpi.uptime');
 
     // Get memory and storage (if available)
-    final memoryUtil = ConversionUtils.getRawValue(
-      signalKService,
-      'environment.rpi.memory.utilisation',
-    );
-    final storageUtil = ConversionUtils.getRawValue(
-      signalKService,
-      'environment.rpi.storage.utilisation',
-    );
+    final memoryUtil = _getRawValue('environment.rpi.memory.utilisation');
+    final storageUtil = _getRawValue('environment.rpi.storage.utilisation');
 
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Header
-            Row(
-              children: [
-                Icon(Icons.memory, color: theme.colorScheme.primary, size: 24),
-                const SizedBox(width: 8),
-                Text(
-                  'Raspberry Pi Monitor',
-                  style: theme.textTheme.titleLarge?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ],
-            ),
+    // Check if we have any data
+    final hasData = cpuUtil != null ||
+        cpuTempK != null ||
+        gpuTempK != null ||
+        uptimeSeconds != null;
 
-            const SizedBox(height: 16),
-
-            // CPU Section
-            _buildSectionHeader('CPU', Icons.speed, Colors.blue, theme),
-            const SizedBox(height: 8),
-
-            if (cpuUtil != null)
-              _buildMetricRow(
-                'Overall',
-                '${(cpuUtil * 100).toStringAsFixed(1)}%',
-                cpuUtil,
-                Colors.blue,
-                theme,
-              ),
-
-            const SizedBox(height: 4),
-
-            // CPU Cores
-            Row(
-              children: [
-                if (core1Util != null)
-                  Expanded(
-                    child: _buildCoreCard('Core 1', core1Util, Colors.blue.shade300),
-                  ),
-                if (core2Util != null) ...[
-                  const SizedBox(width: 4),
-                  Expanded(
-                    child: _buildCoreCard('Core 2', core2Util, Colors.blue.shade400),
-                  ),
-                ],
-              ],
-            ),
-            const SizedBox(height: 4),
-            Row(
-              children: [
-                if (core3Util != null)
-                  Expanded(
-                    child: _buildCoreCard('Core 3', core3Util, Colors.blue.shade500),
-                  ),
-                if (core4Util != null) ...[
-                  const SizedBox(width: 4),
-                  Expanded(
-                    child: _buildCoreCard('Core 4', core4Util, Colors.blue.shade600),
-                  ),
-                ],
-              ],
-            ),
-
-            const SizedBox(height: 16),
-
-            // Temperature Section
-            _buildSectionHeader('Temperature', Icons.thermostat, Colors.orange, theme),
-            const SizedBox(height: 8),
-
-            Row(
-              children: [
-                if (cpuTempK != null && cpuTempFormatted != null)
-                  Expanded(
-                    child: _buildTempCard(
-                      'CPU',
-                      cpuTempFormatted,
-                      Icons.memory,
-                      _getTempColor(cpuTempK),
-                    ),
-                  ),
-                if (gpuTempK != null && gpuTempFormatted != null) ...[
+    // No data message
+    if (!hasData) {
+      return Card(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Header
+              Row(
+                children: [
+                  Icon(Icons.memory, color: theme.colorScheme.primary, size: 24),
                   const SizedBox(width: 8),
-                  Expanded(
-                    child: _buildTempCard(
-                      'GPU',
-                      gpuTempFormatted,
-                      Icons.videocam,
-                      _getTempColor(gpuTempK),
+                  Text(
+                    'Raspberry Pi Monitor',
+                    style: theme.textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.bold,
                     ),
                   ),
                 ],
-              ],
-            ),
-
-            const SizedBox(height: 16),
-
-            // Memory & Storage Section
-            if (memoryUtil != null || storageUtil != null) ...[
-              _buildSectionHeader('Resources', Icons.storage, Colors.purple, theme),
-              const SizedBox(height: 8),
-
-              if (memoryUtil != null)
-                _buildMetricRow(
-                  'Memory',
-                  '${(memoryUtil * 100).toStringAsFixed(1)}%',
-                  memoryUtil,
-                  Colors.purple,
-                  theme,
-                ),
-
-              if (storageUtil != null) ...[
-                const SizedBox(height: 4),
-                _buildMetricRow(
-                  'Storage',
-                  '${(storageUtil * 100).toStringAsFixed(1)}%',
-                  storageUtil,
-                  Colors.purple,
-                  theme,
-                ),
-              ],
-
+              ),
               const SizedBox(height: 16),
-            ],
-
-            // Uptime Section
-            if (uptimeSeconds != null) ...[
-              _buildSectionHeader('System', Icons.access_time, Colors.green, theme),
-              const SizedBox(height: 8),
-              _buildUptimeCard(uptimeSeconds, theme),
-            ],
-
-            // No data message
-            if (cpuUtil == null &&
-                cpuTempK == null &&
-                gpuTempK == null &&
-                uptimeSeconds == null)
               Center(
                 child: Padding(
                   padding: const EdgeInsets.all(24),
@@ -255,9 +124,225 @@ class RpiMonitorTool extends StatelessWidget {
                   ),
                 ),
               ),
-          ],
+            ],
+          ),
+        ),
+      );
+    }
+
+    // Responsive layout for data sections
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final isWide = constraints.maxWidth >= 600;
+
+            final leftColumn = _buildLeftColumn(
+              theme: theme,
+              cpuUtil: cpuUtil,
+              core1Util: core1Util,
+              core2Util: core2Util,
+              core3Util: core3Util,
+              core4Util: core4Util,
+            );
+
+            final rightColumn = _buildRightColumn(
+              theme: theme,
+              cpuTempK: cpuTempK,
+              cpuTempFormatted: cpuTempFormatted,
+              gpuTempK: gpuTempK,
+              gpuTempFormatted: gpuTempFormatted,
+              memoryUtil: memoryUtil,
+              storageUtil: storageUtil,
+              uptimeSeconds: uptimeSeconds,
+            );
+
+            if (isWide) {
+              return Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(child: leftColumn),
+                  const SizedBox(width: 16),
+                  Expanded(child: rightColumn),
+                ],
+              );
+            } else {
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  leftColumn,
+                  const SizedBox(height: 16),
+                  rightColumn,
+                ],
+              );
+            }
+          },
         ),
       ),
+    );
+  }
+
+  Widget _buildLeftColumn({
+    required ThemeData theme,
+    required double? cpuUtil,
+    required double? core1Util,
+    required double? core2Util,
+    required double? core3Util,
+    required double? core4Util,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Header
+        Row(
+          children: [
+            Icon(Icons.memory, color: theme.colorScheme.primary, size: 20),
+            const SizedBox(width: 6),
+            Flexible(
+              child: Text(
+                'RPi Monitor',
+                style: theme.textTheme.titleSmall?.copyWith(
+                  fontWeight: FontWeight.bold,
+                ),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+        ),
+
+        const SizedBox(height: 12),
+
+        // CPU Section
+        _buildSectionHeader('CPU', Icons.speed, Colors.blue, theme),
+        const SizedBox(height: 8),
+
+        if (cpuUtil != null)
+          _buildMetricRow(
+            'Overall',
+            '${(cpuUtil * 100).toStringAsFixed(1)}%',
+            cpuUtil,
+            Colors.blue,
+            theme,
+          ),
+
+        const SizedBox(height: 4),
+
+        // CPU Cores
+        Row(
+          children: [
+            if (core1Util != null)
+              Expanded(
+                child: _buildCoreCard('Core 1', core1Util, Colors.blue.shade300),
+              ),
+            if (core2Util != null) ...[
+              const SizedBox(width: 4),
+              Expanded(
+                child: _buildCoreCard('Core 2', core2Util, Colors.blue.shade400),
+              ),
+            ],
+          ],
+        ),
+        const SizedBox(height: 4),
+        Row(
+          children: [
+            if (core3Util != null)
+              Expanded(
+                child: _buildCoreCard('Core 3', core3Util, Colors.blue.shade500),
+              ),
+            if (core4Util != null) ...[
+              const SizedBox(width: 4),
+              Expanded(
+                child: _buildCoreCard('Core 4', core4Util, Colors.blue.shade600),
+              ),
+            ],
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildRightColumn({
+    required ThemeData theme,
+    required double? cpuTempK,
+    required String? cpuTempFormatted,
+    required double? gpuTempK,
+    required String? gpuTempFormatted,
+    required double? memoryUtil,
+    required double? storageUtil,
+    required double? uptimeSeconds,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Temperature Section
+        if (cpuTempK != null || gpuTempK != null) ...[
+          _buildSectionHeader('Temperature', Icons.thermostat, Colors.orange, theme),
+          const SizedBox(height: 8),
+
+          Row(
+            children: [
+              if (cpuTempK != null && cpuTempFormatted != null)
+                Expanded(
+                  child: _buildTempCard(
+                    'CPU',
+                    cpuTempFormatted,
+                    Icons.memory,
+                    _getTempColor(cpuTempK),
+                  ),
+                ),
+              if (gpuTempK != null && gpuTempFormatted != null) ...[
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _buildTempCard(
+                    'GPU',
+                    gpuTempFormatted,
+                    Icons.videocam,
+                    _getTempColor(gpuTempK),
+                  ),
+                ),
+              ],
+            ],
+          ),
+
+          const SizedBox(height: 16),
+        ],
+
+        // Memory & Storage Section
+        if (memoryUtil != null || storageUtil != null) ...[
+          _buildSectionHeader('Resources', Icons.storage, Colors.purple, theme),
+          const SizedBox(height: 8),
+
+          if (memoryUtil != null)
+            _buildMetricRow(
+              'Memory',
+              '${(memoryUtil * 100).toStringAsFixed(1)}%',
+              memoryUtil,
+              Colors.purple,
+              theme,
+            ),
+
+          if (storageUtil != null) ...[
+            const SizedBox(height: 4),
+            _buildMetricRow(
+              'Storage',
+              '${(storageUtil * 100).toStringAsFixed(1)}%',
+              storageUtil,
+              Colors.purple,
+              theme,
+            ),
+          ],
+
+          const SizedBox(height: 16),
+        ],
+
+        // Uptime Section
+        if (uptimeSeconds != null) ...[
+          _buildSectionHeader('System', Icons.access_time, Colors.green, theme),
+          const SizedBox(height: 8),
+          _buildUptimeCard(uptimeSeconds, theme),
+        ],
+      ],
     );
   }
 

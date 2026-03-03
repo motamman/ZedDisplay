@@ -69,9 +69,9 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
   int _hoursToShow = 12;
   bool _showCurrentConditions = true;
 
-  // Size configuration
-  int _toolWidth = 1;
-  int _toolHeight = 1;
+  // Size configuration (default to full grid 8x8)
+  int _toolWidth = 8;
+  int _toolHeight = 8;
 
   @override
   void initState() {
@@ -136,9 +136,9 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
     _hoursToShow = 12;
     _showCurrentConditions = true;
 
-    // Reset size
-    _toolWidth = 1;
-    _toolHeight = 1;
+    // Reset size (default to full grid 8x8)
+    _toolWidth = 8;
+    _toolHeight = 8;
 
     // NOTE: Tool-specific fields are reset by their configurators
     // The configurator's reset() method is called when created
@@ -164,20 +164,6 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
         DataSource(path: 'navigation.courseGreatCircle.nextPoint.bearingTrue'),
         DataSource(path: 'navigation.courseGreatCircle.nextPoint.distance'),
       ];
-    } else if (toolTypeId == 'rpi_monitor') {
-      // Special handling for rpi_monitor - add default paths
-      _dataSources = [
-        DataSource(path: 'environment.rpi.cpu.utilisation', label: 'CPU Overall'),
-        DataSource(path: 'environment.rpi.cpu.core.1.utilisation', label: 'CPU Core 1'),
-        DataSource(path: 'environment.rpi.cpu.core.2.utilisation', label: 'CPU Core 2'),
-        DataSource(path: 'environment.rpi.cpu.core.3.utilisation', label: 'CPU Core 3'),
-        DataSource(path: 'environment.rpi.cpu.core.4.utilisation', label: 'CPU Core 4'),
-        DataSource(path: 'environment.rpi.cpu.temperature', label: 'CPU Temperature'),
-        DataSource(path: 'environment.rpi.gpu.temperature', label: 'GPU Temperature'),
-        DataSource(path: 'environment.rpi.memory.utilisation', label: 'Memory'),
-        DataSource(path: 'environment.rpi.storage.utilisation', label: 'Storage'),
-        DataSource(path: 'environment.rpi.uptime', label: 'Uptime'),
-      ];
     } else {
       final defaultConfig = registry.getDefaultConfig(toolTypeId, vesselId);
       if (defaultConfig != null && defaultConfig.dataSources.isNotEmpty) {
@@ -191,43 +177,9 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
       }
     }
 
-    // Set default sizes for specific tool types
-    switch (toolTypeId) {
-      case 'autopilot':
-      case 'polar_radar_chart':
-      case 'ais_polar_chart':
-      case 'wind_compass':
-        _toolWidth = 6;
-        _toolHeight = 6;
-        break;
-      case 'gnss_status':
-        _toolWidth = 4;
-        _toolHeight = 4;
-        break;
-      case 'attitude_indicator':
-        _toolWidth = 3;
-        _toolHeight = 3;
-        break;
-      case 'weatherflow_forecast':
-        _toolWidth = 4;
-        _toolHeight = 4;
-        break;
-      case 'clock_alarm':
-      case 'weather_api_spinner':
-        _toolWidth = 4;
-        _toolHeight = 4;
-        break;
-      case 'conversion_test':
-      case 'server_manager':
-      case 'rpi_monitor':
-      case 'webview':
-        _toolWidth = 4;
-        _toolHeight = 8;
-        break;
-      default:
-        // Keep current defaults for other tool types
-        break;
-    }
+    // All tools default to full grid 8x8 - user can resize on dashboard
+    _toolWidth = 8;
+    _toolHeight = 8;
   }
 
   void _loadExistingTool() {
@@ -261,9 +213,9 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
 
     // NOTE: Tool-specific config is loaded by configurator's loadFromTool() method above
 
-    // Size is managed in placements, not tools
-    _toolWidth = 1;
-    _toolHeight = 1;
+    // Size is managed in placements, not tools (default to full grid)
+    _toolWidth = 8;
+    _toolHeight = 8;
   }
 
   Future<void> _addDataSource() async {
@@ -466,7 +418,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
     if (!_formKey.currentState!.validate()) return;
     // WebView, server_manager, system_monitor, and crew tools don't need data sources
     if (_selectedToolTypeId == null) return;
-    if (_selectedToolTypeId != 'webview' && _selectedToolTypeId != 'server_manager' && _selectedToolTypeId != 'system_monitor' && _selectedToolTypeId != 'crew_messages' && _selectedToolTypeId != 'crew_list' && _selectedToolTypeId != 'intercom' && _selectedToolTypeId != 'file_share' && _selectedToolTypeId != 'weather_alerts' && _selectedToolTypeId != 'clock_alarm' && _selectedToolTypeId != 'weather_api_spinner' && _selectedToolTypeId != 'victron_flow' && _selectedToolTypeId != 'device_access_manager' && _dataSources.isEmpty) return;
+    if (_selectedToolTypeId != 'webview' && _selectedToolTypeId != 'server_manager' && _selectedToolTypeId != 'system_monitor' && _selectedToolTypeId != 'crew_messages' && _selectedToolTypeId != 'crew_list' && _selectedToolTypeId != 'intercom' && _selectedToolTypeId != 'file_share' && _selectedToolTypeId != 'weather_alerts' && _selectedToolTypeId != 'clock_alarm' && _selectedToolTypeId != 'weather_api_spinner' && _selectedToolTypeId != 'victron_flow' && _selectedToolTypeId != 'device_access_manager' && _selectedToolTypeId != 'rpi_monitor' && _dataSources.isEmpty) return;
 
     final toolService = Provider.of<ToolService>(context, listen: false);
 
@@ -635,7 +587,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
         title: Text(widget.existingTool == null ? 'Add Tool' : 'Edit Tool'),
         actions: [
           TextButton.icon(
-            onPressed: _selectedToolTypeId != null && (_dataSources.isNotEmpty || _selectedToolTypeId == 'webview' || _selectedToolTypeId == 'server_manager' || _selectedToolTypeId == 'system_monitor' || _selectedToolTypeId == 'crew_messages' || _selectedToolTypeId == 'crew_list' || _selectedToolTypeId == 'intercom' || _selectedToolTypeId == 'file_share' || _selectedToolTypeId == 'weather_alerts' || _selectedToolTypeId == 'clock_alarm' || _selectedToolTypeId == 'weather_api_spinner' || _selectedToolTypeId == 'victron_flow' || _selectedToolTypeId == 'device_access_manager')
+            onPressed: _selectedToolTypeId != null && (_dataSources.isNotEmpty || _selectedToolTypeId == 'webview' || _selectedToolTypeId == 'server_manager' || _selectedToolTypeId == 'system_monitor' || _selectedToolTypeId == 'crew_messages' || _selectedToolTypeId == 'crew_list' || _selectedToolTypeId == 'intercom' || _selectedToolTypeId == 'file_share' || _selectedToolTypeId == 'weather_alerts' || _selectedToolTypeId == 'clock_alarm' || _selectedToolTypeId == 'weather_api_spinner' || _selectedToolTypeId == 'victron_flow' || _selectedToolTypeId == 'device_access_manager' || _selectedToolTypeId == 'rpi_monitor')
                 ? _saveTool
                 : null,
             icon: const Icon(Icons.check),
@@ -648,8 +600,8 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
-            // Data Source Configuration (hide for webview, server_manager, system_monitor, crew tools, weather_alerts, clock_alarm, weather_api_spinner, victron_flow, device_access_manager)
-            if (_selectedToolTypeId != 'webview' && _selectedToolTypeId != 'server_manager' && _selectedToolTypeId != 'system_monitor' && _selectedToolTypeId != 'crew_messages' && _selectedToolTypeId != 'crew_list' && _selectedToolTypeId != 'intercom' && _selectedToolTypeId != 'file_share' && _selectedToolTypeId != 'weather_alerts' && _selectedToolTypeId != 'clock_alarm' && _selectedToolTypeId != 'weather_api_spinner' && _selectedToolTypeId != 'victron_flow' && _selectedToolTypeId != 'device_access_manager')
+            // Data Source Configuration (hide for webview, server_manager, system_monitor, crew tools, weather_alerts, clock_alarm, weather_api_spinner, victron_flow, device_access_manager, rpi_monitor)
+            if (_selectedToolTypeId != 'webview' && _selectedToolTypeId != 'server_manager' && _selectedToolTypeId != 'system_monitor' && _selectedToolTypeId != 'crew_messages' && _selectedToolTypeId != 'crew_list' && _selectedToolTypeId != 'intercom' && _selectedToolTypeId != 'file_share' && _selectedToolTypeId != 'weather_alerts' && _selectedToolTypeId != 'clock_alarm' && _selectedToolTypeId != 'weather_api_spinner' && _selectedToolTypeId != 'victron_flow' && _selectedToolTypeId != 'device_access_manager' && _selectedToolTypeId != 'rpi_monitor')
               Card(
               child: Padding(
                 padding: const EdgeInsets.all(16),
@@ -792,106 +744,6 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                 ),
               ),
             ),
-            const SizedBox(height: 16),
-
-            // Size Configuration (only show for new tools, hide for most tool types that use pixel positioning)
-            if (widget.existingTool == null &&
-                _selectedToolTypeId != null &&
-                _selectedToolTypeId != 'autopilot' &&
-                _selectedToolTypeId != 'wind_compass' &&
-                _selectedToolTypeId != 'radial_gauge' &&
-                _selectedToolTypeId != 'linear_gauge' &&
-                _selectedToolTypeId != 'compass' &&
-                _selectedToolTypeId != 'text_display' &&
-                _selectedToolTypeId != 'conversion_test' &&
-                _selectedToolTypeId != 'slider' &&
-                _selectedToolTypeId != 'knob' &&
-                _selectedToolTypeId != 'switch' &&
-                _selectedToolTypeId != 'checkbox' &&
-                _selectedToolTypeId != 'dropdown' &&
-                _selectedToolTypeId != 'historical_chart' &&
-                _selectedToolTypeId != 'polar_radar_chart' &&
-                _selectedToolTypeId != 'ais_polar_chart' &&
-                _selectedToolTypeId != 'realtime_chart' &&
-                _selectedToolTypeId != 'radial_bar_chart' &&
-                _selectedToolTypeId != 'server_manager' &&
-                _selectedToolTypeId != 'rpi_monitor' &&
-                _selectedToolTypeId != 'system_monitor' &&
-                _selectedToolTypeId != 'webview' &&
-                _selectedToolTypeId != 'gnss_status' &&
-                _selectedToolTypeId != 'attitude_indicator' &&
-                _selectedToolTypeId != 'weatherflow_forecast' &&
-                _selectedToolTypeId != 'device_access_manager')
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Configure Size',
-                        style: Theme.of(context).textTheme.titleMedium,
-                      ),
-                      const SizedBox(height: 16),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                const Text('Width (columns)'),
-                                const SizedBox(height: 8),
-                                Wrap(
-                                  spacing: 8,
-                                  children: [1, 2, 3, 4, 5, 6, 7, 8].map((width) {
-                                    return ChoiceChip(
-                                      label: Text('$width'),
-                                      selected: _toolWidth == width,
-                                      onSelected: (_) {
-                                        setState(() => _toolWidth = width);
-                                      },
-                                    );
-                                  }).toList(),
-                                ),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(width: 16),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                const Text('Height (rows)'),
-                                const SizedBox(height: 8),
-                                Wrap(
-                                  spacing: 8,
-                                  children: [1, 2, 3, 4, 5, 6, 7, 8].map((height) {
-                                    return ChoiceChip(
-                                      label: Text('$height'),
-                                      selected: _toolHeight == height,
-                                      onSelected: (_) {
-                                        setState(() => _toolHeight = height);
-                                      },
-                                    );
-                                  }).toList(),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        'Size: $_toolWidth × $_toolHeight cells',
-                        style: Theme.of(context).textTheme.bodySmall,
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            const SizedBox(height: 16),
-
-            // Chart-specific Configuration
             const SizedBox(height: 16),
 
             // Style Configuration (hide for conversion_test, server_manager, rpi_monitor, system_monitor, crew tools, weather_alerts, and device_access_manager)

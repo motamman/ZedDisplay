@@ -37,11 +37,9 @@ abstract class DataService {
   ///
   /// [path] is the SignalK path to update
   /// [value] is the new value to set
-  ///
-  /// Note: In SignalK, the 'source' field in PUT identifies the SENDER,
-  /// not the target. You cannot write to another source's value.
-  /// Each source owns its own values.
-  Future<void> sendPutRequest(String path, dynamic value);
+  /// [source] optionally specifies which plugin should handle the PUT request.
+  /// This is important when multiple sources exist for the same path.
+  Future<void> sendPutRequest(String path, dynamic value, {String? source});
 
   /// Whether the service is currently connected
   bool get isConnected;

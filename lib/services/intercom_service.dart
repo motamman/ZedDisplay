@@ -77,6 +77,12 @@ class IntercomService extends ChangeNotifier {
   static const String _channelsStorageKey = 'intercom_channels_cache';
   static const String _lastChannelKey = 'intercom_last_channel';
 
+  // Channel subscriptions: userId → Set of channelIds
+  final Map<String, Set<String>> _userSubscriptions = {};
+
+  // Emergency channel ID (always subscribed)
+  static const String emergencyChannelId = 'ch16';
+
   // Session tracking
   String? _currentSessionId;
   final Set<String> _processedSignalingIds = {};
@@ -1597,4 +1603,104 @@ class IntercomService extends ChangeNotifier {
   /// Check if receiving from anyone
   bool get isReceiving => _activeTransmitters.entries
       .any((e) => e.key != _crewService.localProfile?.id);
+
+  // ===== Channel Subscriptions =====
+
+  /// Get subscribed channels for a user
+  /// Returns all channels including emergency (ch16) which is always subscribed
+  Set<String> getSubscribedChannels(String userId) {
+    // Load from cache if not in memory
+    if (!_userSubscriptions.containsKey(userId)) {
+      _loadUserSubscriptions(userId);
+    }
+
+    final subscriptions = _userSubscriptions[userId] ?? _getDefaultSubscriptions();
+    // Emergency channel is always included
+    return {...subscriptions, emergencyChannelId};
+  }
+
+  /// Check if a user is subscribed to a specific channel
+  bool isSubscribed(String userId, String channelId) {
+    // Emergency channel is always subscribed
+    if (channelId == emergencyChannelId) return true;
+    return getSubscribedChannels(userId).contains(channelId);
+  }
+
+  /// Subscribe a user to a channel
+  Future<void> subscribeToChannel(String userId, String channelId) async {
+    final subscriptions = getSubscribedChannels(userId);
+    if (subscriptions.contains(channelId)) return; // Already subscribed
+
+    final newSubscriptions = {...subscriptions, channelId};
+    _userSubscriptions[userId] = newSubscriptions;
+    await _storageService.saveChannelSubscriptions(userId, newSubscriptions);
+    notifyListeners();
+
+    if (kDebugMode) {
+      print('User $userId subscribed to channel $channelId');
+    }
+  }
+
+  /// Unsubscribe a user from a channel
+  /// Note: Cannot unsubscribe from emergency channel (ch16)
+  Future<void> unsubscribeFromChannel(String userId, String channelId) async {
+    // Cannot unsubscribe from emergency channel
+    if (channelId == emergencyChannelId) {
+      if (kDebugMode) {
+        print('Cannot unsubscribe from emergency channel');
+      }
+      return;
+    }
+
+    final subscriptions = getSubscribedChannels(userId);
+    if (!subscriptions.contains(channelId)) return; // Not subscribed
+
+    final newSubscriptions = subscriptions.where((id) => id != channelId).toSet();
+    _userSubscriptions[userId] = newSubscriptions;
+    await _storageService.saveChannelSubscriptions(userId, newSubscriptions);
+    notifyListeners();
+
+    if (kDebugMode) {
+      print('User $userId unsubscribed from channel $channelId');
+    }
+  }
+
+  /// Toggle subscription for a channel
+  Future<void> toggleChannelSubscription(String userId, String channelId) async {
+    if (isSubscribed(userId, channelId)) {
+      await unsubscribeFromChannel(userId, channelId);
+    } else {
+      await subscribeToChannel(userId, channelId);
+    }
+  }
+
+  /// Set all subscriptions for a user (used by admin)
+  Future<void> setUserSubscriptions(String userId, Set<String> channelIds) async {
+    // Always include emergency channel
+    final subscriptions = {...channelIds, emergencyChannelId};
+    _userSubscriptions[userId] = subscriptions;
+    await _storageService.saveChannelSubscriptions(userId, subscriptions);
+    notifyListeners();
+
+    if (kDebugMode) {
+      print('Set subscriptions for $userId: ${subscriptions.length} channels');
+    }
+  }
+
+  /// Load subscriptions for a user from storage
+  void _loadUserSubscriptions(String userId) {
+    final saved = _storageService.loadChannelSubscriptions(userId);
+    if (saved != null) {
+      // Always include emergency channel
+      _userSubscriptions[userId] = {...saved, emergencyChannelId};
+    } else {
+      // Default: subscribe to all channels
+      _userSubscriptions[userId] = _getDefaultSubscriptions();
+    }
+  }
+
+  /// Get default subscriptions (all channels)
+  Set<String> _getDefaultSubscriptions() {
+    return _channels.map((c) => c.id).toSet();
+  }
 }

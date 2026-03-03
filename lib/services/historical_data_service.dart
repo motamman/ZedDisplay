@@ -21,6 +21,11 @@ class HistoricalDataService {
   ///
   /// Parameters:
   /// - paths: List of SignalK paths to query (max 3 recommended)
+  ///   Supports full path expression syntax: path:aggregation:smoothing:param
+  ///   Examples:
+  ///     - 'navigation.speedOverGround' (defaults to :average)
+  ///     - 'navigation.speedOverGround:average:sma:5' (5-point SMA)
+  ///     - 'navigation.speedOverGround:average:ema:0.3' (EMA with alpha=0.3)
   /// - duration: Time duration to query backwards (e.g., '1h', '30m', '2d')
   /// - resolution: Time bucket size in milliseconds (null = auto, API optimizes based on duration)
   /// - context: SignalK context (default: 'vessels.self')
@@ -40,8 +45,7 @@ class HistoricalDataService {
 
     final protocol = useSecureConnection ? 'https' : 'http';
 
-    // Build the paths parameter with aggregation methods
-    // For each path, we'll use 'average' method by default
+    // Paths can include full expression syntax: path:aggregation:smoothing:param
     final pathsParam = paths.join(',');
 
     final queryParams = {

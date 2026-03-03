@@ -3,7 +3,6 @@ import '../../models/tool_definition.dart';
 import '../../models/tool_config.dart';
 import '../../services/signalk_service.dart';
 import '../../services/tool_registry.dart';
-import '../../utils/conversion_utils.dart';
 
 /// Simple test tool to display conversion data from SignalK
 /// Uses STANDARD SignalK WebSocket: ws://[server]/signalk/v1/stream
@@ -62,23 +61,25 @@ class _ConversionTestToolState extends State<ConversionTestTool> {
         final path = widget.config.dataSources[index].path;
         final dataPoint = widget.signalKService.getValue(path);
 
-        // Get displayUnits from server (the ACTIVE conversion from WebSocket meta)
-        final displayUnits = widget.signalKService.getDisplayUnits(path);
-        final targetUnit = displayUnits?['targetUnit'] as String?;
-        final formula = displayUnits?['formula'] as String?;
-        final symbol = displayUnits?['symbol'] as String?;
+        // Use MetadataStore as single source of truth for conversions
+        final metadata = widget.signalKService.metadataStore.get(path);
+        final targetUnit = metadata?.targetUnit;
+        final formula = metadata?.formula;
+        final symbol = metadata?.symbol;
 
-        // Get raw SI value using ConversionUtils
-        final rawValue = ConversionUtils.getRawValue(widget.signalKService, path);
+        // Get raw SI value from data point
+        final rawValue = dataPoint?.original is num
+            ? (dataPoint!.original as num).toDouble()
+            : (dataPoint?.value is num ? (dataPoint!.value as num).toDouble() : null);
 
-        // Get converted value using ConversionUtils (applies server's formula)
-        final convertedValue = ConversionUtils.getConvertedValue(widget.signalKService, path);
+        // Get converted value using MetadataStore (applies server's formula)
+        final convertedValue = rawValue != null ? metadata?.convert(rawValue) : null;
 
-        final hasDisplayUnits = displayUnits != null;
+        final hasMetadata = metadata != null;
 
         return Card(
           margin: const EdgeInsets.all(4.0),
-          color: hasDisplayUnits ? null : Colors.red.withOpacity(0.1),
+          color: hasMetadata ? null : Colors.red.withOpacity(0.1),
           child: Padding(
             padding: const EdgeInsets.all(8.0),
             child: Column(
@@ -87,9 +88,9 @@ class _ConversionTestToolState extends State<ConversionTestTool> {
                 Row(
                   children: [
                     Icon(
-                      hasDisplayUnits ? Icons.check_circle : Icons.error,
+                      hasMetadata ? Icons.check_circle : Icons.error,
                       size: 14,
-                      color: hasDisplayUnits ? Colors.green : Colors.red,
+                      color: hasMetadata ? Colors.green : Colors.red,
                     ),
                     const SizedBox(width: 4),
                     Expanded(
@@ -104,13 +105,13 @@ class _ConversionTestToolState extends State<ConversionTestTool> {
                   ],
                 ),
                 const SizedBox(height: 4),
-                if (hasDisplayUnits) ...[
-                  _buildRow('Target', '$targetUnit (${symbol ?? "?"})',),
+                if (hasMetadata) ...[
+                  _buildRow('Unit', symbol ?? targetUnit ?? '---'),
                   _buildRow('Raw (SI)', rawValue?.toStringAsFixed(4) ?? '---'),
                   _buildRow('Converted', convertedValue?.toStringAsFixed(2) ?? '---'),
                   _buildRow('Formula', formula ?? '---'),
                 ] else ...[
-                  _buildRow('Status', 'NO displayUnits from server'),
+                  _buildRow('Status', 'NO metadata from server'),
                   _buildRow('Raw value', dataPoint?.value?.toString() ?? '---'),
                 ],
               ],

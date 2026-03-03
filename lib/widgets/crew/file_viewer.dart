@@ -425,22 +425,38 @@ class _FileViewerState extends State<FileViewer> {
 
       // Import the dashboard
       final setupService = context.read<SetupService>();
-      if (switchNow) {
-        await setupService.importAndLoadSetup(jsonString);
-      } else {
-        await setupService.importSetup(jsonString);
-      }
+      final result = switchNow
+          ? await setupService.importAndLoadSetup(jsonString)
+          : await setupService.importSetup(jsonString);
 
       if (mounted) {
         setState(() => _isImporting = false);
+
+        // Build message with any warnings
+        String message;
+        Color color;
+        if (result.hasWarnings) {
+          message = switchNow
+              ? 'Dashboard imported with warnings: ${result.warnings.join("; ")}'
+              : 'Dashboard imported with warnings: ${result.warnings.join("; ")}';
+          color = Colors.orange;
+        } else {
+          message = switchNow
+              ? 'Dashboard imported and activated'
+              : 'Dashboard imported';
+          color = Colors.green;
+        }
+
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(switchNow
-                ? 'Dashboard imported and activated'
-                : 'Dashboard imported'),
-            backgroundColor: Colors.green,
+            content: Text(message),
+            backgroundColor: color,
+            duration: result.hasWarnings
+                ? const Duration(seconds: 5)
+                : const Duration(seconds: 3),
           ),
         );
+
         if (switchNow) {
           // Go back to dashboard
           Navigator.of(context).popUntil((route) => route.isFirst);
@@ -449,9 +465,14 @@ class _FileViewerState extends State<FileViewer> {
     } catch (e) {
       if (mounted) {
         setState(() => _isImporting = false);
+        // Format error message - remove nested Exception: prefixes
+        String errorMsg = e.toString().replaceAll(RegExp(r'Exception:\s*'), '');
+        if (errorMsg.length > 80) {
+          errorMsg = '${errorMsg.substring(0, 80)}...';
+        }
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Import failed: $e'),
+            content: Text('Import failed: $errorMsg'),
             backgroundColor: Colors.red,
           ),
         );

@@ -54,6 +54,13 @@ class UIConstants {
   /// Large spacing between elements
   static const double largeSpacing = 24.0;
 
+  // Dashboard grid dimensions (single source of truth)
+  /// Number of rows in the dashboard grid
+  static const int gridRows = 20;
+
+  /// Number of columns in the dashboard grid
+  static const int gridCols = 20;
+
   // Font sizes
   /// Small font size for secondary text (10pt)
   static const double fontSizeSmall = 10.0;

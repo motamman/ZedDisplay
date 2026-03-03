@@ -7,8 +7,8 @@ A customizable SignalK marine dashboard and crew comms application to display re
 ## SignalK Dependencies
 
 ### Required
-- **signalk-units-preference**: Must be installed to have base values converted. Without it many tools will not work.
-- **Admin access** - All devices need permission to access to data. ADMIN permission is required for several tools, including the Anchor Alarm and Server Manager.
+- **SignalK Server v2.x+** - Unit preferences API is built into the server core (no plugin needed)
+- **Admin access** - All devices need permission to access data. ADMIN permission is required for several tools, including the Anchor Alarm and Server Manager.
 
 ### Optional
 - **signalk-derived-data**: Provides computed values like true wind, VMG, and other derived navigational data
@@ -203,7 +203,7 @@ A customizable SignalK marine dashboard and crew comms application to display re
   - Live server statistics (uptime, delta rate, connected clients, available paths)
   - Per-provider statistics with delta rates
   - Plugin management (view all plugins, enable/disable with tap)
-  - Webapp listing with versions
+  - Webapp browser with icons - tap to open in-app with auth pass-through
   - Server restart functionality
   - Auto-updates every 5 seconds
 
@@ -292,6 +292,10 @@ SignalK acts as the message broker and data store:
 **Voice Intercom**
 - VHF radio-style channel system for shipboard communication
 - Default channels: Emergency, Helm, Salon, Forward Cabin, Aft Cabin (customizable)
+- **Channel Subscriptions**: Choose which channels to receive audio from
+  - Toggle subscriptions in Crew List (icons next to each crew member)
+  - Emergency channel (CH16) always subscribed—cannot be disabled
+  - Captains/First Mates can manage any crew member's subscriptions
 - **PTT Mode** (Push-to-Talk): Hold button to transmit, release to listen—like a handheld radio
 - **Duplex Mode**: Open two-way audio—like a phone call, both parties hear each other continuously
 - **Direct Calls**: Private one-on-one voice calls to specific crew members
@@ -461,6 +465,10 @@ Simply go to Settings → Dashboard Setups and tap the setup you want to activat
 4. **Voice Intercom (Channel Mode)**
    - Tap the Intercom tab in the Crew screen
    - Select a channel (Emergency, Helm, Salon, Forward Cabin, or Aft Cabin)
+   - **Channel Subscriptions**: Manage which channels you receive in the Crew List
+     - Channel icons appear next to each crew member showing subscription status
+     - Tap icons to toggle subscription (except Emergency—always on)
+     - Captains/First Mates can manage subscriptions for any crew member
    - **PTT Mode** (default): Hold the microphone button to talk, release to listen
      - Works like a handheld VHF radio—only one person transmits at a time
    - **Duplex Mode**: Toggle the duplex switch for open two-way audio

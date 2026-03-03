@@ -93,7 +93,7 @@ class ScaleService {
     _menuItems['addTool'] = const MenuItemDefinition(
       id: 'addTool',
       icon: 'add',
-      label: 'Add Tool',
+      label: 'Add Widget',
       description: 'Add a new widget',
     );
     _menuItems['editMode'] = const MenuItemDefinition(

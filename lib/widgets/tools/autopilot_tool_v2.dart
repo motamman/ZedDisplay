@@ -11,7 +11,6 @@ import '../../services/autopilot_v2_api.dart';
 import '../../services/autopilot_api_detector.dart';
 import '../../services/tool_registry.dart';
 import '../../utils/color_extensions.dart';
-import '../../utils/conversion_utils.dart';
 import '../../config/ui_constants.dart';
 import '../autopilot_widget_v2.dart';
 import '../route_info_panel.dart';
@@ -65,6 +64,21 @@ class _AutopilotToolV2State extends State<AutopilotToolV2> with AutomaticKeepAli
 
   @override
   bool get wantKeepAlive => true;
+
+  /// Helper to get converted display value using MetadataStore (single source of truth)
+  double? _getConverted(String path) {
+    final dataPoint = widget.signalKService.getValue(path);
+    double? rawValue;
+    if (dataPoint?.original is num) {
+      rawValue = (dataPoint!.original as num).toDouble();
+    } else if (dataPoint?.value is num) {
+      rawValue = (dataPoint!.value as num).toDouble();
+    }
+    if (rawValue == null) return null;
+
+    final metadata = widget.signalKService.metadataStore.get(path);
+    return metadata?.convert(rawValue) ?? rawValue;
+  }
 
   @override
   void initState() {
@@ -217,30 +231,21 @@ class _AutopilotToolV2State extends State<AutopilotToolV2> with AutomaticKeepAli
       }
 
       if (dataSources.length > 3) {
-        final converted = ConversionUtils.getConvertedValue(
-          widget.signalKService,
-          dataSources[3].path,
-        );
+        final converted = _getConverted(dataSources[3].path);
         if (converted != null) {
           _targetHeading = converted;
         }
       }
 
       if (dataSources.length > 4) {
-        final converted = ConversionUtils.getConvertedValue(
-          widget.signalKService,
-          dataSources[4].path,
-        );
+        final converted = _getConverted(dataSources[4].path);
         if (converted != null) {
           _currentHeading = converted;
         }
       }
 
       if (dataSources.length > 5) {
-        final converted = ConversionUtils.getConvertedValue(
-          widget.signalKService,
-          dataSources[5].path,
-        );
+        final converted = _getConverted(dataSources[5].path);
         if (converted != null) {
           _rudderAngle = -converted;
           final invertRudder = widget.config.style.customProperties?['invertRudder'] as bool? ?? false;
@@ -251,10 +256,7 @@ class _AutopilotToolV2State extends State<AutopilotToolV2> with AutomaticKeepAli
       }
 
       if (dataSources.length > 6) {
-        final converted = ConversionUtils.getConvertedValue(
-          widget.signalKService,
-          dataSources[6].path,
-        );
+        final converted = _getConverted(dataSources[6].path);
         if (converted != null) {
           _apparentWindAngle = converted;
         }
@@ -270,18 +272,12 @@ class _AutopilotToolV2State extends State<AutopilotToolV2> with AutomaticKeepAli
         }
       }
 
-      final convertedHeadingTrue = ConversionUtils.getConvertedValue(
-        widget.signalKService,
-        'navigation.headingTrue',
-      );
+      final convertedHeadingTrue = _getConverted('navigation.headingTrue');
       if (convertedHeadingTrue != null) {
         _currentHeadingTrue = convertedHeadingTrue;
       }
 
-      final convertedTwa = ConversionUtils.getConvertedValue(
-        widget.signalKService,
-        'environment.wind.angleTrueWater',
-      );
+      final convertedTwa = _getConverted('environment.wind.angleTrueWater');
       if (convertedTwa != null) {
         _trueWindAngle = convertedTwa;
       }

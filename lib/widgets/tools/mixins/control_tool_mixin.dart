@@ -5,7 +5,6 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import '../../../services/signalk_service.dart';
 import '../../../utils/string_extensions.dart';
-import '../../../utils/conversion_utils.dart';
 
 /// Mixin for control tools (slider, knob, dropdown) that send numeric values
 ///
@@ -51,7 +50,8 @@ mixin ControlToolMixin<T extends StatefulWidget> on State<T> {
 
       // Convert display value back to raw SI value for PUT
       // e.g., 70 (displayed %) -> 0.70 (raw ratio)
-      final rawValue = ConversionUtils.convertToRaw(signalKService, path, roundedDisplayValue);
+      final metadata = signalKService.metadataStore.get(path);
+      final rawValue = metadata?.convertToSI(roundedDisplayValue) ?? roundedDisplayValue;
 
       await signalKService.sendPutRequest(path, rawValue);
 

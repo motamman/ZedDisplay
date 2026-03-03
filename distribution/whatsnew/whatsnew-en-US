@@ -1,7 +1,5 @@
-v0.5.6 Custom Resources & Auth Fixes
+v0.5.25 Channel Subscriptions
 
-NEW: ZedDisplay now uses dedicated SignalK resource types for crew messaging, profiles, files, channels, and alarms. Other apps won't see your ZedDisplay data.
+NEW: Subscribe/unsubscribe from intercom audio channels. Tap channel icons in Crew List to toggle. Emergency channel (CH16) always on. Captains and First Mates can manage any crew member's subscriptions.
 
-FIXED: Auth tokens now stored per connection ID, not server URL. Multiple connections to same server work correctly.
-
-FIXED: Deleting a connection removes its auth token.
+IMPROVED: Tools now default to full grid size. Tools without config can be placed directly.

@@ -174,6 +174,7 @@ class _ZedDisplayAppState extends State<ZedDisplayApp> with WidgetsBindingObserv
   late ThemeMode _themeMode;
   static const platform = MethodChannel('com.zennora.zed_display/intent');
   final GlobalKey<NavigatorState> _navigatorKey = GlobalKey<NavigatorState>();
+  final GlobalKey<ScaffoldMessengerState> _scaffoldMessengerKey = GlobalKey<ScaffoldMessengerState>();
 
   @override
   void initState() {
@@ -218,7 +219,15 @@ class _ZedDisplayAppState extends State<ZedDisplayApp> with WidgetsBindingObserv
       jsonDecode(content); // Will throw if invalid
 
       // Load the setup (expects JSON string)
-      await widget.setupService.importSetup(content);
+      final result = await widget.setupService.importSetup(content);
+
+      // Show success feedback (with warnings if any)
+      if (mounted) {
+        final message = result.hasWarnings
+            ? 'Dashboard imported with warnings: ${result.warnings.join("; ")}'
+            : 'Dashboard imported successfully';
+        _showImportSnackBar(message, result.hasWarnings ? Colors.orange : Colors.green);
+      }
 
       // Schedule navigation after SplashScreen completes (2500ms + buffer)
       Future.delayed(const Duration(milliseconds: 3000), () {
@@ -235,10 +244,42 @@ class _ZedDisplayAppState extends State<ZedDisplayApp> with WidgetsBindingObserv
         print('Successfully loaded shared dashboard file');
       }
     } catch (e) {
+      // Always show error to user (not just in debug mode)
+      if (mounted) {
+        _showImportSnackBar('Failed to import dashboard: ${_formatImportError(e)}', Colors.red);
+      }
       if (kDebugMode) {
         print('Error loading shared file: $e');
       }
     }
+  }
+
+  /// Show a snackbar for import results
+  void _showImportSnackBar(String message, Color backgroundColor) {
+    // Schedule after frame to ensure MaterialApp is built
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_scaffoldMessengerKey.currentState != null) {
+        _scaffoldMessengerKey.currentState!.showSnackBar(
+          SnackBar(
+            content: Text(message),
+            backgroundColor: backgroundColor,
+            duration: const Duration(seconds: 5),
+          ),
+        );
+      }
+    });
+  }
+
+  /// Format error messages for display (remove nested Exception: prefixes)
+  String _formatImportError(dynamic error) {
+    String msg = error.toString();
+    // Remove nested "Exception:" prefixes for cleaner display
+    msg = msg.replaceAll(RegExp(r'Exception:\s*'), '');
+    // Truncate if too long
+    if (msg.length > 100) {
+      msg = '${msg.substring(0, 100)}...';
+    }
+    return msg;
   }
 
   ThemeMode _parseThemeMode(String mode) {
@@ -360,6 +401,7 @@ class _ZedDisplayAppState extends State<ZedDisplayApp> with WidgetsBindingObserv
       ],
       child: MaterialApp(
         navigatorKey: _navigatorKey,
+        scaffoldMessengerKey: _scaffoldMessengerKey,
         title: 'Zed Display',
         theme: ThemeData(
           colorScheme: ColorScheme.fromSeed(

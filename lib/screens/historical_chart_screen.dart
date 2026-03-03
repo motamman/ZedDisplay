@@ -22,16 +22,8 @@ class _HistoricalChartScreenState extends State<HistoricalChartScreen> {
   // Configuration
   final List<String> _selectedPaths = [];
   String _selectedDuration = '1h';
-  final List<String> _availablePaths = [
-    'navigation.speedOverGround',
-    'navigation.courseOverGroundTrue',
-    'navigation.headingTrue',
-    'environment.wind.speedApparent',
-    'environment.wind.angleApparent',
-    'environment.depth.belowTransducer',
-    'electrical.batteries.512.voltage',
-    'electrical.batteries.512.current',
-  ];
+  final List<String> _availablePaths = [];
+  final Set<String> _pathsWithHistory = {}; // Paths that have historical data
 
   final Map<String, String> _durationOptions = {
     '15m': '15 minutes',
@@ -60,19 +52,42 @@ class _HistoricalChartScreenState extends State<HistoricalChartScreen> {
   }
 
   Future<void> _loadAvailablePaths() async {
-    if (_historicalService == null) return;
+    final signalkService = context.read<SignalKService>();
 
-    try {
-      final paths = await _historicalService!.getAvailablePaths();
-      if (mounted) {
-        setState(() {
-          _availablePaths.clear();
-          _availablePaths.addAll(paths);
-        });
+    // Get all paths with numeric values from SignalK live data
+    final numericPaths = <String>[];
+    for (final entry in signalkService.latestData.entries) {
+      final path = entry.key;
+      final value = entry.value.value;
+
+      // Skip source-specific paths (contain ::)
+      if (path.contains('::')) continue;
+
+      // Only include paths with numeric values
+      if (value is num) {
+        numericPaths.add(path);
       }
-    } catch (e) {
-      debugPrint('Error loading available paths: $e');
-      // Keep default paths if API fails
+    }
+    numericPaths.sort();
+
+    // Fetch paths that have historical data (for badge indicator)
+    Set<String> historyPaths = {};
+    if (_historicalService != null) {
+      try {
+        final paths = await _historicalService!.getAvailablePaths();
+        historyPaths = paths.toSet();
+      } catch (e) {
+        debugPrint('Error loading history paths: $e');
+      }
+    }
+
+    if (mounted) {
+      setState(() {
+        _availablePaths.clear();
+        _availablePaths.addAll(numericPaths);
+        _pathsWithHistory.clear();
+        _pathsWithHistory.addAll(historyPaths);
+      });
     }
   }
 
@@ -200,6 +215,26 @@ class _HistoricalChartScreenState extends State<HistoricalChartScreen> {
               'Select Data Paths (max 3):',
               style: Theme.of(context).textTheme.bodyMedium,
             ),
+            const SizedBox(width: 8),
+            // Legend for history indicator
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(
+                color: Colors.green.withValues(alpha: 0.2),
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.history, size: 12, color: Colors.green.shade700),
+                  const SizedBox(width: 4),
+                  Text(
+                    'has history',
+                    style: TextStyle(fontSize: 10, color: Colors.green.shade700),
+                  ),
+                ],
+              ),
+            ),
             const Spacer(),
             Text(
               '${_selectedPaths.length}/3',
@@ -214,8 +249,16 @@ class _HistoricalChartScreenState extends State<HistoricalChartScreen> {
           children: _availablePaths.map((path) {
             final isSelected = _selectedPaths.contains(path);
             final canSelect = _selectedPaths.length < 3 || isSelected;
+            final hasHistory = _pathsWithHistory.contains(path);
 
             return FilterChip(
+              avatar: hasHistory
+                  ? Icon(
+                      Icons.history,
+                      size: 16,
+                      color: isSelected ? Colors.white : Colors.green.shade700,
+                    )
+                  : null,
               label: Text(_formatPathLabel(path)),
               selected: isSelected,
               onSelected: canSelect

@@ -678,18 +678,22 @@ class _SetupManagementScreenState extends State<SetupManagementScreen> {
         final setupService = Provider.of<SetupService>(context, listen: false);
 
         // Just import and save the setup (don't activate it)
-        await setupService.importSetup(jsonString);
+        final result = await setupService.importSetup(jsonString);
 
         if (mounted) {
+          // Build dialog content with any warnings
+          String dialogContent = 'The setup has been saved to your list.';
+          if (result.hasWarnings) {
+            dialogContent += '\n\nNote: ${result.warnings.join("; ")}';
+          }
+          dialogContent += '\n\nWould you like to switch to it now?';
+
           // Ask user if they want to switch to it now
           final switchNow = await showDialog<bool>(
             context: context,
             builder: (context) => AlertDialog(
-              title: const Text('Setup Imported'),
-              content: const Text(
-                'The setup has been saved to your list.\n\n'
-                'Would you like to switch to it now?',
-              ),
+              title: Text(result.hasWarnings ? 'Setup Imported (with warnings)' : 'Setup Imported'),
+              content: Text(dialogContent),
               actions: [
                 TextButton(
                   onPressed: () => Navigator.pop(context, false),
@@ -722,9 +726,11 @@ class _SetupManagementScreenState extends State<SetupManagementScreen> {
             }
           } else if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Setup saved. You can switch to it anytime.'),
-                backgroundColor: Colors.blue,
+              SnackBar(
+                content: Text(result.hasWarnings
+                    ? 'Setup saved with warnings. You can switch to it anytime.'
+                    : 'Setup saved. You can switch to it anytime.'),
+                backgroundColor: result.hasWarnings ? Colors.orange : Colors.blue,
               ),
             );
           }
@@ -733,9 +739,14 @@ class _SetupManagementScreenState extends State<SetupManagementScreen> {
         }
       } catch (e) {
         if (mounted) {
+          // Format error message - remove nested Exception: prefixes
+          String errorMsg = e.toString().replaceAll(RegExp(r'Exception:\s*'), '');
+          if (errorMsg.length > 80) {
+            errorMsg = '${errorMsg.substring(0, 80)}...';
+          }
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('Error importing setup: $e'),
+              content: Text('Error importing setup: $errorMsg'),
               backgroundColor: Colors.red,
             ),
           );

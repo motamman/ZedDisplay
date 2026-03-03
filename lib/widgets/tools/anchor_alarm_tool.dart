@@ -12,7 +12,6 @@ import '../../services/anchor_alarm_service.dart';
 import '../../services/messaging_service.dart';
 import '../../models/anchor_state.dart';
 import '../../services/tool_registry.dart';
-import '../../utils/conversion_utils.dart';
 import 'anchor_compass_overlay.dart';
 
 /// Anchor Alarm Tool - Single unified widget with map and controls
@@ -285,14 +284,13 @@ class _AnchorAlarmToolState extends State<AnchorAlarmTool> {
     }
 
     // Get magnetic variation to convert compass (magnetic) to true bearing
-    final magVarRaw = ConversionUtils.getRawValue(widget.signalKService, 'navigation.magneticVariation');
+    // Use MetadataStore (single source of truth) for conversion
     double magneticVariation = 0.0;
-    if (magVarRaw != null) {
-      magneticVariation = ConversionUtils.convertWeatherValue(
-        widget.signalKService,
-        WeatherFieldType.angle,
-        magVarRaw,
-      ) ?? 0.0;
+    final magVarData = widget.signalKService.getValue('navigation.magneticVariation');
+    if (magVarData?.value is num) {
+      final magVarRaw = (magVarData!.value as num).toDouble();
+      final metadata = widget.signalKService.metadataStore.get('navigation.magneticVariation');
+      magneticVariation = metadata?.convert(magVarRaw) ?? (magVarRaw * 180 / math.pi);
     }
 
     // Convert magnetic compass heading to true bearing
@@ -331,38 +329,43 @@ class _AnchorAlarmToolState extends State<AnchorAlarmTool> {
   }
 
 
-  // Format distance with user's preferred units
+  // Format distance with user's preferred units using MetadataStore (single source of truth)
   String _formatDistance(double? meters, String path) {
     if (meters == null) return '--';
-    return ConversionUtils.formatValue(
-      widget.signalKService,
-      path,
-      meters,
-      decimalPlaces: 0,
-    );
+    final metadata = widget.signalKService.metadataStore.get(path);
+    if (metadata != null) {
+      return metadata.format(meters, decimals: 0);
+    }
+    // Fallback: return raw meters
+    return '${meters.toStringAsFixed(0)} m';
   }
 
-  // Format depth with user's preferred units
+  // Format depth with user's preferred units using MetadataStore
   // Uses maxRadius path since it shares the same length category and has metadata
   String _formatDepth(double? meters) {
     if (meters == null) return '--';
-    return ConversionUtils.formatValue(
-      widget.signalKService,
-      'navigation.anchor.maxRadius',
-      meters,
-      decimalPlaces: 1,
-    );
+    final metadata = widget.signalKService.metadataStore.get('navigation.anchor.maxRadius');
+    if (metadata != null) {
+      return metadata.format(meters, decimals: 1);
+    }
+    // Fallback: return raw meters
+    return '${meters.toStringAsFixed(1)} m';
   }
 
-  // Format bearing with user's preferred angle units
+  // Format bearing with user's preferred angle units using MetadataStore
   String _formatBearing(double radians) {
-    final converted = ConversionUtils.convertWeatherValue(
-      widget.signalKService,
-      WeatherFieldType.angle,
-      radians,
-    );
-    final degrees = converted ?? (radians * 180 / math.pi);
-    final symbol = ConversionUtils.getWeatherUnitSymbol(WeatherFieldType.angle);
+    // Try to get angle metadata from a bearing path
+    final metadata = widget.signalKService.metadataStore.get('navigation.anchor.bearingTrue');
+    double degrees;
+    String symbol;
+    if (metadata != null) {
+      degrees = metadata.convert(radians) ?? (radians * 180 / math.pi);
+      symbol = metadata.symbol ?? '°';
+    } else {
+      // Fallback: manual radians to degrees
+      degrees = radians * 180 / math.pi;
+      symbol = '°';
+    }
     return '${((degrees + 360) % 360).toStringAsFixed(0)}$symbol';
   }
 
@@ -1090,178 +1093,223 @@ class _AnchorAlarmToolState extends State<AnchorAlarmTool> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.95),
+        color: Colors.black.withValues(alpha: 0.8),
         borderRadius: BorderRadius.circular(12),
       ),
-      child: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // Main action buttons
-            Row(
-              children: [
-                Expanded(
-                  child: ElevatedButton.icon(
-                    onPressed: state.isActive ? null : _dropAnchor,
-                    icon: const Icon(Icons.anchor, size: 18),
-                    label: const Text('Drop'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.green,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 8),
-                    ),
+      child: Column(
+        children: [
+          // Main action buttons
+          Row(
+            children: [
+              Expanded(
+                child: ElevatedButton.icon(
+                  onPressed: state.isActive ? null : _dropAnchor,
+                  icon: const Icon(Icons.anchor, size: 18),
+                  label: const Text('Drop'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.green,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 8),
                   ),
                 ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: ElevatedButton.icon(
-                    onPressed: state.isActive ? _raiseAnchor : null,
-                    icon: const Icon(Icons.eject, size: 18),
-                    label: const Text('Raise'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.orange,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 8),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-
-            // Set Direction button (only when active)
-            if (state.isActive) ...[
-              const SizedBox(height: 8),
-              SizedBox(
-                width: double.infinity,
-                child: OutlinedButton.icon(
-                  onPressed: _setAnchorDirection,
-                  icon: const Icon(Icons.explore, size: 18),
-                  label: const Text('Set Direction'),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: Colors.blue,
-                    side: const BorderSide(color: Colors.blue),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: ElevatedButton.icon(
+                  onPressed: state.isActive ? _raiseAnchor : null,
+                  icon: const Icon(Icons.eject, size: 18),
+                  label: const Text('Raise'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.orange,
+                    foregroundColor: Colors.white,
                     padding: const EdgeInsets.symmetric(vertical: 8),
                   ),
                 ),
               ),
             ],
+          ),
 
-            // Rode length slider (only when active)
-            if (state.isActive) ...[
-              const SizedBox(height: 4),
-              Row(
-                children: [
-                  const Text('Rode: ', style: TextStyle(color: Colors.black87, fontSize: 12)),
-                  Text(
-                    rodeFormatted,
-                    style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black, fontSize: 14),
-                  ),
-                  Expanded(
-                    child: SliderTheme(
-                      data: SliderThemeData(
-                        activeTrackColor: Colors.blue,
-                        inactiveTrackColor: Colors.blue.shade100,
-                        thumbColor: Colors.blue,
-                        overlayColor: Colors.blue.withValues(alpha: 0.2),
-                        trackHeight: 3,
-                        thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 8),
-                      ),
-                      child: Slider(
-                        value: _rodeSliderValue,
-                        min: 5,
-                        max: 100,
-                        divisions: 19,
-                        onChangeStart: (_) => _isRodeSliderDragging = true,
-                        onChanged: (value) => setState(() => _rodeSliderValue = value),
-                        onChangeEnd: (value) {
-                          _isRodeSliderDragging = false;
-                          _setRodeLength(value);
-                        },
-                      ),
-                    ),
-                  ),
-                ],
+          // Set Direction button (only when active)
+          if (state.isActive) ...[
+            const SizedBox(height: 8),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: _setAnchorDirection,
+                icon: const Icon(Icons.explore, size: 18),
+                label: const Text('Set Direction'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: Colors.blue,
+                  side: const BorderSide(color: Colors.blue),
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                ),
               ),
-              // Alarm radius slider - directly sets maxRadius via setRadius API
-              const SizedBox(height: 4),
-              Row(
-                children: [
-                  const Text('Alarm: ', style: TextStyle(color: Colors.black87, fontSize: 12)),
-                  Text(
-                    _formatDistance(_alarmRadiusValue, 'navigation.anchor.maxRadius'),
-                    style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black, fontSize: 14),
-                  ),
-                  Expanded(
-                    child: SliderTheme(
-                      data: SliderThemeData(
-                        activeTrackColor: Colors.red,
-                        inactiveTrackColor: Colors.red.shade100,
-                        thumbColor: Colors.red,
-                        overlayColor: Colors.red.withValues(alpha: 0.2),
-                        trackHeight: 3,
-                        thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 8),
-                      ),
-                      child: Slider(
-                        value: _alarmRadiusValue,
-                        min: 5,
-                        max: 100,
-                        divisions: 19,
-                        onChangeStart: (_) => _isAlarmRadiusSliderDragging = true,
-                        onChanged: (value) => setState(() => _alarmRadiusValue = value),
-                        onChangeEnd: (value) {
-                          _isAlarmRadiusSliderDragging = false;
-                          _alarmService.setRadius(radius: value);
-                        },
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              // Depth row - auto from sensor or manual slider
-              const SizedBox(height: 4),
-              Row(
-                children: [
-                  const Text('Depth: ', style: TextStyle(color: Colors.black87, fontSize: 12)),
-                  if (_alarmService.hasDepthSensor) ...[
-                    // Read-only display from sensor
-                    Text(
-                      _formatDepth(_alarmService.currentDepth),
-                      style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black, fontSize: 14),
-                    ),
-                    const SizedBox(width: 4),
-                    const Icon(Icons.sensors, size: 14, color: Colors.green),
-                  ] else ...[
-                    // Manual slider when no sensor
-                    Text(
-                      _formatDepth(_manualDepthValue),
-                      style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black, fontSize: 14),
-                    ),
-                    Expanded(
-                      child: SliderTheme(
-                        data: SliderThemeData(
-                          activeTrackColor: Colors.teal,
-                          inactiveTrackColor: Colors.teal.shade100,
-                          thumbColor: Colors.teal,
-                          overlayColor: Colors.teal.withValues(alpha: 0.2),
-                          trackHeight: 3,
-                          thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 8),
-                        ),
-                        child: Slider(
-                          value: _manualDepthValue,
-                          min: 1,
-                          max: 50,
-                          divisions: 49,
-                          onChanged: (value) => setState(() => _manualDepthValue = value),
-                          onChangeEnd: (value) => _onDepthChanged(value),
-                        ),
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-            ],
+            ),
           ],
-        ),
+
+          // Vertical sliders (only when active)
+          if (state.isActive) ...[
+            const SizedBox(height: 8),
+            Expanded(
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  // Rode slider
+                  _buildVerticalSlider(
+                    label: 'Rode',
+                    value: _rodeSliderValue,
+                    formattedValue: rodeFormatted,
+                    color: Colors.blue,
+                    onChangeStart: () => _isRodeSliderDragging = true,
+                    onChanged: (v) => setState(() => _rodeSliderValue = v),
+                    onChangeEnd: (v) {
+                      _isRodeSliderDragging = false;
+                      _setRodeLength(v);
+                    },
+                  ),
+                  // Alarm radius slider
+                  _buildVerticalSlider(
+                    label: 'Alarm',
+                    value: _alarmRadiusValue,
+                    formattedValue: _formatDistance(_alarmRadiusValue, 'navigation.anchor.maxRadius'),
+                    color: Colors.red,
+                    onChangeStart: () => _isAlarmRadiusSliderDragging = true,
+                    onChanged: (v) => setState(() => _alarmRadiusValue = v),
+                    onChangeEnd: (v) {
+                      _isAlarmRadiusSliderDragging = false;
+                      _alarmService.setRadius(radius: v);
+                    },
+                  ),
+                  // Depth slider (manual) or sensor display
+                  if (_alarmService.hasDepthSensor)
+                    _buildDepthSensorDisplay()
+                  else
+                    _buildVerticalSlider(
+                      label: 'Depth',
+                      value: _manualDepthValue,
+                      formattedValue: _formatDepth(_manualDepthValue),
+                      color: Colors.teal,
+                      min: 1,
+                      max: 50,
+                      divisions: 49,
+                      onChanged: (v) => setState(() => _manualDepthValue = v),
+                      onChangeEnd: (v) => _onDepthChanged(v),
+                    ),
+                ],
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  /// Build a vertical slider with label and value display
+  Widget _buildVerticalSlider({
+    required String label,
+    required double value,
+    required String formattedValue,
+    required Color color,
+    required ValueChanged<double> onChanged,
+    required ValueChanged<double> onChangeEnd,
+    VoidCallback? onChangeStart,
+    double min = 5,
+    double max = 100,
+    int divisions = 19,
+  }) {
+    return SizedBox(
+      width: 60,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 11,
+              color: color,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            formattedValue,
+            style: const TextStyle(
+              fontWeight: FontWeight.bold,
+              color: Colors.white,
+              fontSize: 13,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Expanded(
+            child: RotatedBox(
+              quarterTurns: 3, // Rotate -90° (min at bottom, max at top)
+              child: SliderTheme(
+                data: SliderThemeData(
+                  activeTrackColor: color,
+                  inactiveTrackColor: color.withValues(alpha: 0.3),
+                  thumbColor: color,
+                  overlayColor: color.withValues(alpha: 0.2),
+                  trackHeight: 4,
+                  thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 10),
+                ),
+                child: Slider(
+                  value: value,
+                  min: min,
+                  max: max,
+                  divisions: divisions,
+                  onChangeStart: onChangeStart != null ? (_) => onChangeStart() : null,
+                  onChanged: onChanged,
+                  onChangeEnd: onChangeEnd,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Build depth sensor display (read-only, when sensor is available)
+  Widget _buildDepthSensorDisplay() {
+    return SizedBox(
+      width: 60,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Text(
+            'Depth',
+            style: TextStyle(
+              fontSize: 11,
+              color: Colors.teal,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            _formatDepth(_alarmService.currentDepth),
+            style: const TextStyle(
+              fontWeight: FontWeight.bold,
+              color: Colors.white,
+              fontSize: 13,
+            ),
+          ),
+          const SizedBox(height: 4),
+          const Expanded(
+            child: Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.sensors, size: 24, color: Colors.green),
+                  SizedBox(height: 4),
+                  Text(
+                    'Auto',
+                    style: TextStyle(fontSize: 10, color: Colors.grey),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

@@ -653,12 +653,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _switchToUserAuth(SignalKService signalKService) async {
+    final storageService = Provider.of<StorageService>(context, listen: false);
+    // Get connection ID from existing token, or look up by URL
+    final connectionId = signalKService.authToken?.connectionId ??
+        storageService.findConnectionByUrl(signalKService.serverUrl)?.id;
+
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (context) => UserLoginScreen(
           serverUrl: signalKService.serverUrl,
           secure: signalKService.useSecureConnection,
-          connectionId: signalKService.authToken?.connectionId,
+          connectionId: connectionId,
         ),
       ),
     );

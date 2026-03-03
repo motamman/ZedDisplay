@@ -5,10 +5,12 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:web_socket_channel/io.dart';
+import 'package:webview_flutter/webview_flutter.dart';
 import '../../models/tool_definition.dart';
 import '../../models/tool_config.dart';
 import '../../services/signalk_service.dart';
 import '../../services/tool_registry.dart';
+import 'plugin_config_tool.dart';
 
 /// Tool for managing and monitoring the SignalK server
 class ServerManagerTool extends StatefulWidget {
@@ -42,11 +44,20 @@ class _ServerManagerToolState extends State<ServerManagerTool> {
   bool _loadingPlugins = false;
   bool _loadingWebapps = false;
 
+  // Unit preferences
+  List<Map<String, dynamic>> _availablePresets = [];
+  String? _activePreset;
+  bool _loadingPresets = false;
+
+  // Accordion state - only one section open at a time
+  String? _expandedSection = 'providers';
+
   @override
   void initState() {
     super.initState();
     _setupServerEventsListener();
     _loadPluginsAndWebapps();
+    _loadUnitPresets();
   }
 
   @override
@@ -297,7 +308,7 @@ class _ServerManagerToolState extends State<ServerManagerTool> {
 
     try {
       final protocol = widget.signalKService.useSecureConnection ? 'https' : 'http';
-      final url = '$protocol://${widget.signalKService.serverUrl}/signalk/v1/apps/list';
+      final url = '$protocol://${widget.signalKService.serverUrl}/skServer/webapps';
 
       final headers = <String, String>{};
       if (widget.signalKService.authToken != null) {
@@ -321,6 +332,162 @@ class _ServerManagerToolState extends State<ServerManagerTool> {
       if (mounted) {
         setState(() => _loadingWebapps = false);
       }
+    }
+  }
+
+  Future<void> _launchWebapp(String webappName, String displayName) async {
+    final protocol = widget.signalKService.useSecureConnection ? 'https' : 'http';
+    final url = '$protocol://${widget.signalKService.serverUrl}/$webappName/';
+
+    if (!mounted) return;
+
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => _WebappViewPage(
+          url: url,
+          title: displayName,
+          authToken: widget.signalKService.authToken?.token,
+          serverUrl: widget.signalKService.serverUrl,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _launchPluginConfig(String pluginId, String pluginName) async {
+    if (!mounted) return;
+
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => PluginConfigTool(
+          signalKService: widget.signalKService,
+          pluginId: pluginId,
+          pluginName: pluginName,
+        ),
+      ),
+    );
+  }
+
+  String? _getWebappIconUrl(Map<String, dynamic> webapp) {
+    final name = webapp['name'] as String?;
+    final signalk = webapp['signalk'] as Map<String, dynamic>?;
+    final appIcon = signalk?['appIcon'] as String?;
+
+    if (name == null || appIcon == null) return null;
+
+    final protocol = widget.signalKService.useSecureConnection ? 'https' : 'http';
+    // appIcon path typically starts with ./ so we need to strip it
+    final iconPath = appIcon.startsWith('./') ? appIcon.substring(2) : appIcon;
+    return '$protocol://${widget.signalKService.serverUrl}/$name/$iconPath';
+  }
+
+  Future<void> _loadUnitPresets() async {
+    if (!widget.signalKService.isConnected) return;
+
+    setState(() => _loadingPresets = true);
+
+    final protocol = widget.signalKService.useSecureConnection ? 'https' : 'http';
+    final headers = <String, String>{};
+    if (widget.signalKService.authToken != null) {
+      headers['Authorization'] = 'Bearer ${widget.signalKService.authToken!.token}';
+    }
+
+    try {
+      // Fetch available presets
+      final presetsResponse = await http.get(
+        Uri.parse('$protocol://${widget.signalKService.serverUrl}/signalk/v1/unitpreferences/presets'),
+        headers: headers,
+      );
+
+      // Try user-specific preferences first, then fall back to global config
+      String? activePreset;
+
+      // Try user applicationData first (user-specific preference)
+      final userResponse = await http.get(
+        Uri.parse('$protocol://${widget.signalKService.serverUrl}/signalk/v1/applicationData/user/unitpreferences/1.0.0'),
+        headers: headers,
+      );
+      if (userResponse.statusCode == 200) {
+        final userConfig = jsonDecode(userResponse.body);
+        activePreset = userConfig['activePreset'] as String?;
+      }
+
+      // Fall back to global config if no user preference
+      if (activePreset == null || activePreset.isEmpty) {
+        final configResponse = await http.get(
+          Uri.parse('$protocol://${widget.signalKService.serverUrl}/signalk/v1/unitpreferences/config'),
+          headers: headers,
+        );
+        if (configResponse.statusCode == 200) {
+          final config = jsonDecode(configResponse.body);
+          activePreset = config['activePreset'] as String?;
+        }
+      }
+
+      if (mounted) {
+        setState(() {
+          if (presetsResponse.statusCode == 200) {
+            final data = jsonDecode(presetsResponse.body) as Map<String, dynamic>;
+            // Combine builtIn and custom presets
+            final builtIn = (data['builtIn'] as List?)?.cast<Map<String, dynamic>>() ?? [];
+            final custom = (data['custom'] as List?)?.cast<Map<String, dynamic>>() ?? [];
+            _availablePresets = [...builtIn, ...custom];
+          }
+          _activePreset = activePreset;
+          _loadingPresets = false;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading unit presets: $e');
+      if (mounted) setState(() => _loadingPresets = false);
+    }
+  }
+
+  Future<void> _setActivePreset(String presetName) async {
+    if (!widget.signalKService.isConnected) return;
+
+    final previousPreset = _activePreset;
+    setState(() => _activePreset = presetName); // Optimistic update
+
+    final protocol = widget.signalKService.useSecureConnection ? 'https' : 'http';
+    final headers = <String, String>{
+      'Content-Type': 'application/json',
+    };
+    if (widget.signalKService.authToken != null) {
+      headers['Authorization'] = 'Bearer ${widget.signalKService.authToken!.token}';
+    }
+
+    try {
+      // Save to user's applicationData (user-specific preference)
+      final response = await http.post(
+        Uri.parse('$protocol://${widget.signalKService.serverUrl}/signalk/v1/applicationData/user/unitpreferences/1.0.0'),
+        headers: headers,
+        body: jsonEncode({'activePreset': presetName}),
+      );
+
+      if (response.statusCode == 200) {
+        // Refresh conversions to apply new preset
+        await widget.signalKService.loadConversions();
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Unit preset changed to "$presetName"')),
+          );
+        }
+      } else if (response.statusCode == 401) {
+        setState(() => _activePreset = previousPreset); // Revert
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Not authorized to change unit preferences'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      } else {
+        setState(() => _activePreset = previousPreset); // Revert
+      }
+    } catch (e) {
+      setState(() => _activePreset = previousPreset); // Revert
+      debugPrint('Error setting unit preset: $e');
     }
   }
 
@@ -406,76 +573,518 @@ class _ServerManagerToolState extends State<ServerManagerTool> {
     return Card(
       child: LayoutBuilder(
         builder: (context, constraints) {
+          final isWide = constraints.maxWidth >= 600;
+
           return SizedBox(
             height: constraints.maxHeight,
             child: Padding(
               padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-            // Header with restart button
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  'Server Status',
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                ElevatedButton.icon(
-                  onPressed: _restartServer,
-                  icon: const Icon(Icons.restart_alt, size: 16),
-                  label: const Text('Restart', style: TextStyle(fontSize: 12)),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.orange,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  ),
-                ),
-              ],
-            ),
-
-            const SizedBox(height: 8),
-
-            // Server Statistics
-            _buildStatisticsSection(theme),
-
-            const SizedBox(height: 8),
-
-                  // Providers section - full width
-                  SizedBox(
-                    height: 120,
-                    child: _buildScrollableProvidersSection(theme),
-                  ),
-
-                  const SizedBox(height: 8),
-
-                  // Plugins and Webapps - half width each, below providers
-                  Expanded(
-                    child: Row(
+              child: isWide
+                  ? Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        // Plugins Section - left half
+                        // Left column: Header + Statistics + Unit Preferences
                         Expanded(
-                          child: _buildScrollablePluginsSection(theme),
+                          child: _buildLeftColumn(theme),
                         ),
-
                         const SizedBox(width: 8),
-
-                        // Webapps Section - right half
+                        // Right column: Providers + Plugins + Webapps
                         Expanded(
-                          child: _buildScrollableWebappsSection(theme),
+                          child: _buildRightColumn(theme),
                         ),
                       ],
-                    ),
-                  ),
-                ],
-              ),
+                    )
+                  : _buildNarrowLayout(theme),
             ),
           );
         },
       ),
+    );
+  }
+
+  Widget _buildLeftColumn(ThemeData theme) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Header with restart button
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Flexible(
+              child: Text(
+                'Server Status',
+                style: theme.textTheme.titleSmall?.copyWith(
+                  fontWeight: FontWeight.bold,
+                ),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            ElevatedButton.icon(
+              onPressed: _restartServer,
+              icon: const Icon(Icons.restart_alt, size: 14),
+              label: const Text('Restart', style: TextStyle(fontSize: 10)),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.orange,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                minimumSize: Size.zero,
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
+            ),
+          ],
+        ),
+
+        const SizedBox(height: 6),
+
+        // Server Statistics
+        _buildStatisticsSection(theme),
+
+        const SizedBox(height: 6),
+
+        // Unit Preferences
+        _buildUnitPreferencesSection(theme),
+      ],
+    );
+  }
+
+  Widget _buildRightColumn(ThemeData theme) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Data Providers Accordion
+        _buildAccordionHeader(
+          theme: theme,
+          sectionId: 'providers',
+          title: 'Data Providers (${_providerStats.length})',
+          icon: Icons.dns,
+          color: Colors.blue,
+        ),
+
+        if (_expandedSection == 'providers')
+          Expanded(child: _buildProvidersScrollableContent(theme)),
+
+        const SizedBox(height: 4),
+
+        // Plugins Accordion
+        _buildAccordionHeader(
+          theme: theme,
+          sectionId: 'plugins',
+          title: 'Plugins (${_plugins.length})',
+          icon: Icons.extension,
+          color: Colors.green,
+          trailing: _loadingPlugins
+              ? const SizedBox(
+                  width: 12,
+                  height: 12,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : InkWell(
+                  onTap: _loadPlugins,
+                  child: const Icon(Icons.refresh, size: 14),
+                ),
+        ),
+
+        if (_expandedSection == 'plugins')
+          Expanded(child: _buildPluginsScrollableContent(theme)),
+
+        const SizedBox(height: 4),
+
+        // Webapps Accordion
+        _buildAccordionHeader(
+          theme: theme,
+          sectionId: 'webapps',
+          title: 'Webapps (${_webapps.length})',
+          icon: Icons.web,
+          color: Colors.purple,
+          trailing: _loadingWebapps
+              ? const SizedBox(
+                  width: 12,
+                  height: 12,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : InkWell(
+                  onTap: _loadWebapps,
+                  child: const Icon(Icons.refresh, size: 14),
+                ),
+        ),
+
+        if (_expandedSection == 'webapps')
+          Expanded(child: _buildWebappsScrollableContent(theme)),
+      ],
+    );
+  }
+
+  Widget _buildAccordionHeader({
+    required ThemeData theme,
+    required String sectionId,
+    required String title,
+    required IconData icon,
+    required Color color,
+    Widget? trailing,
+  }) {
+    final isExpanded = _expandedSection == sectionId;
+
+    return InkWell(
+      onTap: () => setState(() {
+        _expandedSection = isExpanded ? null : sectionId;
+      }),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.1),
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(color: color.withValues(alpha: 0.3)),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, size: 14, color: color),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                title,
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+            if (trailing != null) ...[
+              trailing,
+              const SizedBox(width: 8),
+            ],
+            Icon(
+              isExpanded ? Icons.expand_less : Icons.expand_more,
+              size: 18,
+              color: color,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildProvidersScrollableContent(ThemeData theme) {
+    return Container(
+      decoration: BoxDecoration(
+        border: Border.all(color: Colors.blue.withValues(alpha: 0.3)),
+        borderRadius: const BorderRadius.only(
+          bottomLeft: Radius.circular(6),
+          bottomRight: Radius.circular(6),
+        ),
+      ),
+      child: _providerStats.isEmpty
+          ? const Center(
+              child: Text('No providers', style: TextStyle(fontSize: 10)),
+            )
+          : ListView.builder(
+              padding: const EdgeInsets.all(6),
+              itemCount: _providerStats.length,
+              itemBuilder: (context, index) {
+                final entry = _providerStats.entries.elementAt(index);
+                final stats = entry.value as Map<String, dynamic>;
+                final deltaRate = (stats['deltaRate'] as num?)?.toDouble() ?? 0;
+                final deltaCount = (stats['deltaCount'] as num?)?.toInt() ?? 0;
+
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 4),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 8),
+                    decoration: BoxDecoration(
+                      color: Colors.blue.withValues(alpha: 0.05),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          flex: 3,
+                          child: Text(
+                            entry.key,
+                            style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w500),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        SizedBox(
+                          width: 60,
+                          child: Text(
+                            '${deltaRate.toStringAsFixed(1)}/s',
+                            style: TextStyle(
+                              fontSize: 10,
+                              color: theme.textTheme.bodySmall?.color,
+                            ),
+                            textAlign: TextAlign.right,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        SizedBox(
+                          width: 70,
+                          child: Text(
+                            '$deltaCount deltas',
+                            style: TextStyle(
+                              fontSize: 10,
+                              color: theme.textTheme.bodySmall?.color,
+                            ),
+                            textAlign: TextAlign.right,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
+    );
+  }
+
+  Widget _buildPluginsScrollableContent(ThemeData theme) {
+    return Container(
+      decoration: BoxDecoration(
+        border: Border.all(color: Colors.green.withValues(alpha: 0.3)),
+        borderRadius: const BorderRadius.only(
+          bottomLeft: Radius.circular(6),
+          bottomRight: Radius.circular(6),
+        ),
+      ),
+      child: _plugins.isEmpty && !_loadingPlugins
+          ? const Center(
+              child: Text('No plugins loaded', style: TextStyle(fontSize: 10)),
+            )
+          : ListView.builder(
+              padding: const EdgeInsets.all(6),
+              itemCount: _plugins.length,
+              itemBuilder: (context, index) {
+                final plugin = _plugins[index];
+                final id = plugin['id'] as String? ?? 'Unknown';
+                final name = plugin['name'] as String? ?? id;
+                final enabled = plugin['enabled'] as bool? ?? false;
+
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 2),
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: enabled
+                          ? Colors.green.withValues(alpha: 0.1)
+                          : Colors.grey.withValues(alpha: 0.05),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 8),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: InkWell(
+                              onTap: () => _launchPluginConfig(id, name),
+                              borderRadius: BorderRadius.circular(4),
+                              child: Text(
+                                name,
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: enabled ? FontWeight.w500 : FontWeight.normal,
+                                ),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Transform.scale(
+                            scale: 0.8,
+                            child: Switch(
+                              value: enabled,
+                              onChanged: (_) => _togglePlugin(id, enabled),
+                              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+    );
+  }
+
+  Widget _buildWebappsScrollableContent(ThemeData theme) {
+    return Container(
+      decoration: BoxDecoration(
+        border: Border.all(color: Colors.purple.withValues(alpha: 0.3)),
+        borderRadius: const BorderRadius.only(
+          bottomLeft: Radius.circular(6),
+          bottomRight: Radius.circular(6),
+        ),
+      ),
+      child: _webapps.isEmpty && !_loadingWebapps
+          ? const Center(
+              child: Text('No webapps found', style: TextStyle(fontSize: 10)),
+            )
+          : ListView.builder(
+              padding: const EdgeInsets.all(6),
+              itemCount: _webapps.length,
+              itemBuilder: (context, index) {
+                final webapp = _webapps[index];
+                final name = webapp['name'] as String? ?? 'Unknown';
+                final signalk = webapp['signalk'] as Map<String, dynamic>?;
+                final displayName = signalk?['displayName'] as String? ?? name;
+                final version = webapp['version'] as String? ?? '';
+                final iconUrl = _getWebappIconUrl(webapp);
+
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 2),
+                  child: InkWell(
+                    onTap: () => _launchWebapp(name, displayName),
+                    borderRadius: BorderRadius.circular(4),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 8),
+                      decoration: BoxDecoration(
+                        color: Colors.purple.withValues(alpha: 0.05),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Row(
+                        children: [
+                          SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: iconUrl != null
+                                ? Image.network(
+                                    iconUrl,
+                                    width: 20,
+                                    height: 20,
+                                    fit: BoxFit.contain,
+                                    errorBuilder: (context, error, stackTrace) =>
+                                        const Icon(Icons.web, size: 16, color: Colors.purple),
+                                  )
+                                : const Icon(Icons.web, size: 16, color: Colors.purple),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              displayName,
+                              style: const TextStyle(fontSize: 11),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            version,
+                            style: TextStyle(
+                              fontSize: 9,
+                              color: theme.textTheme.bodySmall?.color,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+    );
+  }
+
+  Widget _buildNarrowLayout(ThemeData theme) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Header with restart button
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Flexible(
+              child: Text(
+                'Server Status',
+                style: theme.textTheme.titleSmall?.copyWith(
+                  fontWeight: FontWeight.bold,
+                ),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            ElevatedButton.icon(
+              onPressed: _restartServer,
+              icon: const Icon(Icons.restart_alt, size: 14),
+              label: const Text('Restart', style: TextStyle(fontSize: 10)),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.orange,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                minimumSize: Size.zero,
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
+            ),
+          ],
+        ),
+
+        const SizedBox(height: 6),
+
+        // Server Statistics
+        _buildStatisticsSection(theme),
+
+        const SizedBox(height: 6),
+
+        // Unit Preferences
+        _buildUnitPreferencesSection(theme),
+
+        const SizedBox(height: 6),
+
+        // Data Providers Accordion
+        _buildAccordionHeader(
+          theme: theme,
+          sectionId: 'providers',
+          title: 'Data Providers (${_providerStats.length})',
+          icon: Icons.dns,
+          color: Colors.blue,
+        ),
+
+        if (_expandedSection == 'providers')
+          Expanded(child: _buildProvidersScrollableContent(theme)),
+
+        const SizedBox(height: 4),
+
+        // Plugins Accordion
+        _buildAccordionHeader(
+          theme: theme,
+          sectionId: 'plugins',
+          title: 'Plugins (${_plugins.length})',
+          icon: Icons.extension,
+          color: Colors.green,
+          trailing: _loadingPlugins
+              ? const SizedBox(
+                  width: 12,
+                  height: 12,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : InkWell(
+                  onTap: _loadPlugins,
+                  child: const Icon(Icons.refresh, size: 14),
+                ),
+        ),
+
+        if (_expandedSection == 'plugins')
+          Expanded(child: _buildPluginsScrollableContent(theme)),
+
+        const SizedBox(height: 4),
+
+        // Webapps Accordion
+        _buildAccordionHeader(
+          theme: theme,
+          sectionId: 'webapps',
+          title: 'Webapps (${_webapps.length})',
+          icon: Icons.web,
+          color: Colors.purple,
+          trailing: _loadingWebapps
+              ? const SizedBox(
+                  width: 12,
+                  height: 12,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : InkWell(
+                  onTap: _loadWebapps,
+                  child: const Icon(Icons.refresh, size: 14),
+                ),
+        ),
+
+        if (_expandedSection == 'webapps')
+          Expanded(child: _buildWebappsScrollableContent(theme)),
+      ],
     );
   }
 
@@ -485,11 +1094,11 @@ class _ServerManagerToolState extends State<ServerManagerTool> {
       children: [
         Text(
           'Statistics',
-          style: theme.textTheme.titleSmall?.copyWith(
+          style: theme.textTheme.bodySmall?.copyWith(
             fontWeight: FontWeight.bold,
           ),
         ),
-        const SizedBox(height: 6),
+        const SizedBox(height: 4),
         Row(
           children: [
             Expanded(
@@ -500,10 +1109,10 @@ class _ServerManagerToolState extends State<ServerManagerTool> {
                 Colors.blue,
               ),
             ),
-            const SizedBox(width: 6),
+            const SizedBox(width: 4),
             Expanded(
               child: _buildStatCard(
-                'Delta Rate',
+                'Delta',
                 '${_deltaRate.toStringAsFixed(1)}/s',
                 Icons.speed,
                 Colors.green,
@@ -511,7 +1120,7 @@ class _ServerManagerToolState extends State<ServerManagerTool> {
             ),
           ],
         ),
-        const SizedBox(height: 6),
+        const SizedBox(height: 4),
         Row(
           children: [
             Expanded(
@@ -522,7 +1131,7 @@ class _ServerManagerToolState extends State<ServerManagerTool> {
                 Colors.purple,
               ),
             ),
-            const SizedBox(width: 6),
+            const SizedBox(width: 4),
             Expanded(
               child: _buildStatCard(
                 'Clients',
@@ -539,7 +1148,7 @@ class _ServerManagerToolState extends State<ServerManagerTool> {
 
   Widget _buildStatCard(String label, String value, IconData icon, Color color) {
     return Container(
-      padding: const EdgeInsets.all(8),
+      padding: const EdgeInsets.all(6),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(6),
@@ -547,8 +1156,8 @@ class _ServerManagerToolState extends State<ServerManagerTool> {
       ),
       child: Row(
         children: [
-          Icon(icon, color: color, size: 20),
-          const SizedBox(width: 6),
+          Icon(icon, color: color, size: 16),
+          const SizedBox(width: 4),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -556,7 +1165,7 @@ class _ServerManagerToolState extends State<ServerManagerTool> {
                 Text(
                   label,
                   style: TextStyle(
-                    fontSize: 10,
+                    fontSize: 9,
                     color: color,
                     fontWeight: FontWeight.w500,
                   ),
@@ -564,7 +1173,7 @@ class _ServerManagerToolState extends State<ServerManagerTool> {
                 Text(
                   value,
                   style: TextStyle(
-                    fontSize: 14,
+                    fontSize: 12,
                     fontWeight: FontWeight.bold,
                     color: color,
                   ),
@@ -577,19 +1186,20 @@ class _ServerManagerToolState extends State<ServerManagerTool> {
     );
   }
 
-  Widget _buildScrollableProvidersSection(ThemeData theme) {
+  Widget _buildUnitPreferencesSection(ThemeData theme) {
     return Container(
       decoration: BoxDecoration(
-        border: Border.all(color: Colors.grey.withValues(alpha:0.3)),
+        border: Border.all(color: Colors.grey.withValues(alpha: 0.3)),
         borderRadius: BorderRadius.circular(6),
       ),
       child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
           // Header
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
             decoration: BoxDecoration(
-              color: Colors.blue.withValues(alpha:0.1),
+              color: Colors.teal.withValues(alpha: 0.1),
               borderRadius: const BorderRadius.only(
                 topLeft: Radius.circular(6),
                 topRight: Radius.circular(6),
@@ -597,119 +1207,14 @@ class _ServerManagerToolState extends State<ServerManagerTool> {
             ),
             child: Row(
               children: [
-                const Icon(Icons.dns, size: 14, color: Colors.blue),
+                const Icon(Icons.straighten, size: 14, color: Colors.teal),
                 const SizedBox(width: 8),
-                Text(
-                  'Data Providers (${_providerStats.length})',
-                  style: const TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold,
-                  ),
+                const Text(
+                  'Unit Preferences',
+                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
                 ),
-              ],
-            ),
-          ),
-          // Scrollable list
-          Expanded(
-            child: _providerStats.isEmpty
-                ? const Center(
-                    child: Text('No providers', style: TextStyle(fontSize: 10)),
-                  )
-                : ListView.builder(
-                    padding: const EdgeInsets.all(6),
-                    itemCount: _providerStats.length,
-                    itemBuilder: (context, index) {
-                      final entry = _providerStats.entries.elementAt(index);
-                      final stats = entry.value as Map<String, dynamic>;
-                      final deltaRate = (stats['deltaRate'] as num?)?.toDouble() ?? 0;
-                      final deltaCount = (stats['deltaCount'] as num?)?.toInt() ?? 0;
-
-                      return Padding(
-                        padding: const EdgeInsets.only(bottom: 4),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 8),
-                          decoration: BoxDecoration(
-                            color: Colors.blue.withValues(alpha:0.05),
-                            borderRadius: BorderRadius.circular(4),
-                          ),
-                          child: Row(
-                            children: [
-                              Expanded(
-                                flex: 3,
-                                child: Text(
-                                  entry.key,
-                                  style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w500),
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ),
-                              const SizedBox(width: 12),
-                              SizedBox(
-                                width: 60,
-                                child: Text(
-                                  '${deltaRate.toStringAsFixed(1)}/s',
-                                  style: TextStyle(
-                                    fontSize: 10,
-                                    color: theme.textTheme.bodySmall?.color,
-                                  ),
-                                  textAlign: TextAlign.right,
-                                ),
-                              ),
-                              const SizedBox(width: 12),
-                              SizedBox(
-                                width: 70,
-                                child: Text(
-                                  '$deltaCount deltas',
-                                  style: TextStyle(
-                                    fontSize: 10,
-                                    color: theme.textTheme.bodySmall?.color,
-                                  ),
-                                  textAlign: TextAlign.right,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildScrollablePluginsSection(ThemeData theme) {
-    return Container(
-      decoration: BoxDecoration(
-        border: Border.all(color: Colors.grey.withValues(alpha:0.3)),
-        borderRadius: BorderRadius.circular(6),
-      ),
-      child: Column(
-        children: [
-          // Compact header
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-            decoration: BoxDecoration(
-              color: Colors.grey.withValues(alpha:0.1),
-              borderRadius: const BorderRadius.only(
-                topLeft: Radius.circular(6),
-                topRight: Radius.circular(6),
-              ),
-            ),
-            child: Row(
-              children: [
-                const Icon(Icons.extension, size: 14, color: Colors.green),
-                const SizedBox(width: 6),
-                Expanded(
-                  child: Text(
-                    'Plugins (${_plugins.length})',
-                    style: const TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-                if (_loadingPlugins)
+                const Spacer(),
+                if (_loadingPresets)
                   const SizedBox(
                     width: 12,
                     height: 12,
@@ -717,70 +1222,37 @@ class _ServerManagerToolState extends State<ServerManagerTool> {
                   )
                 else
                   InkWell(
-                    onTap: _loadPlugins,
+                    onTap: _loadUnitPresets,
                     child: const Icon(Icons.refresh, size: 14),
                   ),
               ],
             ),
           ),
-          // Scrollable list
-          Expanded(
-            child: _plugins.isEmpty && !_loadingPlugins
-                ? const Center(
-                    child: Padding(
-                      padding: EdgeInsets.all(12),
-                      child: Text('No plugins loaded', style: TextStyle(fontSize: 10)),
-                    ),
+          // Dropdown
+          Padding(
+            padding: const EdgeInsets.all(8),
+            child: _availablePresets.isEmpty
+                ? Text(
+                    _loadingPresets ? 'Loading...' : 'No presets available',
+                    style: const TextStyle(fontSize: 11),
                   )
-                : ListView.builder(
-                    padding: const EdgeInsets.all(6),
-                    itemCount: _plugins.length,
-                    itemBuilder: (context, index) {
-                      final plugin = _plugins[index];
-                      final id = plugin['id'] as String? ?? 'Unknown';
-                      final name = plugin['name'] as String? ?? id;
-                      final enabled = plugin['enabled'] as bool? ?? false;
-
-                      return Padding(
-                        padding: const EdgeInsets.only(bottom: 2),
-                        child: Container(
-                          decoration: BoxDecoration(
-                            color: enabled
-                                ? Colors.green.withValues(alpha:0.1)
-                                : Colors.grey.withValues(alpha:0.05),
-                            borderRadius: BorderRadius.circular(4),
-                          ),
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 8),
-                            child: Row(
-                              children: [
-                                Expanded(
-                                  child: InkWell(
-                                    onTap: () => _togglePlugin(id, enabled),
-                                    child: Text(
-                                      name,
-                                      style: TextStyle(
-                                        fontSize: 11,
-                                        fontWeight: enabled ? FontWeight.w500 : FontWeight.normal,
-                                      ),
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                                Transform.scale(
-                                  scale: 0.8,
-                                  child: Switch(
-                                    value: enabled,
-                                    onChanged: (_) => _togglePlugin(id, enabled),
-                                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      );
+                : DropdownButton<String>(
+                    value: _activePreset,
+                    isExpanded: true,
+                    underline: const SizedBox(),
+                    items: _availablePresets
+                        .map((preset) => DropdownMenuItem(
+                              value: preset['name'] as String?,
+                              child: Text(
+                                preset['displayName'] as String? ?? preset['name'] as String? ?? 'Unknown',
+                                style: const TextStyle(fontSize: 12),
+                              ),
+                            ))
+                        .toList(),
+                    onChanged: (value) {
+                      if (value != null && value != _activePreset) {
+                        _setActivePreset(value);
+                      }
                     },
                   ),
           ),
@@ -789,105 +1261,98 @@ class _ServerManagerToolState extends State<ServerManagerTool> {
     );
   }
 
-  Widget _buildScrollableWebappsSection(ThemeData theme) {
-    return Container(
-      decoration: BoxDecoration(
-        border: Border.all(color: Colors.grey.withValues(alpha:0.3)),
-        borderRadius: BorderRadius.circular(6),
-      ),
-      child: Column(
-        children: [
-          // Compact header
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-            decoration: BoxDecoration(
-              color: Colors.grey.withValues(alpha:0.1),
-              borderRadius: const BorderRadius.only(
-                topLeft: Radius.circular(6),
-                topRight: Radius.circular(6),
+}
+
+/// Full-screen page for viewing webapps in a WebView with auth support
+class _WebappViewPage extends StatefulWidget {
+  final String url;
+  final String title;
+  final String? authToken;
+  final String serverUrl;
+
+  const _WebappViewPage({
+    required this.url,
+    required this.title,
+    this.authToken,
+    required this.serverUrl,
+  });
+
+  @override
+  State<_WebappViewPage> createState() => _WebappViewPageState();
+}
+
+class _WebappViewPageState extends State<_WebappViewPage> {
+  late final WebViewController _controller;
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _initWebView();
+  }
+
+  Future<void> _initWebView() async {
+    _controller = WebViewController()
+      ..setJavaScriptMode(JavaScriptMode.unrestricted)
+      ..setNavigationDelegate(
+        NavigationDelegate(
+          onPageStarted: (url) {
+            if (mounted) setState(() => _isLoading = true);
+          },
+          onPageFinished: (url) {
+            if (mounted) setState(() => _isLoading = false);
+          },
+          onWebResourceError: (error) {
+            debugPrint('WebView error: ${error.description}');
+          },
+        ),
+      );
+
+    // Set auth cookie if user is authenticated
+    if (widget.authToken != null) {
+      final cookieManager = WebViewCookieManager();
+      // Parse server URL to get domain
+      final uri = Uri.parse(widget.url);
+      final domain = uri.host;
+
+      // Set the JWT token as a cookie
+      await cookieManager.setCookie(
+        WebViewCookie(
+          name: 'JAUTHENTICATION',
+          value: widget.authToken!,
+          domain: domain,
+          path: '/',
+        ),
+      );
+    }
+
+    await _controller.loadRequest(Uri.parse(widget.url));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(widget.title),
+        actions: [
+          if (_isLoading)
+            const Padding(
+              padding: EdgeInsets.all(16),
+              child: SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(strokeWidth: 2),
               ),
             ),
-            child: Row(
-              children: [
-                const Icon(Icons.web, size: 14, color: Colors.purple),
-                const SizedBox(width: 6),
-                Expanded(
-                  child: Text(
-                    'Webapps (${_webapps.length})',
-                    style: const TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-                if (_loadingWebapps)
-                  const SizedBox(
-                    width: 12,
-                    height: 12,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                else
-                  InkWell(
-                    onTap: _loadWebapps,
-                    child: const Icon(Icons.refresh, size: 14),
-                  ),
-              ],
-            ),
-          ),
-          // Scrollable list
-          Expanded(
-            child: _webapps.isEmpty && !_loadingWebapps
-                ? const Center(
-                    child: Padding(
-                      padding: EdgeInsets.all(12),
-                      child: Text('No webapps found', style: TextStyle(fontSize: 10)),
-                    ),
-                  )
-                : ListView.builder(
-                    padding: const EdgeInsets.all(6),
-                    itemCount: _webapps.length,
-                    itemBuilder: (context, index) {
-                      final webapp = _webapps[index];
-                      final name = webapp['name'] as String? ?? 'Unknown';
-                      final version = webapp['version'] as String? ?? '';
-
-                      return Padding(
-                        padding: const EdgeInsets.only(bottom: 2),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 8),
-                          decoration: BoxDecoration(
-                            color: Colors.purple.withValues(alpha:0.05),
-                            borderRadius: BorderRadius.circular(4),
-                          ),
-                          child: Row(
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  name,
-                                  style: const TextStyle(fontSize: 11),
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              Text(
-                                version,
-                                style: TextStyle(
-                                  fontSize: 9,
-                                  color: theme.textTheme.bodySmall?.color,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      );
-                    },
-                  ),
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: () => _controller.reload(),
           ),
         ],
       ),
+      body: WebViewWidget(controller: _controller),
     );
   }
-
 }
 
 /// Builder for server manager tool
