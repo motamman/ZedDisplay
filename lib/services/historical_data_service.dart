@@ -53,7 +53,6 @@ class HistoricalDataService {
       'start': 'now',
       'duration': duration,
       'paths': pathsParam,
-      'convertUnits': 'false', // Get raw SI units for client-side conversion
       'convertTimesToLocal': 'true',
     };
 
@@ -131,7 +130,6 @@ class HistoricalDataService {
       'from': from.toIso8601String(),
       'to': to.toIso8601String(),
       'paths': pathsParam,
-      'convertUnits': 'false', // Get raw SI units for client-side conversion
       'convertTimesToLocal': 'true',
     };
 

@@ -385,7 +385,12 @@ class _RealtimeSplineChartState extends State<RealtimeSplineChart> with Automati
                 ),
                 primaryYAxis: NumericAxis(
                   name: 'primaryYAxis',
-                  labelFormat: primaryUnit != null ? '{value} $primaryUnit' : '{value}',
+                  axisLabelFormatter: (AxisLabelRenderDetails details) {
+                    return ChartAxisLabel(
+                      ChartAxisUtils.formatAxisValue(details.value.toDouble(), unit: primaryUnit),
+                      details.textStyle,
+                    );
+                  },
                   majorGridLines: MajorGridLines(
                     width: widget.showGrid ? 1 : 0,
                     color: Colors.grey.withValues(alpha: 0.2),
@@ -402,7 +407,12 @@ class _RealtimeSplineChartState extends State<RealtimeSplineChart> with Automati
                   NumericAxis(
                     name: 'secondaryYAxis',
                     opposedPosition: true,  // Right side
-                    labelFormat: secondaryUnit != null ? '{value} $secondaryUnit' : '{value}',
+                    axisLabelFormatter: (AxisLabelRenderDetails details) {
+                      return ChartAxisLabel(
+                        ChartAxisUtils.formatAxisValue(details.value.toDouble(), unit: secondaryUnit),
+                        details.textStyle,
+                      );
+                    },
                     minimum: _cachedSecondaryMinY,
                     maximum: _cachedSecondaryMaxY,
                     majorGridLines: MajorGridLines(

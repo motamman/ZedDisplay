@@ -96,4 +96,23 @@ class ChartAxisUtils {
     );
     return assignment == 'secondary' ? 'secondaryYAxis' : 'primaryYAxis';
   }
+
+  /// Format a numeric value with intelligent precision.
+  /// - >= 100: 0 decimal places
+  /// - >= 1: 1 decimal place
+  /// - < 1: 2 decimal places
+  static String formatAxisValue(double value, {String? unit}) {
+    String formatted;
+    final absValue = value.abs();
+
+    if (absValue >= 100) {
+      formatted = value.toStringAsFixed(0);
+    } else if (absValue >= 1) {
+      formatted = value.toStringAsFixed(1);
+    } else {
+      formatted = value.toStringAsFixed(2);
+    }
+
+    return unit != null ? '$formatted $unit' : formatted;
+  }
 }

@@ -27,7 +27,8 @@ class ChartConfigurator extends ToolConfigurator {
   bool chartAutoRefresh = false; // historical only
   int chartRefreshInterval = 60; // historical only
   bool chartShowMovingAverage = false;
-  int chartMovingAverageWindow = 5;
+  String chartSmoothingType = 'sma'; // 'sma' or 'ema'
+  int chartMovingAverageWindow = 5; // SMA window or EMA alpha*100
   String chartTitle = '';
 
   @override
@@ -40,6 +41,7 @@ class ChartConfigurator extends ToolConfigurator {
     chartAutoRefresh = false;
     chartRefreshInterval = 60;
     chartShowMovingAverage = false;
+    chartSmoothingType = 'sma';
     chartMovingAverageWindow = 5;
     chartTitle = '';
   }
@@ -61,6 +63,7 @@ class ChartConfigurator extends ToolConfigurator {
       chartAutoRefresh = style.customProperties!['autoRefresh'] as bool? ?? false;
       chartRefreshInterval = style.customProperties!['refreshInterval'] as int? ?? 60;
       chartShowMovingAverage = style.customProperties!['showMovingAverage'] as bool? ?? false;
+      chartSmoothingType = style.customProperties!['smoothingType'] as String? ?? 'sma';
       chartMovingAverageWindow = style.customProperties!['movingAverageWindow'] as int? ?? 5;
       chartTitle = style.customProperties!['title'] as String? ?? '';
     }
@@ -100,6 +103,7 @@ class ChartConfigurator extends ToolConfigurator {
       'showLegend': chartShowLegend,
       'showGrid': chartShowGrid,
       'showMovingAverage': chartShowMovingAverage,
+      'smoothingType': chartSmoothingType,
       'movingAverageWindow': chartMovingAverageWindow,
       'title': chartTitle,
     };
@@ -298,24 +302,61 @@ class ChartConfigurator extends ToolConfigurator {
                 },
               ),
 
-              // Moving Average Window (conditional)
-              if (chartShowMovingAverage)
+              // Moving Average options (conditional)
+              if (chartShowMovingAverage) ...[
+                // Smoothing Type selector
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: DropdownButtonFormField<String>(
+                    decoration: const InputDecoration(
+                      labelText: 'Smoothing Type',
+                      border: OutlineInputBorder(),
+                    ),
+                    value: chartSmoothingType,
+                    items: const [
+                      DropdownMenuItem(value: 'sma', child: Text('Simple Moving Average (SMA)')),
+                      DropdownMenuItem(value: 'ema', child: Text('Exponential Moving Average (EMA)')),
+                    ],
+                    onChanged: (value) {
+                      if (value != null) {
+                        setState(() {
+                          chartSmoothingType = value;
+                          // Reset window to appropriate default for type
+                          chartMovingAverageWindow = value == 'ema' ? 20 : 5;
+                        });
+                      }
+                    },
+                  ),
+                ),
+                const SizedBox(height: 16),
+                // Window/Alpha parameter
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 16),
                   child: DropdownButtonFormField<int>(
-                    decoration: const InputDecoration(
-                      labelText: 'Moving Average Window',
-                      border: OutlineInputBorder(),
-                      helperText: 'Number of data points to average',
+                    decoration: InputDecoration(
+                      labelText: chartSmoothingType == 'ema' ? 'EMA Alpha' : 'SMA Window',
+                      border: const OutlineInputBorder(),
+                      helperText: chartSmoothingType == 'ema'
+                          ? 'Higher = more responsive, lower = smoother'
+                          : 'Number of data points to average',
                     ),
                     value: chartMovingAverageWindow,
-                    items: const [
-                      DropdownMenuItem(value: 3, child: Text('3 points')),
-                      DropdownMenuItem(value: 5, child: Text('5 points')),
-                      DropdownMenuItem(value: 10, child: Text('10 points')),
-                      DropdownMenuItem(value: 15, child: Text('15 points')),
-                      DropdownMenuItem(value: 20, child: Text('20 points')),
-                    ],
+                    items: chartSmoothingType == 'ema'
+                        ? const [
+                            // EMA alpha values (stored as int, converted to 0.0-1.0 in tool)
+                            DropdownMenuItem(value: 10, child: Text('0.1 (Very smooth)')),
+                            DropdownMenuItem(value: 20, child: Text('0.2 (Smooth)')),
+                            DropdownMenuItem(value: 30, child: Text('0.3 (Balanced)')),
+                            DropdownMenuItem(value: 50, child: Text('0.5 (Responsive)')),
+                          ]
+                        : const [
+                            // SMA window sizes
+                            DropdownMenuItem(value: 3, child: Text('3 points')),
+                            DropdownMenuItem(value: 5, child: Text('5 points')),
+                            DropdownMenuItem(value: 10, child: Text('10 points')),
+                            DropdownMenuItem(value: 15, child: Text('15 points')),
+                            DropdownMenuItem(value: 20, child: Text('20 points')),
+                          ],
                     onChanged: (value) {
                       if (value != null) {
                         setState(() => chartMovingAverageWindow = value);
@@ -323,6 +364,7 @@ class ChartConfigurator extends ToolConfigurator {
                     },
                   ),
                 ),
+              ],
               const SizedBox(height: 16),
 
               // Chart Title

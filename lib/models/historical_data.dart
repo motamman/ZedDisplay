@@ -51,7 +51,7 @@ class ValueInfo {
   final String path;
   final String method;
   final String? smoothing;  // 'sma' or 'ema' if smoothing applied
-  final int? window;        // Window size for SMA or alpha*1000 for EMA
+  final num? window;        // Window size for SMA (int) or alpha for EMA (double)
 
   ValueInfo({
     required this.path,
@@ -65,7 +65,7 @@ class ValueInfo {
       path: json['path'] ?? '',
       method: json['method'] ?? 'average',
       smoothing: json['smoothing'] as String?,
-      window: json['window'] as int?,
+      window: json['window'] as num?,
     );
   }
 
@@ -107,7 +107,7 @@ class ChartDataSeries {
   final String path;
   final String method;
   final String? smoothing;  // 'sma' or 'ema' if this is a smoothed series
-  final int? window;        // Smoothing window/parameter
+  final num? window;        // Smoothing window/parameter (int for SMA, double for EMA)
   final List<ChartDataPoint> points;
   final double? minValue;
   final double? maxValue;
@@ -197,7 +197,7 @@ class ChartDataSeries {
   /// Get display name for this series
   String get displayName {
     if (smoothing == 'ema') {
-      return '$path (EMA${window != null ? ' α=${window! / 1000}' : ''})';
+      return '$path (EMA${window != null ? ' α=$window' : ''})';
     } else if (smoothing == 'sma') {
       return '$path (SMA${window != null ? ' $window' : ''})';
     }

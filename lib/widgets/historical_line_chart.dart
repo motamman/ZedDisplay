@@ -18,7 +18,7 @@ enum ChartStyle {
 ///
 /// Smoothed series (SMA/EMA) are rendered as dashed lines when provided
 /// from the server via path:aggregation:smoothing:param syntax.
-class HistoricalLineChart extends StatelessWidget {
+class HistoricalLineChart extends StatefulWidget {
   final List<ChartDataSeries> series;
   final String title;
   final bool showLegend;
@@ -44,9 +44,17 @@ class HistoricalLineChart extends StatelessWidget {
     this.duration = '1h',
   });
 
+  @override
+  State<HistoricalLineChart> createState() => _HistoricalLineChartState();
+}
+
+class _HistoricalLineChartState extends State<HistoricalLineChart> {
+  // Track which series are hidden (by index of non-smoothed series)
+  final Set<int> _hiddenSeries = {};
+
   /// Get appropriate date format based on duration
   DateFormat _getDateFormat() {
-    switch (duration) {
+    switch (widget.duration) {
       case '15m':
       case '30m':
       case '1h':
@@ -66,7 +74,7 @@ class HistoricalLineChart extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (series.isEmpty) {
+    if (widget.series.isEmpty) {
       return Card(
         child: Center(
           child: Padding(
@@ -87,7 +95,7 @@ class HistoricalLineChart extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              title,
+              widget.title,
               style: Theme.of(context).textTheme.titleLarge?.copyWith(
                     fontWeight: FontWeight.bold,
                   ),
@@ -109,18 +117,18 @@ class HistoricalLineChart extends StatelessWidget {
     // Get unit symbol from first series using MetadataStore (single source of truth)
     String? primaryUnit;
     String? secondaryUnit;
-    if (signalKService != null && series.isNotEmpty) {
-      primaryUnit = signalKService!.metadataStore.get(series.first.path)?.symbol;
+    if (widget.signalKService != null && widget.series.isNotEmpty) {
+      primaryUnit = widget.signalKService!.metadataStore.get(widget.series.first.path)?.symbol;
       // Find secondary unit if we have a secondary axis
-      if (secondaryAxisBaseUnit != null) {
-        for (final s in series) {
+      if (widget.secondaryAxisBaseUnit != null) {
+        for (final s in widget.series) {
           // Use same fallback chain as ChartAxisUtils.getUnitKey()
           final unitKey = ChartAxisUtils.getUnitKey(
             s.path,
-            signalKService!.metadataStore,
+            widget.signalKService!.metadataStore,
           );
-          if (unitKey == secondaryAxisBaseUnit) {
-            secondaryUnit = signalKService!.metadataStore.get(s.path)?.symbol;
+          if (unitKey == widget.secondaryAxisBaseUnit) {
+            secondaryUnit = widget.signalKService!.metadataStore.get(s.path)?.symbol;
             break;
           }
         }
@@ -129,17 +137,33 @@ class HistoricalLineChart extends StatelessWidget {
 
     // Calculate Y-axis ranges
     final primaryRange = _calculateAxisRange(isSecondary: false);
-    final secondaryRange = secondaryAxisBaseUnit != null
+    final secondaryRange = widget.secondaryAxisBaseUnit != null
         ? _calculateAxisRange(isSecondary: true)
         : null;
 
     return SfCartesianChart(
       // Legend configuration
       legend: Legend(
-        isVisible: showLegend,
+        isVisible: widget.showLegend,
         position: LegendPosition.bottom,
         overflowMode: LegendItemOverflowMode.wrap,
       ),
+      // Toggle series visibility when legend item is tapped
+      onLegendTapped: (LegendTapArgs args) {
+        final index = args.seriesIndex ?? 0;
+        // Toggle after a short delay to let chart update first
+        Future.microtask(() {
+          if (mounted) {
+            setState(() {
+              if (_hiddenSeries.contains(index)) {
+                _hiddenSeries.remove(index);
+              } else {
+                _hiddenSeries.add(index);
+              }
+            });
+          }
+        });
+      },
 
       // Tooltip configuration
       tooltipBehavior: TooltipBehavior(
@@ -162,7 +186,7 @@ class HistoricalLineChart extends StatelessWidget {
       primaryXAxis: DateTimeAxis(
         dateFormat: _getDateFormat(),
         majorGridLines: MajorGridLines(
-          width: showGrid ? 1 : 0,
+          width: widget.showGrid ? 1 : 0,
           color: Colors.grey.withValues(alpha: 0.2),
         ),
         axisLine: const AxisLine(width: 1),
@@ -172,11 +196,16 @@ class HistoricalLineChart extends StatelessWidget {
       // Primary Y axis (values)
       primaryYAxis: NumericAxis(
         name: 'primaryYAxis',
-        labelFormat: primaryUnit != null ? '{value} $primaryUnit' : '{value}',
+        axisLabelFormatter: (AxisLabelRenderDetails details) {
+          return ChartAxisLabel(
+            ChartAxisUtils.formatAxisValue(details.value.toDouble(), unit: primaryUnit),
+            details.textStyle,
+          );
+        },
         minimum: primaryRange.min,
         maximum: primaryRange.max,
         majorGridLines: MajorGridLines(
-          width: showGrid ? 1 : 0,
+          width: widget.showGrid ? 1 : 0,
           color: Colors.grey.withValues(alpha: 0.2),
         ),
         axisLine: const AxisLine(width: 1),
@@ -184,15 +213,20 @@ class HistoricalLineChart extends StatelessWidget {
       ),
 
       // Secondary Y-axis (right side) when paths have different base units
-      axes: secondaryAxisBaseUnit != null && secondaryRange != null ? <ChartAxis>[
+      axes: widget.secondaryAxisBaseUnit != null && secondaryRange != null ? <ChartAxis>[
         NumericAxis(
           name: 'secondaryYAxis',
           opposedPosition: true,  // Right side
-          labelFormat: secondaryUnit != null ? '{value} $secondaryUnit' : '{value}',
+          axisLabelFormatter: (AxisLabelRenderDetails details) {
+            return ChartAxisLabel(
+              ChartAxisUtils.formatAxisValue(details.value.toDouble(), unit: secondaryUnit),
+              details.textStyle,
+            );
+          },
           minimum: secondaryRange.min,
           maximum: secondaryRange.max,
           majorGridLines: MajorGridLines(
-            width: showGrid ? 1 : 0,
+            width: widget.showGrid ? 1 : 0,
             dashArray: const <double>[5, 5],  // Dashed grid lines
             color: Colors.grey.withValues(alpha: 0.2),
           ),
@@ -202,9 +236,27 @@ class HistoricalLineChart extends StatelessWidget {
       ] : <ChartAxis>[],
 
       // Series data - smoothed series are styled differently (dashed line)
+      // Smoothed series use parent color (same path, not smoothed) for visual grouping
+      // When parent series is hidden, smoothed series is also hidden
       series: List.generate(
-        series.length,
-        (index) => _buildSeries(series[index], colors[index % colors.length]),
+        widget.series.length,
+        (index) {
+          final s = widget.series[index];
+          // Find the parent index: if smoothed, find parent series index
+          int parentIndex = index;
+          if (s.isSmoothed) {
+            // Find the parent series (same path, not smoothed)
+            for (int i = 0; i < widget.series.length; i++) {
+              if (widget.series[i].path == s.path && !widget.series[i].isSmoothed) {
+                parentIndex = i;
+                break;
+              }
+            }
+          }
+          // Check if this series (or its parent) is hidden
+          final isHidden = _hiddenSeries.contains(parentIndex);
+          return _buildSeries(s, colors[parentIndex % colors.length], isHidden: isHidden);
+        },
       ),
     );
   }
@@ -214,19 +266,19 @@ class HistoricalLineChart extends StatelessWidget {
     double? minValue;
     double? maxValue;
 
-    for (final s in series) {
+    for (final s in widget.series) {
       // Determine which axis this series belongs to using the helper
       String? unitKey;
-      if (signalKService != null) {
+      if (widget.signalKService != null) {
         unitKey = ChartAxisUtils.getUnitKey(
           s.path,
-          signalKService!.metadataStore,
+          widget.signalKService!.metadataStore,
         );
       }
       final assignment = ChartAxisUtils.getAxisAssignment(
         unitKey,
-        primaryAxisBaseUnit,
-        secondaryAxisBaseUnit,
+        widget.primaryAxisBaseUnit,
+        widget.secondaryAxisBaseUnit,
       );
 
       final belongsToAxis = isSecondary
@@ -262,30 +314,34 @@ class HistoricalLineChart extends StatelessWidget {
   /// Smoothed series (SMA/EMA) are rendered as dashed spline lines
   CartesianSeries<_ChartPoint, DateTime> _buildSeries(
     ChartDataSeries seriesData,
-    Color color,
-  ) {
-    final dataPoints = seriesData.points
-        .map((point) => _ChartPoint(point.timestamp, point.value))
-        .toList();
+    Color color, {
+    bool isHidden = false,
+  }) {
+    // Return empty data when series is hidden (like realtime chart)
+    final dataPoints = isHidden
+        ? <_ChartPoint>[]
+        : seriesData.points
+            .map((point) => _ChartPoint(point.timestamp, point.value))
+            .toList();
 
     // Determine axis assignment using the helper
     String? unitKey;
-    if (signalKService != null) {
+    if (widget.signalKService != null) {
       unitKey = ChartAxisUtils.getUnitKey(
         seriesData.path,
-        signalKService!.metadataStore,
+        widget.signalKService!.metadataStore,
       );
     }
     final axisName = ChartAxisUtils.getAxisName(
       unitKey,
-      primaryAxisBaseUnit,
-      secondaryAxisBaseUnit,
+      widget.primaryAxisBaseUnit,
+      widget.secondaryAxisBaseUnit,
     );
 
     // Get label with display unit
     final label = _getSeriesLabelWithUnit(seriesData);
 
-    // Smoothed series always render as dashed spline line
+    // Smoothed series always render as dashed spline line (matching realtime chart style)
     if (seriesData.isSmoothed) {
       return SplineSeries<_ChartPoint, DateTime>(
         name: label,
@@ -293,17 +349,18 @@ class HistoricalLineChart extends StatelessWidget {
         xValueMapper: (_ChartPoint point, _) => point.timestamp,
         yValueMapper: (_ChartPoint point, _) => point.value,
         yAxisName: axisName,
-        color: color,
-        width: 3,
-        dashArray: const <double>[8, 4],
+        color: color.withValues(alpha: 0.6),  // Semi-transparent like realtime chart
+        width: 2,                              // Match realtime chart width
+        dashArray: const <double>[5, 5],       // Match realtime chart dash pattern
         splineType: SplineType.natural,
+        isVisibleInLegend: false,              // Hide from legend like realtime chart
         markerSettings: const MarkerSettings(
           isVisible: false,
         ),
       );
     }
 
-    switch (chartStyle) {
+    switch (widget.chartStyle) {
       case ChartStyle.line:
         return SplineSeries<_ChartPoint, DateTime>(
           name: label,
@@ -372,7 +429,7 @@ class HistoricalLineChart extends StatelessWidget {
 
   List<Color> _getSeriesColors() {
     // Use primaryColor for first series, or default to blue
-    final baseColor = primaryColor ?? Colors.blue;
+    final baseColor = widget.primaryColor ?? Colors.blue;
 
     // Generate complementary colors for multiple series
     return [
@@ -406,7 +463,7 @@ class HistoricalLineChart extends StatelessWidget {
       final smoothingType = series.smoothing!.toUpperCase();
       if (series.window != null) {
         if (series.smoothing == 'ema') {
-          return '$shortPath ($smoothingType α=${series.window! / 1000})';
+          return '$shortPath ($smoothingType α=${series.window})';
         }
         return '$shortPath ($smoothingType ${series.window})';
       }
@@ -420,7 +477,7 @@ class HistoricalLineChart extends StatelessWidget {
   /// Example: "Speed (kn)" or "Water Temp (F)"
   String _getSeriesLabelWithUnit(ChartDataSeries seriesData) {
     final baseLabel = _getSeriesLabel(seriesData);
-    final symbol = signalKService?.metadataStore.get(seriesData.path)?.symbol;
+    final symbol = widget.signalKService?.metadataStore.get(seriesData.path)?.symbol;
 
     if (symbol != null && symbol.isNotEmpty) {
       return '$baseLabel ($symbol)';
