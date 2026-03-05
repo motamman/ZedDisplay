@@ -324,6 +324,7 @@ class _HistoricalChartToolState extends State<HistoricalChartTool> with Automati
           primaryColor: primaryColor,
           primaryAxisBaseUnit: axisUnits.primary,
           secondaryAxisBaseUnit: axisUnits.secondary,
+          duration: duration,
         ),
         // Refresh button in top-right corner
         Positioned(

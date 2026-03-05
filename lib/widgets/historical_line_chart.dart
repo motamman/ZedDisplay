@@ -28,6 +28,7 @@ class HistoricalLineChart extends StatelessWidget {
   final Color? primaryColor;
   final String? primaryAxisBaseUnit;     // For dual Y-axis support
   final String? secondaryAxisBaseUnit;   // For dual Y-axis support
+  final String duration;                 // For X-axis date format
 
   const HistoricalLineChart({
     super.key,
@@ -40,7 +41,28 @@ class HistoricalLineChart extends StatelessWidget {
     this.primaryColor,
     this.primaryAxisBaseUnit,
     this.secondaryAxisBaseUnit,
+    this.duration = '1h',
   });
+
+  /// Get appropriate date format based on duration
+  DateFormat _getDateFormat() {
+    switch (duration) {
+      case '15m':
+      case '30m':
+      case '1h':
+      case '2h':
+        return DateFormat('h:mm a');      // 10:30 AM
+      case '6h':
+      case '12h':
+        return DateFormat('h a');          // 10 AM
+      case '1d':
+        return DateFormat('h a');          // 10 AM
+      case '2d':
+        return DateFormat('E h a');        // Mon 10 AM
+      default:
+        return DateFormat('h:mm a');
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -92,8 +114,12 @@ class HistoricalLineChart extends StatelessWidget {
       // Find secondary unit if we have a secondary axis
       if (secondaryAxisBaseUnit != null) {
         for (final s in series) {
-          final baseUnit = signalKService!.metadataStore.get(s.path)?.baseUnit;
-          if (baseUnit == secondaryAxisBaseUnit) {
+          // Use same fallback chain as ChartAxisUtils.getUnitKey()
+          final unitKey = ChartAxisUtils.getUnitKey(
+            s.path,
+            signalKService!.metadataStore,
+          );
+          if (unitKey == secondaryAxisBaseUnit) {
             secondaryUnit = signalKService!.metadataStore.get(s.path)?.symbol;
             break;
           }
@@ -134,7 +160,7 @@ class HistoricalLineChart extends StatelessWidget {
 
       // Primary X axis (DateTime)
       primaryXAxis: DateTimeAxis(
-        dateFormat: DateFormat('HH:mm'),
+        dateFormat: _getDateFormat(),
         majorGridLines: MajorGridLines(
           width: showGrid ? 1 : 0,
           color: Colors.grey.withValues(alpha: 0.2),

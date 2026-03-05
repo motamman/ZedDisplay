@@ -256,8 +256,26 @@ class _RealtimeSplineChartState extends State<RealtimeSplineChart> with Automati
     final colors = _getSeriesColors();
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
-    // Get unit from first path using MetadataStore (single source of truth)
-    final unit = widget.signalKService.metadataStore.get(widget.dataSources.first.path)?.symbol;
+    // Get unit symbols for axis labels (match historical chart pattern)
+    String? primaryUnit;
+    String? secondaryUnit;
+    if (widget.dataSources.isNotEmpty) {
+      primaryUnit = widget.signalKService.metadataStore.get(widget.dataSources.first.path)?.symbol;
+      if (_secondaryAxisBaseUnit != null) {
+        for (final ds in widget.dataSources) {
+          // Use same fallback chain as ChartAxisUtils.getUnitKey()
+          final unitKey = ChartAxisUtils.getUnitKey(
+            ds.path,
+            widget.signalKService.metadataStore,
+            storedBaseUnit: ds.baseUnit,
+          );
+          if (unitKey == _secondaryAxisBaseUnit) {
+            secondaryUnit = widget.signalKService.metadataStore.get(ds.path)?.symbol;
+            break;
+          }
+        }
+      }
+    }
 
     return Card(
       child: Padding(
@@ -308,23 +326,7 @@ class _RealtimeSplineChartState extends State<RealtimeSplineChart> with Automati
             ),
             const SizedBox(height: 16),
             Expanded(
-              child: Row(
-                children: [
-                  // Vertical unit label (rotated 90 degrees)
-                  if (unit != null && unit.isNotEmpty)
-                    Padding(
-                      padding: const EdgeInsets.only(right: 8.0),
-                      child: RotatedBox(
-                        quarterTurns: 3, // 90 degrees counter-clockwise
-                        child: Text(
-                          unit,
-                          style: const TextStyle(fontSize: 12),
-                        ),
-                      ),
-                    ),
-                  // Chart
-                  Expanded(
-                    child: SfCartesianChart(
+              child: SfCartesianChart(
                 legend: Legend(
                   isVisible: widget.showLegend,
                   position: LegendPosition.bottom,
@@ -363,7 +365,7 @@ class _RealtimeSplineChartState extends State<RealtimeSplineChart> with Automati
                 ),
                 primaryYAxis: NumericAxis(
                   name: 'primaryYAxis',
-                  labelFormat: '{value}',
+                  labelFormat: primaryUnit != null ? '{value} $primaryUnit' : '{value}',
                   majorGridLines: MajorGridLines(
                     width: widget.showGrid ? 1 : 0,
                     color: Colors.grey.withValues(alpha: 0.2),
@@ -380,7 +382,7 @@ class _RealtimeSplineChartState extends State<RealtimeSplineChart> with Automati
                   NumericAxis(
                     name: 'secondaryYAxis',
                     opposedPosition: true,  // Right side
-                    labelFormat: '{value}',
+                    labelFormat: secondaryUnit != null ? '{value} $secondaryUnit' : '{value}',
                     minimum: _cachedSecondaryMinY,
                     maximum: _cachedSecondaryMaxY,
                     majorGridLines: MajorGridLines(
@@ -462,9 +464,6 @@ class _RealtimeSplineChartState extends State<RealtimeSplineChart> with Automati
                 ],
               ),
             ),
-          ],
-        ),
-      ),
           ],
         ),
       ),
