@@ -8,6 +8,7 @@ import '../../services/signalk_service.dart';
 import '../../services/historical_data_service.dart';
 import '../../services/tool_registry.dart';
 import '../../utils/color_extensions.dart';
+import '../../utils/chart_axis_utils.dart';
 import '../historical_line_chart.dart';
 
 /// Config-driven historical chart tool
@@ -305,6 +306,12 @@ class _HistoricalChartToolState extends State<HistoricalChartTool> with Automati
     // Parse primary color from config
     final primaryColor = widget.config.style.primaryColor?.toColor();
 
+    // Determine axis units for dual Y-axis support
+    final axisUnits = ChartAxisUtils.determineAxisUnits(
+      widget.config.dataSources,
+      widget.signalKService.metadataStore,
+    );
+
     return Stack(
       children: [
         HistoricalLineChart(
@@ -315,6 +322,8 @@ class _HistoricalChartToolState extends State<HistoricalChartTool> with Automati
           signalKService: widget.signalKService,
           chartStyle: chartStyle,
           primaryColor: primaryColor,
+          primaryAxisBaseUnit: axisUnits.primary,
+          secondaryAxisBaseUnit: axisUnits.secondary,
         ),
         // Refresh button in top-right corner
         Positioned(

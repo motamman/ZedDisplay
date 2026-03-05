@@ -1,18 +1,27 @@
 import 'package:flutter/material.dart';
 import '../../services/signalk_service.dart';
 import '../../services/historical_data_service.dart';
+import '../../utils/chart_axis_utils.dart';
 
 /// Dialog for selecting a SignalK data path
 class PathSelectorDialog extends StatefulWidget {
   final SignalKService signalKService;
   final Function(String path) onSelect;
   final bool useHistoricalPaths;
+  final bool numericOnly;                // Filter to numeric paths only
+  final String? primaryAxisBaseUnit;     // For axis compatibility filtering
+  final String? secondaryAxisBaseUnit;   // For axis compatibility filtering
+  final bool showBaseUnitInLabel;        // Show base unit in path labels
 
   const PathSelectorDialog({
     super.key,
     required this.signalKService,
     required this.onSelect,
     this.useHistoricalPaths = false,
+    this.numericOnly = false,
+    this.primaryAxisBaseUnit,
+    this.secondaryAxisBaseUnit,
+    this.showBaseUnitInLabel = false,
   });
 
   @override
@@ -50,16 +59,16 @@ class _PathSelectorDialogState extends State<PathSelectorDialog> {
     try {
       List<String> paths;
 
-      if (widget.useHistoricalPaths) {
-        // For historical chart: show ALL numeric paths from live data
+      if (widget.useHistoricalPaths || widget.numericOnly) {
+        // For historical chart or numericOnly: show only numeric paths from live data
         // but mark which ones have historical data available
         final numericPaths = <String>[];
         for (final entry in widget.signalKService.latestData.entries) {
           final path = entry.key;
           final value = entry.value.value;
 
-          // Skip source-specific paths (contain ::)
-          if (path.contains('::')) continue;
+          // Skip source-specific paths (contain :: or @)
+          if (path.contains('::') || path.contains('@')) continue;
 
           // Only include paths with numeric values
           if (value is num) {
@@ -68,16 +77,18 @@ class _PathSelectorDialogState extends State<PathSelectorDialog> {
         }
         paths = numericPaths;
 
-        // Fetch paths that have historical data (for badge indicator)
-        try {
-          final historicalService = HistoricalDataService(
-            serverUrl: widget.signalKService.serverUrl,
-            useSecureConnection: widget.signalKService.useSecureConnection,
-          );
-          final historyPaths = await historicalService.getAvailablePaths();
-          _pathsWithHistory = historyPaths.toSet();
-        } catch (e) {
-          debugPrint('Error loading history paths: $e');
+        // Fetch paths that have historical data (for badge indicator) - only for historical mode
+        if (widget.useHistoricalPaths) {
+          try {
+            final historicalService = HistoricalDataService(
+              serverUrl: widget.signalKService.serverUrl,
+              useSecureConnection: widget.signalKService.useSecureConnection,
+            );
+            final historyPaths = await historicalService.getAvailablePaths();
+            _pathsWithHistory = historyPaths.toSet();
+          } catch (e) {
+            debugPrint('Error loading history paths: $e');
+          }
         }
       } else {
         // Load all SignalK paths
@@ -87,6 +98,31 @@ class _PathSelectorDialogState extends State<PathSelectorDialog> {
         } else {
           paths = [];
         }
+      }
+
+      // Filter by axis compatibility if both axes are already defined
+      if (widget.primaryAxisBaseUnit != null && widget.secondaryAxisBaseUnit != null) {
+        debugPrint('🔍 Filtering paths for axis compatibility:');
+        debugPrint('   primary=${widget.primaryAxisBaseUnit}, secondary=${widget.secondaryAxisBaseUnit}');
+        final beforeCount = paths.length;
+        paths = paths.where((path) {
+          final unitKey = ChartAxisUtils.getUnitKey(
+            path,
+            widget.signalKService.metadataStore,
+          );
+          final compatible = ChartAxisUtils.isPathCompatible(
+            unitKey,
+            widget.primaryAxisBaseUnit,
+            widget.secondaryAxisBaseUnit,
+          );
+          if (!compatible) {
+            debugPrint('   ❌ Filtered out: $path (unitKey=$unitKey)');
+          }
+          return compatible;
+        }).toList();
+        debugPrint('   Filtered: $beforeCount → ${paths.length} paths');
+      } else {
+        debugPrint('🔍 No axis filtering (primary=${widget.primaryAxisBaseUnit}, secondary=${widget.secondaryAxisBaseUnit})');
       }
 
       setState(() {
@@ -173,8 +209,8 @@ class _PathSelectorDialogState extends State<PathSelectorDialog> {
               ),
             ),
 
-            // Helper text for historical paths
-            if (widget.useHistoricalPaths)
+            // Helper text for filtered paths
+            if (widget.useHistoricalPaths || widget.numericOnly)
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
                 child: Row(
@@ -187,28 +223,29 @@ class _PathSelectorDialogState extends State<PathSelectorDialog> {
                             ),
                       ),
                     ),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: Colors.green.withValues(alpha: 0.15),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(Icons.history, size: 14, color: Colors.green.shade700),
-                          const SizedBox(width: 4),
-                          Text(
-                            'has history',
-                            style: TextStyle(
-                              fontSize: 11,
-                              color: Colors.green.shade700,
-                              fontWeight: FontWeight.w500,
+                    if (widget.useHistoricalPaths)
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: Colors.green.withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.history, size: 14, color: Colors.green.shade700),
+                            const SizedBox(width: 4),
+                            Text(
+                              'has history',
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: Colors.green.shade700,
+                                fontWeight: FontWeight.w500,
+                              ),
                             ),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
-                    ),
                   ],
                 ),
               ),
@@ -299,6 +336,12 @@ class _PathSelectorDialogState extends State<PathSelectorDialog> {
                             final unit =
                                 widget.signalKService.getUnitSymbol(path);
                             final hasHistory = _pathsWithHistory.contains(path);
+                            final baseUnit = widget.signalKService.metadataStore.get(path)?.baseUnit;
+
+                            // Build display path with optional base unit
+                            final displayPath = (widget.showBaseUnitInLabel && baseUnit != null)
+                                ? '$path [$baseUnit]'
+                                : path;
 
                             return ListTile(
                               dense: true,
@@ -310,7 +353,7 @@ class _PathSelectorDialogState extends State<PathSelectorDialog> {
                                     )
                                   : const SizedBox(width: 18),
                               title: Text(
-                                path,
+                                displayPath,
                                 style: const TextStyle(
                                   fontSize: 13,
                                   fontFamily: 'monospace',

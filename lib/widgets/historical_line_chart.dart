@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:syncfusion_flutter_charts/charts.dart';
 import '../models/historical_data.dart';
 import '../services/signalk_service.dart';
+import '../utils/chart_axis_utils.dart';
 import 'package:intl/intl.dart';
 
 /// Available chart display styles
@@ -25,6 +26,8 @@ class HistoricalLineChart extends StatelessWidget {
   final SignalKService? signalKService;
   final ChartStyle chartStyle;
   final Color? primaryColor;
+  final String? primaryAxisBaseUnit;     // For dual Y-axis support
+  final String? secondaryAxisBaseUnit;   // For dual Y-axis support
 
   const HistoricalLineChart({
     super.key,
@@ -35,6 +38,8 @@ class HistoricalLineChart extends StatelessWidget {
     this.signalKService,
     this.chartStyle = ChartStyle.area,
     this.primaryColor,
+    this.primaryAxisBaseUnit,
+    this.secondaryAxisBaseUnit,
   });
 
   @override
@@ -80,10 +85,27 @@ class HistoricalLineChart extends StatelessWidget {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     // Get unit symbol from first series using MetadataStore (single source of truth)
-    String? unit;
+    String? primaryUnit;
+    String? secondaryUnit;
     if (signalKService != null && series.isNotEmpty) {
-      unit = signalKService!.metadataStore.get(series.first.path)?.symbol;
+      primaryUnit = signalKService!.metadataStore.get(series.first.path)?.symbol;
+      // Find secondary unit if we have a secondary axis
+      if (secondaryAxisBaseUnit != null) {
+        for (final s in series) {
+          final baseUnit = signalKService!.metadataStore.get(s.path)?.baseUnit;
+          if (baseUnit == secondaryAxisBaseUnit) {
+            secondaryUnit = signalKService!.metadataStore.get(s.path)?.symbol;
+            break;
+          }
+        }
+      }
     }
+
+    // Calculate Y-axis ranges
+    final primaryRange = _calculateAxisRange(isSecondary: false);
+    final secondaryRange = secondaryAxisBaseUnit != null
+        ? _calculateAxisRange(isSecondary: true)
+        : null;
 
     return SfCartesianChart(
       // Legend configuration
@@ -96,7 +118,7 @@ class HistoricalLineChart extends StatelessWidget {
       // Tooltip configuration
       tooltipBehavior: TooltipBehavior(
         enable: true,
-        format: 'point.x\npoint.y ${unit ?? ''}',
+        format: 'point.x\npoint.y',
         textStyle: TextStyle(
           fontSize: 12,
           color: isDark ? Colors.white : Colors.black,
@@ -123,7 +145,10 @@ class HistoricalLineChart extends StatelessWidget {
 
       // Primary Y axis (values)
       primaryYAxis: NumericAxis(
-        labelFormat: unit != null ? '{value} $unit' : '{value}',
+        name: 'primaryYAxis',
+        labelFormat: primaryUnit != null ? '{value} $primaryUnit' : '{value}',
+        minimum: primaryRange.min,
+        maximum: primaryRange.max,
         majorGridLines: MajorGridLines(
           width: showGrid ? 1 : 0,
           color: Colors.grey.withValues(alpha: 0.2),
@@ -132,11 +157,78 @@ class HistoricalLineChart extends StatelessWidget {
         labelStyle: const TextStyle(fontSize: 10),
       ),
 
+      // Secondary Y-axis (right side) when paths have different base units
+      axes: secondaryAxisBaseUnit != null && secondaryRange != null ? <ChartAxis>[
+        NumericAxis(
+          name: 'secondaryYAxis',
+          opposedPosition: true,  // Right side
+          labelFormat: secondaryUnit != null ? '{value} $secondaryUnit' : '{value}',
+          minimum: secondaryRange.min,
+          maximum: secondaryRange.max,
+          majorGridLines: MajorGridLines(
+            width: showGrid ? 1 : 0,
+            dashArray: const <double>[5, 5],  // Dashed grid lines
+            color: Colors.grey.withValues(alpha: 0.2),
+          ),
+          axisLine: const AxisLine(width: 1),
+          labelStyle: const TextStyle(fontSize: 10),
+        ),
+      ] : <ChartAxis>[],
+
       // Series data - smoothed series are styled differently (dashed line)
       series: List.generate(
         series.length,
         (index) => _buildSeries(series[index], colors[index % colors.length]),
       ),
+    );
+  }
+
+  /// Calculate Y-axis range for primary or secondary axis.
+  ({double min, double max}) _calculateAxisRange({required bool isSecondary}) {
+    double? minValue;
+    double? maxValue;
+
+    for (final s in series) {
+      // Determine which axis this series belongs to using the helper
+      String? unitKey;
+      if (signalKService != null) {
+        unitKey = ChartAxisUtils.getUnitKey(
+          s.path,
+          signalKService!.metadataStore,
+        );
+      }
+      final assignment = ChartAxisUtils.getAxisAssignment(
+        unitKey,
+        primaryAxisBaseUnit,
+        secondaryAxisBaseUnit,
+      );
+
+      final belongsToAxis = isSecondary
+          ? assignment == 'secondary'
+          : assignment == 'primary';
+
+      if (!belongsToAxis) continue;
+
+      if (s.minValue != null && (minValue == null || s.minValue! < minValue)) {
+        minValue = s.minValue;
+      }
+      if (s.maxValue != null && (maxValue == null || s.maxValue! > maxValue)) {
+        maxValue = s.maxValue;
+      }
+    }
+
+    // If no data, use default range
+    if (minValue == null || maxValue == null) {
+      return (min: 0, max: 100);
+    }
+
+    // Add 15% padding
+    final range = maxValue - minValue;
+    final padding = range > 0 ? range * 0.15 : 10.0;
+
+    return (
+      min: minValue - padding,
+      max: maxValue + padding,
     );
   }
 
@@ -150,13 +242,31 @@ class HistoricalLineChart extends StatelessWidget {
         .map((point) => _ChartPoint(point.timestamp, point.value))
         .toList();
 
+    // Determine axis assignment using the helper
+    String? unitKey;
+    if (signalKService != null) {
+      unitKey = ChartAxisUtils.getUnitKey(
+        seriesData.path,
+        signalKService!.metadataStore,
+      );
+    }
+    final axisName = ChartAxisUtils.getAxisName(
+      unitKey,
+      primaryAxisBaseUnit,
+      secondaryAxisBaseUnit,
+    );
+
+    // Get label with display unit
+    final label = _getSeriesLabelWithUnit(seriesData);
+
     // Smoothed series always render as dashed spline line
     if (seriesData.isSmoothed) {
       return SplineSeries<_ChartPoint, DateTime>(
-        name: _getSeriesLabel(seriesData),
+        name: label,
         dataSource: dataPoints,
         xValueMapper: (_ChartPoint point, _) => point.timestamp,
         yValueMapper: (_ChartPoint point, _) => point.value,
+        yAxisName: axisName,
         color: color,
         width: 3,
         dashArray: const <double>[8, 4],
@@ -170,10 +280,11 @@ class HistoricalLineChart extends StatelessWidget {
     switch (chartStyle) {
       case ChartStyle.line:
         return SplineSeries<_ChartPoint, DateTime>(
-          name: _getSeriesLabel(seriesData),
+          name: label,
           dataSource: dataPoints,
           xValueMapper: (_ChartPoint point, _) => point.timestamp,
           yValueMapper: (_ChartPoint point, _) => point.value,
+          yAxisName: axisName,
           color: color,
           width: 2,
           splineType: SplineType.natural,
@@ -184,20 +295,22 @@ class HistoricalLineChart extends StatelessWidget {
 
       case ChartStyle.column:
         return ColumnSeries<_ChartPoint, DateTime>(
-          name: _getSeriesLabel(seriesData),
+          name: label,
           dataSource: dataPoints,
           xValueMapper: (_ChartPoint point, _) => point.timestamp,
           yValueMapper: (_ChartPoint point, _) => point.value,
+          yAxisName: axisName,
           color: color,
           borderRadius: const BorderRadius.vertical(top: Radius.circular(3)),
         );
 
       case ChartStyle.stepLine:
         return StepLineSeries<_ChartPoint, DateTime>(
-          name: _getSeriesLabel(seriesData),
+          name: label,
           dataSource: dataPoints,
           xValueMapper: (_ChartPoint point, _) => point.timestamp,
           yValueMapper: (_ChartPoint point, _) => point.value,
+          yAxisName: axisName,
           color: color,
           width: 2,
           markerSettings: const MarkerSettings(
@@ -207,10 +320,11 @@ class HistoricalLineChart extends StatelessWidget {
 
       case ChartStyle.area:
         return SplineAreaSeries<_ChartPoint, DateTime>(
-          name: _getSeriesLabel(seriesData),
+          name: label,
           dataSource: dataPoints,
           xValueMapper: (_ChartPoint point, _) => point.timestamp,
           yValueMapper: (_ChartPoint point, _) => point.value,
+          yAxisName: axisName,
           // Use gradient for fill to keep line solid while fading the area
           gradient: LinearGradient(
             begin: Alignment.topCenter,
@@ -274,6 +388,18 @@ class HistoricalLineChart extends StatelessWidget {
     }
 
     return shortPath;
+  }
+
+  /// Get series label with user's preferred display unit symbol.
+  /// Example: "Speed (kn)" or "Water Temp (F)"
+  String _getSeriesLabelWithUnit(ChartDataSeries seriesData) {
+    final baseLabel = _getSeriesLabel(seriesData);
+    final symbol = signalKService?.metadataStore.get(seriesData.path)?.symbol;
+
+    if (symbol != null && symbol.isNotEmpty) {
+      return '$baseLabel ($symbol)';
+    }
+    return baseLabel;
   }
 }
 
