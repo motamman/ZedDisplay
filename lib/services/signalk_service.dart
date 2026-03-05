@@ -13,6 +13,7 @@ import 'zones_cache_service.dart';
 import 'interfaces/data_service.dart';
 import 'storage_service.dart';
 import 'metadata_store.dart';
+import '../models/path_metadata.dart';
 
 /// Connection state for SignalK server
 enum SignalKConnectionState {
@@ -1325,6 +1326,27 @@ class SignalKService extends ChangeNotifier implements DataService {
   /// Find category for a path using default-categories patterns
   String? findCategoryForPath(String path) {
     return _conversionManager.findCategoryForPath(path);
+  }
+
+  /// Convert a value using category-based unit preferences.
+  /// Used for locally-calculated values (like distance) that don't have a specific SignalK path.
+  double? convertByCategory(String category, double siValue) {
+    final conversionInfo = getConversionForCategory(category);
+    if (conversionInfo == null) return null;
+
+    // Use PathMetadata's formula evaluation
+    final metadata = PathMetadata(
+      path: '_category_$category',
+      formula: conversionInfo.formula,
+      inverseFormula: conversionInfo.inverseFormula,
+      symbol: conversionInfo.symbol,
+    );
+    return metadata.convert(siValue);
+  }
+
+  /// Get the unit symbol for a category.
+  String? getSymbolForCategory(String category) {
+    return getConversionForCategory(category)?.symbol;
   }
 
   /// Get the unit definitions map (siUnit → conversions)
