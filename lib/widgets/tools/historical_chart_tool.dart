@@ -10,6 +10,7 @@ import '../../services/tool_registry.dart';
 import '../../utils/color_extensions.dart';
 import '../../utils/chart_axis_utils.dart';
 import '../historical_line_chart.dart';
+import '../tool_info_button.dart';
 
 /// Config-driven historical chart tool
 class HistoricalChartTool extends StatefulWidget {
@@ -370,6 +371,20 @@ class _HistoricalChartToolState extends State<HistoricalChartTool> with Automati
                   padding: const EdgeInsets.all(4),
                 ),
                 tooltip: 'Refresh chart',
+              ),
+              const SizedBox(width: 4),
+              // Info button
+              Container(
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.5),
+                  shape: BoxShape.circle,
+                ),
+                child: ToolInfoButton(
+                  toolId: 'historical_chart',
+                  signalKService: widget.signalKService,
+                  iconSize: 20,
+                  iconColor: Colors.white,
+                ),
               ),
             ],
           ),

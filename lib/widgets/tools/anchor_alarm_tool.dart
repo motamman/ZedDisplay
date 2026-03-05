@@ -13,6 +13,7 @@ import '../../services/messaging_service.dart';
 import '../../models/anchor_state.dart';
 import '../../services/tool_registry.dart';
 import 'anchor_compass_overlay.dart';
+import '../tool_info_button.dart';
 
 /// Anchor Alarm Tool - Single unified widget with map and controls
 ///
@@ -397,6 +398,23 @@ class _AnchorAlarmToolState extends State<AnchorAlarmTool> {
                     Expanded(child: controlsWidget),
                   ],
                 ),
+                // Info button
+                Positioned(
+                  top: 8,
+                  right: 8,
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.5),
+                      shape: BoxShape.circle,
+                    ),
+                    child: ToolInfoButton(
+                      toolId: 'anchor_alarm',
+                      signalKService: widget.signalKService,
+                      iconSize: 20,
+                      iconColor: Colors.white,
+                    ),
+                  ),
+                ),
                 // Check-in overlay
                 if (_alarmService.awaitingCheckIn)
                   Positioned.fill(
@@ -419,6 +437,23 @@ class _AnchorAlarmToolState extends State<AnchorAlarmTool> {
                     const SizedBox(height: 8),
                     Expanded(flex: 1, child: controlsWidget),
                   ],
+                ),
+                // Info button
+                Positioned(
+                  top: 8,
+                  right: 8,
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.5),
+                      shape: BoxShape.circle,
+                    ),
+                    child: ToolInfoButton(
+                      toolId: 'anchor_alarm',
+                      signalKService: widget.signalKService,
+                      iconSize: 20,
+                      iconColor: Colors.white,
+                    ),
+                  ),
                 ),
                 // Check-in overlay
                 if (_alarmService.awaitingCheckIn)

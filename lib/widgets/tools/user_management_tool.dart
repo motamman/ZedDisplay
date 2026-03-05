@@ -8,6 +8,7 @@ import '../../models/tool_config.dart';
 import '../../services/signalk_service.dart';
 import '../../services/intercom_service.dart';
 import '../../services/tool_registry.dart';
+import '../tool_info_button.dart';
 
 /// Permission levels for SignalK users
 enum SignalKPermission {

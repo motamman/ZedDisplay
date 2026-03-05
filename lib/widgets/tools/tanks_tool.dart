@@ -4,6 +4,7 @@ import '../../models/tool_config.dart';
 import '../../services/signalk_service.dart';
 import '../../services/tool_registry.dart';
 import '../../utils/string_extensions.dart';
+import '../tool_info_button.dart';
 
 /// Tank display widget showing up to 5 tank levels
 class TanksTool extends StatelessWidget {
@@ -96,47 +97,67 @@ class TanksTool extends StatelessWidget {
     final showToolLabel = style.showLabel == true && toolLabel != null && toolLabel.isNotEmpty;
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
-    return Padding(
-      padding: const EdgeInsets.all(8.0),
-      child: Column(
-        children: [
-          // Tool label at top
-          if (showToolLabel) ...[
-            Text(
-              toolLabel,
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.bold,
-                color: isDark ? Colors.white : Colors.black87,
-              ),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 8),
-          ],
-          // Tank row
-          Expanded(
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: config.dataSources.asMap().entries.map((entry) {
-                final index = entry.key;
-                final dataSource = entry.value;
-                return Expanded(
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 4.0),
-                    child: _buildTank(
-                      context,
-                      dataSource,
-                      index,
-                      showCapacity,
-                    ),
+    return Stack(
+      children: [
+        Padding(
+          padding: const EdgeInsets.all(8.0),
+          child: Column(
+            children: [
+              // Tool label at top
+              if (showToolLabel) ...[
+                Text(
+                  toolLabel,
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                    color: isDark ? Colors.white : Colors.black87,
                   ),
-                );
-              }).toList(),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 8),
+              ],
+              // Tank row
+              Expanded(
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: config.dataSources.asMap().entries.map((entry) {
+                    final index = entry.key;
+                    final dataSource = entry.value;
+                    return Expanded(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 4.0),
+                        child: _buildTank(
+                          context,
+                          dataSource,
+                          index,
+                          showCapacity,
+                        ),
+                      ),
+                    );
+                  }).toList(),
+                ),
+              ),
+            ],
+          ),
+        ),
+        Positioned(
+          top: 8,
+          right: 8,
+          child: Container(
+            decoration: BoxDecoration(
+              color: Colors.black.withValues(alpha: 0.5),
+              shape: BoxShape.circle,
+            ),
+            child: ToolInfoButton(
+              toolId: 'tanks_tool',
+              signalKService: signalKService,
+              iconSize: 20,
+              iconColor: Colors.white,
             ),
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 

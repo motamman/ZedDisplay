@@ -3,6 +3,7 @@ import '../../models/tool_definition.dart';
 import '../../models/tool_config.dart';
 import '../../services/signalk_service.dart';
 import '../../services/tool_registry.dart';
+import '../tool_info_button.dart';
 
 /// Tool for monitoring Raspberry Pi system metrics
 /// Requires signalk-rpi-monitor and signalk-rpi-uptime plugins
@@ -206,6 +207,18 @@ class RpiMonitorTool extends StatelessWidget {
                   fontWeight: FontWeight.bold,
                 ),
                 overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            Container(
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.5),
+                shape: BoxShape.circle,
+              ),
+              child: ToolInfoButton(
+                toolId: 'rpi_monitor',
+                signalKService: signalKService,
+                iconSize: 18,
+                iconColor: Colors.white,
               ),
             ),
           ],

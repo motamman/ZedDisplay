@@ -8,6 +8,7 @@ import '../../services/zones_service.dart';
 import '../../services/tool_registry.dart';
 import '../../utils/color_extensions.dart';
 import '../realtime_spline_chart.dart';
+import '../tool_info_button.dart';
 
 /// Config-driven real-time chart tool
 class RealtimeChartTool extends StatefulWidget {
@@ -134,20 +135,41 @@ class _RealtimeChartToolState extends State<RealtimeChartTool> with AutomaticKee
     // Check if zones should be shown (can be disabled via config)
     final showZones = widget.config.style.customProperties?['showZones'] as bool? ?? true;
 
-    return RealtimeSplineChart(
-      dataSources: widget.config.dataSources,
-      signalKService: widget.signalKService,
-      title: title,
-      maxDataPoints: maxDataPoints,
-      updateInterval: Duration(milliseconds: updateIntervalMs),
-      showLegend: showLegend,
-      showGrid: showGrid,
-      primaryColor: primaryColor,
-      zones: _zones,
-      showZones: showZones,
-      showMovingAverage: showMovingAverage,
-      movingAverageWindow: movingAverageWindow,
-      showValue: widget.config.style.showValue ?? true,
+    return Stack(
+      children: [
+        RealtimeSplineChart(
+          dataSources: widget.config.dataSources,
+          signalKService: widget.signalKService,
+          title: title,
+          maxDataPoints: maxDataPoints,
+          updateInterval: Duration(milliseconds: updateIntervalMs),
+          showLegend: showLegend,
+          showGrid: showGrid,
+          primaryColor: primaryColor,
+          zones: _zones,
+          showZones: showZones,
+          showMovingAverage: showMovingAverage,
+          movingAverageWindow: movingAverageWindow,
+          showValue: widget.config.style.showValue ?? true,
+        ),
+        // Info button in top-right corner
+        Positioned(
+          top: 8,
+          right: 8,
+          child: Container(
+            decoration: BoxDecoration(
+              color: Colors.black.withValues(alpha: 0.5),
+              shape: BoxShape.circle,
+            ),
+            child: ToolInfoButton(
+              toolId: 'realtime_chart',
+              signalKService: widget.signalKService,
+              iconSize: 20,
+              iconColor: Colors.white,
+            ),
+          ),
+        ),
+      ],
     );
   }
 

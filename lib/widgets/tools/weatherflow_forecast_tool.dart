@@ -6,6 +6,7 @@ import '../../services/tool_registry.dart';
 import '../../utils/color_extensions.dart';
 import '../../utils/conversion_utils.dart';
 import '../weatherflow_forecast.dart';
+import '../tool_info_button.dart';
 
 /// Config-driven WeatherFlow forecast tool
 class WeatherFlowForecastTool extends StatelessWidget {
@@ -88,27 +89,48 @@ class WeatherFlowForecastTool extends StatelessWidget {
     final sunMoonTimes = _getSunMoonTimes();
     final showSunMoonArc = style.customProperties?['showSunMoonArc'] as bool? ?? true;
 
-    return WeatherFlowForecast(
-      currentTemp: currentTemp,
-      currentHumidity: currentHumidity,
-      currentPressure: currentPressure,
-      currentWindSpeed: currentWindSpeed,
-      currentWindGust: currentWindGust,
-      currentWindDirection: currentWindDirection,
-      rainLastHour: rainLastHour,
-      rainToday: rainToday,
-      tempUnit: tempUnit,
-      pressureUnit: pressureUnit,
-      windUnit: windUnit,
-      rainUnit: rainUnit,
-      hourlyForecasts: hourlyForecasts,
-      dailyForecasts: dailyForecasts,
-      hoursToShow: hoursToShow,
-      daysToShow: daysToShow,
-      primaryColor: primaryColor,
-      showCurrentConditions: showCurrentConditions,
-      sunMoonTimes: sunMoonTimes,
-      showSunMoonArc: showSunMoonArc,
+    return Stack(
+      children: [
+        WeatherFlowForecast(
+          currentTemp: currentTemp,
+          currentHumidity: currentHumidity,
+          currentPressure: currentPressure,
+          currentWindSpeed: currentWindSpeed,
+          currentWindGust: currentWindGust,
+          currentWindDirection: currentWindDirection,
+          rainLastHour: rainLastHour,
+          rainToday: rainToday,
+          tempUnit: tempUnit,
+          pressureUnit: pressureUnit,
+          windUnit: windUnit,
+          rainUnit: rainUnit,
+          hourlyForecasts: hourlyForecasts,
+          dailyForecasts: dailyForecasts,
+          hoursToShow: hoursToShow,
+          daysToShow: daysToShow,
+          primaryColor: primaryColor,
+          showCurrentConditions: showCurrentConditions,
+          sunMoonTimes: sunMoonTimes,
+          showSunMoonArc: showSunMoonArc,
+        ),
+        // Info button
+        Positioned(
+          top: 8,
+          right: 8,
+          child: Container(
+            decoration: BoxDecoration(
+              color: Colors.black.withValues(alpha: 0.5),
+              shape: BoxShape.circle,
+            ),
+            child: ToolInfoButton(
+              toolId: 'weatherflow_forecast',
+              signalKService: signalKService,
+              iconSize: 20,
+              iconColor: Colors.white,
+            ),
+          ),
+        ),
+      ],
     );
   }
 

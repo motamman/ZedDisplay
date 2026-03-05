@@ -5,6 +5,7 @@ import '../../models/tool_definition.dart';
 import '../../models/tool_config.dart';
 import '../../services/signalk_service.dart';
 import '../../services/tool_registry.dart';
+import '../tool_info_button.dart';
 
 /// NWS Alert severity levels
 enum AlertSeverity {
@@ -338,22 +339,43 @@ class _WeatherAlertsToolState extends State<WeatherAlertsTool>
     final showSenderName = props?['showSenderName'] as bool? ?? false;
     final showTimeRange = props?['showTimeRange'] as bool? ?? true;
 
+    Widget content;
     if (activeAlerts.isEmpty) {
-      return _buildNoAlerts(isDark);
+      content = _buildNoAlerts(isDark);
+    } else if (showCompact) {
+      content = _buildCompactView(activeAlerts, isDark);
+    } else {
+      content = _buildFullView(
+        activeAlerts,
+        isDark,
+        showTimeRange: showTimeRange,
+        showDescription: showDescription,
+        showInstruction: showInstruction,
+        showAreaDesc: showAreaDesc,
+        showSenderName: showSenderName,
+      );
     }
 
-    if (showCompact) {
-      return _buildCompactView(activeAlerts, isDark);
-    }
-
-    return _buildFullView(
-      activeAlerts,
-      isDark,
-      showTimeRange: showTimeRange,
-      showDescription: showDescription,
-      showInstruction: showInstruction,
-      showAreaDesc: showAreaDesc,
-      showSenderName: showSenderName,
+    return Stack(
+      children: [
+        content,
+        Positioned(
+          top: 8,
+          right: 8,
+          child: Container(
+            decoration: BoxDecoration(
+              color: Colors.black.withValues(alpha: 0.5),
+              shape: BoxShape.circle,
+            ),
+            child: ToolInfoButton(
+              toolId: 'weather_alerts',
+              signalKService: widget.signalKService,
+              iconSize: 20,
+              iconColor: Colors.white,
+            ),
+          ),
+        ),
+      ],
     );
   }
 

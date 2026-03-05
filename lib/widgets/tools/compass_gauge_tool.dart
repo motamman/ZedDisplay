@@ -4,6 +4,7 @@ import '../../models/tool_config.dart';
 import '../../services/signalk_service.dart';
 import '../../services/tool_registry.dart';
 import '../compass_gauge.dart';
+import '../tool_info_button.dart';
 import '../../utils/string_extensions.dart';
 import '../../utils/color_extensions.dart';
 
@@ -92,17 +93,37 @@ class CompassGaugeTool extends StatelessWidget {
       }
     }
 
-    return CompassGauge(
-      heading: heading,
-      label: config.style.showLabel == true ? label : '',
-      formattedValue: formattedValue,
-      primaryColor: primaryColor,
-      showTickLabels: showTickLabels,
-      compassStyle: compassStyle,
-      showValue: config.style.showValue ?? true,
-      additionalHeadings: additionalHeadings.isNotEmpty ? additionalHeadings : null,
-      additionalLabels: additionalLabels.isNotEmpty ? additionalLabels : null,
-      additionalColors: additionalHeadings.isNotEmpty ? additionalColors : null,
+    return Stack(
+      children: [
+        CompassGauge(
+          heading: heading,
+          label: config.style.showLabel == true ? label : '',
+          formattedValue: formattedValue,
+          primaryColor: primaryColor,
+          showTickLabels: showTickLabels,
+          compassStyle: compassStyle,
+          showValue: config.style.showValue ?? true,
+          additionalHeadings: additionalHeadings.isNotEmpty ? additionalHeadings : null,
+          additionalLabels: additionalLabels.isNotEmpty ? additionalLabels : null,
+          additionalColors: additionalHeadings.isNotEmpty ? additionalColors : null,
+        ),
+        Positioned(
+          top: 8,
+          right: 8,
+          child: Container(
+            decoration: BoxDecoration(
+              color: Colors.black.withValues(alpha: 0.5),
+              shape: BoxShape.circle,
+            ),
+            child: ToolInfoButton(
+              toolId: 'compass_gauge',
+              signalKService: signalKService,
+              iconSize: 20,
+              iconColor: Colors.white,
+            ),
+          ),
+        ),
+      ],
     );
   }
 

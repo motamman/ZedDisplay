@@ -8,6 +8,7 @@ import '../../utils/color_extensions.dart';
 import '../../utils/conversion_utils.dart';
 import '../forecast_spinner.dart';
 import '../weatherflow_forecast.dart';
+import '../tool_info_button.dart';
 
 /// Generic Weather API Spinner tool
 /// Uses SignalK Weather API (/signalk/v2/api/weather/forecasts/point)
@@ -264,23 +265,46 @@ class _WeatherApiSpinnerToolState extends State<WeatherApiSpinnerTool>
         ),
         // Refresh button with loading/success indicator
         Positioned(
-          top: 4,
-          right: 4,
-          child: SizedBox(
-            width: 32,
-            height: 32,
-            child: weatherService.isLoading
-                ? Padding(
-                    padding: const EdgeInsets.all(6),
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: primaryColor.withValues(alpha: 0.7),
-                    ),
-                  )
-                : _RefreshButton(
-                    primaryColor: primaryColor,
-                    onRefresh: () => weatherService.fetchForecasts(force: true),
-                  ),
+          top: 8,
+          right: 8,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Info button
+              Container(
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.5),
+                  shape: BoxShape.circle,
+                ),
+                child: ToolInfoButton(
+                  toolId: 'weather_api_spinner',
+                  signalKService: widget.signalKService,
+                  iconSize: 20,
+                  iconColor: Colors.white,
+                ),
+              ),
+              const SizedBox(width: 4),
+              // Refresh button
+              SizedBox(
+                width: 32,
+                height: 32,
+                child: weatherService.isLoading
+                    ? Container(
+                        decoration: BoxDecoration(
+                          color: Colors.black.withValues(alpha: 0.5),
+                          shape: BoxShape.circle,
+                        ),
+                        padding: const EdgeInsets.all(6),
+                        child: const CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                    : _RefreshButton(
+                        onRefresh: () => weatherService.fetchForecasts(force: true),
+                      ),
+              ),
+            ],
           ),
         ),
       ],
@@ -507,11 +531,9 @@ class WeatherApiSpinnerToolBuilder extends ToolBuilder {
 
 /// Refresh button that shows a brief checkmark after successful refresh
 class _RefreshButton extends StatefulWidget {
-  final Color primaryColor;
   final VoidCallback onRefresh;
 
   const _RefreshButton({
-    required this.primaryColor,
     required this.onRefresh,
   });
 
@@ -537,27 +559,33 @@ class _RefreshButtonState extends State<_RefreshButton> {
 
   @override
   Widget build(BuildContext context) {
-    return IconButton(
-      icon: AnimatedSwitcher(
-        duration: const Duration(milliseconds: 300),
-        child: _showSuccess
-            ? Icon(
-                Icons.check_circle,
-                key: const ValueKey('check'),
-                size: 18,
-                color: Colors.green.shade400,
-              )
-            : Icon(
-                Icons.refresh,
-                key: const ValueKey('refresh'),
-                size: 18,
-                color: widget.primaryColor.withValues(alpha: 0.7),
-              ),
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.5),
+        shape: BoxShape.circle,
       ),
-      onPressed: _showSuccess ? null : _handleRefresh,
-      tooltip: 'Refresh forecast',
-      constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-      padding: EdgeInsets.zero,
+      child: IconButton(
+        icon: AnimatedSwitcher(
+          duration: const Duration(milliseconds: 300),
+          child: _showSuccess
+              ? Icon(
+                  Icons.check_circle,
+                  key: const ValueKey('check'),
+                  size: 18,
+                  color: Colors.green.shade400,
+                )
+              : const Icon(
+                  Icons.refresh,
+                  key: ValueKey('refresh'),
+                  size: 18,
+                  color: Colors.white,
+                ),
+        ),
+        onPressed: _showSuccess ? null : _handleRefresh,
+        tooltip: 'Refresh forecast',
+        constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+        padding: EdgeInsets.zero,
+      ),
     );
   }
 }
