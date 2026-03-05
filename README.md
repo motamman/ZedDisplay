@@ -67,8 +67,14 @@ A customizable SignalK marine dashboard and crew comms application to display re
   <img src="screenshots/weather_api_spinner.png" alt="Weather API Spinner" width="400">
 
 **Chart Tools**
-- **Historical Chart**: Line chart showing historical data for up to 3 paths 
+- **Historical Chart**: Line chart showing historical data for up to 3 paths
+  - Smoothing support: SMA (Simple Moving Average) or EMA (Exponential Moving Average)
+  - Dual Y-axis when charting different unit types (e.g., speed + temperature)
+  - Duration-adaptive X-axis labels
+  - Legend tap toggles series visibility (raw + smoothed together)
 - **Real-Time Chart**: Live spline chart showing real-time data for up to 3 paths
+  - Optional moving average overlay
+  - Dual Y-axis support for mixed unit types
 
 <img src="screenshots/screen_combo_charts.jpg" alt="Real-Time Chart" width="400">
  <img src="screenshots/realtime_historic_chat.png" alt="Historical Chart" width="400">

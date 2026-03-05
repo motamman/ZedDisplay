@@ -1,4 +1,41 @@
-# What's New in v0.5.26
+# What's New in v0.5.27
+
+## Release Notes (Google Play - max 500 chars)
+
+v0.5.27 Chart Smoothing & Dual Axes
+
+NEW: Historical charts now support SMA/EMA smoothing with configurable parameters. Dual Y-axis support when charting different unit types together.
+
+IMPROVED: Smoothed series match realtime chart styling. Legend tap hides both raw and smoothed data together.
+
+FIXED: EMA smoothing with decimal alpha values (e.g., 0.1) now works correctly.
+
+## Release Notes (App Store / TestFlight - max 4000 chars)
+
+### Chart Smoothing Configuration (NEW)
+- **Smoothing Types** - Choose SMA (Simple Moving Average) or EMA (Exponential Moving Average)
+- **Dynamic Parameters** - SMA uses integer window (5, 10, 20), EMA uses decimal alpha (0.1, 0.3)
+- **Automatic Pairing** - Smoothed series automatically displayed alongside raw data
+
+### Historical Chart Improvements (IMPROVED)
+- **Consistent Styling** - Smoothed series now match realtime chart appearance
+  - Same color as parent series with 60% opacity
+  - Dashed line pattern matching realtime chart
+  - Hidden from legend to reduce clutter
+- **Legend Toggling** - Tapping legend hides both raw and smoothed series together
+- **Dual Y-Axis** - Charts support two Y-axes when data sources have different units
+  - Automatic axis assignment based on unit categories
+  - Secondary axis on right side with dashed grid lines
+- **Smart Duration Labels** - X-axis labels adapt to chart duration
+  - Short: "10:30 AM", Medium: "10 AM", Long: "Mon 10 AM"
+
+### Bug Fixes (FIXED)
+- **EMA Alpha Values** - Fixed crash when using EMA with decimal alpha (e.g., 0.1)
+- **History API** - Removed invalid parameter from API requests
+
+---
+
+# Previous: v0.5.26
 
 ## Release Notes (Google Play - max 500 chars)
 
