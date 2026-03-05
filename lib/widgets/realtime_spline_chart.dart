@@ -331,10 +331,15 @@ class _RealtimeSplineChartState extends State<RealtimeSplineChart> with Automati
             const SizedBox(height: 16),
             Expanded(
               child: SfCartesianChart(
+                // Legend - compact to maximize chart height, wrap if needed
                 legend: Legend(
                   isVisible: widget.showLegend,
                   position: LegendPosition.bottom,
                   overflowMode: LegendItemOverflowMode.wrap,
+                  itemPadding: 4,
+                  iconHeight: 10,
+                  iconWidth: 10,
+                  textStyle: const TextStyle(fontSize: 11),
                 ),
                 onLegendTapped: (LegendTapArgs args) {
                   // Track which series are hidden so MA follows

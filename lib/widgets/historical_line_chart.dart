@@ -142,11 +142,15 @@ class _HistoricalLineChartState extends State<HistoricalLineChart> {
         : null;
 
     return SfCartesianChart(
-      // Legend configuration
+      // Legend configuration - compact to maximize chart height, wrap if needed
       legend: Legend(
         isVisible: widget.showLegend,
         position: LegendPosition.bottom,
         overflowMode: LegendItemOverflowMode.wrap,
+        itemPadding: 4,
+        iconHeight: 10,
+        iconWidth: 10,
+        textStyle: const TextStyle(fontSize: 11),
       ),
       // Toggle series visibility when legend item is tapped
       onLegendTapped: (LegendTapArgs args) {
