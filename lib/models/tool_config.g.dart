@@ -11,6 +11,7 @@ DataSource _$DataSourceFromJson(Map<String, dynamic> json) => DataSource(
   source: json['source'] as String?,
   label: json['label'] as String?,
   color: json['color'] as String?,
+  baseUnit: json['baseUnit'] as String?,
 );
 
 Map<String, dynamic> _$DataSourceToJson(DataSource instance) =>
@@ -19,6 +20,7 @@ Map<String, dynamic> _$DataSourceToJson(DataSource instance) =>
       'source': instance.source,
       'label': instance.label,
       'color': instance.color,
+      'baseUnit': instance.baseUnit,
     };
 
 StyleConfig _$StyleConfigFromJson(Map<String, dynamic> json) => StyleConfig(

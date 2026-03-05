@@ -11,6 +11,7 @@ import '../services/tool_config_service.dart';
 import '../widgets/config/path_selector.dart';
 import '../widgets/config/configure_data_source_dialog.dart';
 import '../widgets/config/source_selector.dart';
+import '../utils/chart_axis_utils.dart';
 import 'tool_config/base_tool_configurator.dart';
 import 'tool_config/tool_configurator_factory.dart';
 import 'tool_config/configurators/tanks_configurator.dart';
@@ -222,12 +223,41 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
     final signalKService = Provider.of<SignalKService>(context, listen: false);
     String? selectedPath;
 
+    // Determine if this is a chart tool that needs numeric-only filtering and axis compatibility
+    final isChartTool = _selectedToolTypeId == 'realtime_chart' ||
+                        _selectedToolTypeId == 'historical_chart';
+
+    // For chart tools, determine current axis units for compatibility filtering
+    String? primaryAxisBaseUnit;
+    String? secondaryAxisBaseUnit;
+    if (isChartTool && _dataSources.isNotEmpty) {
+      final units = ChartAxisUtils.determineAxisUnits(
+        _dataSources,
+        signalKService.metadataStore,
+      );
+      primaryAxisBaseUnit = units.primary;
+      secondaryAxisBaseUnit = units.secondary;
+
+      // Debug: log axis detection
+      debugPrint('🔍 Chart axis detection:');
+      debugPrint('   dataSources: ${_dataSources.length}');
+      for (final ds in _dataSources) {
+        final unitKey = ChartAxisUtils.getUnitKey(ds.path, signalKService.metadataStore, storedBaseUnit: ds.baseUnit);
+        debugPrint('   - ${ds.path}: unitKey=$unitKey, stored=${ds.baseUnit}');
+      }
+      debugPrint('   primary=$primaryAxisBaseUnit, secondary=$secondaryAxisBaseUnit');
+    }
+
     // Step 1: Select path
     await showDialog(
       context: context,
       builder: (context) => PathSelectorDialog(
         signalKService: signalKService,
         useHistoricalPaths: _selectedToolTypeId == 'historical_chart',
+        numericOnly: isChartTool,
+        primaryAxisBaseUnit: primaryAxisBaseUnit,
+        secondaryAxisBaseUnit: secondaryAxisBaseUnit,
+        showBaseUnitInLabel: isChartTool,
         onSelect: (path) {
           selectedPath = path;
         },
@@ -246,11 +276,17 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
     );
 
     if (config != null && mounted) {
+      // Get unitKey for chart tools (for axis assignment persistence)
+      final baseUnit = isChartTool
+          ? ChartAxisUtils.getUnitKey(selectedPath!, signalKService.metadataStore)
+          : null;
+
       setState(() {
         _dataSources.add(DataSource(
           path: selectedPath!,
           source: config['source'] as String?,
           label: config['label'] as String?,
+          baseUnit: baseUnit,
         ));
       });
     }

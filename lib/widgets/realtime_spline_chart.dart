@@ -4,6 +4,7 @@ import 'dart:async';
 import '../services/signalk_service.dart';
 import '../models/zone_data.dart';
 import '../models/tool_config.dart';
+import '../utils/chart_axis_utils.dart';
 
 /// A real-time spline chart that displays live data from up to 3 SignalK paths
 class RealtimeSplineChart extends StatefulWidget {
@@ -49,6 +50,15 @@ class _RealtimeSplineChartState extends State<RealtimeSplineChart> with Automati
   double _cachedMinY = 0;
   double _cachedMaxY = 100;
 
+  // Dual Y-axis support
+  String? _primaryAxisBaseUnit;
+  String? _secondaryAxisBaseUnit;
+  double _cachedSecondaryMinY = 0;
+  double _cachedSecondaryMaxY = 100;
+
+  // Track which series are hidden (by index)
+  late Set<int> _hiddenSeries;
+
   @override
   bool get wantKeepAlive => true; // Keep accumulated data points alive
 
@@ -57,14 +67,34 @@ class _RealtimeSplineChartState extends State<RealtimeSplineChart> with Automati
     super.initState();
     _seriesData = List.generate(widget.dataSources.length, (_) => []);
     _movingAverageData = List.generate(widget.dataSources.length, (_) => []);
+    _hiddenSeries = {};
+
+    // Determine axis units for dual Y-axis support
+    _determineAxisUnits();
 
     // Initialize range with defaults
-    final initialRange = _calculateYAxisRange();
+    final initialRange = _calculateYAxisRange(isSecondary: false);
     _cachedMinY = initialRange.min;
     _cachedMaxY = initialRange.max;
 
+    if (_secondaryAxisBaseUnit != null) {
+      final secondaryRange = _calculateYAxisRange(isSecondary: true);
+      _cachedSecondaryMinY = secondaryRange.min;
+      _cachedSecondaryMaxY = secondaryRange.max;
+    }
+
     _startRealTimeUpdates();
     WidgetsBinding.instance.addObserver(this);
+  }
+
+  /// Determine primary and secondary axis base units from data sources.
+  void _determineAxisUnits() {
+    final units = ChartAxisUtils.determineAxisUnits(
+      widget.dataSources,
+      widget.signalKService.metadataStore,
+    );
+    _primaryAxisBaseUnit = units.primary;
+    _secondaryAxisBaseUnit = units.secondary;
   }
 
   @override
@@ -72,6 +102,27 @@ class _RealtimeSplineChartState extends State<RealtimeSplineChart> with Automati
     WidgetsBinding.instance.removeObserver(this);
     _updateTimer?.cancel();
     super.dispose();
+  }
+
+  @override
+  void didUpdateWidget(RealtimeSplineChart oldWidget) {
+    super.didUpdateWidget(oldWidget);
+
+    // Handle changes in dataSources count
+    if (widget.dataSources.length != oldWidget.dataSources.length) {
+      // Resize series data arrays
+      while (_seriesData.length < widget.dataSources.length) {
+        _seriesData.add([]);
+        _movingAverageData.add([]);
+      }
+      // If dataSources were removed, trim the arrays
+      if (_seriesData.length > widget.dataSources.length) {
+        _seriesData = _seriesData.sublist(0, widget.dataSources.length);
+        _movingAverageData = _movingAverageData.sublist(0, widget.dataSources.length);
+      }
+      // Re-determine axis units with new data sources
+      _determineAxisUnits();
+    }
   }
 
   @override
@@ -100,6 +151,11 @@ class _RealtimeSplineChartState extends State<RealtimeSplineChart> with Automati
 
   void _updateChartData() {
     setState(() {
+      // Re-check axis units if not yet determined (metadata may have arrived)
+      if (_primaryAxisBaseUnit == null && widget.dataSources.length > 1) {
+        _determineAxisUnits();
+      }
+
       final now = DateTime.now();
       final timeValue = now.millisecondsSinceEpoch;
 
@@ -154,10 +210,16 @@ class _RealtimeSplineChartState extends State<RealtimeSplineChart> with Automati
         }
       }
 
-      // Recalculate Y-axis range after data update
-      final range = _calculateYAxisRange();
+      // Recalculate Y-axis ranges after data update
+      final range = _calculateYAxisRange(isSecondary: false);
       _cachedMinY = range.min;
       _cachedMaxY = range.max;
+
+      if (_secondaryAxisBaseUnit != null) {
+        final secondaryRange = _calculateYAxisRange(isSecondary: true);
+        _cachedSecondaryMinY = secondaryRange.min;
+        _cachedSecondaryMaxY = secondaryRange.max;
+      }
     });
   }
 
@@ -198,8 +260,26 @@ class _RealtimeSplineChartState extends State<RealtimeSplineChart> with Automati
     final colors = _getSeriesColors();
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
-    // Get unit from first path using MetadataStore (single source of truth)
-    final unit = widget.signalKService.metadataStore.get(widget.dataSources.first.path)?.symbol;
+    // Get unit symbols for axis labels (match historical chart pattern)
+    String? primaryUnit;
+    String? secondaryUnit;
+    if (widget.dataSources.isNotEmpty) {
+      primaryUnit = widget.signalKService.metadataStore.get(widget.dataSources.first.path)?.symbol;
+      if (_secondaryAxisBaseUnit != null) {
+        for (final ds in widget.dataSources) {
+          // Use same fallback chain as ChartAxisUtils.getUnitKey()
+          final unitKey = ChartAxisUtils.getUnitKey(
+            ds.path,
+            widget.signalKService.metadataStore,
+            storedBaseUnit: ds.baseUnit,
+          );
+          if (unitKey == _secondaryAxisBaseUnit) {
+            secondaryUnit = widget.signalKService.metadataStore.get(ds.path)?.symbol;
+            break;
+          }
+        }
+      }
+    }
 
     return Card(
       child: Padding(
@@ -250,31 +330,36 @@ class _RealtimeSplineChartState extends State<RealtimeSplineChart> with Automati
             ),
             const SizedBox(height: 16),
             Expanded(
-              child: Row(
-                children: [
-                  // Vertical unit label (rotated 90 degrees)
-                  if (unit != null && unit.isNotEmpty)
-                    Padding(
-                      padding: const EdgeInsets.only(right: 8.0),
-                      child: RotatedBox(
-                        quarterTurns: 3, // 90 degrees counter-clockwise
-                        child: Text(
-                          unit,
-                          style: const TextStyle(fontSize: 12),
-                        ),
-                      ),
-                    ),
-                  // Chart
-                  Expanded(
-                    child: SfCartesianChart(
+              child: SfCartesianChart(
+                // Legend - compact to maximize chart height, wrap if needed
                 legend: Legend(
                   isVisible: widget.showLegend,
                   position: LegendPosition.bottom,
                   overflowMode: LegendItemOverflowMode.wrap,
+                  itemPadding: 4,
+                  iconHeight: 10,
+                  iconWidth: 10,
+                  textStyle: const TextStyle(fontSize: 11),
                 ),
+                onLegendTapped: (LegendTapArgs args) {
+                  // Track which series are hidden so MA follows
+                  final index = args.seriesIndex ?? 0;
+                  // Toggle after a short delay to let chart update first
+                  Future.microtask(() {
+                    if (mounted) {
+                      setState(() {
+                        if (_hiddenSeries.contains(index)) {
+                          _hiddenSeries.remove(index);
+                        } else {
+                          _hiddenSeries.add(index);
+                        }
+                      });
+                    }
+                  });
+                },
                 tooltipBehavior: TooltipBehavior(
                   enable: true,
-                  format: 'point.y ${unit ?? ''}',
+                  format: 'point.y',
                   textStyle: TextStyle(
                     fontSize: 12,
                     color: isDark ? Colors.white : Colors.black,
@@ -288,7 +373,7 @@ class _RealtimeSplineChartState extends State<RealtimeSplineChart> with Automati
                   axisLine: const AxisLine(width: 1),
                   labelStyle: const TextStyle(fontSize: 10),
                   title: const AxisTitle(
-                    text: 'Time →',
+                    text: 'Time',
                     textStyle: TextStyle(fontSize: 12),
                   ),
                   // Format time as mm:ss
@@ -304,7 +389,13 @@ class _RealtimeSplineChartState extends State<RealtimeSplineChart> with Automati
                   desiredIntervals: 5,
                 ),
                 primaryYAxis: NumericAxis(
-                  labelFormat: '{value}',
+                  name: 'primaryYAxis',
+                  axisLabelFormatter: (AxisLabelRenderDetails details) {
+                    return ChartAxisLabel(
+                      ChartAxisUtils.formatAxisValue(details.value.toDouble(), unit: primaryUnit),
+                      details.textStyle,
+                    );
+                  },
                   majorGridLines: MajorGridLines(
                     width: widget.showGrid ? 1 : 0,
                     color: Colors.grey.withValues(alpha: 0.2),
@@ -316,49 +407,99 @@ class _RealtimeSplineChartState extends State<RealtimeSplineChart> with Automati
                   minimum: _cachedMinY,
                   maximum: _cachedMaxY,
                 ),
+                // Secondary Y-axis (right side) when paths have different base units
+                axes: _secondaryAxisBaseUnit != null ? <ChartAxis>[
+                  NumericAxis(
+                    name: 'secondaryYAxis',
+                    opposedPosition: true,  // Right side
+                    axisLabelFormatter: (AxisLabelRenderDetails details) {
+                      return ChartAxisLabel(
+                        ChartAxisUtils.formatAxisValue(details.value.toDouble(), unit: secondaryUnit),
+                        details.textStyle,
+                      );
+                    },
+                    minimum: _cachedSecondaryMinY,
+                    maximum: _cachedSecondaryMaxY,
+                    majorGridLines: MajorGridLines(
+                      width: widget.showGrid ? 1 : 0,
+                      dashArray: const <double>[5, 5],  // Dashed grid lines
+                      color: Colors.grey.withValues(alpha: 0.2),
+                    ),
+                    axisLine: const AxisLine(width: 1),
+                    labelStyle: const TextStyle(fontSize: 10),
+                  ),
+                ] : <ChartAxis>[],
                 series: [
                   // Main data series
                   ...List.generate(
                     widget.dataSources.length,
-                    (index) => SplineSeries<_ChartData, int>(
-                      name: _getSeriesLabelWithValue(widget.dataSources[index], index),
-                      dataSource: _seriesData[index],
-                      xValueMapper: (_ChartData data, _) => data.time,
-                      yValueMapper: (_ChartData data, _) => data.value,
-                      color: colors[index],
-                      width: 2,
-                      splineType: SplineType.natural,
-                      animationDuration: 0, // No animation for real-time updates
-                      markerSettings: const MarkerSettings(
-                        isVisible: false,
-                      ),
-                    ),
+                    (index) {
+                      final ds = widget.dataSources[index];
+                      final unitKey = ChartAxisUtils.getUnitKey(
+                        ds.path,
+                        widget.signalKService.metadataStore,
+                        storedBaseUnit: ds.baseUnit,
+                      );
+                      final axisName = ChartAxisUtils.getAxisName(
+                        unitKey,
+                        _primaryAxisBaseUnit,
+                        _secondaryAxisBaseUnit,
+                      );
+
+                      return SplineSeries<_ChartData, int>(
+                        name: _getSeriesLabelWithUnit(ds, index),
+                        dataSource: _hiddenSeries.contains(index) ? [] : _seriesData[index],
+                        xValueMapper: (_ChartData data, _) => data.time,
+                        yValueMapper: (_ChartData data, _) => data.value,
+                        yAxisName: axisName,  // Assign to correct axis
+                        color: _hiddenSeries.contains(index) ? colors[index].withValues(alpha: 0.3) : colors[index],
+                        width: 2,
+                        splineType: SplineType.natural,
+                        animationDuration: 0, // No animation for real-time updates
+                        markerSettings: const MarkerSettings(
+                          isVisible: false,
+                        ),
+                      );
+                    },
                   ),
                   // Moving average series (if enabled)
                   if (widget.showMovingAverage)
                     ...List.generate(
                       widget.dataSources.length,
-                      (index) => SplineSeries<_ChartData, int>(
-                        name: '${_getSeriesLabelWithValue(widget.dataSources[index], index, isMovingAverage: true)} (MA${widget.movingAverageWindow})',
-                        dataSource: _movingAverageData[index],
-                        xValueMapper: (_ChartData data, _) => data.time,
-                        yValueMapper: (_ChartData data, _) => data.value,
-                        color: colors[index].withValues(alpha: 0.6),
-                        width: 2,
-                        dashArray: const <double>[5, 5], // Dashed line
-                        splineType: SplineType.natural,
-                        animationDuration: 0,
-                        markerSettings: const MarkerSettings(
-                          isVisible: false,
-                        ),
-                      ),
+                      (index) {
+                        final ds = widget.dataSources[index];
+                        final unitKey = ChartAxisUtils.getUnitKey(
+                          ds.path,
+                          widget.signalKService.metadataStore,
+                          storedBaseUnit: ds.baseUnit,
+                        );
+                        final axisName = ChartAxisUtils.getAxisName(
+                          unitKey,
+                          _primaryAxisBaseUnit,
+                          _secondaryAxisBaseUnit,
+                        );
+
+                        return SplineSeries<_ChartData, int>(
+                          name: '${_getSeriesLabelWithUnit(ds, index, isMovingAverage: true)} (MA${widget.movingAverageWindow})',
+                          dataSource: _hiddenSeries.contains(index) ? [] : _movingAverageData[index],
+                          xValueMapper: (_ChartData data, _) => data.time,
+                          yValueMapper: (_ChartData data, _) => data.value,
+                          yAxisName: axisName,  // Assign to correct axis
+                          color: colors[index].withValues(alpha: 0.6),
+                          width: 2,
+                          dashArray: const <double>[5, 5], // Dashed line
+                          splineType: SplineType.natural,
+                          animationDuration: 0,
+                          isVisibleInLegend: false,  // Don't show MA in legend
+                          markerSettings: const MarkerSettings(
+                            isVisible: false,
+                          ),
+                        );
+                      },
                     ),
                 ],
               ),
             ),
-          ],
-        ),
-      ),
           ],
         ),
       ),
@@ -393,6 +534,30 @@ class _RealtimeSplineChartState extends State<RealtimeSplineChart> with Automati
         ? pathParts.sublist(pathParts.length - 2).join('.')
         : dataSource.path;
     return shortPath;
+  }
+
+  /// Get series label with user's preferred display unit symbol.
+  /// Example: "Speed (kn)" or "Water Temp (F)"
+  String _getSeriesLabelWithUnit(DataSource dataSource, int index, {bool isMovingAverage = false}) {
+    final baseLabel = _getSeriesLabel(dataSource);
+    final symbol = widget.signalKService.metadataStore.get(dataSource.path)?.symbol;
+
+    // Get the appropriate data source (main or moving average)
+    final data = isMovingAverage ? _movingAverageData[index] : _seriesData[index];
+
+    // Build label with optional unit symbol and current value
+    String label = baseLabel;
+    if (symbol != null && symbol.isNotEmpty) {
+      label = '$label ($symbol)';
+    }
+
+    // Append current value if showValue is enabled and we have data
+    if (widget.showValue && data.isNotEmpty) {
+      final currentValue = data.last.value.toStringAsFixed(1);
+      label = '$label: $currentValue';
+    }
+
+    return label;
   }
 
   String _getSeriesLabelWithValue(DataSource dataSource, int index, {bool isMovingAverage = false}) {
@@ -457,14 +622,34 @@ class _RealtimeSplineChartState extends State<RealtimeSplineChart> with Automati
     }
   }
 
-  /// Calculate Y-axis range based on current data
-  ({double min, double max}) _calculateYAxisRange() {
+  /// Calculate Y-axis range based on current data.
+  /// If [isSecondary] is true, only considers series assigned to secondary axis.
+  ({double min, double max}) _calculateYAxisRange({required bool isSecondary}) {
     double? minValue;
     double? maxValue;
 
-    // Find min/max across all series
-    for (final series in _seriesData) {
-      for (final point in series) {
+    // Find min/max across series assigned to the specified axis
+    for (int i = 0; i < _seriesData.length; i++) {
+      // Check if this series belongs to the axis we're calculating
+      final ds = widget.dataSources[i];
+      final unitKey = ChartAxisUtils.getUnitKey(
+        ds.path,
+        widget.signalKService.metadataStore,
+        storedBaseUnit: ds.baseUnit,
+      );
+      final assignment = ChartAxisUtils.getAxisAssignment(
+        unitKey,
+        _primaryAxisBaseUnit,
+        _secondaryAxisBaseUnit,
+      );
+
+      final belongsToAxis = isSecondary
+          ? assignment == 'secondary'
+          : assignment == 'primary';
+
+      if (!belongsToAxis) continue;
+
+      for (final point in _seriesData[i]) {
         if (minValue == null || point.value < minValue) {
           minValue = point.value;
         }

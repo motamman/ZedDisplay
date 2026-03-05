@@ -398,14 +398,12 @@ class _AISPolarChartState extends State<AISPolarChart>
 
   /// Convert distance from meters to user's preferred unit using server unit preferences
   double _convertDistance(double meters) {
-    final metadata = widget.signalKService.metadataStore.getByCategory('distance');
-    return metadata?.convert(meters) ?? meters;
+    return widget.signalKService.convertByCategory('distance', meters) ?? meters;
   }
 
   /// Get distance unit symbol from server unit preferences
   String _getDistanceUnit() {
-    final metadata = widget.signalKService.metadataStore.getByCategory('distance');
-    return metadata?.symbol ?? 'm';
+    return widget.signalKService.getSymbolForCategory('distance') ?? 'm';
   }
 
   /// Convert speed from m/s to user's preferred unit using SOG path's displayUnits

@@ -31,7 +31,7 @@ class ToolConfiguratorFactory {
       // Charts
       case 'historical_chart':
       case 'realtime_chart':
-        return ChartConfigurator();
+        return ChartConfigurator(toolTypeId);
 
       // Compasses and Instruments
       case 'wind_compass':

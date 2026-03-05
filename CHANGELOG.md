@@ -5,6 +5,33 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.27+35] - 2026-03-05
+
+### Added
+- **Chart Smoothing Configuration**: Historical chart configurator now supports smoothing type selection
+  - Choose between SMA (Simple Moving Average) or EMA (Exponential Moving Average)
+  - Dynamic window parameter: integer for SMA (e.g., 5, 10, 20), decimal alpha for EMA (e.g., 0.1, 0.3)
+  - Smoothed series automatically paired with raw data series
+
+### Enhanced
+- **Historical Chart Styling**: Smoothed series now match realtime chart styling
+  - Same color as parent series with 60% opacity
+  - Dashed line pattern `[5, 5]` matching realtime chart
+  - Hidden from legend (reduces clutter)
+  - Legend tap toggles both raw and smoothed series together
+- **Dual Y-Axis Support**: Charts now support dual Y-axes when data sources have different base units
+  - Automatic axis assignment based on unit categories (e.g., speed vs temperature)
+  - Secondary axis displayed on right side with dashed grid lines
+- **Duration Formatting**: Chart X-axis labels adapt to duration
+  - Short durations (15m-2h): Show time with minutes (10:30 AM)
+  - Medium durations (6h-1d): Show hour only (10 AM)
+  - Long durations (2d): Show day and hour (Mon 10 AM)
+
+### Fixed
+- **EMA Smoothing**: Fixed type error when using EMA with decimal alpha values (e.g., 0.1)
+  - Changed `window` field from `int?` to `num?` to support both SMA (integer) and EMA (decimal)
+- **History API**: Removed invalid `convertUnits` parameter from API requests
+
 ## [0.5.26+35] - 2026-02-26
 
 ### Added

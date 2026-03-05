@@ -9,12 +9,14 @@ class DataSource {
   final String? source;         // Optional: specific source (e.g., "signalk-mqtt-import.GP")
   final String? label;          // Display label override
   final String? color;          // For multi-path tools (hex color string)
+  final String? baseUnit;       // SI base unit for axis grouping (e.g., "m/s", "K", "rad")
 
   DataSource({
     required this.path,
     this.source,
     this.label,
     this.color,
+    this.baseUnit,
   });
 
   factory DataSource.fromJson(Map<String, dynamic> json) =>
