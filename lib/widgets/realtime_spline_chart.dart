@@ -56,6 +56,9 @@ class _RealtimeSplineChartState extends State<RealtimeSplineChart> with Automati
   double _cachedSecondaryMinY = 0;
   double _cachedSecondaryMaxY = 100;
 
+  // Track which series are hidden (by index)
+  late Set<int> _hiddenSeries;
+
   @override
   bool get wantKeepAlive => true; // Keep accumulated data points alive
 
@@ -64,6 +67,7 @@ class _RealtimeSplineChartState extends State<RealtimeSplineChart> with Automati
     super.initState();
     _seriesData = List.generate(widget.dataSources.length, (_) => []);
     _movingAverageData = List.generate(widget.dataSources.length, (_) => []);
+    _hiddenSeries = {};
 
     // Determine axis units for dual Y-axis support
     _determineAxisUnits();
@@ -332,6 +336,22 @@ class _RealtimeSplineChartState extends State<RealtimeSplineChart> with Automati
                   position: LegendPosition.bottom,
                   overflowMode: LegendItemOverflowMode.wrap,
                 ),
+                onLegendTapped: (LegendTapArgs args) {
+                  // Track which series are hidden so MA follows
+                  final index = args.seriesIndex ?? 0;
+                  // Toggle after a short delay to let chart update first
+                  Future.microtask(() {
+                    if (mounted) {
+                      setState(() {
+                        if (_hiddenSeries.contains(index)) {
+                          _hiddenSeries.remove(index);
+                        } else {
+                          _hiddenSeries.add(index);
+                        }
+                      });
+                    }
+                  });
+                },
                 tooltipBehavior: TooltipBehavior(
                   enable: true,
                   format: 'point.y',
@@ -413,11 +433,11 @@ class _RealtimeSplineChartState extends State<RealtimeSplineChart> with Automati
 
                       return SplineSeries<_ChartData, int>(
                         name: _getSeriesLabelWithUnit(ds, index),
-                        dataSource: _seriesData[index],
+                        dataSource: _hiddenSeries.contains(index) ? [] : _seriesData[index],
                         xValueMapper: (_ChartData data, _) => data.time,
                         yValueMapper: (_ChartData data, _) => data.value,
                         yAxisName: axisName,  // Assign to correct axis
-                        color: colors[index],
+                        color: _hiddenSeries.contains(index) ? colors[index].withValues(alpha: 0.3) : colors[index],
                         width: 2,
                         splineType: SplineType.natural,
                         animationDuration: 0, // No animation for real-time updates
@@ -446,7 +466,7 @@ class _RealtimeSplineChartState extends State<RealtimeSplineChart> with Automati
 
                         return SplineSeries<_ChartData, int>(
                           name: '${_getSeriesLabelWithUnit(ds, index, isMovingAverage: true)} (MA${widget.movingAverageWindow})',
-                          dataSource: _movingAverageData[index],
+                          dataSource: _hiddenSeries.contains(index) ? [] : _movingAverageData[index],
                           xValueMapper: (_ChartData data, _) => data.time,
                           yValueMapper: (_ChartData data, _) => data.value,
                           yAxisName: axisName,  // Assign to correct axis
@@ -455,6 +475,7 @@ class _RealtimeSplineChartState extends State<RealtimeSplineChart> with Automati
                           dashArray: const <double>[5, 5], // Dashed line
                           splineType: SplineType.natural,
                           animationDuration: 0,
+                          isVisibleInLegend: false,  // Don't show MA in legend
                           markerSettings: const MarkerSettings(
                             isVisible: false,
                           ),
