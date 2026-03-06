@@ -25,6 +25,11 @@ class CompassGauge extends StatelessWidget {
   final List<double>? additionalHeadings;
   final List<String>? additionalLabels;
   final List<Color>? additionalColors;
+  final List<String>? additionalFormattedValues;
+
+  // Active needle selection
+  final int activeIndex;
+  final ValueChanged<int>? onActiveIndexChanged;
 
   const CompassGauge({
     super.key,
@@ -38,7 +43,51 @@ class CompassGauge extends StatelessWidget {
     this.additionalHeadings,
     this.additionalLabels,
     this.additionalColors,
+    this.additionalFormattedValues,
+    this.activeIndex = 0,
+    this.onActiveIndexChanged,
   });
+
+  bool get _hasMultipleNeedles =>
+      additionalHeadings != null && additionalHeadings!.isNotEmpty;
+
+  /// Resolve the active needle's heading value
+  double get _activeHeading {
+    if (activeIndex == 0 || !_hasMultipleNeedles) return heading;
+    final i = activeIndex - 1;
+    if (i < additionalHeadings!.length) return additionalHeadings![i];
+    return heading;
+  }
+
+  /// Resolve the active needle's label
+  String get _activeLabel {
+    if (activeIndex == 0 || !_hasMultipleNeedles) return label;
+    final i = activeIndex - 1;
+    if (additionalLabels != null && i < additionalLabels!.length) {
+      return additionalLabels![i];
+    }
+    return label;
+  }
+
+  /// Resolve the active needle's formatted value
+  String? get _activeFormattedValue {
+    if (activeIndex == 0 || !_hasMultipleNeedles) return formattedValue;
+    final i = activeIndex - 1;
+    if (additionalFormattedValues != null && i < additionalFormattedValues!.length) {
+      return additionalFormattedValues![i];
+    }
+    return null;
+  }
+
+  /// Resolve the active needle's color
+  Color get _activeColor {
+    if (activeIndex == 0 || !_hasMultipleNeedles) return primaryColor;
+    final i = activeIndex - 1;
+    if (additionalColors != null && i < additionalColors!.length) {
+      return additionalColors![i];
+    }
+    return primaryColor;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -47,157 +96,192 @@ class CompassGauge extends StatelessWidget {
       return _buildMarineCompass(context);
     }
 
-    return AspectRatio(
-      aspectRatio: 1,
-      child: Stack(
-        children: [
-          // Gauge with pointer - drawn first
-          SfRadialGauge(
-            axes: <RadialAxis>[
-              RadialAxis(
-                minimum: 0,
-                maximum: 360,
-                interval: _getInterval(),
+    return Column(
+      children: [
+        Expanded(
+          child: Center(
+            child: AspectRatio(
+              aspectRatio: 1,
+              child: Stack(
+                children: [
+                  // Gauge with pointer - drawn first
+                  SfRadialGauge(
+                    axes: <RadialAxis>[
+                      RadialAxis(
+                        minimum: 0,
+                        maximum: 360,
+                        interval: _getInterval(),
 
-                // Angles based on style
-                startAngle: _getStartAngle(),
-                endAngle: _getEndAngle(),
+                        // Angles based on style
+                        startAngle: _getStartAngle(),
+                        endAngle: _getEndAngle(),
 
-                // Hide axis line
-                showAxisLine: false,
-                showLastLabel: compassStyle != CompassStyle.arc,
+                        // Hide axis line
+                        showAxisLine: false,
+                        showLastLabel: compassStyle != CompassStyle.arc,
 
-                // Tick configuration
-                majorTickStyle: MajorTickStyle(
-                  length: _getMajorTickLength(),
-                  thickness: 2,
-                  color: compassStyle == CompassStyle.minimal
-                      ? Colors.grey.withValues(alpha: 0.3)
-                      : Colors.grey,
-                ),
-                minorTicksPerInterval: compassStyle == CompassStyle.minimal ? 0 : 2,
-                minorTickStyle: MinorTickStyle(
-                  length: 6,
-                  thickness: 1,
-                  color: Colors.grey.withValues(alpha: 0.5),
-                ),
-
-                // Hide auto-generated labels - we'll use custom annotations instead
-                showLabels: false,
-
-                // Outer ring for visual boundary
-                ranges: _getRanges(),
-
-                // Heading pointer
-                pointers: _getPointers(),
-
-                // Compass labels with counter-rotation to stay horizontal
-                annotations: _buildCompassLabels(),
-              ),
-            ],
-          ),
-
-          // Center annotation with heading value - drawn last so it's on top, moved down from center
-          if (showValue)
-            Align(
-              alignment: Alignment.center,
-              child: Padding(
-                padding: const EdgeInsets.only(top: 55.0), // Move down from center to avoid overlap
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    if (compassStyle != CompassStyle.minimal)
-                      Text(
-                        label,
-                        style: const TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w300,
+                        // Tick configuration
+                        majorTickStyle: MajorTickStyle(
+                          length: _getMajorTickLength(),
+                          thickness: 2,
+                          color: compassStyle == CompassStyle.minimal
+                              ? Colors.grey.withValues(alpha: 0.3)
+                              : Colors.grey,
                         ),
+                        minorTicksPerInterval: compassStyle == CompassStyle.minimal ? 0 : 2,
+                        minorTickStyle: MinorTickStyle(
+                          length: 6,
+                          thickness: 1,
+                          color: Colors.grey.withValues(alpha: 0.5),
+                        ),
+
+                        // Hide auto-generated labels - we'll use custom annotations instead
+                        showLabels: false,
+
+                        // Outer ring for visual boundary
+                        ranges: _getRanges(),
+
+                        // Heading pointer
+                        pointers: _getPointers(),
+
+                        // Compass labels with counter-rotation to stay horizontal
+                        annotations: _buildCompassLabels(),
                       ),
-                    if (compassStyle != CompassStyle.minimal) const SizedBox(height: 4),
-                    Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          formattedValue ?? '${heading.toStringAsFixed(0)}°',
-                          style: const TextStyle(
-                            fontSize: 32,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        Text(
-                          _getCardinalDirection(heading),
-                          style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.w500,
-                            color: primaryColor,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            ),
-
-          // Multi-needle legend at bottom
-          if (additionalHeadings != null && additionalHeadings!.isNotEmpty && additionalLabels != null)
-            Align(
-              alignment: Alignment.bottomCenter,
-              child: Padding(
-                padding: const EdgeInsets.only(bottom: 12.0),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: Colors.black.withValues(alpha: 0.5),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      // Primary needle
-                      _buildLegendItem(label, primaryColor),
-                      // Additional needles
-                      for (int i = 0; i < additionalHeadings!.length && i < 3; i++) ...[
-                        const SizedBox(width: 8),
-                        _buildLegendItem(
-                          additionalLabels![i],
-                          additionalColors != null && i < additionalColors!.length
-                              ? additionalColors![i]
-                              : Colors.blue,
-                        ),
-                      ],
                     ],
                   ),
-                ),
+
+                  // Center annotation with heading value - drawn last so it's on top
+                  if (showValue)
+                    Align(
+                      alignment: Alignment.center,
+                      child: Padding(
+                        padding: const EdgeInsets.only(top: 55.0),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            if (compassStyle != CompassStyle.minimal && _activeLabel.isNotEmpty)
+                              Text(
+                                _activeLabel,
+                                style: const TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w300,
+                                ),
+                              ),
+                            if (compassStyle != CompassStyle.minimal && _activeLabel.isNotEmpty)
+                              const SizedBox(height: 4),
+                            Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  _activeFormattedValue ?? '${_activeHeading.toStringAsFixed(0)}°',
+                                  style: const TextStyle(
+                                    fontSize: 32,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                                Text(
+                                  _getCardinalDirection(_activeHeading),
+                                  style: TextStyle(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.w500,
+                                    color: _activeColor,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                ],
               ),
             ),
+          ),
+        ),
+        if (_hasMultipleNeedles) _buildLegendRow(),
+      ],
+    );
+  }
+
+  Widget _buildLegendRow() {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4.0),
+      child: Wrap(
+        alignment: WrapAlignment.center,
+        spacing: 8,
+        runSpacing: 4,
+        children: [
+          // Primary needle
+          _buildLegendItem(
+            index: 0,
+            text: label,
+            color: primaryColor,
+            value: formattedValue,
+          ),
+          // Additional needles
+          if (additionalHeadings != null)
+            for (int i = 0; i < additionalHeadings!.length && i < 3; i++)
+              _buildLegendItem(
+                index: i + 1,
+                text: additionalLabels != null && i < additionalLabels!.length
+                    ? additionalLabels![i]
+                    : '',
+                color: additionalColors != null && i < additionalColors!.length
+                    ? additionalColors![i]
+                    : Colors.blue,
+                value: additionalFormattedValues != null && i < additionalFormattedValues!.length
+                        ? additionalFormattedValues![i]
+                        : null,
+              ),
         ],
       ),
     );
   }
 
-  Widget _buildLegendItem(String text, Color color) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(
-          width: 12,
-          height: 3,
-          decoration: BoxDecoration(
-            color: color,
-            borderRadius: BorderRadius.circular(1.5),
-          ),
+  Widget _buildLegendItem({
+    required int index,
+    required String text,
+    required Color color,
+    String? value,
+  }) {
+    final isActive = index == activeIndex;
+    final displayText = value != null && text.isNotEmpty
+        ? '$text ($value)'
+        : value ?? text;
+
+    return GestureDetector(
+      onTap: onActiveIndexChanged != null ? () => onActiveIndexChanged!(index) : null,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          color: isActive
+              ? color.withValues(alpha: 0.2)
+              : Colors.black.withValues(alpha: 0.3),
+          borderRadius: BorderRadius.circular(12),
         ),
-        const SizedBox(width: 4),
-        Text(
-          text,
-          style: const TextStyle(
-            fontSize: 10,
-            color: Colors.white,
-          ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 12,
+              height: 3,
+              decoration: BoxDecoration(
+                color: color,
+                borderRadius: BorderRadius.circular(1.5),
+              ),
+            ),
+            const SizedBox(width: 4),
+            Text(
+              displayText,
+              style: TextStyle(
+                fontSize: 10,
+                color: Colors.white,
+                fontWeight: isActive ? FontWeight.bold : FontWeight.normal,
+              ),
+            ),
+          ],
         ),
-      ],
+      ),
     );
   }
 
@@ -324,61 +408,61 @@ class CompassGauge extends StatelessWidget {
   List<GaugePointer> _getPointers() {
     final pointers = <GaugePointer>[];
 
-    // Add additional needles FIRST (drawn below primary needle)
-    if (additionalHeadings != null && additionalHeadings!.isNotEmpty) {
+    // Collect all needle data: index 0 = primary, 1+ = additional
+    final allNeedles = <_NeedleData>[
+      _NeedleData(0, heading, primaryColor),
+    ];
+    if (additionalHeadings != null) {
       for (int i = 0; i < additionalHeadings!.length && i < 3; i++) {
         final color = additionalColors != null && i < additionalColors!.length
             ? additionalColors![i]
             : Colors.blue;
-
-        pointers.add(
-          NeedlePointer(
-            value: additionalHeadings![i],
-            needleLength: 0.65, // Slightly shorter than primary
-            needleStartWidth: 0,
-            needleEndWidth: 8,
-            needleColor: color.withValues(alpha: 0.8),
-            knobStyle: const KnobStyle(
-              knobRadius: 0, // No knob for secondary needles
-            ),
-          ),
-        );
+        allNeedles.add(_NeedleData(i + 1, additionalHeadings![i], color));
       }
     }
 
-    // Add primary needle LAST (drawn on top)
-    if (compassStyle == CompassStyle.minimal) {
-      // Triangle marker
-      pointers.add(
-        MarkerPointer(
-          value: heading,
-          markerType: MarkerType.triangle,
-          markerHeight: 20,
-          markerWidth: 20,
-          color: primaryColor,
-          markerOffset: -10,
-        ),
-      );
-    } else {
-      // Classic needle
-      pointers.add(
-        NeedlePointer(
-          value: heading,
-          needleLength: 0.7,
-          needleStartWidth: 0,
-          needleEndWidth: 10,
-          needleColor: primaryColor,
-          knobStyle: KnobStyle(
-            knobRadius: 0.08,
-            color: primaryColor,
-            borderColor: primaryColor,
-            borderWidth: 0.02,
-          ),
-        ),
+    // Draw non-active needles first, active needle last
+    for (final needle in allNeedles) {
+      if (needle.index == activeIndex) continue;
+      pointers.add(_buildNeedlePointer(needle, isActive: false));
+    }
+    // Draw active needle on top
+    final activeNeedle = allNeedles.firstWhere(
+      (n) => n.index == activeIndex,
+      orElse: () => allNeedles.first,
+    );
+    pointers.add(_buildNeedlePointer(activeNeedle, isActive: true));
+
+    return pointers;
+  }
+
+  GaugePointer _buildNeedlePointer(_NeedleData needle, {required bool isActive}) {
+    if (compassStyle == CompassStyle.minimal && isActive) {
+      return MarkerPointer(
+        value: needle.value,
+        markerType: MarkerType.triangle,
+        markerHeight: 20,
+        markerWidth: 20,
+        color: needle.color,
+        markerOffset: -10,
       );
     }
 
-    return pointers;
+    return NeedlePointer(
+      value: needle.value,
+      needleLength: isActive ? 0.7 : 0.65,
+      needleStartWidth: 0,
+      needleEndWidth: isActive ? 10 : 8,
+      needleColor: isActive ? needle.color : needle.color.withValues(alpha: 0.8),
+      knobStyle: isActive
+          ? KnobStyle(
+              knobRadius: 0.08,
+              color: needle.color,
+              borderColor: needle.color,
+              borderWidth: 0.02,
+            )
+          : const KnobStyle(knobRadius: 0),
+    );
   }
 
   String _getCardinalDirection(double degrees) {
@@ -389,164 +473,156 @@ class CompassGauge extends StatelessWidget {
 
   /// Build marine-style compass where card rotates
   Widget _buildMarineCompass(BuildContext context) {
-    return AspectRatio(
-      aspectRatio: 1,
-      child: Stack(
-        children: [
-          // Rotating compass card
-          Transform.rotate(
-            angle: -heading * 3.14159265359 / 180, // Rotate card opposite to heading
-            child: SfRadialGauge(
-              axes: <RadialAxis>[
-                RadialAxis(
-                  minimum: 0,
-                  maximum: 360,
-                  interval: 30,
-                  startAngle: 270,
-                  endAngle: 270,
-                  showAxisLine: false,
-                  showLastLabel: true,
+    // Collect all needles for ordering
+    final allNeedles = <_NeedleData>[
+      _NeedleData(0, heading, primaryColor),
+    ];
+    if (additionalHeadings != null) {
+      for (int i = 0; i < additionalHeadings!.length && i < 3; i++) {
+        final color = additionalColors != null && i < additionalColors!.length
+            ? additionalColors![i]
+            : Colors.blue;
+        allNeedles.add(_NeedleData(i + 1, additionalHeadings![i], color));
+      }
+    }
 
-                  // Tick configuration
-                  majorTickStyle: const MajorTickStyle(
-                    length: 12,
-                    thickness: 2,
-                    color: Colors.grey,
-                  ),
-                  minorTicksPerInterval: 2,
-                  minorTickStyle: MinorTickStyle(
-                    length: 6,
-                    thickness: 1,
-                    color: Colors.grey.withValues(alpha: 0.5),
-                  ),
+    return Column(
+      children: [
+        Expanded(
+          child: Center(
+            child: AspectRatio(
+              aspectRatio: 1,
+              child: Stack(
+                children: [
+                  // Rotating compass card
+                  Transform.rotate(
+                    angle: -heading * 3.14159265359 / 180,
+                    child: SfRadialGauge(
+                      axes: <RadialAxis>[
+                        RadialAxis(
+                          minimum: 0,
+                          maximum: 360,
+                          interval: 30,
+                          startAngle: 270,
+                          endAngle: 270,
+                          showAxisLine: false,
+                          showLastLabel: true,
 
-                  // Hide built-in labels - we'll use custom annotations that stay horizontal
-                  showLabels: false,
+                          majorTickStyle: const MajorTickStyle(
+                            length: 12,
+                            thickness: 2,
+                            color: Colors.grey,
+                          ),
+                          minorTicksPerInterval: 2,
+                          minorTickStyle: MinorTickStyle(
+                            length: 6,
+                            thickness: 1,
+                            color: Colors.grey.withValues(alpha: 0.5),
+                          ),
 
-                  // Outer ring
-                  ranges: [
-                    GaugeRange(
-                      startValue: 0,
-                      endValue: 360,
-                      color: Colors.grey.withValues(alpha: 0.2),
-                      startWidth: 2,
-                      endWidth: 2,
-                    ),
-                  ],
+                          showLabels: false,
 
-                  // No pointer on the rotating card
-                  pointers: const [],
+                          ranges: [
+                            GaugeRange(
+                              startValue: 0,
+                              endValue: 360,
+                              color: Colors.grey.withValues(alpha: 0.2),
+                              startWidth: 2,
+                              endWidth: 2,
+                            ),
+                          ],
 
-                  // Custom annotations that counter-rotate to stay horizontal
-                  annotations: _buildMarineCompassLabels(),
-                ),
-              ],
-            ),
-          ),
+                          pointers: const [],
 
-          // Fixed needles pointing up (North) - drawn before value so they're underneath
-          // Additional needles first (below primary)
-          if (additionalHeadings != null && additionalHeadings!.isNotEmpty)
-            for (int i = 0; i < additionalHeadings!.length && i < 3; i++)
-              Transform.rotate(
-                angle: (additionalHeadings![i] - heading) * 3.14159265359 / 180, // Rotate relative to primary heading
-                child: Center(
-                  child: CustomPaint(
-                    size: const Size(200, 200),
-                    painter: _MarineNeedlePainter(
-                      additionalColors != null && i < additionalColors!.length
-                          ? additionalColors![i]
-                          : Colors.blue,
-                      isSecondary: true,
+                          annotations: _buildMarineCompassLabels(),
+                        ),
+                      ],
                     ),
                   ),
-                ),
-              ),
 
-          // Primary needle last (on top)
-          Center(
-            child: CustomPaint(
-              size: const Size(200, 200),
-              painter: _MarineNeedlePainter(primaryColor),
-            ),
-          ),
+                  // Non-active needles first
+                  for (final needle in allNeedles)
+                    if (needle.index != activeIndex)
+                      Transform.rotate(
+                        angle: (needle.value - heading) * 3.14159265359 / 180,
+                        child: Center(
+                          child: CustomPaint(
+                            size: const Size(200, 200),
+                            painter: _MarineNeedlePainter(
+                              needle.color,
+                              isSecondary: true,
+                            ),
+                          ),
+                        ),
+                      ),
 
-          // Center annotation with heading value (non-rotating) - drawn last so it's on top
-          if (showValue)
-            Align(
-              alignment: Alignment.center,
-              child: Padding(
-                padding: const EdgeInsets.only(top: 60.0), // Move down to avoid needle
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      label,
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w300,
+                  // Active needle last (on top)
+                  () {
+                    final active = allNeedles.firstWhere(
+                      (n) => n.index == activeIndex,
+                      orElse: () => allNeedles.first,
+                    );
+                    return Transform.rotate(
+                      angle: (active.value - heading) * 3.14159265359 / 180,
+                      child: Center(
+                        child: CustomPaint(
+                          size: const Size(200, 200),
+                          painter: _MarineNeedlePainter(active.color),
+                        ),
+                      ),
+                    );
+                  }(),
+
+                  // Center annotation with heading value (non-rotating)
+                  if (showValue)
+                    Align(
+                      alignment: Alignment.center,
+                      child: Padding(
+                        padding: const EdgeInsets.only(top: 60.0),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            if (_activeLabel.isNotEmpty)
+                              Text(
+                                _activeLabel,
+                                style: const TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w300,
+                                ),
+                              ),
+                            if (_activeLabel.isNotEmpty)
+                              const SizedBox(height: 4),
+                            Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  _activeFormattedValue ?? '${_activeHeading.toStringAsFixed(0)}°',
+                                  style: const TextStyle(
+                                    fontSize: 32,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                                Text(
+                                  _getCardinalDirection(_activeHeading),
+                                  style: TextStyle(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.w500,
+                                    color: _activeColor,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
                       ),
                     ),
-                    const SizedBox(height: 4),
-                    Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          formattedValue ?? '${heading.toStringAsFixed(0)}°',
-                          style: const TextStyle(
-                            fontSize: 32,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        Text(
-                          _getCardinalDirection(heading),
-                          style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.w500,
-                            color: primaryColor,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
+                ],
               ),
             ),
-
-          // Multi-needle legend at bottom
-          if (additionalHeadings != null && additionalHeadings!.isNotEmpty && additionalLabels != null)
-            Align(
-              alignment: Alignment.bottomCenter,
-              child: Padding(
-                padding: const EdgeInsets.only(bottom: 12.0),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: Colors.black.withValues(alpha: 0.5),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      // Primary needle
-                      _buildLegendItem(label, primaryColor),
-                      // Additional needles
-                      for (int i = 0; i < additionalHeadings!.length && i < 3; i++) ...[
-                        const SizedBox(width: 8),
-                        _buildLegendItem(
-                          additionalLabels![i],
-                          additionalColors != null && i < additionalColors!.length
-                              ? additionalColors![i]
-                              : Colors.blue,
-                        ),
-                      ],
-                    ],
-                  ),
-                ),
-              ),
-            ),
-        ],
-      ),
+          ),
+        ),
+        if (_hasMultipleNeedles) _buildLegendRow(),
+      ],
     );
   }
 
@@ -591,7 +667,7 @@ class CompassGauge extends StatelessWidget {
       labels.add(
         GaugeAnnotation(
           widget: Transform.rotate(
-            angle: heading * 3.14159 / 180, // Counter-rotate by heading to keep label horizontal
+            angle: heading * 3.14159 / 180,
             child: Text(
               labelText,
               style: TextStyle(
@@ -611,6 +687,14 @@ class CompassGauge extends StatelessWidget {
   }
 }
 
+/// Simple data holder for needle info
+class _NeedleData {
+  final int index;
+  final double value;
+  final Color color;
+  _NeedleData(this.index, this.value, this.color);
+}
+
 /// Custom painter for the fixed marine compass needle
 class _MarineNeedlePainter extends CustomPainter {
   final Color color;
@@ -622,9 +706,9 @@ class _MarineNeedlePainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final center = Offset(size.width / 2, size.height / 2);
     final radius = size.width / 2;
-    final northNeedleLength = radius * (isSecondary ? 0.7 : 0.8); // Shorter for secondary
-    final southTailLength = radius * (isSecondary ? 0.65 : 0.75); // Shorter for secondary
-    final needleWidth = isSecondary ? 6.0 : 8.0; // Narrower for secondary
+    final northNeedleLength = radius * (isSecondary ? 0.7 : 0.8);
+    final southTailLength = radius * (isSecondary ? 0.65 : 0.75);
+    final needleWidth = isSecondary ? 6.0 : 8.0;
 
     final paint = Paint()
       ..color = isSecondary ? color.withValues(alpha: 0.8) : color
