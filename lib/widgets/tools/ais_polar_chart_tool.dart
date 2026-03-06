@@ -44,6 +44,8 @@ class AISPolarChartTool extends StatelessWidget {
     final showLabels = config.style.customProperties?['showLabels'] as bool? ?? true;
     final showGrid = config.style.customProperties?['showGrid'] as bool? ?? true;
     final pruneMinutes = config.style.customProperties?['pruneMinutes'] as int? ?? 15;
+    final colorByShipType = config.style.customProperties?['colorByShipType'] as bool? ?? true;
+    final showProjectedPositions = config.style.customProperties?['showProjectedPositions'] as bool? ?? true;
 
     // Get paths from data sources (with defaults)
     final positionPath = _getPath(0);
@@ -69,6 +71,8 @@ class AISPolarChartTool extends StatelessWidget {
           showLabels: showLabels,
           showGrid: showGrid,
           pruneMinutes: pruneMinutes,
+          colorByShipType: colorByShipType,
+          showProjectedPositions: showProjectedPositions,
         ),
         Positioned(
           top: 8,
@@ -140,6 +144,8 @@ class AISPolarChartBuilder extends ToolBuilder {
           'showGrid': true,
           'title': 'AIS Vessels',
           'pruneMinutes': 15,
+          'colorByShipType': true,
+          'showProjectedPositions': true,
         },
       ),
     );

@@ -21,6 +21,8 @@ class PolarChartConfigurator extends ToolConfigurator {
   double maxRangeNm = 5.0; // For ais_polar_chart
   int updateIntervalSeconds = 10; // For ais_polar_chart (stored as seconds in UI, milliseconds in config)
   int pruneMinutes = 15; // For ais_polar_chart - minutes before vessel removed from display
+  bool colorByShipType = true; // For ais_polar_chart - color vessels by AIS type
+  bool showProjectedPositions = true; // For ais_polar_chart - show projected course lines
 
   @override
   void reset() {
@@ -28,6 +30,8 @@ class PolarChartConfigurator extends ToolConfigurator {
     maxRangeNm = 5.0;
     updateIntervalSeconds = 10;
     pruneMinutes = 15;
+    colorByShipType = true;
+    showProjectedPositions = true;
   }
 
   @override
@@ -42,6 +46,8 @@ class PolarChartConfigurator extends ToolConfigurator {
       historySeconds = style.customProperties!['historySeconds'] as int? ?? 60;
       maxRangeNm = (style.customProperties!['maxRangeNm'] as num?)?.toDouble() ?? 5.0;
       pruneMinutes = style.customProperties!['pruneMinutes'] as int? ?? 15;
+      colorByShipType = style.customProperties!['colorByShipType'] as bool? ?? true;
+      showProjectedPositions = style.customProperties!['showProjectedPositions'] as bool? ?? true;
 
       // Convert milliseconds back to seconds for UI
       final updateIntervalMs = style.customProperties!['updateInterval'] as int? ?? 10000;
@@ -61,6 +67,8 @@ class PolarChartConfigurator extends ToolConfigurator {
       // Convert seconds to milliseconds for storage
       customProps['updateInterval'] = updateIntervalSeconds * 1000;
       customProps['pruneMinutes'] = pruneMinutes;
+      customProps['colorByShipType'] = colorByShipType;
+      customProps['showProjectedPositions'] = showProjectedPositions;
     }
 
     return ToolConfig(
@@ -172,6 +180,26 @@ class PolarChartConfigurator extends ToolConfigurator {
                       setState(() => updateIntervalSeconds = value);
                     }
                   },
+                ),
+                const SizedBox(height: 16),
+                SwitchListTile(
+                  title: const Text('Color by ship type'),
+                  subtitle: const Text('Use MarineTraffic-style type colors'),
+                  value: colorByShipType,
+                  onChanged: (value) {
+                    setState(() => colorByShipType = value);
+                  },
+                  contentPadding: EdgeInsets.zero,
+                ),
+                const SizedBox(height: 8),
+                SwitchListTile(
+                  title: const Text('Show projected positions'),
+                  subtitle: const Text('Draw course lines from moving vessels'),
+                  value: showProjectedPositions,
+                  onChanged: (value) {
+                    setState(() => showProjectedPositions = value);
+                  },
+                  contentPadding: EdgeInsets.zero,
                 ),
                 const SizedBox(height: 16),
                 DropdownButtonFormField<int>(

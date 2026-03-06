@@ -2507,7 +2507,7 @@ class _AISManager {
         final parts = key.split('.');
         if (parts.length >= 2) {
           // Find where the path starts - look for known path prefixes
-          for (final pathPrefix in ['navigation', 'name', 'mmsi', 'communication']) {
+          for (final pathPrefix in ['navigation', 'name', 'mmsi', 'communication', 'design']) {
             final prefixIndex = parts.indexOf(pathPrefix);
             if (prefixIndex > 1) {
               final vesselContext = parts.sublist(0, prefixIndex).join('.');
@@ -2558,6 +2558,26 @@ class _AISManager {
           // Get vessel name
           final name = dataCache['$vesselContext.name']?.value as String?;
 
+          // Get AIS ship type
+          int? aisShipType;
+          final aisTypeData = dataCache['$vesselContext.design.aisShipType'];
+          if (aisTypeData?.value is Map) {
+            aisShipType = (aisTypeData!.value as Map)['id'] as int?;
+          } else if (aisTypeData?.value is num) {
+            aisShipType = (aisTypeData!.value as num).toInt();
+          }
+
+          // Get navigation state
+          final navState = dataCache['$vesselContext.navigation.state']?.value as String?;
+
+          // Get heading true (radians from SignalK, convert to degrees)
+          double? headingTrue;
+          final headingData = dataCache['$vesselContext.navigation.headingTrue'];
+          if (headingData?.value is num) {
+            final rawHeading = (headingData!.value as num).toDouble();
+            headingTrue = convertValueForPath('navigation.headingTrue', rawHeading);
+          }
+
           vessels[vesselId] = {
             'latitude': lat.toDouble(),
             'longitude': lon.toDouble(),
@@ -2567,6 +2587,9 @@ class _AISManager {
             'sogRaw': sogRaw, // Raw SI value (m/s) for CPA calculations
             'timestamp': positionData.lastSeen, // Use lastSeen for freshness checks
             'fromGET': positionData.fromGET,
+            'aisShipType': aisShipType,
+            'navState': navState,
+            'headingTrue': headingTrue,
           };
         }
       }
@@ -2662,6 +2685,33 @@ class _AISManager {
                   }
                 }
 
+                // Get AIS ship type
+                int? aisShipType;
+                final design = vesselData['design'] as Map<String, dynamic>?;
+                final aisTypeData = design?['aisShipType'];
+                if (aisTypeData is Map<String, dynamic>) {
+                  final aisValue = aisTypeData['value'];
+                  if (aisValue is Map) {
+                    aisShipType = aisValue['id'] as int?;
+                  } else if (aisValue is num) {
+                    aisShipType = aisValue.toInt();
+                  }
+                }
+
+                // Get navigation state
+                final navStateData = navigation?['state'] as Map<String, dynamic>?;
+                final navState = navStateData?['value'] as String?;
+
+                // Get heading true
+                double? headingTrue;
+                final headingData = navigation?['headingTrue'] as Map<String, dynamic>?;
+                if (headingData != null) {
+                  final rawHeading = (headingData['value'] as num?)?.toDouble();
+                  if (rawHeading != null) {
+                    headingTrue = convertValueForPath('navigation.headingTrue', rawHeading);
+                  }
+                }
+
                 vessels[vesselId] = {
                   'latitude': lat.toDouble(),
                   'longitude': lon.toDouble(),
@@ -2669,6 +2719,9 @@ class _AISManager {
                   'cog': cog,
                   'sog': sog,
                   'sogRaw': sogRaw, // Raw SI value (m/s) for CPA calculations
+                  'aisShipType': aisShipType,
+                  'navState': navState,
+                  'headingTrue': headingTrue,
                 };
               }
             }
@@ -2735,6 +2788,37 @@ class _AISManager {
             timestamp: DateTime.now(),
           );
         }
+
+        // Store AIS ship type
+        if (vesselData['aisShipType'] != null) {
+          dataCache['$vesselContext.design.aisShipType'] = SignalKDataPoint(
+            path: 'design.aisShipType',
+            value: {'id': vesselData['aisShipType']},
+            timestamp: DateTime.now(),
+            fromGET: true,
+          );
+        }
+
+        // Store navigation state
+        if (vesselData['navState'] != null) {
+          dataCache['$vesselContext.navigation.state'] = SignalKDataPoint(
+            path: 'navigation.state',
+            value: vesselData['navState'],
+            timestamp: DateTime.now(),
+            fromGET: true,
+          );
+        }
+
+        // Store heading true
+        if (vesselData['headingTrue'] != null) {
+          dataCache['$vesselContext.navigation.headingTrue'] = SignalKDataPoint(
+            path: 'navigation.headingTrue',
+            value: vesselData['headingTrue'],
+            timestamp: DateTime.now(),
+            converted: vesselData['headingTrue'],
+            fromGET: true,
+          );
+        }
       }
 
       await Future.delayed(const Duration(seconds: 10));
@@ -2786,6 +2870,9 @@ class _AISManager {
         {'path': 'navigation.position', 'format': 'delta', 'policy': 'instant'},
         {'path': 'navigation.courseOverGroundTrue', 'format': 'delta', 'policy': 'instant'},
         {'path': 'navigation.speedOverGround', 'format': 'delta', 'policy': 'instant'},
+        {'path': 'navigation.headingTrue', 'format': 'delta', 'policy': 'instant'},
+        {'path': 'navigation.state', 'period': 60000, 'format': 'delta', 'policy': 'ideal'},
+        {'path': 'design.aisShipType', 'period': 60000, 'format': 'delta', 'policy': 'ideal'},
         {'path': 'name', 'period': 60000, 'format': 'delta', 'policy': 'ideal'},
       ],
     };

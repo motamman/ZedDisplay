@@ -86,6 +86,32 @@ class _ToolInfoDialog extends StatelessWidget {
   final ToolInfoData toolInfo;
   final Map<String, PluginStatus> pluginStatus;
 
+  static const _circleColorMap = <String, Color>{
+    'green': Colors.green,
+    'red': Colors.red,
+    'blue': Colors.blue,
+    'orange': Colors.orange,
+    'purple': Colors.purple,
+    'cyan': Colors.cyan,
+    'grey': Colors.grey,
+  };
+
+  static const _materialIconMap = <String, IconData>{
+    'anchor': Icons.anchor,
+    'circle': Icons.circle,
+    'local_parking': Icons.local_parking,
+    'navigation': Icons.navigation,
+    'fullscreen': Icons.fullscreen,
+    'list': Icons.list,
+    'map': Icons.map,
+    'radar': Icons.radar,
+    'add': Icons.add,
+    'remove': Icons.remove,
+    'auto_fix_high': Icons.auto_fix_high,
+    'my_location': Icons.my_location,
+    'gps_fixed': Icons.gps_fixed,
+  };
+
   const _ToolInfoDialog({
     required this.toolInfo,
     required this.pluginStatus,
@@ -126,6 +152,28 @@ class _ToolInfoDialog extends StatelessWidget {
                   listBullet: theme.textTheme.bodyMedium,
                 ),
                 shrinkWrap: true,
+                sizedImageBuilder: (config) {
+                  if (config.uri.scheme == 'icon') {
+                    final iconName = config.uri.path;
+                    // Colored circles: icon:circle_green, icon:circle_red, etc.
+                    if (iconName.startsWith('circle_')) {
+                      final colorName = iconName.substring(7);
+                      final color = _circleColorMap[colorName];
+                      if (color != null) {
+                        return Icon(Icons.circle, size: 14, color: color);
+                      }
+                    }
+                    final iconData = _materialIconMap[iconName];
+                    if (iconData != null) {
+                      return Icon(
+                        iconData,
+                        size: 16,
+                        color: theme.textTheme.bodyMedium?.color,
+                      );
+                    }
+                  }
+                  return const SizedBox.shrink();
+                },
               ),
 
               // Required plugins section

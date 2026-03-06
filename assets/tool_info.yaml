@@ -468,14 +468,47 @@ tools:
       - Real-time data streaming
 
   ais_polar_chart:
-    name: "AIS Polar Chart"
+    name: "AIS Tracker"
     description: |
-      AIS vessel tracking on a polar chart.
+      AIS vessel tracking with radar and map views.
 
-      **Features:**
-      - Nearby vessel positions
-      - Course and speed vectors
-      - Auto-pruning of stale tracks
+      **Views:**
+      - **Radar** — polar chart with own vessel at center
+      - **Map** — OpenStreetMap + OpenSeaMap overlay
+      - Tap fullscreen to expand, then list button for overlay
+
+      **Vessel Icons (colored by ship type):**
+      - ![](icon:navigation) Chevron — moving vessel, pointed in heading direction
+      - ![](icon:circle) Dot — stationary vessel (SOG ≈ 0)
+      - ![](icon:anchor) Anchor — anchored vessel
+      - ![](icon:local_parking) P icon — moored vessel
+
+      **Color by Ship Type (MarineTraffic style):**
+      - ![](icon:circle_green) Green — cargo
+      - ![](icon:circle_red) Red — tanker
+      - ![](icon:circle_blue) Blue — passenger
+      - ![](icon:circle_orange) Orange — special craft: SAR, tug, pilot
+      - ![](icon:circle_purple) Purple — sailing
+      - ![](icon:circle_cyan) Cyan — fishing, towing
+      - ![](icon:circle_grey) Grey — unknown or no type data
+      - Icon opacity fades with data age: bright = live, dim = stale
+      - Red X overlay on vessels with no update for 10+ minutes
+
+      **Projected Positions:**
+      - Dashed lines from moving vessels along their course
+      - Dot marks at 30s, 1m, 15m, and 30m projected positions
+      - Only shown for vessels with SOG > 0.1 m/s
+
+      **CPA/TCPA:**
+      - Closest Point of Approach calculated per vessel
+      - Red badge when CPA < 0.5 nm, orange otherwise
+
+      **Controls (top-right buttons):**
+      - ![](icon:fullscreen) Fullscreen square — expand radar/map to fill widget
+      - ![](icon:list) List lines — toggle vessel list overlay (fullscreen only)
+      - ![](icon:map)/![](icon:radar) Map/radar icon — switch between views
+      - ![](icon:add)/![](icon:remove) Plus/minus — zoom in/out
+      - ![](icon:my_location) Crosshair — auto-range (radar) or auto-follow (map)
 
   file_share:
     name: "File Share"
