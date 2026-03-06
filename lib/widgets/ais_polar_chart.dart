@@ -152,21 +152,289 @@ class _AISPolarChartState extends State<AISPolarChart>
   }
 
   void _highlightVessel(String mmsi) {
-    setState(() {
-      _highlightedVesselMMSI = mmsi;
-    });
-
-    // Cancel existing timer
+    setState(() => _highlightedVesselMMSI = mmsi);
     _highlightTimer?.cancel();
+    _showVesselDetails(mmsi);
+  }
 
-    // Reset highlight after 3 seconds
-    _highlightTimer = Timer(const Duration(seconds: 3), () {
+  /// Extract extra vessel data from the SignalK data cache
+  Map<String, String> _getExtraVesselData(String mmsi) {
+    final extra = <String, String>{};
+    final cache = widget.signalKService.latestData;
+    final prefix = 'vessels.$mmsi';
+
+    // Callsign
+    final comm = cache['$prefix.communication']?.value;
+    if (comm is Map) {
+      final callsign = comm['callsignVhf'] as String?;
+      if (callsign != null) extra['Callsign'] = callsign;
+    }
+
+    // Destination
+    final dest = cache['$prefix.navigation.destination.commonName']?.value;
+    if (dest is String && dest.isNotEmpty) extra['Destination'] = dest;
+
+    // Ship type name from server (richer than our local decode)
+    final aisType = cache['$prefix.design.aisShipType']?.value;
+    if (aisType is Map) {
+      final typeName = aisType['name'] as String?;
+      if (typeName != null) extra['Ship Type'] = typeName;
+    }
+
+    // Beam
+    final beam = cache['$prefix.design.beam']?.value;
+    if (beam is num) extra['Beam'] = '${beam.toStringAsFixed(1)} m';
+
+    // Length
+    final length = cache['$prefix.design.length']?.value;
+    if (length is Map) {
+      final overall = length['overall'];
+      if (overall is num) extra['Length'] = '${overall.toStringAsFixed(1)} m';
+    } else if (length is num) {
+      extra['Length'] = '${length.toStringAsFixed(1)} m';
+    }
+
+    // Draft
+    final draft = cache['$prefix.design.draft']?.value;
+    if (draft is Map) {
+      final current = draft['current'];
+      if (current is num) extra['Draft'] = '${current.toStringAsFixed(1)} m';
+    } else if (draft is num) {
+      extra['Draft'] = '${draft.toStringAsFixed(1)} m';
+    }
+
+    // AIS class
+    final aisClass = cache['$prefix.sensors.ais.class']?.value;
+    if (aisClass is String) extra['AIS Class'] = aisClass;
+
+    // AIS status from sk-ais-status-plugin
+    final aisStatus = cache['$prefix.sensors.ais.status']?.value;
+    if (aisStatus is String) extra['AIS Status'] = aisStatus;
+
+    // IMO / registrations
+    final reg = cache['$prefix.registrations']?.value;
+    if (reg is Map) {
+      final imo = reg['imo'] as String?;
+      if (imo != null) extra['IMO'] = imo;
+    }
+
+    return extra;
+  }
+
+  void _showVesselDetails(String mmsi) {
+    final vessel = _vessels.cast<_VesselPoint?>().firstWhere(
+      (v) => v!.mmsi == mmsi,
+      orElse: () => null,
+    );
+    final extraData = _getExtraVesselData(mmsi);
+
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) {
+        final isDark = Theme.of(sheetContext).brightness == Brightness.dark;
+        final bgColor = isDark ? const Color(0xFF1E1E1E) : Colors.white;
+        final textColor = isDark ? Colors.white : Colors.black87;
+        final subtitleColor = isDark ? Colors.white70 : Colors.black54;
+        final sectionColor = isDark ? Colors.white38 : Colors.black38;
+
+        final vesselName = vessel?.name ?? extraData['name'] ?? 'Unknown Vessel';
+        final displayMMSI = _extractMMSI(mmsi);
+        final shipTypeLabel = extraData['Ship Type'] ?? _getShipTypeLabel(vessel?.aisShipType);
+        final typeColor = _getVesselTypeColor(vessel?.aisShipType, aisClass: vessel?.aisClass);
+        final heading = vessel?.headingTrue ?? vessel?.cog ?? 0.0;
+        final icon = vessel != null
+            ? _getVesselIcon(vessel.aisShipType, vessel.navState, sogRaw: vessel.sogRaw)
+            : Icons.navigation;
+
+        // Build dimensions string
+        String? dimensionsStr;
+        final parts = <String>[];
+        if (extraData.containsKey('Length') && extraData.containsKey('Beam')) {
+          parts.add('${extraData['Length']!} x ${extraData['Beam']!}');
+        } else {
+          if (extraData.containsKey('Length')) parts.add(extraData['Length']!);
+          if (extraData.containsKey('Beam')) parts.add('beam ${extraData['Beam']!}');
+        }
+        if (extraData.containsKey('Draft')) parts.add('draft ${extraData['Draft']!}');
+        if (parts.isNotEmpty) dimensionsStr = parts.join(', ');
+
+        return DraggableScrollableSheet(
+          initialChildSize: 0.4,
+          maxChildSize: 0.65,
+          minChildSize: 0.2,
+          builder: (_, scrollController) {
+            return Container(
+              decoration: BoxDecoration(
+                color: bgColor,
+                borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+              ),
+              child: ListView(
+                controller: scrollController,
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                children: [
+                  // Drag handle
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 4,
+                      margin: const EdgeInsets.only(bottom: 12),
+                      decoration: BoxDecoration(
+                        color: Colors.grey[400],
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                  // Header with icon and name
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      Transform.rotate(
+                        angle: heading * math.pi / 180,
+                        child: Icon(icon, color: typeColor, size: 32,
+                          shadows: [Shadow(color: Colors.black.withValues(alpha: 0.3), blurRadius: 2)],
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              vesselName,
+                              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: textColor),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              'MMSI: $displayMMSI',
+                              style: TextStyle(fontSize: 13, color: subtitleColor),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  // Ship type chip
+                  Wrap(
+                    spacing: 8,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                        decoration: BoxDecoration(
+                          color: typeColor.withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: typeColor.withValues(alpha: 0.4)),
+                        ),
+                        child: Text(shipTypeLabel, style: TextStyle(fontSize: 12, color: typeColor, fontWeight: FontWeight.w600)),
+                      ),
+                      if (extraData.containsKey('AIS Class'))
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: subtitleColor.withValues(alpha: 0.1),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Text('Class ${extraData['AIS Class']!}', style: TextStyle(fontSize: 12, color: subtitleColor)),
+                        ),
+                      if (extraData.containsKey('AIS Status'))
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: subtitleColor.withValues(alpha: 0.1),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Text(extraData['AIS Status']!, style: TextStyle(fontSize: 12, color: subtitleColor)),
+                        ),
+                    ],
+                  ),
+
+                  // Identity section
+                  if (extraData.containsKey('Callsign') || extraData.containsKey('IMO') || extraData.containsKey('Destination'))
+                    ...[
+                      _sectionHeader('Identity', sectionColor),
+                      if (extraData.containsKey('Callsign'))
+                        _detailRow('Callsign', extraData['Callsign']!, subtitleColor, textColor),
+                      if (extraData.containsKey('IMO'))
+                        _detailRow('IMO', extraData['IMO']!, subtitleColor, textColor),
+                      if (extraData.containsKey('Destination'))
+                        _detailRow('Destination', extraData['Destination']!, subtitleColor, textColor),
+                    ],
+
+                  // Dimensions section
+                  if (dimensionsStr != null)
+                    ...[
+                      _sectionHeader('Dimensions', sectionColor),
+                      _detailRow('Size', dimensionsStr, subtitleColor, textColor),
+                    ],
+
+                  // Navigation section
+                  if (vessel != null) ...[
+                    _sectionHeader('Navigation', sectionColor),
+                    if (vessel.navState != null)
+                      _detailRow('Nav Status', vessel.navState!, subtitleColor, textColor),
+                    if (vessel.sogRaw != null)
+                      _detailRow('SOG', '${_convertSpeed(vessel.sogRaw!).toStringAsFixed(1)} ${_getSpeedUnit()}', subtitleColor, textColor),
+                    if (vessel.cog != null)
+                      _detailRow('COG', '${vessel.cog!.toStringAsFixed(1)}°', subtitleColor, textColor),
+                    if (vessel.headingTrue != null)
+                      _detailRow('Heading', '${vessel.headingTrue!.toStringAsFixed(1)}°', subtitleColor, textColor),
+
+                    // Relative section
+                    _sectionHeader('Relative', sectionColor),
+                    _detailRow('Bearing', '${vessel.bearing.toStringAsFixed(1)}°', subtitleColor, textColor),
+                    _detailRow('Distance', '${_convertDistance(vessel.distance).toStringAsFixed(2)} ${_getDistanceUnit()}', subtitleColor, textColor),
+                    if (vessel.cpa != null)
+                      _detailRow('CPA', '${_convertDistance(vessel.cpa!).toStringAsFixed(2)} ${_getDistanceUnit()}', subtitleColor, textColor),
+                    if (vessel.tcpa != null && vessel.tcpa!.isFinite && vessel.tcpa! > 0)
+                      _detailRow('TCPA', _formatTCPA(vessel.tcpa!), subtitleColor, textColor),
+
+                    // Position section
+                    _sectionHeader('Position', sectionColor),
+                    if (vessel.latitude != null && vessel.longitude != null)
+                      _detailRow('Lat/Lon', '${vessel.latitude!.toStringAsFixed(5)}, ${vessel.longitude!.toStringAsFixed(5)}', subtitleColor, textColor),
+                    if (vessel.timestamp != null)
+                      _detailRow('Last Update', '${_formatTimeSince(vessel.timestamp!)} ago', subtitleColor, textColor),
+                  ],
+                ],
+              ),
+            );
+          },
+        );
+      },
+    ).then((_) {
       if (mounted) {
-        setState(() {
-          _highlightedVesselMMSI = null;
-        });
+        setState(() => _highlightedVesselMMSI = null);
       }
     });
+  }
+
+  Widget _sectionHeader(String title, Color color) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 12, bottom: 4),
+      child: Text(
+        title.toUpperCase(),
+        style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: color, letterSpacing: 0.8),
+      ),
+    );
+  }
+
+  Widget _detailRow(String label, String value, Color labelColor, Color valueColor) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 110,
+            child: Text(label, style: TextStyle(fontSize: 13, color: labelColor)),
+          ),
+          Expanded(
+            child: Text(value, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: valueColor)),
+          ),
+        ],
+      ),
+    );
   }
 
   void _updateVesselData() {
@@ -221,6 +489,11 @@ class _AISPolarChartState extends State<AISPolarChart>
       final aisShipType = vesselData['aisShipType'] as int?;
       final navState = vesselData['navState'] as String?;
       final headingTrue = vesselData['headingTrue'] as double?;
+      // AIS class from data cache
+      final aisClassData = widget.signalKService.latestData['vessels.$vesselId.sensors.ais.class']?.value;
+      final aisClass = aisClassData is String ? aisClassData : null;
+      // AIS status from sk-ais-status-plugin
+      final aisStatus = vesselData['aisStatus'] as String?;
 
       if (lat != null && lon != null) {
         final bearing = _calculateBearing(_ownLat!, _ownLon!, lat, lon);
@@ -228,18 +501,24 @@ class _AISPolarChartState extends State<AISPolarChart>
 
         // Check vessel data age
         final timestamp = vesselData['timestamp'] as DateTime?;
-        final now = DateTime.now();
-        final ageMinutes = timestamp != null
-            ? now.difference(timestamp).inMinutes
-            : widget.pruneMinutes + 1; // Treat null timestamp as expired
 
-        // Skip vessels older than prune time
-        if (ageMinutes > widget.pruneMinutes) {
-          continue;
+        // If plugin provides status, trust it; otherwise fall back to timestamp
+        if (aisStatus == null) {
+          final now = DateTime.now();
+          final ageMinutes = timestamp != null
+              ? now.difference(timestamp).inMinutes
+              : widget.pruneMinutes + 1; // Treat null timestamp as expired
+
+          // Skip vessels older than prune time
+          if (ageMinutes > widget.pruneMinutes) {
+            continue;
+          }
         }
 
-        // Determine freshness: < 3 min = live, 3-10 min = stale, > 10 min = old
-        final isLive = ageMinutes < 3;
+        // Determine freshness: plugin status or timestamp-based
+        final isLive = aisStatus == 'confirmed' ||
+            (aisStatus == null && timestamp != null &&
+             DateTime.now().difference(timestamp).inMinutes < 3);
 
         // Calculate CPA/TCPA during fetch with caching
         final cpaTcpa = _calculateCPATCPAForVessel(
@@ -300,6 +579,8 @@ class _AISPolarChartState extends State<AISPolarChart>
           headingTrue: headingTrue,
           latitude: lat?.toDouble(),
           longitude: lon?.toDouble(),
+          aisClass: aisClass,
+          aisStatus: aisStatus,
         ));
       }
     }
@@ -432,9 +713,34 @@ class _AISPolarChartState extends State<AISPolarChart>
     return metadata?.symbol ?? 'm/s';
   }
 
+  /// Decode AIS ship type integer to human-readable label
+  String _getShipTypeLabel(int? type) {
+    if (type == null) return 'Unknown';
+    if (type >= 20 && type <= 29) return 'Wing in Ground';
+    if (type == 30) return 'Fishing';
+    if (type == 31 || type == 32) return 'Towing';
+    if (type == 33) return 'Dredging';
+    if (type == 34) return 'Diving ops';
+    if (type == 35) return 'Military';
+    if (type == 36) return 'Sailing';
+    if (type == 37) return 'Pleasure craft';
+    if (type >= 40 && type <= 49) return 'High speed craft';
+    if (type == 50) return 'Pilot vessel';
+    if (type == 51) return 'SAR';
+    if (type == 52) return 'Tug';
+    if (type == 53) return 'Port tender';
+    if (type == 55) return 'Law enforcement';
+    if (type >= 60 && type <= 69) return 'Passenger';
+    if (type >= 70 && type <= 79) return 'Cargo';
+    if (type >= 80 && type <= 89) return 'Tanker';
+    return 'Other ($type)';
+  }
+
   /// Get vessel type color based on AIS ship type code (MarineTraffic convention)
-  Color _getVesselTypeColor(int? aisShipType) {
-    if (aisShipType == null) return Colors.grey;
+  Color _getVesselTypeColor(int? aisShipType, {String? aisClass}) {
+    if (aisShipType == null) {
+      return aisClass == 'A' ? Colors.grey.shade400 : Colors.grey;
+    }
 
     // Special case: sailing vessel
     if (aisShipType == 36) return Colors.purple;
@@ -469,8 +775,17 @@ class _AISPolarChartState extends State<AISPolarChart>
     return Icons.navigation; // Moving chevron
   }
 
-  /// Get freshness opacity based on data age
-  double _getFreshnessOpacity(DateTime? timestamp) {
+  /// Get freshness opacity based on plugin status or data age
+  double _getFreshnessOpacity(DateTime? timestamp, {String? aisStatus}) {
+    if (aisStatus != null) {
+      switch (aisStatus) {
+        case 'confirmed': return 1.0;
+        case 'unconfirmed': return 0.5;
+        case 'lost': return 0.2;
+        default: return 0.2;
+      }
+    }
+    // Timestamp fallback when plugin not installed
     if (timestamp == null) return 0.2;
     final ageMinutes = DateTime.now().difference(timestamp).inMinutes;
     if (ageMinutes < 3) return 1.0;
@@ -479,8 +794,9 @@ class _AISPolarChartState extends State<AISPolarChart>
     return 0.2;
   }
 
-  /// Check if vessel data is stale (>= 10 minutes old)
-  bool _isStale(DateTime? timestamp) {
+  /// Check if vessel data is stale — plugin status or timestamp
+  bool _isStale(DateTime? timestamp, {String? aisStatus}) {
+    if (aisStatus != null) return aisStatus == 'lost' || aisStatus == 'remove';
     if (timestamp == null) return true;
     return DateTime.now().difference(timestamp).inMinutes >= 10;
   }
@@ -817,8 +1133,8 @@ class _AISPolarChartState extends State<AISPolarChart>
       final typeColor = point.color;
       final opacity = point.freshnessOpacity;
 
-      final stale = _isStale(point.timestamp);
-      final iconSize = isHighlighted ? 22.0 : 14.0;
+      final stale = _isStale(point.timestamp, aisStatus: point.aisStatus);
+      final iconSize = isHighlighted ? 40.0 : 32.0;
       final iconWidget = Transform.rotate(
         angle: heading * math.pi / 180,
         child: Icon(
@@ -868,7 +1184,8 @@ class _AISPolarChartState extends State<AISPolarChart>
       final projections = _calculateProjectedPositions(vessel);
       if (projections.isEmpty) continue;
 
-      final typeColor = _getVesselTypeColor(vessel.aisShipType);
+      final typeColor = _getVesselTypeColor(vessel.aisShipType, aisClass: vessel.aisClass);
+      final isHighlighted = vessel.mmsi == _highlightedVesselMMSI;
 
       // Build line from vessel position through projected points
       final vesselAngle = (vessel.bearing - 90) * math.pi / 180;
@@ -890,11 +1207,36 @@ class _AISPolarChartState extends State<AISPolarChart>
         dataSource: linePoints,
         xValueMapper: (_CartesianPoint point, _) => point.x,
         yValueMapper: (_CartesianPoint point, _) => point.y,
-        color: typeColor.withValues(alpha: 0.4),
-        width: 1,
+        color: isHighlighted ? Colors.yellow.withValues(alpha: 0.7) : typeColor.withValues(alpha: 0.4),
+        width: isHighlighted ? 2 : 1,
         dashArray: const <double>[4, 3],
         animationDuration: 0,
       ));
+
+      // Add growing scatter dots at each projected position
+      const projectionDotSizes = [4.0, 6.0, 10.0, 14.0];
+      for (var i = 0; i < projections.length && i < projectionDotSizes.length; i++) {
+        final proj = projections[i];
+        final projAngle = (proj.bearing - 90) * math.pi / 180;
+        final projX = proj.distance * math.cos(projAngle);
+        final projY = proj.distance * math.sin(projAngle);
+        final dotColor = isHighlighted ? Colors.yellow.withValues(alpha: 0.8) : typeColor.withValues(alpha: 0.5);
+        projectionSeries.add(ScatterSeries<_CartesianPoint, double>(
+          dataSource: [_CartesianPoint(x: projX, y: projY, label: '', mmsi: '')],
+          xValueMapper: (_CartesianPoint point, _) => point.x,
+          yValueMapper: (_CartesianPoint point, _) => point.y,
+          color: dotColor,
+          markerSettings: MarkerSettings(
+            isVisible: true,
+            width: projectionDotSizes[i],
+            height: projectionDotSizes[i],
+            shape: DataMarkerType.circle,
+            borderWidth: 0,
+            color: dotColor,
+          ),
+          animationDuration: 0,
+        ));
+      }
     }
     } // end showProjectedPositions
 
@@ -1087,14 +1429,15 @@ class _AISPolarChartState extends State<AISPolarChart>
                 final projections = _calculateProjectedPositions(vessel);
                 if (projections.isEmpty) return null;
 
-                final typeColor = _getVesselTypeColor(vessel.aisShipType);
+                final typeColor = _getVesselTypeColor(vessel.aisShipType, aisClass: vessel.aisClass);
+                final isHighlighted = vessel.mmsi == _highlightedVesselMMSI;
                 return Polyline(
                   points: [
                     LatLng(vessel.latitude!, vessel.longitude!),
                     ...projections.map((p) => LatLng(p.lat, p.lon)),
                   ],
-                  color: typeColor.withValues(alpha: 0.4),
-                  strokeWidth: 2,
+                  color: isHighlighted ? Colors.yellow.withValues(alpha: 0.9) : typeColor.withValues(alpha: 0.8),
+                  strokeWidth: isHighlighted ? 4 : 3,
                   pattern: const StrokePattern.dotted(),
                 );
               }).whereType<Polyline>(),
@@ -1106,14 +1449,15 @@ class _AISPolarChartState extends State<AISPolarChart>
             // Own vessel (green arrow, larger than others)
             Marker(
               point: LatLng(_ownLat!, _ownLon!),
-              width: 24,
-              height: 24,
+              width: 44,
+              height: 44,
               child: Transform.rotate(
                 angle: ownHeading * math.pi / 180, // Convert degrees to radians
-                child: const Icon(
+                child: Icon(
                   Icons.navigation,
                   color: Colors.green,
-                  size: 20, // Larger than red arrows (16)
+                  size: 38,
+                  shadows: [Shadow(color: Colors.black, blurRadius: 3)],
                 ),
               ),
             ),
@@ -1130,32 +1474,35 @@ class _AISPolarChartState extends State<AISPolarChart>
               final heading = vessel.headingTrue ?? vessel.cog ?? 0.0;
               final isHighlighted = vessel.mmsi == _highlightedVesselMMSI;
               final typeColor = widget.colorByShipType
-                  ? _getVesselTypeColor(vessel.aisShipType)
+                  ? _getVesselTypeColor(vessel.aisShipType, aisClass: vessel.aisClass)
                   : _getVesselFreshnessColor(vessel.timestamp);
               final freshnessOpacity = widget.colorByShipType
-                  ? _getFreshnessOpacity(vessel.timestamp)
+                  ? _getFreshnessOpacity(vessel.timestamp, aisStatus: vessel.aisStatus)
                   : 1.0;
               final icon = _getVesselIcon(vessel.aisShipType, vessel.navState, sogRaw: vessel.sogRaw);
-              final stale = _isStale(vessel.timestamp);
-              final iconSize = isHighlighted ? 28.0 : 16.0;
+              final stale = _isStale(vessel.timestamp, aisStatus: vessel.aisStatus);
+              final iconSize = isHighlighted ? 48.0 : 32.0;
               final iconWidget = Transform.rotate(
                 angle: heading * math.pi / 180,
                 child: Icon(
                   icon,
                   color: isHighlighted
                       ? Colors.yellow
-                      : typeColor.withValues(alpha: freshnessOpacity),
+                      : typeColor,
                   size: iconSize,
-                  shadows: isHighlighted
-                      ? [const Shadow(color: Colors.orange, blurRadius: 4)]
-                      : null,
+                  shadows: [
+                    Shadow(
+                      color: isHighlighted ? Colors.orange : Colors.black,
+                      blurRadius: isHighlighted ? 6 : 3,
+                    ),
+                  ],
                 ),
               );
 
               return Marker(
                 point: LatLng(lat, lon),
-                width: isHighlighted ? 32 : 20,
-                height: isHighlighted ? 32 : 20,
+                width: isHighlighted ? 56 : 40,
+                height: isHighlighted ? 56 : 40,
                 child: GestureDetector(
                   onTap: () => _highlightVessel(vessel.mmsi),
                   child: stale && !isHighlighted
@@ -1177,18 +1524,36 @@ class _AISPolarChartState extends State<AISPolarChart>
                   .take(20)
                   .expand((vessel) {
                 final projections = _calculateProjectedPositions(vessel);
-                final typeColor = _getVesselTypeColor(vessel.aisShipType);
-                return projections.map((p) => Marker(
-                  point: LatLng(p.lat, p.lon),
-                  width: 6,
-                  height: 6,
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: typeColor.withValues(alpha: 0.5),
-                      shape: BoxShape.circle,
+                final typeColor = _getVesselTypeColor(vessel.aisShipType, aisClass: vessel.aisClass);
+                final isHighlighted = vessel.mmsi == _highlightedVesselMMSI;
+                const projectionDotSizes = [6.0, 10.0, 16.0, 22.0];
+                return projections.indexed.map((indexedProj) {
+                  final (i, p) = indexedProj;
+                  final size = i < projectionDotSizes.length ? projectionDotSizes[i] : 10.0;
+                  final tapSize = math.max(size, 24.0);
+                  return Marker(
+                    point: LatLng(p.lat, p.lon),
+                    width: tapSize,
+                    height: tapSize,
+                    child: GestureDetector(
+                      onTap: () => _highlightVessel(vessel.mmsi),
+                      child: Center(
+                        child: Container(
+                          width: size,
+                          height: size,
+                          decoration: BoxDecoration(
+                            color: isHighlighted ? Colors.yellow.withValues(alpha: 0.9) : typeColor.withValues(alpha: 0.85),
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                              color: isHighlighted ? Colors.orange : Colors.black54,
+                              width: isHighlighted ? 1.0 : 0.5,
+                            ),
+                          ),
+                        ),
+                      ),
                     ),
-                  ),
-                ));
+                  );
+                });
               }),
           ],
         ),
@@ -1275,7 +1640,7 @@ class _AISPolarChartState extends State<AISPolarChart>
       final y = vessel.distance * math.sin(angleRad);
 
       final color = widget.colorByShipType
-          ? _getVesselTypeColor(vessel.aisShipType)
+          ? _getVesselTypeColor(vessel.aisShipType, aisClass: vessel.aisClass)
           : _getVesselFreshnessColor(vessel.timestamp);
 
       return _CartesianPoint(
@@ -1290,8 +1655,10 @@ class _AISPolarChartState extends State<AISPolarChart>
         sogRaw: vessel.sogRaw,
         timestamp: vessel.timestamp,
         freshnessOpacity: widget.colorByShipType
-            ? _getFreshnessOpacity(vessel.timestamp)
+            ? _getFreshnessOpacity(vessel.timestamp, aisStatus: vessel.aisStatus)
             : 1.0,
+        aisClass: vessel.aisClass,
+        aisStatus: vessel.aisStatus,
       );
     }).toList();
   }
@@ -1360,14 +1727,14 @@ class _AISPolarChartState extends State<AISPolarChart>
 
               // Type-based color with freshness opacity (or plain freshness color)
               final typeColor = widget.colorByShipType
-                  ? _getVesselTypeColor(vessel.aisShipType)
+                  ? _getVesselTypeColor(vessel.aisShipType, aisClass: vessel.aisClass)
                   : _getVesselFreshnessColor(vessel.timestamp);
               final freshnessOpacity = widget.colorByShipType
-                  ? _getFreshnessOpacity(vessel.timestamp)
+                  ? _getFreshnessOpacity(vessel.timestamp, aisStatus: vessel.aisStatus)
                   : 1.0;
               final displayColor = typeColor.withValues(alpha: freshnessOpacity);
               final vesselIcon = _getVesselIcon(vessel.aisShipType, vessel.navState, sogRaw: vessel.sogRaw);
-              final stale = _isStale(vessel.timestamp);
+              final stale = _isStale(vessel.timestamp, aisStatus: vessel.aisStatus);
               final iconWidget = Transform.rotate(
                 angle: ((vessel.headingTrue ?? vessel.cog ?? 0.0) * math.pi / 180),
                 child: Icon(
@@ -1603,6 +1970,8 @@ class _VesselPoint {
   final double? headingTrue; // True heading in degrees
   final double? latitude; // For projected position calculations
   final double? longitude;
+  final String? aisClass; // AIS class: "A" or "B"
+  final String? aisStatus; // from sk-ais-status-plugin: unconfirmed/confirmed/lost/remove
 
   _VesselPoint({
     this.name,
@@ -1620,6 +1989,8 @@ class _VesselPoint {
     this.headingTrue,
     this.latitude,
     this.longitude,
+    this.aisClass,
+    this.aisStatus,
   });
 }
 
@@ -1635,6 +2006,8 @@ class _CartesianPoint {
   final double? sogRaw;
   final DateTime? timestamp;
   final double freshnessOpacity;
+  final String? aisClass;
+  final String? aisStatus;
 
   _CartesianPoint({
     required this.x,
@@ -1648,5 +2021,7 @@ class _CartesianPoint {
     this.sogRaw,
     this.timestamp,
     this.freshnessOpacity = 1.0,
+    this.aisClass,
+    this.aisStatus,
   });
 }

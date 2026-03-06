@@ -483,6 +483,11 @@ tools:
       - ![](icon:anchor) Anchor — anchored vessel
       - ![](icon:local_parking) P icon — moored vessel
 
+      **Vessel Details:**
+      - Tap any vessel icon or projection dot to highlight and show details
+      - Bottom sheet shows identity, dimensions, navigation, and relative data
+      - Dismiss sheet to clear highlight; icon, projection line, and dots all revert
+
       **Color by Ship Type (MarineTraffic style):**
       - ![](icon:circle_green) Green — cargo
       - ![](icon:circle_red) Red — tanker
@@ -490,7 +495,8 @@ tools:
       - ![](icon:circle_orange) Orange — special craft: SAR, tug, pilot
       - ![](icon:circle_purple) Purple — sailing
       - ![](icon:circle_cyan) Cyan — fishing, towing
-      - ![](icon:circle_grey) Grey — unknown or no type data
+      - ![](icon:circle_light_grey) Light grey — AIS Class A, ship type not broadcast
+      - ![](icon:circle_grey) Grey — unknown class or type
       - Icon opacity fades with data age: bright = live, dim = stale
       - Red X overlay on vessels with no update for 10+ minutes
 
@@ -502,6 +508,13 @@ tools:
       **CPA/TCPA:**
       - Closest Point of Approach calculated per vessel
       - Red badge when CPA < 0.5 nm, orange otherwise
+
+      **AIS Status (optional — requires sk-ais-status-plugin):**
+      - Confirmed — full brightness, active track
+      - Unconfirmed — dimmed, insufficient report continuity
+      - Lost — greyed out with stale indicator, no recent reports
+      - Remove — greyed out with stale indicator, server flagged for removal
+      - Falls back to timestamp-based freshness if plugin not installed
 
       **Controls (top-right buttons):**
       - ![](icon:fullscreen) Fullscreen square — expand radar/map to fill widget
