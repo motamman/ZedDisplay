@@ -103,6 +103,9 @@ dependencies:
   # Audio playback for alarms
   audioplayers: ^6.1.0
 
+  # Markdown rendering
+  flutter_markdown: ^0.7.6
+
   # Device compass for anchor bearing
   flutter_compass: ^0.8.0
 
@@ -122,6 +125,7 @@ flutter:
     - assets/sounds/
     - assets/defaults/
     - assets/weather_icons/
+    - assets/tool_info.yaml
     - assets/weather_icons/meteoblue_specific/monochrome_hollow_hourly/
     - assets/weather_icons/bas_weather/production/fill/all/
 

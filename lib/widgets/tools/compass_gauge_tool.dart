@@ -4,11 +4,12 @@ import '../../models/tool_config.dart';
 import '../../services/signalk_service.dart';
 import '../../services/tool_registry.dart';
 import '../compass_gauge.dart';
+import '../tool_info_button.dart';
 import '../../utils/string_extensions.dart';
 import '../../utils/color_extensions.dart';
 
 /// Config-driven compass gauge tool
-class CompassGaugeTool extends StatelessWidget {
+class CompassGaugeTool extends StatefulWidget {
   final ToolConfig config;
   final SignalKService signalKService;
 
@@ -18,9 +19,16 @@ class CompassGaugeTool extends StatelessWidget {
     required this.signalKService,
   });
 
+  @override
+  State<CompassGaugeTool> createState() => _CompassGaugeToolState();
+}
+
+class _CompassGaugeToolState extends State<CompassGaugeTool> {
+  int _activeIndex = 0;
+
   /// Helper to get raw SI value from a data point
   double? _getRawValue(String path) {
-    final dataPoint = signalKService.getValue(path);
+    final dataPoint = widget.signalKService.getValue(path);
     if (dataPoint?.original is num) {
       return (dataPoint!.original as num).toDouble();
     }
@@ -33,76 +41,140 @@ class CompassGaugeTool extends StatelessWidget {
   /// Helper to get converted display value using MetadataStore
   double? _getConverted(String path, double? rawValue) {
     if (rawValue == null) return null;
-    final metadata = signalKService.metadataStore.get(path);
+    final metadata = widget.signalKService.metadataStore.get(path);
     return metadata?.convert(rawValue) ?? rawValue;
   }
 
   /// Helper to format value with symbol using MetadataStore
   String? _formatValue(String path, double? rawValue) {
     if (rawValue == null) return null;
-    final metadata = signalKService.metadataStore.get(path);
+    final metadata = widget.signalKService.metadataStore.get(path);
     return metadata?.format(rawValue, decimals: 1) ?? rawValue.toStringAsFixed(1);
+  }
+
+  /// Shift a color's hue by the given degrees
+  Color _shiftHue(Color color, double degrees) {
+    final hslColor = HSLColor.fromColor(color);
+    final newHue = (hslColor.hue + degrees) % 360;
+    return hslColor.withHue(newHue).toColor();
+  }
+
+  /// Generate needle colors derived from primaryColor via hue shifting
+  List<Color> _getNeedleColors(Color baseColor, int count) {
+    if (count <= 0) return [];
+    final colors = <Color>[];
+    // Shift by 120°, 240°, 60° for up to 3 additional needles
+    const shifts = [120.0, 240.0, 60.0];
+    for (int i = 0; i < count && i < shifts.length; i++) {
+      colors.add(_shiftHue(baseColor, shifts[i]));
+    }
+    return colors;
   }
 
   @override
   Widget build(BuildContext context) {
     // Get data from data sources (up to 4)
-    if (config.dataSources.isEmpty) {
+    if (widget.config.dataSources.isEmpty) {
       return const Center(child: Text('No data source configured'));
     }
 
-    final dataSource = config.dataSources.first;
+    final dataSource = widget.config.dataSources.first;
 
     // Use MetadataStore for conversions
     final rawValue = _getRawValue(dataSource.path);
     final heading = _getConverted(dataSource.path, rawValue) ?? 0.0;
 
+    // Apply showLabel uniformly to ALL paths
+    final showLabel = widget.config.style.showLabel == true;
+
     // Get label from data source or style
-    final label = dataSource.label ?? dataSource.path.toReadableLabel();
+    final label = showLabel
+        ? (dataSource.label ?? dataSource.path.toReadableLabel())
+        : '';
 
     // Get formatted value using MetadataStore
     final formattedValue = _formatValue(dataSource.path, rawValue);
 
     // Parse color from hex string
-    final primaryColor = config.style.primaryColor?.toColor(
+    final primaryColor = widget.config.style.primaryColor?.toColor(
       fallback: Colors.red
     ) ?? Colors.red;
 
     // Get tick labels and compass style from custom properties
-    final showTickLabels = config.style.customProperties?['showTickLabels'] as bool? ?? false;
-    final compassStyleStr = config.style.customProperties?['compassStyle'] as String? ?? 'classic';
+    final showTickLabels = widget.config.style.customProperties?['showTickLabels'] as bool? ?? false;
+    final compassStyleStr = widget.config.style.customProperties?['compassStyle'] as String? ?? 'classic';
     final compassStyle = _parseCompassStyle(compassStyleStr);
 
     // Get additional headings (2-4) for multi-needle display
     final additionalHeadings = <double>[];
     final additionalLabels = <String>[];
-    final additionalColors = <Color>[
-      Colors.blue,
-      Colors.green,
-      Colors.orange,
-    ];
+    final additionalFormattedValues = <String>[];
 
-    for (int i = 1; i < config.dataSources.length && i < 4; i++) {
-      final source = config.dataSources[i];
+    for (int i = 1; i < widget.config.dataSources.length && i < 4; i++) {
+      final source = widget.config.dataSources[i];
       final raw = _getRawValue(source.path);
       final value = _getConverted(source.path, raw);
       if (value != null) {
         additionalHeadings.add(value);
-        additionalLabels.add(source.label ?? source.path.toReadableLabel());
+        additionalLabels.add(showLabel
+            ? (source.label ?? source.path.toReadableLabel())
+            : '');
+        final formatted = _formatValue(source.path, raw);
+        additionalFormattedValues.add(formatted ?? value.toStringAsFixed(1));
       }
     }
 
-    return CompassGauge(
-      heading: heading,
-      label: config.style.showLabel == true ? label : '',
-      formattedValue: formattedValue,
-      primaryColor: primaryColor,
-      showTickLabels: showTickLabels,
-      compassStyle: compassStyle,
-      showValue: config.style.showValue ?? true,
-      additionalHeadings: additionalHeadings.isNotEmpty ? additionalHeadings : null,
-      additionalLabels: additionalLabels.isNotEmpty ? additionalLabels : null,
-      additionalColors: additionalHeadings.isNotEmpty ? additionalColors : null,
+    // Generate hue-shifted colors from primary color
+    final additionalColors = _getNeedleColors(primaryColor, additionalHeadings.length);
+
+    // Clamp activeIndex to valid range
+    final maxIndex = additionalHeadings.length; // 0 = primary, 1..N = additional
+    final clampedActiveIndex = _activeIndex.clamp(0, maxIndex);
+    if (clampedActiveIndex != _activeIndex) {
+      // Schedule state update after build
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) setState(() => _activeIndex = clampedActiveIndex);
+      });
+    }
+
+    return Stack(
+      fit: StackFit.expand,
+      alignment: Alignment.center,
+      children: [
+        Center(child: CompassGauge(
+          heading: heading,
+          label: label,
+          formattedValue: formattedValue,
+          primaryColor: primaryColor,
+          showTickLabels: showTickLabels,
+          compassStyle: compassStyle,
+          showValue: widget.config.style.showValue ?? true,
+          additionalHeadings: additionalHeadings.isNotEmpty ? additionalHeadings : null,
+          additionalLabels: additionalLabels.isNotEmpty ? additionalLabels : null,
+          additionalColors: additionalHeadings.isNotEmpty ? additionalColors : null,
+          additionalFormattedValues: additionalFormattedValues.isNotEmpty ? additionalFormattedValues : null,
+          activeIndex: clampedActiveIndex,
+          onActiveIndexChanged: additionalHeadings.isNotEmpty
+              ? (index) => setState(() => _activeIndex = index)
+              : null,
+        )),
+        Positioned(
+          top: 8,
+          right: 8,
+          child: Container(
+            decoration: BoxDecoration(
+              color: Colors.black.withValues(alpha: 0.5),
+              shape: BoxShape.circle,
+            ),
+            child: ToolInfoButton(
+              toolId: 'compass_gauge',
+              signalKService: widget.signalKService,
+              iconSize: 20,
+              iconColor: Colors.white,
+            ),
+          ),
+        ),
+      ],
     );
   }
 

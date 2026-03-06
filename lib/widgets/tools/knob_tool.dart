@@ -9,6 +9,7 @@ import '../../utils/string_extensions.dart';
 import '../../utils/color_extensions.dart';
 import 'mixins/control_tool_mixin.dart';
 import 'common/control_tool_layout.dart';
+import '../tool_info_button.dart';
 
 /// Config-driven knob (rotary control) tool for sending numeric values to SignalK paths
 class KnobTool extends StatefulWidget {
@@ -82,13 +83,15 @@ class _KnobToolState extends State<KnobTool> with ControlToolMixin, AutomaticKee
     final metadata = widget.signalKService.metadataStore.get(dataSource.path);
     final unit = style.unit ?? metadata?.symbol ?? '';
 
-    return ControlToolLayout(
-      label: label,
-      showLabel: style.showLabel == true,
-      valueWidget: null, // Value is displayed inside the gauge
-      additionalWidgets: [
-        // Syncfusion Radial Gauge as Knob control
-        Expanded(
+    return Stack(
+      children: [
+        ControlToolLayout(
+          label: label,
+          showLabel: style.showLabel == true,
+          valueWidget: null, // Value is displayed inside the gauge
+          additionalWidgets: [
+            // Syncfusion Radial Gauge as Knob control
+            Expanded(
           child: LayoutBuilder(
             builder: (context, constraints) {
               final size = min(constraints.maxWidth, constraints.maxHeight);
@@ -225,10 +228,28 @@ class _KnobToolState extends State<KnobTool> with ControlToolMixin, AutomaticKee
           ],
         ),
         const SizedBox(height: 8),
+          ],
+          controlWidget: const SizedBox.shrink(), // No separate control widget
+          path: dataSource.path,
+          isSending: isSending,
+        ),
+        Positioned(
+          top: 8,
+          right: 8,
+          child: Container(
+            decoration: BoxDecoration(
+              color: Colors.black.withValues(alpha: 0.5),
+              shape: BoxShape.circle,
+            ),
+            child: ToolInfoButton(
+              toolId: 'knob_tool',
+              signalKService: widget.signalKService,
+              iconSize: 20,
+              iconColor: Colors.white,
+            ),
+          ),
+        ),
       ],
-      controlWidget: const SizedBox.shrink(), // No separate control widget
-      path: dataSource.path,
-      isSending: isSending,
     );
   }
 

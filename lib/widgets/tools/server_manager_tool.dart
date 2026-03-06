@@ -10,6 +10,7 @@ import '../../models/tool_definition.dart';
 import '../../models/tool_config.dart';
 import '../../services/signalk_service.dart';
 import '../../services/tool_registry.dart';
+import '../tool_info_button.dart';
 import 'plugin_config_tool.dart';
 
 /// Tool for managing and monitoring the SignalK server
@@ -570,35 +571,55 @@ class _ServerManagerToolState extends State<ServerManagerTool> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
-    return Card(
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          final isWide = constraints.maxWidth >= 600;
+    return Stack(
+      children: [
+        Card(
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final isWide = constraints.maxWidth >= 600;
 
-          return SizedBox(
-            height: constraints.maxHeight,
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: isWide
-                  ? Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        // Left column: Header + Statistics + Unit Preferences
-                        Expanded(
-                          child: _buildLeftColumn(theme),
-                        ),
-                        const SizedBox(width: 8),
-                        // Right column: Providers + Plugins + Webapps
-                        Expanded(
-                          child: _buildRightColumn(theme),
-                        ),
-                      ],
-                    )
-                  : _buildNarrowLayout(theme),
+              return SizedBox(
+                height: constraints.maxHeight,
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: isWide
+                      ? Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            // Left column: Header + Statistics + Unit Preferences
+                            Expanded(
+                              child: _buildLeftColumn(theme),
+                            ),
+                            const SizedBox(width: 8),
+                            // Right column: Providers + Plugins + Webapps
+                            Expanded(
+                              child: _buildRightColumn(theme),
+                            ),
+                          ],
+                        )
+                      : _buildNarrowLayout(theme),
+                ),
+              );
+            },
+          ),
+        ),
+        Positioned(
+          top: 8,
+          right: 8,
+          child: Container(
+            decoration: BoxDecoration(
+              color: Colors.black.withValues(alpha: 0.3),
+              shape: BoxShape.circle,
             ),
-          );
-        },
-      ),
+            child: ToolInfoButton(
+              toolId: 'server_manager',
+              signalKService: widget.signalKService,
+              iconSize: 20,
+              iconColor: Colors.white,
+            ),
+          ),
+        ),
+      ],
     );
   }
 
@@ -619,16 +640,19 @@ class _ServerManagerToolState extends State<ServerManagerTool> {
                 overflow: TextOverflow.ellipsis,
               ),
             ),
-            ElevatedButton.icon(
-              onPressed: _restartServer,
-              icon: const Icon(Icons.restart_alt, size: 14),
-              label: const Text('Restart', style: TextStyle(fontSize: 10)),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.orange,
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                minimumSize: Size.zero,
-                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            Padding(
+              padding: const EdgeInsets.only(right: 32),
+              child: ElevatedButton.icon(
+                onPressed: _restartServer,
+                icon: const Icon(Icons.restart_alt, size: 14),
+                label: const Text('Restart', style: TextStyle(fontSize: 10)),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.orange,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  minimumSize: Size.zero,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
               ),
             ),
           ],
@@ -998,16 +1022,19 @@ class _ServerManagerToolState extends State<ServerManagerTool> {
                 overflow: TextOverflow.ellipsis,
               ),
             ),
-            ElevatedButton.icon(
-              onPressed: _restartServer,
-              icon: const Icon(Icons.restart_alt, size: 14),
-              label: const Text('Restart', style: TextStyle(fontSize: 10)),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.orange,
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                minimumSize: Size.zero,
-                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            Padding(
+              padding: const EdgeInsets.only(right: 32),
+              child: ElevatedButton.icon(
+                onPressed: _restartServer,
+                icon: const Icon(Icons.restart_alt, size: 14),
+                label: const Text('Restart', style: TextStyle(fontSize: 10)),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.orange,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  minimumSize: Size.zero,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
               ),
             ),
           ],

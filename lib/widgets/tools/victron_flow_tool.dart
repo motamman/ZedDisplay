@@ -4,6 +4,7 @@ import '../../models/tool_config.dart';
 import '../../models/tool_definition.dart';
 import '../../services/signalk_service.dart';
 import '../../services/tool_registry.dart';
+import '../tool_info_button.dart';
 
 /// Configuration for a power source (e.g., Shore, Solar, Alternator, Generator)
 class PowerSourceConfig {
@@ -340,32 +341,52 @@ class _VictronFlowToolState extends State<VictronFlowTool> with SingleTickerProv
     final sourceFlows = _sources.map((s) => s.getPrimaryValue(widget.signalKService)).toList();
     final loadFlows = _loads.map((l) => l.getPrimaryValue(widget.signalKService)).toList();
 
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        return AnimatedBuilder(
-          animation: _animController,
-          builder: (context, child) {
-            return CustomPaint(
-              painter: _FlowLinesPainter(
-                animValue: _animController.value,
-                sourceCount: _sources.length,
-                loadCount: _loads.length,
-                sourceFlows: sourceFlows,
-                loadFlows: loadFlows,
-                batteryCharging: batteryCurrent > 0,
-                batteryDischarging: batteryCurrent < 0,
-                batteryCurrent: batteryCurrent.abs(),
-                primaryColor: _primaryColor,
+    return Stack(
+      children: [
+        LayoutBuilder(
+          builder: (context, constraints) {
+            return AnimatedBuilder(
+              animation: _animController,
+              builder: (context, child) {
+                return CustomPaint(
+                  painter: _FlowLinesPainter(
+                    animValue: _animController.value,
+                    sourceCount: _sources.length,
+                    loadCount: _loads.length,
+                    sourceFlows: sourceFlows,
+                    loadFlows: loadFlows,
+                    batteryCharging: batteryCurrent > 0,
+                    batteryDischarging: batteryCurrent < 0,
+                    batteryCurrent: batteryCurrent.abs(),
+                    primaryColor: _primaryColor,
+                  ),
+                  child: child,
+                );
+              },
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(12, 32, 12, 12),
+                child: _buildFlowDiagram(constraints),
               ),
-              child: child,
             );
           },
-          child: Padding(
-            padding: const EdgeInsets.all(12),
-            child: _buildFlowDiagram(constraints),
+        ),
+        Positioned(
+          top: 2,
+          right: 2,
+          child: Container(
+            decoration: BoxDecoration(
+              color: Colors.black.withValues(alpha: 0.3),
+              shape: BoxShape.circle,
+            ),
+            child: ToolInfoButton(
+              toolId: 'victron_flow',
+              signalKService: widget.signalKService,
+              iconSize: 18,
+              iconColor: Colors.white,
+            ),
           ),
-        );
-      },
+        ),
+      ],
     );
   }
 

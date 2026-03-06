@@ -15,6 +15,7 @@ import '../../config/ui_constants.dart';
 import '../autopilot_widget_v2.dart';
 import '../route_info_panel.dart';
 import '../countdown_confirmation_overlay.dart';
+import '../tool_info_button.dart';
 
 /// Autopilot V2 control tool - reimagined design with center circle controls
 ///
@@ -632,37 +633,57 @@ class _AutopilotToolV2State extends State<AutopilotToolV2> with AutomaticKeepAli
 
     final isWindMode = _mode.toLowerCase() == 'wind' || _mode.toLowerCase() == 'true wind';
 
-    return AutopilotWidgetV2(
-      currentHeading: displayHeading,
-      targetHeading: _targetHeading,
-      rudderAngle: _rudderAngle,
-      mode: _mode,
-      engaged: _engaged,
-      apparentWindAngle: displayWindAngle,
-      apparentWindDirection: apparentWindDir,
-      trueWindDirection: trueWindDir,
-      crossTrackError: _crossTrackError,
-      headingTrue: headingTrue,
-      showWindIndicators: isWindMode,
-      primaryColor: primaryColor,
-      isSailingVessel: _isSailingVessel,
-      targetAWA: targetAWA,
-      targetTolerance: targetTolerance,
-      nextWaypoint: _nextWaypoint,
-      eta: _eta,
-      distanceToWaypoint: _distanceToWaypoint,
-      timeToWaypoint: _timeToWaypoint,
-      onlyShowXTEWhenNear: _autopilotConfig.onlyShowXTEWhenNear,
-      fadeDelaySeconds: fadeDelaySeconds,
-      isV2Api: _apiVersion == 'v2',
-      dodgeActive: _dodgeActive,
-      onEngageDisengage: _handleEngageDisengage,
-      onModeChange: _handleModeChange,
-      onAdjustHeading: _handleAdjustHeading,
-      onTack: _handleTack,
-      onGybe: _handleGybe,
-      onAdvanceWaypoint: _handleAdvanceWaypoint,
-      onDodgeToggle: _handleDodgeToggle,
+    return Stack(
+      children: [
+        AutopilotWidgetV2(
+          currentHeading: displayHeading,
+          targetHeading: _targetHeading,
+          rudderAngle: _rudderAngle,
+          mode: _mode,
+          engaged: _engaged,
+          apparentWindAngle: displayWindAngle,
+          apparentWindDirection: apparentWindDir,
+          trueWindDirection: trueWindDir,
+          crossTrackError: _crossTrackError,
+          headingTrue: headingTrue,
+          showWindIndicators: isWindMode,
+          primaryColor: primaryColor,
+          isSailingVessel: _isSailingVessel,
+          targetAWA: targetAWA,
+          targetTolerance: targetTolerance,
+          nextWaypoint: _nextWaypoint,
+          eta: _eta,
+          distanceToWaypoint: _distanceToWaypoint,
+          timeToWaypoint: _timeToWaypoint,
+          onlyShowXTEWhenNear: _autopilotConfig.onlyShowXTEWhenNear,
+          fadeDelaySeconds: fadeDelaySeconds,
+          isV2Api: _apiVersion == 'v2',
+          dodgeActive: _dodgeActive,
+          onEngageDisengage: _handleEngageDisengage,
+          onModeChange: _handleModeChange,
+          onAdjustHeading: _handleAdjustHeading,
+          onTack: _handleTack,
+          onGybe: _handleGybe,
+          onAdvanceWaypoint: _handleAdvanceWaypoint,
+          onDodgeToggle: _handleDodgeToggle,
+        ),
+        Positioned(
+          top: 8,
+          right: 8,
+          child: Container(
+            decoration: BoxDecoration(
+              color: Colors.black.withValues(alpha: 0.3),
+              shape: BoxShape.circle,
+            ),
+            child: ToolInfoButton(
+              toolId: 'autopilot_v2',
+              signalKService: widget.signalKService,
+              iconSize: 20,
+              iconColor: Colors.white,
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

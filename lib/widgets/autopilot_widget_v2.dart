@@ -1110,10 +1110,10 @@ class _AutopilotWidgetV2State extends State<AutopilotWidgetV2> {
                   ),
                 ),
 
-              // Heading label - top right corner
+              // Heading label - top right corner (shifted down to make room for info button)
               Positioned(
-                right: 12,
-                top: 12,
+                right: 16,
+                top: 42,
                 child: AnimatedOpacity(
                   opacity: _controlsOpacity,
                   duration: const Duration(milliseconds: 300),

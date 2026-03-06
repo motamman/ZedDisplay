@@ -8,6 +8,7 @@ import '../../services/messaging_service.dart';
 import '../../services/crew_service.dart';
 import '../../services/tool_registry.dart';
 import '../../screens/crew/chat_screen.dart';
+import '../tool_info_button.dart';
 
 /// Dashboard tool for crew messaging
 class CrewMessagesTool extends StatefulWidget {
@@ -52,48 +53,68 @@ class _CrewMessagesToolState extends State<CrewMessagesTool> {
 
   @override
   Widget build(BuildContext context) {
-    return Consumer2<MessagingService, CrewService>(
-      builder: (context, messagingService, crewService, child) {
-        final messages = messagingService.messages;
-        final unreadCount = messagingService.unreadCount;
-        final hasProfile = crewService.hasProfile;
+    return Stack(
+      children: [
+        Consumer2<MessagingService, CrewService>(
+          builder: (context, messagingService, crewService, child) {
+            final messages = messagingService.messages;
+            final unreadCount = messagingService.unreadCount;
+            final hasProfile = crewService.hasProfile;
 
-        if (!hasProfile) {
-          return _buildNoProfileView(context);
-        }
+            if (!hasProfile) {
+              return _buildNoProfileView(context);
+            }
 
-        return ClipRect(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              // Header with unread badge and expand button
-              _buildHeader(context, unreadCount),
+            return ClipRect(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Header with unread badge and expand button
+                  _buildHeader(context, unreadCount),
 
-              // Messages list - use Flexible instead of Expanded for safety
-              Flexible(
-                child: messages.isEmpty
-                    ? _buildEmptyView()
-                    : ListView.builder(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                        shrinkWrap: true,
-                        itemCount: messages.length > 10 ? 10 : messages.length,
-                        itemBuilder: (context, index) {
-                          final displayMessages = messages.length > 10
-                              ? messages.sublist(messages.length - 10)
-                              : messages;
-                          final message = displayMessages[index];
-                          final isMe = message.fromId == crewService.localProfile?.id;
-                          return _MessageBubble(message: message, isMe: isMe);
-                        },
-                      ),
+                  // Messages list - use Flexible instead of Expanded for safety
+                  Flexible(
+                    child: messages.isEmpty
+                        ? _buildEmptyView()
+                        : ListView.builder(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            shrinkWrap: true,
+                            itemCount: messages.length > 10 ? 10 : messages.length,
+                            itemBuilder: (context, index) {
+                              final displayMessages = messages.length > 10
+                                  ? messages.sublist(messages.length - 10)
+                                  : messages;
+                              final message = displayMessages[index];
+                              final isMe = message.fromId == crewService.localProfile?.id;
+                              return _MessageBubble(message: message, isMe: isMe);
+                            },
+                          ),
+                  ),
+
+                  // Quick reply input
+                  _buildQuickReply(context, messagingService),
+                ],
               ),
-
-              // Quick reply input
-              _buildQuickReply(context, messagingService),
-            ],
+            );
+          },
+        ),
+        Positioned(
+          top: 4,
+          right: 4,
+          child: Container(
+            decoration: BoxDecoration(
+              color: Colors.black.withValues(alpha: 0.3),
+              shape: BoxShape.circle,
+            ),
+            child: ToolInfoButton(
+              toolId: 'crew_messages',
+              signalKService: widget.signalKService,
+              iconSize: 18,
+              iconColor: Colors.white,
+            ),
           ),
-        );
-      },
+        ),
+      ],
     );
   }
 
@@ -140,6 +161,7 @@ class _CrewMessagesToolState extends State<CrewMessagesTool> {
               padding: EdgeInsets.zero,
             ),
           ),
+          const SizedBox(width: 24),
         ],
       ),
     );

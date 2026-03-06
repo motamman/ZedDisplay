@@ -6,6 +6,7 @@ import '../../services/signalk_service.dart';
 import '../../services/tool_registry.dart';
 import '../../utils/color_extensions.dart';
 import '../attitude_indicator.dart';
+import '../tool_info_button.dart';
 
 /// Config-driven attitude/heel indicator tool
 class AttitudeIndicatorTool extends StatelessWidget {
@@ -66,14 +67,34 @@ class AttitudeIndicatorTool extends StatelessWidget {
       }
     }
 
-    return AttitudeIndicator(
-      rollDegrees: rollDegrees,
-      pitchDegrees: pitchDegrees,
-      showDigitalValues: showDigitalValues,
-      showGrid: showGrid,
-      primaryColor: primaryColor,
-      maxPitch: maxPitch,
-      maxRoll: maxRoll,
+    return Stack(
+      children: [
+        AttitudeIndicator(
+          rollDegrees: rollDegrees,
+          pitchDegrees: pitchDegrees,
+          showDigitalValues: showDigitalValues,
+          showGrid: showGrid,
+          primaryColor: primaryColor,
+          maxPitch: maxPitch,
+          maxRoll: maxRoll,
+        ),
+        Positioned(
+          top: 8,
+          right: 8,
+          child: Container(
+            decoration: BoxDecoration(
+              color: Colors.black.withValues(alpha: 0.5),
+              shape: BoxShape.circle,
+            ),
+            child: ToolInfoButton(
+              toolId: 'attitude_indicator',
+              signalKService: signalKService,
+              iconSize: 20,
+              iconColor: Colors.white,
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

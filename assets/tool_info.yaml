@@ -1,0 +1,514 @@
+# Tool Information Configuration
+# Used by ToolInfoButton to display tool descriptions, required plugins, and data sources
+
+data_sources:
+  signalk:
+    name: "SignalK Server"
+    url: "https://signalk.org/"
+  weatherflow:
+    name: "WeatherFlow Tempest"
+    url: "https://tempest.earth/"
+  openmeteo:
+    name: "Open-Meteo"
+    url: "https://open-meteo.com/"
+
+plugins:
+  signalk-parquet:
+    name: "SignalK Parquet"
+    description: "Stores historical data in Parquet format for efficient charting"
+  anchoralarm:
+    name: "Anchor Alarm Plugin"
+    description: "Anchor watch with swing radius monitoring and alarms"
+  signalk-rpi-monitor:
+    name: "RPi Monitor"
+    description: "Raspberry Pi system health monitoring (CPU, memory, temps)"
+  signalk-rpi-uptime:
+    name: "RPi Uptime"
+    description: "Reports Raspberry Pi system uptime"
+  signalk-weatherflow:
+    name: "WeatherFlow"
+    description: "Weather data from WeatherFlow Tempest stations"
+  signalk-weather-api:
+    name: "Weather API"
+    description: "Generic weather API supporting multiple providers"
+  derived-data:
+    name: "Derived Data"
+    description: "Calculates derived values like sun/moon times, true wind"
+  open-meteo:
+    name: "Open-Meteo"
+    description: "Open-Meteo weather provider plugin"
+  autopilot:
+    name: "Autopilot Control"
+    description: "Control autopilot heading and mode via SignalK"
+
+tools:
+  historical_chart:
+    name: "Historical Chart"
+    description: |
+      Display historical data with smoothing options.
+
+      **Features:**
+      - Up to 3 data paths on one chart
+      - SMA/EMA smoothing with configurable windows
+      - Dual Y-axis support for mixed units
+      - Duration-adaptive time labels
+      - Auto-refresh option
+      - Most features should work with any history api plugin
+    Designed_For:
+      - signalk-parquet
+    
+
+  realtime_chart:
+    name: "Real-time Chart"
+    description: |
+      Live streaming data chart with zone visualization.
+
+      **Features:**
+      - Real-time data updates via WebSocket
+      - Alert zone overlays from SignalK meta
+      - Configurable time window
+      - Dual Y-axis for mixed units
+    
+    
+
+  anchor_alarm:
+    name: "Anchor Alarm"
+    description: |
+      Comprehensive anchor watch with visual monitoring.
+
+      **Features:**
+      - Interactive map with anchor/vessel positions
+      - Configurable alarm radius and rode length
+      - Polar plot view for swing analysis
+      - Check-in reminder system
+      - Audio alarms with multiple sound options
+    required_plugins:
+      - anchoralarm
+
+  rpi_monitor:
+    name: "RPi Monitor"
+    description: |
+      Raspberry Pi system health dashboard.
+
+      **Displays:**
+      - CPU utilization (overall + per-core bars)
+      - CPU and GPU temperature with color coding
+      - Memory and storage utilization
+      - System uptime
+    required_plugins:
+      - signalk-rpi-monitor
+      - signalk-rpi-uptime
+    
+
+  weatherflow_forecast:
+    name: "WeatherFlow Forecast"
+    description: |
+      Weather forecast from WeatherFlow Tempest station.
+
+      **Features:**
+      - Current conditions display
+      - Hourly and daily forecasts
+      - Wind speed, direction, and gusts
+      - Rain accumulation
+      - Sun/Moon arc visualization
+
+    required_plugins:
+      - derived-data
+      - signalk-weatherflow
+    data_sources:
+      - weatherflow
+      
+
+  weather_api_spinner:
+    name: "Weather Forecast Spinner"
+    description: |
+      Interactive weather forecast tool.
+
+      **Features:**
+      - Multi-day forecast display
+      - Day selection spinner
+      - Hourly breakdown with icons
+      - Sun/Moon times from derived-data
+      - Supports multiple weather providers
+      - Most features should work with any weather api plugin
+    optional_plugins:
+      - open-meteo
+      - signalk-weatherflow
+    required_plugins:
+      - derived-data
+
+    
+
+  compass_gauge:
+    name: "Compass Gauge"
+    description: |
+      Marine compass display with heading indicator.
+
+      **Features:**
+      - Up to 4 heading needles on one compass
+      - Multiple styles (classic, arc, minimal, marine)
+      - Configurable appearance
+    
+
+  wind_compass:
+    name: "Wind Compass"
+    description: |
+      Autopilot-style compass with wind and navigation data.
+
+      **Features:**
+      - Heading (true/magnetic) display
+      - Wind direction and speed (true/apparent)
+      - SOG, COG, waypoint bearing
+      - VMG optimization and laylines
+    
+
+  tanks_tool:
+    name: "Tank Levels"
+    description: |
+      Display tank levels with visual indicators.
+
+      **Features:**
+      - Up to 5 tanks on one widget
+      - Color-coded by tank type
+      - Percentage and volume display
+    
+
+  autopilot_tool:
+    name: "Autopilot Control"
+    description: |
+      Control autopilot heading and mode.
+
+      **Features:**
+      - Heading adjustment
+      - Mode selection (standby, auto, wind)
+      - Course lock and tracking
+    required_plugins:
+      - autopilot
+
+
+  autopilot_v2:
+    name: "Autopilot V2"
+    description: |
+      Reimagined autopilot control with center circle design.
+
+      **Features:**
+      - Heading adjustment (+/-1, +/-10)
+      - Mode selection (standby, auto, wind)
+      - Course lock and tracking
+      - Compact circular layout
+    required_plugins:
+      - autopilot
+
+
+  gnss_status:
+    name: "GNSS Status"
+    description: |
+      GPS/GNSS satellite status display.
+
+      **Features:**
+      - Satellite count and signal strength
+      - Fix quality indicator
+      - Position accuracy
+    
+
+  position_display:
+    name: "Position Display"
+    description: |
+      Current vessel position in lat/lon format.
+
+      **Features:**
+      - Formats: DD, DDM, DMS
+      - Compact and full layout modes
+      - Configurable labels
+    
+
+  victron_flow:
+    name: "Victron Power Flow"
+    description: |
+      Victron electrical system visualization.
+
+      **Features:**
+      - Power flow diagram
+      - Battery state of charge
+      - Solar/shore power input
+      - Load consumption
+    
+
+  server_manager:
+    name: "Server Manager"
+    description: |
+      SignalK server administration.
+
+      **Features:**
+      - Plugin management (enable/disable)
+      - Connection status
+      - Server info
+      - Select display units preference
+    
+
+  system_monitor:
+    name: "System Monitor"
+    description: |
+      Device system information.
+
+      **Features:**
+      - Battery level and charging status
+      - Memory utilization and history chart
+      - App uptime and exit status
+
+  linear_gauge:
+    name: "Linear Gauge"
+    description: |
+      Horizontal or vertical bar gauge display.
+
+      **Features:**
+      - Configurable min/max range
+      - Color zones for warnings
+      - Value labels
+
+  radial_gauge:
+    name: "Radial Gauge"
+    description: |
+      Circular dial gauge display.
+
+      **Features:**
+      - Configurable arc range
+      - Color zones for alerts
+      - Needle indicator
+
+  text_display:
+    name: "Text Display"
+    description: |
+      Simple numeric or text value display.
+
+      **Features:**
+      - Large readable numbers
+      - Unit display
+      - Configurable formatting
+
+  radial_bar_chart:
+    name: "Radial Bar Chart"
+    description: |
+      Circular progress bar visualization.
+
+      **Features:**
+      - Multiple values on one chart
+      - Percentage display
+      - Color coding
+
+  slider_tool:
+    name: "Slider Control"
+    description: |
+      Adjustable slider for SignalK PUT values.
+
+      **Features:**
+      - Send values to SignalK server
+      - Configurable range of values
+      - Real-time feedback
+      - PUT support for any enabled numeric SignalK path
+
+  switch_tool:
+    name: "Switch Control"
+    description: |
+      Toggle switch for SignalK PUT values.
+
+      **Features:**
+      - On/Off state control
+      - Send commands to SignalK
+      - Visual feedback
+      - PUT support for any enabled boolean SignalK path
+
+  knob_tool:
+    name: "Knob Control"
+    description: |
+      Rotary knob for value adjustment.
+
+      **Features:**
+      - Precise value control
+      - Configurable range
+      - Visual feedback
+      - PUT support for any enabled numeric SignalK path
+
+  dropdown_tool:
+    name: "Dropdown Selector"
+    description: |
+      Dropdown menu for selecting values.
+
+      **Features:**
+      - Multiple option selection
+      - Send values to SignalK
+      - Configurable options
+      - PUT support for any enabled SignalK path
+
+  checkbox_tool:
+    name: "Checkbox Control"
+    description: |
+      Checkbox for boolean SignalK values.
+
+      **Features:**
+      - True/false toggle
+      - Send state to SignalK
+      - Visual feedback
+      - PUT support for any enabled boolean SignalK path
+
+  attitude_indicator:
+    name: "Attitude Indicator"
+    description: |
+      Aircraft-style artificial horizon display.
+
+      **Features:**
+      - Pitch and roll visualization
+      - Real-time updates
+      - Marine vessel orientation
+
+  clock_alarm:
+    name: "Clock & Alarm"
+    description: |
+      Clock display with alarm functionality.
+
+      **Features:**
+      - Multiple alarm settings
+      - Countdown timers
+      - Time zone support
+      - Supports crew alarms
+
+  weather_alerts:
+    name: "Weather Alerts"
+    description: |
+      Display active local NWS weather warnings.
+
+      **Features:**
+      - NWS (National Weather Service) alerts
+      - Severity color coding
+      - Expandable alert details
+
+    required_plugins:
+      - signalk-nws-alerts
+
+  webview_tool:
+    name: "Web View"
+    description: |
+      Embedded web browser for external content.
+
+      **Features:**
+      - Load any URL
+      - SignalK webapp integration
+      - Fullscreen support
+
+  user_management:
+    name: "User Management"
+    description: |
+      SignalK user and permission management.
+
+      **Features:**
+      - Add/remove users
+      - Permission settings
+      - Access control
+
+  plugin_config:
+    name: "Plugin Configuration"
+    description: |
+      Configure SignalK plugin settings.
+
+      **Features:**
+      - Plugin parameters
+      - Enable/disable plugins
+      - Save configuration
+
+  intercom:
+    name: "Intercom"
+    description: |
+      Voice communication between devices.
+
+      **Features:**
+      - Push-to-talk
+      - Multi-device support
+      - Audio streaming
+
+  crew_list:
+    name: "Crew List"
+    description: |
+      Manage crew members and contacts.
+
+      **Features:**
+      - Crew roles
+      - Status indicators
+
+
+  crew_messages:
+    name: "Crew Messages"
+    description: |
+      Send messages between crew devices.
+
+      **Features:**
+      - Text messaging
+      - Message history
+      - Notifications
+
+  autopilot_simple:
+    name: "Simple Autopilot"
+    description: |
+      Compact autopilot control panel.
+
+      **Features:**
+      - Heading display and adjustment
+      - Mode selection (standby, auto, wind)
+      - Engage/disengage control
+    required_plugins:
+      - autopilot
+
+  polar_radar_chart:
+    name: "Polar Radar Chart"
+    description: |
+      Polar radar chart for directional data visualization.
+
+      **Features:**
+      - Angle vs magnitude plotting
+      - Configurable history duration
+      - Real-time data streaming
+
+  ais_polar_chart:
+    name: "AIS Polar Chart"
+    description: |
+      AIS vessel tracking on a polar chart.
+
+      **Features:**
+      - Nearby vessel positions
+      - Course and speed vectors
+      - Auto-pruning of stale tracks
+
+  file_share:
+    name: "File Share"
+    description: |
+      Share files between crew devices.
+
+      **Features:**
+      - Send files to other devices
+      - File list and download
+      - Crew profile integration
+
+  device_access_manager:
+    name: "Device Access Manager"
+    description: |
+      Manage device access permissions.
+
+      **Features:**
+      - Approve/deny device requests
+      - View connected devices
+      - Revoke access
+
+  forecast_spinner:
+    name: "Forecast Spinner"
+    description: |
+      Weather forecast day selector.
+
+      **Features:**
+      - Multi-day forecast
+      - Hourly details
+      - Weather icons
+    optional_plugins:
+      - open-meteo
+      - signalk-weatherflow
+    required_plugins:
+      - derived-data
+
