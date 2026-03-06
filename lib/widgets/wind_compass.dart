@@ -360,43 +360,38 @@ class _WindCompassState extends State<WindCompass> {
     return painters;
   }
 
-  /// Build overlay with AWA display and wind direction arrow
-  Widget _buildOverlay(double primaryHeadingDegrees) {
-    // Calculate if AWA is in relevant range (polars + 30°)
-    bool showAWADisplay = false;
-    if (widget.showAWANumbers && (widget.windAngleApparent != null || widget.windDirectionApparentDegrees != null)) {
-      double awa;
-      if (widget.windAngleApparent != null) {
-        awa = widget.windAngleApparent!;
-      } else {
-        final windDirection = widget.windDirectionApparentDegrees!;
-        awa = windDirection - primaryHeadingDegrees;
-        while (awa > 180) {
-          awa -= 360;
-        }
-        while (awa < -180) {
-          awa += 360;
-        }
-      }
+  /// Build compass-only overlay (wind direction arrow only)
+  Widget _buildCompassOverlay(double primaryHeadingDegrees) {
+    if (widget.windDirectionTrueDegrees == null) {
+      return const SizedBox.shrink();
+    }
+    return _buildWindDirectionArrow(widget.windDirectionTrueDegrees!);
+  }
 
-      final currentTargetAWA = _getOptimalTargetAWA();
-      final absAWA = awa.abs();
-
-      // Show AWA display only when within optimal angle + 30° (upwind and reaching)
-      showAWADisplay = absAWA <= (currentTargetAWA + 30);
+  /// Check if AWA display should be shown
+  bool _shouldShowAWADisplay(double primaryHeadingDegrees) {
+    if (!widget.showAWANumbers || (widget.windAngleApparent == null && widget.windDirectionApparentDegrees == null)) {
+      return false;
     }
 
-    return Stack(
-      children: [
-        // AWA Performance Display - only show when relevant (polars + 30°)
-        if (showAWADisplay)
-          _buildAWAPerformanceDisplay(primaryHeadingDegrees),
+    double awa;
+    if (widget.windAngleApparent != null) {
+      awa = widget.windAngleApparent!;
+    } else {
+      final windDirection = widget.windDirectionApparentDegrees!;
+      awa = windDirection - primaryHeadingDegrees;
+      while (awa > 180) {
+        awa -= 360;
+      }
+      while (awa < -180) {
+        awa += 360;
+      }
+    }
 
-        // Wind direction arrow in center
-        if (widget.windDirectionTrueDegrees != null)
-          _buildWindDirectionArrow(widget.windDirectionTrueDegrees!),
-      ],
-    );
+    final currentTargetAWA = _getOptimalTargetAWA();
+    final absAWA = awa.abs();
+
+    return absAWA <= (currentTargetAWA + 30);
   }
 
   /// Cycle through display modes
@@ -448,7 +443,7 @@ class _WindCompassState extends State<WindCompass> {
     if (widget.windAngleApparent == null && widget.windDirectionApparentDegrees == null) {
       // No wind data - show placeholder
       return Positioned(
-        top: 35,
+        top: 8,
         left: 0,
         right: 0,
         child: Center(
@@ -593,7 +588,7 @@ class _WindCompassState extends State<WindCompass> {
     }
 
     return Positioned(
-      top: 35,
+      top: 8,
       left: 0,
       right: 0,
       child: Center(
@@ -895,22 +890,34 @@ class _WindCompassState extends State<WindCompass> {
 
   @override
   Widget build(BuildContext context) {
-    return BaseCompass(
-      headingTrueRadians: widget.headingTrueRadians,
-      headingMagneticRadians: widget.headingMagneticRadians,
-      headingTrueDegrees: widget.headingTrueDegrees,
-      headingMagneticDegrees: widget.headingMagneticDegrees,
-      cogDegrees: widget.cogDegrees,
-      isSailingVessel: widget.isSailingVessel,
-      apparentWindAngle: widget.windAngleApparent,
-      targetAWA: widget.targetAWA,
-      targetTolerance: widget.targetTolerance,
-      laylinesAngles: _getLaylinesAngles(),
-      vmgAngles: _getVMGAngles(),
-      rangesBuilder: _buildSailingZones,
-      pointersBuilder: _buildWindPointers,
-      customPaintersBuilder: _buildCustomPainters,
-      overlayBuilder: _buildOverlay,
+    // Compute primary heading (same logic as BaseCompass) for AWA display
+    final primaryHeadingDegrees =
+        widget.headingMagneticDegrees ?? widget.headingTrueDegrees ?? 0.0;
+    final showAWADisplay = _shouldShowAWADisplay(primaryHeadingDegrees);
+
+    return Stack(
+      children: [
+        // Compass at 85% size, centered — leaves room for overlays outside the dial
+        Center(
+          child: FractionallySizedBox(
+            widthFactor: 0.85,
+            heightFactor: 0.85,
+            child: BaseCompass(
+          headingTrueRadians: widget.headingTrueRadians,
+          headingMagneticRadians: widget.headingMagneticRadians,
+          headingTrueDegrees: widget.headingTrueDegrees,
+          headingMagneticDegrees: widget.headingMagneticDegrees,
+          cogDegrees: widget.cogDegrees,
+          isSailingVessel: widget.isSailingVessel,
+          apparentWindAngle: widget.windAngleApparent,
+          targetAWA: widget.targetAWA,
+          targetTolerance: widget.targetTolerance,
+          laylinesAngles: _getLaylinesAngles(),
+          vmgAngles: _getVMGAngles(),
+          rangesBuilder: _buildSailingZones,
+          pointersBuilder: _buildWindPointers,
+          customPaintersBuilder: _buildCustomPainters,
+          overlayBuilder: _buildCompassOverlay,
       bottomLeftDisplay: widget.windDirectionTrueDegrees != null
           ? Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -1091,6 +1098,13 @@ class _WindCompassState extends State<WindCompass> {
           ),
         ],
       ),
+    ),
+          ),
+        ),
+        // AWA box - positioned relative to widget area, not compass
+        if (showAWADisplay)
+          _buildAWAPerformanceDisplay(primaryHeadingDegrees),
+      ],
     );
   }
 }
