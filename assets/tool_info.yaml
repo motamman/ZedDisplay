@@ -34,14 +34,12 @@ plugins:
   signalk-derived-data:
     name: "Derived Data"
     description: "Calculates derived values like sun/moon times, true wind"
-  @signalk/open-meteo-provider:
+  "@signalk/open-meteo-provider":
     name: "Open-Meteo"
     description: "Open-Meteo weather provider plugin"
-  @signalk/signalk-autopilot:
+  "@signalk/signalk-autopilot":
     name: "SignalK Autopilot"
     description: "Control autopilot heading and mode via SignalK"
- 
-
 
 tools:
   historical_chart:
@@ -55,7 +53,8 @@ tools:
       - Dual Y-axis support for mixed units
       - Duration-adaptive time labels
       - Auto-refresh option
-    required_plugins:
+      - Most features should work with any history api plugin
+    Designed_For:
       - signalk-parquet
     
 
@@ -69,8 +68,7 @@ tools:
       - Alert zone overlays from SignalK meta
       - Configurable time window
       - Dual Y-axis for mixed units
-    optional_plugins:
-      - signalk-parquet
+    
     
 
   anchor_alarm:
@@ -100,8 +98,7 @@ tools:
     required_plugins:
       - signalk-rpi-monitor
       - signalk-rpi-uptime
-    data_sources:
-      - signalk
+    
 
   weatherflow_forecast:
     name: "WeatherFlow Forecast"
@@ -114,16 +111,18 @@ tools:
       - Wind speed, direction, and gusts
       - Rain accumulation
       - Sun/Moon arc visualization
+
     required_plugins:
-      - signalk-weatherflow
       - signalk-derived-data
+      - signalk-weatherflow
     data_sources:
       - weatherflow
+      
 
   weather_api_spinner:
     name: "Weather Forecast Spinner"
     description: |
-      Interactive weather forecast with day/night selection.
+      Interactive weather forecast tool.
 
       **Features:**
       - Multi-day forecast display
@@ -131,8 +130,11 @@ tools:
       - Hourly breakdown with icons
       - Sun/Moon times from derived-data
       - Supports multiple weather providers
+      - Most features should work with any weather api plugin
+    optional_plugins:
+      - "@signalk/open-meteo-provider"
+      - signalk-weatherflow
     required_plugins:
-      - signalk-weather-api
       - signalk-derived-data
     
 
@@ -142,20 +144,21 @@ tools:
       Marine compass display with heading indicator.
 
       **Features:**
-      - COG/SOG display
-      - Wind angle overlay
+      - Up to 4 heading needles on one compass
+      - Multiple styles (classic, arc, minimal, marine)
       - Configurable appearance
     
 
   wind_compass:
     name: "Wind Compass"
     description: |
-      Wind direction and speed display.
+      Autopilot-style compass with wind and navigation data.
 
       **Features:**
-      - Apparent and true wind
-      - Wind speed indicator
-      - Configurable units
+      - Heading (true/magnetic) display
+      - Wind direction and speed (true/apparent)
+      - SOG, COG, waypoint bearing
+      - VMG optimization and laylines
     
 
   tanks_tool:
@@ -164,9 +167,9 @@ tools:
       Display tank levels with visual indicators.
 
       **Features:**
-      - Fuel, water, waste tanks
+      - Up to 5 tanks on one widget
+      - Color-coded by tank type
       - Percentage and volume display
-      - Color-coded warnings
     
 
   autopilot_tool:
@@ -179,10 +182,22 @@ tools:
       - Mode selection (standby, auto, wind)
       - Course lock and tracking
     required_plugins:
-      - @signalk/signalk-autopilot
+      - "@signalk/signalk-autopilot"
 
 
-    
+  autopilot_tool_V2:
+    name: "Autopilot Control"
+    description: |
+      Control autopilot heading and mode.
+
+      **Features:**
+      - Heading adjustment
+      - Mode selection (standby, auto, wind)
+      - Course lock and tracking
+      - Alternnate compact design
+    required_plugins:
+      - "@signalk/signalk-autopilot"
+
 
   gnss_status:
     name: "GNSS Status"
@@ -201,8 +216,9 @@ tools:
       Current vessel position in lat/lon format.
 
       **Features:**
-      - Configurable format (DMS, decimal)
-      - Copy to clipboard
+      - Formats: DD, DDM, DMS
+      - Compact and full layout modes
+      - Configurable labels
     
 
   victron_flow:
@@ -226,8 +242,8 @@ tools:
       - Plugin management (enable/disable)
       - Connection status
       - Server info
-    data_sources:
-      - signalk
+      - Select display units preference
+    
 
   system_monitor:
     name: "System Monitor"
@@ -236,8 +252,8 @@ tools:
 
       **Features:**
       - Battery level and charging status
-      - Network connectivity
-      - Device info
+      - Memory utilization and history chart
+      - App uptime and exit status
 
   linear_gauge:
     name: "Linear Gauge"
@@ -286,8 +302,9 @@ tools:
 
       **Features:**
       - Send values to SignalK server
-      - Configurable range
+      - Configurable range of values
       - Real-time feedback
+      - PUT support for any enabled numeric SignalK path
 
   switch_tool:
     name: "Switch Control"
@@ -298,6 +315,7 @@ tools:
       - On/Off state control
       - Send commands to SignalK
       - Visual feedback
+      - PUT support for any enabled boolean SignalK path
 
   knob_tool:
     name: "Knob Control"
@@ -308,6 +326,7 @@ tools:
       - Precise value control
       - Configurable range
       - Visual feedback
+      - PUT support for any enabled numeric SignalK path
 
   dropdown_tool:
     name: "Dropdown Selector"
@@ -318,6 +337,7 @@ tools:
       - Multiple option selection
       - Send values to SignalK
       - Configurable options
+      - PUT support for any enabled SignalK path
 
   checkbox_tool:
     name: "Checkbox Control"
@@ -328,6 +348,7 @@ tools:
       - True/false toggle
       - Send state to SignalK
       - Visual feedback
+      - PUT support for any enabled boolean SignalK path
 
   attitude_indicator:
     name: "Attitude Indicator"
@@ -348,18 +369,20 @@ tools:
       - Multiple alarm settings
       - Countdown timers
       - Time zone support
+      - Supports crew alarms
 
   weather_alerts:
     name: "Weather Alerts"
     description: |
-      Display active weather warnings.
+      Display active local NWS weather warnings.
 
       **Features:**
-      - NOAA weather alerts
+      - NWS (National Weather Service) alerts
       - Severity color coding
-      - Alert details
-    data_sources:
-      - openmeteo
+      - Expandable alert details
+
+    required_plugins:
+      - signalk-nws-alerts
 
   webview_tool:
     name: "Web View"
@@ -407,9 +430,9 @@ tools:
       Manage crew members and contacts.
 
       **Features:**
-      - Contact information
-      - Emergency contacts
       - Crew roles
+      - Status indicators
+      
 
   crew_messages:
     name: "Crew Messages"

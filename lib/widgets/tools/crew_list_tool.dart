@@ -9,6 +9,7 @@ import '../../services/intercom_service.dart';
 import '../../services/tool_registry.dart';
 import '../../screens/crew/crew_profile_screen.dart';
 import '../../screens/crew/direct_chat_screen.dart';
+import '../tool_info_button.dart';
 
 /// Dashboard tool showing online crew members
 class CrewListTool extends StatelessWidget {
@@ -23,31 +24,33 @@ class CrewListTool extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Consumer<CrewService>(
-      builder: (context, crewService, child) {
-        final hasProfile = crewService.hasProfile;
-        final crewMembers = crewService.crewMembers.values.toList();
-        final localProfile = crewService.localProfile;
+    return Stack(
+      children: [
+        Consumer<CrewService>(
+          builder: (context, crewService, child) {
+            final hasProfile = crewService.hasProfile;
+            final crewMembers = crewService.crewMembers.values.toList();
+            final localProfile = crewService.localProfile;
 
-        if (!hasProfile) {
-          return _buildNoProfileView(context);
-        }
+            if (!hasProfile) {
+              return _buildNoProfileView(context);
+            }
 
-        return ClipRect(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              // Header
-              _buildHeader(context, crewMembers.length),
+            return ClipRect(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Header
+                  _buildHeader(context, crewMembers.length),
 
-              // Crew list
-              Flexible(
-                child: crewMembers.isEmpty
-                    ? _buildEmptyView()
-                    : ListView.builder(
-                        padding: const EdgeInsets.symmetric(vertical: 4),
-                        shrinkWrap: true,
-                        itemCount: crewMembers.length,
+                  // Crew list
+                  Flexible(
+                    child: crewMembers.isEmpty
+                        ? _buildEmptyView()
+                        : ListView.builder(
+                            padding: const EdgeInsets.symmetric(vertical: 4),
+                            shrinkWrap: true,
+                            itemCount: crewMembers.length,
                         itemBuilder: (context, index) {
                           final member = crewMembers[index];
                           final isMe = member.id == localProfile?.id;
@@ -112,6 +115,24 @@ class CrewListTool extends StatelessWidget {
           ),
         );
       },
+        ),
+        Positioned(
+          top: 8,
+          right: 8,
+          child: Container(
+            decoration: BoxDecoration(
+              color: Colors.black.withValues(alpha: 0.5),
+              shape: BoxShape.circle,
+            ),
+            child: ToolInfoButton(
+              toolId: 'crew_list',
+              signalKService: signalKService,
+              iconSize: 20,
+              iconColor: Colors.white,
+            ),
+          ),
+        ),
+      ],
     );
   }
 
