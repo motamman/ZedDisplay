@@ -299,6 +299,7 @@ class _RealtimeSplineChartState extends State<RealtimeSplineChart> with Automati
                 ),
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  margin: const EdgeInsets.only(right: 40),
                   decoration: BoxDecoration(
                     color: Colors.green.withValues(alpha: 0.8),
                     borderRadius: BorderRadius.circular(12),

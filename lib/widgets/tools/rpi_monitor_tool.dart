@@ -132,55 +132,75 @@ class RpiMonitorTool extends StatelessWidget {
     }
 
     // Responsive layout for data sections
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            final isWide = constraints.maxWidth >= 600;
+    return Stack(
+      children: [
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final isWide = constraints.maxWidth >= 600;
 
-            final leftColumn = _buildLeftColumn(
-              theme: theme,
-              cpuUtil: cpuUtil,
-              core1Util: core1Util,
-              core2Util: core2Util,
-              core3Util: core3Util,
-              core4Util: core4Util,
-            );
+                final leftColumn = _buildLeftColumn(
+                  theme: theme,
+                  cpuUtil: cpuUtil,
+                  core1Util: core1Util,
+                  core2Util: core2Util,
+                  core3Util: core3Util,
+                  core4Util: core4Util,
+                );
 
-            final rightColumn = _buildRightColumn(
-              theme: theme,
-              cpuTempK: cpuTempK,
-              cpuTempFormatted: cpuTempFormatted,
-              gpuTempK: gpuTempK,
-              gpuTempFormatted: gpuTempFormatted,
-              memoryUtil: memoryUtil,
-              storageUtil: storageUtil,
-              uptimeSeconds: uptimeSeconds,
-            );
+                final rightColumn = _buildRightColumn(
+                  theme: theme,
+                  cpuTempK: cpuTempK,
+                  cpuTempFormatted: cpuTempFormatted,
+                  gpuTempK: gpuTempK,
+                  gpuTempFormatted: gpuTempFormatted,
+                  memoryUtil: memoryUtil,
+                  storageUtil: storageUtil,
+                  uptimeSeconds: uptimeSeconds,
+                );
 
-            if (isWide) {
-              return Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(child: leftColumn),
-                  const SizedBox(width: 16),
-                  Expanded(child: rightColumn),
-                ],
-              );
-            } else {
-              return Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  leftColumn,
-                  const SizedBox(height: 16),
-                  rightColumn,
-                ],
-              );
-            }
-          },
+                if (isWide) {
+                  return Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(child: leftColumn),
+                      const SizedBox(width: 16),
+                      Expanded(child: rightColumn),
+                    ],
+                  );
+                } else {
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      leftColumn,
+                      const SizedBox(height: 16),
+                      rightColumn,
+                    ],
+                  );
+                }
+              },
+            ),
+          ),
         ),
-      ),
+        Positioned(
+          top: 8,
+          right: 8,
+          child: Container(
+            decoration: BoxDecoration(
+              color: Colors.black.withValues(alpha: 0.3),
+              shape: BoxShape.circle,
+            ),
+            child: ToolInfoButton(
+              toolId: 'rpi_monitor',
+              signalKService: signalKService,
+              iconSize: 20,
+              iconColor: Colors.white,
+            ),
+          ),
+        ),
+      ],
     );
   }
 
@@ -209,18 +229,8 @@ class RpiMonitorTool extends StatelessWidget {
                 overflow: TextOverflow.ellipsis,
               ),
             ),
-            Container(
-              decoration: BoxDecoration(
-                color: Colors.black.withValues(alpha: 0.5),
-                shape: BoxShape.circle,
-              ),
-              child: ToolInfoButton(
-                toolId: 'rpi_monitor',
-                signalKService: signalKService,
-                iconSize: 18,
-                iconColor: Colors.white,
-              ),
-            ),
+            const Spacer(),
+            const SizedBox(width: 28),
           ],
         ),
 

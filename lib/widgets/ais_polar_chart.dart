@@ -498,9 +498,9 @@ class _AISPolarChartState extends State<AISPolarChart>
                   left: 8,
                   child: _buildStatusBadge(context),
                 ),
-                // View controls (top right)
+                // View controls (top right, below info button)
                 Positioned(
-                  top: 8,
+                  top: 40,
                   right: 8,
                   child: _buildOverlayControls(context),
                 ),

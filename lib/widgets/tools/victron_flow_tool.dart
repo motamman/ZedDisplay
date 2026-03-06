@@ -364,24 +364,24 @@ class _VictronFlowToolState extends State<VictronFlowTool> with SingleTickerProv
                 );
               },
               child: Padding(
-                padding: const EdgeInsets.all(12),
+                padding: const EdgeInsets.fromLTRB(12, 32, 12, 12),
                 child: _buildFlowDiagram(constraints),
               ),
             );
           },
         ),
         Positioned(
-          top: 8,
-          right: 8,
+          top: 2,
+          right: 2,
           child: Container(
             decoration: BoxDecoration(
-              color: Colors.black.withValues(alpha: 0.5),
+              color: Colors.black.withValues(alpha: 0.3),
               shape: BoxShape.circle,
             ),
             child: ToolInfoButton(
               toolId: 'victron_flow',
               signalKService: widget.signalKService,
-              iconSize: 20,
+              iconSize: 18,
               iconColor: Colors.white,
             ),
           ),

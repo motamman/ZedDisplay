@@ -763,102 +763,87 @@ class _UserManagementToolState extends State<UserManagementTool> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
-    return Stack(
-      children: [
-        Card(
-          child: LayoutBuilder(
-            builder: (context, constraints) {
-              return SizedBox(
-                height: constraints.maxHeight,
-                child: Padding(
-                  padding: const EdgeInsets.all(12),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+    return Card(
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          return SizedBox(
+            height: constraints.maxHeight,
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Header
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      // Header
                       Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          Row(
-                            children: [
-                              const Icon(Icons.people, size: 20),
-                              const SizedBox(width: 8),
-                              Text(
-                                'User Management',
-                                style: theme.textTheme.titleMedium?.copyWith(
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            ],
-                          ),
-                          Row(
-                            children: [
-                              IconButton(
-                                icon: const Icon(Icons.add, size: 18),
-                                onPressed: _showCreateUserDialog,
-                                tooltip: 'Add User',
-                              ),
-                              IconButton(
-                                icon: const Icon(Icons.refresh, size: 18),
-                                onPressed: _loadUsers,
-                                tooltip: 'Refresh',
-                              ),
-                            ],
+                          const Icon(Icons.people, size: 20),
+                          const SizedBox(width: 8),
+                          Text(
+                            'User Management',
+                            style: theme.textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.bold,
+                            ),
                           ),
                         ],
                       ),
-
-                      if (_errorMessage != null) ...[
-                        const SizedBox(height: 8),
-                        Container(
-                          padding: const EdgeInsets.all(8),
-                          decoration: BoxDecoration(
-                            color: Colors.red.withValues(alpha: 0.1),
-                            borderRadius: BorderRadius.circular(4),
+                      Row(
+                        children: [
+                          IconButton(
+                            icon: const Icon(Icons.add, size: 18),
+                            onPressed: _showCreateUserDialog,
+                            tooltip: 'Add User',
                           ),
-                          child: Row(
-                            children: [
-                              const Icon(Icons.warning, color: Colors.red, size: 16),
-                              const SizedBox(width: 8),
-                              Text(
-                                _errorMessage!,
-                                style: const TextStyle(color: Colors.red, fontSize: 12),
-                              ),
-                            ],
+                          IconButton(
+                            icon: const Icon(Icons.refresh, size: 18),
+                            onPressed: _loadUsers,
+                            tooltip: 'Refresh',
                           ),
-                        ),
-                      ],
-
-                      const SizedBox(height: 12),
-
-                      // Users List Section
-                      Expanded(
-                        child: _buildUsersSection(theme),
+                          ToolInfoButton(
+                            toolId: 'user_management',
+                            signalKService: widget.signalKService,
+                            iconSize: 18,
+                          ),
+                        ],
                       ),
                     ],
                   ),
-                ),
-              );
-            },
-          ),
-        ),
-        Positioned(
-          top: 8,
-          right: 8,
-          child: Container(
-            decoration: BoxDecoration(
-              color: Colors.black.withValues(alpha: 0.5),
-              shape: BoxShape.circle,
+
+                  if (_errorMessage != null) ...[
+                    const SizedBox(height: 8),
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Colors.red.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.warning, color: Colors.red, size: 16),
+                          const SizedBox(width: 8),
+                          Text(
+                            _errorMessage!,
+                            style: const TextStyle(color: Colors.red, fontSize: 12),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+
+                  const SizedBox(height: 12),
+
+                  // Users List Section
+                  Expanded(
+                    child: _buildUsersSection(theme),
+                  ),
+                ],
+              ),
             ),
-            child: ToolInfoButton(
-              toolId: 'user_management',
-              signalKService: widget.signalKService,
-              iconSize: 20,
-              iconColor: Colors.white,
-            ),
-          ),
-        ),
-      ],
+          );
+        },
+      ),
     );
   }
 

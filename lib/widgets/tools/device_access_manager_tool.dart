@@ -409,41 +409,48 @@ class _DeviceAccessManagerToolState extends State<DeviceAccessManagerTool> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
-    return Stack(
-      children: [
-        Card(
-          child: LayoutBuilder(
-            builder: (context, constraints) {
-              return SizedBox(
-                height: constraints.maxHeight,
-                child: Padding(
-                  padding: const EdgeInsets.all(12),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+    return Card(
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          return SizedBox(
+            height: constraints.maxHeight,
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Header
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      // Header
                       Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          Row(
-                            children: [
-                              const Icon(Icons.security, size: 20),
-                              const SizedBox(width: 8),
-                              Text(
-                                'Device Access',
-                                style: theme.textTheme.titleMedium?.copyWith(
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            ],
+                          const Icon(Icons.security, size: 20),
+                          const SizedBox(width: 8),
+                          Text(
+                            'Device Access',
+                            style: theme.textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.bold,
+                            ),
                           ),
+                        ],
+                      ),
+                      Row(
+                        children: [
                           IconButton(
                             icon: const Icon(Icons.refresh, size: 18),
                             onPressed: _loadData,
                             tooltip: 'Refresh',
                           ),
+                          ToolInfoButton(
+                            toolId: 'device_access_manager',
+                            signalKService: widget.signalKService,
+                            iconSize: 18,
+                          ),
                         ],
                       ),
+                    ],
+                  ),
 
                       if (_errorMessage != null) ...[
                         const SizedBox(height: 8),
@@ -483,25 +490,7 @@ class _DeviceAccessManagerToolState extends State<DeviceAccessManagerTool> {
               );
             },
           ),
-        ),
-        Positioned(
-          top: 8,
-          right: 8,
-          child: Container(
-            decoration: BoxDecoration(
-              color: Colors.black.withValues(alpha: 0.5),
-              shape: BoxShape.circle,
-            ),
-            child: ToolInfoButton(
-              toolId: 'device_access_manager',
-              signalKService: widget.signalKService,
-              iconSize: 20,
-              iconColor: Colors.white,
-            ),
-          ),
-        ),
-      ],
-    );
+        );
   }
 
   Widget _buildPendingRequestsSection(ThemeData theme) {

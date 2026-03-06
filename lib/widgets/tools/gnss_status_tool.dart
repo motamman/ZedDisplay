@@ -176,7 +176,7 @@ class GnssStatusTool extends StatelessWidget {
           right: 8,
           child: Container(
             decoration: BoxDecoration(
-              color: Colors.black.withValues(alpha: 0.5),
+              color: Colors.black.withValues(alpha: 0.3),
               shape: BoxShape.circle,
             ),
             child: ToolInfoButton(

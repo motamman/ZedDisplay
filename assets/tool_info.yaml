@@ -186,16 +186,16 @@ tools:
       - autopilot
 
 
-  autopilot_tool_V2:
-    name: "Autopilot Control"
+  autopilot_v2:
+    name: "Autopilot V2"
     description: |
-      Control autopilot heading and mode.
+      Reimagined autopilot control with center circle design.
 
       **Features:**
-      - Heading adjustment
+      - Heading adjustment (+/-1, +/-10)
       - Mode selection (standby, auto, wind)
       - Course lock and tracking
-      - Alternnate compact design
+      - Compact circular layout
     required_plugins:
       - autopilot
 

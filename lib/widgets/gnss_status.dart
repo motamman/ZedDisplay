@@ -195,34 +195,37 @@ class GnssStatus extends StatelessWidget {
           const SizedBox(width: 8),
         ],
 
-        // Satellite count
+        // Satellite count (with right margin to avoid info button)
         if (satellitesInView != null)
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-            decoration: BoxDecoration(
-              color: isDark
-                  ? Colors.white.withValues(alpha: 0.1)
-                  : Colors.black.withValues(alpha: 0.05),
-              borderRadius: BorderRadius.circular(20),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(
-                  Icons.satellite,
-                  size: 16,
-                  color: isDark ? Colors.white70 : Colors.black54,
-                ),
-                const SizedBox(width: 4),
-                Text(
-                  '$satellitesInView',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    color: isDark ? Colors.white : Colors.black87,
+          Padding(
+            padding: const EdgeInsets.only(right: 32),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              decoration: BoxDecoration(
+                color: isDark
+                    ? Colors.white.withValues(alpha: 0.1)
+                    : Colors.black.withValues(alpha: 0.05),
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.satellite,
+                    size: 16,
+                    color: isDark ? Colors.white70 : Colors.black54,
                   ),
-                ),
-              ],
+                  const SizedBox(width: 4),
+                  Text(
+                    '$satellitesInView',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: isDark ? Colors.white : Colors.black87,
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
       ],

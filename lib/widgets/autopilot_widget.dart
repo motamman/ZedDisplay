@@ -462,10 +462,10 @@ class _AutopilotWidgetState extends State<AutopilotWidget> {
           child: _buildTargetInfoBox(),
         ),
 
-        // Heading label - top right corner
+        // Heading label - top right corner (shifted down to make room for info button)
         Positioned(
           right: 16,
-          top: 16,
+          top: 36,
           child: _buildHeadingLabel(widget.currentHeading, widget.headingTrue),
         ),
 

@@ -608,7 +608,7 @@ class _ServerManagerToolState extends State<ServerManagerTool> {
           right: 8,
           child: Container(
             decoration: BoxDecoration(
-              color: Colors.black.withValues(alpha: 0.5),
+              color: Colors.black.withValues(alpha: 0.3),
               shape: BoxShape.circle,
             ),
             child: ToolInfoButton(
@@ -640,16 +640,19 @@ class _ServerManagerToolState extends State<ServerManagerTool> {
                 overflow: TextOverflow.ellipsis,
               ),
             ),
-            ElevatedButton.icon(
-              onPressed: _restartServer,
-              icon: const Icon(Icons.restart_alt, size: 14),
-              label: const Text('Restart', style: TextStyle(fontSize: 10)),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.orange,
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                minimumSize: Size.zero,
-                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            Padding(
+              padding: const EdgeInsets.only(right: 32),
+              child: ElevatedButton.icon(
+                onPressed: _restartServer,
+                icon: const Icon(Icons.restart_alt, size: 14),
+                label: const Text('Restart', style: TextStyle(fontSize: 10)),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.orange,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  minimumSize: Size.zero,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
               ),
             ),
           ],
@@ -1019,16 +1022,19 @@ class _ServerManagerToolState extends State<ServerManagerTool> {
                 overflow: TextOverflow.ellipsis,
               ),
             ),
-            ElevatedButton.icon(
-              onPressed: _restartServer,
-              icon: const Icon(Icons.restart_alt, size: 14),
-              label: const Text('Restart', style: TextStyle(fontSize: 10)),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.orange,
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                minimumSize: Size.zero,
-                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            Padding(
+              padding: const EdgeInsets.only(right: 32),
+              child: ElevatedButton.icon(
+                onPressed: _restartServer,
+                icon: const Icon(Icons.restart_alt, size: 14),
+                label: const Text('Restart', style: TextStyle(fontSize: 10)),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.orange,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  minimumSize: Size.zero,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
               ),
             ),
           ],

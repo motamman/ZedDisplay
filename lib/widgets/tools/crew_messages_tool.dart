@@ -99,17 +99,17 @@ class _CrewMessagesToolState extends State<CrewMessagesTool> {
           },
         ),
         Positioned(
-          top: 8,
-          right: 8,
+          top: 4,
+          right: 4,
           child: Container(
             decoration: BoxDecoration(
-              color: Colors.black.withValues(alpha: 0.5),
+              color: Colors.black.withValues(alpha: 0.3),
               shape: BoxShape.circle,
             ),
             child: ToolInfoButton(
               toolId: 'crew_messages',
               signalKService: widget.signalKService,
-              iconSize: 20,
+              iconSize: 18,
               iconColor: Colors.white,
             ),
           ),
@@ -161,6 +161,7 @@ class _CrewMessagesToolState extends State<CrewMessagesTool> {
               padding: EdgeInsets.zero,
             ),
           ),
+          const SizedBox(width: 24),
         ],
       ),
     );
