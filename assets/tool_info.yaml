@@ -16,7 +16,7 @@ plugins:
   signalk-parquet:
     name: "SignalK Parquet"
     description: "Stores historical data in Parquet format for efficient charting"
-  signalk-anchoralarm-plugin:
+  anchoralarm:
     name: "Anchor Alarm Plugin"
     description: "Anchor watch with swing radius monitoring and alarms"
   signalk-rpi-monitor:
@@ -31,14 +31,14 @@ plugins:
   signalk-weather-api:
     name: "Weather API"
     description: "Generic weather API supporting multiple providers"
-  signalk-derived-data:
+  derived-data:
     name: "Derived Data"
     description: "Calculates derived values like sun/moon times, true wind"
-  "@signalk/open-meteo-provider":
+  open-meteo:
     name: "Open-Meteo"
     description: "Open-Meteo weather provider plugin"
-  "@signalk/signalk-autopilot":
-    name: "SignalK Autopilot"
+  autopilot:
+    name: "Autopilot Control"
     description: "Control autopilot heading and mode via SignalK"
 
 tools:
@@ -83,7 +83,7 @@ tools:
       - Check-in reminder system
       - Audio alarms with multiple sound options
     required_plugins:
-      - signalk-anchoralarm-plugin
+      - anchoralarm
 
   rpi_monitor:
     name: "RPi Monitor"
@@ -113,7 +113,7 @@ tools:
       - Sun/Moon arc visualization
 
     required_plugins:
-      - signalk-derived-data
+      - derived-data
       - signalk-weatherflow
     data_sources:
       - weatherflow
@@ -132,10 +132,11 @@ tools:
       - Supports multiple weather providers
       - Most features should work with any weather api plugin
     optional_plugins:
-      - "@signalk/open-meteo-provider"
+      - open-meteo
       - signalk-weatherflow
     required_plugins:
-      - signalk-derived-data
+      - derived-data
+
     
 
   compass_gauge:
@@ -182,7 +183,7 @@ tools:
       - Mode selection (standby, auto, wind)
       - Course lock and tracking
     required_plugins:
-      - "@signalk/signalk-autopilot"
+      - autopilot
 
 
   autopilot_tool_V2:
@@ -196,7 +197,7 @@ tools:
       - Course lock and tracking
       - Alternnate compact design
     required_plugins:
-      - "@signalk/signalk-autopilot"
+      - autopilot
 
 
   gnss_status:
@@ -432,7 +433,7 @@ tools:
       **Features:**
       - Crew roles
       - Status indicators
-      
+
 
   crew_messages:
     name: "Crew Messages"
@@ -444,6 +445,58 @@ tools:
       - Message history
       - Notifications
 
+  autopilot_simple:
+    name: "Simple Autopilot"
+    description: |
+      Compact autopilot control panel.
+
+      **Features:**
+      - Heading display and adjustment
+      - Mode selection (standby, auto, wind)
+      - Engage/disengage control
+    required_plugins:
+      - autopilot
+
+  polar_radar_chart:
+    name: "Polar Radar Chart"
+    description: |
+      Polar radar chart for directional data visualization.
+
+      **Features:**
+      - Angle vs magnitude plotting
+      - Configurable history duration
+      - Real-time data streaming
+
+  ais_polar_chart:
+    name: "AIS Polar Chart"
+    description: |
+      AIS vessel tracking on a polar chart.
+
+      **Features:**
+      - Nearby vessel positions
+      - Course and speed vectors
+      - Auto-pruning of stale tracks
+
+  file_share:
+    name: "File Share"
+    description: |
+      Share files between crew devices.
+
+      **Features:**
+      - Send files to other devices
+      - File list and download
+      - Crew profile integration
+
+  device_access_manager:
+    name: "Device Access Manager"
+    description: |
+      Manage device access permissions.
+
+      **Features:**
+      - Approve/deny device requests
+      - View connected devices
+      - Revoke access
+
   forecast_spinner:
     name: "Forecast Spinner"
     description: |
@@ -453,4 +506,9 @@ tools:
       - Multi-day forecast
       - Hourly details
       - Weather icons
+    optional_plugins:
+      - open-meteo
+      - signalk-weatherflow
+    required_plugins:
+      - derived-data
 

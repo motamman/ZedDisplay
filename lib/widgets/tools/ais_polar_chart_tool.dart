@@ -5,6 +5,7 @@ import '../../services/signalk_service.dart';
 import '../../services/tool_registry.dart';
 import '../../utils/color_extensions.dart';
 import '../ais_polar_chart.dart';
+import '../tool_info_button.dart';
 
 /// Config-driven AIS polar chart tool
 ///
@@ -55,17 +56,37 @@ class AISPolarChartTool extends StatelessWidget {
     // Generate title
     final title = config.style.customProperties?['title'] as String? ?? 'AIS Vessels';
 
-    return AISPolarChart(
-      key: ValueKey('ais_chart_$positionPath'),
-      signalKService: signalKService,
-      positionPath: positionPath,
-      cogPath: cogPath,
-      sogPath: sogPath,
-      title: title,
-      vesselColor: vesselColor,
-      showLabels: showLabels,
-      showGrid: showGrid,
-      pruneMinutes: pruneMinutes,
+    return Stack(
+      children: [
+        AISPolarChart(
+          key: ValueKey('ais_chart_$positionPath'),
+          signalKService: signalKService,
+          positionPath: positionPath,
+          cogPath: cogPath,
+          sogPath: sogPath,
+          title: title,
+          vesselColor: vesselColor,
+          showLabels: showLabels,
+          showGrid: showGrid,
+          pruneMinutes: pruneMinutes,
+        ),
+        Positioned(
+          top: 8,
+          right: 8,
+          child: Container(
+            decoration: BoxDecoration(
+              color: Colors.black.withValues(alpha: 0.5),
+              shape: BoxShape.circle,
+            ),
+            child: ToolInfoButton(
+              toolId: 'ais_polar_chart',
+              signalKService: signalKService,
+              iconSize: 20,
+              iconColor: Colors.white,
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

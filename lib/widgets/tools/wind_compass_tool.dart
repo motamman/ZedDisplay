@@ -200,8 +200,10 @@ class WindCompassTool extends StatelessWidget {
     }
 
     return Stack(
+      fit: StackFit.expand,
+      alignment: Alignment.center,
       children: [
-        WindCompass(
+        Center(child: WindCompass(
           headingTrueRadians: headingTrueRadians,
           headingMagneticRadians: headingMagneticRadians,
           headingTrueDegrees: headingTrueDegrees,
@@ -231,7 +233,7 @@ class WindCompassTool extends StatelessWidget {
           showAWANumbers: showAWANumbers,
           enableVMG: enableVMG,
           isSailingVessel: isSailingVessel,
-        ),
+        )),
         Positioned(
           top: 8,
           right: 8,

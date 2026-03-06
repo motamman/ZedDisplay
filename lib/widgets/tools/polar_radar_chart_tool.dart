@@ -5,6 +5,7 @@ import '../../services/signalk_service.dart';
 import '../../services/tool_registry.dart';
 import '../../utils/color_extensions.dart';
 import '../polar_radar_chart.dart';
+import '../tool_info_button.dart';
 
 /// Config-driven polar radar chart tool
 ///
@@ -53,20 +54,40 @@ class PolarRadarChartTool extends StatelessWidget {
     final title = config.style.customProperties?['title'] as String? ??
                   _generateTitle(anglePath, magnitudePath);
 
-    return PolarRadarChart(
-      anglePath: anglePath,
-      magnitudePath: magnitudePath,
-      angleLabel: angleLabel,
-      magnitudeLabel: magnitudeLabel,
-      signalKService: signalKService,
-      title: title,
-      historyDuration: Duration(seconds: historySeconds),
-      updateInterval: Duration(milliseconds: updateIntervalMs),
-      primaryColor: primaryColor,
-      fillColor: fillColor,
-      showLabels: showLabels,
-      showGrid: showGrid,
-      maxMagnitude: maxMagnitude,
+    return Stack(
+      children: [
+        PolarRadarChart(
+          anglePath: anglePath,
+          magnitudePath: magnitudePath,
+          angleLabel: angleLabel,
+          magnitudeLabel: magnitudeLabel,
+          signalKService: signalKService,
+          title: title,
+          historyDuration: Duration(seconds: historySeconds),
+          updateInterval: Duration(milliseconds: updateIntervalMs),
+          primaryColor: primaryColor,
+          fillColor: fillColor,
+          showLabels: showLabels,
+          showGrid: showGrid,
+          maxMagnitude: maxMagnitude,
+        ),
+        Positioned(
+          top: 8,
+          right: 8,
+          child: Container(
+            decoration: BoxDecoration(
+              color: Colors.black.withValues(alpha: 0.5),
+              shape: BoxShape.circle,
+            ),
+            child: ToolInfoButton(
+              toolId: 'polar_radar_chart',
+              signalKService: signalKService,
+              iconSize: 20,
+              iconColor: Colors.white,
+            ),
+          ),
+        ),
+      ],
     );
   }
 

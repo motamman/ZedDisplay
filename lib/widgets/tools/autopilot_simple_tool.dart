@@ -9,6 +9,7 @@ import '../../services/autopilot_state_verifier.dart';
 import '../../services/tool_registry.dart';
 import '../../utils/color_extensions.dart';
 import '../../config/ui_constants.dart';
+import '../tool_info_button.dart';
 
 /// Simple Autopilot control tool - text-based display with controls
 /// No compass visualization - just heading, target, mode, and buttons
@@ -234,75 +235,95 @@ class _AutopilotSimpleToolState extends State<AutopilotSimpleTool> with Automati
       fallback: Colors.red
     ) ?? Colors.red;
 
-    return Container(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-        children: [
-          // Status row
-          Row(
+    return Stack(
+      children: [
+        Container(
+          padding: const EdgeInsets.all(16),
+          child: Column(
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
             children: [
-              _buildStatusCard('Mode', _mode, primaryColor),
-              _buildStatusCard('Status', _engaged ? 'Engaged' : 'Standby',
-                _engaged ? Colors.green : Colors.grey),
+              // Status row
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  _buildStatusCard('Mode', _mode, primaryColor),
+                  _buildStatusCard('Status', _engaged ? 'Engaged' : 'Standby',
+                    _engaged ? Colors.green : Colors.grey),
+                ],
+              ),
+
+              const SizedBox(height: 16),
+
+              // Heading row
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  _buildHeadingCard('Current', _currentHeading, Colors.blue),
+                  _buildHeadingCard('Target', _targetHeading, primaryColor),
+                ],
+              ),
+
+              const SizedBox(height: 24),
+
+              // Engage/Disengage button
+              ElevatedButton.icon(
+                onPressed: _handleEngageDisengage,
+                icon: Icon(_engaged ? Icons.power_off : Icons.power),
+                label: Text(_engaged ? 'DISENGAGE' : 'ENGAGE'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: _engaged ? Colors.red : Colors.green,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
+                ),
+              ),
+
+              const SizedBox(height: 16),
+
+              // Heading adjustment buttons
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  _buildAdjustButton('-10°', -10, primaryColor),
+                  _buildAdjustButton('-1°', -1, primaryColor),
+                  _buildAdjustButton('+1°', 1, primaryColor),
+                  _buildAdjustButton('+10°', 10, primaryColor),
+                ],
+              ),
+
+              const SizedBox(height: 16),
+
+              // Mode buttons
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                alignment: WrapAlignment.center,
+                children: [
+                  _buildModeButton('Auto', primaryColor),
+                  _buildModeButton('Wind', primaryColor),
+                  _buildModeButton('Route', primaryColor),
+                  _buildModeButton('Standby', Colors.grey),
+                ],
+              ),
             ],
           ),
-
-          const SizedBox(height: 16),
-
-          // Heading row
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            children: [
-              _buildHeadingCard('Current', _currentHeading, Colors.blue),
-              _buildHeadingCard('Target', _targetHeading, primaryColor),
-            ],
-          ),
-
-          const SizedBox(height: 24),
-
-          // Engage/Disengage button
-          ElevatedButton.icon(
-            onPressed: _handleEngageDisengage,
-            icon: Icon(_engaged ? Icons.power_off : Icons.power),
-            label: Text(_engaged ? 'DISENGAGE' : 'ENGAGE'),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: _engaged ? Colors.red : Colors.green,
-              foregroundColor: Colors.white,
-              padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
+        ),
+        Positioned(
+          top: 8,
+          right: 8,
+          child: Container(
+            decoration: BoxDecoration(
+              color: Colors.black.withValues(alpha: 0.5),
+              shape: BoxShape.circle,
+            ),
+            child: ToolInfoButton(
+              toolId: 'autopilot_simple',
+              signalKService: widget.signalKService,
+              iconSize: 20,
+              iconColor: Colors.white,
             ),
           ),
-
-          const SizedBox(height: 16),
-
-          // Heading adjustment buttons
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            children: [
-              _buildAdjustButton('-10°', -10, primaryColor),
-              _buildAdjustButton('-1°', -1, primaryColor),
-              _buildAdjustButton('+1°', 1, primaryColor),
-              _buildAdjustButton('+10°', 10, primaryColor),
-            ],
-          ),
-
-          const SizedBox(height: 16),
-
-          // Mode buttons
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            alignment: WrapAlignment.center,
-            children: [
-              _buildModeButton('Auto', primaryColor),
-              _buildModeButton('Wind', primaryColor),
-              _buildModeButton('Route', primaryColor),
-              _buildModeButton('Standby', Colors.grey),
-            ],
-          ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 

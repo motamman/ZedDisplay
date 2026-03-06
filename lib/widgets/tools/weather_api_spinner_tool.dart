@@ -270,20 +270,6 @@ class _WeatherApiSpinnerToolState extends State<WeatherApiSpinnerTool>
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              // Info button
-              Container(
-                decoration: BoxDecoration(
-                  color: Colors.black.withValues(alpha: 0.5),
-                  shape: BoxShape.circle,
-                ),
-                child: ToolInfoButton(
-                  toolId: 'weather_api_spinner',
-                  signalKService: widget.signalKService,
-                  iconSize: 20,
-                  iconColor: Colors.white,
-                ),
-              ),
-              const SizedBox(width: 4),
               // Refresh button
               SizedBox(
                 width: 32,
@@ -303,6 +289,20 @@ class _WeatherApiSpinnerToolState extends State<WeatherApiSpinnerTool>
                     : _RefreshButton(
                         onRefresh: () => weatherService.fetchForecasts(force: true),
                       ),
+              ),
+              const SizedBox(width: 4),
+              // Info button
+              Container(
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.5),
+                  shape: BoxShape.circle,
+                ),
+                child: ToolInfoButton(
+                  toolId: 'weather_api_spinner',
+                  signalKService: widget.signalKService,
+                  iconSize: 20,
+                  iconColor: Colors.white,
+                ),
               ),
             ],
           ),

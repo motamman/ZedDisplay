@@ -11,6 +11,7 @@ import '../../utils/color_extensions.dart';
 import '../../config/ui_constants.dart';
 import 'mixins/control_tool_mixin.dart';
 import 'common/control_tool_layout.dart';
+import '../tool_info_button.dart';
 
 /// Config-driven slider tool for sending numeric values to SignalK paths
 class SliderTool extends StatefulWidget {
@@ -84,88 +85,108 @@ class _SliderToolState extends State<SliderTool> with ControlToolMixin, Automati
     // Get decimal places from customProperties
     final decimalPlaces = style.customProperties?['decimalPlaces'] as int? ?? UIConstants.defaultDecimalPlaces;
 
-    return ControlToolLayout(
-      label: label,
-      showLabel: style.showLabel == true,
-      valueWidget: style.showValue == true
-          ? Text(
-              '${currentValue.toStringAsFixed(decimalPlaces)}${style.showUnit == true ? " $unit" : ""}',
-              style: TextStyle(
-                fontSize: 32,
-                fontWeight: FontWeight.bold,
-                color: primaryColor,
-              ),
-            )
-          : null,
-      additionalWidgets: [
-        // Min/Max labels
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text(
-              minValue.toStringAsFixed(0),
-              style: TextStyle(
-                fontSize: 12,
-                color: Colors.grey[600],
-              ),
-            ),
-            Text(
-              maxValue.toStringAsFixed(0),
-              style: TextStyle(
-                fontSize: 12,
-                color: Colors.grey[600],
-              ),
+    return Stack(
+      children: [
+        ControlToolLayout(
+          label: label,
+          showLabel: style.showLabel == true,
+          valueWidget: style.showValue == true
+              ? Text(
+                  '${currentValue.toStringAsFixed(decimalPlaces)}${style.showUnit == true ? " $unit" : ""}',
+                  style: TextStyle(
+                    fontSize: 32,
+                    fontWeight: FontWeight.bold,
+                    color: primaryColor,
+                  ),
+                )
+              : null,
+          additionalWidgets: [
+            // Min/Max labels
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  minValue.toStringAsFixed(0),
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.grey[600],
+                  ),
+                ),
+                Text(
+                  maxValue.toStringAsFixed(0),
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.grey[600],
+                  ),
+                ),
+              ],
             ),
           ],
-        ),
-      ],
-      controlWidget: GestureDetector(
-        onHorizontalDragStart: (_) {}, // Block parent scroll
-        onHorizontalDragUpdate: (_) {},
-        onHorizontalDragEnd: (_) {},
-        child: SfSliderTheme(
-          data: SfSliderThemeData(
-            activeTrackHeight: UIConstants.sliderActiveTrackHeight,
-            inactiveTrackHeight: UIConstants.sliderInactiveTrackHeight,
-            activeTrackColor: primaryColor,
-            inactiveTrackColor: UIConstants.withLightOpacity(Colors.grey),
-            thumbColor: primaryColor,
-            thumbRadius: UIConstants.sliderThumbRadius,
-            overlayColor: primaryColor.withValues(alpha: UIConstants.veryLightOpacity),
-            overlayRadius: UIConstants.sliderOverlayRadius,
-            tooltipBackgroundColor: primaryColor,
-          ),
-          child: SfSlider(
-            value: currentValue,
-            min: minValue,
-            max: maxValue,
-            stepSize: (maxValue - minValue) / ((maxValue - minValue) * (10 * (decimalPlaces + 1))).clamp(10, 1000),
-            enableTooltip: true,
-            numberFormat: NumberFormat.decimalPatternDigits(decimalDigits: decimalPlaces),
-            onChanged: isSending ? null : (value) {
-              setState(() {
-                _currentSliderValue = value;
-              });
-            },
-            onChangeEnd: (value) {
-              final decimalPlaces = widget.config.style.customProperties?['decimalPlaces'] as int? ?? UIConstants.defaultDecimalPlaces;
-              sendNumericValue(
-                value: value,
-                path: dataSource.path,
-                signalKService: widget.signalKService,
-                decimalPlaces: decimalPlaces,
-                onComplete: () {
+          controlWidget: GestureDetector(
+            onHorizontalDragStart: (_) {}, // Block parent scroll
+            onHorizontalDragUpdate: (_) {},
+            onHorizontalDragEnd: (_) {},
+            child: SfSliderTheme(
+              data: SfSliderThemeData(
+                activeTrackHeight: UIConstants.sliderActiveTrackHeight,
+                inactiveTrackHeight: UIConstants.sliderInactiveTrackHeight,
+                activeTrackColor: primaryColor,
+                inactiveTrackColor: UIConstants.withLightOpacity(Colors.grey),
+                thumbColor: primaryColor,
+                thumbRadius: UIConstants.sliderThumbRadius,
+                overlayColor: primaryColor.withValues(alpha: UIConstants.veryLightOpacity),
+                overlayRadius: UIConstants.sliderOverlayRadius,
+                tooltipBackgroundColor: primaryColor,
+              ),
+              child: SfSlider(
+                value: currentValue,
+                min: minValue,
+                max: maxValue,
+                stepSize: (maxValue - minValue) / ((maxValue - minValue) * (10 * (decimalPlaces + 1))).clamp(10, 1000),
+                enableTooltip: true,
+                numberFormat: NumberFormat.decimalPatternDigits(decimalDigits: decimalPlaces),
+                onChanged: isSending ? null : (value) {
                   setState(() {
-                    _currentSliderValue = null;
+                    _currentSliderValue = value;
                   });
                 },
-              );
-            },
+                onChangeEnd: (value) {
+                  final decimalPlaces = widget.config.style.customProperties?['decimalPlaces'] as int? ?? UIConstants.defaultDecimalPlaces;
+                  sendNumericValue(
+                    value: value,
+                    path: dataSource.path,
+                    signalKService: widget.signalKService,
+                    decimalPlaces: decimalPlaces,
+                    onComplete: () {
+                      setState(() {
+                        _currentSliderValue = null;
+                      });
+                    },
+                  );
+                },
+              ),
+            ),
+          ),
+          path: dataSource.path,
+          isSending: isSending,
+        ),
+        Positioned(
+          top: 8,
+          right: 8,
+          child: Container(
+            decoration: BoxDecoration(
+              color: Colors.black.withValues(alpha: 0.5),
+              shape: BoxShape.circle,
+            ),
+            child: ToolInfoButton(
+              toolId: 'slider_tool',
+              signalKService: widget.signalKService,
+              iconSize: 20,
+              iconColor: Colors.white,
+            ),
           ),
         ),
-      ),
-      path: dataSource.path,
-      isSending: isSending,
+      ],
     );
   }
 

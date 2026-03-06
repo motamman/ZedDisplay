@@ -94,8 +94,10 @@ class CompassGaugeTool extends StatelessWidget {
     }
 
     return Stack(
+      fit: StackFit.expand,
+      alignment: Alignment.center,
       children: [
-        CompassGauge(
+        Center(child: CompassGauge(
           heading: heading,
           label: config.style.showLabel == true ? label : '',
           formattedValue: formattedValue,
@@ -106,7 +108,7 @@ class CompassGaugeTool extends StatelessWidget {
           additionalHeadings: additionalHeadings.isNotEmpty ? additionalHeadings : null,
           additionalLabels: additionalLabels.isNotEmpty ? additionalLabels : null,
           additionalColors: additionalHeadings.isNotEmpty ? additionalColors : null,
-        ),
+        )),
         Positioned(
           top: 8,
           right: 8,

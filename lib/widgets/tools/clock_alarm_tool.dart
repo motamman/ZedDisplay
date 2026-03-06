@@ -11,6 +11,7 @@ import '../../services/signalk_service.dart';
 import '../../services/tool_registry.dart';
 import '../../services/notification_service.dart';
 import '../../utils/color_extensions.dart';
+import '../tool_info_button.dart';
 
 /// Clock face style options
 enum ClockFaceStyle {
@@ -526,13 +527,29 @@ class _ClockAlarmToolState extends State<ClockAlarmTool> with TickerProviderStat
           if (_alarms.any((a) => a.enabled))
             Positioned(
               top: 8,
-              right: 8,
+              right: 40,
               child: Icon(
                 Icons.alarm,
                 color: _primaryColor.withAlpha(180),
                 size: 16,
               ),
             ),
+          Positioned(
+            top: 8,
+            right: 8,
+            child: Container(
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.5),
+                shape: BoxShape.circle,
+              ),
+              child: ToolInfoButton(
+                toolId: 'clock_alarm',
+                signalKService: widget.signalKService,
+                iconSize: 20,
+                iconColor: Colors.white,
+              ),
+            ),
+          ),
         ],
       ),
     );

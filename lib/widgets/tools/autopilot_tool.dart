@@ -15,6 +15,7 @@ import '../../config/ui_constants.dart';
 import '../autopilot_widget.dart';
 import '../route_info_panel.dart';
 import '../countdown_confirmation_overlay.dart';
+import '../tool_info_button.dart';
 
 /// Autopilot control tool - subscribes to SignalK paths and displays autopilot controls
 ///
@@ -785,6 +786,22 @@ class _AutopilotToolState extends State<AutopilotTool> with AutomaticKeepAliveCl
           onGybe: _handleGybe,
           onAdvanceWaypoint: _handleAdvanceWaypoint,
           onDodgeToggle: _handleDodgeToggle,
+        ),
+        Positioned(
+          top: 8,
+          right: 8,
+          child: Container(
+            decoration: BoxDecoration(
+              color: Colors.black.withValues(alpha: 0.5),
+              shape: BoxShape.circle,
+            ),
+            child: ToolInfoButton(
+              toolId: 'autopilot_tool',
+              signalKService: widget.signalKService,
+              iconSize: 20,
+              iconColor: Colors.white,
+            ),
+          ),
         ),
       ],
     );
