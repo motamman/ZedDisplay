@@ -814,27 +814,35 @@ class _AutopilotWidgetV2State extends State<AutopilotWidgetV2> {
   void _showModeMenu(BuildContext context) {
     showModalBottomSheet(
       context: context,
-      builder: (context) => Container(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text(
-              'Select Mode',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 16),
-            _buildModeOption(context, 'Auto', 'Compass heading mode'),
-            if (widget.isSailingVessel)
-              _buildModeOption(context, 'Wind', 'Wind angle mode'),
-            _buildModeOption(context, 'Route', 'Route following mode'),
-            _buildModeOption(context, 'Standby', 'Autopilot standby'),
-            const SizedBox(height: 8),
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cancel'),
-            ),
-          ],
+      isScrollControlled: true,
+      builder: (context) => DraggableScrollableSheet(
+        expand: false,
+        initialChildSize: 0.4,
+        minChildSize: 0.25,
+        maxChildSize: 0.6,
+        builder: (context, scrollController) => SingleChildScrollView(
+          controller: scrollController,
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                'Select Mode',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 8),
+              _buildModeOption(context, 'Auto', 'Compass heading mode'),
+              if (widget.isSailingVessel)
+                _buildModeOption(context, 'Wind', 'Wind angle mode'),
+              _buildModeOption(context, 'Route', 'Route following mode'),
+              _buildModeOption(context, 'Standby', 'Autopilot standby'),
+              const SizedBox(height: 8),
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Cancel'),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -843,12 +851,13 @@ class _AutopilotWidgetV2State extends State<AutopilotWidgetV2> {
   Widget _buildModeOption(BuildContext context, String modeOption, String description) {
     final isSelected = widget.mode == modeOption;
     return ListTile(
+      visualDensity: VisualDensity.compact,
       leading: Icon(
         isSelected ? Icons.check_circle : Icons.radio_button_unchecked,
         color: isSelected ? widget.primaryColor : Colors.grey,
       ),
       title: Text(modeOption),
-      subtitle: Text(description, style: const TextStyle(fontSize: 12)),
+      subtitle: Text(description, style: const TextStyle(fontSize: 11)),
       onTap: () {
         widget.onModeChange?.call(modeOption);
         _onHeadingAdjustmentSent();
