@@ -14,13 +14,11 @@ class CompassGaugeConfigurator extends ToolConfigurator {
 
   String compassStyle = 'classic';
   bool showTickLabels = false;
-  bool negativeToPort = false;
 
   @override
   void reset() {
     compassStyle = 'classic';
     showTickLabels = false;
-    negativeToPort = false;
   }
 
   @override
@@ -34,7 +32,6 @@ class CompassGaugeConfigurator extends ToolConfigurator {
     if (style.customProperties != null) {
       compassStyle = style.customProperties!['compassStyle'] as String? ?? 'classic';
       showTickLabels = style.customProperties!['showTickLabels'] as bool? ?? false;
-      negativeToPort = style.customProperties!['negativeToPort'] as bool? ?? false;
     }
   }
 
@@ -46,7 +43,6 @@ class CompassGaugeConfigurator extends ToolConfigurator {
         customProperties: {
           'compassStyle': compassStyle,
           'showTickLabels': showTickLabels,
-          'negativeToPort': negativeToPort,
         },
       ),
     );
@@ -102,17 +98,6 @@ class CompassGaugeConfigurator extends ToolConfigurator {
                 },
               ),
 
-              // Negative to Port
-              SwitchListTile(
-                title: const Text('Negative to Port'),
-                subtitle: const Text(
-                  'Enable when path returns signed values (negative = port, positive = starboard)',
-                ),
-                value: negativeToPort,
-                onChanged: (value) {
-                  setState(() => negativeToPort = value);
-                },
-              ),
             ],
           ),
         );

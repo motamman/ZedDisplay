@@ -82,6 +82,7 @@ class _AISPolarChartState extends State<AISPolarChart>
   bool _mapAutoFollow = true; // Auto-follow own vessel on map
   bool _fullScreenRadar = false; // Full-screen radar/map mode
   bool _showVesselListOverlay = false; // Vessel list overlay in fullscreen
+  bool _hideStale = false; // Hide stale vessels from display
 
   // Throttle updates to prevent ANR on tablets
   DateTime? _lastUpdate;
@@ -563,12 +564,12 @@ class _AISPolarChartState extends State<AISPolarChart>
 
       // Convert COG from radians to display units (degrees) via MetadataStore
       final cogDisplay = vessel.cogRad != null
-          ? (cogMetadata?.convert(vessel.cogRad!) ?? (vessel.cogRad! * 180 / math.pi))
+          ? ((cogMetadata?.convert(vessel.cogRad!) ?? (vessel.cogRad! * 180 / math.pi)) % 360)
           : null;
 
       // Convert heading from radians to display units (degrees) via MetadataStore
       final headingDisplay = vessel.headingTrueRad != null
-          ? (headingMetadata?.convert(vessel.headingTrueRad!) ?? (vessel.headingTrueRad! * 180 / math.pi))
+          ? ((headingMetadata?.convert(vessel.headingTrueRad!) ?? (vessel.headingTrueRad! * 180 / math.pi)) % 360)
           : null;
 
       // Determine freshness: plugin status or timestamp-based
@@ -871,6 +872,11 @@ class _AISPolarChartState extends State<AISPolarChart>
     return DateTime.now().difference(timestamp).inMinutes >= 10;
   }
 
+  /// Vessels filtered by stale toggle
+  List<_VesselPoint> get _displayVessels => _hideStale
+      ? _vessels.where((v) => !_isStale(v.timestamp, aisStatus: v.aisStatus)).toList()
+      : _vessels;
+
   /// Calculate projected positions for a vessel
   /// Returns list of (lat, lon, bearing, distance) for each time interval
   List<({double lat, double lon, double bearing, double distance})> _calculateProjectedPositions(
@@ -1103,7 +1109,7 @@ class _AISPolarChartState extends State<AISPolarChart>
           const Icon(Icons.directions_boat, color: Colors.white, size: 16),
           const SizedBox(width: 6),
           Text(
-            '${_vessels.length} vessels',
+            '${_displayVessels.length} vessels',
             style: const TextStyle(
               color: Colors.white,
               fontWeight: FontWeight.bold,
@@ -1140,6 +1146,13 @@ class _AISPolarChartState extends State<AISPolarChart>
         _buildOverlayButton(
           icon: _showMapView ? Icons.radar : Icons.map,
           onPressed: () => setState(() => _showMapView = !_showMapView),
+        ),
+        const SizedBox(height: 4),
+        // Hide stale vessels toggle
+        _buildOverlayButton(
+          icon: _hideStale ? Icons.visibility_off : Icons.visibility,
+          onPressed: () => setState(() => _hideStale = !_hideStale),
+          color: _hideStale ? Colors.orange : null,
         ),
         const SizedBox(height: 8),
         // Zoom controls
@@ -1259,7 +1272,7 @@ class _AISPolarChartState extends State<AISPolarChart>
       // Skip projection calculations
     } else {
     // Limit to closest ~20 moving vessels within display range
-    final movingVessels = _vessels
+    final movingVessels = _displayVessels
         .where((v) => v.sogRaw != null && v.sogRaw! > 0.1 && v.distance <= displayRange)
         .toList()
       ..sort((a, b) => a.distance.compareTo(b.distance));
@@ -1443,7 +1456,7 @@ class _AISPolarChartState extends State<AISPolarChart>
     final cogMagnetic = _getConverted('navigation.courseOverGroundMagnetic', cogMagneticRaw);
     final headingMagneticRaw = _getRawValue('navigation.headingMagnetic');
     final headingMagnetic = _getConverted('navigation.headingMagnetic', headingMagneticRaw);
-    ownHeading = cogTrue ?? cogMagnetic ?? headingMagnetic ?? 0.0;
+    ownHeading = (cogTrue ?? cogMagnetic ?? headingMagnetic ?? 0.0) % 360;
 
     // Calculate bounds to fit all vessels
     double minLat = _ownLat!;
@@ -1451,7 +1464,7 @@ class _AISPolarChartState extends State<AISPolarChart>
     double minLon = _ownLon!;
     double maxLon = _ownLon!;
 
-    for (final vessel in _vessels) {
+    for (final vessel in _displayVessels) {
       if (vessel.latitude != null && vessel.longitude != null) {
         minLat = math.min(minLat, vessel.latitude!);
         maxLat = math.max(maxLat, vessel.latitude!);
@@ -1502,7 +1515,7 @@ class _AISPolarChartState extends State<AISPolarChart>
         if (widget.showProjectedPositions)
           PolylineLayer(
             polylines: [
-              ..._vessels
+              ..._displayVessels
                   .where((v) => v.sogRaw != null && v.sogRaw! > 0.1 && v.latitude != null && v.longitude != null)
                   .take(20)
                   .map((vessel) {
@@ -1542,7 +1555,7 @@ class _AISPolarChartState extends State<AISPolarChart>
               ),
             ),
             // Other vessels
-            ..._vessels.map((vessel) {
+            ..._displayVessels.map((vessel) {
               if (vessel.latitude == null || vessel.longitude == null) return null;
 
               final lat = vessel.latitude!;
@@ -1597,7 +1610,7 @@ class _AISPolarChartState extends State<AISPolarChart>
             }).whereType<Marker>(),
             // Projected position tick marks
             if (widget.showProjectedPositions)
-              ..._vessels
+              ..._displayVessels
                   .where((v) => v.sogRaw != null && v.sogRaw! > 0.1 && v.latitude != null && v.longitude != null)
                   .take(20)
                   .expand((vessel) {
@@ -1710,7 +1723,7 @@ class _AISPolarChartState extends State<AISPolarChart>
 
   /// Convert vessel positions from polar to Cartesian
   List<_CartesianPoint> _vesselsToCartesian() {
-    return _vessels.map((vessel) {
+    return _displayVessels.map((vessel) {
       // Convert bearing to radians (0° = North, 90° = East)
       final angleRad = (vessel.bearing - 90) * math.pi / 180;
 
@@ -1743,7 +1756,7 @@ class _AISPolarChartState extends State<AISPolarChart>
 
   /// Build vessel list
   Widget _buildVesselList(BuildContext context, bool isDark) {
-    if (_vessels.isEmpty) {
+    if (_displayVessels.isEmpty) {
       return Container(
         decoration: BoxDecoration(
           color: isDark ? Colors.grey.shade900 : Colors.grey.shade100,
@@ -1759,7 +1772,7 @@ class _AISPolarChartState extends State<AISPolarChart>
     }
 
     // Sort by distance
-    final sortedVessels = List<_VesselPoint>.from(_vessels)
+    final sortedVessels = List<_VesselPoint>.from(_displayVessels)
       ..sort((a, b) => a.distance.compareTo(b.distance));
 
     // Calculate time since last update
