@@ -47,9 +47,6 @@ class SignalKService extends ChangeNotifier implements DataService {
   final _connectionStateController = StreamController<SignalKConnectionState>.broadcast();
   SignalKConnectionState _connectionState = SignalKConnectionState.disconnected;
 
-  // Data cache cleanup
-  Timer? _cacheCleanupTimer;
-
   // Data storage - moved to _DataCacheManager
   UnmodifiableMapView<String, SignalKDataPoint>? _latestDataView;
 
@@ -1646,7 +1643,6 @@ class SignalKService extends ChangeNotifier implements DataService {
         await _storageService?.saveDisplayUnitsCache(_serverUrl, _displayUnitsCache);
       }
       _aisManager.dispose();
-      _cacheCleanupTimer?.cancel();
       _reconnectAttempts = 0;
 
       // Disconnect main data channel
@@ -2405,6 +2401,7 @@ class _NotificationManager {
       _notificationChannel = null;
 
       _lastNotificationState.clear();
+      _recentNotifications.clear();
     } catch (e) {
       if (kDebugMode) {
         print('❌ Error disconnecting notification channel: $e');
@@ -2485,6 +2482,9 @@ class _NotificationManager {
 
           _notificationController.add(notification);
           _recentNotifications.add(notification);
+          // Prevent unbounded growth - prune old entries
+          final cutoff = DateTime.now().subtract(const Duration(seconds: 10));
+          _recentNotifications.removeWhere((n) => n.timestamp.isBefore(cutoff));
         }
       }
     } catch (e) {

@@ -5,6 +5,12 @@ import 'package:http/http.dart' as http;
 import '../models/historical_data.dart';
 import '../models/auth_token.dart';
 
+/// Top-level function for compute() — parses JSON + builds model on background isolate
+HistoricalDataResponse _parseHistoricalResponse(String body) {
+  final data = jsonDecode(body) as Map<String, dynamic>;
+  return HistoricalDataResponse.fromJson(data);
+}
+
 /// Service to fetch historical data from signalk-parquet History API
 class HistoricalDataService {
   final String serverUrl;
@@ -79,11 +85,12 @@ class HistoricalDataService {
       );
 
       if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
+        // Parse JSON + build model objects off the main thread
+        final result = await compute(_parseHistoricalResponse, response.body);
         if (kDebugMode) {
-          print('Historical data received: ${data.keys}');
+          print('Historical data received: (context, range, values, data)');
         }
-        return HistoricalDataResponse.fromJson(data);
+        return result;
       } else {
         throw Exception(
           'Failed to fetch historical data: ${response.statusCode} - ${response.body}',
@@ -156,11 +163,12 @@ class HistoricalDataService {
       );
 
       if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
+        // Parse JSON + build model objects off the main thread
+        final result = await compute(_parseHistoricalResponse, response.body);
         if (kDebugMode) {
-          print('Historical data received: ${data.keys}');
+          print('Historical data received: (context, range, values, data)');
         }
-        return HistoricalDataResponse.fromJson(data);
+        return result;
       } else {
         throw Exception(
           'Failed to fetch historical data: ${response.statusCode} - ${response.body}',
