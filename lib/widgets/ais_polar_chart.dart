@@ -83,6 +83,7 @@ class _AISPolarChartState extends State<AISPolarChart>
   bool _fullScreenRadar = false; // Full-screen radar/map mode
   bool _showVesselListOverlay = false; // Vessel list overlay in fullscreen
   bool _hideStale = false; // Hide stale vessels from display
+  List<_VesselPoint> _displayVessels = []; // Cached filtered vessel list
 
   // Throttle updates to prevent ANR on tablets
   DateTime? _lastUpdate;
@@ -644,6 +645,7 @@ class _AISPolarChartState extends State<AISPolarChart>
     setState(() {
       _vessels.clear();
       _vessels.addAll(newVessels);
+      _updateDisplayVessels();
 
       // Auto-calculate range if in auto mode (distances are now in meters)
       if (_autoRange && _vessels.isNotEmpty) {
@@ -872,10 +874,12 @@ class _AISPolarChartState extends State<AISPolarChart>
     return DateTime.now().difference(timestamp).inMinutes >= 10;
   }
 
-  /// Vessels filtered by stale toggle
-  List<_VesselPoint> get _displayVessels => _hideStale
-      ? _vessels.where((v) => !_isStale(v.timestamp, aisStatus: v.aisStatus)).toList()
-      : _vessels;
+  /// Recompute cached display vessels after state changes
+  void _updateDisplayVessels() {
+    _displayVessels = _hideStale
+        ? _vessels.where((v) => !_isStale(v.timestamp, aisStatus: v.aisStatus)).toList()
+        : _vessels;
+  }
 
   /// Calculate projected positions for a vessel
   /// Returns list of (lat, lon, bearing, distance) for each time interval
@@ -1151,7 +1155,10 @@ class _AISPolarChartState extends State<AISPolarChart>
         // Hide stale vessels toggle
         _buildOverlayButton(
           icon: _hideStale ? Icons.visibility_off : Icons.visibility,
-          onPressed: () => setState(() => _hideStale = !_hideStale),
+          onPressed: () => setState(() {
+            _hideStale = !_hideStale;
+            _updateDisplayVessels();
+          }),
           color: _hideStale ? Colors.orange : null,
         ),
         const SizedBox(height: 8),

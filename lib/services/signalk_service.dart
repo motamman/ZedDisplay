@@ -40,6 +40,7 @@ class SignalKService extends ChangeNotifier implements DataService {
   int _reconnectAttempts = 0;
   static const int _maxReconnectAttempts = 5;
   bool _intentionalDisconnect = false;
+  bool _isConnecting = false;
   bool _wasConnected = false;
 
   // Connection state stream (for UI overlay without triggering rebuilds)
@@ -245,6 +246,9 @@ class SignalKService extends ChangeNotifier implements DataService {
     bool secure = false,
     AuthToken? authToken,
   }) async {
+    if (_isConnecting) return;
+    _isConnecting = true;
+
     // Disconnect any existing connection first
     if (_isConnected || _channel != null) {
       await disconnect();
@@ -351,7 +355,10 @@ class SignalKService extends ChangeNotifier implements DataService {
           // Continue with other callbacks even if one fails
         }
       }
+
+      _isConnecting = false;
     } catch (e) {
+      _isConnecting = false;
       _errorMessage = 'Connection failed: $e';
       _isConnected = false;
       notifyListeners();
@@ -691,8 +698,14 @@ class SignalKService extends ChangeNotifier implements DataService {
 
   /// Handle WebSocket disconnect
   void _handleDisconnect() {
+    if (!_isConnected && _channel == null) return; // already handled
+
     _isConnected = false;
-    // Don't call notifyListeners() for connection state change - use stream instead
+    _isConnecting = false;
+
+    _subscription?.cancel();
+    _subscription = null;
+    _channel = null;
 
     if (kDebugMode) {
       print('Disconnected from SignalK server');
