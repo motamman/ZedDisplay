@@ -2,6 +2,7 @@ import 'base_tool_configurator.dart';
 import 'configurators/chart_configurator.dart';
 import 'configurators/gauge_configurator.dart';
 import 'configurators/compass_configurator.dart';
+import 'configurators/compass_gauge_configurator.dart';
 import 'configurators/control_configurator.dart';
 import 'configurators/polar_chart_configurator.dart';
 import 'configurators/webview_configurator.dart';
@@ -32,6 +33,10 @@ class ToolConfiguratorFactory {
       case 'historical_chart':
       case 'realtime_chart':
         return ChartConfigurator(toolTypeId);
+
+      // Compass Gauge
+      case 'compass':
+        return CompassGaugeConfigurator();
 
       // Compasses and Instruments
       case 'wind_compass':
@@ -106,6 +111,7 @@ class ToolConfiguratorFactory {
       'linear_gauge',
       'historical_chart',
       'realtime_chart',
+      'compass',
       'wind_compass',
       'autopilot',
       'polar_radar_chart',

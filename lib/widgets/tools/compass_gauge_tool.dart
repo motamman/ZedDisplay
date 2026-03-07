@@ -82,7 +82,7 @@ class _CompassGaugeToolState extends State<CompassGaugeTool> {
 
     // Use MetadataStore for conversions
     final rawValue = _getRawValue(dataSource.path);
-    final heading = _getConverted(dataSource.path, rawValue) ?? 0.0;
+    var heading = _getConverted(dataSource.path, rawValue) ?? 0.0;
 
     // Apply showLabel uniformly to ALL paths
     final showLabel = widget.config.style.showLabel == true;
@@ -104,6 +104,10 @@ class _CompassGaugeToolState extends State<CompassGaugeTool> {
     final showTickLabels = widget.config.style.customProperties?['showTickLabels'] as bool? ?? false;
     final compassStyleStr = widget.config.style.customProperties?['compassStyle'] as String? ?? 'classic';
     final compassStyle = _parseCompassStyle(compassStyleStr);
+    final negativeToPort = widget.config.style.customProperties?['negativeToPort'] as bool? ?? false;
+
+    // Normalize negative angles for signed paths (negative = port)
+    if (negativeToPort && heading < 0) heading += 360;
 
     // Get additional headings (2-4) for multi-needle display
     final additionalHeadings = <double>[];
@@ -115,7 +119,7 @@ class _CompassGaugeToolState extends State<CompassGaugeTool> {
       final raw = _getRawValue(source.path);
       final value = _getConverted(source.path, raw);
       if (value != null) {
-        additionalHeadings.add(value);
+        additionalHeadings.add(negativeToPort && value < 0 ? value + 360 : value);
         additionalLabels.add(showLabel
             ? (source.label ?? source.path.toReadableLabel())
             : '');

@@ -77,6 +77,7 @@ class _AISPolarChartState extends State<AISPolarChart>
 
   bool _hasSubscribed = false;
   bool _hasLoadedAIS = false;
+  bool _lastSeenConnected = false;
   bool _showMapView = false; // Toggle between polar chart and map view
   bool _mapAutoFollow = true; // Auto-follow own vessel on map
   bool _fullScreenRadar = false; // Full-screen radar/map mode
@@ -141,8 +142,21 @@ class _AISPolarChartState extends State<AISPolarChart>
   void _onServiceUpdate() {
     if (!mounted) return;
 
-    // Try to subscribe if we haven't yet (in case connection happened after init)
+    // Detect reconnect: isConnected went false→true while we already loaded once
+    final connected = widget.signalKService.isConnected;
+    if (connected && !_lastSeenConnected && _hasLoadedAIS) {
+      _hasLoadedAIS = false; // Allow re-load
+      _hasSubscribed = false; // Re-subscribe position too
+    }
+    _lastSeenConnected = connected;
+
     _subscribeIfConnected();
+
+    // Load AIS vessels (first connection or after reconnect)
+    if (!_hasLoadedAIS) {
+      _hasLoadedAIS = true;
+      widget.signalKService.loadAndSubscribeAISVessels();
+    }
 
     // Only update own-vessel position from service updates
     final positionData = widget.signalKService.getValue(widget.positionPath);

@@ -1603,7 +1603,6 @@ class SignalKService extends ChangeNotifier implements DataService {
   /// 2. Subscribe for real-time updates only
   Future<void> loadAndSubscribeAISVessels() async {
     await _aisManager.loadAndSubscribeAISVessels();
-    notifyListeners();
   }
 
   /// Start periodic cache cleanup to prevent unbounded memory growth
