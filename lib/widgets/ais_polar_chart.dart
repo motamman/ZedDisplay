@@ -212,24 +212,24 @@ class _AISPolarChartState extends State<AISPolarChart>
 
     // Beam
     final beam = cache['$prefix.design.beam']?.value;
-    if (beam is num) extra['Beam'] = '${beam.toStringAsFixed(1)} m';
+    if (beam is num) extra['Beam'] = _formatLength(beam.toDouble());
 
     // Length
     final length = cache['$prefix.design.length']?.value;
     if (length is Map) {
       final overall = length['overall'];
-      if (overall is num) extra['Length'] = '${overall.toStringAsFixed(1)} m';
+      if (overall is num) extra['Length'] = _formatLength(overall.toDouble());
     } else if (length is num) {
-      extra['Length'] = '${length.toStringAsFixed(1)} m';
+      extra['Length'] = _formatLength(length.toDouble());
     }
 
     // Draft
     final draft = cache['$prefix.design.draft']?.value;
     if (draft is Map) {
       final current = draft['current'];
-      if (current is num) extra['Draft'] = '${current.toStringAsFixed(1)} m';
+      if (current is num) extra['Draft'] = _formatLength(current.toDouble());
     } else if (draft is num) {
-      extra['Draft'] = '${draft.toStringAsFixed(1)} m';
+      extra['Draft'] = _formatLength(draft.toDouble());
     }
 
     // AIS class
@@ -317,28 +317,17 @@ class _AISPolarChartState extends State<AISPolarChart>
               controller: scrollController,
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
               children: [
-                // Drag handle + close button
-                Stack(
-                  alignment: Alignment.center,
-                  children: [
-                    Container(
-                      width: 40,
-                      height: 4,
-                      margin: const EdgeInsets.only(bottom: 12),
-                      decoration: BoxDecoration(
-                        color: Colors.grey[400],
-                        borderRadius: BorderRadius.circular(2),
-                      ),
+                // Drag handle
+                Center(
+                  child: Container(
+                    width: 40,
+                    height: 4,
+                    margin: const EdgeInsets.only(bottom: 12),
+                    decoration: BoxDecoration(
+                      color: Colors.grey[400],
+                      borderRadius: BorderRadius.circular(2),
                     ),
-                    Positioned(
-                      right: 0,
-                      top: 0,
-                      child: GestureDetector(
-                        onTap: _dismissVesselDetails,
-                        child: Icon(Icons.close, size: 20, color: subtitleColor),
-                      ),
-                    ),
-                  ],
+                  ),
                 ),
                 // Header with icon and name
                 Row(
@@ -431,13 +420,13 @@ class _AISPolarChartState extends State<AISPolarChart>
                   if (vessel.sogRaw != null)
                     _detailRow('SOG', '${_convertSpeed(vessel.sogRaw!).toStringAsFixed(1)} ${_getSpeedUnit()}', subtitleColor, textColor),
                   if (vessel.cog != null)
-                    _detailRow('COG', '${vessel.cog!.toStringAsFixed(1)}°', subtitleColor, textColor),
+                    _detailRow('COG', '${vessel.cog!.toStringAsFixed(1)}${_getAngleSymbol()}', subtitleColor, textColor),
                   if (vessel.headingTrue != null)
-                    _detailRow('Heading', '${vessel.headingTrue!.toStringAsFixed(1)}°', subtitleColor, textColor),
+                    _detailRow('Heading', '${vessel.headingTrue!.toStringAsFixed(1)}${_getAngleSymbol()}', subtitleColor, textColor),
 
                   // Relative section
                   _sectionHeader('Relative', sectionColor),
-                  _detailRow('Bearing', '${vessel.bearing.toStringAsFixed(1)}°', subtitleColor, textColor),
+                  _detailRow('Bearing', '${vessel.bearing.toStringAsFixed(1)}${_getAngleSymbol()}', subtitleColor, textColor),
                   _detailRow('Distance', '${_convertDistance(vessel.distance).toStringAsFixed(2)} ${_getDistanceUnit()}', subtitleColor, textColor),
                   if (vessel.cpa != null)
                     _detailRow('CPA', '${_convertDistance(vessel.cpa!).toStringAsFixed(2)} ${_getDistanceUnit()}', subtitleColor, textColor),
@@ -740,14 +729,34 @@ class _AISPolarChartState extends State<AISPolarChart>
     return R * c; // Returns meters
   }
 
-  /// Convert distance from meters to user's preferred unit using server unit preferences
+  /// Convert distance from meters to user's preferred unit using MetadataStore
   double _convertDistance(double meters) {
+    final metadata = widget.signalKService.metadataStore.getByCategory('distance');
+    if (metadata != null) return metadata.convert(meters) ?? meters;
+    // Fallback to category-based conversion
     return widget.signalKService.convertByCategory('distance', meters) ?? meters;
   }
 
-  /// Get distance unit symbol from server unit preferences
+  /// Get distance unit symbol from MetadataStore
   String _getDistanceUnit() {
+    final metadata = widget.signalKService.metadataStore.getByCategory('distance');
+    if (metadata?.symbol != null) return metadata!.symbol!;
     return widget.signalKService.getSymbolForCategory('distance') ?? 'm';
+  }
+
+  /// Convert and format a length value (beam/length/draft) using MetadataStore
+  String _formatLength(double meters) {
+    final metadata = widget.signalKService.metadataStore.getByCategory('length');
+    if (metadata != null) {
+      final converted = metadata.convert(meters);
+      return '${converted?.toStringAsFixed(1) ?? meters.toStringAsFixed(1)} ${metadata.symbol ?? 'm'}';
+    }
+    return '${meters.toStringAsFixed(1)} m';
+  }
+
+  /// Get angle symbol from MetadataStore
+  String _getAngleSymbol() {
+    return widget.signalKService.metadataStore.get(widget.cogPath)?.symbol ?? '°';
   }
 
   /// Convert speed from m/s to user's preferred unit using SOG path's displayUnits
@@ -1853,7 +1862,7 @@ class _AISPolarChartState extends State<AISPolarChart>
                     const SizedBox(width: 8),
                     if (vessel.cog != null)
                       Text(
-                        'COG ${vessel.cog!.toStringAsFixed(0)}°',
+                        'COG ${vessel.cog!.toStringAsFixed(0)}${_getAngleSymbol()}',
                         style: const TextStyle(fontSize: 11),
                       ),
                     const SizedBox(width: 8),
