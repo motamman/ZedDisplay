@@ -1,4 +1,39 @@
-# What's New in v0.5.27
+# What's New in v0.5.28
+
+## Release Notes (Google Play - max 500 chars)
+
+v0.5.28 AIS, Autopilot & Tool Info
+
+NEW: Tool info buttons added across tools for in-app help.
+
+IMPROVED: AIS vessels color-coded by ship type with projected positions. Vessel details overlay covers full widget. Compass gauge and wind compass refactored.
+
+FIXED: Tapping a vessel no longer switches to map mode unexpectedly.
+
+## Release Notes (App Store / TestFlight - max 4000 chars)
+
+### AIS Polar Chart (IMPROVED)
+- **Color by Ship Type** - Vessels color-coded by type (cargo, tanker, passenger, etc.)
+- **Projected Positions** - Option to show where vessels are heading based on SOG/COG
+- **Interactive Highlights** - Tap vessels to highlight with AIS status details
+- **Full-Widget Details** - Vessel details overlay rises from bottom of entire widget, covering the vessel list in all layout modes
+- **No Forced Map Switch** - Tapping a vessel shows details without switching to map mode
+
+### Tool Info Buttons (NEW)
+- **In-App Help** - Info buttons added to forecast spinner, attitude indicator, intercom, crew list, and more
+- **Subtle Styling** - Reduced background opacity for better visual integration
+
+### Compass & Wind (IMPROVED)
+- **Compass Gauge** - Refactored to StatefulWidget with improved state management and color generation
+- **Wind Compass** - Separated AWA display logic with improved layout
+
+### Autopilot (IMPROVED)
+- **Mode Selector** - Uses swipeable bottom sheet for better usability and layout
+- **Tool Config** - Cleaned up excluded options for simpler configuration
+
+---
+
+# Previous: v0.5.27
 
 ## Release Notes (Google Play - max 500 chars)
 

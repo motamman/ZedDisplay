@@ -942,7 +942,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
     }
 
     // Unit (not applicable for certain complex tools)
-    const excludeUnitOptions = ['autopilot', 'wind_compass', 'weatherflow_forecast', 'tanks', 'clock_alarm', 'weather_api_spinner', 'anchor_alarm', 'position_display', 'victron_flow', 'device_access_manager'];
+    const excludeUnitOptions = ['autopilot', 'autopilot_v2', 'autopilot_simple', 'wind_compass', 'weatherflow_forecast', 'tanks', 'clock_alarm', 'weather_api_spinner', 'anchor_alarm', 'position_display', 'victron_flow', 'device_access_manager'];
     if (!excludeUnitOptions.contains(_selectedToolTypeId)) {
       widgets.addAll([
         TextFormField(
@@ -1031,7 +1031,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
     }
 
     // Show/Hide Options (not applicable for certain tools)
-    const excludeShowHideOptions = ['autopilot', 'wind_compass', 'weatherflow_forecast', 'tanks', 'clock_alarm', 'weather_api_spinner', 'anchor_alarm', 'position_display', 'victron_flow', 'device_access_manager'];
+    const excludeShowHideOptions = ['autopilot', 'autopilot_v2', 'autopilot_simple', 'wind_compass', 'weatherflow_forecast', 'tanks', 'clock_alarm', 'weather_api_spinner', 'anchor_alarm', 'position_display', 'victron_flow', 'device_access_manager'];
     if (!excludeShowHideOptions.contains(_selectedToolTypeId)) {
       widgets.addAll([
         SwitchListTile(
@@ -1064,7 +1064,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
     }
 
     // TTL (not applicable for certain tools that have their own state management)
-    const excludeTTLOptions = ['clock_alarm', 'anchor_alarm', 'server_manager', 'crew_messages', 'crew_list', 'intercom', 'file_share', 'position_display', 'victron_flow', 'device_access_manager'];
+    const excludeTTLOptions = ['autopilot', 'autopilot_v2', 'autopilot_simple', 'clock_alarm', 'anchor_alarm', 'server_manager', 'crew_messages', 'crew_list', 'intercom', 'file_share', 'position_display', 'victron_flow', 'device_access_manager'];
     if (!excludeTTLOptions.contains(_selectedToolTypeId)) {
       widgets.addAll([
         DropdownButtonFormField<int?>(

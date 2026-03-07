@@ -2468,6 +2468,30 @@ class _AISManager {
   Timer? _aisRefreshTimer;
   bool _aisInitialLoadDone = false;
 
+  /// Core navigation paths — fast-changing, subscribed at instant rate
+  static const _aisNavPaths = [
+    'navigation.position',
+    'navigation.courseOverGroundTrue',
+    'navigation.speedOverGround',
+    'navigation.headingTrue',
+  ];
+
+  /// Detail/metadata paths — slow-changing, subscribed at 60s rate
+  /// Single source of truth: drives subscription, REST caching, and context scanning
+  static const _aisDetailPaths = [
+    'navigation.state',
+    'navigation.destination.commonName',
+    'design.aisShipType',
+    'design.length',
+    'design.beam',
+    'design.draft',
+    'sensors.ais.class',
+    'sensors.ais.status', // from sk-ais-status-plugin
+    'communication.callsignVhf',
+    'registrations',
+    'name',
+  ];
+
   // Dependencies (inject as function getters)
   final String Function() getServerUrl;
   final bool Function() useSecureConnection;
@@ -2506,8 +2530,12 @@ class _AISManager {
         // Extract vessel context from key like "vessels.urn:mrn:imo:mmsi:123456789.navigation.position"
         final parts = key.split('.');
         if (parts.length >= 2) {
-          // Find where the path starts - look for known path prefixes
-          for (final pathPrefix in ['navigation', 'name', 'mmsi', 'communication']) {
+          // Find where the path starts - look for known path prefixes (derived from subscription paths)
+          final knownPrefixes = {
+            for (final p in [..._aisNavPaths, ..._aisDetailPaths])
+              p.split('.').first,
+          };
+          for (final pathPrefix in knownPrefixes) {
             final prefixIndex = parts.indexOf(pathPrefix);
             if (prefixIndex > 1) {
               final vesselContext = parts.sublist(0, prefixIndex).join('.');
@@ -2558,6 +2586,29 @@ class _AISManager {
           // Get vessel name
           final name = dataCache['$vesselContext.name']?.value as String?;
 
+          // Get AIS ship type
+          int? aisShipType;
+          final aisTypeData = dataCache['$vesselContext.design.aisShipType'];
+          if (aisTypeData?.value is Map) {
+            aisShipType = (aisTypeData!.value as Map)['id'] as int?;
+          } else if (aisTypeData?.value is num) {
+            aisShipType = (aisTypeData!.value as num).toInt();
+          }
+
+          // Get navigation state
+          final navState = dataCache['$vesselContext.navigation.state']?.value as String?;
+
+          // Get AIS status from sk-ais-status-plugin
+          final aisStatus = dataCache['$vesselContext.sensors.ais.status']?.value as String?;
+
+          // Get heading true (radians from SignalK, convert to degrees)
+          double? headingTrue;
+          final headingData = dataCache['$vesselContext.navigation.headingTrue'];
+          if (headingData?.value is num) {
+            final rawHeading = (headingData!.value as num).toDouble();
+            headingTrue = convertValueForPath('navigation.headingTrue', rawHeading);
+          }
+
           vessels[vesselId] = {
             'latitude': lat.toDouble(),
             'longitude': lon.toDouble(),
@@ -2567,12 +2618,35 @@ class _AISManager {
             'sogRaw': sogRaw, // Raw SI value (m/s) for CPA calculations
             'timestamp': positionData.lastSeen, // Use lastSeen for freshness checks
             'fromGET': positionData.fromGET,
+            'aisShipType': aisShipType,
+            'navState': navState,
+            'headingTrue': headingTrue,
+            'aisStatus': aisStatus,
           };
         }
       }
     }
 
     return vessels;
+  }
+
+  /// Resolve a dotted SignalK path from nested REST JSON
+  /// Unwraps {value: ...} wrappers automatically
+  static dynamic _resolveRestValue(Map<String, dynamic> data, String path) {
+    final parts = path.split('.');
+    dynamic current = data;
+    for (final part in parts) {
+      if (current is Map<String, dynamic>) {
+        current = current[part];
+      } else {
+        return null;
+      }
+    }
+    // SignalK REST wraps leaf values in {value: ...}
+    if (current is Map<String, dynamic> && current.containsKey('value')) {
+      return current['value'];
+    }
+    return current;
   }
 
   /// Get all AIS vessels with their positions from REST API
@@ -2633,33 +2707,43 @@ class _AISManager {
               final lon = positionValue?['longitude'];
 
               if (lat is num && lon is num) {
-                String? name;
-                final nameData = vesselData['name'];
-                if (nameData is String) {
-                  name = nameData;
-                } else if (nameData is Map<String, dynamic>) {
-                  name = nameData['value'] as String?;
-                }
-
-                final cogData = navigation?['courseOverGroundTrue'] as Map<String, dynamic>?;
-                final sogData = navigation?['speedOverGround'] as Map<String, dynamic>?;
+                // Core nav fields need unit conversion
+                final rawCog = _resolveRestValue(vesselData, 'navigation.courseOverGroundTrue');
+                final rawSog = _resolveRestValue(vesselData, 'navigation.speedOverGround');
+                final rawHeading = _resolveRestValue(vesselData, 'navigation.headingTrue');
 
                 double? cog;
                 double? sog;
                 double? sogRaw;
+                double? headingTrue;
 
-                if (cogData != null) {
-                  final rawCog = (cogData['value'] as num?)?.toDouble();
-                  if (rawCog != null) {
-                    cog = convertValueForPath('navigation.courseOverGroundTrue', rawCog);
-                  }
+                if (rawCog is num) {
+                  cog = convertValueForPath('navigation.courseOverGroundTrue', rawCog.toDouble());
+                }
+                if (rawSog is num) {
+                  sogRaw = rawSog.toDouble();
+                  sog = convertValueForPath('navigation.speedOverGround', sogRaw);
+                }
+                if (rawHeading is num) {
+                  headingTrue = convertValueForPath('navigation.headingTrue', rawHeading.toDouble());
                 }
 
-                if (sogData != null) {
-                  sogRaw = (sogData['value'] as num?)?.toDouble();
-                  if (sogRaw != null) {
-                    sog = convertValueForPath('navigation.speedOverGround', sogRaw);
-                  }
+                // Resolve all detail paths generically
+                final detailValues = <String, dynamic>{
+                  for (final path in _aisDetailPaths)
+                    path: _resolveRestValue(vesselData, path),
+                };
+
+                // Extract specific fields from resolved values
+                final nameVal = detailValues['name'];
+                final name = nameVal is String ? nameVal : null;
+
+                int? aisShipType;
+                final aisVal = detailValues['design.aisShipType'];
+                if (aisVal is Map) {
+                  aisShipType = aisVal['id'] as int?;
+                } else if (aisVal is num) {
+                  aisShipType = aisVal.toInt();
                 }
 
                 vessels[vesselId] = {
@@ -2668,7 +2752,12 @@ class _AISManager {
                   'name': name,
                   'cog': cog,
                   'sog': sog,
-                  'sogRaw': sogRaw, // Raw SI value (m/s) for CPA calculations
+                  'sogRaw': sogRaw,
+                  'aisShipType': aisShipType,
+                  'navState': detailValues['navigation.state'] as String?,
+                  'headingTrue': headingTrue,
+                  // Store raw resolved values for generic cache sync
+                  '_detailValues': detailValues,
                 };
               }
             }
@@ -2695,6 +2784,9 @@ class _AISManager {
         final vesselData = entry.value;
         final vesselContext = 'vessels.$vesselId';
 
+        final now = DateTime.now();
+
+        // Store position
         if (vesselData['latitude'] != null && vesselData['longitude'] != null) {
           dataCache['$vesselContext.navigation.position'] = SignalKDataPoint(
             path: 'navigation.position',
@@ -2702,38 +2794,42 @@ class _AISManager {
               'latitude': vesselData['latitude'],
               'longitude': vesselData['longitude'],
             },
-            timestamp: DateTime.now(),
+            timestamp: now,
             fromGET: true,
           );
         }
 
-        // Store COG
-        if (vesselData['cog'] != null) {
-          dataCache['$vesselContext.navigation.courseOverGroundTrue'] = SignalKDataPoint(
-            path: 'navigation.courseOverGroundTrue',
-            value: vesselData['cog'],
-            timestamp: DateTime.now(),
-            converted: vesselData['cog'],
-          );
+        // Store converted nav fields
+        for (final entry in <String, String>{
+          'navigation.courseOverGroundTrue': 'cog',
+          'navigation.speedOverGround': 'sog',
+          'navigation.headingTrue': 'headingTrue',
+        }.entries) {
+          if (vesselData[entry.value] != null) {
+            dataCache['$vesselContext.${entry.key}'] = SignalKDataPoint(
+              path: entry.key,
+              value: vesselData[entry.value],
+              timestamp: now,
+              converted: vesselData[entry.value],
+              fromGET: true,
+            );
+          }
         }
 
-        // Store SOG
-        if (vesselData['sog'] != null) {
-          dataCache['$vesselContext.navigation.speedOverGround'] = SignalKDataPoint(
-            path: 'navigation.speedOverGround',
-            value: vesselData['sog'],
-            timestamp: DateTime.now(),
-            converted: vesselData['sog'],
-          );
-        }
-
-        // Store name
-        if (vesselData['name'] != null) {
-          dataCache['$vesselContext.name'] = SignalKDataPoint(
-            path: 'name',
-            value: vesselData['name'],
-            timestamp: DateTime.now(),
-          );
+        // Store all detail paths generically from REST-resolved values
+        final detailValues = vesselData['_detailValues'] as Map<String, dynamic>?;
+        if (detailValues != null) {
+          for (final path in _aisDetailPaths) {
+            final value = detailValues[path];
+            if (value != null) {
+              dataCache['$vesselContext.$path'] = SignalKDataPoint(
+                path: path,
+                value: value,
+                timestamp: now,
+                fromGET: true,
+              );
+            }
+          }
         }
       }
 
@@ -2783,10 +2879,10 @@ class _AISManager {
     final aisSubscription = {
       'context': 'vessels.*',
       'subscribe': [
-        {'path': 'navigation.position', 'format': 'delta', 'policy': 'instant'},
-        {'path': 'navigation.courseOverGroundTrue', 'format': 'delta', 'policy': 'instant'},
-        {'path': 'navigation.speedOverGround', 'format': 'delta', 'policy': 'instant'},
-        {'path': 'name', 'period': 60000, 'format': 'delta', 'policy': 'ideal'},
+        for (final path in _aisNavPaths)
+          {'path': path, 'format': 'delta', 'policy': 'instant'},
+        for (final path in _aisDetailPaths)
+          {'path': path, 'period': 60000, 'format': 'delta', 'policy': 'ideal'},
       ],
     };
 
