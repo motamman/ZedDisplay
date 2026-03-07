@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.28+35] - 2026-03-06
+
+### Added
+- **Tool Info Buttons**: Added info buttons across tools (forecast spinner, attitude indicator, intercom, crew list, and more) for in-app help
+
+### Enhanced
+- **AIS Polar Chart**: Color vessels by ship type and show projected positions
+- **AIS Vessel Details**: Interactive highlights with AIS status display; non-blocking overlay rises from bottom of entire widget, covering vessel list in all layouts
+- **Autopilot Mode Selector**: Refactored to use DraggableScrollableSheet for improved usability
+- **Autopilot Tool Config**: Updated excluded options for cleaner configuration screen
+- **Compass Gauge**: Refactored to StatefulWidget with improved state management and color generation
+- **Wind Compass**: Separated AWA display logic with improved layout
+- **Tool Info Buttons**: Reduced background opacity and adjusted layout for improved visibility
+
+### Fixed
+- **AIS Polar Chart**: Tapping a vessel no longer forces map mode — details shown without switching view
+- **AIS Vessel Details**: Overlay now covers full widget area in stacked and side-by-side layouts
+
 ## [0.5.27+35] - 2026-03-05
 
 ### Added
