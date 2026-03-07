@@ -30,7 +30,8 @@ mixin ZonesMixin<T extends StatefulWidget> on State<T> {
       signalKService.addListener(_zonesListener!);
       _listenerAdded = true;
     }
-    _fetchZonesIfReady(signalKService, path);
+    // Defer to avoid all gauges firing HTTP requests in the same build frame
+    Future.microtask(() => _fetchZonesIfReady(signalKService, path));
   }
 
   void _onConnectionChanged(SignalKService signalKService, String path) {
