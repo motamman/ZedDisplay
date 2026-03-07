@@ -144,6 +144,16 @@ class _AISPolarChartState extends State<AISPolarChart>
     // Try to subscribe if we haven't yet (in case connection happened after init)
     _subscribeIfConnected();
 
+    // Re-trigger AIS load after reconnect — the manager's _aisInitialLoadDone
+    // was reset by disconnect(), but widget's _hasLoadedAIS survived
+    if (widget.signalKService.isConnected &&
+        widget.signalKService.aisVesselRegistry.count == 0 &&
+        _hasLoadedAIS) {
+      _hasLoadedAIS = false;
+      widget.signalKService.loadAndSubscribeAISVessels();
+      _hasLoadedAIS = true;
+    }
+
     // Only update own-vessel position from service updates
     final positionData = widget.signalKService.getValue(widget.positionPath);
     if (positionData?.value is Map) {
