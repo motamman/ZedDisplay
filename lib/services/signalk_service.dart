@@ -14,6 +14,7 @@ import 'interfaces/data_service.dart';
 import 'storage_service.dart';
 import 'metadata_store.dart';
 import '../models/path_metadata.dart';
+import 'ais_vessel_registry.dart';
 
 /// Connection state for SignalK server
 enum SignalKConnectionState {
@@ -119,7 +120,6 @@ class SignalKService extends ChangeNotifier implements DataService {
       getChannel: () => _channel,
       getVesselContext: () => _vesselContext,
       getDataCache: () => _dataCache.internalDataMap,
-      convertValueForPath: (path, value) => _convertValueForPath(path, value),
     );
   }
 
@@ -171,6 +171,9 @@ class SignalKService extends ChangeNotifier implements DataService {
   /// Single source of truth for path metadata and conversions.
   /// Populated from WebSocket meta deltas (sendMeta=all).
   MetadataStore get metadataStore => _metadataStore;
+
+  /// Indexed AIS vessel store with single-authority pruning.
+  AISVesselRegistry get aisVesselRegistry => _aisManager.registry;
 
   @override
   String get serverUrl => _serverUrl;
@@ -462,6 +465,8 @@ class SignalKService extends ChangeNotifier implements DataService {
       // Always get vessel context for self-vessel filtering (used by AIS)
       final vesselId = await getVesselSelfId();
       _vesselContext = vesselId != null ? 'vessels.$vesselId' : 'vessels.self';
+      _selfMMSI = vesselId != null ? RegExp(r'(\d{9})').firstMatch(vesselId)?.group(1) : null;
+      _aisManager.registry.setSelfVesselId(vesselId);
 
       // For units-preference plugin, wait for template paths
       if (_authToken != null) {
@@ -626,10 +631,24 @@ class SignalKService extends ChangeNotifier implements DataService {
               );
             }
 
-            // Store at default path (for self vessel and backward compatibility)
+            // Route AIS vessel deltas to registry, own vessel to flat cache
+            if (update.context.startsWith('vessels.') && !_isSelfContext(update.context)) {
+              // AIS vessel — route to registry (not flat cache)
+              final vesselId = update.context.substring('vessels.'.length);
+              _aisManager.registry.updateVessel(
+                vesselId, value.path, dataPoint.original ?? dataPoint.value,
+                updateValue.timestamp,
+              );
+              // Still store detail data in flat cache for _getExtraVesselData() lookups
+              final contextPath = '${update.context}.${value.path}';
+              _dataCache.internalDataMap[contextPath] = dataPoint;
+              continue; // Skip self-vessel storage
+            }
+
+            // Own vessel — store in flat cache as before
             _dataCache.internalDataMap[value.path] = dataPoint;
 
-            // ALSO store with full vessel context for multi-vessel support (AIS)
+            // ALSO store with full vessel context for multi-vessel support
             final contextPath = '${update.context}.${value.path}';
             _dataCache.internalDataMap[contextPath] = dataPoint;
 
@@ -637,18 +656,14 @@ class SignalKService extends ChangeNotifier implements DataService {
             if (source != null) {
               final sourceKey = '${value.path}@$source';
               _dataCache.internalDataMap[sourceKey] = dataPoint;
-              // if (kDebugMode && (value.path.contains('heading') || value.path.contains('autopilot'))) {
-              //   print('📍 ALSO stored ${value.path} from source $source at SOURCE-SPECIFIC key: $sourceKey = ${dataPoint.value}');
-              // }
-            } // else {
-              // if (kDebugMode && (value.path.contains('heading') || value.path.contains('autopilot'))) {
-              //   print('⚠️  NO SOURCE provided for ${value.path} - stored ONLY at default path');
-              // }
-            // }
+            }
 
             // NOTE: Notifications are handled by separate WebSocket connection
           }
         }
+
+        // Notify AIS registry once per delta batch (not per path)
+        _aisManager.registry.notifyChanged();
 
         // Invalidate cache when data changes
         _latestDataView = null;
@@ -1112,10 +1127,19 @@ class SignalKService extends ChangeNotifier implements DataService {
     return _aisManager.getLiveAISVessels();
   }
 
-  /// Get all AIS vessels with their positions from REST API
-  /// Uses standard SignalK endpoint and applies client-side conversions
-  Future<Map<String, Map<String, dynamic>>> getAllAISVessels() async {
-    return _aisManager.getAllAISVessels();
+  /// Fetch all AIS vessels from REST API and populate the registry.
+  Future<void> fetchAllAISVessels() async {
+    await _aisManager.fetchAndPopulateRegistry();
+  }
+
+  // Cached self MMSI for fast matching in hot path
+  String? _selfMMSI;
+
+  /// Check if a delta context refers to the own vessel.
+  bool _isSelfContext(String context) {
+    if (context == _vesselContext) return true;
+    if (_selfMMSI != null && context.contains(_selfMMSI!)) return true;
+    return false;
   }
 
   /// Fetch vessel self ID from SignalK server using the /self endpoint
@@ -1628,9 +1652,11 @@ class SignalKService extends ChangeNotifier implements DataService {
       _activePaths.clear();
       _autopilotPaths.clear();
       _vesselContext = null;
+      _selfMMSI = null;
       _ensuredResourceTypes.clear();
       _displayUnitsCache.clear();
       _metadataStore.clear();
+      _aisManager.registry.clear();
 
       // Disconnect autopilot channel
       await _autopilotSubscription?.cancel();
@@ -1859,10 +1885,11 @@ class _DataCacheManager {
       if (key.startsWith('environment.')) {
         return false;
       }
-      // AIS vessel data - prune if older than 10 minutes
+      // AIS vessel detail data in flat cache - prune if older than 20 minutes
+      // (Navigation data is now in AISVesselRegistry which handles its own pruning)
       if (key.startsWith('vessels.')) {
         final age = now.difference(dataPoint.timestamp);
-        return age.inMinutes > 10;
+        return age.inMinutes > 20;
       }
       // Other data - prune if older than 15 minutes
       final age = now.difference(dataPoint.timestamp);
@@ -2468,6 +2495,9 @@ class _AISManager {
   Timer? _aisRefreshTimer;
   bool _aisInitialLoadDone = false;
 
+  /// Indexed vessel store — single authority for AIS data and pruning.
+  late final AISVesselRegistry registry = AISVesselRegistry();
+
   /// Core navigation paths — fast-changing, subscribed at instant rate
   static const _aisNavPaths = [
     'navigation.position',
@@ -2500,7 +2530,6 @@ class _AISManager {
   final WebSocketChannel? Function() getChannel;
   final String? Function() getVesselContext;
   final Map<String, SignalKDataPoint> Function() getDataCache;
-  final double? Function(String, double) convertValueForPath;
 
   // Cached self vessel ID for filtering
   String? _cachedSelfVesselId;
@@ -2513,118 +2542,31 @@ class _AISManager {
     required this.getChannel,
     required this.getVesselContext,
     required this.getDataCache,
-    required this.convertValueForPath,
   });
 
-  /// Get live AIS vessel data from WebSocket cache
-  /// Returns vessel data populated by vessels.* wildcard subscription
+  /// Get live AIS vessel data — delegates to registry.
+  /// Returns raw SI values (radians, m/s). Callers must convert for display.
   Map<String, Map<String, dynamic>> getLiveAISVessels() {
     final vessels = <String, Map<String, dynamic>>{};
-    final dataCache = getDataCache();
 
-    // Scan data cache for vessel context keys
-    final vesselContexts = <String>{};
+    for (final entry in registry.vessels.entries) {
+      final vessel = entry.value;
+      if (!vessel.hasPosition) continue;
 
-    for (final key in dataCache.keys) {
-      if (key.startsWith('vessels.') && !key.startsWith('vessels.self')) {
-        // Extract vessel context from key like "vessels.urn:mrn:imo:mmsi:123456789.navigation.position"
-        final parts = key.split('.');
-        if (parts.length >= 2) {
-          // Find where the path starts - look for known path prefixes (derived from subscription paths)
-          final knownPrefixes = {
-            for (final p in [..._aisNavPaths, ..._aisDetailPaths])
-              p.split('.').first,
-          };
-          for (final pathPrefix in knownPrefixes) {
-            final prefixIndex = parts.indexOf(pathPrefix);
-            if (prefixIndex > 1) {
-              final vesselContext = parts.sublist(0, prefixIndex).join('.');
-              vesselContexts.add(vesselContext);
-              break;
-            }
-          }
-        }
-      }
-    }
-
-    // For each vessel context, extract position, COG, SOG, and name
-    for (final vesselContext in vesselContexts) {
-      final vesselId = vesselContext.substring('vessels.'.length);
-
-      // Skip self vessel - use cached ID or fall back to getVesselContext()
-      final selfVesselId = _cachedSelfVesselId;
-      final selfContext = selfVesselId != null ? 'vessels.$selfVesselId' : getVesselContext();
-      if (vesselContext == selfContext || vesselId == selfVesselId || vesselContext.contains('self')) {
-        continue;
-      }
-
-      // Get position
-      final positionData = dataCache['$vesselContext.navigation.position'];
-      if (positionData?.value is Map<String, dynamic>) {
-        final position = positionData!.value as Map<String, dynamic>;
-        final lat = position['latitude'];
-        final lon = position['longitude'];
-
-        if (lat is num && lon is num) {
-          // Get COG
-          final cogData = dataCache['$vesselContext.navigation.courseOverGroundTrue'];
-          double? cog;
-          if (cogData?.value is num) {
-            final rawCog = (cogData!.value as num).toDouble();
-            cog = convertValueForPath('navigation.courseOverGroundTrue', rawCog);
-          }
-
-          // Get SOG
-          final sogData = dataCache['$vesselContext.navigation.speedOverGround'];
-          double? sog;
-          double? sogRaw;
-          if (sogData?.value is num) {
-            sogRaw = (sogData!.value as num).toDouble();
-            sog = convertValueForPath('navigation.speedOverGround', sogRaw);
-          }
-
-          // Get vessel name
-          final name = dataCache['$vesselContext.name']?.value as String?;
-
-          // Get AIS ship type
-          int? aisShipType;
-          final aisTypeData = dataCache['$vesselContext.design.aisShipType'];
-          if (aisTypeData?.value is Map) {
-            aisShipType = (aisTypeData!.value as Map)['id'] as int?;
-          } else if (aisTypeData?.value is num) {
-            aisShipType = (aisTypeData!.value as num).toInt();
-          }
-
-          // Get navigation state
-          final navState = dataCache['$vesselContext.navigation.state']?.value as String?;
-
-          // Get AIS status from sk-ais-status-plugin
-          final aisStatus = dataCache['$vesselContext.sensors.ais.status']?.value as String?;
-
-          // Get heading true (radians from SignalK, convert to degrees)
-          double? headingTrue;
-          final headingData = dataCache['$vesselContext.navigation.headingTrue'];
-          if (headingData?.value is num) {
-            final rawHeading = (headingData!.value as num).toDouble();
-            headingTrue = convertValueForPath('navigation.headingTrue', rawHeading);
-          }
-
-          vessels[vesselId] = {
-            'latitude': lat.toDouble(),
-            'longitude': lon.toDouble(),
-            'name': name,
-            'cog': cog,
-            'sog': sog,
-            'sogRaw': sogRaw, // Raw SI value (m/s) for CPA calculations
-            'timestamp': positionData.lastSeen, // Use lastSeen for freshness checks
-            'fromGET': positionData.fromGET,
-            'aisShipType': aisShipType,
-            'navState': navState,
-            'headingTrue': headingTrue,
-            'aisStatus': aisStatus,
-          };
-        }
-      }
+      vessels[vessel.vesselId] = {
+        'latitude': vessel.latitude,
+        'longitude': vessel.longitude,
+        'name': vessel.name,
+        'cog': vessel.cogRad,           // Raw SI: radians
+        'sog': vessel.sogMs,            // Raw SI: m/s
+        'sogRaw': vessel.sogMs,         // Alias for backward compat
+        'timestamp': vessel.lastSeen,
+        'fromGET': vessel.fromREST,
+        'aisShipType': vessel.aisShipType,
+        'navState': vessel.navState,
+        'headingTrue': vessel.headingTrueRad, // Raw SI: radians
+        'aisStatus': vessel.aisStatus,
+      };
     }
 
     return vessels;
@@ -2649,13 +2591,10 @@ class _AISManager {
     return current;
   }
 
-  /// Get all AIS vessels with their positions from REST API
-  /// Uses standard SignalK endpoint and applies client-side conversions
-  Future<Map<String, Map<String, dynamic>>> getAllAISVessels() async {
-    final vessels = <String, Map<String, dynamic>>{};
+  /// Fetch AIS vessels from REST API and populate the registry.
+  /// Stores raw SI values (no conversions).
+  Future<void> fetchAndPopulateRegistry() async {
     final protocol = useSecureConnection() ? 'https' : 'http';
-
-    // Use standard SignalK vessels endpoint
     final endpoint = '$protocol://${getServerUrl()}/signalk/v1/api/vessels';
 
     try {
@@ -2665,11 +2604,9 @@ class _AISManager {
       ).timeout(const Duration(seconds: 5));
 
       if (response.statusCode == 200) {
-        // Response has vessels at root level, NOT wrapped in 'vessels' object
         final vesselsData = jsonDecode(response.body) as Map<String, dynamic>;
 
         // Fetch self vessel ID directly from /self endpoint
-        String? selfVesselId;
         try {
           final selfResponse = await http.get(
             Uri.parse('$protocol://${getServerUrl()}/signalk/v1/api/self'),
@@ -2678,149 +2615,59 @@ class _AISManager {
 
           if (selfResponse.statusCode == 200) {
             final selfRef = selfResponse.body.replaceAll('"', '').trim();
-            selfVesselId = selfRef.startsWith('vessels.')
+            _cachedSelfVesselId = selfRef.startsWith('vessels.')
                 ? selfRef.substring('vessels.'.length)
                 : selfRef;
-            // Cache for use by getLiveAISVessels()
-            _cachedSelfVesselId = selfVesselId;
+            registry.setSelfVesselId(_cachedSelfVesselId);
           }
         } catch (_) {
           // Ignore self-fetch errors
         }
 
-        for (final entry in vesselsData.entries) {
-          final vesselId = entry.key;
-
-          // Skip self vessel - check both the literal 'self' key and the actual vessel ID
-          if (vesselId == 'self' || vesselId == selfVesselId) {
-            continue;
-          }
-
-          final vesselData = entry.value as Map<String, dynamic>?;
-          if (vesselData != null) {
-            final navigation = vesselData['navigation'] as Map<String, dynamic>?;
-            final position = navigation?['position'] as Map<String, dynamic>?;
-
-            if (position != null) {
-              final positionValue = position['value'] as Map<String, dynamic>?;
-              final lat = positionValue?['latitude'];
-              final lon = positionValue?['longitude'];
-
-              if (lat is num && lon is num) {
-                // Core nav fields need unit conversion
-                final rawCog = _resolveRestValue(vesselData, 'navigation.courseOverGroundTrue');
-                final rawSog = _resolveRestValue(vesselData, 'navigation.speedOverGround');
-                final rawHeading = _resolveRestValue(vesselData, 'navigation.headingTrue');
-
-                double? cog;
-                double? sog;
-                double? sogRaw;
-                double? headingTrue;
-
-                if (rawCog is num) {
-                  cog = convertValueForPath('navigation.courseOverGroundTrue', rawCog.toDouble());
-                }
-                if (rawSog is num) {
-                  sogRaw = rawSog.toDouble();
-                  sog = convertValueForPath('navigation.speedOverGround', sogRaw);
-                }
-                if (rawHeading is num) {
-                  headingTrue = convertValueForPath('navigation.headingTrue', rawHeading.toDouble());
-                }
-
-                // Resolve all detail paths generically
-                final detailValues = <String, dynamic>{
-                  for (final path in _aisDetailPaths)
-                    path: _resolveRestValue(vesselData, path),
-                };
-
-                // Extract specific fields from resolved values
-                final nameVal = detailValues['name'];
-                final name = nameVal is String ? nameVal : null;
-
-                int? aisShipType;
-                final aisVal = detailValues['design.aisShipType'];
-                if (aisVal is Map) {
-                  aisShipType = aisVal['id'] as int?;
-                } else if (aisVal is num) {
-                  aisShipType = aisVal.toInt();
-                }
-
-                vessels[vesselId] = {
-                  'latitude': lat.toDouble(),
-                  'longitude': lon.toDouble(),
-                  'name': name,
-                  'cog': cog,
-                  'sog': sog,
-                  'sogRaw': sogRaw,
-                  'aisShipType': aisShipType,
-                  'navState': detailValues['navigation.state'] as String?,
-                  'headingTrue': headingTrue,
-                  // Store raw resolved values for generic cache sync
-                  '_detailValues': detailValues,
-                };
-              }
-            }
-          }
-        }
-      }
-    } catch (e) {
-      if (kDebugMode) {
-        print('AIS fetch error: $e');
-      }
-    }
-
-    return vessels;
-  }
-
-  /// Load AIS vessels and subscribe for updates
-  Future<void> loadAndSubscribeAISVessels() async {
-    if (!_aisInitialLoadDone) {
-      _aisInitialLoadDone = true;
-      final vessels = await getAllAISVessels();
-      final dataCache = getDataCache();
-      for (final entry in vessels.entries) {
-        final vesselId = entry.key;
-        final vesselData = entry.value;
-        final vesselContext = 'vessels.$vesselId';
-
+        // Build registry-compatible data: vesselId → {path: value, ...}
+        final registryData = <String, Map<String, dynamic>>{};
+        final dataCache = getDataCache();
         final now = DateTime.now();
 
-        // Store position
-        if (vesselData['latitude'] != null && vesselData['longitude'] != null) {
-          dataCache['$vesselContext.navigation.position'] = SignalKDataPoint(
-            path: 'navigation.position',
-            value: {
-              'latitude': vesselData['latitude'],
-              'longitude': vesselData['longitude'],
-            },
-            timestamp: now,
-            fromGET: true,
-          );
-        }
+        for (final entry in vesselsData.entries) {
+          final vesselId = entry.key;
+          if (vesselId == 'self' || vesselId == _cachedSelfVesselId) continue;
 
-        // Store converted nav fields
-        for (final entry in <String, String>{
-          'navigation.courseOverGroundTrue': 'cog',
-          'navigation.speedOverGround': 'sog',
-          'navigation.headingTrue': 'headingTrue',
-        }.entries) {
-          if (vesselData[entry.value] != null) {
-            dataCache['$vesselContext.${entry.key}'] = SignalKDataPoint(
-              path: entry.key,
-              value: vesselData[entry.value],
-              timestamp: now,
-              converted: vesselData[entry.value],
-              fromGET: true,
-            );
+          final vesselData = entry.value as Map<String, dynamic>?;
+          if (vesselData == null) continue;
+
+          final navigation = vesselData['navigation'] as Map<String, dynamic>?;
+          final position = navigation?['position'] as Map<String, dynamic>?;
+          if (position == null) continue;
+
+          final positionValue = position['value'] as Map<String, dynamic>?;
+          final lat = positionValue?['latitude'];
+          final lon = positionValue?['longitude'];
+          if (lat is! num || lon is! num) continue;
+
+          final fields = <String, dynamic>{
+            'navigation.position': {'latitude': lat.toDouble(), 'longitude': lon.toDouble()},
+          };
+
+          // Resolve nav and detail paths — raw SI, no conversion
+          for (final path in [..._aisNavPaths, ..._aisDetailPaths]) {
+            if (path == 'navigation.position') continue;
+            final value = _resolveRestValue(vesselData, path);
+            if (value != null) {
+              fields[path] = value;
+            }
           }
-        }
 
-        // Store all detail paths generically from REST-resolved values
-        final detailValues = vesselData['_detailValues'] as Map<String, dynamic>?;
-        if (detailValues != null) {
+          // Resolve name separately (not in nav/detail lists but needed)
+          final nameVal = _resolveRestValue(vesselData, 'name');
+          if (nameVal is String) fields['name'] = nameVal;
+
+          registryData[vesselId] = fields;
+
+          // Also store detail data in flat cache for _getExtraVesselData() lookups
+          final vesselContext = 'vessels.$vesselId';
           for (final path in _aisDetailPaths) {
-            final value = detailValues[path];
+            final value = _resolveRestValue(vesselData, path);
             if (value != null) {
               dataCache['$vesselContext.$path'] = SignalKDataPoint(
                 path: path,
@@ -2831,7 +2678,23 @@ class _AISManager {
             }
           }
         }
+
+        registry.updateFromREST(registryData);
+        registry.notifyChanged();
       }
+    } catch (e) {
+      if (kDebugMode) {
+        print('AIS fetch error: $e');
+      }
+    }
+  }
+
+  /// Load AIS vessels from REST and subscribe for WebSocket updates.
+  Future<void> loadAndSubscribeAISVessels() async {
+    if (!_aisInitialLoadDone) {
+      _aisInitialLoadDone = true;
+      await fetchAndPopulateRegistry();
+      registry.startPruning();
 
       await Future.delayed(const Duration(seconds: 10));
       startAISRefreshTimer();
@@ -2840,7 +2703,8 @@ class _AISManager {
     subscribeToAllAISVessels();
   }
 
-  /// Start periodic AIS refresh timer
+  /// Start periodic AIS refresh timer — only updates slow-changing detail data.
+  /// Skips vessels whose WebSocket data is recent (within 30s).
   void startAISRefreshTimer() {
     _aisRefreshTimer?.cancel();
     _aisRefreshTimer = Timer.periodic(const Duration(minutes: 5), (timer) async {
@@ -2849,25 +2713,8 @@ class _AISManager {
         return;
       }
 
-      final vessels = await getAllAISVessels();
-      final dataCache = getDataCache();
-
-      for (final entry in vessels.entries) {
-        final vesselId = entry.key;
-        final vesselData = entry.value;
-        final vesselContext = 'vessels.$vesselId';
-
-        if (dataCache['$vesselContext.navigation.position'] != null) {
-          if (vesselData['name'] != null) {
-            dataCache['$vesselContext.name'] = SignalKDataPoint(
-              path: 'name',
-              value: vesselData['name'],
-              timestamp: DateTime.now(),
-              fromGET: true,
-            );
-          }
-        }
-      }
+      // Re-fetch from REST to pick up new vessels and slow-changing details
+      await fetchAndPopulateRegistry();
     });
   }
 
@@ -2893,5 +2740,6 @@ class _AISManager {
     _aisRefreshTimer?.cancel();
     _aisRefreshTimer = null;
     _aisInitialLoadDone = false;
+    registry.clear();
   }
 }
