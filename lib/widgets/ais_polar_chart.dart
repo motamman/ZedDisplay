@@ -62,6 +62,9 @@ class _AISPolarChartState extends State<AISPolarChart>
   // Highlighted vessel (for tap-to-highlight)
   String? _highlightedVesselMMSI;
 
+  // Vessel details overlay (non-blocking, replaces modal bottom sheet)
+  String? _detailsVesselMMSI;
+
   // Cache CPA/TCPA values per vessel to prevent disappearing
   final Map<String, ({double cpa, double tcpa})> _cachedCPA = {};
 
@@ -152,9 +155,35 @@ class _AISPolarChartState extends State<AISPolarChart>
   }
 
   void _highlightVessel(String mmsi) {
-    setState(() => _highlightedVesselMMSI = mmsi);
+    setState(() {
+      _highlightedVesselMMSI = mmsi;
+      _detailsVesselMMSI = mmsi;
+    });
     _highlightTimer?.cancel();
-    _showVesselDetails(mmsi);
+    if (_showMapView) {
+      _centerMapOnVessel(mmsi);
+    }
+  }
+
+  void _centerMapOnVessel(String mmsi) {
+    final vessel = _vessels.cast<_VesselPoint?>().firstWhere(
+      (v) => v!.mmsi == mmsi,
+      orElse: () => null,
+    );
+    if (vessel != null && vessel.latitude != null && vessel.longitude != null) {
+      _mapController.move(
+        LatLng(vessel.latitude!, vessel.longitude!),
+        _mapController.camera.zoom,
+      );
+      _mapAutoFollow = false;
+    }
+  }
+
+  void _dismissVesselDetails() {
+    setState(() {
+      _detailsVesselMMSI = null;
+      _highlightedVesselMMSI = null;
+    });
   }
 
   /// Extract extra vessel data from the SignalK data cache
@@ -221,62 +250,78 @@ class _AISPolarChartState extends State<AISPolarChart>
     return extra;
   }
 
-  void _showVesselDetails(String mmsi) {
+  Widget _buildVesselDetailsOverlay(String mmsi) {
     final vessel = _vessels.cast<_VesselPoint?>().firstWhere(
       (v) => v!.mmsi == mmsi,
       orElse: () => null,
     );
     final extraData = _getExtraVesselData(mmsi);
 
-    showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (sheetContext) {
-        final isDark = Theme.of(sheetContext).brightness == Brightness.dark;
-        final bgColor = isDark ? const Color(0xFF1E1E1E) : Colors.white;
-        final textColor = isDark ? Colors.white : Colors.black87;
-        final subtitleColor = isDark ? Colors.white70 : Colors.black54;
-        final sectionColor = isDark ? Colors.white38 : Colors.black38;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final bgColor = isDark ? const Color(0xFF1E1E1E) : Colors.white;
+    final textColor = isDark ? Colors.white : Colors.black87;
+    final subtitleColor = isDark ? Colors.white70 : Colors.black54;
+    final sectionColor = isDark ? Colors.white38 : Colors.black38;
 
-        final vesselName = vessel?.name ?? extraData['name'] ?? 'Unknown Vessel';
-        final displayMMSI = _extractMMSI(mmsi);
-        final shipTypeLabel = extraData['Ship Type'] ?? _getShipTypeLabel(vessel?.aisShipType);
-        final typeColor = _getVesselTypeColor(vessel?.aisShipType, aisClass: vessel?.aisClass);
-        final heading = vessel?.headingTrue ?? vessel?.cog ?? 0.0;
-        final icon = vessel != null
-            ? _getVesselIcon(vessel.aisShipType, vessel.navState, sogRaw: vessel.sogRaw)
-            : Icons.navigation;
+    final vesselName = vessel?.name ?? extraData['name'] ?? 'Unknown Vessel';
+    final displayMMSI = _extractMMSI(mmsi);
+    final shipTypeLabel = extraData['Ship Type'] ?? _getShipTypeLabel(vessel?.aisShipType);
+    final typeColor = _getVesselTypeColor(vessel?.aisShipType, aisClass: vessel?.aisClass);
+    final heading = vessel?.headingTrue ?? vessel?.cog ?? 0.0;
+    final icon = vessel != null
+        ? _getVesselIcon(vessel.aisShipType, vessel.navState, sogRaw: vessel.sogRaw)
+        : Icons.navigation;
 
-        // Build dimensions string
-        String? dimensionsStr;
-        final parts = <String>[];
-        if (extraData.containsKey('Length') && extraData.containsKey('Beam')) {
-          parts.add('${extraData['Length']!} x ${extraData['Beam']!}');
-        } else {
-          if (extraData.containsKey('Length')) parts.add(extraData['Length']!);
-          if (extraData.containsKey('Beam')) parts.add('beam ${extraData['Beam']!}');
-        }
-        if (extraData.containsKey('Draft')) parts.add('draft ${extraData['Draft']!}');
-        if (parts.isNotEmpty) dimensionsStr = parts.join(', ');
+    // Build dimensions string
+    String? dimensionsStr;
+    final parts = <String>[];
+    if (extraData.containsKey('Length') && extraData.containsKey('Beam')) {
+      parts.add('${extraData['Length']!} x ${extraData['Beam']!}');
+    } else {
+      if (extraData.containsKey('Length')) parts.add(extraData['Length']!);
+      if (extraData.containsKey('Beam')) parts.add('beam ${extraData['Beam']!}');
+    }
+    if (extraData.containsKey('Draft')) parts.add('draft ${extraData['Draft']!}');
+    if (parts.isNotEmpty) dimensionsStr = parts.join(', ');
 
-        return DraggableScrollableSheet(
-          initialChildSize: 0.4,
-          maxChildSize: 0.65,
-          minChildSize: 0.2,
-          builder: (_, scrollController) {
-            return Container(
-              decoration: BoxDecoration(
-                color: bgColor,
-                borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
-              ),
-              child: ListView(
-                controller: scrollController,
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-                children: [
-                  // Drag handle
-                  Center(
-                    child: Container(
+    return DraggableScrollableSheet(
+      initialChildSize: 0.4,
+      maxChildSize: 0.65,
+      minChildSize: 0.15,
+      snap: true,
+      snapSizes: const [0.15, 0.4],
+      builder: (_, scrollController) {
+        return NotificationListener<DraggableScrollableNotification>(
+          onNotification: (notification) {
+            // Dismiss when dragged to minimum size
+            if (notification.extent <= notification.minExtent) {
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                _dismissVesselDetails();
+              });
+            }
+            return false;
+          },
+          child: Container(
+            decoration: BoxDecoration(
+              color: bgColor,
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.3),
+                  blurRadius: 10,
+                  offset: const Offset(0, -2),
+                ),
+              ],
+            ),
+            child: ListView(
+              controller: scrollController,
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+              children: [
+                // Drag handle + close button
+                Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    Container(
                       width: 40,
                       height: 4,
                       margin: const EdgeInsets.only(bottom: 12),
@@ -285,129 +330,133 @@ class _AISPolarChartState extends State<AISPolarChart>
                         borderRadius: BorderRadius.circular(2),
                       ),
                     ),
-                  ),
-                  // Header with icon and name
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.center,
-                    children: [
-                      Transform.rotate(
-                        angle: heading * math.pi / 180,
-                        child: Icon(icon, color: typeColor, size: 32,
-                          shadows: [Shadow(color: Colors.black.withValues(alpha: 0.3), blurRadius: 2)],
-                        ),
+                    Positioned(
+                      right: 0,
+                      top: 0,
+                      child: GestureDetector(
+                        onTap: _dismissVesselDetails,
+                        child: Icon(Icons.close, size: 20, color: subtitleColor),
                       ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              vesselName,
-                              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: textColor),
-                            ),
-                            const SizedBox(height: 2),
-                            Text(
-                              'MMSI: $displayMMSI',
-                              style: TextStyle(fontSize: 13, color: subtitleColor),
-                            ),
-                          ],
-                        ),
+                    ),
+                  ],
+                ),
+                // Header with icon and name
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    Transform.rotate(
+                      angle: heading * math.pi / 180,
+                      child: Icon(icon, color: typeColor, size: 32,
+                        shadows: [Shadow(color: Colors.black.withValues(alpha: 0.3), blurRadius: 2)],
                       ),
-                    ],
-                  ),
-                  const SizedBox(height: 6),
-                  // Ship type chip
-                  Wrap(
-                    spacing: 8,
-                    children: [
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            vesselName,
+                            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: textColor),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            'MMSI: $displayMMSI',
+                            style: TextStyle(fontSize: 13, color: subtitleColor),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                // Ship type chip
+                Wrap(
+                  spacing: 8,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: typeColor.withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: typeColor.withValues(alpha: 0.4)),
+                      ),
+                      child: Text(shipTypeLabel, style: TextStyle(fontSize: 12, color: typeColor, fontWeight: FontWeight.w600)),
+                    ),
+                    if (extraData.containsKey('AIS Class'))
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                         decoration: BoxDecoration(
-                          color: typeColor.withValues(alpha: 0.15),
+                          color: subtitleColor.withValues(alpha: 0.1),
                           borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: typeColor.withValues(alpha: 0.4)),
                         ),
-                        child: Text(shipTypeLabel, style: TextStyle(fontSize: 12, color: typeColor, fontWeight: FontWeight.w600)),
+                        child: Text('Class ${extraData['AIS Class']!}', style: TextStyle(fontSize: 12, color: subtitleColor)),
                       ),
-                      if (extraData.containsKey('AIS Class'))
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                          decoration: BoxDecoration(
-                            color: subtitleColor.withValues(alpha: 0.1),
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: Text('Class ${extraData['AIS Class']!}', style: TextStyle(fontSize: 12, color: subtitleColor)),
+                    if (extraData.containsKey('AIS Status'))
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                        decoration: BoxDecoration(
+                          color: subtitleColor.withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(12),
                         ),
-                      if (extraData.containsKey('AIS Status'))
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                          decoration: BoxDecoration(
-                            color: subtitleColor.withValues(alpha: 0.1),
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: Text(extraData['AIS Status']!, style: TextStyle(fontSize: 12, color: subtitleColor)),
-                        ),
-                    ],
-                  ),
-
-                  // Identity section
-                  if (extraData.containsKey('Callsign') || extraData.containsKey('IMO') || extraData.containsKey('Destination'))
-                    ...[
-                      _sectionHeader('Identity', sectionColor),
-                      if (extraData.containsKey('Callsign'))
-                        _detailRow('Callsign', extraData['Callsign']!, subtitleColor, textColor),
-                      if (extraData.containsKey('IMO'))
-                        _detailRow('IMO', extraData['IMO']!, subtitleColor, textColor),
-                      if (extraData.containsKey('Destination'))
-                        _detailRow('Destination', extraData['Destination']!, subtitleColor, textColor),
-                    ],
-
-                  // Dimensions section
-                  if (dimensionsStr != null)
-                    ...[
-                      _sectionHeader('Dimensions', sectionColor),
-                      _detailRow('Size', dimensionsStr, subtitleColor, textColor),
-                    ],
-
-                  // Navigation section
-                  if (vessel != null) ...[
-                    _sectionHeader('Navigation', sectionColor),
-                    if (vessel.navState != null)
-                      _detailRow('Nav Status', vessel.navState!, subtitleColor, textColor),
-                    if (vessel.sogRaw != null)
-                      _detailRow('SOG', '${_convertSpeed(vessel.sogRaw!).toStringAsFixed(1)} ${_getSpeedUnit()}', subtitleColor, textColor),
-                    if (vessel.cog != null)
-                      _detailRow('COG', '${vessel.cog!.toStringAsFixed(1)}°', subtitleColor, textColor),
-                    if (vessel.headingTrue != null)
-                      _detailRow('Heading', '${vessel.headingTrue!.toStringAsFixed(1)}°', subtitleColor, textColor),
-
-                    // Relative section
-                    _sectionHeader('Relative', sectionColor),
-                    _detailRow('Bearing', '${vessel.bearing.toStringAsFixed(1)}°', subtitleColor, textColor),
-                    _detailRow('Distance', '${_convertDistance(vessel.distance).toStringAsFixed(2)} ${_getDistanceUnit()}', subtitleColor, textColor),
-                    if (vessel.cpa != null)
-                      _detailRow('CPA', '${_convertDistance(vessel.cpa!).toStringAsFixed(2)} ${_getDistanceUnit()}', subtitleColor, textColor),
-                    if (vessel.tcpa != null && vessel.tcpa!.isFinite && vessel.tcpa! > 0)
-                      _detailRow('TCPA', _formatTCPA(vessel.tcpa!), subtitleColor, textColor),
-
-                    // Position section
-                    _sectionHeader('Position', sectionColor),
-                    if (vessel.latitude != null && vessel.longitude != null)
-                      _detailRow('Lat/Lon', '${vessel.latitude!.toStringAsFixed(5)}, ${vessel.longitude!.toStringAsFixed(5)}', subtitleColor, textColor),
-                    if (vessel.timestamp != null)
-                      _detailRow('Last Update', '${_formatTimeSince(vessel.timestamp!)} ago', subtitleColor, textColor),
+                        child: Text(extraData['AIS Status']!, style: TextStyle(fontSize: 12, color: subtitleColor)),
+                      ),
                   ],
+                ),
+
+                // Identity section
+                if (extraData.containsKey('Callsign') || extraData.containsKey('IMO') || extraData.containsKey('Destination'))
+                  ...[
+                    _sectionHeader('Identity', sectionColor),
+                    if (extraData.containsKey('Callsign'))
+                      _detailRow('Callsign', extraData['Callsign']!, subtitleColor, textColor),
+                    if (extraData.containsKey('IMO'))
+                      _detailRow('IMO', extraData['IMO']!, subtitleColor, textColor),
+                    if (extraData.containsKey('Destination'))
+                      _detailRow('Destination', extraData['Destination']!, subtitleColor, textColor),
+                  ],
+
+                // Dimensions section
+                if (dimensionsStr != null)
+                  ...[
+                    _sectionHeader('Dimensions', sectionColor),
+                    _detailRow('Size', dimensionsStr, subtitleColor, textColor),
+                  ],
+
+                // Navigation section
+                if (vessel != null) ...[
+                  _sectionHeader('Navigation', sectionColor),
+                  if (vessel.navState != null)
+                    _detailRow('Nav Status', vessel.navState!, subtitleColor, textColor),
+                  if (vessel.sogRaw != null)
+                    _detailRow('SOG', '${_convertSpeed(vessel.sogRaw!).toStringAsFixed(1)} ${_getSpeedUnit()}', subtitleColor, textColor),
+                  if (vessel.cog != null)
+                    _detailRow('COG', '${vessel.cog!.toStringAsFixed(1)}°', subtitleColor, textColor),
+                  if (vessel.headingTrue != null)
+                    _detailRow('Heading', '${vessel.headingTrue!.toStringAsFixed(1)}°', subtitleColor, textColor),
+
+                  // Relative section
+                  _sectionHeader('Relative', sectionColor),
+                  _detailRow('Bearing', '${vessel.bearing.toStringAsFixed(1)}°', subtitleColor, textColor),
+                  _detailRow('Distance', '${_convertDistance(vessel.distance).toStringAsFixed(2)} ${_getDistanceUnit()}', subtitleColor, textColor),
+                  if (vessel.cpa != null)
+                    _detailRow('CPA', '${_convertDistance(vessel.cpa!).toStringAsFixed(2)} ${_getDistanceUnit()}', subtitleColor, textColor),
+                  if (vessel.tcpa != null && vessel.tcpa!.isFinite && vessel.tcpa! > 0)
+                    _detailRow('TCPA', _formatTCPA(vessel.tcpa!), subtitleColor, textColor),
+
+                  // Position section
+                  _sectionHeader('Position', sectionColor),
+                  if (vessel.latitude != null && vessel.longitude != null)
+                    _detailRow('Lat/Lon', '${vessel.latitude!.toStringAsFixed(5)}, ${vessel.longitude!.toStringAsFixed(5)}', subtitleColor, textColor),
+                  if (vessel.timestamp != null)
+                    _detailRow('Last Update', '${_formatTimeSince(vessel.timestamp!)} ago', subtitleColor, textColor),
                 ],
-              ),
-            );
-          },
+              ],
+            ),
+          ),
         );
       },
-    ).then((_) {
-      if (mounted) {
-        setState(() => _highlightedVesselMMSI = null);
-      }
-    });
+    );
   }
 
   Widget _sectionHeader(String title, Color color) {
@@ -928,7 +977,7 @@ class _AISPolarChartState extends State<AISPolarChart>
               child: listWidget,
             );
 
-            // Radar with overlay controls
+            // Radar with overlay controls and vessel details
             final radarWithOverlay = Stack(
               children: [
                 Positioned.fill(child: radarClipped),
@@ -947,12 +996,14 @@ class _AISPolarChartState extends State<AISPolarChart>
               ],
             );
 
+            Widget layoutContent;
+
             if (_fullScreenRadar) {
               // Full-screen radar/map with optional vessel list overlay
-              return Stack(
+              layoutContent = Stack(
                 children: [
                   Positioned.fill(child: radarWithOverlay),
-                  if (_showVesselListOverlay)
+                  if (_showVesselListOverlay && _detailsVesselMMSI == null)
                     Positioned(
                       bottom: 0,
                       left: 0,
@@ -973,7 +1024,7 @@ class _AISPolarChartState extends State<AISPolarChart>
               );
             } else if (isWide) {
               // Side-by-side: radar left (50%), list right (50%)
-              return Row(
+              layoutContent = Row(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   Expanded(child: radarWithOverlay),
@@ -983,7 +1034,7 @@ class _AISPolarChartState extends State<AISPolarChart>
               );
             } else {
               // Stacked: radar top (50%), list below (50%)
-              return Column(
+              layoutContent = Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   Expanded(
@@ -998,6 +1049,19 @@ class _AISPolarChartState extends State<AISPolarChart>
                 ],
               );
             }
+
+            // Vessel details overlay rises from bottom of entire widget
+            if (_detailsVesselMMSI != null) {
+              return Stack(
+                children: [
+                  Positioned.fill(child: layoutContent),
+                  Positioned.fill(
+                    child: _buildVesselDetailsOverlay(_detailsVesselMMSI!),
+                  ),
+                ],
+              );
+            }
+            return layoutContent;
           },
         ),
       ),
