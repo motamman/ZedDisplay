@@ -1013,9 +1013,9 @@ class _AISPolarChartState extends State<AISPolarChart>
                     ],
                   ),
                 ),
-                // View controls (top right, below info button)
+                // View controls (top right, below external info tool button)
                 Positioned(
-                  top: 4,
+                  top: 40,
                   right: 4,
                   child: _buildViewControls(context),
                 ),
@@ -1126,7 +1126,7 @@ class _AISPolarChartState extends State<AISPolarChart>
     );
   }
 
-  /// Zoom controls (top left, below status badge)
+  /// Zoom controls + fullscreen toggle (top left, below status badge)
   Widget _buildZoomControls() {
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -1140,30 +1140,29 @@ class _AISPolarChartState extends State<AISPolarChart>
           icon: Icons.remove,
           onPressed: _zoomOut,
         ),
-      ],
-    );
-  }
-
-  /// View controls (top right)
-  Widget _buildViewControls(BuildContext context) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        // Fullscreen toggle
+        const SizedBox(height: 4),
         _buildOverlayButton(
           icon: _fullScreenRadar ? Icons.fullscreen_exit : Icons.fullscreen,
           onPressed: _toggleFullScreen,
         ),
+      ],
+    );
+  }
+
+  /// View controls (top right, below external info tool button)
+  Widget _buildViewControls(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
         // Vessel list overlay (only when fullscreen)
         if (_fullScreenRadar) ...[
-          const SizedBox(height: 4),
           _buildOverlayButton(
             icon: Icons.list,
             onPressed: _toggleVesselListOverlay,
             color: _showVesselListOverlay ? Colors.blue : null,
           ),
+          const SizedBox(height: 4),
         ],
-        const SizedBox(height: 4),
         // Map/Polar toggle
         _buildOverlayButton(
           icon: _showMapView ? Icons.radar : Icons.map,

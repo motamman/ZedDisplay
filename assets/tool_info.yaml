@@ -247,7 +247,7 @@ tools:
     
 
   system_monitor:
-    name: "System Monitor"
+    name: "Device Monitor"
     description: |
       Device system information.
 
@@ -490,7 +490,7 @@ tools:
 
       **Color by Ship Type (MarineTraffic style):**
       - ![](icon:circle_green) Green — cargo
-      - ![](icon:circle_red) Red — tanker
+      - ![](icon:circle_brown) Brown — tanker
       - ![](icon:circle_blue) Blue — passenger
       - ![](icon:circle_orange) Orange — special craft: SAR, tug, pilot
       - ![](icon:circle_purple) Purple — sailing

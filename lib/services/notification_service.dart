@@ -35,7 +35,7 @@ class NotificationService {
     if (_initialized) return;
 
     // Android initialization settings - use monochrome drawable for status bar
-    const androidSettings = AndroidInitializationSettings('@drawable/ic_launcher_foreground');
+    const androidSettings = AndroidInitializationSettings('@drawable/ic_notification');
 
     // iOS initialization settings
     const iosSettings = DarwinInitializationSettings(

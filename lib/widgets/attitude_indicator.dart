@@ -63,74 +63,68 @@ class AttitudeIndicator extends StatelessWidget {
                 ),
               ],
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 8),
 
-            // Horizon indicator
+            // Horizon indicator with overlaid value boxes
             Expanded(
-              child: LayoutBuilder(
-                builder: (context, constraints) {
-                  // Use the smallest dimension to maintain circular shape
-                  final size = math.min(constraints.maxWidth, constraints.maxHeight);
-                  return Center(
-                    child: SizedBox(
-                      width: size,
-                      height: size,
-                      child: ClipOval(
-                        child: CustomPaint(
-                          painter: _AttitudePainter(
-                            rollDegrees: rollDegrees ?? 0,
-                            pitchDegrees: pitchDegrees ?? 0,
-                            maxPitch: maxPitch,
-                            showGrid: showGrid,
-                            isDark: isDark,
-                            primaryColor: primaryColor,
+              child: Stack(
+                children: [
+                  Center(
+                    child: LayoutBuilder(
+                      builder: (context, constraints) {
+                        final size = math.min(constraints.maxWidth, constraints.maxHeight);
+                        return SizedBox(
+                          width: size,
+                          height: size,
+                          child: ClipOval(
+                            child: CustomPaint(
+                              painter: _AttitudePainter(
+                                rollDegrees: rollDegrees ?? 0,
+                                pitchDegrees: pitchDegrees ?? 0,
+                                maxPitch: maxPitch,
+                                showGrid: showGrid,
+                                isDark: isDark,
+                                primaryColor: primaryColor,
+                              ),
+                              child: Container(),
+                            ),
                           ),
-                          child: Container(),
-                        ),
+                        );
+                      },
+                    ),
+                  ),
+                  if (showDigitalValues) ...[
+                    Positioned(
+                      bottom: 0,
+                      left: 0,
+                      child: _buildValueBox(
+                        context,
+                        'HEEL',
+                        rollDegrees != null ? '${rollDegrees!.abs().toStringAsFixed(1)}°' : '--',
+                        rollDegrees != null ? (rollDegrees! >= 0 ? 'STBD' : 'PORT') : '',
+                        rollDegrees != null ? (rollDegrees! >= 0 ? Colors.green : Colors.red) : Colors.grey,
+                        isDark,
                       ),
                     ),
-                  );
-                },
+                    Positioned(
+                      bottom: 0,
+                      right: 0,
+                      child: _buildValueBox(
+                        context,
+                        'PITCH',
+                        pitchDegrees != null ? '${pitchDegrees!.abs().toStringAsFixed(1)}°' : '--',
+                        pitchDegrees != null ? (pitchDegrees! >= 0 ? 'BOW UP' : 'BOW DN') : '',
+                        pitchDegrees != null ? (pitchDegrees! >= 0 ? Colors.blue : Colors.orange) : Colors.grey,
+                        isDark,
+                      ),
+                    ),
+                  ],
+                ],
               ),
             ),
-
-            const SizedBox(height: 12),
-
-            // Digital values
-            if (showDigitalValues) _buildDigitalValues(context, isDark),
           ],
         ),
       ),
-    );
-  }
-
-  Widget _buildDigitalValues(BuildContext context, bool isDark) {
-    final roll = rollDegrees;
-    final pitch = pitchDegrees;
-
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-      children: [
-        // Roll (Heel)
-        _buildValueBox(
-          context,
-          'HEEL',
-          roll != null ? '${roll.abs().toStringAsFixed(1)}°' : '--',
-          roll != null ? (roll >= 0 ? 'STBD' : 'PORT') : '',
-          roll != null ? (roll >= 0 ? Colors.green : Colors.red) : Colors.grey,
-          isDark,
-        ),
-
-        // Pitch
-        _buildValueBox(
-          context,
-          'PITCH',
-          pitch != null ? '${pitch.abs().toStringAsFixed(1)}°' : '--',
-          pitch != null ? (pitch >= 0 ? 'BOW UP' : 'BOW DN') : '',
-          pitch != null ? (pitch >= 0 ? Colors.blue : Colors.orange) : Colors.grey,
-          isDark,
-        ),
-      ],
     );
   }
 
@@ -146,13 +140,13 @@ class AttitudeIndicator extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       decoration: BoxDecoration(
         color: isDark
-            ? Colors.white.withValues(alpha: 0.05)
-            : Colors.black.withValues(alpha: 0.03),
+            ? Colors.black.withValues(alpha: 0.6)
+            : Colors.white.withValues(alpha: 0.7),
         borderRadius: BorderRadius.circular(8),
         border: Border.all(
           color: isDark
-              ? Colors.white.withValues(alpha: 0.1)
-              : Colors.black.withValues(alpha: 0.1),
+              ? Colors.white.withValues(alpha: 0.15)
+              : Colors.black.withValues(alpha: 0.15),
         ),
       ),
       child: Column(
