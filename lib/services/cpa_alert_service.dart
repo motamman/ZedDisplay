@@ -6,7 +6,6 @@ import '../utils/cpa_utils.dart';
 import 'signalk_service.dart';
 import 'notification_service.dart';
 import 'messaging_service.dart';
-import 'storage_service.dart';
 
 /// Background service that continuously monitors AIS vessels for CPA/TCPA
 /// and triggers escalating alerts (notifications, crew messages, audio alarms).
@@ -14,7 +13,6 @@ class CpaAlertService extends ChangeNotifier {
   final SignalKService _signalKService;
   final NotificationService _notificationService;
   final MessagingService? _messagingService;
-  final StorageService _storageService;
 
   CpaAlertConfig _config = const CpaAlertConfig();
   CpaAlertConfig get config => _config;
@@ -44,30 +42,11 @@ class CpaAlertService extends ChangeNotifier {
     required SignalKService signalKService,
     required NotificationService notificationService,
     MessagingService? messagingService,
-    required StorageService storageService,
   })  : _signalKService = signalKService,
         _notificationService = notificationService,
-        _messagingService = messagingService,
-        _storageService = storageService;
+        _messagingService = messagingService;
 
-  /// Load persisted config and start monitoring if enabled.
-  Future<void> initialize() async {
-    final json = _storageService.getCpaAlertConfig();
-    if (json != null) {
-      try {
-        _config = CpaAlertConfig.fromJsonString(json);
-      } catch (e) {
-        if (kDebugMode) print('CpaAlertService: failed to load config: $e');
-      }
-    }
-
-    if (_config.enabled) {
-      _startMonitoring();
-    }
-  }
-
-  /// Apply config in memory and notify listeners (no disk I/O).
-  /// Use for live slider updates to avoid Hive writes every frame.
+  /// Apply config in memory and start/stop monitoring accordingly.
   void applyConfig(CpaAlertConfig newConfig) {
     final wasEnabled = _config.enabled;
     _config = newConfig;
@@ -79,18 +58,6 @@ class CpaAlertService extends ChangeNotifier {
     }
 
     notifyListeners();
-  }
-
-  /// Persist the current config to storage.
-  /// Call after slider drag ends or on discrete changes (toggles, dropdowns).
-  Future<void> persistConfig() async {
-    await _storageService.saveCpaAlertConfig(_config.toJsonString());
-  }
-
-  /// Apply + persist in one call. Use for discrete changes (toggles, dropdowns).
-  Future<void> updateConfig(CpaAlertConfig newConfig) async {
-    applyConfig(newConfig);
-    await persistConfig();
   }
 
   /// User acknowledges / silences the audio alarm.

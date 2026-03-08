@@ -61,7 +61,7 @@ class CpaAlertConfig {
   final bool sendCrewAlert;
 
   const CpaAlertConfig({
-    this.enabled = false,
+    this.enabled = true,
     this.warnThresholdMeters = 1852.0, // 1 nm
     this.alarmThresholdMeters = 926.0, // 0.5 nm
     this.tcpaThresholdSeconds = 1800.0, // 30 min
@@ -82,7 +82,7 @@ class CpaAlertConfig {
 
   factory CpaAlertConfig.fromJson(Map<String, dynamic> json) {
     return CpaAlertConfig(
-      enabled: json['enabled'] as bool? ?? false,
+      enabled: json['enabled'] as bool? ?? true,
       warnThresholdMeters:
           (json['warnThresholdMeters'] as num?)?.toDouble() ?? 1852.0,
       alarmThresholdMeters:
