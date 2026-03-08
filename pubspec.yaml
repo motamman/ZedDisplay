@@ -63,7 +63,7 @@ dependencies:
   flutter_foreground_task: ^9.1.0
 
   # System notifications
-  flutter_local_notifications: ^19.5.0
+  flutter_local_notifications: ^21.0.0
 
   # Share functionality
   share_plus: ^12.0.1
@@ -90,7 +90,7 @@ dependencies:
   flutter_svg: ^2.2.3
 
   # WebRTC for voice intercom
-  flutter_webrtc: ^1.2.1
+  flutter_webrtc: ">=1.2.1 <1.3.0" # 1.3.x has broken iOS podspec (WebRTC-SDK deployment target mismatch)
   permission_handler: ^12.0.1
 
   # HTTP server for file sharing
