@@ -88,6 +88,9 @@ A customizable SignalK marine dashboard and crew comms application to display re
   - Dual views: polar chart and map with OpenSeaMap overlay
   - Vessel freshness colors (green → yellow → red based on age)
   - CPA/TCPA calculations for collision avoidance
+  - **CPA Alerts**: Configurable collision alerts with distance and time thresholds
+  - Hide stale vessels option to reduce clutter
+  - Dedicated AIS vessel registry for structured vessel tracking
   - Range control (auto-scaling or manual)
   - Tap vessels for detailed info
 
@@ -646,7 +649,7 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 - [ ] Route planning and waypoint navigation
 - [ ] More chart types (bar charts, area charts)
 - [ ] AI integration
-- [ ] AIS collision avoidance using `vessels.<uuid>.navigation.closestApproach` (CPA/TCPA)
+- [x] AIS collision avoidance using `vessels.<uuid>.navigation.closestApproach` (CPA/TCPA) (completed - CPA alerts with configurable thresholds)
 - [ ] AIS collision alerts using `notifications.danger.collision` (requires collision-detector plugin)
 - [x] Weather forecast tool (completed - WeatherFlow Tempest integration)
 - [x] Generic Weather forecast tool using Weather API (completed - Weather API Spinner) 

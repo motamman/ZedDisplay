@@ -5,6 +5,41 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.40+37] - 2026-03-08
+
+### Added
+- **CPA Alert System**: Configurable Closest Point of Approach alerts for AIS collision avoidance
+  - CPA distance and TCPA time threshold sliders with persistence
+  - Enabled by default with sensible defaults
+  - Integrated into AIS Polar Chart tool configuration
+  - CPA calculation utility functions for bearing/distance math
+- **AIS Vessel Registry**: Dedicated AISVessel model and AISVesselRegistry service for structured vessel management
+- **Compass Gauge Configurator**: New dedicated configurator with path filtering for compass-specific SignalK paths
+- **Hide Stale Vessels**: AIS Polar Chart option to hide vessels with outdated data
+
+### Enhanced
+- **AIS Polar Chart**: Improved controls layout, stale vessel filtering, and MetadataStore-based unit conversions
+- **Dashboard Performance**: Deferred heavy widget construction in dashboard and tool configuration screens
+- **Zone Fetch Performance**: Deduplicated zone fetch requests in ZonesCacheService; deferred HTTP requests in ZonesMixin
+- **Connection Stability**: Prevented multiple simultaneous connection attempts in SignalKService
+- **Historical Data Parsing**: Improved resource management and data parsing in services
+- **Tool Configuration**: Tools now store their own toolId in customProperties for self-reference; improved save logic
+
+### Dependencies
+- **Major dependency upgrade**: 54 packages updated (minor/patch)
+  - Syncfusion Flutter packages 32.1.19 → 32.2.8
+  - audioplayers 6.5.1 → 6.6.0, file_picker 10.3.7 → 10.3.10
+  - flutter_foreground_task 9.1.0 → 9.2.1, video_player 2.10.1 → 2.11.0
+  - json_annotation 4.9.0 → 4.11.0, json_serializable 6.11.3 → 6.13.0
+  - build_runner 2.10.4 → 2.12.2
+  - flutter_webrtc 1.2.1 → 1.3.0
+- **flutter_local_notifications**: 19.5.0 → 21.0.0 (major version upgrade)
+  - Migrated all API calls to named parameters (initialize, show, cancel)
+- **iOS Deployment Target**: Aligned project.pbxproj to 16.0 (matching Podfile)
+
+### Fixed
+- **Code Consistency**: Cleanup pass on comments, widget styles, and variable initializations
+
 ## [0.5.28+35] - 2026-03-06
 
 ### Added
