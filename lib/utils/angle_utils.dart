@@ -53,8 +53,12 @@ class AngleUtils {
   /// ```
   static double difference(double angle1, double angle2) {
     double diff = angle2 - angle1;
-    while (diff > 180) diff -= 360;
-    while (diff < -180) diff += 360;
+    while (diff > 180) {
+      diff -= 360;
+    }
+    while (diff < -180) {
+      diff += 360;
+    }
     return diff;
   }
 

@@ -1,39 +1,45 @@
-# What's New in v0.5.28
+# What's New in v0.5.40
 
 ## Release Notes (Google Play - max 500 chars)
 
-v0.5.28 AIS, Autopilot & Tool Info
+v0.5.40 CPA Alerts & Dependency Upgrade
 
-NEW: Tool info buttons added across tools for in-app help.
+NEW: CPA collision alerts for AIS with configurable distance and time thresholds. AIS vessel registry for structured tracking. Compass gauge configurator. Hide stale AIS vessels.
 
-IMPROVED: AIS vessels color-coded by ship type with projected positions. Vessel details overlay covers full widget. Compass gauge and wind compass refactored.
-
-FIXED: Tapping a vessel no longer switches to map mode unexpectedly.
+IMPROVED: Dashboard performance with deferred widget construction. 54 dependency upgrades including flutter_local_notifications 19→21.
 
 ## Release Notes (App Store / TestFlight - max 4000 chars)
 
-### AIS Polar Chart (IMPROVED)
-- **Color by Ship Type** - Vessels color-coded by type (cargo, tanker, passenger, etc.)
-- **Projected Positions** - Option to show where vessels are heading based on SOG/COG
-- **Interactive Highlights** - Tap vessels to highlight with AIS status details
-- **Full-Widget Details** - Vessel details overlay rises from bottom of entire widget, covering the vessel list in all layout modes
-- **No Forced Map Switch** - Tapping a vessel shows details without switching to map mode
+### CPA Alert System (NEW)
+- **Collision Avoidance** - Configurable Closest Point of Approach alerts
+- **Threshold Sliders** - Set CPA distance and TCPA time limits with persistent settings
+- **Enabled by Default** - Sensible defaults for immediate protection
+- **AIS Integration** - Alerts tied to AIS Polar Chart tool configuration
 
-### Tool Info Buttons (NEW)
-- **In-App Help** - Info buttons added to forecast spinner, attitude indicator, intercom, crew list, and more
-- **Subtle Styling** - Reduced background opacity for better visual integration
+### AIS Improvements (IMPROVED)
+- **Vessel Registry** - Dedicated AISVessel model and registry service for structured vessel tracking
+- **Hide Stale Vessels** - Option to filter out vessels with outdated data
+- **MetadataStore Conversions** - Unit conversions now use single source of truth
+- **Improved Controls Layout** - Better organized AIS Polar Chart controls
 
-### Compass & Wind (IMPROVED)
-- **Compass Gauge** - Refactored to StatefulWidget with improved state management and color generation
-- **Wind Compass** - Separated AWA display logic with improved layout
+### Compass Gauge (NEW)
+- **Dedicated Configurator** - New compass-specific configurator with path filtering for heading/bearing paths
 
-### Autopilot (IMPROVED)
-- **Mode Selector** - Uses swipeable bottom sheet for better usability and layout
-- **Tool Config** - Cleaned up excluded options for simpler configuration
+### Performance (IMPROVED)
+- **Deferred Widget Construction** - Dashboard and tool config screens load faster
+- **Zone Fetch Dedup** - Eliminated duplicate HTTP requests for zone data
+- **Connection Stability** - Prevented simultaneous connection attempts
+
+### Dependencies (UPDATED)
+- 54 packages upgraded (minor/patch versions)
+- flutter_local_notifications 19 → 21 (major version)
+- flutter_webrtc 1.2.1 → 1.3.0
+- Syncfusion packages 32.1 → 32.2
+- iOS deployment target aligned to 16.0
 
 ---
 
-# Previous: v0.5.27
+# Previous: v0.5.28
 
 ## Release Notes (Google Play - max 500 chars)
 

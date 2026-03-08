@@ -47,7 +47,7 @@ class AutopilotTool extends StatefulWidget {
 
 class _AutopilotToolState extends State<AutopilotTool> with AutomaticKeepAliveClientMixin {
   // Autopilot configuration
-  AutopilotConfig _autopilotConfig = const AutopilotConfig();
+  final AutopilotConfig _autopilotConfig = const AutopilotConfig();
 
   // API version and V2 support
   String? _apiVersion; // 'v1' or 'v2'
@@ -418,10 +418,10 @@ class _AutopilotToolState extends State<AutopilotTool> with AutomaticKeepAliveCl
       // Show pending feedback
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
+          const SnackBar(
             content: Text('Sending command...'),
             backgroundColor: Colors.orange,
-            duration: const Duration(seconds: 5),
+            duration: Duration(seconds: 5),
           ),
         );
       }

@@ -535,10 +535,8 @@ class AnchorAlarmService extends ChangeNotifier {
     // Get vessel heading - use raw SI value (radians)
     double? vesselHeading;
     var headingRaw = ConversionUtils.getRawValue(_signalKService, _paths.heading);
-    if (headingRaw == null) {
-      // Fallback to magnetic if true heading not available
-      headingRaw = ConversionUtils.getRawValue(_signalKService, 'navigation.headingMagnetic');
-    }
+    // Fallback to magnetic if true heading not available
+    headingRaw ??= ConversionUtils.getRawValue(_signalKService, 'navigation.headingMagnetic');
     if (headingRaw != null) {
       // Convert radians to degrees using user preferences
       vesselHeading = ConversionUtils.convertWeatherValue(

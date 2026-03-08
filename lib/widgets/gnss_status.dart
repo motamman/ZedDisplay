@@ -583,7 +583,7 @@ class GnssStatus extends StatelessWidget {
     if (fix.contains('rtk') && fix.contains('fixed')) {
       return _FixQuality(primaryColor, 1.0, 'Excellent');
     } else if (fix.contains('rtk')) {
-      return _FixQuality(primaryColor.withOpacity(0.8), 0.9, 'Very Good');
+      return _FixQuality(primaryColor.withValues(alpha: 0.8), 0.9, 'Very Good');
     } else if (fix.contains('dgnss') || fix.contains('dgps')) {
       return _FixQuality(primaryColor, 0.8, 'Good');
     } else if (fix.contains('3d') || fix.contains('gps')) {
@@ -604,7 +604,7 @@ class GnssStatus extends StatelessWidget {
 
   Color _getDopColor(double dop) {
     if (dop < 1) return primaryColor;
-    if (dop < 2) return primaryColor.withOpacity(0.8);
+    if (dop < 2) return primaryColor.withValues(alpha: 0.8);
     if (dop < 5) return Colors.orange;
     if (dop < 10) return Colors.orange.shade700;
     return Colors.red;
@@ -612,7 +612,7 @@ class GnssStatus extends StatelessWidget {
 
   Color _getAccuracyColor(double accuracy) {
     if (accuracy < 1) return primaryColor;
-    if (accuracy < 3) return primaryColor.withOpacity(0.8);
+    if (accuracy < 3) return primaryColor.withValues(alpha: 0.8);
     if (accuracy < 10) return Colors.orange;
     if (accuracy < 25) return Colors.orange.shade700;
     return Colors.red;

@@ -143,12 +143,12 @@ class _PositionDisplayToolState extends State<PositionDisplayTool> {
     if (lat == null || lon == null) {
       return Stack(
         children: [
-          Center(
+          const Center(
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 Icon(Icons.location_off, size: 32, color: Colors.grey),
-                const SizedBox(height: 8),
+                SizedBox(height: 8),
                 Text(
                   'No position data',
                   style: TextStyle(color: Colors.grey),

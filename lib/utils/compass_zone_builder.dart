@@ -144,9 +144,9 @@ class CompassZoneBuilder {
     // PORT SIDE - Gradiated Red Zones (darker = closer to optimal)
     addGradiatedZones(windDirection, [
       GradiatedZone(startOffset: -60, endOffset: -targetAWA, opacity: 0.6),
-      GradiatedZone(startOffset: -90, endOffset: -60, opacity: 0.4),
-      GradiatedZone(startOffset: -110, endOffset: -90, opacity: 0.25),
-      GradiatedZone(startOffset: -150, endOffset: -110, opacity: 0.15),
+      const GradiatedZone(startOffset: -90, endOffset: -60, opacity: 0.4),
+      const GradiatedZone(startOffset: -110, endOffset: -90, opacity: 0.25),
+      const GradiatedZone(startOffset: -150, endOffset: -110, opacity: 0.15),
     ], Colors.red);
 
     // No-go zone (wind ± targetAWA)
@@ -159,9 +159,9 @@ class CompassZoneBuilder {
     // STARBOARD SIDE - Gradiated Green Zones (darker = closer to optimal)
     addGradiatedZones(windDirection, [
       GradiatedZone(startOffset: targetAWA, endOffset: 60, opacity: 0.6),
-      GradiatedZone(startOffset: 60, endOffset: 90, opacity: 0.4),
-      GradiatedZone(startOffset: 90, endOffset: 110, opacity: 0.25),
-      GradiatedZone(startOffset: 110, endOffset: 150, opacity: 0.15),
+      const GradiatedZone(startOffset: 60, endOffset: 90, opacity: 0.4),
+      const GradiatedZone(startOffset: 90, endOffset: 110, opacity: 0.25),
+      const GradiatedZone(startOffset: 110, endOffset: 150, opacity: 0.15),
     ], Colors.green);
 
     // PERFORMANCE ZONES - Narrow bands showing optimal target AWA

@@ -123,10 +123,10 @@ class PathMetadata {
       final expression = formula.replaceAll('value', value.toString());
 
       // Parse and evaluate
-      final parser = Parser();
+      final parser = GrammarParser();
       final exp = parser.parse(expression);
       final cm = ContextModel();
-      return exp.evaluate(EvaluationType.REAL, cm);
+      return RealEvaluator(cm).evaluate(exp).toDouble();
     } catch (e) {
       // If parsing fails, try simple multiplication pattern
       final match = RegExp(r'value\s*\*\s*([\d.]+)').firstMatch(formula);

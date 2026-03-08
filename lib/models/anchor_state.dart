@@ -1,5 +1,5 @@
-/// Data models for the Anchor Alarm Tool
-/// Integrates with SignalK anchor alarm plugin
+// Data models for the Anchor Alarm Tool
+// Integrates with SignalK anchor alarm plugin
 
 /// Alarm states matching SignalK notification states
 enum AnchorAlarmState {

@@ -92,7 +92,7 @@ class TextDisplayTool extends StatelessWidget {
                   textAlign: TextAlign.center,
                 ),
               if (config.style.showLabel == true && label.isNotEmpty)
-                SizedBox(height: fontSize * 0.15),
+                const SizedBox(height: fontSize * 0.15),
               if (config.style.showValue == true)
                 Text(
                   displayValue,
@@ -103,7 +103,7 @@ class TextDisplayTool extends StatelessWidget {
                   ),
                 ),
               if (config.style.showUnit == true && displayUnit.isNotEmpty)
-                SizedBox(height: fontSize * 0.1),
+                const SizedBox(height: fontSize * 0.1),
               if (config.style.showUnit == true && displayUnit.isNotEmpty)
                 Text(
                   displayUnit,

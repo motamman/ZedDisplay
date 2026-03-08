@@ -69,7 +69,7 @@ class _CountdownConfirmationOverlayState
   @override
   Widget build(BuildContext context) {
     return Container(
-      color: Colors.black.withOpacity(0.7),
+      color: Colors.black.withValues(alpha: 0.7),
       child: Center(
         child: Card(
           margin: const EdgeInsets.all(32),
@@ -97,7 +97,7 @@ class _CountdownConfirmationOverlayState
                       height: 100,
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
-                        color: Colors.orange.withOpacity(0.2 + _pulseController.value * 0.3),
+                        color: Colors.orange.withValues(alpha: 0.2 + _pulseController.value * 0.3),
                         border: Border.all(
                           color: Colors.orange,
                           width: 3,

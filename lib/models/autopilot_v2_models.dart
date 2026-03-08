@@ -1,7 +1,7 @@
-/// Models for SignalK V2 Autopilot API
-///
-/// The V2 API supports multiple autopilot instances, separate engage/disengage,
-/// and enhanced capabilities like dodge mode and gybe support.
+// Models for SignalK V2 Autopilot API
+//
+// The V2 API supports multiple autopilot instances, separate engage/disengage,
+// and enhanced capabilities like dodge mode and gybe support.
 
 /// V2 API autopilot instance
 class AutopilotInstance {

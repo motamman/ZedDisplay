@@ -86,29 +86,33 @@ class PositionDisplayConfigurator extends ToolConfigurator {
               const SizedBox(height: 12),
 
               // Format options as radio tiles
-              ...formatNames.entries.map((entry) {
-                final formatId = entry.key;
-                final formatName = entry.value;
-                final example = formatExamples[formatId] ?? '';
+              RadioGroup<String>(
+                groupValue: format,
+                onChanged: (value) {
+                  if (value != null) {
+                    setState(() => format = value);
+                  }
+                },
+                child: Column(
+                  children: formatNames.entries.map((entry) {
+                    final formatId = entry.key;
+                    final formatName = entry.value;
+                    final example = formatExamples[formatId] ?? '';
 
-                return RadioListTile<String>(
-                  title: Text(formatName),
-                  subtitle: Text(
-                    example,
-                    style: const TextStyle(
-                      fontFamily: 'monospace',
-                      fontSize: 13,
-                    ),
-                  ),
-                  value: formatId,
-                  groupValue: format,
-                  onChanged: (value) {
-                    if (value != null) {
-                      setState(() => format = value);
-                    }
-                  },
-                );
-              }),
+                    return RadioListTile<String>(
+                      title: Text(formatName),
+                      subtitle: Text(
+                        example,
+                        style: const TextStyle(
+                          fontFamily: 'monospace',
+                          fontSize: 13,
+                        ),
+                      ),
+                      value: formatId,
+                    );
+                  }).toList(),
+                ),
+              ),
 
               const SizedBox(height: 24),
               const Divider(),

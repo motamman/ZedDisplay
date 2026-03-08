@@ -56,7 +56,7 @@ class NotificationService {
     );
 
     await _notifications.initialize(
-      initSettings,
+      settings: initSettings,
       onDidReceiveNotificationResponse: _onNotificationTapped,
     );
 
@@ -210,10 +210,10 @@ class NotificationService {
       }
 
       await _notifications.show(
-        _notificationIdCounter,
-        '[$title] $headline',
-        notification.key,
-        details,
+        id: _notificationIdCounter,
+        title: '[$title] $headline',
+        body: notification.key,
+        notificationDetails: details,
         payload: notification.key,
       );
 
@@ -253,10 +253,10 @@ class NotificationService {
     );
 
     await _notifications.show(
-      _groupSummaryId,
-      'ZedDisplay',
-      '$_activeNotificationCount active alert${_activeNotificationCount > 1 ? 's' : ''}',
-      details,
+      id: _groupSummaryId,
+      title: 'ZedDisplay',
+      body: '$_activeNotificationCount active alert${_activeNotificationCount > 1 ? 's' : ''}',
+      notificationDetails: details,
     );
   }
 
@@ -288,11 +288,11 @@ class NotificationService {
 
   /// Cancel a specific notification
   Future<void> cancel(int id) async {
-    await _notifications.cancel(id);
+    await _notifications.cancel(id: id);
     if (_activeNotificationCount > 0) {
       _activeNotificationCount--;
       if (_activeNotificationCount == 0) {
-        await _notifications.cancel(_groupSummaryId);
+        await _notifications.cancel(id: _groupSummaryId);
       } else {
         await _updateGroupSummary();
       }
@@ -344,10 +344,10 @@ class NotificationService {
           : 'crew_message:direct:${message.fromId}:${message.fromName}';
 
       await _notifications.show(
-        _notificationIdCounter,
-        title,
-        body,
-        details,
+        id: _notificationIdCounter,
+        title: title,
+        body: body,
+        notificationDetails: details,
         payload: payload,
       );
 
@@ -421,10 +421,10 @@ class NotificationService {
     );
 
     await _notifications.show(
-      _groupSummaryId + 1000, // Different ID from SignalK summary
-      'Crew Messages',
-      '$_activeNotificationCount message${_activeNotificationCount > 1 ? 's' : ''}',
-      details,
+      id: _groupSummaryId + 1000, // Different ID from SignalK summary
+      title: 'Crew Messages',
+      body: '$_activeNotificationCount message${_activeNotificationCount > 1 ? 's' : ''}',
+      notificationDetails: details,
     );
   }
 
@@ -491,10 +491,10 @@ class NotificationService {
       _alarmNotificationIds[alarmId ?? 'unknown'] = _notificationIdCounter;
 
       await _notifications.show(
-        _notificationIdCounter,
-        title,
-        body,
-        details,
+        id: _notificationIdCounter,
+        title: title,
+        body: body,
+        notificationDetails: details,
         payload: 'alarm:$alarmId',
       );
 
@@ -515,7 +515,7 @@ class NotificationService {
   Future<void> cancelAlarmNotification(String alarmId) async {
     final notificationId = _alarmNotificationIds[alarmId];
     if (notificationId != null) {
-      await _notifications.cancel(notificationId);
+      await _notifications.cancel(id: notificationId);
       _alarmNotificationIds.remove(alarmId);
       if (kDebugMode) {
         print('Cancelled alarm notification: $alarmId');
@@ -571,10 +571,10 @@ class NotificationService {
       final payload = 'intercom:$channelId';
 
       await _notifications.show(
-        _notificationIdCounter,
-        isEmergency ? '🚨 EMERGENCY: $channelName' : '📻 $channelName',
-        '$transmitterName is transmitting',
-        details,
+        id: _notificationIdCounter,
+        title: isEmergency ? '🚨 EMERGENCY: $channelName' : '📻 $channelName',
+        body: '$transmitterName is transmitting',
+        notificationDetails: details,
         payload: payload,
       );
 

@@ -259,7 +259,7 @@ class IntercomTool extends StatelessWidget {
                 intercomService.setMode(selected.first);
               },
               showSelectedIcon: false,
-              style: ButtonStyle(
+              style: const ButtonStyle(
                 visualDensity: VisualDensity.compact,
                 tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                 padding: WidgetStatePropertyAll(EdgeInsets.symmetric(horizontal: 8)),

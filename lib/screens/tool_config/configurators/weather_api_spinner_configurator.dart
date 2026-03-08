@@ -259,38 +259,42 @@ class WeatherApiSpinnerConfigurator extends ToolConfigurator {
               )
             else ...[
               // Auto/Default option
-              RadioListTile<String?>(
-                title: const Text('Auto (Default Provider)'),
-                subtitle: const Text('Use the first available weather provider'),
-                value: null,
+              RadioGroup<String?>(
                 groupValue: selectedProvider,
                 onChanged: (value) {
                   setState(() => selectedProvider = value);
                 },
+                child: Column(
+                  children: [
+                    const RadioListTile<String?>(
+                      title: Text('Auto (Default Provider)'),
+                      subtitle: Text('Use the first available weather provider'),
+                      value: null,
+                    ),
+
+                    if (availableProviders.isNotEmpty) ...[
+                      const Divider(),
+                      ...availableProviders.map((provider) {
+                        return RadioListTile<String?>(
+                          title: Text(provider.name),
+                          subtitle: provider.description != null
+                              ? Text(provider.description!)
+                              : Text(
+                                  provider.id,
+                                  style: const TextStyle(
+                                    fontFamily: 'monospace',
+                                    fontSize: 11,
+                                  ),
+                                ),
+                          value: provider.id,
+                        );
+                      }),
+                    ],
+                  ],
+                ),
               ),
 
-              if (availableProviders.isNotEmpty) ...[
-                const Divider(),
-                ...availableProviders.map((provider) {
-                  return RadioListTile<String?>(
-                    title: Text(provider.name),
-                    subtitle: provider.description != null
-                        ? Text(provider.description!)
-                        : Text(
-                            provider.id,
-                            style: const TextStyle(
-                              fontFamily: 'monospace',
-                              fontSize: 11,
-                            ),
-                          ),
-                    value: provider.id,
-                    groupValue: selectedProvider,
-                    onChanged: (value) {
-                      setState(() => selectedProvider = value);
-                    },
-                  );
-                }),
-              ] else if (!loadingProviders && loadError == null)
+              if (availableProviders.isEmpty && !loadingProviders && loadError == null)
                 const Card(
                   child: Padding(
                     padding: EdgeInsets.all(16),

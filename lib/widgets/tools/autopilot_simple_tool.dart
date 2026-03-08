@@ -137,10 +137,10 @@ class _AutopilotSimpleToolState extends State<AutopilotSimpleTool> with Automati
       // Show pending feedback
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
+          const SnackBar(
             content: Text('Sending command...'),
             backgroundColor: Colors.orange,
-            duration: const Duration(seconds: 5),
+            duration: Duration(seconds: 5),
           ),
         );
       }

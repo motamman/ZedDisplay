@@ -8,7 +8,6 @@ import 'package:web_socket_channel/io.dart';
 import 'package:http/http.dart' as http;
 import '../models/signalk_data.dart';
 import '../models/auth_token.dart';
-import '../utils/conversion_utils.dart';
 import 'zones_cache_service.dart';
 import 'interfaces/data_service.dart';
 import 'storage_service.dart';
@@ -683,7 +682,7 @@ class SignalKService extends ChangeNotifier implements DataService {
   }
 
   /// Handle WebSocket errors
-  void _handleError(error) {
+  void _handleError(Object error) {
     _errorMessage = 'WebSocket error: $error';
     _isConnected = false;
     notifyListeners();
@@ -1423,12 +1422,6 @@ class SignalKService extends ChangeNotifier implements DataService {
   /// Clear display units cache (called on disconnect or user logout)
   void clearDisplayUnitsCache() {
     _displayUnitsCache.clear();
-  }
-
-  /// Internal helper to convert a value using the formula for this path
-  /// Returns converted value, or raw value if no conversion available
-  double? _convertValueForPath(String path, double rawValue) {
-    return ConversionUtils.convertValue(this, path, rawValue);
   }
 
   /// Extract all paths from vessel data tree recursively

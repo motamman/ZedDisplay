@@ -159,7 +159,7 @@ class ChartConfigurator extends ToolConfigurator {
                   border: const OutlineInputBorder(),
                   helperText: isRealtime ? 'How much time to show in the sliding window' : null,
                 ),
-                value: chartDuration,
+                initialValue: chartDuration,
                 items: isRealtime
                     ? const [
                         // Realtime: minutes and hours
@@ -199,7 +199,7 @@ class ChartConfigurator extends ToolConfigurator {
                     border: OutlineInputBorder(),
                     helperText: 'Auto lets the server optimize for the timeframe',
                   ),
-                  value: chartResolution,
+                  initialValue: chartResolution,
                   items: const [
                     DropdownMenuItem(value: null, child: Text('Auto (Recommended)')),
                     DropdownMenuItem(value: 30000, child: Text('30 seconds')),
@@ -221,7 +221,7 @@ class ChartConfigurator extends ToolConfigurator {
                   border: OutlineInputBorder(),
                   helperText: 'Visual style of the chart',
                 ),
-                value: chartStyle,
+                initialValue: chartStyle,
                 items: const [
                   DropdownMenuItem(value: 'area', child: Text('Area (filled spline)')),
                   DropdownMenuItem(value: 'line', child: Text('Line (spline only)')),
@@ -273,7 +273,7 @@ class ChartConfigurator extends ToolConfigurator {
                         labelText: 'Refresh Interval',
                         border: OutlineInputBorder(),
                       ),
-                      value: chartRefreshInterval,
+                      initialValue: chartRefreshInterval,
                       items: const [
                         DropdownMenuItem(value: 30, child: Text('30 seconds')),
                         DropdownMenuItem(value: 60, child: Text('1 minute')),
@@ -312,7 +312,7 @@ class ChartConfigurator extends ToolConfigurator {
                       labelText: 'Smoothing Type',
                       border: OutlineInputBorder(),
                     ),
-                    value: chartSmoothingType,
+                    initialValue: chartSmoothingType,
                     items: const [
                       DropdownMenuItem(value: 'sma', child: Text('Simple Moving Average (SMA)')),
                       DropdownMenuItem(value: 'ema', child: Text('Exponential Moving Average (EMA)')),
@@ -340,7 +340,7 @@ class ChartConfigurator extends ToolConfigurator {
                           ? 'Higher = more responsive, lower = smoother'
                           : 'Number of data points to average',
                     ),
-                    value: chartMovingAverageWindow,
+                    initialValue: chartMovingAverageWindow,
                     items: chartSmoothingType == 'ema'
                         ? const [
                             // EMA alpha values (stored as int, converted to 0.0-1.0 in tool)
