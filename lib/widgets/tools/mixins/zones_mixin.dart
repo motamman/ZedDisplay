@@ -15,6 +15,7 @@ mixin ZonesMixin<T extends StatefulWidget> on State<T> {
   List<ZoneDefinition>? _zones;
   bool _zonesRequested = false;
   bool _listenerAdded = false;
+  VoidCallback? _zonesListener;
 
   /// The current zones for this gauge
   List<ZoneDefinition>? get zones => _zones;
@@ -25,10 +26,12 @@ mixin ZonesMixin<T extends StatefulWidget> on State<T> {
   /// that needs zones.
   void initializeZones(SignalKService signalKService, String path) {
     if (!_listenerAdded) {
-      signalKService.addListener(() => _onConnectionChanged(signalKService, path));
+      _zonesListener = () => _onConnectionChanged(signalKService, path);
+      signalKService.addListener(_zonesListener!);
       _listenerAdded = true;
     }
-    _fetchZonesIfReady(signalKService, path);
+    // Defer to avoid all gauges firing HTTP requests in the same build frame
+    Future.microtask(() => _fetchZonesIfReady(signalKService, path));
   }
 
   void _onConnectionChanged(SignalKService signalKService, String path) {
@@ -56,8 +59,9 @@ mixin ZonesMixin<T extends StatefulWidget> on State<T> {
   ///
   /// Should be called from dispose()
   void cleanupZones(SignalKService signalKService) {
-    if (_listenerAdded) {
-      signalKService.removeListener(() {});
+    if (_listenerAdded && _zonesListener != null) {
+      signalKService.removeListener(_zonesListener!);
+      _zonesListener = null;
       _listenerAdded = false;
     }
   }

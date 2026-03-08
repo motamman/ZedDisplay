@@ -1435,7 +1435,9 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen>
         Widget contentWidget = placements.isEmpty
             ? emptyScreenWidget
             : Stack(
-          children: placements.map((placement) {
+          children: placements.asMap().entries.map((entry) {
+            final placementIndex = entry.key;
+            final placement = entry.value;
             final tool = toolService.getTool(placement.toolId);
 
             if (tool == null) {
@@ -1684,13 +1686,18 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen>
                 ),
               );
             } else {
-              // Normal mode - just show the tool
-              widgetContent = Padding(
-                padding: const EdgeInsets.all(8),
-                child: registry.buildTool(
-                  tool.toolTypeId,
-                  tool.config,
-                  signalKService,
+              // Normal mode - stagger tool mounting to avoid building
+              // all heavy gauge widgets in the same frame
+              widgetContent = _DeferredToolWidget(
+                key: ValueKey('deferred_${placement.toolId}'),
+                index: placementIndex,
+                child: Padding(
+                  padding: const EdgeInsets.all(8),
+                  child: registry.buildTool(
+                    tool.toolTypeId,
+                    tool.config,
+                    signalKService,
+                  ),
                 ),
               );
             }
@@ -2075,5 +2082,52 @@ class _ServerPickerSheetState extends State<_ServerPickerSheet> {
         ],
       ),
     );
+  }
+}
+
+/// Defers building a child widget by [index] frames to stagger heavy widget
+/// construction (e.g. Syncfusion gauges) across multiple frames at startup.
+class _DeferredToolWidget extends StatefulWidget {
+  final int index;
+  final Widget child;
+
+  const _DeferredToolWidget({
+    super.key,
+    required this.index,
+    required this.child,
+  });
+
+  @override
+  State<_DeferredToolWidget> createState() => _DeferredToolWidgetState();
+}
+
+class _DeferredToolWidgetState extends State<_DeferredToolWidget> {
+  bool _ready = false;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.index == 0) {
+      _ready = true;
+    } else {
+      // Defer by index frames so tools mount progressively
+      _scheduleReady(widget.index);
+    }
+  }
+
+  void _scheduleReady(int framesRemaining) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (framesRemaining <= 1) {
+        setState(() => _ready = true);
+      } else {
+        _scheduleReady(framesRemaining - 1);
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return _ready ? widget.child : const SizedBox.shrink();
   }
 }

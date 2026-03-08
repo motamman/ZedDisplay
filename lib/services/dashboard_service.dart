@@ -85,6 +85,12 @@ class DashboardService extends ChangeNotifier {
     }
   }
 
+  @override
+  void dispose() {
+    _signalKService?.removeListener(_onSignalKStateChanged);
+    super.dispose();
+  }
+
   /// Handle SignalK connection state changes
   void _onSignalKStateChanged() {
     final isConnected = _signalKService?.isConnected ?? false;

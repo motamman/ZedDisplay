@@ -12,6 +12,7 @@ import 'zones_service.dart';
 /// performance.
 class ZonesCacheService extends ChangeNotifier {
   final Map<String, List<ZoneDefinition>> _cache = {};
+  final Map<String, Future<List<ZoneDefinition>?>> _pending = {};
   final ZonesService _zonesService;
 
   ZonesCacheService({
@@ -34,7 +35,22 @@ class ZonesCacheService extends ChangeNotifier {
       return _cache[path];
     }
 
-    // Fetch from server
+    // Deduplicate: if a request for this path is already in-flight, await it
+    if (_pending.containsKey(path)) {
+      return _pending[path];
+    }
+
+    // Fire the request and track it
+    final future = _fetchAndCache(path);
+    _pending[path] = future;
+    try {
+      return await future;
+    } finally {
+      _pending.remove(path);
+    }
+  }
+
+  Future<List<ZoneDefinition>?> _fetchAndCache(String path) async {
     try {
       final zones = await _zonesService.fetchZones(path);
       if (zones != null && zones.hasZones) {

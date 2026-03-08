@@ -226,6 +226,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
     // Determine if this is a chart tool that needs numeric-only filtering and axis compatibility
     final isChartTool = _selectedToolTypeId == 'realtime_chart' ||
                         _selectedToolTypeId == 'historical_chart';
+    final isCompassTool = _selectedToolTypeId == 'compass';
 
     // For chart tools, determine current axis units for compatibility filtering
     String? primaryAxisBaseUnit;
@@ -254,10 +255,11 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
       builder: (context) => PathSelectorDialog(
         signalKService: signalKService,
         useHistoricalPaths: _selectedToolTypeId == 'historical_chart',
-        numericOnly: isChartTool,
+        numericOnly: isChartTool || isCompassTool,
         primaryAxisBaseUnit: primaryAxisBaseUnit,
         secondaryAxisBaseUnit: secondaryAxisBaseUnit,
         showBaseUnitInLabel: isChartTool,
+        requiredCategory: isCompassTool ? 'angle' : null,
         onSelect: (path) {
           selectedPath = path;
         },

@@ -77,10 +77,13 @@ class _AISPolarChartState extends State<AISPolarChart>
 
   bool _hasSubscribed = false;
   bool _hasLoadedAIS = false;
+  bool _lastSeenConnected = false;
   bool _showMapView = false; // Toggle between polar chart and map view
   bool _mapAutoFollow = true; // Auto-follow own vessel on map
   bool _fullScreenRadar = false; // Full-screen radar/map mode
   bool _showVesselListOverlay = false; // Vessel list overlay in fullscreen
+  bool _hideStale = false; // Hide stale vessels from display
+  List<_VesselPoint> _displayVessels = []; // Cached filtered vessel list
 
   // Throttle updates to prevent ANR on tablets
   DateTime? _lastUpdate;
@@ -108,8 +111,14 @@ class _AISPolarChartState extends State<AISPolarChart>
   @override
   void initState() {
     super.initState();
-    // Listen for SignalK service updates (fires on every WebSocket update)
+    // Listen for own-vessel position updates from SignalK service
     widget.signalKService.addListener(_onServiceUpdate);
+
+    // Listen to AIS vessel registry for AIS-specific updates
+    widget.signalKService.aisVesselRegistry.addListener(_onAISUpdate);
+
+    // Set registry prune timeout from widget parameter
+    widget.signalKService.aisVesselRegistry.pruneMinutes = widget.pruneMinutes;
 
     // Subscribe to own vessel position - check if connected first
     _subscribeIfConnected();
@@ -135,6 +144,46 @@ class _AISPolarChartState extends State<AISPolarChart>
   void _onServiceUpdate() {
     if (!mounted) return;
 
+    // Detect reconnect: isConnected went false→true while we already loaded once
+    final connected = widget.signalKService.isConnected;
+    if (connected && !_lastSeenConnected && _hasLoadedAIS) {
+      _hasLoadedAIS = false; // Allow re-load
+      _hasSubscribed = false; // Re-subscribe position too
+    }
+    _lastSeenConnected = connected;
+
+    _subscribeIfConnected();
+
+    // Load AIS vessels (first connection or after reconnect)
+    if (!_hasLoadedAIS) {
+      _hasLoadedAIS = true;
+      widget.signalKService.loadAndSubscribeAISVessels();
+    }
+
+    // Only update own-vessel position from service updates
+    final positionData = widget.signalKService.getValue(widget.positionPath);
+    if (positionData?.value is Map) {
+      final positionMap = positionData!.value as Map<String, dynamic>;
+      final lat = positionMap['latitude'];
+      final lon = positionMap['longitude'];
+      if (lat is num && lon is num) {
+        final newLat = lat.toDouble();
+        final newLon = lon.toDouble();
+        final positionChanged = _ownLat != newLat || _ownLon != newLon;
+        _ownLat = newLat;
+        _ownLon = newLon;
+        _lastPositionUpdate = positionData.timestamp;
+
+        if (positionChanged && _mapAutoFollow && _showMapView) {
+          _centerMapOnSelf();
+        }
+      }
+    }
+  }
+
+  void _onAISUpdate() {
+    if (!mounted) return;
+
     // Throttle updates to prevent ANR on tablets
     final now = DateTime.now();
     if (_lastUpdate != null && now.difference(_lastUpdate!) < _updateThrottle) {
@@ -142,14 +191,13 @@ class _AISPolarChartState extends State<AISPolarChart>
     }
     _lastUpdate = now;
 
-    // Try to subscribe if we haven't yet (in case connection happened after init)
-    _subscribeIfConnected();
-    _updateVesselData();
+    _fetchNearbyVessels();
   }
 
   @override
   void dispose() {
     widget.signalKService.removeListener(_onServiceUpdate);
+    widget.signalKService.aisVesselRegistry.removeListener(_onAISUpdate);
     _highlightTimer?.cancel();
     super.dispose();
   }
@@ -212,24 +260,24 @@ class _AISPolarChartState extends State<AISPolarChart>
 
     // Beam
     final beam = cache['$prefix.design.beam']?.value;
-    if (beam is num) extra['Beam'] = '${beam.toStringAsFixed(1)} m';
+    if (beam is num) extra['Beam'] = _formatLength(beam.toDouble());
 
     // Length
     final length = cache['$prefix.design.length']?.value;
     if (length is Map) {
       final overall = length['overall'];
-      if (overall is num) extra['Length'] = '${overall.toStringAsFixed(1)} m';
+      if (overall is num) extra['Length'] = _formatLength(overall.toDouble());
     } else if (length is num) {
-      extra['Length'] = '${length.toStringAsFixed(1)} m';
+      extra['Length'] = _formatLength(length.toDouble());
     }
 
     // Draft
     final draft = cache['$prefix.design.draft']?.value;
     if (draft is Map) {
       final current = draft['current'];
-      if (current is num) extra['Draft'] = '${current.toStringAsFixed(1)} m';
+      if (current is num) extra['Draft'] = _formatLength(current.toDouble());
     } else if (draft is num) {
-      extra['Draft'] = '${draft.toStringAsFixed(1)} m';
+      extra['Draft'] = _formatLength(draft.toDouble());
     }
 
     // AIS class
@@ -317,28 +365,17 @@ class _AISPolarChartState extends State<AISPolarChart>
               controller: scrollController,
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
               children: [
-                // Drag handle + close button
-                Stack(
-                  alignment: Alignment.center,
-                  children: [
-                    Container(
-                      width: 40,
-                      height: 4,
-                      margin: const EdgeInsets.only(bottom: 12),
-                      decoration: BoxDecoration(
-                        color: Colors.grey[400],
-                        borderRadius: BorderRadius.circular(2),
-                      ),
+                // Drag handle
+                Center(
+                  child: Container(
+                    width: 40,
+                    height: 4,
+                    margin: const EdgeInsets.only(bottom: 12),
+                    decoration: BoxDecoration(
+                      color: Colors.grey[400],
+                      borderRadius: BorderRadius.circular(2),
                     ),
-                    Positioned(
-                      right: 0,
-                      top: 0,
-                      child: GestureDetector(
-                        onTap: _dismissVesselDetails,
-                        child: Icon(Icons.close, size: 20, color: subtitleColor),
-                      ),
-                    ),
-                  ],
+                  ),
                 ),
                 // Header with icon and name
                 Row(
@@ -431,13 +468,13 @@ class _AISPolarChartState extends State<AISPolarChart>
                   if (vessel.sogRaw != null)
                     _detailRow('SOG', '${_convertSpeed(vessel.sogRaw!).toStringAsFixed(1)} ${_getSpeedUnit()}', subtitleColor, textColor),
                   if (vessel.cog != null)
-                    _detailRow('COG', '${vessel.cog!.toStringAsFixed(1)}°', subtitleColor, textColor),
+                    _detailRow('COG', '${vessel.cog!.toStringAsFixed(1)}${_getAngleSymbol()}', subtitleColor, textColor),
                   if (vessel.headingTrue != null)
-                    _detailRow('Heading', '${vessel.headingTrue!.toStringAsFixed(1)}°', subtitleColor, textColor),
+                    _detailRow('Heading', '${vessel.headingTrue!.toStringAsFixed(1)}${_getAngleSymbol()}', subtitleColor, textColor),
 
                   // Relative section
                   _sectionHeader('Relative', sectionColor),
-                  _detailRow('Bearing', '${vessel.bearing.toStringAsFixed(1)}°', subtitleColor, textColor),
+                  _detailRow('Bearing', '${vessel.bearing.toStringAsFixed(1)}${_getAngleSymbol()}', subtitleColor, textColor),
                   _detailRow('Distance', '${_convertDistance(vessel.distance).toStringAsFixed(2)} ${_getDistanceUnit()}', subtitleColor, textColor),
                   if (vessel.cpa != null)
                     _detailRow('CPA', '${_convertDistance(vessel.cpa!).toStringAsFixed(2)} ${_getDistanceUnit()}', subtitleColor, textColor),
@@ -496,23 +533,10 @@ class _AISPolarChartState extends State<AISPolarChart>
       final lon = positionMap['longitude'];
 
       if (lat is num && lon is num) {
-        final newLat = lat.toDouble();
-        final newLon = lon.toDouble();
-
-        // Check if position changed
-        final positionChanged = _ownLat != newLat || _ownLon != newLon;
-
-        _ownLat = newLat;
-        _ownLon = newLon;
+        _ownLat = lat.toDouble();
+        _ownLon = lon.toDouble();
         _lastPositionUpdate = positionData.timestamp;
-
-        // Fetch vessels (this will call setState once at the end)
         _fetchNearbyVessels();
-
-        // Auto-follow if enabled and in map view
-        if (_mapAutoFollow && _showMapView && positionChanged) {
-          _centerMapOnSelf();
-        }
       }
     }
   }
@@ -520,118 +544,97 @@ class _AISPolarChartState extends State<AISPolarChart>
   void _fetchNearbyVessels() {
     if (_ownLat == null || _ownLon == null) return;
 
-    // Get live vessel data from WebSocket cache (populated by vessels.* subscription)
-    final aisVessels = widget.signalKService.getLiveAISVessels();
+    // Read directly from AIS vessel registry (indexed, already pruned)
+    final registryVessels = widget.signalKService.aisVesselRegistry.vessels;
 
     // Build new vessel list
     final newVessels = <_VesselPoint>[];
 
-    for (final entry in aisVessels.entries) {
-      final vesselId = entry.key;
-      final vesselData = entry.value;
+    // Convert COG/heading from radians to degrees for display using MetadataStore
+    final cogMetadata = widget.signalKService.metadataStore.get('navigation.courseOverGroundTrue');
+    final headingMetadata = widget.signalKService.metadataStore.get('navigation.headingTrue');
 
-      final lat = vesselData['latitude'];
-      final lon = vesselData['longitude'];
-      final name = vesselData['name'];
-      final cog = vesselData['cog'];
-      final sogRaw = vesselData['sogRaw'] as double?;
-      final aisShipType = vesselData['aisShipType'] as int?;
-      final navState = vesselData['navState'] as String?;
-      final headingTrue = vesselData['headingTrue'] as double?;
-      // AIS class from data cache
-      final aisClassData = widget.signalKService.latestData['vessels.$vesselId.sensors.ais.class']?.value;
-      final aisClass = aisClassData is String ? aisClassData : null;
-      // AIS status from sk-ais-status-plugin
-      final aisStatus = vesselData['aisStatus'] as String?;
+    for (final entry in registryVessels.entries) {
+      final vessel = entry.value;
+      if (!vessel.hasPosition) continue;
 
-      if (lat != null && lon != null) {
-        final bearing = _calculateBearing(_ownLat!, _ownLon!, lat, lon);
-        final distance = _calculateDistance(_ownLat!, _ownLon!, lat, lon);
+      final lat = vessel.latitude!;
+      final lon = vessel.longitude!;
+      final bearing = _calculateBearing(_ownLat!, _ownLon!, lat, lon);
+      final distance = _calculateDistance(_ownLat!, _ownLon!, lat, lon);
 
-        // Check vessel data age
-        final timestamp = vesselData['timestamp'] as DateTime?;
+      // Convert COG from radians to display units (degrees) via MetadataStore
+      final cogDisplay = vessel.cogRad != null
+          ? ((cogMetadata?.convert(vessel.cogRad!) ?? (vessel.cogRad! * 180 / math.pi)) % 360)
+          : null;
 
-        // If plugin provides status, trust it; otherwise fall back to timestamp
-        if (aisStatus == null) {
-          final now = DateTime.now();
-          final ageMinutes = timestamp != null
-              ? now.difference(timestamp).inMinutes
-              : widget.pruneMinutes + 1; // Treat null timestamp as expired
+      // Convert heading from radians to display units (degrees) via MetadataStore
+      final headingDisplay = vessel.headingTrueRad != null
+          ? ((headingMetadata?.convert(vessel.headingTrueRad!) ?? (vessel.headingTrueRad! * 180 / math.pi)) % 360)
+          : null;
 
-          // Skip vessels older than prune time
-          if (ageMinutes > widget.pruneMinutes) {
-            continue;
-          }
-        }
+      // Determine freshness: plugin status or timestamp-based
+      final isLive = vessel.aisStatus == 'confirmed' ||
+          (vessel.aisStatus == null && vessel.ageMinutes < 3);
 
-        // Determine freshness: plugin status or timestamp-based
-        final isLive = aisStatus == 'confirmed' ||
-            (aisStatus == null && timestamp != null &&
-             DateTime.now().difference(timestamp).inMinutes < 3);
+      // Calculate CPA/TCPA — uses radians directly for trig
+      final cpaTcpa = _calculateCPATCPAForVessel(
+        bearing: bearing,
+        distance: distance,
+        vesselCogRad: vessel.cogRad,
+        vesselSogMs: vessel.sogMs,
+      );
 
-        // Calculate CPA/TCPA during fetch with caching
-        final cpaTcpa = _calculateCPATCPAForVessel(
-          bearing: bearing,
-          distance: distance,
-          vesselCog: cog,
-          vesselSogRaw: sogRaw,
-        );
+      double? finalCpa;
+      double? finalTcpa;
 
-        double? finalCpa;
-        double? finalTcpa;
+      if (cpaTcpa != null) {
+        final previous = _cachedCPA[vessel.vesselId];
+        if (previous != null) {
+          final diff = (cpaTcpa.cpa - previous.cpa).abs();
+          final pctChange = previous.cpa > 0 ? diff / previous.cpa : 1.0;
 
-        if (cpaTcpa != null) {
-          // New valid calculation - check if change is significant
-          final previous = _cachedCPA[vesselId];
-          if (previous != null) {
-            final diff = (cpaTcpa.cpa - previous.cpa).abs();
-            final pctChange = previous.cpa > 0 ? diff / previous.cpa : 1.0;
-
-            if (diff < 50 && pctChange < 0.1) {
-              // Insignificant change, keep previous to avoid flicker
-              finalCpa = previous.cpa;
-              finalTcpa = previous.tcpa;
-            } else {
-              // Significant change, update
-              finalCpa = cpaTcpa.cpa;
-              finalTcpa = cpaTcpa.tcpa;
-              _cachedCPA[vesselId] = cpaTcpa;
-            }
-          } else {
-            // First calculation for this vessel
-            finalCpa = cpaTcpa.cpa;
-            finalTcpa = cpaTcpa.tcpa;
-            _cachedCPA[vesselId] = cpaTcpa;
-          }
-        } else {
-          // Calculation failed - USE CACHED VALUE (don't clear!)
-          final previous = _cachedCPA[vesselId];
-          if (previous != null) {
+          if (diff < 50 && pctChange < 0.1) {
             finalCpa = previous.cpa;
             finalTcpa = previous.tcpa;
+          } else {
+            finalCpa = cpaTcpa.cpa;
+            finalTcpa = cpaTcpa.tcpa;
+            _cachedCPA[vessel.vesselId] = cpaTcpa;
           }
+        } else {
+          finalCpa = cpaTcpa.cpa;
+          finalTcpa = cpaTcpa.tcpa;
+          _cachedCPA[vessel.vesselId] = cpaTcpa;
         }
-
-        newVessels.add(_VesselPoint(
-          name: name,
-          mmsi: vesselId,
-          bearing: bearing,
-          distance: distance,
-          cog: cog,
-          sogRaw: sogRaw,
-          isLive: isLive,
-          timestamp: timestamp,
-          cpa: finalCpa,
-          tcpa: finalTcpa,
-          aisShipType: aisShipType,
-          navState: navState,
-          headingTrue: headingTrue,
-          latitude: lat?.toDouble(),
-          longitude: lon?.toDouble(),
-          aisClass: aisClass,
-          aisStatus: aisStatus,
-        ));
+      } else {
+        final previous = _cachedCPA[vessel.vesselId];
+        if (previous != null) {
+          finalCpa = previous.cpa;
+          finalTcpa = previous.tcpa;
+        }
       }
+
+      newVessels.add(_VesselPoint(
+        name: vessel.name,
+        mmsi: vessel.vesselId,
+        bearing: bearing,
+        distance: distance,
+        cog: cogDisplay,
+        cogRad: vessel.cogRad,
+        sogRaw: vessel.sogMs,
+        isLive: isLive,
+        timestamp: vessel.lastSeen,
+        cpa: finalCpa,
+        tcpa: finalTcpa,
+        aisShipType: vessel.aisShipType,
+        navState: vessel.navState,
+        headingTrue: headingDisplay,
+        latitude: lat,
+        longitude: lon,
+        aisClass: vessel.aisClass,
+        aisStatus: vessel.aisStatus,
+      ));
     }
 
     // Clean stale cache entries for vessels no longer in range
@@ -642,6 +645,7 @@ class _AISPolarChartState extends State<AISPolarChart>
     setState(() {
       _vessels.clear();
       _vessels.addAll(newVessels);
+      _updateDisplayVessels();
 
       // Auto-calculate range if in auto mode (distances are now in meters)
       if (_autoRange && _vessels.isNotEmpty) {
@@ -740,14 +744,34 @@ class _AISPolarChartState extends State<AISPolarChart>
     return R * c; // Returns meters
   }
 
-  /// Convert distance from meters to user's preferred unit using server unit preferences
+  /// Convert distance from meters to user's preferred unit using MetadataStore
   double _convertDistance(double meters) {
+    final metadata = widget.signalKService.metadataStore.getByCategory('distance');
+    if (metadata != null) return metadata.convert(meters) ?? meters;
+    // Fallback to category-based conversion
     return widget.signalKService.convertByCategory('distance', meters) ?? meters;
   }
 
-  /// Get distance unit symbol from server unit preferences
+  /// Get distance unit symbol from MetadataStore
   String _getDistanceUnit() {
+    final metadata = widget.signalKService.metadataStore.getByCategory('distance');
+    if (metadata?.symbol != null) return metadata!.symbol!;
     return widget.signalKService.getSymbolForCategory('distance') ?? 'm';
+  }
+
+  /// Convert and format a length value (beam/length/draft) using MetadataStore
+  String _formatLength(double meters) {
+    final metadata = widget.signalKService.metadataStore.getByCategory('length');
+    if (metadata != null) {
+      final converted = metadata.convert(meters);
+      return '${converted?.toStringAsFixed(1) ?? meters.toStringAsFixed(1)} ${metadata.symbol ?? 'm'}';
+    }
+    return '${meters.toStringAsFixed(1)} m';
+  }
+
+  /// Get angle symbol from MetadataStore
+  String _getAngleSymbol() {
+    return widget.signalKService.metadataStore.get(widget.cogPath)?.symbol ?? '°';
   }
 
   /// Convert speed from m/s to user's preferred unit using SOG path's displayUnits
@@ -850,6 +874,13 @@ class _AISPolarChartState extends State<AISPolarChart>
     return DateTime.now().difference(timestamp).inMinutes >= 10;
   }
 
+  /// Recompute cached display vessels after state changes
+  void _updateDisplayVessels() {
+    _displayVessels = _hideStale
+        ? _vessels.where((v) => !_isStale(v.timestamp, aisStatus: v.aisStatus)).toList()
+        : _vessels;
+  }
+
   /// Calculate projected positions for a vessel
   /// Returns list of (lat, lon, bearing, distance) for each time interval
   List<({double lat, double lon, double bearing, double distance})> _calculateProjectedPositions(
@@ -857,11 +888,11 @@ class _AISPolarChartState extends State<AISPolarChart>
   ) {
     if (vessel.sogRaw == null || vessel.sogRaw! < 0.1) return [];
     if (vessel.latitude == null || vessel.longitude == null) return [];
-    if (vessel.cog == null) return [];
+    if (vessel.cogRad == null) return [];
 
     final intervals = [30.0, 60.0, 900.0, 1800.0]; // 30s, 1m, 15m, 30m
     final results = <({double lat, double lon, double bearing, double distance})>[];
-    final cogRad = vessel.cog! * math.pi / 180;
+    final cogRad = vessel.cogRad!;
 
     for (final t in intervals) {
       final distanceM = vessel.sogRaw! * t;
@@ -1082,7 +1113,7 @@ class _AISPolarChartState extends State<AISPolarChart>
           const Icon(Icons.directions_boat, color: Colors.white, size: 16),
           const SizedBox(width: 6),
           Text(
-            '${_vessels.length} vessels',
+            '${_displayVessels.length} vessels',
             style: const TextStyle(
               color: Colors.white,
               fontWeight: FontWeight.bold,
@@ -1119,6 +1150,16 @@ class _AISPolarChartState extends State<AISPolarChart>
         _buildOverlayButton(
           icon: _showMapView ? Icons.radar : Icons.map,
           onPressed: () => setState(() => _showMapView = !_showMapView),
+        ),
+        const SizedBox(height: 4),
+        // Hide stale vessels toggle
+        _buildOverlayButton(
+          icon: _hideStale ? Icons.visibility_off : Icons.visibility,
+          onPressed: () => setState(() {
+            _hideStale = !_hideStale;
+            _updateDisplayVessels();
+          }),
+          color: _hideStale ? Colors.orange : null,
         ),
         const SizedBox(height: 8),
         // Zoom controls
@@ -1238,7 +1279,7 @@ class _AISPolarChartState extends State<AISPolarChart>
       // Skip projection calculations
     } else {
     // Limit to closest ~20 moving vessels within display range
-    final movingVessels = _vessels
+    final movingVessels = _displayVessels
         .where((v) => v.sogRaw != null && v.sogRaw! > 0.1 && v.distance <= displayRange)
         .toList()
       ..sort((a, b) => a.distance.compareTo(b.distance));
@@ -1422,7 +1463,7 @@ class _AISPolarChartState extends State<AISPolarChart>
     final cogMagnetic = _getConverted('navigation.courseOverGroundMagnetic', cogMagneticRaw);
     final headingMagneticRaw = _getRawValue('navigation.headingMagnetic');
     final headingMagnetic = _getConverted('navigation.headingMagnetic', headingMagneticRaw);
-    ownHeading = cogTrue ?? cogMagnetic ?? headingMagnetic ?? 0.0;
+    ownHeading = (cogTrue ?? cogMagnetic ?? headingMagnetic ?? 0.0) % 360;
 
     // Calculate bounds to fit all vessels
     double minLat = _ownLat!;
@@ -1430,17 +1471,12 @@ class _AISPolarChartState extends State<AISPolarChart>
     double minLon = _ownLon!;
     double maxLon = _ownLon!;
 
-    for (final vessel in _vessels) {
-      final vesselData = widget.signalKService.getLiveAISVessels()[vessel.mmsi];
-      if (vesselData != null) {
-        final lat = vesselData['latitude'] as double?;
-        final lon = vesselData['longitude'] as double?;
-        if (lat != null && lon != null) {
-          minLat = math.min(minLat, lat);
-          maxLat = math.max(maxLat, lat);
-          minLon = math.min(minLon, lon);
-          maxLon = math.max(maxLon, lon);
-        }
+    for (final vessel in _displayVessels) {
+      if (vessel.latitude != null && vessel.longitude != null) {
+        minLat = math.min(minLat, vessel.latitude!);
+        maxLat = math.max(maxLat, vessel.latitude!);
+        minLon = math.min(minLon, vessel.longitude!);
+        maxLon = math.max(maxLon, vessel.longitude!);
       }
     }
 
@@ -1486,7 +1522,7 @@ class _AISPolarChartState extends State<AISPolarChart>
         if (widget.showProjectedPositions)
           PolylineLayer(
             polylines: [
-              ..._vessels
+              ..._displayVessels
                   .where((v) => v.sogRaw != null && v.sogRaw! > 0.1 && v.latitude != null && v.longitude != null)
                   .take(20)
                   .map((vessel) {
@@ -1526,15 +1562,13 @@ class _AISPolarChartState extends State<AISPolarChart>
               ),
             ),
             // Other vessels
-            ..._vessels.map((vessel) {
-              final vesselData = widget.signalKService.getLiveAISVessels()[vessel.mmsi];
-              if (vesselData == null) return null;
+            ..._displayVessels.map((vessel) {
+              if (vessel.latitude == null || vessel.longitude == null) return null;
 
-              final lat = vesselData['latitude'] as double?;
-              final lon = vesselData['longitude'] as double?;
-              if (lat == null || lon == null) return null;
+              final lat = vessel.latitude!;
+              final lon = vessel.longitude!;
 
-              // Prefer headingTrue over COG for rotation
+              // Prefer headingTrue over COG for rotation (display degrees)
               final heading = vessel.headingTrue ?? vessel.cog ?? 0.0;
               final isHighlighted = vessel.mmsi == _highlightedVesselMMSI;
               final typeColor = widget.colorByShipType
@@ -1583,7 +1617,7 @@ class _AISPolarChartState extends State<AISPolarChart>
             }).whereType<Marker>(),
             // Projected position tick marks
             if (widget.showProjectedPositions)
-              ..._vessels
+              ..._displayVessels
                   .where((v) => v.sogRaw != null && v.sogRaw! > 0.1 && v.latitude != null && v.longitude != null)
                   .take(20)
                   .expand((vessel) {
@@ -1696,7 +1730,7 @@ class _AISPolarChartState extends State<AISPolarChart>
 
   /// Convert vessel positions from polar to Cartesian
   List<_CartesianPoint> _vesselsToCartesian() {
-    return _vessels.map((vessel) {
+    return _displayVessels.map((vessel) {
       // Convert bearing to radians (0° = North, 90° = East)
       final angleRad = (vessel.bearing - 90) * math.pi / 180;
 
@@ -1729,7 +1763,7 @@ class _AISPolarChartState extends State<AISPolarChart>
 
   /// Build vessel list
   Widget _buildVesselList(BuildContext context, bool isDark) {
-    if (_vessels.isEmpty) {
+    if (_displayVessels.isEmpty) {
       return Container(
         decoration: BoxDecoration(
           color: isDark ? Colors.grey.shade900 : Colors.grey.shade100,
@@ -1745,7 +1779,7 @@ class _AISPolarChartState extends State<AISPolarChart>
     }
 
     // Sort by distance
-    final sortedVessels = List<_VesselPoint>.from(_vessels)
+    final sortedVessels = List<_VesselPoint>.from(_displayVessels)
       ..sort((a, b) => a.distance.compareTo(b.distance));
 
     // Calculate time since last update
@@ -1853,7 +1887,7 @@ class _AISPolarChartState extends State<AISPolarChart>
                     const SizedBox(width: 8),
                     if (vessel.cog != null)
                       Text(
-                        'COG ${vessel.cog!.toStringAsFixed(0)}°',
+                        'COG ${vessel.cog!.toStringAsFixed(0)}${_getAngleSymbol()}',
                         style: const TextStyle(fontSize: 11),
                       ),
                     const SizedBox(width: 8),
@@ -1959,30 +1993,29 @@ class _AISPolarChartState extends State<AISPolarChart>
   ({double cpa, double tcpa})? _calculateCPATCPAForVessel({
     required double bearing,
     required double distance,
-    required double? vesselCog,
-    required double? vesselSogRaw,
+    required double? vesselCogRad,
+    required double? vesselSogMs,
   }) {
-    // Get own vessel COG (in degrees) and SOG (raw SI = m/s) using configured paths
-    final ownCogRaw = _getRawValue(widget.cogPath);
-    final ownCog = _getConverted(widget.cogPath, ownCogRaw);
+    // Get own vessel COG (raw SI = radians) and SOG (raw SI = m/s)
+    final ownCogRad = _getRawValue(widget.cogPath);
     final ownSogMs = _getRawValue(widget.sogPath) ?? 0.0;
 
     // Own vessel velocity components (m/s)
     double ownVx = 0.0;
     double ownVy = 0.0;
     if (ownSogMs > 0.01) {
-      if (ownCog == null) return null; // Moving but no direction
-      ownVx = ownSogMs * math.sin(ownCog * math.pi / 180);
-      ownVy = ownSogMs * math.cos(ownCog * math.pi / 180);
+      if (ownCogRad == null) return null; // Moving but no direction
+      ownVx = ownSogMs * math.sin(ownCogRad);
+      ownVy = ownSogMs * math.cos(ownCogRad);
     }
 
     // Target vessel velocity components (m/s)
     double targetVx = 0.0;
     double targetVy = 0.0;
-    final targetSogMs = vesselSogRaw ?? 0.0;
-    if (targetSogMs > 0.01 && vesselCog != null) {
-      targetVx = targetSogMs * math.sin(vesselCog * math.pi / 180);
-      targetVy = targetSogMs * math.cos(vesselCog * math.pi / 180);
+    final targetSogMs = vesselSogMs ?? 0.0;
+    if (targetSogMs > 0.01 && vesselCogRad != null) {
+      targetVx = targetSogMs * math.sin(vesselCogRad);
+      targetVy = targetSogMs * math.cos(vesselCogRad);
     }
 
     // Relative velocity (target relative to own)
@@ -2023,7 +2056,8 @@ class _VesselPoint {
   final String mmsi;
   final double bearing; // Degrees, 0-360
   final double distance; // Distance in meters (SI)
-  final double? cog; // Course over ground in degrees
+  final double? cog; // Course over ground in display units (degrees)
+  final double? cogRad; // Course over ground in radians (raw SI, for math)
   final double? sogRaw; // Speed over ground in m/s (SI)
   final bool isLive; // True if from WebSocket, false if from initial REST
   final DateTime? timestamp; // Last update time
@@ -2031,7 +2065,7 @@ class _VesselPoint {
   final double? tcpa; // Cached TCPA in seconds
   final int? aisShipType; // AIS ship type code
   final String? navState; // "motoring", "anchored", "moored", "sailing", "fishing"
-  final double? headingTrue; // True heading in degrees
+  final double? headingTrue; // True heading in display units (degrees)
   final double? latitude; // For projected position calculations
   final double? longitude;
   final String? aisClass; // AIS class: "A" or "B"
@@ -2043,6 +2077,7 @@ class _VesselPoint {
     required this.bearing,
     required this.distance,
     this.cog,
+    this.cogRad,
     this.sogRaw,
     this.isLive = false,
     this.timestamp,

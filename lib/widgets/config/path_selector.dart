@@ -12,6 +12,7 @@ class PathSelectorDialog extends StatefulWidget {
   final String? primaryAxisBaseUnit;     // For axis compatibility filtering
   final String? secondaryAxisBaseUnit;   // For axis compatibility filtering
   final bool showBaseUnitInLabel;        // Show base unit in path labels
+  final String? requiredCategory;        // Filter to paths in this unit category (e.g., 'angle')
 
   const PathSelectorDialog({
     super.key,
@@ -22,6 +23,7 @@ class PathSelectorDialog extends StatefulWidget {
     this.primaryAxisBaseUnit,
     this.secondaryAxisBaseUnit,
     this.showBaseUnitInLabel = false,
+    this.requiredCategory,
   });
 
   @override
@@ -125,6 +127,15 @@ class _PathSelectorDialogState extends State<PathSelectorDialog> {
         debugPrint('🔍 No axis filtering (primary=${widget.primaryAxisBaseUnit}, secondary=${widget.secondaryAxisBaseUnit})');
       }
 
+      // Filter by required category (e.g., 'angle' for compass)
+      if (widget.requiredCategory != null) {
+        final store = widget.signalKService.metadataStore;
+        paths = paths.where((path) {
+          final unitKey = ChartAxisUtils.getUnitKey(path, store);
+          return unitKey == widget.requiredCategory;
+        }).toList();
+      }
+
       setState(() {
         _allPaths = paths..sort();
         _filteredPaths = _allPaths;
@@ -217,7 +228,9 @@ class _PathSelectorDialogState extends State<PathSelectorDialog> {
                   children: [
                     Expanded(
                       child: Text(
-                        'Showing numeric paths',
+                        widget.requiredCategory != null
+                            ? 'Showing ${widget.requiredCategory} paths'
+                            : 'Showing numeric paths',
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
                               color: Theme.of(context).colorScheme.secondary,
                             ),
