@@ -48,12 +48,11 @@ class CpaAlertService extends ChangeNotifier {
 
   /// Apply config in memory and start/stop monitoring accordingly.
   void applyConfig(CpaAlertConfig newConfig) {
-    final wasEnabled = _config.enabled;
     _config = newConfig;
 
-    if (newConfig.enabled && !wasEnabled) {
+    if (newConfig.enabled) {
       _startMonitoring();
-    } else if (!newConfig.enabled && wasEnabled) {
+    } else {
       _stopMonitoring();
     }
 

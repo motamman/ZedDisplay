@@ -811,7 +811,7 @@ class _AISPolarChartState extends State<AISPolarChart>
       case 2:
         return Colors.cyan; // Fishing, towing
       case 3:
-        return Colors.orange; // Special craft (SAR, tug, pilot)
+        return Colors.amber; // Special craft (SAR, tug, pilot)
       case 4:
       case 5:
         return Colors.teal; // High-speed craft, special
@@ -820,7 +820,7 @@ class _AISPolarChartState extends State<AISPolarChart>
       case 7:
         return Colors.green.shade700; // Cargo
       case 8:
-        return Colors.red.shade700; // Tanker
+        return Colors.brown; // Tanker
       default:
         return Colors.grey; // Other/unknown
     }
@@ -999,17 +999,31 @@ class _AISPolarChartState extends State<AISPolarChart>
             final radarWithOverlay = Stack(
               children: [
                 Positioned.fill(child: radarClipped),
-                // Status badge (top left)
+                // Status badge + zoom (top left)
                 Positioned(
-                  top: 8,
-                  left: 8,
-                  child: _buildStatusBadge(context),
+                  top: 4,
+                  left: 4,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _buildStatusBadge(context),
+                      const SizedBox(height: 8),
+                      _buildZoomControls(),
+                    ],
+                  ),
                 ),
                 // View controls (top right, below info button)
                 Positioned(
-                  top: 40,
-                  right: 8,
-                  child: _buildOverlayControls(context),
+                  top: 4,
+                  right: 4,
+                  child: _buildViewControls(context),
+                ),
+                // Stale + CPA (bottom right)
+                Positioned(
+                  bottom: 4,
+                  right: 4,
+                  child: _buildBottomControls(context),
                 ),
               ],
             );
@@ -1112,8 +1126,26 @@ class _AISPolarChartState extends State<AISPolarChart>
     );
   }
 
-  /// Build overlay controls (top right, vertical column like anchor alarm)
-  Widget _buildOverlayControls(BuildContext context) {
+  /// Zoom controls (top left, below status badge)
+  Widget _buildZoomControls() {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _buildOverlayButton(
+          icon: Icons.add,
+          onPressed: _zoomIn,
+        ),
+        const SizedBox(height: 4),
+        _buildOverlayButton(
+          icon: Icons.remove,
+          onPressed: _zoomOut,
+        ),
+      ],
+    );
+  }
+
+  /// View controls (top right)
+  Widget _buildViewControls(BuildContext context) {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -1122,23 +1154,53 @@ class _AISPolarChartState extends State<AISPolarChart>
           icon: _fullScreenRadar ? Icons.fullscreen_exit : Icons.fullscreen,
           onPressed: _toggleFullScreen,
         ),
-        const SizedBox(height: 4),
         // Vessel list overlay (only when fullscreen)
-        if (_fullScreenRadar)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 4),
-            child: _buildOverlayButton(
-              icon: Icons.list,
-              onPressed: _toggleVesselListOverlay,
-              color: _showVesselListOverlay ? Colors.blue : null,
-            ),
+        if (_fullScreenRadar) ...[
+          const SizedBox(height: 4),
+          _buildOverlayButton(
+            icon: Icons.list,
+            onPressed: _toggleVesselListOverlay,
+            color: _showVesselListOverlay ? Colors.blue : null,
           ),
+        ],
+        const SizedBox(height: 4),
         // Map/Polar toggle
         _buildOverlayButton(
           icon: _showMapView ? Icons.radar : Icons.map,
           onPressed: () => setState(() => _showMapView = !_showMapView),
         ),
-        const SizedBox(height: 4),
+        // Auto-range toggle (polar view only)
+        if (!_showMapView) ...[
+          const SizedBox(height: 4),
+          _buildOverlayButton(
+            icon: _autoRange ? Icons.auto_fix_high : Icons.auto_fix_off,
+            onPressed: _toggleAutoRange,
+            color: _autoRange ? Colors.blue : null,
+          ),
+        ],
+        // Map-specific controls
+        if (_showMapView) ...[
+          const SizedBox(height: 4),
+          _buildOverlayButton(
+            icon: Icons.my_location,
+            onPressed: _centerMapOnSelf,
+          ),
+          const SizedBox(height: 4),
+          _buildOverlayButton(
+            icon: _mapAutoFollow ? Icons.gps_fixed : Icons.gps_not_fixed,
+            onPressed: _toggleAutoFollow,
+            color: _mapAutoFollow ? Colors.blue : null,
+          ),
+        ],
+      ],
+    );
+  }
+
+  /// Bottom controls (bottom right) — stale toggle + CPA
+  Widget _buildBottomControls(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
         // Hide stale vessels toggle
         _buildOverlayButton(
           icon: _hideStale ? Icons.visibility_off : Icons.visibility,
@@ -1157,42 +1219,8 @@ class _AISPolarChartState extends State<AISPolarChart>
             color: widget.cpaAlertService!.hasActiveAlarm
                 ? Colors.red
                 : widget.cpaAlertService!.config.enabled
-                    ? Colors.orange
+                    ? Colors.deepOrange
                     : null,
-          ),
-        ],
-        const SizedBox(height: 8),
-        // Zoom controls
-        _buildOverlayButton(
-          icon: Icons.add,
-          onPressed: _zoomIn,
-        ),
-        const SizedBox(height: 4),
-        _buildOverlayButton(
-          icon: Icons.remove,
-          onPressed: _zoomOut,
-        ),
-        // Auto-range toggle (polar view only)
-        if (!_showMapView) ...[
-          const SizedBox(height: 8),
-          _buildOverlayButton(
-            icon: _autoRange ? Icons.auto_fix_high : Icons.auto_fix_off,
-            onPressed: _toggleAutoRange,
-            color: _autoRange ? Colors.blue : null,
-          ),
-        ],
-        // Map-specific controls
-        if (_showMapView) ...[
-          const SizedBox(height: 8),
-          _buildOverlayButton(
-            icon: Icons.my_location,
-            onPressed: _centerMapOnSelf,
-          ),
-          const SizedBox(height: 4),
-          _buildOverlayButton(
-            icon: _mapAutoFollow ? Icons.gps_fixed : Icons.gps_not_fixed,
-            onPressed: _toggleAutoFollow,
-            color: _mapAutoFollow ? Colors.blue : null,
           ),
         ],
       ],
