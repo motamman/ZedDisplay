@@ -5,6 +5,7 @@ import '../../models/tool_definition.dart';
 import '../../models/tool_config.dart';
 import '../../services/signalk_service.dart';
 import '../../services/tool_registry.dart';
+import '../../utils/nws_alert_utils.dart';
 import '../tool_info_button.dart';
 
 /// NWS Alert severity levels
@@ -126,13 +127,11 @@ class NWSAlert {
   });
 
   /// Check if alert is currently active
-  bool get isActive {
-    final now = DateTime.now();
-    if (expires != null && now.isAfter(expires!)) return false;
-    if (ends != null && now.isAfter(ends!)) return false;
-    if (urgency.toLowerCase() == 'past') return false;
-    return true;
-  }
+  bool get isActive => NWSAlertUtils.isAlertActive(
+    expires: expires,
+    ends: ends,
+    urgency: urgency,
+  );
 
   /// Check if alert is imminent (onset within 2 hours)
   bool get isImminent {
@@ -197,6 +196,9 @@ class _WeatherAlertsToolState extends State<WeatherAlertsTool>
     widget.signalKService.addListener(_onDataChanged);
     WeatherAlertsNotifier.instance.addListener(_onExpandRequest);
 
+    // Subscribe to NWS alert data paths (wildcard)
+    widget.signalKService.subscribeToPaths(['environment.outside.nws.alert.*']);
+
     // Initial load after a short delay
     Future.delayed(const Duration(milliseconds: 500), () {
       if (mounted) _loadAlerts();
@@ -208,6 +210,7 @@ class _WeatherAlertsToolState extends State<WeatherAlertsTool>
     _pulseController.dispose();
     _debounceTimer?.cancel();
     widget.signalKService.removeListener(_onDataChanged);
+    widget.signalKService.unsubscribeFromPaths(['environment.outside.nws.alert.*']);
     WeatherAlertsNotifier.instance.removeListener(_onExpandRequest);
     super.dispose();
   }

@@ -107,6 +107,15 @@ void main() async {
   );
   await setupService.initialize();
 
+  // Wire NWS notification filter: only show alerts when weather_alerts widget is on dashboard
+  signalKService.setWeatherAlertsChecker(() {
+    final layout = dashboardService.currentLayout;
+    if (layout == null) return false;
+    final dashToolIds = layout.getAllToolIds().toSet();
+    final waTools = toolService.getToolsByToolType('weather_alerts');
+    return waTools.any((t) => dashToolIds.contains(t.id));
+  });
+
   // Connect crew service to setup service (for device name in crew profiles)
   crewService.setSetupService(setupService);
 

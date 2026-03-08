@@ -13,6 +13,7 @@ import 'interfaces/data_service.dart';
 import 'storage_service.dart';
 import 'metadata_store.dart';
 import '../models/path_metadata.dart';
+import '../utils/nws_alert_utils.dart';
 import 'ais_vessel_registry.dart';
 
 /// Connection state for SignalK server
@@ -51,6 +52,13 @@ class SignalKService extends ChangeNotifier implements DataService {
 
   // Conversion data - moved to _ConversionManager
   UnmodifiableMapView<String, PathConversionData>? _conversionsDataView;
+
+  // NWS weather-alerts dashboard checker (injected from main.dart)
+  bool Function() _isWeatherAlertsOnDashboard = () => false;
+
+  void setWeatherAlertsChecker(bool Function() checker) {
+    _isWeatherAlertsOnDashboard = checker;
+  }
 
   // Active subscriptions - only paths currently needed by UI
   final Set<String> _activePaths = {};
@@ -108,6 +116,8 @@ class SignalKService extends ChangeNotifier implements DataService {
     _notificationManager = _NotificationManager(
       getAuthToken: () => _authToken,
       getNotificationEndpoint: () => _getNotificationEndpoint(),
+      isWeatherAlertsOnDashboard: () => _isWeatherAlertsOnDashboard(),
+      getLatestData: () => _dataCache.internalDataMap,
     );
     _aisManager = _AISManager(
       getServerUrl: () => _serverUrl,
@@ -2315,10 +2325,14 @@ class _NotificationManager {
   // Dependencies injected via function getters
   final AuthToken? Function() getAuthToken;
   final String Function() getNotificationEndpoint;
+  final bool Function() isWeatherAlertsOnDashboard;
+  final Map<String, SignalKDataPoint> Function() getLatestData;
 
   _NotificationManager({
     required this.getAuthToken,
     required this.getNotificationEndpoint,
+    required this.isWeatherAlertsOnDashboard,
+    required this.getLatestData,
   });
 
   // Getters
@@ -2451,6 +2465,37 @@ class _NotificationManager {
   void handleNotification(String path, dynamic value, DateTime timestamp) {
     try {
       final key = path.replaceFirst('notifications.', '');
+
+      // Gate NWS weather notifications
+      if (key.startsWith('weather.nws.')) {
+        // Gate 1: Only show if weather_alerts widget is on the dashboard
+        if (!isWeatherAlertsOnDashboard()) return;
+
+        // Gate 2: Only show if the alert is still active
+        // Extract alertId from key like "weather.nws.alert.{alertId}.xxx"
+        final parts = key.split('.');
+        if (parts.length >= 4) {
+          final alertId = parts[3];
+          final data = getLatestData();
+          final prefix = 'environment.outside.nws.alert.$alertId';
+
+          // Look up expires, ends, urgency from cached data
+          final expiresStr = data['$prefix.expires']?.value?.toString();
+          final endsStr = data['$prefix.ends']?.value?.toString();
+          final urgencyStr = data['$prefix.urgency']?.value?.toString();
+
+          final expires = expiresStr != null ? DateTime.tryParse(expiresStr) : null;
+          final ends = endsStr != null ? DateTime.tryParse(endsStr) : null;
+
+          if (!NWSAlertUtils.isAlertActive(
+            expires: expires,
+            ends: ends,
+            urgency: urgencyStr,
+          )) {
+            return;
+          }
+        }
+      }
 
       if (value is Map<String, dynamic>) {
         final state = value['state'] as String?;
