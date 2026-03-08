@@ -8,6 +8,7 @@ import '../../services/cpa_alert_service.dart';
 import '../../services/notification_service.dart';
 import '../../services/messaging_service.dart';
 import '../../services/tool_registry.dart';
+import '../../services/tool_service.dart';
 import '../../utils/color_extensions.dart';
 import '../ais_polar_chart.dart';
 import '../tool_info_button.dart';
@@ -53,14 +54,13 @@ class _AISPolarChartToolState extends State<AISPolarChartTool> {
     final props = widget.config.style.customProperties ?? {};
     final enabled = props['cpaAlertsEnabled'] as bool? ?? true;
 
-    if (!enabled) return;
-
     // Get messaging service from Provider (nullable, like anchor alarm)
     MessagingService? messagingService;
     try {
       messagingService = Provider.of<MessagingService>(context, listen: false);
     } catch (_) {}
 
+    // Always create the service so the modal can enable/disable it
     _cpaAlertService = CpaAlertService(
       signalKService: widget.signalKService,
       notificationService: NotificationService(),
@@ -68,7 +68,7 @@ class _AISPolarChartToolState extends State<AISPolarChartTool> {
     );
 
     _cpaAlertService!.applyConfig(CpaAlertConfig(
-      enabled: true,
+      enabled: enabled,
       warnThresholdMeters: ((props['cpaWarnNm'] as num?)?.toDouble() ?? 1.0) * 1852.0,
       alarmThresholdMeters: ((props['cpaAlarmNm'] as num?)?.toDouble() ?? 0.5) * 1852.0,
       tcpaThresholdSeconds: ((props['cpaTcpaMinutes'] as num?)?.toDouble() ?? 30.0) * 60.0,
@@ -76,6 +76,39 @@ class _AISPolarChartToolState extends State<AISPolarChartTool> {
       cooldownSeconds: ((props['cpaCooldownMinutes'] as int?) ?? 5) * 60,
       sendCrewAlert: props['cpaSendCrewAlert'] as bool? ?? true,
     ));
+  }
+
+  void _onCpaConfigChanged(Map<String, dynamic> updatedCpaProps) {
+    final toolId = widget.config.style.customProperties?['_toolId'] as String?;
+    if (toolId == null) return;
+
+    final toolService = Provider.of<ToolService>(context, listen: false);
+    final tool = toolService.getTool(toolId);
+    if (tool == null) return;
+
+    final updatedProps = {
+      ...?tool.config.style.customProperties,
+      ...updatedCpaProps,
+    };
+    final updatedTool = tool.copyWith(
+      config: ToolConfig(
+        vesselId: tool.config.vesselId,
+        dataSources: tool.config.dataSources,
+        style: StyleConfig(
+          minValue: tool.config.style.minValue,
+          maxValue: tool.config.style.maxValue,
+          unit: tool.config.style.unit,
+          primaryColor: tool.config.style.primaryColor,
+          secondaryColor: tool.config.style.secondaryColor,
+          showLabel: tool.config.style.showLabel,
+          showValue: tool.config.style.showValue,
+          showUnit: tool.config.style.showUnit,
+          ttlSeconds: tool.config.style.ttlSeconds,
+          customProperties: updatedProps,
+        ),
+      ),
+    );
+    toolService.saveTool(updatedTool);
   }
 
   @override
@@ -127,6 +160,8 @@ class _AISPolarChartToolState extends State<AISPolarChartTool> {
           pruneMinutes: pruneMinutes,
           colorByShipType: colorByShipType,
           showProjectedPositions: showProjectedPositions,
+          cpaAlertService: _cpaAlertService,
+          onCpaConfigChanged: _onCpaConfigChanged,
         ),
         Positioned(
           top: 8,

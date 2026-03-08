@@ -5,6 +5,8 @@ import 'package:latlong2/latlong.dart';
 import 'dart:async';
 import 'dart:math' as math;
 import '../services/signalk_service.dart';
+import '../services/cpa_alert_service.dart';
+import '../models/cpa_alert_state.dart';
 import '../utils/cpa_utils.dart';
 
 /// AIS Polar Chart that displays nearby vessels relative to own position
@@ -25,6 +27,8 @@ class AISPolarChart extends StatefulWidget {
   final int pruneMinutes;    // Minutes before vessel is removed from display
   final bool colorByShipType; // Color vessels by AIS ship type
   final bool showProjectedPositions; // Show projected course lines
+  final CpaAlertService? cpaAlertService;
+  final ValueChanged<Map<String, dynamic>>? onCpaConfigChanged;
 
   const AISPolarChart({
     super.key,
@@ -39,6 +43,8 @@ class AISPolarChart extends StatefulWidget {
     this.pruneMinutes = 15,
     this.colorByShipType = true,
     this.showProjectedPositions = true,
+    this.cpaAlertService,
+    this.onCpaConfigChanged,
   });
 
   @override
@@ -112,6 +118,9 @@ class _AISPolarChartState extends State<AISPolarChart>
   @override
   void initState() {
     super.initState();
+    // Listen for CPA alert state changes (icon color updates)
+    widget.cpaAlertService?.addListener(_onCpaChanged);
+
     // Listen for own-vessel position updates from SignalK service
     widget.signalKService.addListener(_onServiceUpdate);
 
@@ -195,8 +204,13 @@ class _AISPolarChartState extends State<AISPolarChart>
     _fetchNearbyVessels();
   }
 
+  void _onCpaChanged() {
+    if (mounted) setState(() {});
+  }
+
   @override
   void dispose() {
+    widget.cpaAlertService?.removeListener(_onCpaChanged);
     widget.signalKService.removeListener(_onServiceUpdate);
     widget.signalKService.aisVesselRegistry.removeListener(_onAISUpdate);
     _highlightTimer?.cancel();
@@ -1134,6 +1148,19 @@ class _AISPolarChartState extends State<AISPolarChart>
           }),
           color: _hideStale ? Colors.orange : null,
         ),
+        // CPA alert settings
+        if (widget.cpaAlertService != null) ...[
+          const SizedBox(height: 4),
+          _buildOverlayButton(
+            icon: Icons.warning_amber,
+            onPressed: () => _showCpaSettingsSheet(context),
+            color: widget.cpaAlertService!.hasActiveAlarm
+                ? Colors.red
+                : widget.cpaAlertService!.config.enabled
+                    ? Colors.orange
+                    : null,
+          ),
+        ],
         const SizedBox(height: 8),
         // Zoom controls
         _buildOverlayButton(
@@ -1192,6 +1219,267 @@ class _AISPolarChartState extends State<AISPolarChart>
         ),
       ),
     );
+  }
+
+  void _showCpaSettingsSheet(BuildContext context) {
+    final service = widget.cpaAlertService!;
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) => DraggableScrollableSheet(
+        expand: false,
+        initialChildSize: 0.55,
+        minChildSize: 0.3,
+        maxChildSize: 0.85,
+        builder: (context, scrollController) => StatefulBuilder(
+          builder: (context, setSheetState) {
+            var config = service.config;
+            return SingleChildScrollView(
+              controller: scrollController,
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 4,
+                      margin: const EdgeInsets.only(bottom: 16),
+                      decoration: BoxDecoration(
+                        color: Colors.grey[400],
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                  Text(
+                    'CPA Alert Settings',
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  SwitchListTile(
+                    title: const Text('Enable CPA collision alerts'),
+                    subtitle: const Text('Alert when AIS vessels approach too close'),
+                    value: config.enabled,
+                    onChanged: (value) {
+                      final newConfig = CpaAlertConfig(
+                        enabled: value,
+                        warnThresholdMeters: config.warnThresholdMeters,
+                        alarmThresholdMeters: config.alarmThresholdMeters,
+                        tcpaThresholdSeconds: config.tcpaThresholdSeconds,
+                        alarmSound: config.alarmSound,
+                        cooldownSeconds: config.cooldownSeconds,
+                        sendCrewAlert: config.sendCrewAlert,
+                      );
+                      service.applyConfig(newConfig);
+                      setSheetState(() {});
+                      _persistCpaConfig(newConfig);
+                    },
+                    contentPadding: EdgeInsets.zero,
+                  ),
+                  if (config.enabled) ...[
+                    const SizedBox(height: 16),
+                    DropdownButtonFormField<double>(
+                      decoration: const InputDecoration(
+                        labelText: 'Warning Distance',
+                        border: OutlineInputBorder(),
+                        helperText: 'Trigger warning notification at this CPA',
+                      ),
+                      value: config.warnThresholdMeters / 1852.0,
+                      items: const [
+                        DropdownMenuItem(value: 0.5, child: Text('0.5 nm')),
+                        DropdownMenuItem(value: 1.0, child: Text('1 nm')),
+                        DropdownMenuItem(value: 2.0, child: Text('2 nm')),
+                        DropdownMenuItem(value: 3.0, child: Text('3 nm')),
+                        DropdownMenuItem(value: 5.0, child: Text('5 nm')),
+                      ],
+                      onChanged: (value) {
+                        if (value == null) return;
+                        var alarmNm = config.alarmThresholdMeters / 1852.0;
+                        if (alarmNm >= value) alarmNm = value / 2;
+                        final newConfig = CpaAlertConfig(
+                          enabled: config.enabled,
+                          warnThresholdMeters: value * 1852.0,
+                          alarmThresholdMeters: alarmNm * 1852.0,
+                          tcpaThresholdSeconds: config.tcpaThresholdSeconds,
+                          alarmSound: config.alarmSound,
+                          cooldownSeconds: config.cooldownSeconds,
+                          sendCrewAlert: config.sendCrewAlert,
+                        );
+                        service.applyConfig(newConfig);
+                        setSheetState(() {});
+                        _persistCpaConfig(newConfig);
+                      },
+                    ),
+                    const SizedBox(height: 16),
+                    DropdownButtonFormField<double>(
+                      decoration: const InputDecoration(
+                        labelText: 'Alarm Distance',
+                        border: OutlineInputBorder(),
+                        helperText: 'Trigger audio alarm + crew alert at this CPA',
+                      ),
+                      value: config.alarmThresholdMeters / 1852.0,
+                      items: const [
+                        DropdownMenuItem(value: 0.1, child: Text('0.1 nm')),
+                        DropdownMenuItem(value: 0.25, child: Text('0.25 nm')),
+                        DropdownMenuItem(value: 0.5, child: Text('0.5 nm')),
+                        DropdownMenuItem(value: 1.0, child: Text('1 nm')),
+                      ],
+                      onChanged: (value) {
+                        if (value == null) return;
+                        final newConfig = CpaAlertConfig(
+                          enabled: config.enabled,
+                          warnThresholdMeters: config.warnThresholdMeters,
+                          alarmThresholdMeters: value * 1852.0,
+                          tcpaThresholdSeconds: config.tcpaThresholdSeconds,
+                          alarmSound: config.alarmSound,
+                          cooldownSeconds: config.cooldownSeconds,
+                          sendCrewAlert: config.sendCrewAlert,
+                        );
+                        service.applyConfig(newConfig);
+                        setSheetState(() {});
+                        _persistCpaConfig(newConfig);
+                      },
+                    ),
+                    const SizedBox(height: 16),
+                    DropdownButtonFormField<double>(
+                      decoration: const InputDecoration(
+                        labelText: 'Time Horizon',
+                        border: OutlineInputBorder(),
+                        helperText: 'Only alert if CPA within this time',
+                      ),
+                      value: config.tcpaThresholdSeconds / 60.0,
+                      items: const [
+                        DropdownMenuItem(value: 5.0, child: Text('5 minutes')),
+                        DropdownMenuItem(value: 10.0, child: Text('10 minutes')),
+                        DropdownMenuItem(value: 15.0, child: Text('15 minutes')),
+                        DropdownMenuItem(value: 30.0, child: Text('30 minutes')),
+                        DropdownMenuItem(value: 60.0, child: Text('60 minutes')),
+                      ],
+                      onChanged: (value) {
+                        if (value == null) return;
+                        final newConfig = CpaAlertConfig(
+                          enabled: config.enabled,
+                          warnThresholdMeters: config.warnThresholdMeters,
+                          alarmThresholdMeters: config.alarmThresholdMeters,
+                          tcpaThresholdSeconds: value * 60.0,
+                          alarmSound: config.alarmSound,
+                          cooldownSeconds: config.cooldownSeconds,
+                          sendCrewAlert: config.sendCrewAlert,
+                        );
+                        service.applyConfig(newConfig);
+                        setSheetState(() {});
+                        _persistCpaConfig(newConfig);
+                      },
+                    ),
+                    const SizedBox(height: 16),
+                    DropdownButtonFormField<String>(
+                      decoration: const InputDecoration(
+                        labelText: 'Alarm Sound',
+                        border: OutlineInputBorder(),
+                      ),
+                      value: config.alarmSound,
+                      items: const [
+                        DropdownMenuItem(value: 'bell', child: Text('Bell')),
+                        DropdownMenuItem(value: 'foghorn', child: Text('Foghorn')),
+                        DropdownMenuItem(value: 'chimes', child: Text('Chimes')),
+                      ],
+                      onChanged: (value) {
+                        if (value == null) return;
+                        final newConfig = CpaAlertConfig(
+                          enabled: config.enabled,
+                          warnThresholdMeters: config.warnThresholdMeters,
+                          alarmThresholdMeters: config.alarmThresholdMeters,
+                          tcpaThresholdSeconds: config.tcpaThresholdSeconds,
+                          alarmSound: value,
+                          cooldownSeconds: config.cooldownSeconds,
+                          sendCrewAlert: config.sendCrewAlert,
+                        );
+                        service.applyConfig(newConfig);
+                        setSheetState(() {});
+                        _persistCpaConfig(newConfig);
+                      },
+                    ),
+                    const SizedBox(height: 8),
+                    SwitchListTile(
+                      title: const Text('Send crew alert'),
+                      subtitle: const Text('Broadcast CPA alerts to crew messaging'),
+                      value: config.sendCrewAlert,
+                      onChanged: (value) {
+                        final newConfig = CpaAlertConfig(
+                          enabled: config.enabled,
+                          warnThresholdMeters: config.warnThresholdMeters,
+                          alarmThresholdMeters: config.alarmThresholdMeters,
+                          tcpaThresholdSeconds: config.tcpaThresholdSeconds,
+                          alarmSound: config.alarmSound,
+                          cooldownSeconds: config.cooldownSeconds,
+                          sendCrewAlert: value,
+                        );
+                        service.applyConfig(newConfig);
+                        setSheetState(() {});
+                        _persistCpaConfig(newConfig);
+                      },
+                      contentPadding: EdgeInsets.zero,
+                    ),
+                    const SizedBox(height: 16),
+                    DropdownButtonFormField<int>(
+                      decoration: const InputDecoration(
+                        labelText: 'Alert Cooldown',
+                        border: OutlineInputBorder(),
+                        helperText: 'Suppress repeat alerts per vessel',
+                      ),
+                      value: config.cooldownSeconds ~/ 60,
+                      items: const [
+                        DropdownMenuItem(value: 1, child: Text('1 minute')),
+                        DropdownMenuItem(value: 2, child: Text('2 minutes')),
+                        DropdownMenuItem(value: 5, child: Text('5 minutes')),
+                        DropdownMenuItem(value: 10, child: Text('10 minutes')),
+                        DropdownMenuItem(value: 15, child: Text('15 minutes')),
+                      ],
+                      onChanged: (value) {
+                        if (value == null) return;
+                        final newConfig = CpaAlertConfig(
+                          enabled: config.enabled,
+                          warnThresholdMeters: config.warnThresholdMeters,
+                          alarmThresholdMeters: config.alarmThresholdMeters,
+                          tcpaThresholdSeconds: config.tcpaThresholdSeconds,
+                          alarmSound: config.alarmSound,
+                          cooldownSeconds: value * 60,
+                          sendCrewAlert: config.sendCrewAlert,
+                        );
+                        service.applyConfig(newConfig);
+                        setSheetState(() {});
+                        _persistCpaConfig(newConfig);
+                      },
+                    ),
+                  ],
+                  const SizedBox(height: 16),
+                  Center(
+                    child: TextButton(
+                      onPressed: () => Navigator.of(context).pop(),
+                      child: const Text('Close'),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  void _persistCpaConfig(CpaAlertConfig config) {
+    widget.onCpaConfigChanged?.call({
+      'cpaAlertsEnabled': config.enabled,
+      'cpaWarnNm': config.warnThresholdMeters / 1852.0,
+      'cpaAlarmNm': config.alarmThresholdMeters / 1852.0,
+      'cpaTcpaMinutes': config.tcpaThresholdSeconds / 60.0,
+      'cpaAlarmSound': config.alarmSound,
+      'cpaSendCrewAlert': config.sendCrewAlert,
+      'cpaCooldownMinutes': config.cooldownSeconds ~/ 60,
+    });
   }
 
   Widget _buildRadarChart(Color vesselColor, bool isDark) {

@@ -24,15 +24,6 @@ class PolarChartConfigurator extends ToolConfigurator {
   bool colorByShipType = true; // For ais_polar_chart - color vessels by AIS type
   bool showProjectedPositions = true; // For ais_polar_chart - show projected course lines
 
-  // CPA alert state variables (ais_polar_chart only)
-  bool cpaAlertsEnabled = true;
-  double cpaWarnNm = 1.0;
-  double cpaAlarmNm = 0.5;
-  double cpaTcpaMinutes = 30.0;
-  String cpaAlarmSound = 'foghorn';
-  bool cpaSendCrewAlert = true;
-  int cpaCooldownMinutes = 5;
-
   @override
   void reset() {
     historySeconds = 60;
@@ -41,13 +32,6 @@ class PolarChartConfigurator extends ToolConfigurator {
     pruneMinutes = 15;
     colorByShipType = true;
     showProjectedPositions = true;
-    cpaAlertsEnabled = true;
-    cpaWarnNm = 1.0;
-    cpaAlarmNm = 0.5;
-    cpaTcpaMinutes = 30.0;
-    cpaAlarmSound = 'foghorn';
-    cpaSendCrewAlert = true;
-    cpaCooldownMinutes = 5;
   }
 
   @override
@@ -68,15 +52,6 @@ class PolarChartConfigurator extends ToolConfigurator {
       // Convert milliseconds back to seconds for UI
       final updateIntervalMs = style.customProperties!['updateInterval'] as int? ?? 10000;
       updateIntervalSeconds = (updateIntervalMs / 1000).round();
-
-      // CPA alert settings
-      cpaAlertsEnabled = style.customProperties!['cpaAlertsEnabled'] as bool? ?? true;
-      cpaWarnNm = (style.customProperties!['cpaWarnNm'] as num?)?.toDouble() ?? 1.0;
-      cpaAlarmNm = (style.customProperties!['cpaAlarmNm'] as num?)?.toDouble() ?? 0.5;
-      cpaTcpaMinutes = (style.customProperties!['cpaTcpaMinutes'] as num?)?.toDouble() ?? 30.0;
-      cpaAlarmSound = style.customProperties!['cpaAlarmSound'] as String? ?? 'foghorn';
-      cpaSendCrewAlert = style.customProperties!['cpaSendCrewAlert'] as bool? ?? true;
-      cpaCooldownMinutes = style.customProperties!['cpaCooldownMinutes'] as int? ?? 5;
     }
   }
 
@@ -94,14 +69,6 @@ class PolarChartConfigurator extends ToolConfigurator {
       customProps['pruneMinutes'] = pruneMinutes;
       customProps['colorByShipType'] = colorByShipType;
       customProps['showProjectedPositions'] = showProjectedPositions;
-      // CPA alert settings
-      customProps['cpaAlertsEnabled'] = cpaAlertsEnabled;
-      customProps['cpaWarnNm'] = cpaWarnNm;
-      customProps['cpaAlarmNm'] = cpaAlarmNm;
-      customProps['cpaTcpaMinutes'] = cpaTcpaMinutes;
-      customProps['cpaAlarmSound'] = cpaAlarmSound;
-      customProps['cpaSendCrewAlert'] = cpaSendCrewAlert;
-      customProps['cpaCooldownMinutes'] = cpaCooldownMinutes;
     }
 
     return ToolConfig(
@@ -126,9 +93,6 @@ class PolarChartConfigurator extends ToolConfigurator {
       }
       if (pruneMinutes < 1) {
         return 'Prune time must be at least 1 minute';
-      }
-      if (cpaAlertsEnabled && cpaAlarmNm >= cpaWarnNm) {
-        return 'Alarm distance must be less than warning distance';
       }
     }
     return null;
@@ -260,141 +224,6 @@ class PolarChartConfigurator extends ToolConfigurator {
                   },
                 ),
 
-                const SizedBox(height: 24),
-                const Divider(),
-                const SizedBox(height: 8),
-                Text(
-                  'CPA Alerts',
-                  style: Theme.of(context).textTheme.titleMedium,
-                ),
-                const SizedBox(height: 8),
-                SwitchListTile(
-                  title: const Text('Enable CPA collision alerts'),
-                  subtitle: const Text('Alert when AIS vessels approach too close'),
-                  value: cpaAlertsEnabled,
-                  onChanged: (value) {
-                    setState(() => cpaAlertsEnabled = value);
-                  },
-                  contentPadding: EdgeInsets.zero,
-                ),
-                if (cpaAlertsEnabled) ...[
-                  const SizedBox(height: 16),
-                  DropdownButtonFormField<double>(
-                    decoration: const InputDecoration(
-                      labelText: 'Warning Distance',
-                      border: OutlineInputBorder(),
-                      helperText: 'Trigger warning notification at this CPA',
-                    ),
-                    initialValue: cpaWarnNm,
-                    items: const [
-                      DropdownMenuItem(value: 0.5, child: Text('0.5 nm')),
-                      DropdownMenuItem(value: 1.0, child: Text('1 nm')),
-                      DropdownMenuItem(value: 2.0, child: Text('2 nm')),
-                      DropdownMenuItem(value: 3.0, child: Text('3 nm')),
-                      DropdownMenuItem(value: 5.0, child: Text('5 nm')),
-                    ],
-                    onChanged: (value) {
-                      if (value != null) {
-                        setState(() {
-                          cpaWarnNm = value;
-                          if (cpaAlarmNm >= value) {
-                            cpaAlarmNm = value / 2;
-                          }
-                        });
-                      }
-                    },
-                  ),
-                  const SizedBox(height: 16),
-                  DropdownButtonFormField<double>(
-                    decoration: const InputDecoration(
-                      labelText: 'Alarm Distance',
-                      border: OutlineInputBorder(),
-                      helperText: 'Trigger audio alarm + crew alert at this CPA',
-                    ),
-                    initialValue: cpaAlarmNm,
-                    items: const [
-                      DropdownMenuItem(value: 0.1, child: Text('0.1 nm')),
-                      DropdownMenuItem(value: 0.25, child: Text('0.25 nm')),
-                      DropdownMenuItem(value: 0.5, child: Text('0.5 nm')),
-                      DropdownMenuItem(value: 1.0, child: Text('1 nm')),
-                    ],
-                    onChanged: (value) {
-                      if (value != null) {
-                        setState(() => cpaAlarmNm = value);
-                      }
-                    },
-                  ),
-                  const SizedBox(height: 16),
-                  DropdownButtonFormField<double>(
-                    decoration: const InputDecoration(
-                      labelText: 'Time Horizon',
-                      border: OutlineInputBorder(),
-                      helperText: 'Only alert if CPA within this time',
-                    ),
-                    initialValue: cpaTcpaMinutes,
-                    items: const [
-                      DropdownMenuItem(value: 5.0, child: Text('5 minutes')),
-                      DropdownMenuItem(value: 10.0, child: Text('10 minutes')),
-                      DropdownMenuItem(value: 15.0, child: Text('15 minutes')),
-                      DropdownMenuItem(value: 30.0, child: Text('30 minutes')),
-                      DropdownMenuItem(value: 60.0, child: Text('60 minutes')),
-                    ],
-                    onChanged: (value) {
-                      if (value != null) {
-                        setState(() => cpaTcpaMinutes = value);
-                      }
-                    },
-                  ),
-                  const SizedBox(height: 16),
-                  DropdownButtonFormField<String>(
-                    decoration: const InputDecoration(
-                      labelText: 'Alarm Sound',
-                      border: OutlineInputBorder(),
-                    ),
-                    initialValue: cpaAlarmSound,
-                    items: const [
-                      DropdownMenuItem(value: 'bell', child: Text('Bell')),
-                      DropdownMenuItem(value: 'foghorn', child: Text('Foghorn')),
-                      DropdownMenuItem(value: 'chimes', child: Text('Chimes')),
-                    ],
-                    onChanged: (value) {
-                      if (value != null) {
-                        setState(() => cpaAlarmSound = value);
-                      }
-                    },
-                  ),
-                  const SizedBox(height: 8),
-                  SwitchListTile(
-                    title: const Text('Send crew alert'),
-                    subtitle: const Text('Broadcast CPA alerts to crew messaging'),
-                    value: cpaSendCrewAlert,
-                    onChanged: (value) {
-                      setState(() => cpaSendCrewAlert = value);
-                    },
-                    contentPadding: EdgeInsets.zero,
-                  ),
-                  const SizedBox(height: 16),
-                  DropdownButtonFormField<int>(
-                    decoration: const InputDecoration(
-                      labelText: 'Alert Cooldown',
-                      border: OutlineInputBorder(),
-                      helperText: 'Suppress repeat alerts per vessel',
-                    ),
-                    initialValue: cpaCooldownMinutes,
-                    items: const [
-                      DropdownMenuItem(value: 1, child: Text('1 minute')),
-                      DropdownMenuItem(value: 2, child: Text('2 minutes')),
-                      DropdownMenuItem(value: 5, child: Text('5 minutes')),
-                      DropdownMenuItem(value: 10, child: Text('10 minutes')),
-                      DropdownMenuItem(value: 15, child: Text('15 minutes')),
-                    ],
-                    onChanged: (value) {
-                      if (value != null) {
-                        setState(() => cpaCooldownMinutes = value);
-                      }
-                    },
-                  ),
-                ],
               ],
             ],
           ),

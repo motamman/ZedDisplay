@@ -602,13 +602,39 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
       );
     }
 
+    // Inject toolId into customProperties for self-reference
+    final propsWithId = {
+      ...?tool.config.style.customProperties,
+      '_toolId': tool.id,
+    };
+    final toolWithId = tool.copyWith(
+      config: ToolConfig(
+        vesselId: tool.config.vesselId,
+        dataSources: tool.config.dataSources,
+        style: StyleConfig(
+          minValue: tool.config.style.minValue,
+          maxValue: tool.config.style.maxValue,
+          unit: tool.config.style.unit,
+          primaryColor: tool.config.style.primaryColor,
+          secondaryColor: tool.config.style.secondaryColor,
+          showLabel: tool.config.style.showLabel,
+          showValue: tool.config.style.showValue,
+          showUnit: tool.config.style.showUnit,
+          ttlSeconds: tool.config.style.ttlSeconds,
+          laylineAngle: tool.config.style.laylineAngle,
+          targetTolerance: tool.config.style.targetTolerance,
+          customProperties: propsWithId,
+        ),
+      ),
+    );
+
     // Save the tool
-    await toolService.saveTool(tool);
+    await toolService.saveTool(toolWithId);
 
     if (mounted) {
       // Return both tool and size
       Navigator.of(context).pop({
-        'tool': tool,
+        'tool': toolWithId,
         'width': _toolWidth,
         'height': _toolHeight,
       });
