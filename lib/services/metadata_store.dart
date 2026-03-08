@@ -160,6 +160,115 @@ class MetadataStore extends ChangeNotifier {
     }
   }
 
+  /// Populate metadata from REST unitpreferences data.
+  /// Combines default-categories (path → category), active preset (category → targetUnit),
+  /// and unit definitions (baseUnit → targetUnit → formula/symbol).
+  void populateFromPreset({
+    required Map<String, dynamic> defaultCategories,
+    required Map<String, dynamic> presetDetails,
+    required Map<String, dynamic> unitDefinitions,
+    Map<String, String>? categoryToBaseUnit,
+  }) {
+    bool changed = false;
+
+    for (final categoryEntry in defaultCategories.entries) {
+      final category = categoryEntry.key;
+      final categoryData = categoryEntry.value;
+      if (categoryData is! Map<String, dynamic>) continue;
+
+      final pathPatterns = categoryData['paths'];
+      if (pathPatterns is! List) continue;
+
+      // Get the preset for this category
+      final categoryPrefs = presetDetails[category];
+      if (categoryPrefs is! Map<String, dynamic>) continue;
+
+      final targetUnit = categoryPrefs['targetUnit'] as String?;
+      if (targetUnit == null) continue;
+
+      // Get SI base unit for this category
+      final baseUnit = categoryToBaseUnit?[category];
+
+      // Get formula from unit definitions
+      String? formula;
+      String? inverseFormula;
+      String? symbol;
+
+      if (baseUnit != null && baseUnit != targetUnit) {
+        final siUnitDef = unitDefinitions[baseUnit];
+        if (siUnitDef is Map<String, dynamic>) {
+          final conversions = siUnitDef['conversions'];
+          if (conversions is Map<String, dynamic>) {
+            final conversion = conversions[targetUnit];
+            if (conversion is Map<String, dynamic>) {
+              formula = conversion['formula'] as String?;
+              inverseFormula = conversion['inverseFormula'] as String?;
+              symbol = conversion['symbol'] as String? ?? targetUnit;
+            }
+          }
+        }
+      } else if (baseUnit == targetUnit) {
+        // Identity conversion
+        formula = 'value';
+        inverseFormula = 'value';
+        symbol = baseUnit;
+      }
+
+      // For each path pattern in this category, build metadata for known paths
+      // Store category-level metadata keyed by category for pattern-based lookup
+      final categoryMetadata = PathMetadata(
+        path: '__category__.$category',
+        baseUnit: baseUnit,
+        targetUnit: targetUnit,
+        category: category,
+        formula: formula,
+        inverseFormula: inverseFormula,
+        symbol: symbol,
+      );
+
+      final existing = _metadata['__category__.$category'];
+      if (_hasChanged(existing, categoryMetadata)) {
+        _metadata['__category__.$category'] = categoryMetadata;
+        changed = true;
+      }
+    }
+
+    if (changed) {
+      notifyListeners();
+    }
+  }
+
+  /// Get metadata for a path, falling back to category-level metadata
+  /// if no path-specific metadata exists.
+  PathMetadata? getWithFallback(String path, String? Function(String) findCategory) {
+    // Direct path match first
+    final direct = _metadata[path];
+    if (direct != null) return direct;
+
+    // Try category-based fallback
+    final category = findCategory(path);
+    if (category != null) {
+      final categoryMeta = _metadata['__category__.$category'];
+      if (categoryMeta != null) {
+        // Create a path-specific copy from category metadata
+        final pathMeta = PathMetadata(
+          path: path,
+          baseUnit: categoryMeta.baseUnit,
+          targetUnit: categoryMeta.targetUnit,
+          category: category,
+          formula: categoryMeta.formula,
+          inverseFormula: categoryMeta.inverseFormula,
+          symbol: categoryMeta.symbol,
+        );
+        // Cache for future lookups
+        _metadata[path] = pathMeta;
+        return pathMeta;
+      }
+    }
+
+    return null;
+  }
+
   /// Export all metadata to a map for caching.
   Map<String, Map<String, dynamic>> toMap() {
     final map = <String, Map<String, dynamic>>{};

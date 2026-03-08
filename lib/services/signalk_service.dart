@@ -26,13 +26,9 @@ enum SignalKConnectionState {
 
 /// Service to connect to SignalK server and stream data
 class SignalKService extends ChangeNotifier implements DataService {
-  // Main data WebSocket (units-preference endpoint)
+  // Single WebSocket connection for all data (data, autopilot, notifications)
   WebSocketChannel? _channel;
   StreamSubscription? _subscription;
-
-  // Autopilot WebSocket (standard endpoint for autopilot data)
-  WebSocketChannel? _autopilotChannel;
-  StreamSubscription? _autopilotSubscription;
 
   // Connection state
   bool _isConnected = false;
@@ -61,10 +57,16 @@ class SignalKService extends ChangeNotifier implements DataService {
     _isWeatherAlertsOnDashboard = checker;
   }
 
-  // Active subscriptions - only paths currently needed by UI
-  final Set<String> _activePaths = {};
-  final Set<String> _autopilotPaths = {}; // Separate tracking for autopilot paths
+  // Active subscriptions — centralized via PathSubscriptionRegistry
+  final PathSubscriptionRegistry _subscriptionRegistry = PathSubscriptionRegistry();
+  // Legacy accessors (backing _activePaths with registry)
+  Set<String> get _activePaths => _subscriptionRegistry.allPaths;
+  final Set<String> _autopilotPaths = {}; // Separate tracking for autopilot paths (until Phase 7 merges)
   String? _vesselContext;
+
+  // Path catalog — all paths available on the server (from /skServer/availablePaths)
+  List<String> _availablePaths = [];
+  Timer? _availablePathsRefreshTimer;
 
   // User's display unit preferences from WebSocket meta (sendMeta=all per subscription)
   // Maps path to displayUnits configuration: {category, targetUnit, formula, inverseFormula, symbol}
@@ -142,6 +144,7 @@ class SignalKService extends ChangeNotifier implements DataService {
       getHeaders: () => _getHeaders(),
       saveToCache: _saveConversionsToCache,
       loadFromCache: _loadConversionsFromCache,
+      getMetadataStore: () => _metadataStore,
     );
     _notificationManager = _NotificationManager(
       getAuthToken: () => _authToken,
@@ -149,6 +152,7 @@ class SignalKService extends ChangeNotifier implements DataService {
       isWeatherAlertsOnDashboard: () => _isWeatherAlertsOnDashboard(),
       getLatestData: () => _dataCache.internalDataMap,
       getDiagnosticService: () => _diagnosticService,
+      getVesselContext: () => _vesselContext,
     );
     _aisManager = _AISManager(
       getServerUrl: () => _serverUrl,
@@ -371,12 +375,16 @@ class SignalKService extends ChangeNotifier implements DataService {
         _subscribeToRtcPaths();
       }
 
+      // Fetch path catalog from server (lightweight, no auth required)
+      _fetchAvailablePaths();
+      _startAvailablePathsRefresh();
+
       // Start periodic cache cleanup to prevent memory growth
       _startCacheCleanup();
 
-      // Auto-connect notification channel if notifications are enabled
+      // Subscribe to notifications on main channel if enabled
       if (_notificationManager.notificationsEnabled && _authToken != null) {
-        await _notificationManager.connectNotificationChannel();
+        _subscriptionRegistry.register('notifications', ['notifications.*']);
       }
 
       // Execute connection callbacks sequentially to prevent HTTP overload
@@ -403,6 +411,15 @@ class SignalKService extends ChangeNotifier implements DataService {
     }
   }
 
+  /// Get the REST API vessel path segment.
+  /// Uses MMSI/URN if available, falls back to 'self'.
+  String get _vesselRestPath {
+    if (_vesselContext != null && _vesselContext!.startsWith('vessels.')) {
+      return _vesselContext!.substring('vessels.'.length);
+    }
+    return 'self';
+  }
+
   /// Get HTTP headers with authentication if available
   Map<String, String> _getHeaders() {
     final headers = <String, String>{
@@ -419,7 +436,8 @@ class SignalKService extends ChangeNotifier implements DataService {
   Future<String> _discoverWebSocketEndpoint() async {
     final wsProtocol = _useSecureConnection ? 'wss' : 'ws';
 
-    // Standard SignalK stream with sendMeta=all to receive displayUnits
+    // Standard SignalK stream with sendMeta=all — REST populates MetadataStore on connect,
+    // but WS meta overrides keep us in sync with runtime changes (new paths, user pref changes)
     var endpoint = '$wsProtocol://$_serverUrl/signalk/v1/stream?subscribe=none&sendMeta=all';
     if (_authToken != null) {
       endpoint += '&token=${Uri.encodeComponent(_authToken!.token)}';
@@ -437,54 +455,6 @@ class SignalKService extends ChangeNotifier implements DataService {
     return endpoint;
   }
 
-  /// Get autopilot WebSocket endpoint (always standard SignalK stream)
-  String _getAutopilotEndpoint() {
-    final wsProtocol = _useSecureConnection ? 'wss' : 'ws';
-    var endpoint = '$wsProtocol://$_serverUrl/signalk/v1/stream';
-    if (_authToken != null) {
-      endpoint += '?token=${Uri.encodeComponent(_authToken!.token)}';
-    }
-    return endpoint;
-  }
-
-  /// Connect autopilot channel for real-time autopilot data
-  Future<void> _connectAutopilotChannel() async {
-    if (_autopilotChannel != null) return;
-
-    try {
-      final wsUrl = _getAutopilotEndpoint();
-
-      if (_authToken != null) {
-        final headers = <String, String>{
-          'Authorization': 'Bearer ${_authToken!.token}',
-        };
-        final socket = await WebSocket.connect(wsUrl, headers: headers);
-        socket.pingInterval = const Duration(seconds: 30);
-        _autopilotChannel = IOWebSocketChannel(socket);
-      } else {
-        _autopilotChannel = WebSocketChannel.connect(Uri.parse(wsUrl));
-      }
-
-      // Listen to autopilot messages (same handler as main channel for data)
-      _autopilotSubscription = _autopilotChannel!.stream.listen(
-        _handleMessage,
-        onError: (_) {},
-        onDone: () {
-          _autopilotChannel = null;
-          _autopilotSubscription = null;
-        },
-      );
-
-      // Send subscription for autopilot paths if any exist
-      await _sendAutopilotSubscription();
-    } catch (e) {
-      if (kDebugMode) {
-        print('Autopilot channel error: $e');
-      }
-      _autopilotChannel = null;
-      _autopilotSubscription = null;
-    }
-  }
 
   /// Send WebSocket authentication with token (currently unused, kept for future)
   // void _sendWebSocketAuth() {
@@ -512,25 +482,14 @@ class SignalKService extends ChangeNotifier implements DataService {
       _selfMMSI = vesselId != null ? RegExp(r'(\d{9})').firstMatch(vesselId)?.group(1) : null;
       _aisManager.registry.setSelfVesselId(vesselId);
 
-      // For units-preference plugin, wait for template paths
-      if (_authToken != null) {
-        // Don't subscribe yet - wait for setActiveTemplatePaths() to be called
+      // Don't subscribe yet - wait for setActiveTemplatePaths() to be called
+      // Auth guard: no auth = no subscriptions (prevents wildcard flooding)
+      if (_authToken == null) {
+        if (kDebugMode) {
+          print('Auth guard: no auth token, skipping subscription');
+        }
         return;
       }
-
-      // Standard SignalK endpoint supports wildcard subscriptions (fallback)
-      final subscription = {
-        'context': 'vessels.self',
-        'subscribe': [
-          {
-            'path': '*',
-            'format': 'delta',
-            'policy': 'instant',
-          }
-        ]
-      };
-
-      _channel?.sink.add(jsonEncode(subscription));
     } catch (e) {
       if (kDebugMode) {
         print('Subscription setup error: $e');
@@ -545,16 +504,15 @@ class SignalKService extends ChangeNotifier implements DataService {
 
     // Check if paths have actually changed
     final pathsSet = Set<String>.from(paths);
-    final currentPathsSet = Set<String>.from(_activePaths);
+    final currentDashboardPaths = _subscriptionRegistry.getPathsForOwner('dashboard');
 
-    if (pathsSet.length == currentPathsSet.length &&
-        pathsSet.containsAll(currentPathsSet)) {
+    if (pathsSet.length == currentDashboardPaths.length &&
+        pathsSet.containsAll(currentDashboardPaths)) {
       return;
     }
 
-    // Clear old subscriptions and set new ones
-    _activePaths.clear();
-    _activePaths.addAll(paths);
+    // Register dashboard paths in the subscription registry
+    _subscriptionRegistry.register('dashboard', paths);
     await _updateSubscription();
   }
 
@@ -610,6 +568,16 @@ class SignalKService extends ChangeNotifier implements DataService {
 
           // Process value updates
           for (final value in updateValue.values) {
+            // Route notification paths to notification manager (single WS)
+            if (value.path.startsWith('notifications.') &&
+                !value.path.startsWith('notifications.crew.rtc.')) {
+              if (_notificationManager.notificationsEnabled) {
+                _notificationManager.handleNotification(
+                    value.path, value.value, updateValue.timestamp);
+              }
+              continue; // Don't store notifications in data cache
+            }
+
             // Check for RTC signaling notifications - route to callback immediately
             if (value.path.startsWith('notifications.crew.rtc.') && _rtcDeltaCallback != null) {
               try {
@@ -659,6 +627,7 @@ class SignalKService extends ChangeNotifier implements DataService {
                   formatted: formattedString,
                   symbol: symbolString,
                   original: originalValue,
+                  source: source,
                 );
               } else {
                 // Regular object value (like position) - NOT units-preference format
@@ -667,6 +636,7 @@ class SignalKService extends ChangeNotifier implements DataService {
                   value: valueMap, // Keep the object as-is
                   timestamp: updateValue.timestamp,
                   lastSeen: DateTime.now(),
+                  source: source,
                 );
               }
             } else {
@@ -676,6 +646,7 @@ class SignalKService extends ChangeNotifier implements DataService {
                 value: value.value,
                 timestamp: updateValue.timestamp,
                 lastSeen: DateTime.now(),
+                source: source,
               );
             }
 
@@ -693,20 +664,9 @@ class SignalKService extends ChangeNotifier implements DataService {
               continue; // Skip self-vessel storage
             }
 
-            // Own vessel — store in flat cache as before
+            // Own vessel — store in flat cache (single entry per path)
+            // Source is stored on the dataPoint itself, not as separate cache key
             _dataCache.internalDataMap[value.path] = dataPoint;
-
-            // ALSO store with full vessel context for multi-vessel support
-            final contextPath = '${update.context}.${value.path}';
-            _dataCache.internalDataMap[contextPath] = dataPoint;
-
-            // ALSO store at source-specific path if source is provided
-            if (source != null) {
-              final sourceKey = '${value.path}@$source';
-              _dataCache.internalDataMap[sourceKey] = dataPoint;
-            }
-
-            // NOTE: Notifications are handled by separate WebSocket connection
           }
         }
 
@@ -831,7 +791,7 @@ class SignalKService extends ChangeNotifier implements DataService {
     try {
       final memBefore = _diagnosticRssKB();
       final response = await http.put(
-        Uri.parse('$protocol://$_serverUrl/signalk/v1/api/vessels/self/$urlPath'),
+        Uri.parse('$protocol://$_serverUrl/signalk/v1/api/vessels/$_vesselRestPath/$urlPath'),
         headers: _getHeaders(),
         body: jsonEncode(body),
       );
@@ -869,8 +829,9 @@ class SignalKService extends ChangeNotifier implements DataService {
   void _subscribeToRtcPaths() {
     if (_channel == null) return;
 
+    final subscriptionContext = _vesselContext ?? 'vessels.self';
     final subscribeMessage = {
-      'context': 'vessels.self',
+      'context': subscriptionContext,
       'subscribe': [
         {'path': 'notifications.crew.rtc.*'},
       ],
@@ -884,8 +845,9 @@ class SignalKService extends ChangeNotifier implements DataService {
     if (_channel == null) return;
 
     // Send as a notification - notifications are broadcast to all connected clients
+    final subscriptionContext = _vesselContext ?? 'vessels.self';
     final notification = {
-      'context': 'vessels.self',
+      'context': subscriptionContext,
       'updates': [
         {
           '\$source': 'zeddisplay.$_deviceId',
@@ -1113,7 +1075,7 @@ class SignalKService extends ChangeNotifier implements DataService {
 
     try {
       final response = await http.get(
-        Uri.parse('$protocol://$_serverUrl/signalk/v1/api/vessels/self/$urlPath'),
+        Uri.parse('$protocol://$_serverUrl/signalk/v1/api/vessels/$_vesselRestPath/$urlPath'),
         headers: _getHeaders(),
       ).timeout(const Duration(seconds: 10)); // Increased from 3s for busy servers
 
@@ -1246,7 +1208,7 @@ class SignalKService extends ChangeNotifier implements DataService {
 
     try {
       final response = await http.get(
-        Uri.parse('$protocol://$_serverUrl/signalk/v1/api/vessels/self'),
+        Uri.parse('$protocol://$_serverUrl/signalk/v1/api/vessels/$_vesselRestPath'),
         headers: _getHeaders(),
       ).timeout(const Duration(seconds: 30)); // Increased from 10s for busy servers
 
@@ -1258,6 +1220,46 @@ class SignalKService extends ChangeNotifier implements DataService {
     }
 
     return null;
+  }
+
+  /// Get the list of all available paths on the server.
+  /// Populated on connect via GET /skServer/availablePaths.
+  List<String> get availablePathsList => _availablePaths;
+
+  /// Fetch available paths from the lightweight /skServer/availablePaths endpoint.
+  /// Returns a clean JSON array of path names (no values, no auth required).
+  Future<void> _fetchAvailablePaths() async {
+    final protocol = _useSecureConnection ? 'https' : 'http';
+
+    try {
+      final response = await http.get(
+        Uri.parse('$protocol://$_serverUrl/skServer/availablePaths'),
+        headers: _getHeaders(),
+      ).timeout(const Duration(seconds: 10));
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        if (data is List) {
+          _availablePaths = data.cast<String>()..sort();
+        }
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('Available paths fetch error: $e');
+      }
+    }
+  }
+
+  /// Start periodic refresh of available paths (every 5 minutes).
+  void _startAvailablePathsRefresh() {
+    _availablePathsRefreshTimer?.cancel();
+    _availablePathsRefreshTimer = Timer.periodic(const Duration(minutes: 5), (timer) {
+      if (!_isConnected) {
+        timer.cancel();
+        return;
+      }
+      _fetchAvailablePaths();
+    });
   }
 
   /// Fetch conversion formulas from SignalK server
@@ -1519,7 +1521,7 @@ class SignalKService extends ChangeNotifier implements DataService {
 
     try {
       final response = await http.get(
-        Uri.parse('$protocol://$_serverUrl/signalk/v1/api/vessels/self/$apiPath'),
+        Uri.parse('$protocol://$_serverUrl/signalk/v1/api/vessels/$_vesselRestPath/$apiPath'),
         headers: _getHeaders(),
       ).timeout(const Duration(seconds: 20)); // Increased from 5s for busy servers
 
@@ -1565,7 +1567,8 @@ class SignalKService extends ChangeNotifier implements DataService {
   }
 
   /// Subscribe to a set of paths (called when template/dashboard loads)
-  Future<void> subscribeToPaths(List<String> paths) async {
+  /// [ownerId] identifies the subscriber for registry tracking.
+  Future<void> subscribeToPaths(List<String> paths, {String ownerId = 'general'}) async {
     if (!_isConnected || _channel == null) {
       if (kDebugMode) {
         print('Cannot subscribe: not connected');
@@ -1573,41 +1576,40 @@ class SignalKService extends ChangeNotifier implements DataService {
       return;
     }
 
-    final newPaths = paths.where((p) => !_activePaths.contains(p)).toList();
-    if (newPaths.isEmpty) return;
-
-    _activePaths.addAll(newPaths);
+    _subscriptionRegistry.addPaths(ownerId, paths);
     await _updateSubscription();
   }
 
   /// Unsubscribe from paths (called when template/dashboard unloads)
-  Future<void> unsubscribeFromPaths(List<String> paths) async {
+  /// [ownerId] identifies the subscriber to unregister.
+  Future<void> unsubscribeFromPaths(List<String> paths, {String ownerId = 'general'}) async {
     if (!_isConnected || _channel == null) return;
 
-    final removedPaths = paths.where((p) => _activePaths.contains(p)).toList();
-    if (removedPaths.isEmpty) return;
-
-    _activePaths.removeAll(removedPaths);
+    _subscriptionRegistry.removePaths(ownerId, paths);
 
     // NOTE: Per-path unsubscribe is NOT supported by SignalK server.
     // Server only supports wildcard: {"context":"*","unsubscribe":[{"path":"*"}]}
     // Sending per-path unsubscribe causes server to throw error and close socket.
     // Subscriptions are cleaned up automatically when WebSocket disconnects/reconnects.
-    // Internal state (_activePaths) is still updated above for accurate tracking.
+    // Internal state (registry) is still updated above for accurate tracking.
   }
 
   /// Update subscription with current active paths
   /// ALWAYS uses standard SignalK stream format (client-side conversions)
   Future<void> _updateSubscription() async {
     if (!_isConnected || _channel == null) return;
+    // Auth guard: no auth = no subscriptions
+    if (_authToken == null) return;
 
     final pathsToSubscribe = <String>[..._activePaths];
 
     if (pathsToSubscribe.isEmpty) return;
 
     // Standard SignalK subscription format with sendMeta per path
+    // Use MMSI/URN context if available, fall back to vessels.self
+    final subscriptionContext = _vesselContext ?? 'vessels.self';
     final subscription = {
-      'context': 'vessels.self',
+      'context': subscriptionContext,
       'subscribe': pathsToSubscribe.map((path) => {
         'path': path,
         'format': 'delta',
@@ -1620,9 +1622,9 @@ class SignalKService extends ChangeNotifier implements DataService {
 
   }
 
-  /// Subscribe to autopilot paths (uses standard SignalK stream)
+  /// Subscribe to autopilot paths (now uses main channel — single WS connection)
   Future<void> subscribeToAutopilotPaths(List<String> paths) async {
-    if (!_isConnected) {
+    if (!_isConnected || _channel == null) {
       if (kDebugMode) {
         print('Cannot subscribe to autopilot paths: not connected');
       }
@@ -1634,29 +1636,9 @@ class SignalKService extends ChangeNotifier implements DataService {
 
     _autopilotPaths.addAll(newPaths);
 
-    // Connect autopilot channel if not already connected
-    if (_autopilotChannel == null) {
-      await _connectAutopilotChannel();
-    } else {
-      await _sendAutopilotSubscription();
-    }
-  }
-
-  /// Send autopilot subscription to standard SignalK stream
-  Future<void> _sendAutopilotSubscription() async {
-    if (_autopilotChannel == null || _autopilotPaths.isEmpty) return;
-
-    final subscription = {
-      'context': 'vessels.self',
-      'subscribe': _autopilotPaths.map((path) => {
-        'path': path,
-        'format': 'delta',
-        'policy': 'instant',
-        'sendMeta': 'all',
-      }).toList(),
-    };
-
-    _autopilotChannel?.sink.add(jsonEncode(subscription));
+    // Subscribe via main channel using the registry
+    _subscriptionRegistry.addPaths('autopilot', newPaths);
+    await _updateSubscription();
   }
 
   /// Load initial AIS vessel data and subscribe for updates
@@ -1677,9 +1659,18 @@ class SignalKService extends ChangeNotifier implements DataService {
     _aisManager.subscribeToAllAISVessels();
   }
 
-  /// Enable or disable notifications (manages separate WebSocket connection)
+  /// Enable or disable notifications (now uses main WS channel — single connection)
   Future<void> setNotificationsEnabled(bool enabled) async {
-    await _notificationManager.setNotificationsEnabled(enabled);
+    _notificationManager.setNotificationsEnabledFlag(enabled);
+    if (enabled) {
+      // Subscribe to notifications via main channel
+      _subscriptionRegistry.register('notifications', ['notifications.*']);
+    } else {
+      _subscriptionRegistry.unregister('notifications');
+    }
+    if (_isConnected) {
+      await _updateSubscription();
+    }
     notifyListeners();
   }
 
@@ -1709,22 +1700,19 @@ class SignalKService extends ChangeNotifier implements DataService {
       _latestDataView = null;
       _conversionManager.internalDataMap.clear();
       _conversionsDataView = null;
-      _activePaths.clear();
+      _subscriptionRegistry.clear();
       _autopilotPaths.clear();
       _vesselContext = null;
+      _availablePaths = [];
+      _availablePathsRefreshTimer?.cancel();
       _selfMMSI = null;
       _ensuredResourceTypes.clear();
       _displayUnitsCache.clear();
       _metadataStore.clear();
       _aisManager.registry.clear();
 
-      // Disconnect autopilot channel
-      await _autopilotSubscription?.cancel();
-      _autopilotSubscription = null;
-      await _autopilotChannel?.sink.close();
-      _autopilotChannel = null;
-
-      // Also disconnect notification channel if it's connected
+      // Disconnect notification channel if it's connected
+      // (still separate until notification routing is moved to main _handleMessage)
       await _notificationManager.disconnectNotificationChannel();
 
       if (kDebugMode) {
@@ -1858,6 +1846,61 @@ class PathConversionData {
   }
 }
 
+/// Central registry for path subscriptions with owner tracking.
+/// Each subscriber registers with an owner ID; the union of all owners' paths
+/// is the full subscription set.
+class PathSubscriptionRegistry {
+  final Map<String, Set<String>> _subscriptionsByOwner = {};
+
+  /// Register paths for an owner. Replaces any previous paths for this owner.
+  void register(String ownerId, List<String> paths) {
+    _subscriptionsByOwner[ownerId] = Set<String>.from(paths);
+  }
+
+  /// Add paths to an existing owner's set (additive).
+  void addPaths(String ownerId, List<String> paths) {
+    _subscriptionsByOwner.putIfAbsent(ownerId, () => {}).addAll(paths);
+  }
+
+  /// Unregister all paths for an owner.
+  void unregister(String ownerId) {
+    _subscriptionsByOwner.remove(ownerId);
+  }
+
+  /// Remove specific paths from an owner's set.
+  void removePaths(String ownerId, List<String> paths) {
+    _subscriptionsByOwner[ownerId]?.removeAll(paths);
+    if (_subscriptionsByOwner[ownerId]?.isEmpty ?? false) {
+      _subscriptionsByOwner.remove(ownerId);
+    }
+  }
+
+  /// Get the union of all owners' paths.
+  Set<String> get allPaths {
+    final result = <String>{};
+    for (final paths in _subscriptionsByOwner.values) {
+      result.addAll(paths);
+    }
+    return result;
+  }
+
+  /// Get paths for a specific owner.
+  Set<String> getPathsForOwner(String ownerId) {
+    return _subscriptionsByOwner[ownerId] ?? {};
+  }
+
+  /// Check if any paths are registered.
+  bool get isEmpty => _subscriptionsByOwner.isEmpty;
+
+  /// Clear all subscriptions.
+  void clear() {
+    _subscriptionsByOwner.clear();
+  }
+
+  /// Get all owner IDs.
+  Set<String> get owners => _subscriptionsByOwner.keys.toSet();
+}
+
 /// Internal manager for data caching and cleanup
 /// Handles _latestData map, cache pruning, and data access methods
 class _DataCacheManager {
@@ -1881,12 +1924,17 @@ class _DataCacheManager {
 
   /// Get value for specific path, optionally from a specific source
   SignalKDataPoint? getValue(String path, {String? source}) {
+    final dataPoint = _latestData[path];
     if (source == null) {
-      return _latestData[path];
+      return dataPoint;
     }
-    final sourceKey = '$path@$source';
-    final result = _latestData[sourceKey];
-    return result ?? _latestData[path];
+    // Source stored on the data point itself — return if it matches or if no source filter needed
+    if (dataPoint?.source == source) {
+      return dataPoint;
+    }
+    // Fallback: return the data point even if source doesn't match
+    // (better to show data from a different source than nothing)
+    return dataPoint;
   }
 
   /// Check if data is fresh (within TTL threshold)
@@ -1937,8 +1985,8 @@ class _DataCacheManager {
     final activePaths = getActivePaths();
 
     _latestData.removeWhere((key, dataPoint) {
-      // Never prune own vessel data or actively subscribed paths
-      if (key.startsWith('vessels.self') || activePaths.contains(key)) {
+      // Never prune actively subscribed paths (own vessel data uses bare paths)
+      if (activePaths.contains(key)) {
         return false;
       }
       // Never prune environment data (weather, sun/moon, etc.) - updates infrequently
@@ -1989,6 +2037,7 @@ class _ConversionManager {
   final Map<String, String> Function() getHeaders;
   final Future<void> Function(Map<String, dynamic>) saveToCache;
   final Map<String, dynamic>? Function() loadFromCache;
+  final MetadataStore Function() getMetadataStore;
 
   _ConversionManager({
     required this.getServerUrl,
@@ -1996,6 +2045,7 @@ class _ConversionManager {
     required this.getHeaders,
     required this.saveToCache,
     required this.loadFromCache,
+    required this.getMetadataStore,
   });
 
   // Direct access to internal map (legacy)
@@ -2136,6 +2186,16 @@ class _ConversionManager {
         }
       }
 
+
+      // Populate MetadataStore from REST data (single source of truth)
+      if (_defaultCategories != null && _presetDetails != null && _unitDefinitions != null) {
+        getMetadataStore().populateFromPreset(
+          defaultCategories: _defaultCategories!,
+          presetDetails: _presetDetails!,
+          unitDefinitions: _unitDefinitions!,
+          categoryToBaseUnit: _categoryToBaseUnit,
+        );
+      }
 
       // Save to local cache
       await saveToCache({
@@ -2377,6 +2437,7 @@ class _NotificationManager {
   final bool Function() isWeatherAlertsOnDashboard;
   final Map<String, SignalKDataPoint> Function() getLatestData;
   final DiagnosticService? Function() getDiagnosticService;
+  final String? Function() getVesselContext;
 
   _NotificationManager({
     required this.getAuthToken,
@@ -2384,6 +2445,7 @@ class _NotificationManager {
     required this.isWeatherAlertsOnDashboard,
     required this.getLatestData,
     required this.getDiagnosticService,
+    required this.getVesselContext,
   });
 
   // Getters
@@ -2397,7 +2459,7 @@ class _NotificationManager {
     return List.unmodifiable(_recentNotifications);
   }
 
-  /// Enable or disable notifications
+  /// Enable or disable notifications (WS connection now managed by SignalKService)
   Future<void> setNotificationsEnabled(bool enabled) async {
     if (_notificationsEnabled == enabled) {
       return;
@@ -2409,6 +2471,16 @@ class _NotificationManager {
       await connectNotificationChannel();
     } else {
       await disconnectNotificationChannel();
+    }
+  }
+
+  /// Set the enabled flag without managing WS connections.
+  /// Used when notifications route through the main channel.
+  void setNotificationsEnabledFlag(bool enabled) {
+    _notificationsEnabled = enabled;
+    if (!enabled) {
+      _lastNotificationState.clear();
+      _recentNotifications.clear();
     }
   }
 
@@ -2471,8 +2543,9 @@ class _NotificationManager {
   void subscribeToNotifications() {
     if (_notificationChannel == null) return;
 
+    final subscriptionContext = getVesselContext() ?? 'vessels.self';
     final subscription = {
-      'context': 'vessels.self',
+      'context': subscriptionContext,
       'subscribe': [
         {
           'path': 'notifications.*',

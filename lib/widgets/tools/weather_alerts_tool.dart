@@ -197,7 +197,7 @@ class _WeatherAlertsToolState extends State<WeatherAlertsTool>
     WeatherAlertsNotifier.instance.addListener(_onExpandRequest);
 
     // Subscribe to NWS alert data paths (wildcard)
-    widget.signalKService.subscribeToPaths(['environment.outside.nws.alert.*']);
+    widget.signalKService.subscribeToPaths(['environment.outside.nws.alert.*'], ownerId: 'weather_alerts');
 
     // Initial load after a short delay
     Future.delayed(const Duration(milliseconds: 500), () {
@@ -210,7 +210,7 @@ class _WeatherAlertsToolState extends State<WeatherAlertsTool>
     _pulseController.dispose();
     _debounceTimer?.cancel();
     widget.signalKService.removeListener(_onDataChanged);
-    widget.signalKService.unsubscribeFromPaths(['environment.outside.nws.alert.*']);
+    widget.signalKService.unsubscribeFromPaths(['environment.outside.nws.alert.*'], ownerId: 'weather_alerts');
     WeatherAlertsNotifier.instance.removeListener(_onExpandRequest);
     super.dispose();
   }

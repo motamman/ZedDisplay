@@ -121,6 +121,7 @@ class SignalKDataPoint {
 
   // Data source tracking
   final bool fromGET;           // true if from REST GET, false if from WebSocket
+  final String? source;         // Source label (e.g., "can0.115", "pypilot")
 
   SignalKDataPoint({
     required this.path,
@@ -133,6 +134,7 @@ class SignalKDataPoint {
     this.symbol,
     this.original,
     this.fromGET = false,       // Default to WebSocket
+    this.source,
   }) : lastSeen = lastSeen ?? DateTime.now();
 
   /// Check if this data point has converted values from units-preference plugin
