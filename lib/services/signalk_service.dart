@@ -15,6 +15,7 @@ import 'metadata_store.dart';
 import '../models/path_metadata.dart';
 import '../utils/nws_alert_utils.dart';
 import 'ais_vessel_registry.dart';
+import 'diagnostic_service.dart';
 
 /// Connection state for SignalK server
 enum SignalKConnectionState {
@@ -99,6 +100,35 @@ class SignalKService extends ChangeNotifier implements DataService {
   // Single source of truth for path metadata and conversions
   final MetadataStore _metadataStore = MetadataStore();
 
+  // Diagnostic service for memory leak investigation (nullable, opt-in)
+  DiagnosticService? _diagnosticService;
+
+  /// Set the diagnostic service for REST/WS instrumentation.
+  void setDiagnosticService(DiagnosticService service) {
+    _diagnosticService = service;
+  }
+
+  /// Get current RSS in KB for diagnostic instrumentation.
+  int _diagnosticRssKB() {
+    try {
+      if (Platform.isAndroid) {
+        final status = File('/proc/self/status');
+        if (!status.existsSync()) return 0;
+        for (var line in status.readAsLinesSync()) {
+          if (line.startsWith('VmRSS:')) {
+            final parts = line.split(RegExp(r'\s+'));
+            if (parts.length >= 2) return int.parse(parts[1]);
+          }
+        }
+        return 0;
+      }
+      final rss = ProcessInfo.currentRss;
+      return rss > 0 ? (rss / 1024).round() : 0;
+    } catch (_) {
+      return 0;
+    }
+  }
+
   // Constructor
   SignalKService({StorageService? storageService}) : _storageService = storageService {
     _dataCache = _DataCacheManager(
@@ -118,6 +148,7 @@ class SignalKService extends ChangeNotifier implements DataService {
       getNotificationEndpoint: () => _getNotificationEndpoint(),
       isWeatherAlertsOnDashboard: () => _isWeatherAlertsOnDashboard(),
       getLatestData: () => _dataCache.internalDataMap,
+      getDiagnosticService: () => _diagnosticService,
     );
     _aisManager = _AISManager(
       getServerUrl: () => _serverUrl,
@@ -548,6 +579,7 @@ class SignalKService extends ChangeNotifier implements DataService {
 
       // Check if it's a delta update
       if (data['updates'] != null) {
+        _diagnosticService?.instrumentWsMessage('delta');
 
         final update = SignalKUpdate.fromJson(data);
 
@@ -558,6 +590,9 @@ class SignalKService extends ChangeNotifier implements DataService {
           // Process meta entries (from sendMeta=all) - extract displayUnits
           // Populate MetadataStore (single source of truth) and legacy cache
           bool displayUnitsChanged = false;
+          if (updateValue.metaEntries.isNotEmpty) {
+            _diagnosticService?.instrumentWsMessage('meta');
+          }
           for (final metaEntry in updateValue.metaEntries) {
             if (metaEntry.displayUnits != null) {
               // Update single source of truth (MetadataStore)
@@ -794,11 +829,13 @@ class SignalKService extends ChangeNotifier implements DataService {
     }
 
     try {
+      final memBefore = _diagnosticRssKB();
       final response = await http.put(
         Uri.parse('$protocol://$_serverUrl/signalk/v1/api/vessels/self/$urlPath'),
         headers: _getHeaders(),
         body: jsonEncode(body),
       );
+      _diagnosticService?.instrumentRestCall('PUT', memBefore, _diagnosticRssKB());
 
       if (response.statusCode != 200) {
         throw Exception('PUT request failed: ${response.statusCode}');
@@ -880,10 +917,12 @@ class SignalKService extends ChangeNotifier implements DataService {
     final url = '$protocol://$_serverUrl/signalk/v2/api/resources/$resourceType';
 
     try {
+      final memBefore = _diagnosticRssKB();
       final response = await http.get(
         Uri.parse(url),
         headers: _getHeaders(),
       ).timeout(const Duration(seconds: 10));
+      _diagnosticService?.instrumentRestCall('GET', memBefore, _diagnosticRssKB());
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
@@ -929,11 +968,13 @@ class SignalKService extends ChangeNotifier implements DataService {
     final url = '$protocol://$_serverUrl/signalk/v2/api/resources/$resourceType/$id';
 
     try {
+      final memBefore = _diagnosticRssKB();
       final response = await http.put(
         Uri.parse(url),
         headers: _getHeaders(),
         body: jsonEncode(data),
       ).timeout(const Duration(seconds: 10));
+      _diagnosticService?.instrumentRestCall('PUT', memBefore, _diagnosticRssKB());
 
       if (response.statusCode == 200 || response.statusCode == 201) {
         return true;
@@ -950,10 +991,12 @@ class SignalKService extends ChangeNotifier implements DataService {
     final protocol = _useSecureConnection ? 'https' : 'http';
 
     try {
+      final memBefore = _diagnosticRssKB();
       final response = await http.delete(
         Uri.parse('$protocol://$_serverUrl/signalk/v2/api/resources/$resourceType/$id'),
         headers: _getHeaders(),
       ).timeout(const Duration(seconds: 10));
+      _diagnosticService?.instrumentRestCall('DELETE', memBefore, _diagnosticRssKB());
 
       if (response.statusCode == 200 || response.statusCode == 204) {
         return true;
@@ -1016,11 +1059,14 @@ class SignalKService extends ChangeNotifier implements DataService {
     final protocol = _useSecureConnection ? 'https' : 'http';
     final url = '$protocol://$_serverUrl$pluginPath';
 
-    return await http.post(
+    final memBefore = _diagnosticRssKB();
+    final response = await http.post(
       Uri.parse(url),
       headers: _getHeaders(),
       body: body != null ? jsonEncode(body) : null,
     ).timeout(const Duration(seconds: 10));
+    _diagnosticService?.instrumentRestCall('POST', memBefore, _diagnosticRssKB());
+    return response;
   }
 
   /// Make an authenticated GET request to a plugin API endpoint
@@ -1029,10 +1075,13 @@ class SignalKService extends ChangeNotifier implements DataService {
     final protocol = _useSecureConnection ? 'https' : 'http';
     final url = '$protocol://$_serverUrl$pluginPath';
 
-    return await http.get(
+    final memBefore = _diagnosticRssKB();
+    final response = await http.get(
       Uri.parse(url),
       headers: _getHeaders(),
     ).timeout(const Duration(seconds: 10));
+    _diagnosticService?.instrumentRestCall('GET', memBefore, _diagnosticRssKB());
+    return response;
   }
 
   /// Get value for specific path, optionally from a specific source
@@ -2327,12 +2376,14 @@ class _NotificationManager {
   final String Function() getNotificationEndpoint;
   final bool Function() isWeatherAlertsOnDashboard;
   final Map<String, SignalKDataPoint> Function() getLatestData;
+  final DiagnosticService? Function() getDiagnosticService;
 
   _NotificationManager({
     required this.getAuthToken,
     required this.getNotificationEndpoint,
     required this.isWeatherAlertsOnDashboard,
     required this.getLatestData,
+    required this.getDiagnosticService,
   });
 
   // Getters
@@ -2437,6 +2488,7 @@ class _NotificationManager {
   /// Handle messages from notification WebSocket
   void handleNotificationMessage(dynamic message) {
     try {
+      getDiagnosticService()?.instrumentWsMessage('notification');
       final data = jsonDecode(message);
 
       if (data is! Map<String, dynamic>) {

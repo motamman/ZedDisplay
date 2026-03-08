@@ -21,6 +21,7 @@ import 'services/file_share_service.dart';
 import 'services/file_server_service.dart';
 import 'services/intercom_service.dart';
 import 'services/scale_service.dart';
+import 'services/diagnostic_service.dart';
 import 'models/auth_token.dart';
 import 'screens/splash_screen.dart';
 import 'screens/setup_management_screen.dart';
@@ -59,6 +60,15 @@ void main() async {
   // Initialize crew service
   final crewService = CrewService(signalKService, storageService);
   await crewService.initialize();
+
+  // Initialize diagnostic service for memory leak investigation
+  final deviceId = storageService.getSetting('crew_device_id') ?? 'unknown';
+  final diagnosticService = await DiagnosticService.initialize(
+    signalKService: signalKService,
+    deviceId: deviceId,
+  );
+  signalKService.setDiagnosticService(diagnosticService);
+  await diagnosticService.start();
 
   // Initialize messaging service
   final messagingService = MessagingService(signalKService, storageService, crewService);
@@ -350,6 +360,8 @@ class _ZedDisplayAppState extends State<ZedDisplayApp> with WidgetsBindingObserv
     switch (state) {
       case AppLifecycleState.paused:
       case AppLifecycleState.inactive:
+        // Flush diagnostic log on background
+        DiagnosticService.instance?.stop();
         // Save connection state when app goes to background
         if (widget.signalKService.isConnected) {
           _lastServerUrl = widget.signalKService.serverUrl;
@@ -363,6 +375,8 @@ class _ZedDisplayAppState extends State<ZedDisplayApp> with WidgetsBindingObserv
         break;
 
       case AppLifecycleState.resumed:
+        // Restart diagnostic logging on foreground return
+        DiagnosticService.instance?.start();
         // Reconnect when app returns to foreground
         if (_lastServerUrl != null && _lastToken != null && !widget.signalKService.isConnected) {
           _reconnect();
