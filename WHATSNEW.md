@@ -1,4 +1,22 @@
-# What's New in v0.5.40
+# What's New in v0.5.41
+
+## Release Notes (Google Play - max 500 chars)
+
+v0.5.41 iOS Notification Fix
+
+FIXED: Local notifications now work correctly on iOS. Anchor alarms, crew messages, CPA alerts, and other notifications are now delivered on iOS devices. Previously, iOS was silently dropping all local notifications due to a missing delegate assignment.
+
+## Release Notes (App Store / TestFlight - max 4000 chars)
+
+### iOS Notifications (FIXED)
+- **Notifications Delivered** - Local notifications now work correctly on iOS
+- **Root Cause** - AppDelegate was missing the `UNUserNotificationCenter` delegate assignment required since iOS 10
+- **Affected Alerts** - Anchor alarms, crew messages, CPA collision alerts, intercom activity, and all other local notifications
+- **Background Wake** - Added lifecycle handlers to prevent white screen when returning from notification-triggered background wake
+
+---
+
+# Previous: v0.5.40
 
 ## Release Notes (Google Play - max 500 chars)
 

@@ -1,5 +1,3 @@
-v0.5.25 Channel Subscriptions
+v0.5.41 iOS Notification Fix
 
-NEW: Subscribe/unsubscribe from intercom audio channels. Tap channel icons in Crew List to toggle. Emergency channel (CH16) always on. Captains and First Mates can manage any crew member's subscriptions.
-
-IMPROVED: Tools now default to full grid size. Tools without config can be placed directly.
+FIXED: Local notifications now work correctly on iOS. Anchor alarms, crew messages, CPA alerts, and other notifications are now delivered on iOS devices. Previously, iOS was silently dropping all local notifications due to a missing delegate assignment.
