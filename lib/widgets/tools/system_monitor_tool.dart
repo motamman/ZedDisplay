@@ -98,8 +98,16 @@ class _SystemMonitorToolState extends State<SystemMonitorTool> with AutomaticKee
       } else if (Platform.isIOS) {
         final iosInfo = await _deviceInfo.iosInfo;
         setState(() {
-          _deviceModel = iosInfo.model;
+          _deviceModel = iosInfo.modelName;
           _osVersion = 'iOS ${iosInfo.systemVersion}';
+          _totalMemoryMB = iosInfo.physicalRamSize; // already in MB
+        });
+      } else if (Platform.isMacOS) {
+        final macInfo = await _deviceInfo.macOsInfo;
+        setState(() {
+          _deviceModel = macInfo.modelName;
+          _osVersion = 'macOS ${macInfo.majorVersion}.${macInfo.minorVersion}.${macInfo.patchVersion}';
+          _totalMemoryMB = (macInfo.memorySize / (1024 * 1024)).round(); // bytes → MB
         });
       }
     } catch (e) {
@@ -181,24 +189,30 @@ class _SystemMonitorToolState extends State<SystemMonitorTool> with AutomaticKee
   }
 
   int _getAppMemoryMB() {
-    if (!Platform.isAndroid) return 0;
+    if (Platform.isAndroid) {
+      try {
+        final status = File('/proc/self/status');
+        if (!status.existsSync()) return 0;
 
-    try {
-      final status = File('/proc/self/status');
-      if (!status.existsSync()) return 0;
-
-      final lines = status.readAsLinesSync();
-      for (var line in lines) {
-        if (line.startsWith('VmRSS:')) {
-          final parts = line.split(RegExp(r'\s+'));
-          if (parts.length >= 2) {
-            return (int.parse(parts[1]) / 1024).round();
+        final lines = status.readAsLinesSync();
+        for (var line in lines) {
+          if (line.startsWith('VmRSS:')) {
+            final parts = line.split(RegExp(r'\s+'));
+            if (parts.length >= 2) {
+              return (int.parse(parts[1]) / 1024).round();
+            }
           }
         }
+      } catch (e) {
+        // Ignore errors
       }
-    } catch (e) {
-      // Ignore errors
+      return 0;
     }
+    // iOS/macOS: use ProcessInfo.currentRss
+    try {
+      final rss = ProcessInfo.currentRss;
+      if (rss > 0) return (rss / (1024 * 1024)).round();
+    } catch (_) {}
     return 0;
   }
 
@@ -211,9 +225,9 @@ class _SystemMonitorToolState extends State<SystemMonitorTool> with AutomaticKee
       // Update uptime (using actual app start time from main.dart)
       final uptime = DateTime.now().difference(main.appStartTime);
 
-      // On Android, we can get memory info from /proc/meminfo
+      // Get memory info
       int freeMem = 0;
-      int totalMem = 0;
+      int totalMem = _totalMemoryMB; // pre-loaded for iOS/macOS
       if (Platform.isAndroid) {
         try {
           final memInfo = File('/proc/meminfo');
@@ -237,6 +251,13 @@ class _SystemMonitorToolState extends State<SystemMonitorTool> with AutomaticKee
           }
         } catch (e) {
           // Ignore errors reading memory info
+        }
+      } else if (Platform.isIOS) {
+        try {
+          final iosInfo = await _deviceInfo.iosInfo;
+          freeMem = iosInfo.availableRamSize; // MB
+        } catch (e) {
+          // Ignore errors
         }
       }
 
@@ -266,12 +287,20 @@ class _SystemMonitorToolState extends State<SystemMonitorTool> with AutomaticKee
             }
           }
 
+          // Update peak using ProcessInfo.maxRss on iOS/macOS
+          if (!Platform.isAndroid) {
+            try {
+              final maxRss = ProcessInfo.maxRss;
+              if (maxRss > 0) _peakMemoryMB = (maxRss / (1024 * 1024)).round();
+            } catch (_) {}
+          }
+
           // Add to memory history
-          if (totalMem > 0 && appMem > 0) {
+          if (appMem > 0) {
             _memoryHistory.add(_MemoryDataPoint(
               timestamp: DateTime.now(),
               totalMemoryMB: totalMem,
-              usedMemoryMB: totalMem - freeMem,
+              usedMemoryMB: freeMem > 0 ? totalMem - freeMem : 0,
               appMemoryMB: appMem,
             ));
 
@@ -308,7 +337,7 @@ class _SystemMonitorToolState extends State<SystemMonitorTool> with AutomaticKee
                     Icon(Icons.monitor_heart, color: theme.colorScheme.primary),
                     const SizedBox(width: 8),
                     Text(
-                      'System Monitor',
+                      'Device Monitor',
                       style: theme.textTheme.titleLarge?.copyWith(
                         fontWeight: FontWeight.bold,
                       ),
@@ -344,13 +373,15 @@ class _SystemMonitorToolState extends State<SystemMonitorTool> with AutomaticKee
                   _buildSection(
                     'Memory',
                     [
-                      if (_freeMemoryMB > 0 && _totalMemoryMB > 0) ...[
+                      if (_totalMemoryMB > 0 && _freeMemoryMB > 0) ...[
                         _buildMetric('Used', '${_totalMemoryMB - _freeMemoryMB} MB'),
                         _buildMetric('Free', '$_freeMemoryMB MB'),
                         _buildMetric(
                           'Usage',
                           '${(((_totalMemoryMB - _freeMemoryMB) / _totalMemoryMB) * 100).toStringAsFixed(1)}%',
                         ),
+                      ] else if (_totalMemoryMB > 0) ...[
+                        _buildMetric('Total', '$_totalMemoryMB MB'),
                       ] else
                         _buildMetric('Info', 'Not available'),
                     ],
@@ -580,29 +611,18 @@ class _SystemMonitorToolState extends State<SystemMonitorTool> with AutomaticKee
         format: 'point.seriesName: point.y MB',
       ),
       series: <CartesianSeries>[
-        // Total memory (base layer)
-        StackedAreaSeries<_MemoryDataPoint, DateTime>(
-          name: 'Total',
-          dataSource: _memoryHistory,
-          xValueMapper: (_MemoryDataPoint data, _) => data.timestamp,
-          yValueMapper: (_MemoryDataPoint data, _) => data.totalMemoryMB,
-          color: Colors.blue.withValues(alpha: 0.2),
-          borderColor: Colors.blue,
-          borderWidth: 2,
-        ),
-        // Used memory (stacked on top)
-        StackedAreaSeries<_MemoryDataPoint, DateTime>(
-          name: 'Used',
-          dataSource: _memoryHistory,
-          xValueMapper: (_MemoryDataPoint data, _) => data.timestamp,
-          yValueMapper: (_MemoryDataPoint data, _) => data.usedMemoryMB,
-          color: Colors.orange.withValues(alpha: 0.3),
-          borderColor: Colors.orange,
-          borderWidth: 2,
-        ),
-        // App memory (stacked on top)
-        StackedAreaSeries<_MemoryDataPoint, DateTime>(
-          name: 'App',
+        if (_freeMemoryMB > 0)
+          AreaSeries<_MemoryDataPoint, DateTime>(
+            name: 'System Used',
+            dataSource: _memoryHistory,
+            xValueMapper: (_MemoryDataPoint data, _) => data.timestamp,
+            yValueMapper: (_MemoryDataPoint data, _) => data.usedMemoryMB,
+            color: Colors.orange.withValues(alpha: 0.3),
+            borderColor: Colors.orange,
+            borderWidth: 2,
+          ),
+        AreaSeries<_MemoryDataPoint, DateTime>(
+          name: 'App RSS',
           dataSource: _memoryHistory,
           xValueMapper: (_MemoryDataPoint data, _) => data.timestamp,
           yValueMapper: (_MemoryDataPoint data, _) => data.appMemoryMB,
@@ -636,8 +656,8 @@ class SystemMonitorBuilder extends ToolBuilder {
   ToolDefinition getDefinition() {
     return ToolDefinition(
       id: 'system_monitor',
-      name: 'System Monitor',
-      description: 'Monitor app and device performance metrics',
+      name: 'Device Monitor',
+      description: 'Monitor device performance metrics',
       category: ToolCategory.system,
       configSchema: ConfigSchema(
         allowsMinMax: false,

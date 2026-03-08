@@ -247,7 +247,7 @@ tools:
     
 
   system_monitor:
-    name: "System Monitor"
+    name: "Device Monitor"
     description: |
       Device system information.
 
