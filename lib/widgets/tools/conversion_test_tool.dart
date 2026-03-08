@@ -79,7 +79,7 @@ class _ConversionTestToolState extends State<ConversionTestTool> {
 
         return Card(
           margin: const EdgeInsets.all(4.0),
-          color: hasMetadata ? null : Colors.red.withOpacity(0.1),
+          color: hasMetadata ? null : Colors.red.withValues(alpha: 0.1),
           child: Padding(
             padding: const EdgeInsets.all(8.0),
             child: Column(

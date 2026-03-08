@@ -3,7 +3,6 @@ import 'package:provider/provider.dart';
 import 'package:flutter_colorpicker/flutter_colorpicker.dart';
 import '../models/tool_config.dart';
 import '../models/tool.dart';
-import '../models/tool_definition.dart' as def;
 import '../services/signalk_service.dart';
 import '../services/tool_registry.dart';
 import '../services/tool_service.dart';
@@ -115,35 +114,6 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
     });
   }
 
-  /// Reset all form fields to default values
-  void _resetFormFields() {
-    // Reset common configuration
-    _dataSources = [];
-    _minValue = null;
-    _maxValue = null;
-    _unit = null;
-    _primaryColor = null;
-    _secondaryColor = null;
-    _showLabel = true;
-    _showValue = true;
-    _showUnit = true;
-    _ttlSeconds = null;
-
-    // Reset old compass tool support
-    _showTickLabels = false;
-    _compassStyle = 'classic';
-
-    // Reset WeatherFlow forecast options
-    _hoursToShow = 12;
-    _showCurrentConditions = true;
-
-    // Reset size (default to full grid 8x8)
-    _toolWidth = 8;
-    _toolHeight = 8;
-
-    // NOTE: Tool-specific fields are reset by their configurators
-    // The configurator's reset() method is called when created
-  }
 
   void _loadDefaultsForToolType(String toolTypeId) {
     final registry = ToolRegistry();
@@ -644,8 +614,6 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
   @override
   Widget build(BuildContext context) {
     final registry = ToolRegistry();
-    final toolDefinitions = registry.getAllDefinitions();
-
     return Scaffold(
       appBar: AppBar(
         title: Text(widget.existingTool == null ? 'Add Tool' : 'Edit Tool'),
@@ -1136,7 +1104,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
             border: OutlineInputBorder(),
             helperText: 'Number of forecast hours to display',
           ),
-          value: _hoursToShow,
+          initialValue: _hoursToShow,
           items: const [
             DropdownMenuItem(value: 6, child: Text('6 hours')),
             DropdownMenuItem(value: 12, child: Text('12 hours')),

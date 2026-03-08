@@ -424,6 +424,7 @@ class _FileViewerState extends State<FileViewer> {
       }
 
       // Import the dashboard
+      if (!mounted) return;
       final setupService = context.read<SetupService>();
       final result = switchNow
           ? await setupService.importAndLoadSetup(jsonString)

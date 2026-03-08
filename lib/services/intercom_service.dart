@@ -1257,8 +1257,7 @@ class IntercomService extends ChangeNotifier {
       // In duplex mode, add our local audio so they can hear us too
       if (isDuplexMode && _hasMicPermission) {
         // Create local stream if we don't have one
-        if (_localStream == null) {
-          _localStream = await navigator.mediaDevices.getUserMedia({
+        _localStream ??= await navigator.mediaDevices.getUserMedia({
             'audio': {
               'echoCancellation': true,
               'noiseSuppression': true,
@@ -1266,7 +1265,6 @@ class IntercomService extends ChangeNotifier {
             },
             'video': false,
           });
-        }
 
         // Add our audio tracks to this peer connection
         for (final track in _localStream!.getAudioTracks()) {

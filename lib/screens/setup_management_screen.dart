@@ -2,7 +2,7 @@ import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:share_plus/share_plus.dart';
+import 'package:share_plus/share_plus.dart' show ShareParams, SharePlus, XFile;
 import 'package:path_provider/path_provider.dart';
 import 'package:file_picker/file_picker.dart';
 import '../services/setup_service.dart';
@@ -544,10 +544,12 @@ class _SetupManagementScreenState extends State<SetupManagementScreen> {
       await file.writeAsString(jsonString);
 
       // Share the file
-      await Share.shareXFiles(
-        [XFile(file.path)],
-        subject: 'Dashboard Setup: ${setupRef.name}',
-        text: 'Check out my dashboard setup!',
+      await SharePlus.instance.share(
+        ShareParams(
+          files: [XFile(file.path)],
+          subject: 'Dashboard Setup: ${setupRef.name}',
+          text: 'Check out my dashboard setup!',
+        ),
       );
 
       if (mounted) {
@@ -794,49 +796,47 @@ class _SetupManagementScreenState extends State<SetupManagementScreen> {
                 const SizedBox(height: 16),
                 const Text('Intended Use', style: TextStyle(fontWeight: FontWeight.bold)),
                 const SizedBox(height: 8),
-                ...presets.map((preset) => RadioListTile<String?>(
-                  title: Text(preset),
-                  value: preset,
+                RadioGroup<String?>(
                   groupValue: selectedIntendedUse,
                   onChanged: (value) {
                     setState(() => selectedIntendedUse = value);
                   },
-                  dense: true,
-                  contentPadding: EdgeInsets.zero,
-                )),
-                RadioListTile<String?>(
-                  title: const Text('Custom'),
-                  value: 'Custom',
-                  groupValue: selectedIntendedUse,
-                  onChanged: (value) {
-                    setState(() => selectedIntendedUse = value);
-                  },
-                  dense: true,
-                  contentPadding: EdgeInsets.zero,
-                ),
-                if (selectedIntendedUse == 'Custom')
-                  Padding(
-                    padding: const EdgeInsets.only(left: 16, right: 16, top: 8),
-                    child: TextField(
-                      controller: customIntendedUseController,
-                      decoration: const InputDecoration(
-                        labelText: 'Custom name',
-                        border: OutlineInputBorder(),
-                        isDense: true,
+                  child: Column(
+                    children: [
+                      ...presets.map((preset) => RadioListTile<String?>(
+                        title: Text(preset),
+                        value: preset,
+                        dense: true,
+                        contentPadding: EdgeInsets.zero,
+                      )),
+                      const RadioListTile<String?>(
+                        title: Text('Custom'),
+                        value: 'Custom',
+                        dense: true,
+                        contentPadding: EdgeInsets.zero,
                       ),
-                      autofocus: true,
-                    ),
+                      if (selectedIntendedUse == 'Custom')
+                        Padding(
+                          padding: const EdgeInsets.only(left: 16, right: 16, top: 8),
+                          child: TextField(
+                            controller: customIntendedUseController,
+                            decoration: const InputDecoration(
+                              labelText: 'Custom name',
+                              border: OutlineInputBorder(),
+                              isDense: true,
+                            ),
+                            autofocus: true,
+                          ),
+                        ),
+                      const RadioListTile<String?>(
+                        title: Text('None'),
+                        subtitle: Text('Clear intended use'),
+                        value: null,
+                        dense: true,
+                        contentPadding: EdgeInsets.zero,
+                      ),
+                    ],
                   ),
-                RadioListTile<String?>(
-                  title: const Text('None'),
-                  subtitle: const Text('Clear intended use'),
-                  value: null,
-                  groupValue: selectedIntendedUse,
-                  onChanged: (value) {
-                    setState(() => selectedIntendedUse = value);
-                  },
-                  dense: true,
-                  contentPadding: EdgeInsets.zero,
                 ),
               ],
             ),
@@ -877,6 +877,7 @@ class _SetupManagementScreenState extends State<SetupManagementScreen> {
         await setupService.updateSetupIntendedUse(setup.id, finalIntendedUse);
 
         // Also sync to active dashboard layout if this is the active setup
+        if (!mounted) return;
         final dashboardService = Provider.of<DashboardService>(context, listen: false);
         if (dashboardService.currentLayout?.id == setup.id) {
           final currentLayout = dashboardService.currentLayout!;

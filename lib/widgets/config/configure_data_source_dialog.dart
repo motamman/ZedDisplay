@@ -158,43 +158,43 @@ class _ConfigureDataSourceDialogState extends State<ConfigureDataSourceDialog> {
                   )
                 else
                   Flexible(
-                    child: ListView(
-                      shrinkWrap: true,
-                      children: [
-                        RadioListTile<String?>(
-                          dense: true,
-                          contentPadding: EdgeInsets.zero,
-                          title: const Text('Auto (default)', style: TextStyle(fontSize: 13)),
-                          subtitle: const Text('Use active source', style: TextStyle(fontSize: 11)),
-                          value: null,
-                          groupValue: _selectedSource,
-                          onChanged: (value) => setState(() => _selectedSource = value),
-                        ),
-                        ..._sources!.entries.map((entry) {
-                          final sourceId = entry.key;
-                          final sourceData = entry.value as Map<String, dynamic>;
-                          final isActive = sourceData['isActive'] == true;
-
-                          return RadioListTile<String>(
+                    child: RadioGroup<String?>(
+                      groupValue: _selectedSource,
+                      onChanged: (value) => setState(() => _selectedSource = value),
+                      child: ListView(
+                        shrinkWrap: true,
+                        children: [
+                          const RadioListTile<String?>(
                             dense: true,
                             contentPadding: EdgeInsets.zero,
-                            title: Text(
-                              sourceId,
-                              style: const TextStyle(fontSize: 12, fontFamily: 'monospace'),
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                            subtitle: isActive
-                                ? const Text(
-                                    'Default',
-                                    style: TextStyle(fontSize: 10, color: Colors.orange),
-                                  )
-                                : null,
-                            value: sourceId,
-                            groupValue: _selectedSource,
-                            onChanged: (value) => setState(() => _selectedSource = value),
-                          );
-                        }),
-                      ],
+                            title: Text('Auto (default)', style: TextStyle(fontSize: 13)),
+                            subtitle: Text('Use active source', style: TextStyle(fontSize: 11)),
+                            value: null,
+                          ),
+                          ..._sources!.entries.map((entry) {
+                            final sourceId = entry.key;
+                            final sourceData = entry.value as Map<String, dynamic>;
+                            final isActive = sourceData['isActive'] == true;
+
+                            return RadioListTile<String?>(
+                              dense: true,
+                              contentPadding: EdgeInsets.zero,
+                              title: Text(
+                                sourceId,
+                                style: const TextStyle(fontSize: 12, fontFamily: 'monospace'),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              subtitle: isActive
+                                  ? const Text(
+                                      'Default',
+                                      style: TextStyle(fontSize: 10, color: Colors.orange),
+                                    )
+                                  : null,
+                              value: sourceId,
+                            );
+                          }),
+                        ],
+                      ),
                     ),
                   ),
               ],

@@ -304,8 +304,8 @@ class AutopilotCompass extends StatelessWidget {
       pointersBuilder: _buildAutopilotPointers,
       overlayBuilder: _buildAutopilotOverlay,
       // Hide default heading displays in corners since we show them in overlay
-      trueHeadingDisplayBuilder: (_, __) => const SizedBox.shrink(),
-      magneticHeadingDisplayBuilder: (_, __) => const SizedBox.shrink(),
+      trueHeadingDisplayBuilder: (_, _) => const SizedBox.shrink(),
+      magneticHeadingDisplayBuilder: (_, _) => const SizedBox.shrink(),
       allowHeadingModeToggle: false, // Autopilot typically uses one mode
     );
   }

@@ -118,6 +118,7 @@ class _HistoricalChartScreenState extends State<HistoricalChartScreen> {
         resolution: 60000, // 1 minute buckets
       );
 
+      if (!mounted) return;
       final series = <ChartDataSeries>[];
       final signalKService = context.read<SignalKService>();
       for (final path in _selectedPaths) {

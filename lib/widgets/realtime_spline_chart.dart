@@ -561,30 +561,6 @@ class _RealtimeSplineChartState extends State<RealtimeSplineChart> with Automati
     return label;
   }
 
-  String _getSeriesLabelWithValue(DataSource dataSource, int index, {bool isMovingAverage = false}) {
-    // Get base label
-    final baseLabel = _getSeriesLabel(dataSource);
-
-    // If showValue is disabled, return just the base label
-    if (!widget.showValue) {
-      return baseLabel;
-    }
-
-    // Get the appropriate data source (main or moving average)
-    final data = isMovingAverage ? _movingAverageData[index] : _seriesData[index];
-
-    // If no data yet, return just the base label
-    if (data.isEmpty) {
-      return baseLabel;
-    }
-
-    // Get current value and unit using MetadataStore (single source of truth)
-    final currentValue = data.last.value.toStringAsFixed(1);
-    final unit = widget.signalKService.metadataStore.get(dataSource.path)?.symbol;
-
-    // Return label with value and unit
-    return '$baseLabel ($currentValue${unit != null && unit.isNotEmpty ? ' $unit' : ''})';
-  }
 
   /// Convert zone definitions to plot bands for the chart
   List<PlotBand> _getPlotBands() {

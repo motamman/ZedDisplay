@@ -1314,7 +1314,7 @@ class _AISPolarChartState extends State<AISPolarChart>
                         border: OutlineInputBorder(),
                         helperText: 'Trigger warning notification at this CPA',
                       ),
-                      value: config.warnThresholdMeters / 1852.0,
+                      initialValue: config.warnThresholdMeters / 1852.0,
                       items: const [
                         DropdownMenuItem(value: 0.5, child: Text('0.5 nm')),
                         DropdownMenuItem(value: 1.0, child: Text('1 nm')),
@@ -1347,7 +1347,7 @@ class _AISPolarChartState extends State<AISPolarChart>
                         border: OutlineInputBorder(),
                         helperText: 'Trigger audio alarm + crew alert at this CPA',
                       ),
-                      value: config.alarmThresholdMeters / 1852.0,
+                      initialValue: config.alarmThresholdMeters / 1852.0,
                       items: const [
                         DropdownMenuItem(value: 0.1, child: Text('0.1 nm')),
                         DropdownMenuItem(value: 0.25, child: Text('0.25 nm')),
@@ -1377,7 +1377,7 @@ class _AISPolarChartState extends State<AISPolarChart>
                         border: OutlineInputBorder(),
                         helperText: 'Only alert if CPA within this time',
                       ),
-                      value: config.tcpaThresholdSeconds / 60.0,
+                      initialValue: config.tcpaThresholdSeconds / 60.0,
                       items: const [
                         DropdownMenuItem(value: 5.0, child: Text('5 minutes')),
                         DropdownMenuItem(value: 10.0, child: Text('10 minutes')),
@@ -1407,7 +1407,7 @@ class _AISPolarChartState extends State<AISPolarChart>
                         labelText: 'Alarm Sound',
                         border: OutlineInputBorder(),
                       ),
-                      value: config.alarmSound,
+                      initialValue: config.alarmSound,
                       items: const [
                         DropdownMenuItem(value: 'bell', child: Text('Bell')),
                         DropdownMenuItem(value: 'foghorn', child: Text('Foghorn')),
@@ -1457,7 +1457,7 @@ class _AISPolarChartState extends State<AISPolarChart>
                         border: OutlineInputBorder(),
                         helperText: 'Suppress repeat alerts per vessel',
                       ),
-                      value: config.cooldownSeconds ~/ 60,
+                      initialValue: config.cooldownSeconds ~/ 60,
                       items: const [
                         DropdownMenuItem(value: 1, child: Text('1 minute')),
                         DropdownMenuItem(value: 2, child: Text('2 minutes')),
@@ -1842,7 +1842,7 @@ class _AISPolarChartState extends State<AISPolarChart>
               height: 44,
               child: Transform.rotate(
                 angle: ownHeading * math.pi / 180, // Convert degrees to radians
-                child: Icon(
+                child: const Icon(
                   Icons.navigation,
                   color: Colors.green,
                   size: 38,
@@ -1863,9 +1863,6 @@ class _AISPolarChartState extends State<AISPolarChart>
               final typeColor = widget.colorByShipType
                   ? _getVesselTypeColor(vessel.aisShipType, aisClass: vessel.aisClass)
                   : _getVesselFreshnessColor(vessel.timestamp);
-              final freshnessOpacity = widget.colorByShipType
-                  ? _getFreshnessOpacity(vessel.timestamp, aisStatus: vessel.aisStatus)
-                  : 1.0;
               final icon = _getVesselIcon(vessel.aisShipType, vessel.navState, sogRaw: vessel.sogRaw);
               final stale = _isStale(vessel.timestamp, aisStatus: vessel.aisStatus);
               final iconSize = isHighlighted ? 48.0 : 32.0;

@@ -32,33 +32,40 @@ class AutopilotInstanceSelector extends StatelessWidget {
             ),
             const SizedBox(height: 16),
 
-            ...instances.map((instance) {
-              final isSelected = instance.id == selectedInstance?.id;
+            RadioGroup<String>(
+              groupValue: selectedInstance?.id ?? '',
+              onChanged: (id) {
+                final instance = instances.firstWhere((i) => i.id == id);
+                onSelected(instance);
+              },
+              child: Column(
+                children: instances.map((instance) {
+                  final isSelected = instance.id == selectedInstance?.id;
 
-              return ListTile(
-                selected: isSelected,
-                leading: Radio<String>(
-                  value: instance.id,
-                  groupValue: selectedInstance?.id,
-                  onChanged: (_) => onSelected(instance),
-                ),
-                title: Text(instance.name),
-                subtitle: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('Provider: ${instance.provider}'),
-                    Text('ID: ${instance.id}'),
-                  ],
-                ),
-                trailing: instance.isDefault
-                    ? Chip(
-                        label: const Text('DEFAULT'),
-                        backgroundColor: Colors.green.withOpacity(0.2),
-                      )
-                    : null,
-                onTap: () => onSelected(instance),
-              );
-            }),
+                  return ListTile(
+                    selected: isSelected,
+                    leading: Radio<String>(
+                      value: instance.id,
+                    ),
+                    title: Text(instance.name),
+                    subtitle: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('Provider: ${instance.provider}'),
+                        Text('ID: ${instance.id}'),
+                      ],
+                    ),
+                    trailing: instance.isDefault
+                        ? Chip(
+                            label: const Text('DEFAULT'),
+                            backgroundColor: Colors.green.withValues(alpha: 0.2),
+                          )
+                        : null,
+                    onTap: () => onSelected(instance),
+                  );
+                }).toList(),
+              ),
+            ),
           ],
         ),
       ),
