@@ -36,6 +36,19 @@ class _ToolSelectorScreenState extends State<ToolSelectorScreen> {
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = '';
   def.ToolCategory? _selectedCategory;
+  late final List<def.ToolDefinition> _definitions;
+  late final Map<def.ToolCategory, int> _categoryCounts;
+
+  @override
+  void initState() {
+    super.initState();
+    _definitions = ToolRegistry().getAllDefinitions();
+    _categoryCounts = {};
+    for (final toolDef in _definitions) {
+      _categoryCounts[toolDef.category] =
+          (_categoryCounts[toolDef.category] ?? 0) + 1;
+    }
+  }
 
   @override
   void dispose() {
@@ -65,21 +78,13 @@ class _ToolSelectorScreenState extends State<ToolSelectorScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final toolRegistry = ToolRegistry();
-    final definitions = toolRegistry.getAllDefinitions();
-    final filtered = _filterDefinitions(definitions);
-
-    // Count per category for chips
-    final categoryCounts = <def.ToolCategory, int>{};
-    for (final toolDef in definitions) {
-      categoryCounts[toolDef.category] = (categoryCounts[toolDef.category] ?? 0) + 1;
-    }
+    final filtered = _filterDefinitions(_definitions);
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('Add Widget'),
       ),
-      body: definitions.isEmpty
+      body: _definitions.isEmpty
           ? _buildEmpty(context)
           : Column(
               children: [
@@ -87,6 +92,7 @@ class _ToolSelectorScreenState extends State<ToolSelectorScreen> {
                 Padding(
                   padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
                   child: TextField(
+                    autofocus: false,
                     controller: _searchController,
                     decoration: InputDecoration(
                       hintText: 'Search widgets...',
@@ -99,7 +105,7 @@ class _ToolSelectorScreenState extends State<ToolSelectorScreen> {
                                 setState(() => _searchQuery = '');
                               },
                             )
-                          : null,
+                          : const SizedBox.shrink(),
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(12),
                       ),
@@ -119,13 +125,13 @@ class _ToolSelectorScreenState extends State<ToolSelectorScreen> {
                       _buildCategoryChip(
                         context,
                         label: 'All',
-                        count: definitions.length,
+                        count: _definitions.length,
                         isSelected: _selectedCategory == null,
                         color: Theme.of(context).colorScheme.primary,
                         onTap: () => setState(() => _selectedCategory = null),
                       ),
                       ...def.ToolCategory.values.map((category) {
-                        final count = categoryCounts[category] ?? 0;
+                        final count = _categoryCounts[category] ?? 0;
                         if (count == 0) return const SizedBox.shrink();
                         return _buildCategoryChip(
                           context,
@@ -147,8 +153,8 @@ class _ToolSelectorScreenState extends State<ToolSelectorScreen> {
                       ? _buildNoResults(context)
                       : GridView.builder(
                           padding: const EdgeInsets.all(12),
-                          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                            crossAxisCount: 2,
+                          gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+                            maxCrossAxisExtent: 200,
                             mainAxisSpacing: 12,
                             crossAxisSpacing: 12,
                             childAspectRatio: 0.85,

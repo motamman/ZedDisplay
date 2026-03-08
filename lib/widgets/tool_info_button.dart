@@ -93,7 +93,9 @@ class _ToolInfoDialog extends StatelessWidget {
     'orange': Colors.orange,
     'purple': Colors.purple,
     'cyan': Colors.cyan,
+    'brown': Colors.brown,
     'grey': Colors.grey,
+    'light_grey': Color(0xFFBDBDBD),
   };
 
   static const _materialIconMap = <String, IconData>{

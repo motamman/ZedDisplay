@@ -982,15 +982,21 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen>
 
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (context) {
+        final focusNode = FocusNode();
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          focusNode.requestFocus();
+        });
+        return AlertDialog(
         title: const Text('Rename Screen'),
         content: TextField(
           controller: controller,
+          focusNode: focusNode,
+          autofocus: false,
           decoration: const InputDecoration(
             labelText: 'Screen Name',
             border: OutlineInputBorder(),
           ),
-          autofocus: true,
         ),
         actions: [
           TextButton(
@@ -1010,7 +1016,8 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen>
             child: const Text('Rename'),
           ),
         ],
-      ),
+      );
+      },
     );
   }
 
