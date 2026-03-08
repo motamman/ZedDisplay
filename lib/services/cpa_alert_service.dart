@@ -66,12 +66,11 @@ class CpaAlertService extends ChangeNotifier {
     }
   }
 
-  /// Update configuration, persist, and apply.
-  Future<void> updateConfig(CpaAlertConfig newConfig) async {
+  /// Apply config in memory and notify listeners (no disk I/O).
+  /// Use for live slider updates to avoid Hive writes every frame.
+  void applyConfig(CpaAlertConfig newConfig) {
     final wasEnabled = _config.enabled;
     _config = newConfig;
-
-    await _storageService.saveCpaAlertConfig(newConfig.toJsonString());
 
     if (newConfig.enabled && !wasEnabled) {
       _startMonitoring();
@@ -80,6 +79,18 @@ class CpaAlertService extends ChangeNotifier {
     }
 
     notifyListeners();
+  }
+
+  /// Persist the current config to storage.
+  /// Call after slider drag ends or on discrete changes (toggles, dropdowns).
+  Future<void> persistConfig() async {
+    await _storageService.saveCpaAlertConfig(_config.toJsonString());
+  }
+
+  /// Apply + persist in one call. Use for discrete changes (toggles, dropdowns).
+  Future<void> updateConfig(CpaAlertConfig newConfig) async {
+    applyConfig(newConfig);
+    await persistConfig();
   }
 
   /// User acknowledges / silences the audio alarm.

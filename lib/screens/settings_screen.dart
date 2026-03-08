@@ -1354,10 +1354,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     divisions: 18,
                     label: '${(config.warnThresholdMeters / 1852.0).toStringAsFixed(1)} nm',
                     onChanged: (value) {
-                      // Ensure warn > alarm
                       final alarmVal = config.alarmThresholdMeters
                           .clamp(0.0, value - 185.2);
-                      cpaService.updateConfig(CpaAlertConfig(
+                      cpaService.applyConfig(CpaAlertConfig(
                         enabled: config.enabled,
                         warnThresholdMeters: value,
                         alarmThresholdMeters: alarmVal,
@@ -1367,6 +1366,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         sendCrewAlert: config.sendCrewAlert,
                       ));
                     },
+                    onChangeEnd: (_) => cpaService.persistConfig(),
                   ),
 
                   // Alarm threshold
@@ -1385,7 +1385,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     divisions: 20,
                     label: '${(config.alarmThresholdMeters / 1852.0).toStringAsFixed(2)} nm',
                     onChanged: (value) {
-                      cpaService.updateConfig(CpaAlertConfig(
+                      cpaService.applyConfig(CpaAlertConfig(
                         enabled: config.enabled,
                         warnThresholdMeters: config.warnThresholdMeters,
                         alarmThresholdMeters: value,
@@ -1395,6 +1395,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         sendCrewAlert: config.sendCrewAlert,
                       ));
                     },
+                    onChangeEnd: (_) => cpaService.persistConfig(),
                   ),
 
                   // TCPA threshold
@@ -1413,7 +1414,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     divisions: 11,
                     label: '${(config.tcpaThresholdSeconds / 60).toStringAsFixed(0)} min',
                     onChanged: (value) {
-                      cpaService.updateConfig(CpaAlertConfig(
+                      cpaService.applyConfig(CpaAlertConfig(
                         enabled: config.enabled,
                         warnThresholdMeters: config.warnThresholdMeters,
                         alarmThresholdMeters: config.alarmThresholdMeters,
@@ -1423,6 +1424,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         sendCrewAlert: config.sendCrewAlert,
                       ));
                     },
+                    onChangeEnd: (_) => cpaService.persistConfig(),
                   ),
 
                   const SizedBox(height: 8),
@@ -1492,7 +1494,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     divisions: 14,
                     label: '${(config.cooldownSeconds / 60).toStringAsFixed(0)} min',
                     onChanged: (value) {
-                      cpaService.updateConfig(CpaAlertConfig(
+                      cpaService.applyConfig(CpaAlertConfig(
                         enabled: config.enabled,
                         warnThresholdMeters: config.warnThresholdMeters,
                         alarmThresholdMeters: config.alarmThresholdMeters,
@@ -1502,6 +1504,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         sendCrewAlert: config.sendCrewAlert,
                       ));
                     },
+                    onChangeEnd: (_) => cpaService.persistConfig(),
                   ),
 
                   // Active alerts indicator
