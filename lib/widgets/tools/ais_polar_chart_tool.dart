@@ -1,8 +1,14 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../../models/tool_definition.dart';
 import '../../models/tool_config.dart';
+import '../../models/cpa_alert_state.dart';
 import '../../services/signalk_service.dart';
+import '../../services/cpa_alert_service.dart';
+import '../../services/notification_service.dart';
+import '../../services/messaging_service.dart';
 import '../../services/tool_registry.dart';
+import '../../services/tool_service.dart';
 import '../../utils/color_extensions.dart';
 import '../ais_polar_chart.dart';
 import '../tool_info_button.dart';
@@ -13,7 +19,8 @@ import '../tool_info_button.dart';
 /// - Own vessel at center (0,0)
 /// - Other vessels plotted at relative bearing and distance
 /// - CPA/TCPA calculations using own vessel COG and SOG
-class AISPolarChartTool extends StatelessWidget {
+/// - CPA alert service created/owned by this widget (anchor alarm pattern)
+class AISPolarChartTool extends StatefulWidget {
   final ToolConfig config;
   final SignalKService signalKService;
 
@@ -30,22 +37,102 @@ class AISPolarChartTool extends StatelessWidget {
     'navigation.speedOverGround',       // 2: own SOG for CPA calculation
   ];
 
+  @override
+  State<AISPolarChartTool> createState() => _AISPolarChartToolState();
+}
+
+class _AISPolarChartToolState extends State<AISPolarChartTool> {
+  CpaAlertService? _cpaAlertService;
+
+  @override
+  void initState() {
+    super.initState();
+    _configureCpaAlerts();
+  }
+
+  void _configureCpaAlerts() {
+    final props = widget.config.style.customProperties ?? {};
+    final enabled = props['cpaAlertsEnabled'] as bool? ?? true;
+
+    // Get messaging service from Provider (nullable, like anchor alarm)
+    MessagingService? messagingService;
+    try {
+      messagingService = Provider.of<MessagingService>(context, listen: false);
+    } catch (_) {}
+
+    // Always create the service so the modal can enable/disable it
+    _cpaAlertService = CpaAlertService(
+      signalKService: widget.signalKService,
+      notificationService: NotificationService(),
+      messagingService: messagingService,
+    );
+
+    _cpaAlertService!.applyConfig(CpaAlertConfig(
+      enabled: enabled,
+      warnThresholdMeters: ((props['cpaWarnNm'] as num?)?.toDouble() ?? 1.0) * 1852.0,
+      alarmThresholdMeters: ((props['cpaAlarmNm'] as num?)?.toDouble() ?? 0.5) * 1852.0,
+      tcpaThresholdSeconds: ((props['cpaTcpaMinutes'] as num?)?.toDouble() ?? 30.0) * 60.0,
+      alarmSound: props['cpaAlarmSound'] as String? ?? 'foghorn',
+      cooldownSeconds: ((props['cpaCooldownMinutes'] as int?) ?? 5) * 60,
+      sendCrewAlert: props['cpaSendCrewAlert'] as bool? ?? true,
+    ));
+  }
+
+  void _onCpaConfigChanged(Map<String, dynamic> updatedCpaProps) {
+    final toolId = widget.config.style.customProperties?['_toolId'] as String?;
+    if (toolId == null) return;
+
+    final toolService = Provider.of<ToolService>(context, listen: false);
+    final tool = toolService.getTool(toolId);
+    if (tool == null) return;
+
+    final updatedProps = {
+      ...?tool.config.style.customProperties,
+      ...updatedCpaProps,
+    };
+    final updatedTool = tool.copyWith(
+      config: ToolConfig(
+        vesselId: tool.config.vesselId,
+        dataSources: tool.config.dataSources,
+        style: StyleConfig(
+          minValue: tool.config.style.minValue,
+          maxValue: tool.config.style.maxValue,
+          unit: tool.config.style.unit,
+          primaryColor: tool.config.style.primaryColor,
+          secondaryColor: tool.config.style.secondaryColor,
+          showLabel: tool.config.style.showLabel,
+          showValue: tool.config.style.showValue,
+          showUnit: tool.config.style.showUnit,
+          ttlSeconds: tool.config.style.ttlSeconds,
+          customProperties: updatedProps,
+        ),
+      ),
+    );
+    toolService.saveTool(updatedTool);
+  }
+
+  @override
+  void dispose() {
+    _cpaAlertService?.dispose();
+    super.dispose();
+  }
+
   /// Get path at index, using default if not configured
   String _getPath(int index) {
-    if (config.dataSources.length > index && config.dataSources[index].path.isNotEmpty) {
-      return config.dataSources[index].path;
+    if (widget.config.dataSources.length > index && widget.config.dataSources[index].path.isNotEmpty) {
+      return widget.config.dataSources[index].path;
     }
-    return _defaultPaths[index];
+    return AISPolarChartTool._defaultPaths[index];
   }
 
   @override
   Widget build(BuildContext context) {
     // Get configuration from custom properties
-    final showLabels = config.style.customProperties?['showLabels'] as bool? ?? true;
-    final showGrid = config.style.customProperties?['showGrid'] as bool? ?? true;
-    final pruneMinutes = config.style.customProperties?['pruneMinutes'] as int? ?? 15;
-    final colorByShipType = config.style.customProperties?['colorByShipType'] as bool? ?? true;
-    final showProjectedPositions = config.style.customProperties?['showProjectedPositions'] as bool? ?? true;
+    final showLabels = widget.config.style.customProperties?['showLabels'] as bool? ?? true;
+    final showGrid = widget.config.style.customProperties?['showGrid'] as bool? ?? true;
+    final pruneMinutes = widget.config.style.customProperties?['pruneMinutes'] as int? ?? 15;
+    final colorByShipType = widget.config.style.customProperties?['colorByShipType'] as bool? ?? true;
+    final showProjectedPositions = widget.config.style.customProperties?['showProjectedPositions'] as bool? ?? true;
 
     // Get paths from data sources (with defaults)
     final positionPath = _getPath(0);
@@ -53,16 +140,16 @@ class AISPolarChartTool extends StatelessWidget {
     final sogPath = _getPath(2);
 
     // Parse vessel color
-    final vesselColor = config.style.primaryColor?.toColor();
+    final vesselColor = widget.config.style.primaryColor?.toColor();
 
     // Generate title
-    final title = config.style.customProperties?['title'] as String? ?? 'AIS Vessels';
+    final title = widget.config.style.customProperties?['title'] as String? ?? 'AIS Vessels';
 
     return Stack(
       children: [
         AISPolarChart(
           key: ValueKey('ais_chart_$positionPath'),
-          signalKService: signalKService,
+          signalKService: widget.signalKService,
           positionPath: positionPath,
           cogPath: cogPath,
           sogPath: sogPath,
@@ -73,6 +160,8 @@ class AISPolarChartTool extends StatelessWidget {
           pruneMinutes: pruneMinutes,
           colorByShipType: colorByShipType,
           showProjectedPositions: showProjectedPositions,
+          cpaAlertService: _cpaAlertService,
+          onCpaConfigChanged: _onCpaConfigChanged,
         ),
         Positioned(
           top: 8,
@@ -84,7 +173,7 @@ class AISPolarChartTool extends StatelessWidget {
             ),
             child: ToolInfoButton(
               toolId: 'ais_polar_chart',
-              signalKService: signalKService,
+              signalKService: widget.signalKService,
               iconSize: 20,
               iconColor: Colors.white,
             ),
@@ -146,6 +235,13 @@ class AISPolarChartBuilder extends ToolBuilder {
           'pruneMinutes': 15,
           'colorByShipType': true,
           'showProjectedPositions': true,
+          'cpaAlertsEnabled': true,
+          'cpaWarnNm': 1.0,
+          'cpaAlarmNm': 0.5,
+          'cpaTcpaMinutes': 30.0,
+          'cpaAlarmSound': 'foghorn',
+          'cpaSendCrewAlert': true,
+          'cpaCooldownMinutes': 5,
         },
       ),
     );

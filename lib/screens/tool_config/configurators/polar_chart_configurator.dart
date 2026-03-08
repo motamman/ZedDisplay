@@ -223,6 +223,7 @@ class PolarChartConfigurator extends ToolConfigurator {
                     }
                   },
                 ),
+
               ],
             ],
           ),

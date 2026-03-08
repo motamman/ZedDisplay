@@ -5,6 +5,9 @@ import 'package:latlong2/latlong.dart';
 import 'dart:async';
 import 'dart:math' as math;
 import '../services/signalk_service.dart';
+import '../services/cpa_alert_service.dart';
+import '../models/cpa_alert_state.dart';
+import '../utils/cpa_utils.dart';
 
 /// AIS Polar Chart that displays nearby vessels relative to own position
 ///
@@ -24,6 +27,8 @@ class AISPolarChart extends StatefulWidget {
   final int pruneMinutes;    // Minutes before vessel is removed from display
   final bool colorByShipType; // Color vessels by AIS ship type
   final bool showProjectedPositions; // Show projected course lines
+  final CpaAlertService? cpaAlertService;
+  final ValueChanged<Map<String, dynamic>>? onCpaConfigChanged;
 
   const AISPolarChart({
     super.key,
@@ -38,6 +43,8 @@ class AISPolarChart extends StatefulWidget {
     this.pruneMinutes = 15,
     this.colorByShipType = true,
     this.showProjectedPositions = true,
+    this.cpaAlertService,
+    this.onCpaConfigChanged,
   });
 
   @override
@@ -111,6 +118,9 @@ class _AISPolarChartState extends State<AISPolarChart>
   @override
   void initState() {
     super.initState();
+    // Listen for CPA alert state changes (icon color updates)
+    widget.cpaAlertService?.addListener(_onCpaChanged);
+
     // Listen for own-vessel position updates from SignalK service
     widget.signalKService.addListener(_onServiceUpdate);
 
@@ -194,8 +204,13 @@ class _AISPolarChartState extends State<AISPolarChart>
     _fetchNearbyVessels();
   }
 
+  void _onCpaChanged() {
+    if (mounted) setState(() {});
+  }
+
   @override
   void dispose() {
+    widget.cpaAlertService?.removeListener(_onCpaChanged);
     widget.signalKService.removeListener(_onServiceUpdate);
     widget.signalKService.aisVesselRegistry.removeListener(_onAISUpdate);
     _highlightTimer?.cancel();
@@ -560,8 +575,8 @@ class _AISPolarChartState extends State<AISPolarChart>
 
       final lat = vessel.latitude!;
       final lon = vessel.longitude!;
-      final bearing = _calculateBearing(_ownLat!, _ownLon!, lat, lon);
-      final distance = _calculateDistance(_ownLat!, _ownLon!, lat, lon);
+      final bearing = CpaUtils.calculateBearing(_ownLat!, _ownLon!, lat, lon);
+      final distance = CpaUtils.calculateDistance(_ownLat!, _ownLon!, lat, lon);
 
       // Convert COG from radians to display units (degrees) via MetadataStore
       final cogDisplay = vessel.cogRad != null
@@ -578,11 +593,13 @@ class _AISPolarChartState extends State<AISPolarChart>
           (vessel.aisStatus == null && vessel.ageMinutes < 3);
 
       // Calculate CPA/TCPA — uses radians directly for trig
-      final cpaTcpa = _calculateCPATCPAForVessel(
-        bearing: bearing,
-        distance: distance,
-        vesselCogRad: vessel.cogRad,
-        vesselSogMs: vessel.sogMs,
+      final cpaTcpa = CpaUtils.calculateCpaTcpa(
+        bearingDeg: bearing,
+        distanceM: distance,
+        ownCogRad: _getRawValue(widget.cogPath),
+        ownSogMs: _getRawValue(widget.sogPath) ?? 0.0,
+        targetCogRad: vessel.cogRad,
+        targetSogMs: vessel.sogMs,
       );
 
       double? finalCpa;
@@ -714,36 +731,6 @@ class _AISPolarChartState extends State<AISPolarChart>
     });
   }
 
-  /// Calculate bearing from point 1 to point 2 (in degrees, 0-360)
-  double _calculateBearing(double lat1, double lon1, double lat2, double lon2) {
-    final lat1Rad = lat1 * math.pi / 180;
-    final lat2Rad = lat2 * math.pi / 180;
-    final dLon = (lon2 - lon1) * math.pi / 180;
-
-    final y = math.sin(dLon) * math.cos(lat2Rad);
-    final x = math.cos(lat1Rad) * math.sin(lat2Rad) -
-        math.sin(lat1Rad) * math.cos(lat2Rad) * math.cos(dLon);
-
-    final bearing = math.atan2(y, x) * 180 / math.pi;
-    return (bearing + 360) % 360; // Normalize to 0-360
-  }
-
-  /// Calculate distance between two points (in meters - SI unit)
-  double _calculateDistance(double lat1, double lon1, double lat2, double lon2) {
-    final R = 6371000.0; // Earth radius in meters
-    final lat1Rad = lat1 * math.pi / 180;
-    final lat2Rad = lat2 * math.pi / 180;
-    final dLat = (lat2 - lat1) * math.pi / 180;
-    final dLon = (lon2 - lon1) * math.pi / 180;
-
-    final a = math.sin(dLat / 2) * math.sin(dLat / 2) +
-        math.cos(lat1Rad) * math.cos(lat2Rad) *
-        math.sin(dLon / 2) * math.sin(dLon / 2);
-    final c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a));
-
-    return R * c; // Returns meters
-  }
-
   /// Convert distance from meters to user's preferred unit using MetadataStore
   double _convertDistance(double meters) {
     final metadata = widget.signalKService.metadataStore.getByCategory('distance');
@@ -824,7 +811,7 @@ class _AISPolarChartState extends State<AISPolarChart>
       case 2:
         return Colors.cyan; // Fishing, towing
       case 3:
-        return Colors.orange; // Special craft (SAR, tug, pilot)
+        return Colors.amber; // Special craft (SAR, tug, pilot)
       case 4:
       case 5:
         return Colors.teal; // High-speed craft, special
@@ -833,7 +820,7 @@ class _AISPolarChartState extends State<AISPolarChart>
       case 7:
         return Colors.green.shade700; // Cargo
       case 8:
-        return Colors.red.shade700; // Tanker
+        return Colors.brown; // Tanker
       default:
         return Colors.grey; // Other/unknown
     }
@@ -914,8 +901,8 @@ class _AISPolarChartState extends State<AISPolarChart>
       final projLon = lon2 * 180 / math.pi;
 
       // Calculate bearing/distance from own vessel to projected point
-      final bearing = _calculateBearing(_ownLat!, _ownLon!, projLat, projLon);
-      final distance = _calculateDistance(_ownLat!, _ownLon!, projLat, projLon);
+      final bearing = CpaUtils.calculateBearing(_ownLat!, _ownLon!, projLat, projLon);
+      final distance = CpaUtils.calculateDistance(_ownLat!, _ownLon!, projLat, projLon);
 
       results.add((lat: projLat, lon: projLon, bearing: bearing, distance: distance));
     }
@@ -1012,17 +999,31 @@ class _AISPolarChartState extends State<AISPolarChart>
             final radarWithOverlay = Stack(
               children: [
                 Positioned.fill(child: radarClipped),
-                // Status badge (top left)
+                // Status badge + zoom (top left)
                 Positioned(
-                  top: 8,
-                  left: 8,
-                  child: _buildStatusBadge(context),
+                  top: 4,
+                  left: 4,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _buildStatusBadge(context),
+                      const SizedBox(height: 8),
+                      _buildZoomControls(),
+                    ],
+                  ),
                 ),
                 // View controls (top right, below info button)
                 Positioned(
-                  top: 40,
-                  right: 8,
-                  child: _buildOverlayControls(context),
+                  top: 4,
+                  right: 4,
+                  child: _buildViewControls(context),
+                ),
+                // Stale + CPA (bottom right)
+                Positioned(
+                  bottom: 4,
+                  right: 4,
+                  child: _buildBottomControls(context),
                 ),
               ],
             );
@@ -1125,44 +1126,11 @@ class _AISPolarChartState extends State<AISPolarChart>
     );
   }
 
-  /// Build overlay controls (top right, vertical column like anchor alarm)
-  Widget _buildOverlayControls(BuildContext context) {
+  /// Zoom controls (top left, below status badge)
+  Widget _buildZoomControls() {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        // Fullscreen toggle
-        _buildOverlayButton(
-          icon: _fullScreenRadar ? Icons.fullscreen_exit : Icons.fullscreen,
-          onPressed: _toggleFullScreen,
-        ),
-        const SizedBox(height: 4),
-        // Vessel list overlay (only when fullscreen)
-        if (_fullScreenRadar)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 4),
-            child: _buildOverlayButton(
-              icon: Icons.list,
-              onPressed: _toggleVesselListOverlay,
-              color: _showVesselListOverlay ? Colors.blue : null,
-            ),
-          ),
-        // Map/Polar toggle
-        _buildOverlayButton(
-          icon: _showMapView ? Icons.radar : Icons.map,
-          onPressed: () => setState(() => _showMapView = !_showMapView),
-        ),
-        const SizedBox(height: 4),
-        // Hide stale vessels toggle
-        _buildOverlayButton(
-          icon: _hideStale ? Icons.visibility_off : Icons.visibility,
-          onPressed: () => setState(() {
-            _hideStale = !_hideStale;
-            _updateDisplayVessels();
-          }),
-          color: _hideStale ? Colors.orange : null,
-        ),
-        const SizedBox(height: 8),
-        // Zoom controls
         _buildOverlayButton(
           icon: Icons.add,
           onPressed: _zoomIn,
@@ -1172,9 +1140,38 @@ class _AISPolarChartState extends State<AISPolarChart>
           icon: Icons.remove,
           onPressed: _zoomOut,
         ),
+      ],
+    );
+  }
+
+  /// View controls (top right)
+  Widget _buildViewControls(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        // Fullscreen toggle
+        _buildOverlayButton(
+          icon: _fullScreenRadar ? Icons.fullscreen_exit : Icons.fullscreen,
+          onPressed: _toggleFullScreen,
+        ),
+        // Vessel list overlay (only when fullscreen)
+        if (_fullScreenRadar) ...[
+          const SizedBox(height: 4),
+          _buildOverlayButton(
+            icon: Icons.list,
+            onPressed: _toggleVesselListOverlay,
+            color: _showVesselListOverlay ? Colors.blue : null,
+          ),
+        ],
+        const SizedBox(height: 4),
+        // Map/Polar toggle
+        _buildOverlayButton(
+          icon: _showMapView ? Icons.radar : Icons.map,
+          onPressed: () => setState(() => _showMapView = !_showMapView),
+        ),
         // Auto-range toggle (polar view only)
         if (!_showMapView) ...[
-          const SizedBox(height: 8),
+          const SizedBox(height: 4),
           _buildOverlayButton(
             icon: _autoRange ? Icons.auto_fix_high : Icons.auto_fix_off,
             onPressed: _toggleAutoRange,
@@ -1183,7 +1180,7 @@ class _AISPolarChartState extends State<AISPolarChart>
         ],
         // Map-specific controls
         if (_showMapView) ...[
-          const SizedBox(height: 8),
+          const SizedBox(height: 4),
           _buildOverlayButton(
             icon: Icons.my_location,
             onPressed: _centerMapOnSelf,
@@ -1193,6 +1190,37 @@ class _AISPolarChartState extends State<AISPolarChart>
             icon: _mapAutoFollow ? Icons.gps_fixed : Icons.gps_not_fixed,
             onPressed: _toggleAutoFollow,
             color: _mapAutoFollow ? Colors.blue : null,
+          ),
+        ],
+      ],
+    );
+  }
+
+  /// Bottom controls (bottom right) — stale toggle + CPA
+  Widget _buildBottomControls(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        // Hide stale vessels toggle
+        _buildOverlayButton(
+          icon: _hideStale ? Icons.visibility_off : Icons.visibility,
+          onPressed: () => setState(() {
+            _hideStale = !_hideStale;
+            _updateDisplayVessels();
+          }),
+          color: _hideStale ? Colors.orange : null,
+        ),
+        // CPA alert settings
+        if (widget.cpaAlertService != null) ...[
+          const SizedBox(height: 4),
+          _buildOverlayButton(
+            icon: Icons.warning_amber,
+            onPressed: () => _showCpaSettingsSheet(context),
+            color: widget.cpaAlertService!.hasActiveAlarm
+                ? Colors.red
+                : widget.cpaAlertService!.config.enabled
+                    ? Colors.deepOrange
+                    : null,
           ),
         ],
       ],
@@ -1219,6 +1247,267 @@ class _AISPolarChartState extends State<AISPolarChart>
         ),
       ),
     );
+  }
+
+  void _showCpaSettingsSheet(BuildContext context) {
+    final service = widget.cpaAlertService!;
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) => DraggableScrollableSheet(
+        expand: false,
+        initialChildSize: 0.55,
+        minChildSize: 0.3,
+        maxChildSize: 0.85,
+        builder: (context, scrollController) => StatefulBuilder(
+          builder: (context, setSheetState) {
+            var config = service.config;
+            return SingleChildScrollView(
+              controller: scrollController,
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 4,
+                      margin: const EdgeInsets.only(bottom: 16),
+                      decoration: BoxDecoration(
+                        color: Colors.grey[400],
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                  Text(
+                    'CPA Alert Settings',
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  SwitchListTile(
+                    title: const Text('Enable CPA collision alerts'),
+                    subtitle: const Text('Alert when AIS vessels approach too close'),
+                    value: config.enabled,
+                    onChanged: (value) {
+                      final newConfig = CpaAlertConfig(
+                        enabled: value,
+                        warnThresholdMeters: config.warnThresholdMeters,
+                        alarmThresholdMeters: config.alarmThresholdMeters,
+                        tcpaThresholdSeconds: config.tcpaThresholdSeconds,
+                        alarmSound: config.alarmSound,
+                        cooldownSeconds: config.cooldownSeconds,
+                        sendCrewAlert: config.sendCrewAlert,
+                      );
+                      service.applyConfig(newConfig);
+                      setSheetState(() {});
+                      _persistCpaConfig(newConfig);
+                    },
+                    contentPadding: EdgeInsets.zero,
+                  ),
+                  if (config.enabled) ...[
+                    const SizedBox(height: 16),
+                    DropdownButtonFormField<double>(
+                      decoration: const InputDecoration(
+                        labelText: 'Warning Distance',
+                        border: OutlineInputBorder(),
+                        helperText: 'Trigger warning notification at this CPA',
+                      ),
+                      value: config.warnThresholdMeters / 1852.0,
+                      items: const [
+                        DropdownMenuItem(value: 0.5, child: Text('0.5 nm')),
+                        DropdownMenuItem(value: 1.0, child: Text('1 nm')),
+                        DropdownMenuItem(value: 2.0, child: Text('2 nm')),
+                        DropdownMenuItem(value: 3.0, child: Text('3 nm')),
+                        DropdownMenuItem(value: 5.0, child: Text('5 nm')),
+                      ],
+                      onChanged: (value) {
+                        if (value == null) return;
+                        var alarmNm = config.alarmThresholdMeters / 1852.0;
+                        if (alarmNm >= value) alarmNm = value / 2;
+                        final newConfig = CpaAlertConfig(
+                          enabled: config.enabled,
+                          warnThresholdMeters: value * 1852.0,
+                          alarmThresholdMeters: alarmNm * 1852.0,
+                          tcpaThresholdSeconds: config.tcpaThresholdSeconds,
+                          alarmSound: config.alarmSound,
+                          cooldownSeconds: config.cooldownSeconds,
+                          sendCrewAlert: config.sendCrewAlert,
+                        );
+                        service.applyConfig(newConfig);
+                        setSheetState(() {});
+                        _persistCpaConfig(newConfig);
+                      },
+                    ),
+                    const SizedBox(height: 16),
+                    DropdownButtonFormField<double>(
+                      decoration: const InputDecoration(
+                        labelText: 'Alarm Distance',
+                        border: OutlineInputBorder(),
+                        helperText: 'Trigger audio alarm + crew alert at this CPA',
+                      ),
+                      value: config.alarmThresholdMeters / 1852.0,
+                      items: const [
+                        DropdownMenuItem(value: 0.1, child: Text('0.1 nm')),
+                        DropdownMenuItem(value: 0.25, child: Text('0.25 nm')),
+                        DropdownMenuItem(value: 0.5, child: Text('0.5 nm')),
+                        DropdownMenuItem(value: 1.0, child: Text('1 nm')),
+                      ],
+                      onChanged: (value) {
+                        if (value == null) return;
+                        final newConfig = CpaAlertConfig(
+                          enabled: config.enabled,
+                          warnThresholdMeters: config.warnThresholdMeters,
+                          alarmThresholdMeters: value * 1852.0,
+                          tcpaThresholdSeconds: config.tcpaThresholdSeconds,
+                          alarmSound: config.alarmSound,
+                          cooldownSeconds: config.cooldownSeconds,
+                          sendCrewAlert: config.sendCrewAlert,
+                        );
+                        service.applyConfig(newConfig);
+                        setSheetState(() {});
+                        _persistCpaConfig(newConfig);
+                      },
+                    ),
+                    const SizedBox(height: 16),
+                    DropdownButtonFormField<double>(
+                      decoration: const InputDecoration(
+                        labelText: 'Time Horizon',
+                        border: OutlineInputBorder(),
+                        helperText: 'Only alert if CPA within this time',
+                      ),
+                      value: config.tcpaThresholdSeconds / 60.0,
+                      items: const [
+                        DropdownMenuItem(value: 5.0, child: Text('5 minutes')),
+                        DropdownMenuItem(value: 10.0, child: Text('10 minutes')),
+                        DropdownMenuItem(value: 15.0, child: Text('15 minutes')),
+                        DropdownMenuItem(value: 30.0, child: Text('30 minutes')),
+                        DropdownMenuItem(value: 60.0, child: Text('60 minutes')),
+                      ],
+                      onChanged: (value) {
+                        if (value == null) return;
+                        final newConfig = CpaAlertConfig(
+                          enabled: config.enabled,
+                          warnThresholdMeters: config.warnThresholdMeters,
+                          alarmThresholdMeters: config.alarmThresholdMeters,
+                          tcpaThresholdSeconds: value * 60.0,
+                          alarmSound: config.alarmSound,
+                          cooldownSeconds: config.cooldownSeconds,
+                          sendCrewAlert: config.sendCrewAlert,
+                        );
+                        service.applyConfig(newConfig);
+                        setSheetState(() {});
+                        _persistCpaConfig(newConfig);
+                      },
+                    ),
+                    const SizedBox(height: 16),
+                    DropdownButtonFormField<String>(
+                      decoration: const InputDecoration(
+                        labelText: 'Alarm Sound',
+                        border: OutlineInputBorder(),
+                      ),
+                      value: config.alarmSound,
+                      items: const [
+                        DropdownMenuItem(value: 'bell', child: Text('Bell')),
+                        DropdownMenuItem(value: 'foghorn', child: Text('Foghorn')),
+                        DropdownMenuItem(value: 'chimes', child: Text('Chimes')),
+                      ],
+                      onChanged: (value) {
+                        if (value == null) return;
+                        final newConfig = CpaAlertConfig(
+                          enabled: config.enabled,
+                          warnThresholdMeters: config.warnThresholdMeters,
+                          alarmThresholdMeters: config.alarmThresholdMeters,
+                          tcpaThresholdSeconds: config.tcpaThresholdSeconds,
+                          alarmSound: value,
+                          cooldownSeconds: config.cooldownSeconds,
+                          sendCrewAlert: config.sendCrewAlert,
+                        );
+                        service.applyConfig(newConfig);
+                        setSheetState(() {});
+                        _persistCpaConfig(newConfig);
+                      },
+                    ),
+                    const SizedBox(height: 8),
+                    SwitchListTile(
+                      title: const Text('Send crew alert'),
+                      subtitle: const Text('Broadcast CPA alerts to crew messaging'),
+                      value: config.sendCrewAlert,
+                      onChanged: (value) {
+                        final newConfig = CpaAlertConfig(
+                          enabled: config.enabled,
+                          warnThresholdMeters: config.warnThresholdMeters,
+                          alarmThresholdMeters: config.alarmThresholdMeters,
+                          tcpaThresholdSeconds: config.tcpaThresholdSeconds,
+                          alarmSound: config.alarmSound,
+                          cooldownSeconds: config.cooldownSeconds,
+                          sendCrewAlert: value,
+                        );
+                        service.applyConfig(newConfig);
+                        setSheetState(() {});
+                        _persistCpaConfig(newConfig);
+                      },
+                      contentPadding: EdgeInsets.zero,
+                    ),
+                    const SizedBox(height: 16),
+                    DropdownButtonFormField<int>(
+                      decoration: const InputDecoration(
+                        labelText: 'Alert Cooldown',
+                        border: OutlineInputBorder(),
+                        helperText: 'Suppress repeat alerts per vessel',
+                      ),
+                      value: config.cooldownSeconds ~/ 60,
+                      items: const [
+                        DropdownMenuItem(value: 1, child: Text('1 minute')),
+                        DropdownMenuItem(value: 2, child: Text('2 minutes')),
+                        DropdownMenuItem(value: 5, child: Text('5 minutes')),
+                        DropdownMenuItem(value: 10, child: Text('10 minutes')),
+                        DropdownMenuItem(value: 15, child: Text('15 minutes')),
+                      ],
+                      onChanged: (value) {
+                        if (value == null) return;
+                        final newConfig = CpaAlertConfig(
+                          enabled: config.enabled,
+                          warnThresholdMeters: config.warnThresholdMeters,
+                          alarmThresholdMeters: config.alarmThresholdMeters,
+                          tcpaThresholdSeconds: config.tcpaThresholdSeconds,
+                          alarmSound: config.alarmSound,
+                          cooldownSeconds: value * 60,
+                          sendCrewAlert: config.sendCrewAlert,
+                        );
+                        service.applyConfig(newConfig);
+                        setSheetState(() {});
+                        _persistCpaConfig(newConfig);
+                      },
+                    ),
+                  ],
+                  const SizedBox(height: 16),
+                  Center(
+                    child: TextButton(
+                      onPressed: () => Navigator.of(context).pop(),
+                      child: const Text('Close'),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  void _persistCpaConfig(CpaAlertConfig config) {
+    widget.onCpaConfigChanged?.call({
+      'cpaAlertsEnabled': config.enabled,
+      'cpaWarnNm': config.warnThresholdMeters / 1852.0,
+      'cpaAlarmNm': config.alarmThresholdMeters / 1852.0,
+      'cpaTcpaMinutes': config.tcpaThresholdSeconds / 60.0,
+      'cpaAlarmSound': config.alarmSound,
+      'cpaSendCrewAlert': config.sendCrewAlert,
+      'cpaCooldownMinutes': config.cooldownSeconds ~/ 60,
+    });
   }
 
   Widget _buildRadarChart(Color vesselColor, bool isDark) {
@@ -1988,66 +2277,6 @@ class _AISPolarChartState extends State<AISPolarChart>
     }
   }
 
-  /// Calculate CPA/TCPA for a vessel given its parameters
-  /// Returns (cpa: distance in meters, tcpa: time in seconds)
-  ({double cpa, double tcpa})? _calculateCPATCPAForVessel({
-    required double bearing,
-    required double distance,
-    required double? vesselCogRad,
-    required double? vesselSogMs,
-  }) {
-    // Get own vessel COG (raw SI = radians) and SOG (raw SI = m/s)
-    final ownCogRad = _getRawValue(widget.cogPath);
-    final ownSogMs = _getRawValue(widget.sogPath) ?? 0.0;
-
-    // Own vessel velocity components (m/s)
-    double ownVx = 0.0;
-    double ownVy = 0.0;
-    if (ownSogMs > 0.01) {
-      if (ownCogRad == null) return null; // Moving but no direction
-      ownVx = ownSogMs * math.sin(ownCogRad);
-      ownVy = ownSogMs * math.cos(ownCogRad);
-    }
-
-    // Target vessel velocity components (m/s)
-    double targetVx = 0.0;
-    double targetVy = 0.0;
-    final targetSogMs = vesselSogMs ?? 0.0;
-    if (targetSogMs > 0.01 && vesselCogRad != null) {
-      targetVx = targetSogMs * math.sin(vesselCogRad);
-      targetVy = targetSogMs * math.cos(vesselCogRad);
-    }
-
-    // Relative velocity (target relative to own)
-    final relVx = targetVx - ownVx;
-    final relVy = targetVy - ownVy;
-    final relSpeedSq = relVx * relVx + relVy * relVy;
-
-    if (relSpeedSq < 0.0001) {
-      // Vessels moving parallel, CPA is current distance
-      return (cpa: distance, tcpa: double.infinity);
-    }
-
-    // Current relative position (target relative to own) in meters
-    final bearingRad = bearing * math.pi / 180;
-    final relX = distance * math.sin(bearingRad);
-    final relY = distance * math.cos(bearingRad);
-
-    // Time to CPA (dot product method)
-    final tcpa = -(relX * relVx + relY * relVy) / relSpeedSq;
-
-    if (tcpa < 0) {
-      // CPA is in the past, vessels diverging
-      return (cpa: distance, tcpa: 0);
-    }
-
-    // Position at CPA
-    final cpaX = relX + relVx * tcpa;
-    final cpaY = relY + relVy * tcpa;
-    final cpa = math.sqrt(cpaX * cpaX + cpaY * cpaY);
-
-    return (cpa: cpa, tcpa: tcpa);
-  }
 
 }
 

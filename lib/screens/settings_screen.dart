@@ -1289,7 +1289,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
-  /// Build a notification level row with in-app and system checkboxes
   Widget _buildNotificationRow(
     IconData icon,
     Color iconColor,
