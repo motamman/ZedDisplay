@@ -21,6 +21,7 @@ import 'services/file_share_service.dart';
 import 'services/file_server_service.dart';
 import 'services/intercom_service.dart';
 import 'services/scale_service.dart';
+import 'services/cpa_alert_service.dart';
 import 'models/auth_token.dart';
 import 'screens/splash_screen.dart';
 import 'screens/setup_management_screen.dart';
@@ -81,6 +82,15 @@ void main() async {
     }
   }
 
+  // Initialize CPA alert service
+  final cpaAlertService = CpaAlertService(
+    signalKService: signalKService,
+    notificationService: notificationService,
+    messagingService: messagingService,
+    storageService: storageService,
+  );
+  await cpaAlertService.initialize();
+
   // Auto-enable notifications if they were enabled before
   final notificationsEnabled = storageService.getNotificationsEnabled();
   if (notificationsEnabled) {
@@ -130,6 +140,7 @@ void main() async {
     messagingService: messagingService,
     fileShareService: fileShareService,
     intercomService: intercomService,
+    cpaAlertService: cpaAlertService,
   ));
 }
 
@@ -146,6 +157,7 @@ class ZedDisplayApp extends StatefulWidget {
   final MessagingService messagingService;
   final FileShareService fileShareService;
   final IntercomService intercomService;
+  final CpaAlertService cpaAlertService;
 
   const ZedDisplayApp({
     super.key,
@@ -161,6 +173,7 @@ class ZedDisplayApp extends StatefulWidget {
     required this.messagingService,
     required this.fileShareService,
     required this.intercomService,
+    required this.cpaAlertService,
   });
 
   @override
@@ -398,6 +411,7 @@ class _ZedDisplayAppState extends State<ZedDisplayApp> with WidgetsBindingObserv
         ChangeNotifierProvider.value(value: widget.messagingService),
         ChangeNotifierProvider.value(value: widget.fileShareService),
         ChangeNotifierProvider.value(value: widget.intercomService),
+        ChangeNotifierProvider.value(value: widget.cpaAlertService),
       ],
       child: MaterialApp(
         navigatorKey: _navigatorKey,

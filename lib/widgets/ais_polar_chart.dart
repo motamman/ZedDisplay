@@ -5,6 +5,7 @@ import 'package:latlong2/latlong.dart';
 import 'dart:async';
 import 'dart:math' as math;
 import '../services/signalk_service.dart';
+import '../utils/cpa_utils.dart';
 
 /// AIS Polar Chart that displays nearby vessels relative to own position
 ///
@@ -560,8 +561,8 @@ class _AISPolarChartState extends State<AISPolarChart>
 
       final lat = vessel.latitude!;
       final lon = vessel.longitude!;
-      final bearing = _calculateBearing(_ownLat!, _ownLon!, lat, lon);
-      final distance = _calculateDistance(_ownLat!, _ownLon!, lat, lon);
+      final bearing = CpaUtils.calculateBearing(_ownLat!, _ownLon!, lat, lon);
+      final distance = CpaUtils.calculateDistance(_ownLat!, _ownLon!, lat, lon);
 
       // Convert COG from radians to display units (degrees) via MetadataStore
       final cogDisplay = vessel.cogRad != null
@@ -578,11 +579,13 @@ class _AISPolarChartState extends State<AISPolarChart>
           (vessel.aisStatus == null && vessel.ageMinutes < 3);
 
       // Calculate CPA/TCPA — uses radians directly for trig
-      final cpaTcpa = _calculateCPATCPAForVessel(
-        bearing: bearing,
-        distance: distance,
-        vesselCogRad: vessel.cogRad,
-        vesselSogMs: vessel.sogMs,
+      final cpaTcpa = CpaUtils.calculateCpaTcpa(
+        bearingDeg: bearing,
+        distanceM: distance,
+        ownCogRad: _getRawValue(widget.cogPath),
+        ownSogMs: _getRawValue(widget.sogPath) ?? 0.0,
+        targetCogRad: vessel.cogRad,
+        targetSogMs: vessel.sogMs,
       );
 
       double? finalCpa;
@@ -712,36 +715,6 @@ class _AISPolarChartState extends State<AISPolarChart>
         _centerMapOnSelf();
       }
     });
-  }
-
-  /// Calculate bearing from point 1 to point 2 (in degrees, 0-360)
-  double _calculateBearing(double lat1, double lon1, double lat2, double lon2) {
-    final lat1Rad = lat1 * math.pi / 180;
-    final lat2Rad = lat2 * math.pi / 180;
-    final dLon = (lon2 - lon1) * math.pi / 180;
-
-    final y = math.sin(dLon) * math.cos(lat2Rad);
-    final x = math.cos(lat1Rad) * math.sin(lat2Rad) -
-        math.sin(lat1Rad) * math.cos(lat2Rad) * math.cos(dLon);
-
-    final bearing = math.atan2(y, x) * 180 / math.pi;
-    return (bearing + 360) % 360; // Normalize to 0-360
-  }
-
-  /// Calculate distance between two points (in meters - SI unit)
-  double _calculateDistance(double lat1, double lon1, double lat2, double lon2) {
-    final R = 6371000.0; // Earth radius in meters
-    final lat1Rad = lat1 * math.pi / 180;
-    final lat2Rad = lat2 * math.pi / 180;
-    final dLat = (lat2 - lat1) * math.pi / 180;
-    final dLon = (lon2 - lon1) * math.pi / 180;
-
-    final a = math.sin(dLat / 2) * math.sin(dLat / 2) +
-        math.cos(lat1Rad) * math.cos(lat2Rad) *
-        math.sin(dLon / 2) * math.sin(dLon / 2);
-    final c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a));
-
-    return R * c; // Returns meters
   }
 
   /// Convert distance from meters to user's preferred unit using MetadataStore
@@ -914,8 +887,8 @@ class _AISPolarChartState extends State<AISPolarChart>
       final projLon = lon2 * 180 / math.pi;
 
       // Calculate bearing/distance from own vessel to projected point
-      final bearing = _calculateBearing(_ownLat!, _ownLon!, projLat, projLon);
-      final distance = _calculateDistance(_ownLat!, _ownLon!, projLat, projLon);
+      final bearing = CpaUtils.calculateBearing(_ownLat!, _ownLon!, projLat, projLon);
+      final distance = CpaUtils.calculateDistance(_ownLat!, _ownLon!, projLat, projLon);
 
       results.add((lat: projLat, lon: projLon, bearing: bearing, distance: distance));
     }
@@ -1988,66 +1961,6 @@ class _AISPolarChartState extends State<AISPolarChart>
     }
   }
 
-  /// Calculate CPA/TCPA for a vessel given its parameters
-  /// Returns (cpa: distance in meters, tcpa: time in seconds)
-  ({double cpa, double tcpa})? _calculateCPATCPAForVessel({
-    required double bearing,
-    required double distance,
-    required double? vesselCogRad,
-    required double? vesselSogMs,
-  }) {
-    // Get own vessel COG (raw SI = radians) and SOG (raw SI = m/s)
-    final ownCogRad = _getRawValue(widget.cogPath);
-    final ownSogMs = _getRawValue(widget.sogPath) ?? 0.0;
-
-    // Own vessel velocity components (m/s)
-    double ownVx = 0.0;
-    double ownVy = 0.0;
-    if (ownSogMs > 0.01) {
-      if (ownCogRad == null) return null; // Moving but no direction
-      ownVx = ownSogMs * math.sin(ownCogRad);
-      ownVy = ownSogMs * math.cos(ownCogRad);
-    }
-
-    // Target vessel velocity components (m/s)
-    double targetVx = 0.0;
-    double targetVy = 0.0;
-    final targetSogMs = vesselSogMs ?? 0.0;
-    if (targetSogMs > 0.01 && vesselCogRad != null) {
-      targetVx = targetSogMs * math.sin(vesselCogRad);
-      targetVy = targetSogMs * math.cos(vesselCogRad);
-    }
-
-    // Relative velocity (target relative to own)
-    final relVx = targetVx - ownVx;
-    final relVy = targetVy - ownVy;
-    final relSpeedSq = relVx * relVx + relVy * relVy;
-
-    if (relSpeedSq < 0.0001) {
-      // Vessels moving parallel, CPA is current distance
-      return (cpa: distance, tcpa: double.infinity);
-    }
-
-    // Current relative position (target relative to own) in meters
-    final bearingRad = bearing * math.pi / 180;
-    final relX = distance * math.sin(bearingRad);
-    final relY = distance * math.cos(bearingRad);
-
-    // Time to CPA (dot product method)
-    final tcpa = -(relX * relVx + relY * relVy) / relSpeedSq;
-
-    if (tcpa < 0) {
-      // CPA is in the past, vessels diverging
-      return (cpa: distance, tcpa: 0);
-    }
-
-    // Position at CPA
-    final cpaX = relX + relVx * tcpa;
-    final cpaY = relY + relVy * tcpa;
-    final cpa = math.sqrt(cpaX * cpaX + cpaY * cpaY);
-
-    return (cpa: cpa, tcpa: tcpa);
-  }
 
 }
 

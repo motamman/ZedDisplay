@@ -698,6 +698,21 @@ class StorageService extends ChangeNotifier {
     return _settingsBox.get('notifications_enabled', defaultValue: 'false') == 'true';
   }
 
+  // ===== CPA Alert Settings =====
+
+  /// Save CPA alert configuration as JSON string
+  Future<void> saveCpaAlertConfig(String configJson) async {
+    if (!_initialized) throw Exception('StorageService not initialized');
+    await _settingsBox.put('cpa_alert_config', configJson);
+    notifyListeners();
+  }
+
+  /// Get CPA alert configuration JSON string (null if never saved)
+  String? getCpaAlertConfig() {
+    if (!_initialized) return null;
+    return _settingsBox.get('cpa_alert_config');
+  }
+
   /// Save in-app notification level filter
   Future<void> saveInAppNotificationFilter(String level, bool enabled) async {
     if (!_initialized) throw Exception('StorageService not initialized');
