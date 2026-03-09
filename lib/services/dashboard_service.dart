@@ -395,6 +395,22 @@ class DashboardService extends ChangeNotifier {
         : screen.landscapePlacements;
   }
 
+  /// Find the first screen containing a tool of the given type.
+  /// Returns (screenIndex, screenName) or null.
+  (int, String)? findScreenWithToolType(String toolTypeId) {
+    if (_currentLayout == null || _toolService == null) return null;
+    for (int i = 0; i < _currentLayout!.screens.length; i++) {
+      final screen = _currentLayout!.screens[i];
+      for (final toolId in screen.getToolIds()) {
+        final tool = _toolService.getTool(toolId);
+        if (tool != null && tool.toolTypeId == toolTypeId) {
+          return (i, screen.name);
+        }
+      }
+    }
+    return null;
+  }
+
   /// Reorder screens by moving from oldIndex to newIndex
   Future<void> reorderScreens(int oldIndex, int newIndex) async {
     if (_currentLayout == null) return;

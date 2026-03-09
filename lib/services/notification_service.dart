@@ -2,8 +2,10 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'signalk_service.dart';
+import 'notification_navigation_service.dart';
 import '../models/crew_message.dart';
 import '../models/crew_member.dart';
+import '../models/notification_payload.dart';
 import '../screens/crew/chat_screen.dart';
 import '../screens/crew/crew_screen.dart';
 import '../screens/crew/direct_chat_screen.dart';
@@ -25,9 +27,29 @@ class NotificationService {
   /// Navigator key for navigating from notifications
   GlobalKey<NavigatorState>? _navigatorKey;
 
+  /// Navigation service for tap-to-navigate
+  NotificationNavigationService? _navService;
+
+  /// Pending payload for cold start handling
+  String? _pendingPayload;
+
+  /// Set the navigation service for tap-to-navigate
+  void setNavigationService(NotificationNavigationService navService) {
+    _navService = navService;
+  }
+
   /// Set the navigator key for notification-based navigation
   void setNavigatorKey(GlobalKey<NavigatorState> key) {
     _navigatorKey = key;
+
+    // Process pending cold-start payload after navigator is ready
+    if (_pendingPayload != null) {
+      final pending = _pendingPayload;
+      _pendingPayload = null;
+      Future.delayed(const Duration(milliseconds: 500), () {
+        _processPayload(pending!);
+      });
+    }
   }
 
   /// Initialize the notification service
@@ -78,6 +100,29 @@ class NotificationService {
     }
 
     _initialized = true;
+
+    // Check for cold start notification (app launched by tapping a notification)
+    _checkColdStartNotification();
+  }
+
+  /// Check if the app was launched by tapping a notification
+  Future<void> _checkColdStartNotification() async {
+    try {
+      final launchDetails = await _notifications.getNotificationAppLaunchDetails();
+      if (launchDetails != null &&
+          launchDetails.didNotificationLaunchApp &&
+          launchDetails.notificationResponse != null) {
+        final payload = launchDetails.notificationResponse!.payload;
+        if (payload != null) {
+          // Store as pending — will be processed when navigator key is set
+          _pendingPayload = payload;
+        }
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error checking cold start notification: $e');
+      }
+    }
   }
 
   /// Handle notification tap
@@ -87,77 +132,162 @@ class NotificationService {
     }
 
     final payload = response.payload;
-    if (payload == null || _navigatorKey?.currentState == null) return;
+    if (payload == null) return;
 
-    final navigator = _navigatorKey!.currentState!;
+    if (_navigatorKey?.currentState == null) {
+      // Navigator not ready — store for later
+      _pendingPayload = payload;
+      return;
+    }
+
+    _processPayload(payload);
+  }
+
+  /// Process a notification payload string (handles both structured and legacy formats)
+  void _processPayload(String payload) {
+    // Try structured payload first
+    final structured = NotificationPayload.decode(payload);
+    if (structured != null) {
+      _handleStructuredPayload(structured);
+      return;
+    }
+
+    // Fall through to legacy string-based handlers
+    _handleLegacyPayload(payload);
+  }
+
+  /// Handle a structured NotificationPayload
+  void _handleStructuredPayload(NotificationPayload payload) {
+    // Try navigation service first
+    if (_navService != null) {
+      final nav = _navService!.getNavigation(payload);
+      if (nav != null) {
+        final (navigate, _) = nav;
+
+        // For NWS alerts, also expand the alert detail
+        if (payload.type == 'weather_nws' && payload.context?['alertId'] != null) {
+          WeatherAlertsNotifier.instance.requestExpandAlert(payload.context!['alertId']!);
+        }
+
+        navigate();
+        return;
+      }
+    }
+
+    // Fall back to legacy screen-push navigation for specific types
+    final navigator = _navigatorKey?.currentState;
+    if (navigator == null) return;
+
+    switch (payload.type) {
+      case 'weather_nws':
+        final alertId = payload.context?['alertId'];
+        if (alertId != null) {
+          WeatherAlertsNotifier.instance.requestExpandAlert(alertId);
+        }
+        break;
+
+      case 'crew_message':
+        final subType = payload.context?['subType'];
+        if (subType == 'direct') {
+          final fromId = payload.context?['fromId'];
+          final fromName = payload.context?['fromName'];
+          if (fromId != null && fromName != null) {
+            final sender = CrewMember(id: fromId, name: fromName, deviceId: '');
+            navigator.push(MaterialPageRoute(builder: (_) => DirectChatScreen(crewMember: sender)));
+          }
+        } else {
+          navigator.push(MaterialPageRoute(builder: (_) => const ChatScreen()));
+        }
+        break;
+
+      case 'intercom':
+        final channelId = payload.context?['channelId'];
+        if (channelId != null) {
+          navigator.push(MaterialPageRoute(builder: (_) => IntercomScreen(initialChannelId: channelId)));
+        } else {
+          navigator.push(MaterialPageRoute(builder: (_) => const IntercomScreen()));
+        }
+        break;
+
+      case 'signalk':
+        // Navigation service already tried above; no legacy fallback needed
+        break;
+    }
+  }
+
+  /// Handle legacy string-based payloads (backward compatibility)
+  void _handleLegacyPayload(String payload) {
+    final navigator = _navigatorKey?.currentState;
+    if (navigator == null) return;
 
     // Handle intercom notifications
-    // Payload format: intercom:{channelId}:{channelName}
     if (payload.startsWith('intercom:')) {
       final parts = payload.split(':');
       if (parts.length >= 2) {
-        final channelId = parts[1];
-        navigator.push(
-          MaterialPageRoute(
-            builder: (_) => IntercomScreen(initialChannelId: channelId),
-          ),
-        );
+        navigator.push(MaterialPageRoute(builder: (_) => IntercomScreen(initialChannelId: parts[1])));
       } else {
-        navigator.push(
-          MaterialPageRoute(builder: (_) => const IntercomScreen()),
-        );
+        navigator.push(MaterialPageRoute(builder: (_) => const IntercomScreen()));
       }
       return;
     }
 
     // Handle crew message notifications
-    // Payload format: crew_message:broadcast or crew_message:direct:{fromId}:{fromName}
     if (payload.startsWith('crew_message:')) {
       final parts = payload.split(':');
-
       if (parts.length >= 2 && parts[1] == 'broadcast') {
-        // Open broadcast chat screen
-        navigator.push(
-          MaterialPageRoute(builder: (_) => const ChatScreen()),
-        );
+        navigator.push(MaterialPageRoute(builder: (_) => const ChatScreen()));
       } else if (parts.length >= 4 && parts[1] == 'direct') {
-        // Open direct chat with the sender
         final fromId = parts[2];
-        final fromName = parts.sublist(3).join(':'); // Handle names with colons
-
-        // Create a minimal CrewMember for navigation
-        final sender = CrewMember(
-          id: fromId,
-          name: fromName,
-          deviceId: '', // Not needed for navigation
-        );
-
-        navigator.push(
-          MaterialPageRoute(builder: (_) => DirectChatScreen(crewMember: sender)),
-        );
+        final fromName = parts.sublist(3).join(':');
+        final sender = CrewMember(id: fromId, name: fromName, deviceId: '');
+        navigator.push(MaterialPageRoute(builder: (_) => DirectChatScreen(crewMember: sender)));
       } else {
-        // Fallback to broadcast chat
-        navigator.push(
-          MaterialPageRoute(builder: (_) => const ChatScreen()),
-        );
+        navigator.push(MaterialPageRoute(builder: (_) => const ChatScreen()));
       }
       return;
     }
 
     // Handle NWS weather alert notifications
-    // Payload format: weather.nws.{alertId}
     if (payload.startsWith('weather.nws.')) {
       final alertId = payload.replaceFirst('weather.nws.', '');
       WeatherAlertsNotifier.instance.requestExpandAlert(alertId);
+      // Also try to navigate to the weather_alerts screen
+      if (_navService != null) {
+        final nav = _navService!.getNavigation(
+          NotificationPayload(type: 'weather_nws', context: {'alertId': alertId}),
+        );
+        if (nav != null) {
+          nav.$1();
+        }
+      }
       return;
     }
 
-    // Handle other notification types (SignalK alerts, etc.)
-    // For now, open the crew screen for crew-related or general notifications
-    if (payload.contains('crew')) {
-      navigator.push(
-        MaterialPageRoute(builder: (_) => const CrewScreen()),
+    // Handle alarm notifications
+    if (payload.startsWith('alarm:')) {
+      if (_navService != null) {
+        final nav = _navService!.getNavigation(const NotificationPayload(type: 'alarm'));
+        if (nav != null) {
+          nav.$1();
+        }
+      }
+      return;
+    }
+
+    // Handle other notification types — try navigation service with SignalK key
+    if (_navService != null) {
+      final nav = _navService!.getNavigation(
+        NotificationPayload(type: 'signalk', notificationKey: payload),
       );
+      if (nav != null) {
+        nav.$1();
+        return;
+      }
+    }
+
+    // Final fallback for crew-related
+    if (payload.contains('crew')) {
+      navigator.push(MaterialPageRoute(builder: (_) => const CrewScreen()));
     }
   }
 
@@ -206,12 +336,22 @@ class NotificationService {
         headline = headline.substring(langMatch.end);
       }
 
+      // Build structured payload for tap-to-navigate
+      final isNws = notification.key.startsWith('weather.nws.');
+      final structuredPayload = NotificationPayload(
+        type: isNws ? 'weather_nws' : 'signalk',
+        notificationKey: notification.key,
+        context: isNws
+            ? {'alertId': notification.key.replaceFirst('weather.nws.', '')}
+            : null,
+      );
+
       await _notifications.show(
         id: notificationId,
         title: '[$title] $headline',
         body: notification.key,
         notificationDetails: details,
-        payload: notification.key,
+        payload: structuredPayload.encode(),
       );
     } catch (e) {
       if (kDebugMode) {
@@ -330,18 +470,24 @@ class NotificationService {
         _notificationIdCounter = 1;
       }
 
-      // Build payload based on message type
-      // Format: crew_message:broadcast or crew_message:direct:{fromId}:{fromName}
-      final payload = message.isBroadcast
-          ? 'crew_message:broadcast'
-          : 'crew_message:direct:${message.fromId}:${message.fromName}';
+      // Build structured payload
+      final structuredPayload = NotificationPayload(
+        type: 'crew_message',
+        context: message.isBroadcast
+            ? {'subType': 'broadcast'}
+            : {
+                'subType': 'direct',
+                'fromId': message.fromId,
+                'fromName': message.fromName,
+              },
+      );
 
       await _notifications.show(
         id: _notificationIdCounter,
         title: title,
         body: body,
         notificationDetails: details,
-        payload: payload,
+        payload: structuredPayload.encode(),
       );
 
       _activeNotificationCount++;
@@ -481,12 +627,18 @@ class NotificationService {
       // Store the notification ID for this alarm so we can cancel it later
       _alarmNotificationIds[alarmId ?? 'unknown'] = stableAlarmId;
 
+      // Build structured payload
+      final structuredPayload = NotificationPayload(
+        type: 'alarm',
+        context: alarmId != null ? {'alarmId': alarmId} : null,
+      );
+
       await _notifications.show(
         id: stableAlarmId,
         title: title,
         body: body,
         notificationDetails: details,
-        payload: 'alarm:$alarmId',
+        payload: structuredPayload.encode(),
       );
 
       if (kDebugMode) {
@@ -558,15 +710,18 @@ class NotificationService {
         _notificationIdCounter = 1;
       }
 
-      // Payload for navigation: intercom:{channelId}
-      final payload = 'intercom:$channelId';
+      // Build structured payload
+      final structuredPayload = NotificationPayload(
+        type: 'intercom',
+        context: {'channelId': channelId, 'channelName': channelName},
+      );
 
       await _notifications.show(
         id: _notificationIdCounter,
         title: isEmergency ? '🚨 EMERGENCY: $channelName' : '📻 $channelName',
         body: '$transmitterName is transmitting',
         notificationDetails: details,
-        payload: payload,
+        payload: structuredPayload.encode(),
       );
 
       if (kDebugMode) {
