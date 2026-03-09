@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../../models/tool_definition.dart';
@@ -96,7 +97,9 @@ class _HistoricalChartToolState extends State<HistoricalChartTool> with Automati
   @override
   void didUpdateWidget(HistoricalChartTool oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.config != widget.config) {
+    // Compare serialized JSON to avoid false positives from reference inequality
+    // (ToolConfig has no operator== override, so new objects always look "changed")
+    if (jsonEncode(oldWidget.config.toJson()) != jsonEncode(widget.config.toJson())) {
       _loadData();
       _setupAutoRefresh();
     }

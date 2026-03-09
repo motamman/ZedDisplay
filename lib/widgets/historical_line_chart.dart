@@ -49,8 +49,16 @@ class HistoricalLineChart extends StatefulWidget {
 }
 
 class _HistoricalLineChartState extends State<HistoricalLineChart> {
-  // Track which series are hidden (by index of non-smoothed series)
-  final Set<int> _hiddenSeries = {};
+  // 3-state visibility: 0 = all visible, 1 = raw hidden (MA only), 2 = all hidden
+  final Map<int, int> _seriesVisibility = {};
+
+  /// Check if a parent index has a paired smoothed series
+  bool _hasSmoothedSeries(int parentIndex) {
+    if (parentIndex < 0 || parentIndex >= widget.series.length) return false;
+    final parentPath = widget.series[parentIndex].path;
+    return widget.series.any((s) =>
+      s.isSmoothed && s.path == parentPath);
+  }
 
   /// Get appropriate date format based on duration
   DateFormat _getDateFormat() {
@@ -153,20 +161,36 @@ class _HistoricalLineChartState extends State<HistoricalLineChart> {
         textStyle: const TextStyle(fontSize: 11),
       ),
       // Toggle series visibility when legend item is tapped
+      // 3-state cycle for series with smoothed sibling: 0→1→2→0
+      // Binary toggle for series without smoothed sibling: 0→2→0
       onLegendTapped: (LegendTapArgs args) {
         final index = args.seriesIndex ?? 0;
-        // Toggle after a short delay to let chart update first
         Future.microtask(() {
           if (mounted) {
             setState(() {
-              if (_hiddenSeries.contains(index)) {
-                _hiddenSeries.remove(index);
+              final current = _seriesVisibility[index] ?? 0;
+              if (_hasSmoothedSeries(index)) {
+                // 3-state: all visible → MA only → all hidden → all visible
+                _seriesVisibility[index] = (current + 1) % 3;
               } else {
-                _hiddenSeries.add(index);
+                // Binary: all visible → all hidden → all visible
+                _seriesVisibility[index] = current == 0 ? 2 : 0;
               }
             });
           }
         });
+      },
+      // Adjust legend icon appearance based on visibility state
+      onLegendItemRender: (LegendRenderArgs args) {
+        final index = args.seriesIndex ?? 0;
+        final state = _seriesVisibility[index] ?? 0;
+        if (state == 1) {
+          // MA only: reduce opacity to indicate partial visibility
+          args.color = args.color?.withValues(alpha: 0.4);
+        } else if (state == 2) {
+          // All hidden: grey out
+          args.color = Colors.grey.withValues(alpha: 0.3);
+        }
       },
 
       // Tooltip configuration
@@ -249,7 +273,6 @@ class _HistoricalLineChartState extends State<HistoricalLineChart> {
           // Find the parent index: if smoothed, find parent series index
           int parentIndex = index;
           if (s.isSmoothed) {
-            // Find the parent series (same path, not smoothed)
             for (int i = 0; i < widget.series.length; i++) {
               if (widget.series[i].path == s.path && !widget.series[i].isSmoothed) {
                 parentIndex = i;
@@ -257,8 +280,16 @@ class _HistoricalLineChartState extends State<HistoricalLineChart> {
               }
             }
           }
-          // Check if this series (or its parent) is hidden
-          final isHidden = _hiddenSeries.contains(parentIndex);
+          // Determine visibility from 3-state map
+          final state = _seriesVisibility[parentIndex] ?? 0;
+          final bool isHidden;
+          if (s.isSmoothed) {
+            // Smoothed series: hidden only in state 2 (all hidden)
+            isHidden = state == 2;
+          } else {
+            // Raw series: hidden in state 1 (MA only) and state 2 (all hidden)
+            isHidden = state >= 1;
+          }
           return _buildSeries(s, colors[parentIndex % colors.length], isHidden: isHidden);
         },
       ),
