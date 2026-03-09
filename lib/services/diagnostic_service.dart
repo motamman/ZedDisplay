@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:device_info_plus/device_info_plus.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'signalk_service.dart';
 
 /// Diagnostic service that logs per-minute memory snapshots, path counts,
@@ -98,14 +99,15 @@ class DiagnosticService {
         print('DiagnosticService starting for device $_deviceId ...');
       }
 
-      // Collect device info and build session header
+      // Collect device info and app version
       final deviceInfo = await _collectDeviceInfo();
+      final packageInfo = await PackageInfo.fromPlatform();
       _sessionHeader = {
         'type': 'session_start',
         'deviceId': _deviceId,
         'deviceModel': deviceInfo['model'] ?? 'unknown',
         'os': deviceInfo['os'] ?? Platform.operatingSystem,
-        'appVersion': '0.5.41+38',
+        'appVersion': '${packageInfo.version}+${packageInfo.buildNumber}',
         'startTime': _startTime!.toUtc().toIso8601String(),
         'startRssKB': _getRssKB(),
       };
@@ -171,6 +173,10 @@ class DiagnosticService {
     final now = DateTime.now();
     final uptimeMin = now.difference(_startTime!).inMinutes;
 
+    // Snapshot field semantics:
+    //   activePaths, subscribedPaths, metadataCount — point-in-time gauges
+    //   wsCounts (delta/meta/notification) — per-interval counters, reset each snapshot (60s)
+    //   restCalls.*.count — cumulative per-session, divide by uptimeMin for rate
     final snapshot = {
       'ts': now.toUtc().toIso8601String(),
       'uptimeMin': uptimeMin,
