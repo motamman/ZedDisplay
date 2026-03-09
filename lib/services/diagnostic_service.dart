@@ -174,9 +174,10 @@ class DiagnosticService {
     final uptimeMin = now.difference(_startTime!).inMinutes;
 
     // Snapshot field semantics:
-    //   activePaths, subscribedPaths, metadataCount — point-in-time gauges
+    //   activePaths, subscribedPaths, metadataCount, listenerCount — point-in-time gauges
     //   wsCounts (delta/meta/notification) — per-interval counters, reset each snapshot (60s)
     //   restCalls.*.count — cumulative per-session, divide by uptimeMin for rate
+    //   notifyCounts — cumulative per-session, divide by uptimeMin for rate
     final snapshot = {
       'ts': now.toUtc().toIso8601String(),
       'uptimeMin': uptimeMin,
@@ -185,6 +186,11 @@ class DiagnosticService {
       'activePaths': _signalKService.latestData.length,
       'subscribedPaths': _signalKService.subscriptionRegistry.allPaths.length,
       'metadataCount': _signalKService.metadataStore.count,
+      'listenerCount': _signalKService.listenerCount,
+      'notifyCounts': {
+        'total': _signalKService.notifyCount,
+        'throttled': _signalKService.notifyThrottledCount,
+      },
       'restCalls': {
         'GET': {
           'count': _restCallCounts['GET'] ?? 0,

@@ -40,6 +40,41 @@ class SignalKService extends ChangeNotifier implements DataService {
   bool _isConnecting = false;
   bool _wasConnected = false;
 
+  // Throttled notifyListeners — coalesce rapid WS updates via microtask
+  bool _notifyScheduled = false;
+  int _notifyCount = 0; // Cumulative per-session: total notifyListeners requests
+  int _notifyThrottledCount = 0; // Cumulative per-session: coalesced (skipped) calls
+  int _listenerCount = 0; // Point-in-time: current listener count
+
+  int get notifyCount => _notifyCount;
+  int get notifyThrottledCount => _notifyThrottledCount;
+  int get listenerCount => _listenerCount;
+
+  @override
+  void addListener(VoidCallback listener) {
+    super.addListener(listener);
+    _listenerCount++;
+  }
+
+  @override
+  void removeListener(VoidCallback listener) {
+    super.removeListener(listener);
+    _listenerCount--;
+  }
+
+  void _scheduleNotify() {
+    _notifyCount++;
+    if (_notifyScheduled) {
+      _notifyThrottledCount++;
+      return;
+    }
+    _notifyScheduled = true;
+    Future.microtask(() {
+      _notifyScheduled = false;
+      notifyListeners();
+    });
+  }
+
   // Connection state stream (for UI overlay without triggering rebuilds)
   final _connectionStateController = StreamController<SignalKConnectionState>.broadcast();
   SignalKConnectionState _connectionState = SignalKConnectionState.disconnected;
@@ -678,7 +713,7 @@ class SignalKService extends ChangeNotifier implements DataService {
 
         // Invalidate cache when data changes
         _latestDataView = null;
-        notifyListeners();
+        _scheduleNotify();
       }
     } catch (e, stackTrace) {
       if (kDebugMode) {
