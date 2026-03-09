@@ -152,6 +152,8 @@ class AnchorAlarmService extends ChangeNotifier {
     'dog': 'sounds/alarm_dog.mp3',
   };
 
+  bool _disposed = false;
+
   AnchorAlarmService({
     required SignalKService signalKService,
     NotificationService? notificationService,
@@ -215,6 +217,7 @@ class AnchorAlarmService extends ChangeNotifier {
 
   @override
   void dispose() {
+    _disposed = true;
     _unsubscribeFromAnchorPaths();
     _signalKService.removeListener(_onSignalKUpdate);
     _checkInTimer?.cancel();
@@ -438,7 +441,7 @@ class AnchorAlarmService extends ChangeNotifier {
         '/plugins/anchoralarm/getTrack',
       );
 
-      if (response.statusCode == 200) {
+      if (response.statusCode == 200 && !_disposed) {
         final data = jsonDecode(response.body);
         if (data is List) {
           _trackHistory = data.map((point) {
@@ -483,6 +486,7 @@ class AnchorAlarmService extends ChangeNotifier {
   // === SignalK Updates ===
 
   void _onSignalKUpdate() {
+    if (_disposed) return;
     final isConnected = _signalKService.isConnected;
 
     // Handle connection state change
