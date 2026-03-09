@@ -217,6 +217,9 @@ class SignalKService extends ChangeNotifier implements DataService {
   /// Indexed AIS vessel store with single-authority pruning.
   AISVesselRegistry get aisVesselRegistry => _aisManager.registry;
 
+  /// Path subscription registry for diagnostic access.
+  PathSubscriptionRegistry get subscriptionRegistry => _subscriptionRegistry;
+
   @override
   String get serverUrl => _serverUrl;
   @override

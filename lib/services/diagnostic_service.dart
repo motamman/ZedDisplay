@@ -177,6 +177,7 @@ class DiagnosticService {
       'rssKB': _getRssKB(),
       'peakRssKB': _getPeakRssKB(),
       'activePaths': _signalKService.latestData.length,
+      'subscribedPaths': _signalKService.subscriptionRegistry.allPaths.length,
       'metadataCount': _signalKService.metadataStore.count,
       'restCalls': {
         'GET': {
