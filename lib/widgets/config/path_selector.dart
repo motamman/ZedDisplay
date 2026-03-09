@@ -93,12 +93,18 @@ class _PathSelectorDialogState extends State<PathSelectorDialog> {
           }
         }
       } else {
-        // Load all SignalK paths
-        final tree = await widget.signalKService.getAvailablePaths();
-        if (tree != null) {
-          paths = widget.signalKService.extractPathsFromTree(tree);
+        // Load all SignalK paths — prefer lightweight catalog if available
+        final catalogPaths = widget.signalKService.availablePathsList;
+        if (catalogPaths.isNotEmpty) {
+          paths = catalogPaths;
         } else {
-          paths = [];
+          // Fallback to full REST tree
+          final tree = await widget.signalKService.getAvailablePaths();
+          if (tree != null) {
+            paths = widget.signalKService.extractPathsFromTree(tree);
+          } else {
+            paths = [];
+          }
         }
       }
 

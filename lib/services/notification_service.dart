@@ -196,11 +196,8 @@ class NotificationService {
         iOS: iosDetails,
       );
 
-      // Use sequential ID to avoid replacing notifications
-      _notificationIdCounter++;
-      if (_notificationIdCounter > 2147483647) {
-        _notificationIdCounter = 1; // Reset if overflow
-      }
+      // Use stable ID per key so the OS replaces (not stacks) same-key notifications
+      final notificationId = notification.key.hashCode.abs() % 100000 + 1; // +1 to avoid 0 (group summary)
 
       // Extract headline from message (remove language prefix like "en-US: ")
       String headline = notification.message;
@@ -210,16 +207,12 @@ class NotificationService {
       }
 
       await _notifications.show(
-        id: _notificationIdCounter,
+        id: notificationId,
         title: '[$title] $headline',
         body: notification.key,
         notificationDetails: details,
         payload: notification.key,
       );
-
-      // Update group summary
-      _activeNotificationCount++;
-      await _updateGroupSummary();
     } catch (e) {
       if (kDebugMode) {
         print('❌ Error showing system notification: $e');
@@ -482,16 +475,14 @@ class NotificationService {
         iOS: iosDetails,
       );
 
-      _notificationIdCounter++;
-      if (_notificationIdCounter > 2147483647) {
-        _notificationIdCounter = 1;
-      }
+      // Use stable ID per alarm type so OS replaces (not stacks) on state changes
+      final stableAlarmId = (alarmId ?? 'unknown').hashCode.abs() % 100000 + 1;
 
       // Store the notification ID for this alarm so we can cancel it later
-      _alarmNotificationIds[alarmId ?? 'unknown'] = _notificationIdCounter;
+      _alarmNotificationIds[alarmId ?? 'unknown'] = stableAlarmId;
 
       await _notifications.show(
-        id: _notificationIdCounter,
+        id: stableAlarmId,
         title: title,
         body: body,
         notificationDetails: details,

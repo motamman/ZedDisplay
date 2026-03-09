@@ -190,7 +190,7 @@ class AnchorAlarmService extends ChangeNotifier {
       'navigation.anchor.distanceFromBow',
       'navigation.headingMagnetic',
     ];
-    _signalKService.subscribeToPaths(paths);
+    _signalKService.subscribeToPaths(paths, ownerId: 'anchor_alarm');
   }
 
   /// Unsubscribe from anchor paths
@@ -210,7 +210,7 @@ class AnchorAlarmService extends ChangeNotifier {
       'navigation.anchor.distanceFromBow',
       'navigation.headingMagnetic',
     ];
-    _signalKService.unsubscribeFromPaths(paths);
+    _signalKService.unsubscribeFromPaths(paths, ownerId: 'anchor_alarm');
   }
 
   @override

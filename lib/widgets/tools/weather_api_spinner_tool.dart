@@ -94,7 +94,7 @@ class _WeatherApiSpinnerToolState extends State<WeatherApiSpinnerTool>
     }
 
     debugPrint('WeatherSpinner: Subscribing to ${paths.length} sun/moon paths for $forecastDays days');
-    widget.signalKService.subscribeToPaths(paths);
+    widget.signalKService.subscribeToPaths(paths, ownerId: 'weather_spinner');
 
     // Refresh sun/moon times after data arrives via WebSocket
     Future.delayed(const Duration(seconds: 3), () {

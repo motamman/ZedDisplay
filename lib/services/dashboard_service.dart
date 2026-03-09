@@ -296,6 +296,7 @@ class DashboardService extends ChangeNotifier {
 
     _currentLayout = _currentLayout!.updateScreen(updatedScreen);
     notifyListeners();
+    await _updateSignalKSubscriptions();
     await saveDashboard();
   }
 

@@ -1,4 +1,39 @@
-# What's New in v0.5.41
+# What's New in v0.5.42
+
+## Release Notes (Google Play - max 500 chars)
+
+v0.5.42 SignalK Architecture Overhaul & Notification Dedup
+
+IMPROVED: Single WebSocket connection with owner-tracked subscriptions, vessel identity via MMSI/URN, path discovery, and REST-based MetadataStore. Auth guard prevents unauthenticated subscriptions.
+
+FIXED: Notification spam eliminated - stable OS notification IDs replace instead of stacking. 30s throttle for repeated alerts.
+
+## Release Notes (App Store / TestFlight - max 4000 chars)
+
+### SignalK Architecture Overhaul (IMPROVED)
+- **Single WebSocket** - Removed separate autopilot channel; all data routes through one connection
+- **Subscription Registry** - New owner-tracked subscription system (dashboard, autopilot, anchor_alarm, weather_alerts, etc.) with precise lifecycle management
+- **Vessel Identity** - Subscriptions and REST calls use vessel MMSI/URN instead of hardcoded `vessels.self`
+- **Path Discovery** - Available paths fetched from server and refreshed every 5 minutes
+- **MetadataStore via REST** - Unit preferences populated from REST on connect; WebSocket meta deltas for runtime overrides
+- **Auth Guard** - No wildcard subscriptions without valid auth token
+- **Cache Dedup** - Own-vessel paths stored once (not 3x per source); source on data point field
+
+### Notification Dedup (FIXED)
+- **Stable OS IDs** - Same notification key always uses same OS notification ID, so updates replace instead of stacking in the notification tray
+- **Anchor Alarm Replace** - State oscillations (alarm→normal→alarm) replace the existing notification instead of creating new ones
+- **30s Throttle** - Same key+state suppressed within 30 seconds to catch reconnect-induced re-sends
+
+### NWS Weather Alerts (IMPROVED)
+- **Dashboard Filtering** - Weather notifications only shown when a weather_alerts widget is on the active dashboard
+- **Expired Alert Suppression** - Inactive/expired NWS alerts no longer generate notifications
+
+### Dashboard Subscription Sync (FIXED)
+- **Live Updates** - Adding or removing widgets now immediately updates SignalK path subscriptions
+
+---
+
+# Previous: v0.5.41
 
 ## Release Notes (Google Play - max 500 chars)
 
