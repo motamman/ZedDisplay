@@ -5,6 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.42+39] - 2026-03-08
+
+### Added
+- **SignalK Architecture Overhaul**: Major rewrite of SignalK service internals for reliability and efficiency
+  - **Single WebSocket**: Removed separate autopilot WebSocket channel; all data (navigation, autopilot, notifications) routes through one connection
+  - **Path Subscription Registry**: New `PathSubscriptionRegistry` with owner-tracked subscriptions (dashboard, autopilot, anchor_alarm, weather_alerts, weather_spinner, notifications)
+  - **Vessel Identity**: Subscriptions and REST calls now use vessel MMSI/URN via `_vesselContext` / `_vesselRestPath` instead of hardcoded `vessels.self`
+  - **Path Discovery**: `_availablePaths` populated from `GET /skServer/availablePaths`, refreshed every 5 minutes
+  - **MetadataStore via REST**: `populateFromPreset()` fills MetadataStore from REST unit preferences on connect; WebSocket meta deltas kept for runtime overrides
+  - **Auth Guard**: WebSocket subscriptions blocked without valid auth token (no more wildcard `*` subscriptions leaking)
+  - **Cache Dedup**: Own-vessel paths stored once in cache (not 3x per source); source label stored on `SignalKDataPoint.source` field
+- **NWS Weather Alert Filtering**: Weather notifications only shown when a weather_alerts widget is on the active dashboard; expired/inactive alerts suppressed
+- **Diagnostic Service**: Memory leak investigation tooling with periodic logging of cache sizes, subscription counts, and WebSocket message rates
+
+### Fixed
+- **Notification Spam**: Eliminated duplicate notifications from SignalK server
+  - System (OS) notifications now use stable IDs per notification key — same alert replaces instead of stacking
+  - Anchor alarm notifications use stable IDs per alarm type — state oscillations (alarm→normal→alarm) replace instead of stacking
+  - Added 30-second temporal throttle for same key+state combinations to catch reconnect-induced re-sends
+- **Dashboard Subscription Sync**: Dashboard service now updates SignalK subscriptions when layout changes, ensuring paths are added/removed as widgets are added/removed
+
+### Enhanced
+- **Subscription Management**: `subscribeToPaths()` / `unsubscribeFromPaths()` now accept owner IDs, enabling precise lifecycle management — when a widget is removed, only its paths are unsubscribed (shared paths with other owners remain)
+
 ## [0.5.41+38] - 2026-03-08
 
 ### Fixed

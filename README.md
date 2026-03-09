@@ -547,15 +547,16 @@ lib/
 
 ### Data Flow
 ```
-SignalK Server (WebSocket)
+SignalK Server (Single WebSocket)
     ↓
 SignalKService (WebSocket handler)
+    ├── PathSubscriptionRegistry (Owner-tracked subscriptions)
     ├── DataCacheManager (TTL-based caching & pruning)
-    ├── ConversionManager (Unit conversions)
-    ├── NotificationManager (Alert processing)
-    └── AISManager (Vessel tracking)
+    ├── MetadataStore (Unit conversions via REST + WS meta)
+    ├── NotificationManager (Alert dedup & throttling)
+    └── AISManager (Vessel tracking & registry)
     ↓
-DashboardService (Data distribution)
+DashboardService (Data distribution & subscription sync)
     ↓
 Tool Components (Display layer)
     └── Tool Configurators (Strategy pattern)
@@ -643,7 +644,7 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 ### General Features
 - [ ] Offline mode with cached data
 - [ ] Chart playback for historical data
-- [ ] Enhanced alerts and notification rules
+- [x] Enhanced alerts and notification rules (notification dedup, stable OS IDs, temporal throttling)
 - [ ] Weather integration (GRIB files, forecasts)
 - [x] AIS target display (completed in v0.2.0+3)
 - [ ] Route planning and waypoint navigation
