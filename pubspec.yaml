@@ -1,7 +1,7 @@
 name: zed_display
 description: A SignalK data display app with gauges and charts
 publish_to: 'none'
-version: 0.5.41+38
+version: 0.5.42+39
 
 
 environment:
