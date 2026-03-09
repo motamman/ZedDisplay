@@ -2430,6 +2430,7 @@ class _NotificationManager {
   final StreamController<SignalKNotification> _notificationController =
       StreamController<SignalKNotification>.broadcast();
   final Map<String, String> _lastNotificationState = {};
+  final Map<String, DateTime> _lastNotificationTime = {};
 
   // Recent notifications cache (last 10 seconds)
   final List<SignalKNotification> _recentNotifications = [];
@@ -2483,6 +2484,7 @@ class _NotificationManager {
     _notificationsEnabled = enabled;
     if (!enabled) {
       _lastNotificationState.clear();
+      _lastNotificationTime.clear();
       _recentNotifications.clear();
     }
   }
@@ -2534,6 +2536,7 @@ class _NotificationManager {
       _notificationChannel = null;
 
       _lastNotificationState.clear();
+      _lastNotificationTime.clear();
       _recentNotifications.clear();
     } catch (e) {
       if (kDebugMode) {
@@ -2636,7 +2639,15 @@ class _NotificationManager {
             return;
           }
 
+          // Temporal throttle: suppress same key+state within 30 seconds
+          final throttleKey = '$key:$state';
+          final lastTime = _lastNotificationTime[throttleKey];
+          if (lastTime != null && timestamp.difference(lastTime).inSeconds < 30) {
+            return;
+          }
+
           _lastNotificationState[key] = state;
+          _lastNotificationTime[throttleKey] = timestamp;
 
           final notification = SignalKNotification(
             key: key,
