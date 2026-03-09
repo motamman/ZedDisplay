@@ -33,7 +33,7 @@ class HistoricalDataService {
   ///     - 'navigation.speedOverGround:average:sma:5' (5-point SMA)
   ///     - 'navigation.speedOverGround:average:ema:0.3' (EMA with alpha=0.3)
   /// - duration: Time duration to query backwards (e.g., '1h', '30m', '2d')
-  /// - resolution: Time bucket size in milliseconds (null = auto, API optimizes based on duration)
+  /// - resolution: Time bucket size in seconds (null = auto, API optimizes based on duration)
   /// - context: SignalK context (default: 'vessels.self')
   Future<HistoricalDataResponse> fetchHistoricalData({
     required List<String> paths,
@@ -56,10 +56,8 @@ class HistoricalDataService {
 
     final queryParams = {
       'context': context,
-      'start': 'now',
       'duration': duration,
       'paths': pathsParam,
-      'convertTimesToLocal': 'true',
     };
 
     // Only add resolution if specified (null means let API auto-optimize)
@@ -110,7 +108,7 @@ class HistoricalDataService {
   /// - paths: List of SignalK paths to query (max 3 recommended)
   /// - from: Start datetime
   /// - to: End datetime
-  /// - resolution: Time bucket size in milliseconds (null = auto, API optimizes)
+  /// - resolution: Time bucket size in seconds (null = auto, API optimizes)
   /// - context: SignalK context (default: 'vessels.self')
   Future<HistoricalDataResponse> fetchHistoricalDataRange({
     required List<String> paths,
@@ -137,7 +135,6 @@ class HistoricalDataService {
       'from': from.toIso8601String(),
       'to': to.toIso8601String(),
       'paths': pathsParam,
-      'convertTimesToLocal': 'true',
     };
 
     // Only add resolution if specified (null means let API auto-optimize)

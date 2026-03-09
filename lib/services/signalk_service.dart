@@ -42,25 +42,11 @@ class SignalKService extends ChangeNotifier implements DataService {
 
   // Throttled notifyListeners — coalesce rapid WS updates via microtask
   bool _notifyScheduled = false;
-  int _notifyCount = 0; // Cumulative per-session: total notifyListeners requests
-  int _notifyThrottledCount = 0; // Cumulative per-session: coalesced (skipped) calls
-  int _listenerCount = 0; // Point-in-time: current listener count
+  int _notifyCount = 0; // Cumulative per-connect: total notifyListeners requests
+  int _notifyThrottledCount = 0; // Cumulative per-connect: coalesced (skipped) calls
 
   int get notifyCount => _notifyCount;
   int get notifyThrottledCount => _notifyThrottledCount;
-  int get listenerCount => _listenerCount;
-
-  @override
-  void addListener(VoidCallback listener) {
-    super.addListener(listener);
-    _listenerCount++;
-  }
-
-  @override
-  void removeListener(VoidCallback listener) {
-    super.removeListener(listener);
-    _listenerCount--;
-  }
 
   void _scheduleNotify() {
     _notifyCount++;
@@ -73,6 +59,12 @@ class SignalKService extends ChangeNotifier implements DataService {
       _notifyScheduled = false;
       notifyListeners();
     });
+  }
+
+  /// Reset diagnostic counters (called on connect)
+  void _resetDiagnosticCounters() {
+    _notifyCount = 0;
+    _notifyThrottledCount = 0;
   }
 
   // Connection state stream (for UI overlay without triggering rebuilds)
@@ -391,6 +383,7 @@ class SignalKService extends ChangeNotifier implements DataService {
       _wasConnected = true;
       _errorMessage = null;
       _reconnectAttempts = 0; // Reset reconnect attempts on successful connection
+      _resetDiagnosticCounters();
       _intentionalDisconnect = false;
       _connectionState = SignalKConnectionState.connected;
       _connectionStateController.add(SignalKConnectionState.connected);

@@ -202,10 +202,10 @@ class ChartConfigurator extends ToolConfigurator {
                   initialValue: chartResolution,
                   items: const [
                     DropdownMenuItem(value: null, child: Text('Auto (Recommended)')),
-                    DropdownMenuItem(value: 30000, child: Text('30 seconds')),
-                    DropdownMenuItem(value: 60000, child: Text('1 minute')),
-                    DropdownMenuItem(value: 300000, child: Text('5 minutes')),
-                    DropdownMenuItem(value: 600000, child: Text('10 minutes')),
+                    DropdownMenuItem(value: 30, child: Text('30 seconds')),
+                    DropdownMenuItem(value: 60, child: Text('1 minute')),
+                    DropdownMenuItem(value: 300, child: Text('5 minutes')),
+                    DropdownMenuItem(value: 600, child: Text('10 minutes')),
                   ],
                   onChanged: (value) {
                     setState(() => chartResolution = value);
