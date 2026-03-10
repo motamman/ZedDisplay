@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:syncfusion_flutter_charts/charts.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
@@ -331,9 +332,6 @@ class _AISPolarChartState extends State<AISPolarChart>
     final shipTypeLabel = extraData['Ship Type'] ?? _getShipTypeLabel(vessel?.aisShipType);
     final typeColor = _getVesselTypeColor(vessel?.aisShipType, aisClass: vessel?.aisClass);
     final heading = vessel?.headingTrue ?? vessel?.cog ?? 0.0;
-    final icon = vessel != null
-        ? _getVesselIcon(vessel.aisShipType, vessel.navState, sogRaw: vessel.sogRaw)
-        : Icons.navigation;
 
     // Build dimensions string
     String? dimensionsStr;
@@ -398,7 +396,12 @@ class _AISPolarChartState extends State<AISPolarChart>
                   children: [
                     Transform.rotate(
                       angle: heading * math.pi / 180,
-                      child: Icon(icon, color: typeColor, size: 32,
+                      child: _buildVesselIcon(
+                        aisShipType: vessel?.aisShipType,
+                        navState: vessel?.navState,
+                        sogRaw: vessel?.sogRaw,
+                        color: typeColor,
+                        size: 32,
                         shadows: [Shadow(color: Colors.black.withValues(alpha: 0.3), blurRadius: 2)],
                       ),
                     ),
@@ -833,6 +836,33 @@ class _AISPolarChartState extends State<AISPolarChart>
     // Stationary: SOG ≈ 0 (< 0.1 m/s)
     if (sogRaw != null && sogRaw < 0.1) return Icons.circle;
     return Icons.navigation; // Moving chevron
+  }
+
+  /// Mooring buoy SVG template — `white` is replaced with vessel type color
+  static const _mooringBuoySvg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">'
+      '<defs><clipPath id="c"><circle cx="50" cy="50" r="45"/></clipPath></defs>'
+      '<circle cx="50" cy="50" r="45" fill="TYPE_COLOR" stroke="#888" stroke-width="1.5"/>'
+      '<rect x="0" y="38" width="100" height="24" fill="#1565C0" clip-path="url(#c)"/>'
+      '<circle cx="50" cy="50" r="45" fill="none" stroke="#666" stroke-width="1"/>'
+      '</svg>';
+
+  /// Build vessel icon widget — returns SVG for moored, Icon for others
+  Widget _buildVesselIcon({
+    required int? aisShipType,
+    required String? navState,
+    double? sogRaw,
+    required Color color,
+    required double size,
+    List<Shadow>? shadows,
+  }) {
+    if (navState == 'moored') {
+      // Convert color to hex for SVG fill replacement
+      final hex = '#${color.toARGB32().toRadixString(16).padLeft(8, '0').substring(2)}';
+      final svg = _mooringBuoySvg.replaceAll('TYPE_COLOR', hex);
+      return SvgPicture.string(svg, width: size, height: size);
+    }
+    final icon = _getVesselIcon(aisShipType, navState, sogRaw: sogRaw);
+    return Icon(icon, color: color, size: size, shadows: shadows);
   }
 
   /// Get freshness opacity based on plugin status or data age
@@ -1522,7 +1552,6 @@ class _AISPolarChartState extends State<AISPolarChart>
     for (final point in vesselPoints) {
       final isHighlighted = point.mmsi == _highlightedVesselMMSI;
       final heading = point.heading ?? 0.0;
-      final icon = _getVesselIcon(point.aisShipType, point.navState, sogRaw: point.sogRaw);
       final typeColor = point.color;
       final opacity = point.freshnessOpacity;
 
@@ -1530,8 +1559,10 @@ class _AISPolarChartState extends State<AISPolarChart>
       final iconSize = isHighlighted ? 40.0 : 32.0;
       final iconWidget = Transform.rotate(
         angle: heading * math.pi / 180,
-        child: Icon(
-          icon,
+        child: _buildVesselIcon(
+          aisShipType: point.aisShipType,
+          navState: point.navState,
+          sogRaw: point.sogRaw,
           color: isHighlighted
               ? Colors.yellow
               : typeColor.withValues(alpha: opacity),
@@ -1862,13 +1893,14 @@ class _AISPolarChartState extends State<AISPolarChart>
               final typeColor = widget.colorByShipType
                   ? _getVesselTypeColor(vessel.aisShipType, aisClass: vessel.aisClass)
                   : _getVesselFreshnessColor(vessel.timestamp);
-              final icon = _getVesselIcon(vessel.aisShipType, vessel.navState, sogRaw: vessel.sogRaw);
               final stale = _isStale(vessel.timestamp, aisStatus: vessel.aisStatus);
               final iconSize = isHighlighted ? 48.0 : 32.0;
               final iconWidget = Transform.rotate(
                 angle: heading * math.pi / 180,
-                child: Icon(
-                  icon,
+                child: _buildVesselIcon(
+                  aisShipType: vessel.aisShipType,
+                  navState: vessel.navState,
+                  sogRaw: vessel.sogRaw,
                   color: isHighlighted
                       ? Colors.yellow
                       : typeColor,
@@ -2116,12 +2148,13 @@ class _AISPolarChartState extends State<AISPolarChart>
                   ? _getFreshnessOpacity(vessel.timestamp, aisStatus: vessel.aisStatus)
                   : 1.0;
               final displayColor = typeColor.withValues(alpha: freshnessOpacity);
-              final vesselIcon = _getVesselIcon(vessel.aisShipType, vessel.navState, sogRaw: vessel.sogRaw);
               final stale = _isStale(vessel.timestamp, aisStatus: vessel.aisStatus);
               final iconWidget = Transform.rotate(
                 angle: ((vessel.headingTrue ?? vessel.cog ?? 0.0) * math.pi / 180),
-                child: Icon(
-                  vesselIcon,
+                child: _buildVesselIcon(
+                  aisShipType: vessel.aisShipType,
+                  navState: vessel.navState,
+                  sogRaw: vessel.sogRaw,
                   color: displayColor,
                   size: 20,
                 ),

@@ -128,6 +128,7 @@ flutter:
     - assets/weather_icons/
     - assets/tool_info.yaml
     - assets/weather_icons/meteoblue_specific/monochrome_hollow_hourly/
+    - assets/icons/custom/
     - assets/weather_icons/bas_weather/production/fill/all/
 
 flutter_launcher_icons:
