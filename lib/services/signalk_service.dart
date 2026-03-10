@@ -40,6 +40,33 @@ class SignalKService extends ChangeNotifier implements DataService {
   bool _isConnecting = false;
   bool _wasConnected = false;
 
+  // Throttled notifyListeners — coalesce rapid WS updates via microtask
+  bool _notifyScheduled = false;
+  int _notifyCount = 0; // Cumulative per-connect: total notifyListeners requests
+  int _notifyThrottledCount = 0; // Cumulative per-connect: coalesced (skipped) calls
+
+  int get notifyCount => _notifyCount;
+  int get notifyThrottledCount => _notifyThrottledCount;
+
+  void _scheduleNotify() {
+    _notifyCount++;
+    if (_notifyScheduled) {
+      _notifyThrottledCount++;
+      return;
+    }
+    _notifyScheduled = true;
+    Future.microtask(() {
+      _notifyScheduled = false;
+      notifyListeners();
+    });
+  }
+
+  /// Reset diagnostic counters (called on connect)
+  void _resetDiagnosticCounters() {
+    _notifyCount = 0;
+    _notifyThrottledCount = 0;
+  }
+
   // Connection state stream (for UI overlay without triggering rebuilds)
   final _connectionStateController = StreamController<SignalKConnectionState>.broadcast();
   SignalKConnectionState _connectionState = SignalKConnectionState.disconnected;
@@ -220,6 +247,13 @@ class SignalKService extends ChangeNotifier implements DataService {
   /// Path subscription registry for diagnostic access.
   PathSubscriptionRegistry get subscriptionRegistry => _subscriptionRegistry;
 
+  // Cache size getters for diagnostics instrumentation
+  int get displayUnitsCacheCount => _displayUnitsCache.length;
+  int get availablePathsCount => _availablePaths.length;
+  int get conversionsDataCount => _conversionManager.internalDataMap.length;
+  int get notificationStateCount => _notificationManager.stateMapSize;
+  int get notificationTimeCount => _notificationManager.timeMapSize;
+
   @override
   String get serverUrl => _serverUrl;
   @override
@@ -356,6 +390,7 @@ class SignalKService extends ChangeNotifier implements DataService {
       _wasConnected = true;
       _errorMessage = null;
       _reconnectAttempts = 0; // Reset reconnect attempts on successful connection
+      _resetDiagnosticCounters();
       _intentionalDisconnect = false;
       _connectionState = SignalKConnectionState.connected;
       _connectionStateController.add(SignalKConnectionState.connected);
@@ -678,7 +713,7 @@ class SignalKService extends ChangeNotifier implements DataService {
 
         // Invalidate cache when data changes
         _latestDataView = null;
-        notifyListeners();
+        _scheduleNotify();
       }
     } catch (e, stackTrace) {
       if (kDebugMode) {
@@ -2431,6 +2466,9 @@ class _NotificationManager {
       StreamController<SignalKNotification>.broadcast();
   final Map<String, String> _lastNotificationState = {};
   final Map<String, DateTime> _lastNotificationTime = {};
+
+  int get stateMapSize => _lastNotificationState.length;
+  int get timeMapSize => _lastNotificationTime.length;
 
   // Recent notifications cache (last 10 seconds)
   final List<SignalKNotification> _recentNotifications = [];

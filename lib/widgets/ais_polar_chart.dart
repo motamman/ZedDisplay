@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:syncfusion_flutter_charts/charts.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
@@ -74,6 +75,9 @@ class _AISPolarChartState extends State<AISPolarChart>
 
   // Cache CPA/TCPA values per vessel to prevent disappearing
   final Map<String, ({double cpa, double tcpa})> _cachedCPA = {};
+
+  // Track previously alerted vessel IDs for auto-highlight on escalation
+  Set<String> _previousCpaAlertIds = {};
 
   // Map controller for centering on own vessel
   final MapController _mapController = MapController();
@@ -205,7 +209,28 @@ class _AISPolarChartState extends State<AISPolarChart>
   }
 
   void _onCpaChanged() {
-    if (mounted) setState(() {});
+    if (!mounted) return;
+
+    // Check for highlight request from notification tap
+    final requestedId = widget.cpaAlertService?.highlightRequestedVesselId;
+    if (requestedId != null) {
+      widget.cpaAlertService!.clearHighlightRequest();
+      _highlightVessel(requestedId);
+    }
+
+    final alerts = widget.cpaAlertService?.vesselAlerts ?? {};
+
+    // Auto-highlight newly alerted vessels (escalated to warning or alarm)
+    if (requestedId == null) {
+      for (final entry in alerts.entries) {
+        if (entry.value.level.isWarning && !_previousCpaAlertIds.contains(entry.key)) {
+          _highlightVessel(entry.key);
+          break; // highlight one at a time
+        }
+      }
+    }
+    _previousCpaAlertIds = alerts.keys.toSet();
+    setState(() {});
   }
 
   @override
@@ -331,9 +356,6 @@ class _AISPolarChartState extends State<AISPolarChart>
     final shipTypeLabel = extraData['Ship Type'] ?? _getShipTypeLabel(vessel?.aisShipType);
     final typeColor = _getVesselTypeColor(vessel?.aisShipType, aisClass: vessel?.aisClass);
     final heading = vessel?.headingTrue ?? vessel?.cog ?? 0.0;
-    final icon = vessel != null
-        ? _getVesselIcon(vessel.aisShipType, vessel.navState, sogRaw: vessel.sogRaw)
-        : Icons.navigation;
 
     // Build dimensions string
     String? dimensionsStr;
@@ -398,7 +420,12 @@ class _AISPolarChartState extends State<AISPolarChart>
                   children: [
                     Transform.rotate(
                       angle: heading * math.pi / 180,
-                      child: Icon(icon, color: typeColor, size: 32,
+                      child: _buildVesselIcon(
+                        aisShipType: vessel?.aisShipType,
+                        navState: vessel?.navState,
+                        sogRaw: vessel?.sogRaw,
+                        color: typeColor,
+                        size: 32,
                         shadows: [Shadow(color: Colors.black.withValues(alpha: 0.3), blurRadius: 2)],
                       ),
                     ),
@@ -468,6 +495,38 @@ class _AISPolarChartState extends State<AISPolarChart>
                       _detailRow('Destination', extraData['Destination']!, subtitleColor, textColor),
                   ],
 
+                // Relative section (bearing, distance, CPA/TCPA)
+                if (vessel != null) ...[
+                  _sectionHeader('Relative', sectionColor),
+                  _detailRow('Bearing', '${vessel.bearing.toStringAsFixed(1)}${_getAngleSymbol()}', subtitleColor, textColor),
+                  _detailRow('Distance', '${_convertDistance(vessel.distance).toStringAsFixed(2)} ${_getDistanceUnit()}', subtitleColor, textColor),
+                  if (vessel.cpa != null) ...[
+                    () {
+                      final cpaConfig = widget.cpaAlertService?.config;
+                      final alarmThreshold = cpaConfig?.alarmThresholdMeters ?? 926.0;
+                      final warnThreshold = cpaConfig?.warnThresholdMeters ?? 1852.0;
+                      final cpaColor = vessel.cpa! < alarmThreshold
+                          ? Colors.red
+                          : vessel.cpa! < warnThreshold
+                              ? Colors.orange
+                              : textColor;
+                      return _detailRow('CPA', '${_convertDistance(vessel.cpa!).toStringAsFixed(2)} ${_getDistanceUnit()}', subtitleColor, cpaColor);
+                    }(),
+                    if (vessel.tcpa != null && vessel.tcpa!.isFinite && vessel.tcpa! > 0)
+                      () {
+                        final cpaConfig = widget.cpaAlertService?.config;
+                        final alarmThreshold = cpaConfig?.alarmThresholdMeters ?? 926.0;
+                        final warnThreshold = cpaConfig?.warnThresholdMeters ?? 1852.0;
+                        final cpaColor = vessel.cpa! < alarmThreshold
+                            ? Colors.red
+                            : vessel.cpa! < warnThreshold
+                                ? Colors.orange
+                                : textColor;
+                        return _detailRow('TCPA', _formatTCPA(vessel.tcpa!), subtitleColor, cpaColor);
+                      }(),
+                  ],
+                ],
+
                 // Dimensions section
                 if (dimensionsStr != null)
                   ...[
@@ -486,15 +545,6 @@ class _AISPolarChartState extends State<AISPolarChart>
                     _detailRow('COG', '${vessel.cog!.toStringAsFixed(1)}${_getAngleSymbol()}', subtitleColor, textColor),
                   if (vessel.headingTrue != null)
                     _detailRow('Heading', '${vessel.headingTrue!.toStringAsFixed(1)}${_getAngleSymbol()}', subtitleColor, textColor),
-
-                  // Relative section
-                  _sectionHeader('Relative', sectionColor),
-                  _detailRow('Bearing', '${vessel.bearing.toStringAsFixed(1)}${_getAngleSymbol()}', subtitleColor, textColor),
-                  _detailRow('Distance', '${_convertDistance(vessel.distance).toStringAsFixed(2)} ${_getDistanceUnit()}', subtitleColor, textColor),
-                  if (vessel.cpa != null)
-                    _detailRow('CPA', '${_convertDistance(vessel.cpa!).toStringAsFixed(2)} ${_getDistanceUnit()}', subtitleColor, textColor),
-                  if (vessel.tcpa != null && vessel.tcpa!.isFinite && vessel.tcpa! > 0)
-                    _detailRow('TCPA', _formatTCPA(vessel.tcpa!), subtitleColor, textColor),
 
                   // Position section
                   _sectionHeader('Position', sectionColor),
@@ -833,6 +883,33 @@ class _AISPolarChartState extends State<AISPolarChart>
     // Stationary: SOG ≈ 0 (< 0.1 m/s)
     if (sogRaw != null && sogRaw < 0.1) return Icons.circle;
     return Icons.navigation; // Moving chevron
+  }
+
+  /// Mooring buoy SVG template — `white` is replaced with vessel type color
+  static const _mooringBuoySvg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">'
+      '<defs><clipPath id="c"><circle cx="50" cy="50" r="45"/></clipPath></defs>'
+      '<circle cx="50" cy="50" r="45" fill="TYPE_COLOR" stroke="#888" stroke-width="1.5"/>'
+      '<rect x="0" y="38" width="100" height="24" fill="#1565C0" clip-path="url(#c)"/>'
+      '<circle cx="50" cy="50" r="45" fill="none" stroke="#666" stroke-width="1"/>'
+      '</svg>';
+
+  /// Build vessel icon widget — returns SVG for moored, Icon for others
+  Widget _buildVesselIcon({
+    required int? aisShipType,
+    required String? navState,
+    double? sogRaw,
+    required Color color,
+    required double size,
+    List<Shadow>? shadows,
+  }) {
+    if (navState == 'moored') {
+      // Convert color to hex for SVG fill replacement
+      final hex = '#${color.toARGB32().toRadixString(16).padLeft(8, '0').substring(2)}';
+      final svg = _mooringBuoySvg.replaceAll('TYPE_COLOR', hex);
+      return SvgPicture.string(svg, width: size, height: size);
+    }
+    final icon = _getVesselIcon(aisShipType, navState, sogRaw: sogRaw);
+    return Icon(icon, color: color, size: size, shadows: shadows);
   }
 
   /// Get freshness opacity based on plugin status or data age
@@ -1522,7 +1599,6 @@ class _AISPolarChartState extends State<AISPolarChart>
     for (final point in vesselPoints) {
       final isHighlighted = point.mmsi == _highlightedVesselMMSI;
       final heading = point.heading ?? 0.0;
-      final icon = _getVesselIcon(point.aisShipType, point.navState, sogRaw: point.sogRaw);
       final typeColor = point.color;
       final opacity = point.freshnessOpacity;
 
@@ -1530,8 +1606,10 @@ class _AISPolarChartState extends State<AISPolarChart>
       final iconSize = isHighlighted ? 40.0 : 32.0;
       final iconWidget = Transform.rotate(
         angle: heading * math.pi / 180,
-        child: Icon(
-          icon,
+        child: _buildVesselIcon(
+          aisShipType: point.aisShipType,
+          navState: point.navState,
+          sogRaw: point.sogRaw,
           color: isHighlighted
               ? Colors.yellow
               : typeColor.withValues(alpha: opacity),
@@ -1862,13 +1940,14 @@ class _AISPolarChartState extends State<AISPolarChart>
               final typeColor = widget.colorByShipType
                   ? _getVesselTypeColor(vessel.aisShipType, aisClass: vessel.aisClass)
                   : _getVesselFreshnessColor(vessel.timestamp);
-              final icon = _getVesselIcon(vessel.aisShipType, vessel.navState, sogRaw: vessel.sogRaw);
               final stale = _isStale(vessel.timestamp, aisStatus: vessel.aisStatus);
               final iconSize = isHighlighted ? 48.0 : 32.0;
               final iconWidget = Transform.rotate(
                 angle: heading * math.pi / 180,
-                child: Icon(
-                  icon,
+                child: _buildVesselIcon(
+                  aisShipType: vessel.aisShipType,
+                  navState: vessel.navState,
+                  sogRaw: vessel.sogRaw,
                   color: isHighlighted
                       ? Colors.yellow
                       : typeColor,
@@ -2089,14 +2168,37 @@ class _AISPolarChartState extends State<AISPolarChart>
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Padding(
-            padding: const EdgeInsets.only(top: 8.0, bottom: 8.0),
-            child: Text(
-              'Last update: $lastUpdateText',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 11,
-                color: isDark ? Colors.white70 : Colors.black54,
-              ),
+            padding: const EdgeInsets.only(top: 8.0, bottom: 8.0, left: 12, right: 4),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Last update: $lastUpdateText',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: isDark ? Colors.white70 : Colors.black54,
+                    ),
+                  ),
+                ),
+                if (widget.cpaAlertService != null &&
+                    widget.cpaAlertService!.vesselAlerts.isNotEmpty)
+                  SizedBox(
+                    height: 24,
+                    child: TextButton.icon(
+                      onPressed: () => widget.cpaAlertService!.dismissAllAlerts(),
+                      icon: Icon(Icons.delete_outline, size: 14,
+                          color: isDark ? Colors.white60 : Colors.black45),
+                      label: Text('Clear All',
+                          style: TextStyle(fontSize: 11,
+                              color: isDark ? Colors.white60 : Colors.black45)),
+                      style: TextButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                        minimumSize: Size.zero,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ),
+                    ),
+                  ),
+              ],
             ),
           ),
           Expanded(
@@ -2116,18 +2218,22 @@ class _AISPolarChartState extends State<AISPolarChart>
                   ? _getFreshnessOpacity(vessel.timestamp, aisStatus: vessel.aisStatus)
                   : 1.0;
               final displayColor = typeColor.withValues(alpha: freshnessOpacity);
-              final vesselIcon = _getVesselIcon(vessel.aisShipType, vessel.navState, sogRaw: vessel.sogRaw);
               final stale = _isStale(vessel.timestamp, aisStatus: vessel.aisStatus);
               final iconWidget = Transform.rotate(
                 angle: ((vessel.headingTrue ?? vessel.cog ?? 0.0) * math.pi / 180),
-                child: Icon(
-                  vesselIcon,
+                child: _buildVesselIcon(
+                  aisShipType: vessel.aisShipType,
+                  navState: vessel.navState,
+                  sogRaw: vessel.sogRaw,
                   color: displayColor,
                   size: 20,
                 ),
               );
 
-              return ListTile(
+              final hasAlert = widget.cpaAlertService?.vesselAlerts
+                  .containsKey(vessel.mmsi) ?? false;
+
+              final tile = ListTile(
                 dense: true,
                 onTap: () => _highlightVessel(vessel.mmsi),
                 leading: stale
@@ -2214,6 +2320,23 @@ class _AISPolarChartState extends State<AISPolarChart>
                         ),
                       )
                     : null,
+              );
+
+              if (!hasAlert) return tile;
+
+              return Dismissible(
+                key: Key('cpa_dismiss_${vessel.mmsi}'),
+                direction: DismissDirection.endToStart,
+                onDismissed: (_) {
+                  widget.cpaAlertService?.dismissAlert(vessel.mmsi);
+                },
+                background: Container(
+                  alignment: Alignment.centerRight,
+                  padding: const EdgeInsets.only(right: 16),
+                  color: Colors.red.shade700,
+                  child: const Icon(Icons.delete, color: Colors.white, size: 20),
+                ),
+                child: tile,
               );
             },
           ),

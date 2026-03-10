@@ -87,6 +87,8 @@ class AnchorAlarmPaths {
 /// Service for managing anchor alarm functionality
 /// Integrates with SignalK anchor alarm plugin via REST API
 class AnchorAlarmService extends ChangeNotifier {
+  static AnchorAlarmService? instance;
+
   final SignalKService _signalKService;
   final NotificationService _notificationService;
   final MessagingService? _messagingService;
@@ -152,13 +154,25 @@ class AnchorAlarmService extends ChangeNotifier {
     'dog': 'sounds/alarm_dog.mp3',
   };
 
+  bool _disposed = false;
+
   AnchorAlarmService({
     required SignalKService signalKService,
     NotificationService? notificationService,
     MessagingService? messagingService,
   })  : _signalKService = signalKService,
         _notificationService = notificationService ?? NotificationService(),
-        _messagingService = messagingService;
+        _messagingService = messagingService {
+    instance = this;
+    _notificationService.registerAlarmCallback('anchor_alarm', _onAlarmTapped);
+  }
+
+  /// Handle notification tap — user responded, cancel grace timer and stop sound.
+  /// The overlay is already visible via _onCheckInRequired setting _awaitingCheckIn.
+  void _onAlarmTapped(String? alarmId) {
+    _checkInGraceTimer?.cancel();
+    _stopAlarmSound();
+  }
 
   /// Initialize and start listening to SignalK updates
   void initialize() {
@@ -215,6 +229,9 @@ class AnchorAlarmService extends ChangeNotifier {
 
   @override
   void dispose() {
+    if (instance == this) instance = null;
+    _disposed = true;
+    _notificationService.unregisterAlarmCallback('anchor_alarm');
     _unsubscribeFromAnchorPaths();
     _signalKService.removeListener(_onSignalKUpdate);
     _checkInTimer?.cancel();
@@ -438,7 +455,7 @@ class AnchorAlarmService extends ChangeNotifier {
         '/plugins/anchoralarm/getTrack',
       );
 
-      if (response.statusCode == 200) {
+      if (response.statusCode == 200 && !_disposed) {
         final data = jsonDecode(response.body);
         if (data is List) {
           _trackHistory = data.map((point) {
@@ -483,6 +500,7 @@ class AnchorAlarmService extends ChangeNotifier {
   // === SignalK Updates ===
 
   void _onSignalKUpdate() {
+    if (_disposed) return;
     final isConnected = _signalKService.isConnected;
 
     // Handle connection state change
@@ -635,6 +653,7 @@ class AnchorAlarmService extends ChangeNotifier {
     await _notificationService.showAlarmNotification(
       title: 'Anchor Alarm',
       body: message,
+      alarmSource: 'anchor_alarm',
     );
 
     // Send crew alert
@@ -716,10 +735,17 @@ class AnchorAlarmService extends ChangeNotifier {
     _checkInDeadline = DateTime.now().add(_checkInConfig.gracePeriod);
     notifyListeners();
 
-    // Show notification requesting check-in
+    // Show system notification requesting check-in
     _notificationService.showAlarmNotification(
       title: 'Anchor Watch Check-In',
       body: _checkInConfig.customMessage ?? 'Please confirm you are monitoring the anchor.',
+      alarmId: 'check_in',
+      alarmSource: 'anchor_alarm',
+    );
+
+    // Send crew alert for check-in warning
+    _messagingService?.sendAlert(
+      'ANCHOR WATCH: Check-in required — please confirm anchor watch.',
     );
 
     // Start grace period timer
@@ -738,6 +764,11 @@ class AnchorAlarmService extends ChangeNotifier {
     _checkInGraceTimer?.cancel();
     _awaitingCheckIn = false;
     _checkInDeadline = null;
+    _stopAlarmSound(); // Silence alarm if it was playing from missed check-in
+
+    // Clear the check-in notification from the system tray so stale
+    // notifications can't re-trigger the overlay after acknowledgment.
+    _notificationService.cancelAlarmNotification('check_in');
 
     // Restart check-in timer for next interval
     _startCheckInTimer();

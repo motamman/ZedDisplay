@@ -14,6 +14,7 @@ import 'services/tool_service.dart';
 import 'services/auth_service.dart';
 import 'services/setup_service.dart';
 import 'services/notification_service.dart';
+import 'services/notification_navigation_service.dart';
 import 'services/foreground_service.dart';
 import 'services/crew_service.dart';
 import 'services/messaging_service.dart';
@@ -23,9 +24,11 @@ import 'services/intercom_service.dart';
 import 'services/scale_service.dart';
 import 'services/diagnostic_service.dart';
 import 'models/auth_token.dart';
+import 'models/notification_payload.dart';
 import 'screens/splash_screen.dart';
 import 'screens/setup_management_screen.dart';
 import 'widgets/crew/intercom_panel.dart';
+import 'services/anchor_alarm_service.dart';
 import 'widgets/tools/weather_alerts_tool.dart';
 
 // Global app start time
@@ -45,6 +48,7 @@ void main() async {
   // Initialize notification service
   final notificationService = NotificationService();
   await notificationService.initialize();
+  notificationService.setMasterEnabled(storageService.getNotificationsEnabled());
 
   // Initialize foreground service
   final foregroundService = ForegroundTaskService();
@@ -117,6 +121,10 @@ void main() async {
   );
   await setupService.initialize();
 
+  // Wire notification tap-to-navigate service
+  final notificationNavigationService = NotificationNavigationService(dashboardService);
+  notificationService.setNavigationService(notificationNavigationService);
+
   // Wire NWS notification filter: only show alerts when weather_alerts widget is on dashboard
   signalKService.setWeatherAlertsChecker(() {
     final layout = dashboardService.currentLayout;
@@ -144,6 +152,7 @@ void main() async {
     authService: authService,
     setupService: setupService,
     notificationService: notificationService,
+    notificationNavigationService: notificationNavigationService,
     foregroundService: foregroundService,
     crewService: crewService,
     messagingService: messagingService,
@@ -160,6 +169,7 @@ class ZedDisplayApp extends StatefulWidget {
   final AuthService authService;
   final SetupService setupService;
   final NotificationService notificationService;
+  final NotificationNavigationService notificationNavigationService;
   final ForegroundTaskService foregroundService;
   final CrewService crewService;
   final MessagingService messagingService;
@@ -175,6 +185,7 @@ class ZedDisplayApp extends StatefulWidget {
     required this.authService,
     required this.setupService,
     required this.notificationService,
+    required this.notificationNavigationService,
     required this.foregroundService,
     required this.crewService,
     required this.messagingService,
@@ -448,6 +459,8 @@ class _ZedDisplayAppState extends State<ZedDisplayApp> with WidgetsBindingObserv
             signalKService: widget.signalKService,
             storageService: widget.storageService,
             notificationService: widget.notificationService,
+            dashboardService: widget.dashboardService,
+            notificationNavigationService: widget.notificationNavigationService,
             child: Stack(
               children: [
                 child ?? const SizedBox.shrink(),
@@ -487,6 +500,8 @@ class SignalKNotificationListener extends StatefulWidget {
   final SignalKService signalKService;
   final StorageService storageService;
   final NotificationService notificationService;
+  final DashboardService dashboardService;
+  final NotificationNavigationService notificationNavigationService;
   final Widget child;
 
   const SignalKNotificationListener({
@@ -494,6 +509,8 @@ class SignalKNotificationListener extends StatefulWidget {
     required this.signalKService,
     required this.storageService,
     required this.notificationService,
+    required this.dashboardService,
+    required this.notificationNavigationService,
     required this.child,
   });
 
@@ -586,19 +603,56 @@ class _SignalKNotificationListenerState extends State<SignalKNotificationListene
 
     // Check if this is an NWS weather alert
     final isNwsAlert = notification.key.startsWith('weather.nws.');
-    // Extract alert ID from key like "weather.nws.winterWeatherAdvisory"
     final alertId = isNwsAlert ? notification.key.replaceFirst('weather.nws.', '') : null;
+
+    // Build payload and check for tap-to-navigate target
+    final payload = NotificationPayload(
+      type: isNwsAlert ? 'weather_nws' : 'signalk',
+      notificationKey: notification.key,
+      context: isNwsAlert && alertId != null ? {'alertId': alertId} : null,
+    );
+    final navResult = widget.notificationNavigationService.getNavigation(payload);
+    final hasNavTarget = navResult != null;
+    final String? targetScreenName = navResult?.$2;
+
+    // Build tap handler
+    VoidCallback? onTap;
+    if (hasNavTarget) {
+      onTap = () {
+        // Navigate to the target screen
+        navResult.$1();
+        // For NWS alerts, also expand the alert detail
+        if (isNwsAlert && alertId != null) {
+          WeatherAlertsNotifier.instance.requestExpandAlert(alertId);
+        }
+        // Stop anchor alarm sound on tap
+        if (notification.key.startsWith('navigation.anchor')) {
+          AnchorAlarmService.instance?.acknowledgeAlarm();
+        }
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      };
+    } else if (isNwsAlert && alertId != null) {
+      // NWS alert without a dashboard widget — still expand alert detail
+      onTap = () {
+        WeatherAlertsNotifier.instance.requestExpandAlert(alertId);
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      };
+    }
+
+    // Build hint text
+    String? hintText;
+    if (hasNavTarget) {
+      hintText = 'TAP: $targetScreenName';
+    } else if (isNwsAlert) {
+      hintText = 'TAP FOR DETAILS';
+    }
 
     // Show the notification as a SnackBar
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: GestureDetector(
-          onTap: isNwsAlert && alertId != null
-              ? () {
-                  WeatherAlertsNotifier.instance.requestExpandAlert(alertId);
-                  ScaffoldMessenger.of(context).hideCurrentSnackBar();
-                }
-              : null,
+          onTap: onTap,
+          behavior: onTap != null ? HitTestBehavior.opaque : HitTestBehavior.deferToChild,
           child: Row(
             children: [
               Icon(icon, color: Colors.white, size: 24),
@@ -628,10 +682,10 @@ class _SignalKNotificationListenerState extends State<SignalKNotificationListene
                             ),
                           ),
                         ),
-                        if (isNwsAlert)
-                          const Text(
-                            'TAP FOR DETAILS',
-                            style: TextStyle(
+                        if (hintText != null)
+                          Text(
+                            hintText,
+                            style: const TextStyle(
                               fontSize: 10,
                               color: Colors.white54,
                               fontStyle: FontStyle.italic,
@@ -655,6 +709,10 @@ class _SignalKNotificationListenerState extends State<SignalKNotificationListene
           label: 'DISMISS',
           textColor: Colors.white,
           onPressed: () {
+            // Stop anchor alarm sound on dismiss
+            if (notification.key.startsWith('navigation.anchor')) {
+              AnchorAlarmService.instance?.acknowledgeAlarm();
+            }
             ScaffoldMessenger.of(context).hideCurrentSnackBar();
           },
         ),

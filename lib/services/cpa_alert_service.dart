@@ -6,6 +6,7 @@ import '../utils/cpa_utils.dart';
 import 'signalk_service.dart';
 import 'notification_service.dart';
 import 'messaging_service.dart';
+import 'storage_service.dart';
 
 /// Background service that continuously monitors AIS vessels for CPA/TCPA
 /// and triggers escalating alerts (notifications, crew messages, audio alarms).
@@ -13,6 +14,7 @@ class CpaAlertService extends ChangeNotifier {
   final SignalKService _signalKService;
   final NotificationService _notificationService;
   final MessagingService? _messagingService;
+  final StorageService? _storageService;
 
   CpaAlertConfig _config = const CpaAlertConfig();
   CpaAlertConfig get config => _config;
@@ -21,15 +23,18 @@ class CpaAlertService extends ChangeNotifier {
   Map<String, CpaVesselAlert> get vesselAlerts =>
       Map.unmodifiable(_vesselAlerts);
 
+  /// Manual dismissals — vessel won't re-alert until this time expires.
+  final Map<String, DateTime> _dismissedUntil = {};
+
   bool get hasActiveAlarm =>
       _vesselAlerts.values.any((a) => a.level.isAlarming);
 
-  Timer? _evaluationTimer;
   AudioPlayer? _alarmPlayer;
   Timer? _alarmRepeatTimer;
   bool _alarmSoundPlaying = false;
 
-  static const Duration _evaluationInterval = Duration(seconds: 5);
+  DateTime? _lastEvaluation;
+  static const _evaluationThrottle = Duration(milliseconds: 500);
 
   // Reuse alarm sounds from anchor alarm service
   static const Map<String, String> alarmSounds = {
@@ -38,13 +43,36 @@ class CpaAlertService extends ChangeNotifier {
     'chimes': 'sounds/alarm_chimes.mp3',
   };
 
+  /// VesselId requested to be highlighted by a notification tap.
+  /// The AIS chart reads this in its listener and clears it after use.
+  String? _highlightRequestedVesselId;
+  String? get highlightRequestedVesselId => _highlightRequestedVesselId;
+  void clearHighlightRequest() => _highlightRequestedVesselId = null;
+  void requestHighlight(String vesselId) {
+    _highlightRequestedVesselId = vesselId;
+    notifyListeners();
+  }
+
+  /// Callback for in-app snackbar display (set by the owning widget).
+  void Function(CpaVesselAlert alert, String message)? onAlertTriggered;
+
+  /// Callback fired when system notification is tapped/dismissed (so snackbar can hide).
+  void Function(String vesselId)? onAlertDismissed;
+
+  /// Auto-sunset: alerts older than this are pruned automatically.
+  static const Duration _alertSunset = Duration(hours: 48);
+
   CpaAlertService({
     required SignalKService signalKService,
     required NotificationService notificationService,
     MessagingService? messagingService,
+    StorageService? storageService,
   })  : _signalKService = signalKService,
         _notificationService = notificationService,
-        _messagingService = messagingService;
+        _messagingService = messagingService,
+        _storageService = storageService {
+    _notificationService.registerAlarmCallback('ais_polar_chart', _onAlarmTapped);
+  }
 
   /// Apply config in memory and start/stop monitoring accordingly.
   void applyConfig(CpaAlertConfig newConfig) {
@@ -59,23 +87,65 @@ class CpaAlertService extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Callback from notification tap — stops sound and requests vessel highlight.
+  void _onAlarmTapped(String? vesselId) {
+    _stopAlarmSound();
+    if (vesselId != null) {
+      _highlightRequestedVesselId = vesselId;
+      onAlertDismissed?.call(vesselId);
+      notifyListeners();
+    }
+  }
+
   /// User acknowledges / silences the audio alarm.
   void acknowledgeAlarm() {
     _stopAlarmSound();
   }
 
+  /// Dismiss a single alert locally (with cooldown so it won't re-trigger immediately).
+  void dismissAlert(String vesselId) {
+    _vesselAlerts.remove(vesselId);
+    _notificationService.cancelAlarmNotification(vesselId);
+    _dismissedUntil[vesselId] =
+        DateTime.now().add(Duration(seconds: _config.cooldownSeconds));
+    if (!hasActiveAlarm) _stopAlarmSound();
+    notifyListeners();
+  }
+
+  /// Dismiss all alerts and cancel all CPA notifications.
+  void dismissAllAlerts() {
+    final now = DateTime.now();
+    for (final id in _vesselAlerts.keys.toList()) {
+      _notificationService.cancelAlarmNotification(id);
+      _dismissedUntil[id] = now.add(Duration(seconds: _config.cooldownSeconds));
+    }
+    _vesselAlerts.clear();
+    _stopAlarmSound();
+    notifyListeners();
+  }
+
   void _startMonitoring() {
-    _evaluationTimer?.cancel();
-    _evaluationTimer =
-        Timer.periodic(_evaluationInterval, (_) => _evaluate());
+    _signalKService.aisVesselRegistry.addListener(_onAISUpdate);
+    _evaluate();
   }
 
   void _stopMonitoring() {
-    _evaluationTimer?.cancel();
-    _evaluationTimer = null;
+    _signalKService.aisVesselRegistry.removeListener(_onAISUpdate);
     _stopAlarmSound();
+    for (final id in _vesselAlerts.keys.toList()) {
+      _notificationService.cancelAlarmNotification(id);
+    }
     _vesselAlerts.clear();
     notifyListeners();
+  }
+
+  void _onAISUpdate() {
+    if (!_config.enabled) return;
+    final now = DateTime.now();
+    if (_lastEvaluation != null &&
+        now.difference(_lastEvaluation!) < _evaluationThrottle) return;
+    _lastEvaluation = now;
+    _evaluate();
   }
 
   /// Extract a raw numeric SI value from a SignalK data point.
@@ -140,6 +210,7 @@ class CpaAlertService extends ChangeNotifier {
 
       if (newLevel == CpaAlertLevel.normal) {
         _vesselAlerts.remove(vessel.vesselId);
+        _notificationService.cancelAlarmNotification(vessel.vesselId);
         changed = true;
       } else {
         final alert = CpaVesselAlert(
@@ -168,6 +239,18 @@ class CpaAlertService extends ChangeNotifier {
         .toList();
     for (final id in staleIds) {
       _vesselAlerts.remove(id);
+      _notificationService.cancelAlarmNotification(id);
+      changed = true;
+    }
+
+    // Sunset alerts older than 48 hours
+    final sunsetIds = _vesselAlerts.entries
+        .where((e) => now.difference(e.value.firstAlerted) > _alertSunset)
+        .map((e) => e.key)
+        .toList();
+    for (final id in sunsetIds) {
+      _vesselAlerts.remove(id);
+      _notificationService.cancelAlarmNotification(id);
       changed = true;
     }
 
@@ -188,6 +271,13 @@ class CpaAlertService extends ChangeNotifier {
     DateTime now,
   ) {
     final existing = _vesselAlerts[vesselId];
+
+    // Check manual dismissal cooldown
+    final dismissedUntil = _dismissedUntil[vesselId];
+    if (dismissedUntil != null) {
+      if (now.isBefore(dismissedUntil)) return CpaAlertLevel.normal;
+      _dismissedUntil.remove(vesselId); // expired
+    }
 
     // Check cooldown
     if (existing?.cooldownUntil != null &&
@@ -236,18 +326,32 @@ class CpaAlertService extends ChangeNotifier {
     final title = alert.level.isAlarming ? 'CPA ALARM' : 'CPA Warning';
     final message = '$title: $name - CPA $cpaDisplay in $tcpaDisplay';
 
-    // 1. Audio (alarm level only)
+    // Map CPA alert levels to notification filter levels
+    final filterLevel = alert.level.isAlarming ? 'alarm' : 'warn';
+    final showSystem = _storageService?.getSystemNotificationFilter(filterLevel) ?? true;
+    final showInApp = _storageService?.getInAppNotificationFilter(filterLevel) ?? true;
+
+    // 1. Audio (alarm level only — always plays regardless of filter)
     if (alert.level.isAlarming) await _playAlarmSound();
 
-    // 2. System notification
-    await _notificationService.showAlarmNotification(
-      title: title,
-      body: message,
-    );
+    // 2. System notification (gated by system filter)
+    if (showSystem) {
+      await _notificationService.showAlarmNotification(
+        title: title,
+        body: message,
+        alarmId: alert.vesselId,
+        alarmSource: 'ais_polar_chart',
+      );
+    }
 
-    // 3. Crew broadcast (if configured)
-    if (_config.sendCrewAlert) {
+    // 3. Crew broadcast (alarm level only, gated by system filter)
+    if (_config.sendCrewAlert && alert.level.isAlarming && showSystem) {
       _messagingService?.sendAlert(message);
+    }
+
+    // 4. In-app snackbar callback (gated by in-app filter)
+    if (showInApp) {
+      onAlertTriggered?.call(alert, message);
     }
   }
 
@@ -324,7 +428,8 @@ class CpaAlertService extends ChangeNotifier {
 
   @override
   void dispose() {
-    _evaluationTimer?.cancel();
+    _signalKService.aisVesselRegistry.removeListener(_onAISUpdate);
+    _notificationService.unregisterAlarmCallback('ais_polar_chart');
     _alarmRepeatTimer?.cancel();
     _alarmPlayer?.dispose();
     super.dispose();

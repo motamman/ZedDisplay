@@ -67,3 +67,11 @@ android/key.properties
 *.keystore
 debian-package/
 *.deb
+
+# Diagnostics (local tools)
+devtools/charts/
+devtools/diagnostics_report.py
+.claude/commands/diagnostics.md
+
+# Claude Code skills (local only)
+.claude/skills/
