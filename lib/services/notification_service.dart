@@ -25,7 +25,8 @@ class NotificationService {
   int _activeNotificationCount = 0; // Track active notifications for summary
 
   /// Master kill-switch — when false, ALL system notifications are suppressed.
-  bool _masterEnabled = false;
+  /// Defaults to true so notifications work until explicitly disabled.
+  bool _masterEnabled = true;
 
   /// Set the master notifications enabled flag.
   /// When disabled, no system notifications of any kind will be shown.

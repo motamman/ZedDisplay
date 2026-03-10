@@ -35,7 +35,11 @@ class AnchorAlarmTool extends StatefulWidget {
   State<AnchorAlarmTool> createState() => _AnchorAlarmToolState();
 }
 
-class _AnchorAlarmToolState extends State<AnchorAlarmTool> {
+class _AnchorAlarmToolState extends State<AnchorAlarmTool>
+    with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
+
   late AnchorAlarmService _alarmService;
   final MapController _mapController = MapController();
   bool _mapAutoFollow = true;
@@ -372,6 +376,7 @@ class _AnchorAlarmToolState extends State<AnchorAlarmTool> {
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
     final state = _alarmService.state;
 
     return Card(

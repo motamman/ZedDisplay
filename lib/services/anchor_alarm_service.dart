@@ -167,13 +167,21 @@ class AnchorAlarmService extends ChangeNotifier {
     _notificationService.registerAlarmCallback('anchor_alarm', _onAlarmTapped);
   }
 
-  /// Handle notification tap — acknowledge check-in if awaiting and silence alarm
+  /// Handle notification tap — navigate to anchor alarm widget.
+  /// Only shows check-in overlay for actual check-in notifications (alarmId == 'check_in').
+  /// Crew echo notifications and anchor drag alarms pass alarmId == null, which
+  /// must NOT re-trigger the overlay (otherwise acknowledgment gets undone).
   void _onAlarmTapped(String? alarmId) {
-    if (_awaitingCheckIn) {
-      acknowledgeCheckIn();
+    if (alarmId == 'check_in') {
+      // User tapped the check-in notification — cancel grace timer and show overlay.
+      _checkInGraceTimer?.cancel();
+      _awaitingCheckIn = true;
+      _checkInDeadline = null;
+      notifyListeners();
+    } else {
+      // Anchor drag alarm or crew echo — just silence the sound.
+      _stopAlarmSound();
     }
-    // Always silence alarm sound on tap (covers both check-in and drag alarms)
-    _stopAlarmSound();
   }
 
   /// Initialize and start listening to SignalK updates
@@ -737,12 +745,17 @@ class AnchorAlarmService extends ChangeNotifier {
     _checkInDeadline = DateTime.now().add(_checkInConfig.gracePeriod);
     notifyListeners();
 
-    // Show notification requesting check-in
+    // Show system notification requesting check-in
     _notificationService.showAlarmNotification(
       title: 'Anchor Watch Check-In',
       body: _checkInConfig.customMessage ?? 'Please confirm you are monitoring the anchor.',
       alarmId: 'check_in',
       alarmSource: 'anchor_alarm',
+    );
+
+    // Send crew alert for check-in warning
+    _messagingService?.sendAlert(
+      'ANCHOR WATCH: Check-in required — please confirm anchor watch.',
     );
 
     // Start grace period timer
@@ -761,6 +774,11 @@ class AnchorAlarmService extends ChangeNotifier {
     _checkInGraceTimer?.cancel();
     _awaitingCheckIn = false;
     _checkInDeadline = null;
+    _stopAlarmSound(); // Silence alarm if it was playing from missed check-in
+
+    // Clear the check-in notification from the system tray so stale
+    // notifications can't re-trigger the overlay after acknowledgment.
+    _notificationService.cancelAlarmNotification('check_in');
 
     // Restart check-in timer for next interval
     _startCheckInTimer();
