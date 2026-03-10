@@ -76,6 +76,9 @@ class _AISPolarChartState extends State<AISPolarChart>
   // Cache CPA/TCPA values per vessel to prevent disappearing
   final Map<String, ({double cpa, double tcpa})> _cachedCPA = {};
 
+  // Track previously alerted vessel IDs for auto-highlight on escalation
+  Set<String> _previousCpaAlertIds = {};
+
   // Map controller for centering on own vessel
   final MapController _mapController = MapController();
 
@@ -206,7 +209,18 @@ class _AISPolarChartState extends State<AISPolarChart>
   }
 
   void _onCpaChanged() {
-    if (mounted) setState(() {});
+    if (!mounted) return;
+    final alerts = widget.cpaAlertService?.vesselAlerts ?? {};
+
+    // Auto-highlight newly alerted vessels (escalated to warning or alarm)
+    for (final entry in alerts.entries) {
+      if (entry.value.level.isWarning && !_previousCpaAlertIds.contains(entry.key)) {
+        _highlightVessel(entry.key);
+        break; // highlight one at a time
+      }
+    }
+    _previousCpaAlertIds = alerts.keys.toSet();
+    setState(() {});
   }
 
   @override
@@ -471,6 +485,38 @@ class _AISPolarChartState extends State<AISPolarChart>
                       _detailRow('Destination', extraData['Destination']!, subtitleColor, textColor),
                   ],
 
+                // Relative section (bearing, distance, CPA/TCPA)
+                if (vessel != null) ...[
+                  _sectionHeader('Relative', sectionColor),
+                  _detailRow('Bearing', '${vessel.bearing.toStringAsFixed(1)}${_getAngleSymbol()}', subtitleColor, textColor),
+                  _detailRow('Distance', '${_convertDistance(vessel.distance).toStringAsFixed(2)} ${_getDistanceUnit()}', subtitleColor, textColor),
+                  if (vessel.cpa != null) ...[
+                    () {
+                      final cpaConfig = widget.cpaAlertService?.config;
+                      final alarmThreshold = cpaConfig?.alarmThresholdMeters ?? 926.0;
+                      final warnThreshold = cpaConfig?.warnThresholdMeters ?? 1852.0;
+                      final cpaColor = vessel.cpa! < alarmThreshold
+                          ? Colors.red
+                          : vessel.cpa! < warnThreshold
+                              ? Colors.orange
+                              : textColor;
+                      return _detailRow('CPA', '${_convertDistance(vessel.cpa!).toStringAsFixed(2)} ${_getDistanceUnit()}', subtitleColor, cpaColor);
+                    }(),
+                    if (vessel.tcpa != null && vessel.tcpa!.isFinite && vessel.tcpa! > 0)
+                      () {
+                        final cpaConfig = widget.cpaAlertService?.config;
+                        final alarmThreshold = cpaConfig?.alarmThresholdMeters ?? 926.0;
+                        final warnThreshold = cpaConfig?.warnThresholdMeters ?? 1852.0;
+                        final cpaColor = vessel.cpa! < alarmThreshold
+                            ? Colors.red
+                            : vessel.cpa! < warnThreshold
+                                ? Colors.orange
+                                : textColor;
+                        return _detailRow('TCPA', _formatTCPA(vessel.tcpa!), subtitleColor, cpaColor);
+                      }(),
+                  ],
+                ],
+
                 // Dimensions section
                 if (dimensionsStr != null)
                   ...[
@@ -489,15 +535,6 @@ class _AISPolarChartState extends State<AISPolarChart>
                     _detailRow('COG', '${vessel.cog!.toStringAsFixed(1)}${_getAngleSymbol()}', subtitleColor, textColor),
                   if (vessel.headingTrue != null)
                     _detailRow('Heading', '${vessel.headingTrue!.toStringAsFixed(1)}${_getAngleSymbol()}', subtitleColor, textColor),
-
-                  // Relative section
-                  _sectionHeader('Relative', sectionColor),
-                  _detailRow('Bearing', '${vessel.bearing.toStringAsFixed(1)}${_getAngleSymbol()}', subtitleColor, textColor),
-                  _detailRow('Distance', '${_convertDistance(vessel.distance).toStringAsFixed(2)} ${_getDistanceUnit()}', subtitleColor, textColor),
-                  if (vessel.cpa != null)
-                    _detailRow('CPA', '${_convertDistance(vessel.cpa!).toStringAsFixed(2)} ${_getDistanceUnit()}', subtitleColor, textColor),
-                  if (vessel.tcpa != null && vessel.tcpa!.isFinite && vessel.tcpa! > 0)
-                    _detailRow('TCPA', _formatTCPA(vessel.tcpa!), subtitleColor, textColor),
 
                   // Position section
                   _sectionHeader('Position', sectionColor),
