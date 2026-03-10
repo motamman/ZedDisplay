@@ -11,6 +11,7 @@ import '../../services/notification_navigation_service.dart';
 import '../../services/notification_service.dart';
 import '../../services/messaging_service.dart';
 import '../../services/storage_service.dart';
+import '../../services/alert_coordinator.dart';
 import '../../services/tool_registry.dart';
 import '../../services/tool_service.dart';
 import '../../utils/color_extensions.dart';
@@ -70,12 +71,19 @@ class _AISPolarChartToolState extends State<AISPolarChartTool> {
       storageService = Provider.of<StorageService>(context, listen: false);
     } catch (_) {}
 
+    // Get alert coordinator from provider if available
+    AlertCoordinator? alertCoordinator;
+    try {
+      alertCoordinator = Provider.of<AlertCoordinator>(context, listen: false);
+    } catch (_) {}
+
     // Always create the service so the modal can enable/disable it
     _cpaAlertService = CpaAlertService(
       signalKService: widget.signalKService,
       notificationService: NotificationService(),
       messagingService: messagingService,
       storageService: storageService,
+      // alertCoordinator: alertCoordinator, // TEMP: bypass to test freeze
     );
 
     _cpaAlertService!.onAlertTriggered = _onCpaAlertTriggered;

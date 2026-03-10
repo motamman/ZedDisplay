@@ -380,10 +380,12 @@ class SignalKService extends ChangeNotifier implements DataService {
       }
 
       // Listen to incoming messages
+      // cancelOnError: false keeps listening after errors (e.g., stale reads on resume)
       _subscription = _channel!.stream.listen(
         _handleMessage,
         onError: _handleError,
         onDone: _handleDisconnect,
+        cancelOnError: false,
       );
 
       _isConnected = true;

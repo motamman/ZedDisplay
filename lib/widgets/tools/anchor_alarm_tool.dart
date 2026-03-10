@@ -10,7 +10,9 @@ import '../../models/tool_definition.dart';
 import '../../services/signalk_service.dart';
 import '../../services/anchor_alarm_service.dart';
 import '../../services/messaging_service.dart';
+import '../../services/alert_coordinator.dart';
 import '../../models/anchor_state.dart';
+import '../../models/alert_event.dart';
 import '../../services/tool_registry.dart';
 import 'anchor_compass_overlay.dart';
 import '../tool_info_button.dart';
@@ -41,6 +43,8 @@ class _AnchorAlarmToolState extends State<AnchorAlarmTool>
   bool get wantKeepAlive => true;
 
   late AnchorAlarmService _alarmService;
+  AlertCoordinator? _alertCoordinator;
+  bool _lastOverlayActive = false;
   final MapController _mapController = MapController();
   bool _mapAutoFollow = true;
   double _rodeSliderValue = 30.0;
@@ -62,9 +66,15 @@ class _AnchorAlarmToolState extends State<AnchorAlarmTool>
       // Messaging service not available
     }
 
+    // Get alert coordinator from provider if available (cached for state updates)
+    try {
+      _alertCoordinator = Provider.of<AlertCoordinator>(context, listen: false);
+    } catch (_) {}
+
     _alarmService = AnchorAlarmService(
       signalKService: widget.signalKService,
       messagingService: messagingService,
+      // alertCoordinator: _alertCoordinator, // TEMP: bypass to test freeze
     );
     _alarmService.initialize();
     _alarmService.addListener(_onStateChanged);
@@ -125,6 +135,13 @@ class _AnchorAlarmToolState extends State<AnchorAlarmTool>
   void _onStateChanged() {
     if (mounted) {
       setState(() {});
+
+      // Update overlay state with coordinator only when it changes
+      final overlayActive = _alarmService.awaitingCheckIn || _alarmService.state.alarmState.isAlarming;
+      if (overlayActive != _lastOverlayActive) {
+        _lastOverlayActive = overlayActive;
+        _alertCoordinator?.setOverlayActive(AlertSubsystem.anchorAlarm, overlayActive);
+      }
 
       // Update slider from current rode length (only when not actively dragging)
       if (!_isRodeSliderDragging) {

@@ -1,12 +1,13 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
-import 'package:audioplayers/audioplayers.dart';
 import '../models/cpa_alert_state.dart';
+import '../models/alert_event.dart';
 import '../utils/cpa_utils.dart';
 import 'signalk_service.dart';
 import 'notification_service.dart';
 import 'messaging_service.dart';
 import 'storage_service.dart';
+import 'alert_coordinator.dart';
 
 /// Background service that continuously monitors AIS vessels for CPA/TCPA
 /// and triggers escalating alerts (notifications, crew messages, audio alarms).
@@ -29,9 +30,7 @@ class CpaAlertService extends ChangeNotifier {
   bool get hasActiveAlarm =>
       _vesselAlerts.values.any((a) => a.level.isAlarming);
 
-  AudioPlayer? _alarmPlayer;
-  Timer? _alarmRepeatTimer;
-  bool _alarmSoundPlaying = false;
+  final AlertCoordinator? _alertCoordinator;
 
   DateTime? _lastEvaluation;
   static const _evaluationThrottle = Duration(milliseconds: 500);
@@ -67,10 +66,12 @@ class CpaAlertService extends ChangeNotifier {
     required NotificationService notificationService,
     MessagingService? messagingService,
     StorageService? storageService,
+    AlertCoordinator? alertCoordinator,
   })  : _signalKService = signalKService,
         _notificationService = notificationService,
         _messagingService = messagingService,
-        _storageService = storageService {
+        _storageService = storageService,
+        _alertCoordinator = alertCoordinator {
     _notificationService.registerAlarmCallback('ais_polar_chart', _onAlarmTapped);
   }
 
@@ -89,7 +90,7 @@ class CpaAlertService extends ChangeNotifier {
 
   /// Callback from notification tap — stops sound and requests vessel highlight.
   void _onAlarmTapped(String? vesselId) {
-    _stopAlarmSound();
+    _alertCoordinator?.acknowledgeAlarm(AlertSubsystem.cpa);
     if (vesselId != null) {
       _highlightRequestedVesselId = vesselId;
       onAlertDismissed?.call(vesselId);
@@ -99,7 +100,7 @@ class CpaAlertService extends ChangeNotifier {
 
   /// User acknowledges / silences the audio alarm.
   void acknowledgeAlarm() {
-    _stopAlarmSound();
+    _alertCoordinator?.acknowledgeAlarm(AlertSubsystem.cpa);
   }
 
   /// Dismiss a single alert locally (with cooldown so it won't re-trigger immediately).
@@ -108,7 +109,7 @@ class CpaAlertService extends ChangeNotifier {
     _notificationService.cancelAlarmNotification(vesselId);
     _dismissedUntil[vesselId] =
         DateTime.now().add(Duration(seconds: _config.cooldownSeconds));
-    if (!hasActiveAlarm) _stopAlarmSound();
+    if (!hasActiveAlarm) _alertCoordinator?.acknowledgeAlarm(AlertSubsystem.cpa);
     notifyListeners();
   }
 
@@ -120,7 +121,7 @@ class CpaAlertService extends ChangeNotifier {
       _dismissedUntil[id] = now.add(Duration(seconds: _config.cooldownSeconds));
     }
     _vesselAlerts.clear();
-    _stopAlarmSound();
+    _alertCoordinator?.acknowledgeAlarm(AlertSubsystem.cpa);
     notifyListeners();
   }
 
@@ -131,7 +132,7 @@ class CpaAlertService extends ChangeNotifier {
 
   void _stopMonitoring() {
     _signalKService.aisVesselRegistry.removeListener(_onAISUpdate);
-    _stopAlarmSound();
+    _alertCoordinator?.acknowledgeAlarm(AlertSubsystem.cpa);
     for (final id in _vesselAlerts.keys.toList()) {
       _notificationService.cancelAlarmNotification(id);
     }
@@ -254,9 +255,9 @@ class CpaAlertService extends ChangeNotifier {
       changed = true;
     }
 
-    // Stop alarm sound if no vessels at alarm level
-    if (!hasActiveAlarm && _alarmSoundPlaying) {
-      _stopAlarmSound();
+    // Stop alarm sound if no vessels at alarm level and audio is playing
+    if (!hasActiveAlarm && (_alertCoordinator?.audioPlayer.activeSource == 'cpa')) {
+      _alertCoordinator?.acknowledgeAlarm(AlertSubsystem.cpa);
       changed = true;
     }
 
@@ -326,32 +327,47 @@ class CpaAlertService extends ChangeNotifier {
     final title = alert.level.isAlarming ? 'CPA ALARM' : 'CPA Warning';
     final message = '$title: $name - CPA $cpaDisplay in $tcpaDisplay';
 
-    // Map CPA alert levels to notification filter levels
-    final filterLevel = alert.level.isAlarming ? 'alarm' : 'warn';
-    final showSystem = _storageService?.getSystemNotificationFilter(filterLevel) ?? true;
-    final showInApp = _storageService?.getInAppNotificationFilter(filterLevel) ?? true;
-
-    // 1. Audio (alarm level only — always plays regardless of filter)
-    if (alert.level.isAlarming) await _playAlarmSound();
-
-    // 2. System notification (gated by system filter)
-    if (showSystem) {
-      await _notificationService.showAlarmNotification(
+    if (_alertCoordinator != null) {
+      _alertCoordinator.submitAlert(AlertEvent(
+        subsystem: AlertSubsystem.cpa,
+        severity: alert.level.isAlarming ? AlertSeverity.alarm : AlertSeverity.warn,
         title: title,
         body: message,
+        wantsSystemNotification: true,
+        wantsInAppSnackbar: false, // CPA uses its own snackbar via onAlertTriggered
+        wantsAudio: alert.level.isAlarming,
+        wantsCrewBroadcast: _config.sendCrewAlert && alert.level.isAlarming,
+        alarmSound: _config.alarmSound,
         alarmId: alert.vesselId,
         alarmSource: 'ais_polar_chart',
-      );
-    }
-
-    // 3. Crew broadcast (alarm level only, gated by system filter)
-    if (_config.sendCrewAlert && alert.level.isAlarming && showSystem) {
-      _messagingService?.sendAlert(message);
-    }
-
-    // 4. In-app snackbar callback (gated by in-app filter)
-    if (showInApp) {
-      onAlertTriggered?.call(alert, message);
+        callbackData: alert,
+      ));
+      // Fire in-app callback (CPA chart handles its own snackbar display)
+      // Respect in-app filter like the old code did
+      final showInApp = _storageService?.getInAppNotificationFilter(
+        alert.level.isAlarming ? 'alarm' : 'warn') ?? true;
+      if (showInApp) {
+        onAlertTriggered?.call(alert, message);
+      }
+    } else {
+      // Fallback without coordinator
+      final filterLevel = alert.level.isAlarming ? 'alarm' : 'warn';
+      final showSystem = _storageService?.getSystemNotificationFilter(filterLevel) ?? true;
+      final showInApp = _storageService?.getInAppNotificationFilter(filterLevel) ?? true;
+      if (showSystem) {
+        await _notificationService.showAlarmNotification(
+          title: title,
+          body: message,
+          alarmId: alert.vesselId,
+          alarmSource: 'ais_polar_chart',
+        );
+      }
+      if (_config.sendCrewAlert && alert.level.isAlarming && showSystem) {
+        _messagingService?.sendAlert(message);
+      }
+      if (showInApp) {
+        onAlertTriggered?.call(alert, message);
+      }
     }
   }
 
@@ -383,55 +399,10 @@ class CpaAlertService extends ChangeNotifier {
     }
   }
 
-  // ===== Audio =====
-
-  Future<void> _playAlarmSound() async {
-    if (_alarmSoundPlaying) return;
-
-    final assetPath =
-        alarmSounds[_config.alarmSound] ?? alarmSounds['foghorn']!;
-
-    try {
-      _alarmPlayer?.dispose();
-      _alarmPlayer = AudioPlayer();
-      await _alarmPlayer!.setVolume(1.0);
-      await _alarmPlayer!.play(AssetSource(assetPath));
-      _alarmSoundPlaying = true;
-
-      // Repeat every 5 seconds while alarm is active
-      _alarmRepeatTimer?.cancel();
-      _alarmRepeatTimer =
-          Timer.periodic(const Duration(seconds: 5), (_) async {
-        if (hasActiveAlarm) {
-          _alarmPlayer?.dispose();
-          _alarmPlayer = AudioPlayer();
-          await _alarmPlayer!.play(AssetSource(assetPath));
-        } else {
-          _alarmRepeatTimer?.cancel();
-          _alarmSoundPlaying = false;
-        }
-      });
-    } catch (e) {
-      if (kDebugMode) {
-        print('CpaAlertService: error playing alarm sound: $e');
-      }
-    }
-  }
-
-  Future<void> _stopAlarmSound() async {
-    _alarmRepeatTimer?.cancel();
-    _alarmPlayer?.stop();
-    _alarmPlayer?.dispose();
-    _alarmPlayer = null;
-    _alarmSoundPlaying = false;
-  }
-
   @override
   void dispose() {
     _signalKService.aisVesselRegistry.removeListener(_onAISUpdate);
     _notificationService.unregisterAlarmCallback('ais_polar_chart');
-    _alarmRepeatTimer?.cancel();
-    _alarmPlayer?.dispose();
     super.dispose();
   }
 }
