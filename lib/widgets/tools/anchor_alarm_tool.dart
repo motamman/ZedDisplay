@@ -10,7 +10,9 @@ import '../../models/tool_definition.dart';
 import '../../services/signalk_service.dart';
 import '../../services/anchor_alarm_service.dart';
 import '../../services/messaging_service.dart';
+import '../../services/alert_coordinator.dart';
 import '../../models/anchor_state.dart';
+import '../../models/alert_event.dart';
 import '../../services/tool_registry.dart';
 import 'anchor_compass_overlay.dart';
 import '../tool_info_button.dart';
@@ -62,9 +64,16 @@ class _AnchorAlarmToolState extends State<AnchorAlarmTool>
       // Messaging service not available
     }
 
+    // Get alert coordinator from provider if available
+    AlertCoordinator? alertCoordinator;
+    try {
+      alertCoordinator = Provider.of<AlertCoordinator>(context, listen: false);
+    } catch (_) {}
+
     _alarmService = AnchorAlarmService(
       signalKService: widget.signalKService,
       messagingService: messagingService,
+      alertCoordinator: alertCoordinator,
     );
     _alarmService.initialize();
     _alarmService.addListener(_onStateChanged);
@@ -125,6 +134,16 @@ class _AnchorAlarmToolState extends State<AnchorAlarmTool>
   void _onStateChanged() {
     if (mounted) {
       setState(() {});
+
+      // Register overlay state with coordinator
+      AlertCoordinator? coordinator;
+      try {
+        coordinator = Provider.of<AlertCoordinator>(context, listen: false);
+      } catch (_) {}
+      coordinator?.setOverlayActive(
+        AlertSubsystem.anchorAlarm,
+        _alarmService.awaitingCheckIn || _alarmService.state.alarmState.isAlarming,
+      );
 
       // Update slider from current rode length (only when not actively dragging)
       if (!_isRodeSliderDragging) {

@@ -1749,9 +1749,8 @@ class SignalKService extends ChangeNotifier implements DataService {
       _metadataStore.clear();
       _aisManager.registry.clear();
 
-      // Disconnect notification channel if it's connected
-      // (still separate until notification routing is moved to main _handleMessage)
-      await _notificationManager.disconnectNotificationChannel();
+      // Clear notification state on disconnect
+      _notificationManager.setNotificationsEnabledFlag(false);
 
       if (kDebugMode) {
         print('Disconnected and cleaned up WebSocket channels');
@@ -2456,10 +2455,6 @@ class _ConversionManager {
 /// Internal manager for notification system
 /// Handles notification WebSocket and notification processing
 class _NotificationManager {
-  // Notification WebSocket
-  WebSocketChannel? _notificationChannel;
-  StreamSubscription? _notificationSubscription;
-
   // Notification state
   bool _notificationsEnabled = false;
   final StreamController<SignalKNotification> _notificationController =
@@ -2501,21 +2496,6 @@ class _NotificationManager {
     return List.unmodifiable(_recentNotifications);
   }
 
-  /// Enable or disable notifications (WS connection now managed by SignalKService)
-  Future<void> setNotificationsEnabled(bool enabled) async {
-    if (_notificationsEnabled == enabled) {
-      return;
-    }
-
-    _notificationsEnabled = enabled;
-
-    if (enabled) {
-      await connectNotificationChannel();
-    } else {
-      await disconnectNotificationChannel();
-    }
-  }
-
   /// Set the enabled flag without managing WS connections.
   /// Used when notifications route through the main channel.
   void setNotificationsEnabledFlag(bool enabled) {
@@ -2525,81 +2505,6 @@ class _NotificationManager {
       _lastNotificationTime.clear();
       _recentNotifications.clear();
     }
-  }
-
-  /// Connect to notification WebSocket
-  Future<void> connectNotificationChannel() async {
-    final authToken = getAuthToken();
-    if (authToken == null) {
-      return;
-    }
-
-    try {
-      final wsUrl = getNotificationEndpoint();
-
-      final headers = <String, String>{
-        'Authorization': 'Bearer ${authToken.token}',
-      };
-
-      final socket = await WebSocket.connect(wsUrl, headers: headers);
-      socket.pingInterval = const Duration(seconds: 30);
-      _notificationChannel = IOWebSocketChannel(socket);
-
-      _notificationSubscription = _notificationChannel!.stream.listen(
-        handleNotificationMessage,
-        onError: (error) {
-          if (kDebugMode) {
-            print('❌ Notification WebSocket error: $error');
-          }
-        },
-        onDone: () {},
-      );
-
-      await Future.delayed(const Duration(milliseconds: 100));
-      subscribeToNotifications();
-    } catch (e) {
-      if (kDebugMode) {
-        print('❌ Error connecting notification channel: $e');
-      }
-    }
-  }
-
-  /// Disconnect notification WebSocket
-  Future<void> disconnectNotificationChannel() async {
-    try {
-      await _notificationSubscription?.cancel();
-      _notificationSubscription = null;
-
-      await _notificationChannel?.sink.close();
-      _notificationChannel = null;
-
-      _lastNotificationState.clear();
-      _lastNotificationTime.clear();
-      _recentNotifications.clear();
-    } catch (e) {
-      if (kDebugMode) {
-        print('❌ Error disconnecting notification channel: $e');
-      }
-    }
-  }
-
-  /// Subscribe to notifications on the notification channel
-  void subscribeToNotifications() {
-    if (_notificationChannel == null) return;
-
-    final subscriptionContext = getVesselContext() ?? 'vessels.self';
-    final subscription = {
-      'context': subscriptionContext,
-      'subscribe': [
-        {
-          'path': 'notifications.*',
-          'format': 'delta',
-          'policy': 'instant',
-        }
-      ]
-    };
-
-    _notificationChannel?.sink.add(jsonEncode(subscription));
   }
 
   /// Handle messages from notification WebSocket
@@ -2710,7 +2615,9 @@ class _NotificationManager {
   }
 
   Future<void> dispose() async {
-    await disconnectNotificationChannel();
+    _lastNotificationState.clear();
+    _lastNotificationTime.clear();
+    _recentNotifications.clear();
     await _notificationController.close();
   }
 }

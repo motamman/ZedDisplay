@@ -14,6 +14,8 @@ import 'package:zed_display/services/messaging_service.dart';
 import 'package:zed_display/services/file_share_service.dart';
 import 'package:zed_display/services/file_server_service.dart';
 import 'package:zed_display/services/intercom_service.dart';
+import 'package:zed_display/services/notification_navigation_service.dart';
+import 'package:zed_display/services/alert_coordinator.dart';
 
 void main() {
   late StorageService storageService;
@@ -29,6 +31,8 @@ void main() {
   late FileServerService fileServerService;
   late FileShareService fileShareService;
   late IntercomService intercomService;
+  late NotificationNavigationService notificationNavigationService;
+  late AlertCoordinator alertCoordinator;
 
   setUp(() async {
     // Initialize storage service for tests
@@ -87,6 +91,17 @@ void main() {
       dashboardService,
     );
     await setupService.initialize();
+
+    // Initialize notification navigation service
+    notificationNavigationService = NotificationNavigationService(dashboardService);
+    notificationService.setNavigationService(notificationNavigationService);
+
+    // Initialize alert coordinator
+    alertCoordinator = AlertCoordinator(
+      storageService: storageService,
+      notificationService: notificationService,
+      messagingService: messagingService,
+    );
   });
 
   tearDown(() async {
@@ -109,6 +124,8 @@ void main() {
       messagingService: messagingService,
       fileShareService: fileShareService,
       intercomService: intercomService,
+      notificationNavigationService: notificationNavigationService,
+      alertCoordinator: alertCoordinator,
     ));
 
     // Verify that the app launches
@@ -129,6 +146,8 @@ void main() {
       messagingService: messagingService,
       fileShareService: fileShareService,
       intercomService: intercomService,
+      notificationNavigationService: notificationNavigationService,
+      alertCoordinator: alertCoordinator,
     ));
 
     // Verify services are initialized

@@ -233,13 +233,6 @@ class NotificationService {
     if (navigator == null) return;
 
     switch (payload.type) {
-      case 'weather_nws':
-        final alertId = payload.context?['alertId'];
-        if (alertId != null) {
-          WeatherAlertsNotifier.instance.requestExpandAlert(alertId);
-        }
-        break;
-
       case 'crew_message':
         final subType = payload.context?['subType'];
         if (subType == 'direct') {

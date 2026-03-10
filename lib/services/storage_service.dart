@@ -767,14 +767,21 @@ class StorageService extends ChangeNotifier {
     return _settingsBox.get('notification_system_$level', defaultValue: defaultValue) == 'true';
   }
 
-  // Legacy method for backward compatibility - maps to in-app filter
-  Future<void> saveNotificationLevelFilter(String level, bool enabled) async {
-    await saveInAppNotificationFilter(level, enabled);
+  // ===== Per-Subsystem Crew Broadcast Preferences =====
+
+  /// Save whether a subsystem can send crew broadcasts.
+  Future<void> saveCrewBroadcastEnabled(String subsystem, bool enabled) async {
+    if (!_initialized) throw Exception('StorageService not initialized');
+    await _settingsBox.put('crew_broadcast_$subsystem', enabled ? 'true' : 'false');
+    notifyListeners();
   }
 
-  // Legacy method for backward compatibility - maps to in-app filter
-  bool getNotificationLevelFilter(String level) {
-    return getInAppNotificationFilter(level);
+  /// Get whether a subsystem can send crew broadcasts.
+  /// Defaults: anchorAlarm and cpa ON, others OFF.
+  bool getCrewBroadcastEnabled(String subsystem) {
+    if (!_initialized) return false;
+    final defaultValue = (subsystem == 'anchorAlarm' || subsystem == 'cpa') ? 'true' : 'false';
+    return _settingsBox.get('crew_broadcast_$subsystem', defaultValue: defaultValue) == 'true';
   }
 
   // ===== DisplayUnits Cache Management =====

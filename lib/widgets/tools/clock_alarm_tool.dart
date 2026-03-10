@@ -4,12 +4,15 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:one_clock/one_clock.dart';
 import 'package:audioplayers/audioplayers.dart';
+import 'package:provider/provider.dart';
 import 'package:uuid/uuid.dart';
 import '../../models/tool_definition.dart';
 import '../../models/tool_config.dart';
+import '../../models/alert_event.dart';
 import '../../services/signalk_service.dart';
 import '../../services/tool_registry.dart';
 import '../../services/notification_service.dart';
+import '../../services/alert_coordinator.dart';
 import '../../utils/color_extensions.dart';
 import '../tool_info_button.dart';
 
@@ -418,31 +421,61 @@ class _ClockAlarmToolState extends State<ClockAlarmTool> with TickerProviderStat
     // Trigger haptic feedback immediately
     HapticFeedback.heavyImpact();
 
-    // Show system notification immediately (don't await)
-    NotificationService().showAlarmNotification(
-      title: alarm.label,
-      body: 'Alarm: ${alarm.timeString}',
-      alarmId: alarm.id,
-    ).catchError((e) {
-      if (kDebugMode) print('Error showing alarm notification: $e');
-    });
+    final soundKey = _soundKeyFromEnum(alarm.sound);
 
-    // Play looping alarm sound (don't await - let it play in background)
-    _playAlarmSound().catchError((e) {
-      if (kDebugMode) print('Error playing alarm sound: $e');
-    });
+    // Submit via AlertCoordinator if available
+    AlertCoordinator? coordinator;
+    try {
+      coordinator = Provider.of<AlertCoordinator>(context, listen: false);
+    } catch (_) {}
+
+    if (coordinator != null) {
+      coordinator.submitAlert(AlertEvent(
+        subsystem: AlertSubsystem.clockAlarm,
+        severity: AlertSeverity.alarm,
+        title: alarm.label,
+        body: 'Alarm: ${alarm.timeString}',
+        wantsSystemNotification: true,
+        wantsAudio: true,
+        alarmSound: soundKey,
+        alarmId: alarm.id,
+        alarmSource: 'clock_alarm',
+      ));
+    } else {
+      // Fallback without coordinator
+      NotificationService().showAlarmNotification(
+        title: alarm.label,
+        body: 'Alarm: ${alarm.timeString}',
+        alarmId: alarm.id,
+      ).catchError((e) {
+        if (kDebugMode) print('Error showing alarm notification: $e');
+      });
+      _playAlarmSound().catchError((e) {
+        if (kDebugMode) print('Error playing alarm sound: $e');
+      });
+    }
+  }
+
+  /// Map AlarmSound enum to AlarmAudioPlayer key
+  String _soundKeyFromEnum(AlarmSound sound) {
+    switch (sound) {
+      case AlarmSound.ding: return 'ding';
+      case AlarmSound.foghorn: return 'foghorn';
+      case AlarmSound.bell: return 'bell';
+      case AlarmSound.whistle: return 'whistle';
+      case AlarmSound.chimes: return 'chimes';
+    }
   }
 
   /// Dismiss alarm for this device only
   void _dismissAlarmLocal() {
-    _stopAlarmSound();
+    _dismissAlarmAudio();
     _pulseController.stop();
     _pulseController.reset();
 
     if (_activeAlarm != null) {
       final alarm = _activeAlarm!;
-      // Cancel the notification
-      NotificationService().cancelAlarmNotification(alarm.id);
+      _acknowledgeViaCoordinator(alarm.id);
       if (alarm.repeatDays.isEmpty) {
         alarm.enabled = false;
         _saveAlarm(alarm);
@@ -453,20 +486,44 @@ class _ClockAlarmToolState extends State<ClockAlarmTool> with TickerProviderStat
 
   /// Dismiss alarm for all devices (saves to SignalK)
   void _dismissAlarmForAll() {
-    _stopAlarmSound();
+    _dismissAlarmAudio();
     _pulseController.stop();
     _pulseController.reset();
 
     if (_activeAlarm != null) {
       final alarm = _activeAlarm!;
-      // Cancel the notification
-      NotificationService().cancelAlarmNotification(alarm.id);
+      _acknowledgeViaCoordinator(alarm.id);
       alarm.lastDismissedAt = DateTime.now();
       if (alarm.repeatDays.isEmpty) {
         alarm.enabled = false;
       }
       _saveAlarm(alarm);
       setState(() => _activeAlarm = null);
+    }
+  }
+
+  void _acknowledgeViaCoordinator(String alarmId) {
+    AlertCoordinator? coordinator;
+    try {
+      coordinator = Provider.of<AlertCoordinator>(context, listen: false);
+    } catch (_) {}
+    if (coordinator != null) {
+      coordinator.acknowledgeAlarm(AlertSubsystem.clockAlarm, alarmId: alarmId);
+    } else {
+      NotificationService().cancelAlarmNotification(alarmId);
+    }
+  }
+
+  /// Stop alarm audio — uses coordinator if available, else falls back to local player
+  void _dismissAlarmAudio() {
+    AlertCoordinator? coordinator;
+    try {
+      coordinator = Provider.of<AlertCoordinator>(context, listen: false);
+    } catch (_) {}
+    if (coordinator != null) {
+      coordinator.acknowledgeAlarm(AlertSubsystem.clockAlarm);
+    } else {
+      _stopAlarmSound();
     }
   }
 

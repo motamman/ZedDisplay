@@ -51,6 +51,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _crewMessagesEnabled = true;
   bool _crewAlertsEnabled = true;
 
+  // Per-subsystem crew broadcast toggles
+  bool _crewBroadcastAnchor = true;
+  bool _crewBroadcastCpa = true;
+
   @override
   void initState() {
     super.initState();
@@ -82,6 +86,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
       // Load crew message notification filters
       _crewMessagesEnabled = storageService.getCrewNotificationsEnabled();
       _crewAlertsEnabled = storageService.getCrewAlertNotificationsEnabled();
+
+      // Load per-subsystem crew broadcast toggles
+      _crewBroadcastAnchor = storageService.getCrewBroadcastEnabled('anchorAlarm');
+      _crewBroadcastCpa = storageService.getCrewBroadcastEnabled('cpa');
     });
 
     // Sync with SignalKService
@@ -512,6 +520,37 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               });
                               await storageService.saveCrewNotificationsEnabled(system);
                             }
+                          },
+                        ),
+                        const Divider(height: 16),
+                        const Text(
+                          'Crew Broadcasts',
+                          style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+                        ),
+                        const SizedBox(height: 4),
+                        const Text(
+                          'Which alarms broadcast to crew',
+                          style: TextStyle(fontSize: 12, color: Colors.grey),
+                        ),
+                        const SizedBox(height: 8),
+                        SwitchListTile(
+                          title: const Text('Anchor Alarm'),
+                          subtitle: const Text('Broadcast anchor alerts to crew'),
+                          value: _crewBroadcastAnchor,
+                          dense: true,
+                          onChanged: (value) async {
+                            setState(() => _crewBroadcastAnchor = value);
+                            await storageService.saveCrewBroadcastEnabled('anchorAlarm', value);
+                          },
+                        ),
+                        SwitchListTile(
+                          title: const Text('CPA/AIS'),
+                          subtitle: const Text('Broadcast CPA alerts to crew'),
+                          value: _crewBroadcastCpa,
+                          dense: true,
+                          onChanged: (value) async {
+                            setState(() => _crewBroadcastCpa = value);
+                            await storageService.saveCrewBroadcastEnabled('cpa', value);
                           },
                         ),
                       ],
