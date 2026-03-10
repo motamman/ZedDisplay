@@ -24,6 +24,18 @@ class NotificationService {
   static const int _groupSummaryId = 0; // Fixed ID for group summary
   int _activeNotificationCount = 0; // Track active notifications for summary
 
+  /// Master kill-switch — when false, ALL system notifications are suppressed.
+  bool _masterEnabled = false;
+
+  /// Set the master notifications enabled flag.
+  /// When disabled, no system notifications of any kind will be shown.
+  void setMasterEnabled(bool enabled) {
+    _masterEnabled = enabled;
+    if (!enabled) {
+      cancelAll();
+    }
+  }
+
   /// Navigator key for navigating from notifications
   GlobalKey<NavigatorState>? _navigatorKey;
 
@@ -32,6 +44,18 @@ class NotificationService {
 
   /// Pending payload for cold start handling
   String? _pendingPayload;
+
+  /// Alarm acknowledge callbacks keyed by alarm source (e.g. 'ais_polar_chart').
+  /// Receives the alarmId (e.g. vesselId) so the UI can highlight the correct item.
+  final Map<String, void Function(String? alarmId)> _alarmAcknowledgeCallbacks = {};
+
+  /// Register a callback to be invoked when a notification for [alarmSource] is tapped.
+  void registerAlarmCallback(String alarmSource, void Function(String? alarmId) callback) =>
+      _alarmAcknowledgeCallbacks[alarmSource] = callback;
+
+  /// Unregister the alarm callback for [alarmSource].
+  void unregisterAlarmCallback(String alarmSource) =>
+      _alarmAcknowledgeCallbacks.remove(alarmSource);
 
   /// Set the navigation service for tap-to-navigate
   void setNavigationService(NotificationNavigationService navService) {
@@ -128,14 +152,17 @@ class NotificationService {
   /// Handle notification tap
   void _onNotificationTapped(NotificationResponse response) {
     if (kDebugMode) {
-      print('Notification tapped: ${response.payload}');
+      print('🔔 Notification tapped: payload=${response.payload} actionId=${response.actionId}');
     }
 
     final payload = response.payload;
-    if (payload == null) return;
+    if (payload == null) {
+      if (kDebugMode) print('🔔 Notification tap: payload is null, ignoring');
+      return;
+    }
 
     if (_navigatorKey?.currentState == null) {
-      // Navigator not ready — store for later
+      if (kDebugMode) print('🔔 Notification tap: navigator not ready, storing as pending');
       _pendingPayload = payload;
       return;
     }
@@ -158,11 +185,33 @@ class NotificationService {
 
   /// Handle a structured NotificationPayload
   void _handleStructuredPayload(NotificationPayload payload) {
+    // Handle alarm acknowledgement on tap — covers both direct alarm notifications
+    // and crew_message alerts that route to an alarm source (e.g. "ANCHOR ALARM: ...")
+    if (payload.type == 'alarm' ||
+        (payload.type == 'crew_message' && payload.toolTypeId != null)) {
+      final source = payload.toolTypeId;
+      final alarmId = payload.context?['alarmId'];
+      if (source != null) _alarmAcknowledgeCallbacks[source]?.call(alarmId);
+      if (alarmId != null) cancelAlarmNotification(alarmId);
+    }
+
+    if (kDebugMode) {
+      print('🔔 _handleStructuredPayload: type=${payload.type} toolTypeId=${payload.toolTypeId} context=${payload.context}');
+    }
+
+    // Pop any routes covering the dashboard so navigation is visible
+    _navigatorKey?.currentState?.popUntil((route) => route.isFirst);
+
     // Try navigation service first
-    if (_navService != null) {
+    if (_navService == null) {
+      if (kDebugMode) print('🔔 Navigation service is NULL');
+    } else {
       final nav = _navService!.getNavigation(payload);
+      if (kDebugMode) {
+        print('🔔 getNavigation result: ${nav != null ? 'screen=${nav.$2}' : 'null (tool not found on dashboard)'}');
+      }
       if (nav != null) {
-        final (navigate, _) = nav;
+        final (navigate, screenName) = nav;
 
         // For NWS alerts, also expand the alert detail
         if (payload.type == 'weather_nws' && payload.context?['alertId'] != null) {
@@ -172,6 +221,10 @@ class NotificationService {
         navigate();
         return;
       }
+    }
+
+    if (kDebugMode) {
+      print('🔔 Falling through to legacy switch for type=${payload.type}');
     }
 
     // Fall back to legacy screen-push navigation for specific types
@@ -293,7 +346,7 @@ class NotificationService {
 
   /// Show a system notification for a SignalK notification
   Future<void> showNotification(SignalKNotification notification) async {
-    if (!_initialized) {
+    if (!_initialized || !_masterEnabled) {
       return;
     }
 
@@ -434,7 +487,7 @@ class NotificationService {
 
   /// Show a notification for a crew message
   Future<void> showCrewMessageNotification(CrewMessage message) async {
-    if (!_initialized) return;
+    if (!_initialized || !_masterEnabled) return;
 
     try {
       final (title, body, priority, importance, color, playSound) =
@@ -470,9 +523,22 @@ class NotificationService {
         _notificationIdCounter = 1;
       }
 
+      // For alert messages, detect source tool from content so tapping
+      // navigates to the originating widget instead of crew messages.
+      String? alertToolTypeId;
+      if (message.type == MessageType.alert) {
+        final content = message.content.toUpperCase();
+        if (content.startsWith('ANCHOR ALARM') || content.startsWith('ANCHOR WATCH')) {
+          alertToolTypeId = 'anchor_alarm';
+        } else if (content.startsWith('CPA ')) {
+          alertToolTypeId = 'ais_polar_chart';
+        }
+      }
+
       // Build structured payload
       final structuredPayload = NotificationPayload(
         type: 'crew_message',
+        toolTypeId: alertToolTypeId,
         context: message.isBroadcast
             ? {'subType': 'broadcast'}
             : {
@@ -574,7 +640,7 @@ class NotificationService {
     String? alarmId,
     String? alarmSource,
   }) async {
-    if (!_initialized) return;
+    if (!_initialized || !_masterEnabled) return;
 
     try {
       final androidDetails = AndroidNotificationDetails(
@@ -589,25 +655,8 @@ class NotificationService {
         ticker: title,
         fullScreenIntent: true, // Show as full screen on lock screen
         category: AndroidNotificationCategory.alarm,
-        ongoing: true, // Keep notification until dismissed
-        autoCancel: false,
-        actions: <AndroidNotificationAction>[
-          AndroidNotificationAction(
-            'snooze_$alarmId',
-            'Snooze 9m',
-            showsUserInterface: true,
-          ),
-          AndroidNotificationAction(
-            'dismiss_local_$alarmId',
-            'Dismiss Here',
-            showsUserInterface: true,
-          ),
-          AndroidNotificationAction(
-            'dismiss_all_$alarmId',
-            'Dismiss All',
-            showsUserInterface: true,
-          ),
-        ],
+        ongoing: false,
+        autoCancel: true,
       );
 
       const iosDetails = DarwinNotificationDetails(
@@ -675,7 +724,7 @@ class NotificationService {
     required String transmitterName,
     bool isEmergency = false,
   }) async {
-    if (!_initialized) return;
+    if (!_initialized || !_masterEnabled) return;
 
     try {
       final androidDetails = AndroidNotificationDetails(

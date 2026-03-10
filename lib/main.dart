@@ -48,6 +48,7 @@ void main() async {
   // Initialize notification service
   final notificationService = NotificationService();
   await notificationService.initialize();
+  notificationService.setMasterEnabled(storageService.getNotificationsEnabled());
 
   // Initialize foreground service
   final foregroundService = ForegroundTaskService();

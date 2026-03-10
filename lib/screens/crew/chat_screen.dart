@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../../models/crew_message.dart';
 import '../../services/messaging_service.dart';
 import '../../services/crew_service.dart';
+import '../../services/dashboard_service.dart';
 import '../../widgets/crew/file_picker_widget.dart';
 
 /// Chat screen for crew messaging
@@ -70,17 +71,17 @@ class _ChatScreenState extends State<ChatScreen> {
 
     if (success) {
       _messageController.clear();
-      _scrollToBottom();
+      _scrollToTop();
     }
 
     setState(() => _isSending = false);
   }
 
-  void _scrollToBottom() {
+  void _scrollToTop() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (_scrollController.hasClients) {
         _scrollController.animateTo(
-          _scrollController.position.maxScrollExtent,
+          0,
           duration: const Duration(milliseconds: 300),
           curve: Curves.easeOut,
         );
@@ -144,13 +145,28 @@ class _ChatScreenState extends State<ChatScreen> {
                   padding: const EdgeInsets.all(8),
                   itemCount: messages.length,
                   itemBuilder: (context, index) {
-                    final message = messages[index];
+                    // Newest first
+                    final message = messages[messages.length - 1 - index];
                     final isFromMe = message.fromId ==
                         context.read<CrewService>().localProfile?.id;
 
-                    return _MessageBubble(
-                      message: message,
-                      isFromMe: isFromMe,
+                    return Dismissible(
+                      key: Key('chat_msg_${message.id}'),
+                      direction: DismissDirection.endToStart,
+                      confirmDismiss: (_) async {
+                        await messagingService.deleteMessage(message.id);
+                        return false; // list already rebuilt by notifyListeners
+                      },
+                      background: Container(
+                        alignment: Alignment.centerRight,
+                        padding: const EdgeInsets.only(right: 16),
+                        color: Colors.red.shade700,
+                        child: const Icon(Icons.delete, color: Colors.white),
+                      ),
+                      child: _MessageBubble(
+                        message: message,
+                        isFromMe: isFromMe,
+                      ),
                     );
                   },
                 );
@@ -185,7 +201,7 @@ class _ChatScreenState extends State<ChatScreen> {
           } else {
             await messagingService.sendStatusBroadcast(status);
           }
-          _scrollToBottom();
+          _scrollToTop();
         },
       ),
     );
@@ -207,44 +223,57 @@ class _MessageBubble extends StatelessWidget {
     final isAlert = message.type == MessageType.alert;
     final isStatus = message.type == MessageType.status;
 
-    // Alerts are centered and highlighted
+    // Alerts are centered and highlighted — tap navigates to source widget
     if (isAlert) {
-      return Container(
-        margin: const EdgeInsets.symmetric(vertical: 8),
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: Colors.red.shade900,
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: Colors.red, width: 2),
-        ),
-        child: Row(
-          children: [
-            const Icon(Icons.warning, color: Colors.white),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    message.fromName,
-                    style: const TextStyle(
-                      color: Colors.white70,
-                      fontSize: 12,
-                      fontWeight: FontWeight.bold,
+      return GestureDetector(
+        onTap: () => _navigateToAlertSource(context),
+        child: Container(
+          margin: const EdgeInsets.symmetric(vertical: 8),
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: Colors.red.shade900,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: Colors.red, width: 2),
+          ),
+          child: Row(
+            children: [
+              const Icon(Icons.warning, color: Colors.white),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Text(
+                          message.fromName,
+                          style: const TextStyle(
+                            color: Colors.white70,
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const Spacer(),
+                        Text(
+                          _formatTime(message.timestamp),
+                          style: const TextStyle(color: Colors.white54, fontSize: 10),
+                        ),
+                      ],
                     ),
-                  ),
-                  Text(
-                    message.content,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 16,
+                    Text(
+                      message.content,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16,
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ),
-          ],
+              const Icon(Icons.chevron_right, color: Colors.white54, size: 20),
+            ],
+          ),
         ),
       );
     }
@@ -271,11 +300,21 @@ class _MessageBubble extends StatelessWidget {
                     color: Theme.of(context).colorScheme.primary,
                   ),
                   const SizedBox(width: 8),
+                  Flexible(
+                    child: Text(
+                      '${message.fromName}: ${message.content}',
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
                   Text(
-                    '${message.fromName}: ${message.content}',
+                    _formatTime(message.timestamp),
                     style: TextStyle(
-                      color: Theme.of(context).colorScheme.onSurfaceVariant,
-                      fontSize: 13,
+                      color: Theme.of(context).colorScheme.onSurfaceVariant.withValues(alpha: 0.6),
+                      fontSize: 10,
                     ),
                   ),
                 ],
@@ -342,6 +381,26 @@ class _MessageBubble extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  void _navigateToAlertSource(BuildContext context) {
+    final content = message.content.toUpperCase();
+    String? toolTypeId;
+    if (content.startsWith('ANCHOR ALARM') || content.startsWith('ANCHOR WATCH')) {
+      toolTypeId = 'anchor_alarm';
+    } else if (content.startsWith('CPA ')) {
+      toolTypeId = 'ais_polar_chart';
+    }
+
+    if (toolTypeId != null) {
+      final dashboardService = context.read<DashboardService>();
+      final result = dashboardService.findScreenWithToolType(toolTypeId);
+      if (result != null) {
+        final (index, _) = result;
+        dashboardService.setActiveScreen(index);
+        Navigator.of(context).popUntil((route) => route.isFirst);
+      }
+    }
   }
 
   String _formatTime(DateTime time) {

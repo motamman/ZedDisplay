@@ -47,6 +47,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _showSystemWarn = false;
   bool _showSystemAlert = false;
 
+  // Crew message notification filters
+  bool _crewMessagesEnabled = true;
+  bool _crewAlertsEnabled = true;
+
   @override
   void initState() {
     super.initState();
@@ -74,6 +78,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _showSystemAlarm = storageService.getSystemNotificationFilter('alarm');
       _showSystemWarn = storageService.getSystemNotificationFilter('warn');
       _showSystemAlert = storageService.getSystemNotificationFilter('alert');
+
+      // Load crew message notification filters
+      _crewMessagesEnabled = storageService.getCrewNotificationsEnabled();
+      _crewAlertsEnabled = storageService.getCrewAlertNotificationsEnabled();
     });
 
     // Sync with SignalKService
@@ -312,12 +320,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     final foregroundService = ForegroundTaskService();
                     final notificationService = NotificationService();
 
+                    // Master kill-switch for ALL system notifications
+                    notificationService.setMasterEnabled(value);
+
                     if (value && signalKService.isConnected) {
                       await foregroundService.start();
                     } else {
                       await foregroundService.stop();
-                      // Clear all queued system notifications when disabled
-                      await notificationService.cancelAll();
                     }
 
                     if (!context.mounted) return;
@@ -465,6 +474,44 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               _showInAppNominal = inApp;
                             });
                             await storageService.saveInAppNotificationFilter('nominal', inApp);
+                          },
+                        ),
+                        const Divider(height: 16),
+                        const Text(
+                          'Crew Messages',
+                          style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+                        ),
+                        const SizedBox(height: 8),
+                        // Crew Alerts (system only)
+                        _buildNotificationRow(
+                          Icons.warning,
+                          Colors.red,
+                          'Crew Alerts',
+                          null, // No in-app toggle
+                          _crewAlertsEnabled,
+                          (inApp, system) async {
+                            if (system != null) {
+                              setState(() {
+                                _crewAlertsEnabled = system;
+                              });
+                              await storageService.saveCrewAlertNotificationsEnabled(system);
+                            }
+                          },
+                        ),
+                        // Crew Messages (system only)
+                        _buildNotificationRow(
+                          Icons.message,
+                          Colors.teal,
+                          'Messages',
+                          null, // No in-app toggle
+                          _crewMessagesEnabled,
+                          (inApp, system) async {
+                            if (system != null) {
+                              setState(() {
+                                _crewMessagesEnabled = system;
+                              });
+                              await storageService.saveCrewNotificationsEnabled(system);
+                            }
                           },
                         ),
                       ],
@@ -1293,7 +1340,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     IconData icon,
     Color iconColor,
     String label,
-    bool inAppValue,
+    bool? inAppValue, // null means no in-app checkbox
     bool? systemValue, // null means no system checkbox
     Function(bool inApp, bool? system) onChanged,
   ) {
@@ -1311,22 +1358,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           ),
           Expanded(
-            child: Checkbox(
-              value: inAppValue,
-              onChanged: (value) {
-                onChanged(value ?? false, systemValue);
-              },
-            ),
+            child: inAppValue != null
+                ? Checkbox(
+                    value: inAppValue,
+                    onChanged: (value) {
+                      onChanged(value ?? false, systemValue);
+                    },
+                  )
+                : const SizedBox(),
           ),
           Expanded(
             child: systemValue != null
                 ? Checkbox(
                     value: systemValue,
                     onChanged: (value) {
-                      onChanged(inAppValue, value ?? false);
+                      onChanged(inAppValue ?? false, value ?? false);
                     },
                   )
-                : const SizedBox(), // Empty space for consistency
+                : const SizedBox(),
           ),
         ],
       ),

@@ -290,8 +290,14 @@ class MessagingService extends ChangeNotifier {
             // Count as unread and show notification if not from us
             if (message.fromId != myId && !message.read) {
               _unreadCount++;
-              // Show system notification for new messages from others
-              _notificationService.showCrewMessageNotification(message);
+              // Show system notification if crew notifications are enabled
+              final isAlert = message.type == MessageType.alert;
+              final showNotification = isAlert
+                  ? _storageService.getCrewAlertNotificationsEnabled()
+                  : _storageService.getCrewNotificationsEnabled();
+              if (showNotification) {
+                _notificationService.showCrewMessageNotification(message);
+              }
             }
           }
         } catch (e) {
@@ -316,10 +322,17 @@ class MessagingService extends ChangeNotifier {
     }
   }
 
+  // Alert messages sunset after 48 hours
+  static const Duration _alertRetention = Duration(hours: 48);
+
   /// Remove messages older than retention period
   void _pruneOldMessages() {
-    final cutoff = DateTime.now().subtract(_messageRetention);
-    _messages.removeWhere((m) => m.timestamp.isBefore(cutoff));
+    final now = DateTime.now();
+    final generalCutoff = now.subtract(_messageRetention);
+    final alertCutoff = now.subtract(_alertRetention);
+    _messages.removeWhere((m) =>
+        m.timestamp.isBefore(generalCutoff) ||
+        (m.type == MessageType.alert && m.timestamp.isBefore(alertCutoff)));
   }
 
   /// Update unread count
@@ -356,6 +369,19 @@ class MessagingService extends ChangeNotifier {
         (m.fromId == crewId && m.toId == myId) ||
         (m.fromId == myId && m.toId == crewId)
     ).toList();
+  }
+
+  /// Delete a single message locally and from server.
+  Future<void> deleteMessage(String messageId) async {
+    _messages.removeWhere((m) => m.id == messageId);
+    _updateUnreadCount();
+    await _saveCachedMessages();
+    notifyListeners();
+
+    // Remove from SignalK Resources API
+    if (_signalKService.isConnected && _resourcesApiAvailable) {
+      await _signalKService.deleteResource(_messageResourceType, messageId);
+    }
   }
 
   /// Clear all messages (for testing/debug)

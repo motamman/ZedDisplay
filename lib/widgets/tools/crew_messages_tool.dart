@@ -81,12 +81,24 @@ class _CrewMessagesToolState extends State<CrewMessagesTool> {
                             shrinkWrap: true,
                             itemCount: messages.length > 10 ? 10 : messages.length,
                             itemBuilder: (context, index) {
-                              final displayMessages = messages.length > 10
-                                  ? messages.sublist(messages.length - 10)
-                                  : messages;
-                              final message = displayMessages[index];
+                              // Newest first: index 0 = most recent message
+                              final message = messages[messages.length - 1 - index];
                               final isMe = message.fromId == crewService.localProfile?.id;
-                              return _MessageBubble(message: message, isMe: isMe);
+                              return Dismissible(
+                                key: Key('msg_${message.id}'),
+                                direction: DismissDirection.endToStart,
+                                confirmDismiss: (_) async {
+                                  await messagingService.deleteMessage(message.id);
+                                  return false;
+                                },
+                                background: Container(
+                                  alignment: Alignment.centerRight,
+                                  padding: const EdgeInsets.only(right: 16),
+                                  color: Colors.red.shade700,
+                                  child: const Icon(Icons.delete, color: Colors.white, size: 20),
+                                ),
+                                child: _MessageBubble(message: message, isMe: isMe),
+                              );
                             },
                           ),
                   ),
@@ -285,7 +297,7 @@ class _MessageBubble extends StatelessWidget {
           borderRadius: BorderRadius.circular(16),
         ),
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+          crossAxisAlignment: isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: [
             if (!isMe)
@@ -303,10 +315,34 @@ class _MessageBubble extends StatelessWidget {
                 color: isAlert || isMe ? Colors.white : null,
               ),
             ),
+            const SizedBox(height: 2),
+            Text(
+              _formatTimestamp(message.timestamp),
+              style: TextStyle(
+                fontSize: 10,
+                color: isAlert || isMe
+                    ? Colors.white54
+                    : Colors.grey.shade500,
+              ),
+            ),
           ],
         ),
       ),
     );
+  }
+
+  String _formatTimestamp(DateTime ts) {
+    final now = DateTime.now();
+    final diff = now.difference(ts);
+    final hh = ts.hour.toString().padLeft(2, '0');
+    final mm = ts.minute.toString().padLeft(2, '0');
+    if (diff.inDays == 0 && now.day == ts.day) {
+      return '$hh:$mm';
+    } else if (diff.inDays < 2) {
+      return 'Yesterday $hh:$mm';
+    } else {
+      return '${ts.day}/${ts.month} $hh:$mm';
+    }
   }
 
   Widget _buildStatusMessage(BuildContext context) {
@@ -318,13 +354,20 @@ class _MessageBubble extends StatelessWidget {
         children: [
           const Icon(Icons.info_outline, size: 14, color: Colors.grey),
           const SizedBox(width: 4),
-          Text(
-            '${message.fromName}: ${message.content}',
-            style: const TextStyle(
-              fontSize: 12,
-              color: Colors.grey,
-              fontStyle: FontStyle.italic,
+          Flexible(
+            child: Text(
+              '${message.fromName}: ${message.content}',
+              style: const TextStyle(
+                fontSize: 12,
+                color: Colors.grey,
+                fontStyle: FontStyle.italic,
+              ),
             ),
+          ),
+          const SizedBox(width: 4),
+          Text(
+            _formatTimestamp(message.timestamp),
+            style: TextStyle(fontSize: 10, color: Colors.grey.shade500),
           ),
         ],
       ),

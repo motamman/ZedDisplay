@@ -698,6 +698,32 @@ class StorageService extends ChangeNotifier {
     return _settingsBox.get('notifications_enabled', defaultValue: 'false') == 'true';
   }
 
+  /// Save crew message notifications enabled preference
+  Future<void> saveCrewNotificationsEnabled(bool enabled) async {
+    if (!_initialized) throw Exception('StorageService not initialized');
+    await _settingsBox.put('crew_notifications_enabled', enabled ? 'true' : 'false');
+    notifyListeners();
+  }
+
+  /// Get crew message notifications enabled preference (defaults to true)
+  bool getCrewNotificationsEnabled() {
+    if (!_initialized) return true;
+    return _settingsBox.get('crew_notifications_enabled', defaultValue: 'true') == 'true';
+  }
+
+  /// Save crew alert notifications enabled preference
+  Future<void> saveCrewAlertNotificationsEnabled(bool enabled) async {
+    if (!_initialized) throw Exception('StorageService not initialized');
+    await _settingsBox.put('crew_alert_notifications_enabled', enabled ? 'true' : 'false');
+    notifyListeners();
+  }
+
+  /// Get crew alert notifications enabled preference (defaults to true)
+  bool getCrewAlertNotificationsEnabled() {
+    if (!_initialized) return true;
+    return _settingsBox.get('crew_alert_notifications_enabled', defaultValue: 'true') == 'true';
+  }
+
   /// Save in-app notification level filter
   Future<void> saveInAppNotificationFilter(String level, bool enabled) async {
     if (!_initialized) throw Exception('StorageService not initialized');

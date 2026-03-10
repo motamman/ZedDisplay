@@ -164,6 +164,16 @@ class AnchorAlarmService extends ChangeNotifier {
         _notificationService = notificationService ?? NotificationService(),
         _messagingService = messagingService {
     instance = this;
+    _notificationService.registerAlarmCallback('anchor_alarm', _onAlarmTapped);
+  }
+
+  /// Handle notification tap — acknowledge check-in if awaiting and silence alarm
+  void _onAlarmTapped(String? alarmId) {
+    if (_awaitingCheckIn) {
+      acknowledgeCheckIn();
+    }
+    // Always silence alarm sound on tap (covers both check-in and drag alarms)
+    _stopAlarmSound();
   }
 
   /// Initialize and start listening to SignalK updates
@@ -223,6 +233,7 @@ class AnchorAlarmService extends ChangeNotifier {
   void dispose() {
     if (instance == this) instance = null;
     _disposed = true;
+    _notificationService.unregisterAlarmCallback('anchor_alarm');
     _unsubscribeFromAnchorPaths();
     _signalKService.removeListener(_onSignalKUpdate);
     _checkInTimer?.cancel();
@@ -730,6 +741,7 @@ class AnchorAlarmService extends ChangeNotifier {
     _notificationService.showAlarmNotification(
       title: 'Anchor Watch Check-In',
       body: _checkInConfig.customMessage ?? 'Please confirm you are monitoring the anchor.',
+      alarmId: 'check_in',
       alarmSource: 'anchor_alarm',
     );
 

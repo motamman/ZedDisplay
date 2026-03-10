@@ -210,13 +210,23 @@ class _AISPolarChartState extends State<AISPolarChart>
 
   void _onCpaChanged() {
     if (!mounted) return;
+
+    // Check for highlight request from notification tap
+    final requestedId = widget.cpaAlertService?.highlightRequestedVesselId;
+    if (requestedId != null) {
+      widget.cpaAlertService!.clearHighlightRequest();
+      _highlightVessel(requestedId);
+    }
+
     final alerts = widget.cpaAlertService?.vesselAlerts ?? {};
 
     // Auto-highlight newly alerted vessels (escalated to warning or alarm)
-    for (final entry in alerts.entries) {
-      if (entry.value.level.isWarning && !_previousCpaAlertIds.contains(entry.key)) {
-        _highlightVessel(entry.key);
-        break; // highlight one at a time
+    if (requestedId == null) {
+      for (final entry in alerts.entries) {
+        if (entry.value.level.isWarning && !_previousCpaAlertIds.contains(entry.key)) {
+          _highlightVessel(entry.key);
+          break; // highlight one at a time
+        }
       }
     }
     _previousCpaAlertIds = alerts.keys.toSet();
@@ -2158,14 +2168,37 @@ class _AISPolarChartState extends State<AISPolarChart>
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Padding(
-            padding: const EdgeInsets.only(top: 8.0, bottom: 8.0),
-            child: Text(
-              'Last update: $lastUpdateText',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 11,
-                color: isDark ? Colors.white70 : Colors.black54,
-              ),
+            padding: const EdgeInsets.only(top: 8.0, bottom: 8.0, left: 12, right: 4),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Last update: $lastUpdateText',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: isDark ? Colors.white70 : Colors.black54,
+                    ),
+                  ),
+                ),
+                if (widget.cpaAlertService != null &&
+                    widget.cpaAlertService!.vesselAlerts.isNotEmpty)
+                  SizedBox(
+                    height: 24,
+                    child: TextButton.icon(
+                      onPressed: () => widget.cpaAlertService!.dismissAllAlerts(),
+                      icon: Icon(Icons.delete_outline, size: 14,
+                          color: isDark ? Colors.white60 : Colors.black45),
+                      label: Text('Clear All',
+                          style: TextStyle(fontSize: 11,
+                              color: isDark ? Colors.white60 : Colors.black45)),
+                      style: TextButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                        minimumSize: Size.zero,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ),
+                    ),
+                  ),
+              ],
             ),
           ),
           Expanded(
@@ -2197,7 +2230,10 @@ class _AISPolarChartState extends State<AISPolarChart>
                 ),
               );
 
-              return ListTile(
+              final hasAlert = widget.cpaAlertService?.vesselAlerts
+                  .containsKey(vessel.mmsi) ?? false;
+
+              final tile = ListTile(
                 dense: true,
                 onTap: () => _highlightVessel(vessel.mmsi),
                 leading: stale
@@ -2284,6 +2320,23 @@ class _AISPolarChartState extends State<AISPolarChart>
                         ),
                       )
                     : null,
+              );
+
+              if (!hasAlert) return tile;
+
+              return Dismissible(
+                key: Key('cpa_dismiss_${vessel.mmsi}'),
+                direction: DismissDirection.endToStart,
+                onDismissed: (_) {
+                  widget.cpaAlertService?.dismissAlert(vessel.mmsi);
+                },
+                background: Container(
+                  alignment: Alignment.centerRight,
+                  padding: const EdgeInsets.only(right: 16),
+                  color: Colors.red.shade700,
+                  child: const Icon(Icons.delete, color: Colors.white, size: 20),
+                ),
+                child: tile,
               );
             },
           ),
