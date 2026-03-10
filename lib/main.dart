@@ -28,6 +28,7 @@ import 'models/notification_payload.dart';
 import 'screens/splash_screen.dart';
 import 'screens/setup_management_screen.dart';
 import 'widgets/crew/intercom_panel.dart';
+import 'services/anchor_alarm_service.dart';
 import 'widgets/tools/weather_alerts_tool.dart';
 
 // Global app start time
@@ -623,6 +624,10 @@ class _SignalKNotificationListenerState extends State<SignalKNotificationListene
         if (isNwsAlert && alertId != null) {
           WeatherAlertsNotifier.instance.requestExpandAlert(alertId);
         }
+        // Stop anchor alarm sound on tap
+        if (notification.key.startsWith('navigation.anchor')) {
+          AnchorAlarmService.instance?.acknowledgeAlarm();
+        }
         ScaffoldMessenger.of(context).hideCurrentSnackBar();
       };
     } else if (isNwsAlert && alertId != null) {
@@ -703,6 +708,10 @@ class _SignalKNotificationListenerState extends State<SignalKNotificationListene
           label: 'DISMISS',
           textColor: Colors.white,
           onPressed: () {
+            // Stop anchor alarm sound on dismiss
+            if (notification.key.startsWith('navigation.anchor')) {
+              AnchorAlarmService.instance?.acknowledgeAlarm();
+            }
             ScaffoldMessenger.of(context).hideCurrentSnackBar();
           },
         ),

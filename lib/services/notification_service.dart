@@ -572,6 +572,7 @@ class NotificationService {
     required String title,
     required String body,
     String? alarmId,
+    String? alarmSource,
   }) async {
     if (!_initialized) return;
 
@@ -630,6 +631,7 @@ class NotificationService {
       // Build structured payload
       final structuredPayload = NotificationPayload(
         type: 'alarm',
+        toolTypeId: alarmSource,
         context: alarmId != null ? {'alarmId': alarmId} : null,
       );
 

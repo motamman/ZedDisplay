@@ -243,6 +243,7 @@ class CpaAlertService extends ChangeNotifier {
     await _notificationService.showAlarmNotification(
       title: title,
       body: message,
+      alarmSource: 'ais_polar_chart',
     );
 
     // 3. Crew broadcast (if configured)

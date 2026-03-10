@@ -87,6 +87,8 @@ class AnchorAlarmPaths {
 /// Service for managing anchor alarm functionality
 /// Integrates with SignalK anchor alarm plugin via REST API
 class AnchorAlarmService extends ChangeNotifier {
+  static AnchorAlarmService? instance;
+
   final SignalKService _signalKService;
   final NotificationService _notificationService;
   final MessagingService? _messagingService;
@@ -160,7 +162,9 @@ class AnchorAlarmService extends ChangeNotifier {
     MessagingService? messagingService,
   })  : _signalKService = signalKService,
         _notificationService = notificationService ?? NotificationService(),
-        _messagingService = messagingService;
+        _messagingService = messagingService {
+    instance = this;
+  }
 
   /// Initialize and start listening to SignalK updates
   void initialize() {
@@ -217,6 +221,7 @@ class AnchorAlarmService extends ChangeNotifier {
 
   @override
   void dispose() {
+    if (instance == this) instance = null;
     _disposed = true;
     _unsubscribeFromAnchorPaths();
     _signalKService.removeListener(_onSignalKUpdate);
@@ -639,6 +644,7 @@ class AnchorAlarmService extends ChangeNotifier {
     await _notificationService.showAlarmNotification(
       title: 'Anchor Alarm',
       body: message,
+      alarmSource: 'anchor_alarm',
     );
 
     // Send crew alert
@@ -724,6 +730,7 @@ class AnchorAlarmService extends ChangeNotifier {
     _notificationService.showAlarmNotification(
       title: 'Anchor Watch Check-In',
       body: _checkInConfig.customMessage ?? 'Please confirm you are monitoring the anchor.',
+      alarmSource: 'anchor_alarm',
     );
 
     // Start grace period timer

@@ -12,11 +12,11 @@ class NotificationNavigationService {
   /// Notification key prefix → candidate tool type IDs (checked in order).
   static const Map<String, List<String>> _keyPrefixMapping = {
     'weather.nws': ['weather_alerts'],
-    'notifications.anchor': ['anchor_alarm'],
+    'navigation.anchor': ['anchor_alarm'],
+    'navigation': ['compass', 'wind_compass', 'autopilot', 'position_display'],
     'propulsion': ['radial_gauge', 'linear_gauge'],
     'electrical': ['victron_flow', 'radial_gauge', 'linear_gauge'],
     'environment': ['radial_gauge', 'linear_gauge', 'weatherflow_forecast'],
-    'navigation': ['compass', 'wind_compass', 'autopilot', 'position_display'],
     'tanks': ['tanks'],
     'steering': ['autopilot', 'autopilot_v2', 'autopilot_simple'],
   };
