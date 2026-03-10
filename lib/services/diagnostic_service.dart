@@ -213,6 +213,17 @@ class DiagnosticService {
         'metaMessages': _wsMetaCount,
         'notificationMessages': _wsNotificationCount,
       },
+      'cacheSizes': {
+        'metadataStore': _signalKService.metadataStore.count,
+        'displayUnitsCache': _signalKService.displayUnitsCacheCount,
+        'latestData': _signalKService.latestData.length,
+        'conversionsData': _signalKService.conversionsDataCount,
+        'availablePaths': _signalKService.availablePathsCount,
+        'aisVessels': _signalKService.aisVesselRegistry.count,
+        'notificationState': _signalKService.notificationStateCount,
+        'notificationTime': _signalKService.notificationTimeCount,
+        'diagnosticSnapshots': _snapshots.length,
+      },
     };
 
     _snapshots.add(snapshot);

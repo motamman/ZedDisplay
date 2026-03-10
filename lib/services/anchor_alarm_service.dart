@@ -167,21 +167,11 @@ class AnchorAlarmService extends ChangeNotifier {
     _notificationService.registerAlarmCallback('anchor_alarm', _onAlarmTapped);
   }
 
-  /// Handle notification tap — navigate to anchor alarm widget.
-  /// Only shows check-in overlay for actual check-in notifications (alarmId == 'check_in').
-  /// Crew echo notifications and anchor drag alarms pass alarmId == null, which
-  /// must NOT re-trigger the overlay (otherwise acknowledgment gets undone).
+  /// Handle notification tap — user responded, cancel grace timer and stop sound.
+  /// The overlay is already visible via _onCheckInRequired setting _awaitingCheckIn.
   void _onAlarmTapped(String? alarmId) {
-    if (alarmId == 'check_in') {
-      // User tapped the check-in notification — cancel grace timer and show overlay.
-      _checkInGraceTimer?.cancel();
-      _awaitingCheckIn = true;
-      _checkInDeadline = null;
-      notifyListeners();
-    } else {
-      // Anchor drag alarm or crew echo — just silence the sound.
-      _stopAlarmSound();
-    }
+    _checkInGraceTimer?.cancel();
+    _stopAlarmSound();
   }
 
   /// Initialize and start listening to SignalK updates

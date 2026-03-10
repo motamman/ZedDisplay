@@ -247,6 +247,13 @@ class SignalKService extends ChangeNotifier implements DataService {
   /// Path subscription registry for diagnostic access.
   PathSubscriptionRegistry get subscriptionRegistry => _subscriptionRegistry;
 
+  // Cache size getters for diagnostics instrumentation
+  int get displayUnitsCacheCount => _displayUnitsCache.length;
+  int get availablePathsCount => _availablePaths.length;
+  int get conversionsDataCount => _conversionManager.internalDataMap.length;
+  int get notificationStateCount => _notificationManager.stateMapSize;
+  int get notificationTimeCount => _notificationManager.timeMapSize;
+
   @override
   String get serverUrl => _serverUrl;
   @override
@@ -2459,6 +2466,9 @@ class _NotificationManager {
       StreamController<SignalKNotification>.broadcast();
   final Map<String, String> _lastNotificationState = {};
   final Map<String, DateTime> _lastNotificationTime = {};
+
+  int get stateMapSize => _lastNotificationState.length;
+  int get timeMapSize => _lastNotificationTime.length;
 
   // Recent notifications cache (last 10 seconds)
   final List<SignalKNotification> _recentNotifications = [];
