@@ -5,6 +5,7 @@ import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:vibration/vibration.dart';
+import '../../models/path_metadata.dart';
 import '../../models/tool_config.dart';
 import '../../models/tool_definition.dart';
 import '../../services/signalk_service.dart';
@@ -185,19 +186,28 @@ class _FindHomeToolState extends State<FindHomeTool> {
 
   // --------------- Unit helpers ---------------
 
-  ({double metersPerUnit, String symbol}) _getDistanceUnit() {
-    final meta = widget.signalKService.metadataStore
-        .get('navigation.anchor.currentRadius');
-    if (meta != null) {
-      final oneInDisplay = meta.convert(1.0);
-      if (oneInDisplay != null && oneInDisplay > 0) {
-        return (
-          metersPerUnit: 1.0 / oneInDisplay,
-          symbol: meta.symbol ?? 'm',
-        );
+  /// Returns the metadata to use for formatting [meters]:
+  /// - distance category (e.g., nm) when value >= 1 in that unit
+  /// - length category (e.g., ft, m) for shorter distances
+  PathMetadata? _pickDistanceMeta(double meters) {
+    final store = widget.signalKService.metadataStore;
+
+    // Direct lookup of canonical category entries from REST preset
+    // (getByCategory can return path-specific WS meta with wrong units)
+    final distMeta = store.get('__category__.distance');
+    if (distMeta != null) {
+      final converted = distMeta.convert(meters);
+      if (converted != null && converted >= 1.0) {
+        return distMeta;
       }
     }
-    return (metersPerUnit: 1852.0, symbol: 'nm');
+
+    // < 1 distance unit → use length (e.g., ft, m)
+    final lengthMeta = store.get('__category__.length');
+    if (lengthMeta != null) return lengthMeta;
+
+    // Fall back to distance even if < 1
+    return distMeta;
   }
 
   // --------------- Computed nav data ---------------
@@ -383,9 +393,16 @@ class _FindHomeToolState extends State<FindHomeTool> {
   // --------------- Formatting ---------------
 
   String _formatDistance(double meters) {
-    final unit = _getDistanceUnit();
-    final display = meters / unit.metersPerUnit;
-    return '${display.toStringAsFixed(display < 10 ? 2 : 1)} ${unit.symbol}';
+    final meta = _pickDistanceMeta(meters);
+    if (meta != null) {
+      final converted = meta.convert(meters);
+      if (converted != null) {
+        return '${converted.toStringAsFixed(converted < 10 ? 2 : 1)} ${meta.symbol ?? 'm'}';
+      }
+    }
+    // Fallback: nautical miles
+    final nm = meters / 1852.0;
+    return '${nm.toStringAsFixed(nm < 10 ? 2 : 1)} nm';
   }
 
   String _formatAngle(double degrees) {
@@ -438,7 +455,17 @@ class _FindHomeToolState extends State<FindHomeTool> {
       return _buildAcquiringGps(isDark);
     }
 
-    final unit = _getDistanceUnit();
+    final distMeta = _pickDistanceMeta(nav.distance);
+    // Derive metersPerUnit from metadata for the runway painter
+    double metersPerUnit = 1852.0; // fallback: nm
+    String unitSymbol = 'nm';
+    if (distMeta != null) {
+      final oneConverted = distMeta.convert(1.0);
+      if (oneConverted != null && oneConverted > 0) {
+        metersPerUnit = 1.0 / oneConverted;
+      }
+      unitSymbol = distMeta.symbol ?? 'nm';
+    }
 
     return Stack(
       children: [
@@ -452,8 +479,8 @@ class _FindHomeToolState extends State<FindHomeTool> {
                     deviation: nav.deviation,
                     maxDeviation: _maxDeviation,
                     distanceMeters: nav.distance,
-                    metersPerUnit: unit.metersPerUnit,
-                    unitSymbol: unit.symbol,
+                    metersPerUnit: metersPerUnit,
+                    unitSymbol: unitSymbol,
                     isDark: isDark,
                     active: _active,
                     hapticThreshold: _hapticDeviationThreshold,

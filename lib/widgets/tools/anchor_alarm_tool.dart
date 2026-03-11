@@ -53,6 +53,8 @@ class _AnchorAlarmToolState extends State<AnchorAlarmTool>
   bool _isAlarmRadiusSliderDragging = false;
   bool _showPolarView = false; // Toggle between map and polar view
   double _manualDepthValue = 5.0;
+  bool _controlsLocked = true;
+  Timer? _lockTimer;
 
   @override
   void initState() {
@@ -125,11 +127,32 @@ class _AnchorAlarmToolState extends State<AnchorAlarmTool>
   }
 
   @override
+  @override
+  void deactivate() {
+    _lockTimer?.cancel();
+    _controlsLocked = true;
+    super.deactivate();
+  }
+
+  @override
   void dispose() {
+    _lockTimer?.cancel();
     _alarmService.removeListener(_onStateChanged);
     widget.signalKService.removeListener(_onSignalKChanged);
     _alarmService.dispose();
     super.dispose();
+  }
+
+  void _unlockControls() {
+    setState(() => _controlsLocked = false);
+    _resetLockTimer();
+  }
+
+  void _resetLockTimer() {
+    _lockTimer?.cancel();
+    _lockTimer = Timer(const Duration(seconds: 10), () {
+      if (mounted) setState(() => _controlsLocked = true);
+    });
   }
 
   void _onStateChanged() {
@@ -215,6 +238,7 @@ class _AnchorAlarmToolState extends State<AnchorAlarmTool>
   }
 
   Future<void> _dropAnchor() async {
+    _resetLockTimer();
     final success = await _alarmService.dropAnchor();
     if (success && mounted) {
       // Set rode length to distance from bow + 10%
@@ -235,6 +259,7 @@ class _AnchorAlarmToolState extends State<AnchorAlarmTool>
   }
 
   Future<void> _raiseAnchor() async {
+    _resetLockTimer();
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -267,6 +292,7 @@ class _AnchorAlarmToolState extends State<AnchorAlarmTool>
   }
 
   Future<void> _setRodeLength(double length) async {
+    _resetLockTimer();
     // Determine depth to use: sensor value if available, otherwise manual
     final depth = _alarmService.hasDepthSensor
         ? _alarmService.currentDepth
@@ -279,6 +305,7 @@ class _AnchorAlarmToolState extends State<AnchorAlarmTool>
 
   /// Open compass overlay to set anchor direction
   Future<void> _setAnchorDirection() async {
+    _resetLockTimer();
     final state = _alarmService.state;
 
     if (!state.isActive) {
@@ -1147,7 +1174,7 @@ class _AnchorAlarmToolState extends State<AnchorAlarmTool>
     // Format rode using server's displayUnits metadata
     final rodeFormatted = _formatDistance(_rodeSliderValue, 'navigation.anchor.rodeLength');
 
-    return Container(
+    final panel = Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
         color: Colors.black.withValues(alpha: 0.8),
@@ -1218,7 +1245,10 @@ class _AnchorAlarmToolState extends State<AnchorAlarmTool>
                     formattedValue: rodeFormatted,
                     color: Colors.blue,
                     onChangeStart: () => _isRodeSliderDragging = true,
-                    onChanged: (v) => setState(() => _rodeSliderValue = v),
+                    onChanged: (v) {
+                      _resetLockTimer();
+                      setState(() => _rodeSliderValue = v);
+                    },
                     onChangeEnd: (v) {
                       _isRodeSliderDragging = false;
                       _setRodeLength(v);
@@ -1231,8 +1261,12 @@ class _AnchorAlarmToolState extends State<AnchorAlarmTool>
                     formattedValue: _formatDistance(_alarmRadiusValue, 'navigation.anchor.maxRadius'),
                     color: Colors.red,
                     onChangeStart: () => _isAlarmRadiusSliderDragging = true,
-                    onChanged: (v) => setState(() => _alarmRadiusValue = v),
+                    onChanged: (v) {
+                      _resetLockTimer();
+                      setState(() => _alarmRadiusValue = v);
+                    },
                     onChangeEnd: (v) {
+                      _resetLockTimer();
                       _isAlarmRadiusSliderDragging = false;
                       _alarmService.setRadius(radius: v);
                     },
@@ -1249,7 +1283,10 @@ class _AnchorAlarmToolState extends State<AnchorAlarmTool>
                       min: 1,
                       max: 50,
                       divisions: 49,
-                      onChanged: (v) => setState(() => _manualDepthValue = v),
+                      onChanged: (v) {
+                        _resetLockTimer();
+                        setState(() => _manualDepthValue = v);
+                      },
                       onChangeEnd: (v) => _onDepthChanged(v),
                     ),
                 ],
@@ -1258,6 +1295,38 @@ class _AnchorAlarmToolState extends State<AnchorAlarmTool>
           ],
         ],
       ),
+    );
+
+    return Stack(
+      children: [
+        panel,
+        if (_controlsLocked)
+          Positioned.fill(
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onLongPress: _unlockControls,
+              child: Container(
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.6),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Center(
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.lock_outline, size: 14, color: Colors.white54),
+                      SizedBox(width: 6),
+                      Text(
+                        'Hold to unlock',
+                        style: TextStyle(fontSize: 12, color: Colors.white54),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+      ],
     );
   }
 
