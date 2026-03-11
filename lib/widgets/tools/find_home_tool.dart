@@ -208,6 +208,7 @@ class _FindHomeToolState extends State<FindHomeTool> {
     double distance,
     double cogDeg,
     double sogMs,
+    bool isWrongWay,
   })? _computeNav() {
     final pos = _devicePosition;
     if (pos == null) return null;
@@ -230,12 +231,16 @@ class _FindHomeToolState extends State<FindHomeTool> {
         ? AngleUtils.difference(cogDeg, bearing)
         : 0.0;
 
+    // Wrong way: heading more than 90° away from target
+    final isWrongWay = sogMs >= _sogThreshold && deviation.abs() > 90.0;
+
     return (
       bearing: bearing,
       deviation: deviation,
       distance: distance,
       cogDeg: AngleUtils.normalize(cogDeg),
       sogMs: sogMs,
+      isWrongWay: isWrongWay,
     );
   }
 
@@ -276,6 +281,13 @@ class _FindHomeToolState extends State<FindHomeTool> {
     final nav = _computeNav();
     if (nav == null) return;
 
+    // Wrong way: 3 rapid buzzes regardless of direction
+    if (nav.isWrongWay) {
+      _vibrateTriple();
+      if (_whistleEnabled) _whistleTriple();
+      return;
+    }
+
     final absDev = nav.deviation.abs();
     if (absDev < _hapticDeviationThreshold) return;
 
@@ -306,6 +318,14 @@ class _FindHomeToolState extends State<FindHomeTool> {
     );
   }
 
+  /// Triple rapid vibration: wrong-way signal
+  void _vibrateTriple() {
+    Vibration.vibrate(
+      pattern: [0, 300, 200, 300, 200, 300],
+      intensities: [0, 255, 0, 255, 0, 255],
+    );
+  }
+
   /// Play one whistle blast
   Future<void> _whistleSingle() async {
     try {
@@ -331,6 +351,30 @@ class _FindHomeToolState extends State<FindHomeTool> {
         _whistlePlayer = AudioPlayer();
         await _whistlePlayer!.play(AssetSource(_soundAsset));
       });
+    } catch (e) {
+      debugPrint('FindHome whistle error: $e');
+    }
+  }
+
+  /// Play three rapid whistle blasts: wrong-way signal
+  Future<void> _whistleTriple() async {
+    try {
+      var remaining = 3;
+      void playNext() async {
+        remaining--;
+        if (remaining <= 0 || !mounted || !_active) return;
+        await Future.delayed(const Duration(milliseconds: 150));
+        if (!mounted || !_active) return;
+        _whistlePlayer?.dispose();
+        _whistlePlayer = AudioPlayer();
+        await _whistlePlayer!.play(AssetSource(_soundAsset));
+        _whistlePlayer!.onPlayerComplete.first.then((_) => playNext());
+      }
+
+      _whistlePlayer?.dispose();
+      _whistlePlayer = AudioPlayer();
+      await _whistlePlayer!.play(AssetSource(_soundAsset));
+      _whistlePlayer!.onPlayerComplete.first.then((_) => playNext());
     } catch (e) {
       debugPrint('FindHome whistle error: $e');
     }
@@ -413,6 +457,7 @@ class _FindHomeToolState extends State<FindHomeTool> {
                     isDark: isDark,
                     active: _active,
                     hapticThreshold: _hapticDeviationThreshold,
+                    isWrongWay: nav.isWrongWay,
                   ),
                   size: Size.infinite,
                 ),
@@ -555,15 +600,25 @@ class _FindHomeToolState extends State<FindHomeTool> {
     final labelColor = isDark ? Colors.white60 : Colors.black54;
     final absDev = nav.deviation.abs() as double;
     final devSide = nav.deviation > 0 ? 'P' : 'S';
+    final bool isWrongWay = nav.isWrongWay as bool;
 
     Color devColor;
-    if (absDev < 5) {
+    if (isWrongWay) {
+      devColor = Colors.red;
+    } else if (absDev < 5) {
       devColor = Colors.green;
     } else if (absDev < 15) {
       devColor = Colors.amber;
     } else {
       devColor = Colors.red;
     }
+
+    final devLabel = isWrongWay
+        ? 'WRONG WAY'
+        : 'DEV ${absDev.toStringAsFixed(0)}° $devSide';
+    final etaLabel = isWrongWay
+        ? 'ETA --:--'
+        : 'ETA ${_formatEta(nav.distance, nav.sogMs)}';
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
@@ -589,7 +644,7 @@ class _FindHomeToolState extends State<FindHomeTool> {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(
-                'DEV ${absDev.toStringAsFixed(0)}° $devSide',
+                devLabel,
                 style: TextStyle(
                   fontSize: 12,
                   fontFamily: 'monospace',
@@ -609,7 +664,7 @@ class _FindHomeToolState extends State<FindHomeTool> {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(
-                'ETA ${_formatEta(nav.distance, nav.sogMs)}',
+                etaLabel,
                 style: TextStyle(
                     fontSize: 12, fontFamily: 'monospace', color: labelColor),
               ),
@@ -690,6 +745,7 @@ class _RunwayPainter extends CustomPainter {
   final bool isDark;
   final bool active;
   final double hapticThreshold;
+  final bool isWrongWay;
 
   _RunwayPainter({
     required this.deviation,
@@ -700,6 +756,7 @@ class _RunwayPainter extends CustomPainter {
     required this.isDark,
     required this.active,
     required this.hapticThreshold,
+    required this.isWrongWay,
   });
 
   @override
@@ -724,11 +781,17 @@ class _RunwayPainter extends CustomPainter {
       devColor = Colors.red;
     }
 
-    // Background
+    // Background — red tint when wrong way
+    final effectiveBg = isWrongWay
+        ? Color.lerp(bgColor, Colors.red.shade900, 0.4)!
+        : bgColor;
     canvas.drawRect(
       Rect.fromLTWH(0, 0, w, h),
-      Paint()..color = bgColor,
+      Paint()..color = effectiveBg,
     );
+
+    // Dim runway elements when wrong way
+    final dimFactor = isWrongWay ? 0.5 : 1.0;
 
     // Runway geometry — apex (anchor) at top, base (vessel) at bottom
     final apexY = 20.0;
@@ -739,8 +802,8 @@ class _RunwayPainter extends CustomPainter {
     // --- Localizer beam triangle (full ±30° cone) ---
     final beamPaint = Paint()
       ..color = isDark
-          ? Colors.white.withValues(alpha: 0.04)
-          : Colors.black.withValues(alpha: 0.03);
+          ? Colors.white.withValues(alpha: 0.04 * dimFactor)
+          : Colors.black.withValues(alpha: 0.03 * dimFactor);
     final beamPath = Path()
       ..moveTo(centerX, apexY)
       ..lineTo(centerX - baseHalfWidth, baseY)
@@ -751,8 +814,8 @@ class _RunwayPainter extends CustomPainter {
     // Beam edge lines
     final beamEdgePaint = Paint()
       ..color = isDark
-          ? Colors.white.withValues(alpha: 0.15)
-          : Colors.black.withValues(alpha: 0.1)
+          ? Colors.white.withValues(alpha: 0.15 * dimFactor)
+          : Colors.black.withValues(alpha: 0.1 * dimFactor)
       ..strokeWidth = 1.0;
     canvas.drawLine(Offset(centerX, apexY),
         Offset(centerX - baseHalfWidth, baseY), beamEdgePaint);
@@ -763,7 +826,7 @@ class _RunwayPainter extends CustomPainter {
     final hapticFrac = hapticThreshold / maxDeviation;
     final hapticBaseHalf = baseHalfWidth * hapticFrac;
     final hapticFillPaint = Paint()
-      ..color = Colors.green.withValues(alpha: isDark ? 0.10 : 0.07);
+      ..color = Colors.green.withValues(alpha: (isDark ? 0.10 : 0.07) * dimFactor);
     final hapticPath = Path()
       ..moveTo(centerX, apexY)
       ..lineTo(centerX - hapticBaseHalf, baseY)
@@ -773,7 +836,7 @@ class _RunwayPainter extends CustomPainter {
 
     // Haptic corridor edge lines
     final hapticEdgePaint = Paint()
-      ..color = Colors.green.withValues(alpha: 0.35)
+      ..color = Colors.green.withValues(alpha: 0.35 * dimFactor)
       ..strokeWidth = 1.0;
     canvas.drawLine(Offset(centerX, apexY),
         Offset(centerX - hapticBaseHalf, baseY), hapticEdgePaint);
@@ -812,12 +875,15 @@ class _RunwayPainter extends CustomPainter {
     final vesselY = baseY - 16;
 
     // --- COG line (dotted, from vessel upward — where you're actually heading) ---
-    // COG is always straight up from the vessel (it's the reference frame)
-    final cogPaint = Paint()
-      ..color = (isDark ? Colors.white : Colors.black).withValues(alpha: 0.4)
-      ..strokeWidth = 1.0;
-    _drawDashedLine(canvas, Offset(vesselX, vesselY - 12),
-        Offset(vesselX, apexY + 20), cogPaint, 5, 4);
+    // Only draw when vessel is within the runway (not clamped at edge)
+    final isClamped = deviation.abs() >= maxDeviation;
+    if (!isClamped) {
+      final cogPaint = Paint()
+        ..color = (isDark ? Colors.white : Colors.black).withValues(alpha: 0.4)
+        ..strokeWidth = 1.0;
+      _drawDashedLine(canvas, Offset(vesselX, vesselY - 12),
+          Offset(vesselX, apexY + 20), cogPaint, 5, 4);
+    }
 
     // --- Bearing line (dotted, from vessel to anchor — where you need to go) ---
     final bearingPaint = Paint()
@@ -826,14 +892,22 @@ class _RunwayPainter extends CustomPainter {
     _drawDashedLine(canvas, Offset(vesselX, vesselY - 12),
         Offset(centerX, apexY + 18), bearingPaint, 6, 4);
 
-    // Vessel triangle
-    final vesselPaint = Paint()..color = devColor;
-    final vPath = Path()
-      ..moveTo(vesselX, vesselY - 10)
-      ..lineTo(vesselX - 8, vesselY + 6)
-      ..lineTo(vesselX + 8, vesselY + 6)
-      ..close();
-    canvas.drawPath(vPath, vesselPaint);
+    // Vessel chevron — open V-shape rotated by COG deviation
+    canvas.save();
+    canvas.translate(vesselX, vesselY);
+    canvas.rotate(-deviation * math.pi / 180);
+    final chevronPaint = Paint()
+      ..color = devColor
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 3.0
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
+    final chevronPath = Path()
+      ..moveTo(-8, 6)
+      ..lineTo(0, -8)
+      ..lineTo(8, 6);
+    canvas.drawPath(chevronPath, chevronPaint);
+    canvas.restore();
 
     // --- P / S labels ---
     final labelStyle = TextStyle(
@@ -843,6 +917,50 @@ class _RunwayPainter extends CustomPainter {
     );
     _drawText(canvas, 'P', Offset(8, baseY - 20), labelStyle);
     _drawText(canvas, 'S', Offset(w - 16, baseY - 20), labelStyle);
+
+    // --- Wrong-way overlay ---
+    if (isWrongWay) {
+      _drawWrongWayOverlay(canvas, size, deviation);
+    }
+  }
+
+  void _drawWrongWayOverlay(Canvas canvas, Size size, double deviation) {
+    final centerX = size.width / 2;
+    final centerY = size.height / 2;
+
+    // "TURN AROUND" title
+    final titleStyle = TextStyle(
+      fontSize: 22,
+      fontWeight: FontWeight.w900,
+      color: Colors.red.shade300,
+      letterSpacing: 2.0,
+    );
+    final titleTp = TextPainter(
+      text: TextSpan(text: 'TURN AROUND', style: titleStyle),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    titleTp.paint(
+      canvas,
+      Offset(centerX - titleTp.width / 2, centerY - titleTp.height - 4),
+    );
+
+    // Direction hint: deviation > 0 means boat is to port → turn starboard
+    final turnDir = deviation > 0 ? 'TURN STARBOARD' : 'TURN PORT';
+    final arrow = deviation > 0 ? '\u21BB' : '\u21BA'; // ↻ or ↺
+    final dirStyle = TextStyle(
+      fontSize: 16,
+      fontWeight: FontWeight.bold,
+      color: Colors.red.shade200,
+      letterSpacing: 1.0,
+    );
+    final dirTp = TextPainter(
+      text: TextSpan(text: '$arrow $turnDir', style: dirStyle),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    dirTp.paint(
+      canvas,
+      Offset(centerX - dirTp.width / 2, centerY + 4),
+    );
   }
 
   /// Draw 3-4 evenly spaced distance markers ON the centerline.
@@ -972,7 +1090,8 @@ class _RunwayPainter extends CustomPainter {
         oldDelegate.distanceMeters != distanceMeters ||
         oldDelegate.isDark != isDark ||
         oldDelegate.active != active ||
-        oldDelegate.metersPerUnit != metersPerUnit;
+        oldDelegate.metersPerUnit != metersPerUnit ||
+        oldDelegate.isWrongWay != isWrongWay;
   }
 }
 
