@@ -9,6 +9,7 @@ import '../../models/tool_config.dart';
 import '../../models/tool_definition.dart';
 import '../../services/signalk_service.dart';
 import '../../services/tool_registry.dart';
+import '../../services/alarm_audio_player.dart';
 import '../../utils/angle_utils.dart';
 import '../../utils/cpa_utils.dart';
 import '../tool_info_button.dart';
@@ -52,6 +53,12 @@ class _FindHomeToolState extends State<FindHomeTool> {
   int get _feedbackIntervalSec {
     final val = widget.config.style.customProperties?['feedbackInterval'] as int?;
     return (val ?? 10).clamp(5, 60);
+  }
+
+  /// Sound asset path from config (default: whistle)
+  String get _soundAsset {
+    final key = widget.config.style.customProperties?['alertSound'] as String? ?? 'whistle';
+    return AlarmAudioPlayer.alarmSounds[key] ?? 'sounds/alarm_whistle.mp3';
   }
 
   bool _active = false;
@@ -101,52 +108,63 @@ class _FindHomeToolState extends State<FindHomeTool> {
   // --------------- Device GPS ---------------
 
   Future<void> _initDeviceGps() async {
-    final serviceEnabled = await Geolocator.isLocationServiceEnabled();
-    if (!serviceEnabled) {
-      if (mounted) setState(() => _gpsError = 'Location services disabled');
-      return;
-    }
-
-    var permission = await Geolocator.checkPermission();
-    if (permission == LocationPermission.denied) {
-      permission = await Geolocator.requestPermission();
-      if (permission == LocationPermission.denied) {
-        if (mounted) setState(() => _gpsError = 'Location permission denied');
+    try {
+      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        if (mounted) setState(() => _gpsError = 'Location services disabled');
         return;
       }
-    }
-    if (permission == LocationPermission.deniedForever) {
-      if (mounted) {
-        setState(() => _gpsError = 'Location permanently denied');
+
+      var permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+        if (permission == LocationPermission.denied) {
+          if (mounted) setState(() => _gpsError = 'Location permission denied');
+          return;
+        }
       }
-      return;
-    }
+      if (permission == LocationPermission.deniedForever) {
+        if (mounted) {
+          setState(() => _gpsError = 'Location permanently denied');
+        }
+        return;
+      }
 
-    final LocationSettings settings;
-    if (Platform.isAndroid) {
-      settings = AndroidSettings(
-        accuracy: LocationAccuracy.high,
-        distanceFilter: 0,
-        intervalDuration: const Duration(seconds: 1),
-        forceLocationManager: false,
-      );
-    } else {
-      settings = const LocationSettings(
-        accuracy: LocationAccuracy.high,
-        distanceFilter: 0,
-      );
-    }
+      // Get an immediate position first so the UI doesn't wait for the stream
+      final lastKnown = await Geolocator.getLastKnownPosition();
+      if (lastKnown != null && mounted) {
+        setState(() => _devicePosition = lastKnown);
+      }
 
-    _positionSub =
-        Geolocator.getPositionStream(locationSettings: settings).listen(
-      (position) {
-        if (mounted) setState(() => _devicePosition = position);
-      },
-      onError: (error) {
-        debugPrint('FindHome GPS error: $error');
-        if (mounted) setState(() => _gpsError = 'GPS error');
-      },
-    );
+      final LocationSettings settings;
+      if (Platform.isAndroid) {
+        settings = AndroidSettings(
+          accuracy: LocationAccuracy.high,
+          distanceFilter: 0,
+          intervalDuration: const Duration(seconds: 1),
+          forceLocationManager: false,
+        );
+      } else {
+        settings = const LocationSettings(
+          accuracy: LocationAccuracy.high,
+          distanceFilter: 0,
+        );
+      }
+
+      _positionSub =
+          Geolocator.getPositionStream(locationSettings: settings).listen(
+        (position) {
+          if (mounted) setState(() => _devicePosition = position);
+        },
+        onError: (error) {
+          debugPrint('FindHome GPS stream error: $error');
+          if (mounted) setState(() => _gpsError = 'GPS error');
+        },
+      );
+    } catch (e) {
+      debugPrint('FindHome GPS init error: $e');
+      if (mounted) setState(() => _gpsError = 'GPS init failed');
+    }
   }
 
   // --------------- Data helpers ---------------
@@ -262,13 +280,13 @@ class _FindHomeToolState extends State<FindHomeTool> {
     if (absDev < _hapticDeviationThreshold) return;
 
     if (nav.deviation > 0) {
-      // On starboard side of course → turn port → 1 buzz / 1 whistle
-      _vibrateSingle();
-      if (_whistleEnabled) _whistleSingle();
-    } else {
-      // On port side of course → turn starboard → 2 buzzes / 2 whistles
+      // On PORT side of course → turn starboard → 2 buzzes / 2 whistles
       _vibrateDouble();
       if (_whistleEnabled) _whistleDouble();
+    } else {
+      // On STARBOARD side of course → turn port → 1 buzz / 1 whistle
+      _vibrateSingle();
+      if (_whistleEnabled) _whistleSingle();
     }
   }
 
@@ -293,7 +311,7 @@ class _FindHomeToolState extends State<FindHomeTool> {
     try {
       _whistlePlayer?.dispose();
       _whistlePlayer = AudioPlayer();
-      await _whistlePlayer!.play(AssetSource('sounds/alarm_whistle.mp3'));
+      await _whistlePlayer!.play(AssetSource(_soundAsset));
     } catch (e) {
       debugPrint('FindHome whistle error: $e');
     }
@@ -304,14 +322,14 @@ class _FindHomeToolState extends State<FindHomeTool> {
     try {
       _whistlePlayer?.dispose();
       _whistlePlayer = AudioPlayer();
-      await _whistlePlayer!.play(AssetSource('sounds/alarm_whistle.mp3'));
+      await _whistlePlayer!.play(AssetSource(_soundAsset));
       // Wait for first blast to finish, then play second
       _whistlePlayer!.onPlayerComplete.first.then((_) async {
         await Future.delayed(const Duration(milliseconds: 200));
         if (!mounted || !_active) return;
         _whistlePlayer?.dispose();
         _whistlePlayer = AudioPlayer();
-        await _whistlePlayer!.play(AssetSource('sounds/alarm_whistle.mp3'));
+        await _whistlePlayer!.play(AssetSource(_soundAsset));
       });
     } catch (e) {
       debugPrint('FindHome whistle error: $e');
@@ -536,7 +554,7 @@ class _FindHomeToolState extends State<FindHomeTool> {
   Widget _buildFooter(dynamic nav, bool isDark) {
     final labelColor = isDark ? Colors.white60 : Colors.black54;
     final absDev = nav.deviation.abs() as double;
-    final devSide = nav.deviation > 0 ? 'S' : 'P';
+    final devSide = nav.deviation > 0 ? 'P' : 'S';
 
     Color devColor;
     if (absDev < 5) {
@@ -560,7 +578,7 @@ class _FindHomeToolState extends State<FindHomeTool> {
                     fontSize: 12, fontFamily: 'monospace', color: labelColor),
               ),
               Text(
-                'BRG ${_formatAngle(nav.bearing)}',
+                'TO BOAT ${_formatAngle(nav.bearing)}',
                 style: TextStyle(
                     fontSize: 12, fontFamily: 'monospace', color: labelColor),
               ),
@@ -786,20 +804,27 @@ class _RunwayPainter extends CustomPainter {
     // --- Anchor icon at apex ---
     _drawAnchorIcon(canvas, Offset(centerX, apexY + 10));
 
-    // --- Vessel triangle offset by deviation ---
+    // --- Vessel triangle ---
+    // deviation > 0 = on PORT side (bearing is CW from COG) → triangle LEFT
+    // deviation < 0 = on STARBOARD side → triangle RIGHT
     final clampedDev = deviation.clamp(-maxDeviation, maxDeviation);
-    final vesselX = centerX + (clampedDev / maxDeviation) * baseHalfWidth;
+    final vesselX = centerX - (clampedDev / maxDeviation) * baseHalfWidth;
     final vesselY = baseY - 16;
 
-    // Approach line from vessel to anchor
-    final approachPaint = Paint()
-      ..color = devColor.withValues(alpha: active ? 0.5 : 0.25)
-      ..strokeWidth = 2.0;
-    canvas.drawLine(
-      Offset(vesselX, vesselY),
-      Offset(centerX, apexY + 18),
-      approachPaint,
-    );
+    // --- COG line (dotted, from vessel upward — where you're actually heading) ---
+    // COG is always straight up from the vessel (it's the reference frame)
+    final cogPaint = Paint()
+      ..color = (isDark ? Colors.white : Colors.black).withValues(alpha: 0.4)
+      ..strokeWidth = 1.0;
+    _drawDashedLine(canvas, Offset(vesselX, vesselY - 12),
+        Offset(vesselX, apexY + 20), cogPaint, 5, 4);
+
+    // --- Bearing line (dotted, from vessel to anchor — where you need to go) ---
+    final bearingPaint = Paint()
+      ..color = devColor.withValues(alpha: active ? 0.7 : 0.4)
+      ..strokeWidth = 1.5;
+    _drawDashedLine(canvas, Offset(vesselX, vesselY - 12),
+        Offset(centerX, apexY + 18), bearingPaint, 6, 4);
 
     // Vessel triangle
     final vesselPaint = Paint()..color = devColor;
@@ -913,6 +938,26 @@ class _RunwayPainter extends CustomPainter {
     canvas.drawPath(flukePath, paint);
   }
 
+  void _drawDashedLine(Canvas canvas, Offset from, Offset to, Paint paint,
+      double dashLen, double gapLen) {
+    final dx = to.dx - from.dx;
+    final dy = to.dy - from.dy;
+    final dist = math.sqrt(dx * dx + dy * dy);
+    if (dist < 1) return;
+    final ux = dx / dist;
+    final uy = dy / dist;
+    var drawn = 0.0;
+    while (drawn < dist) {
+      final segEnd = math.min(drawn + dashLen, dist);
+      canvas.drawLine(
+        Offset(from.dx + ux * drawn, from.dy + uy * drawn),
+        Offset(from.dx + ux * segEnd, from.dy + uy * segEnd),
+        paint,
+      );
+      drawn = segEnd + gapLen;
+    }
+  }
+
   void _drawText(Canvas canvas, String text, Offset offset, TextStyle style) {
     final tp = TextPainter(
       text: TextSpan(text: text, style: style),
@@ -965,6 +1010,7 @@ class FindHomeToolBuilder extends ToolBuilder {
       style: StyleConfig(
         customProperties: {
           'feedbackInterval': 10, // seconds (5-60)
+          'alertSound': 'whistle',
         },
       ),
     );

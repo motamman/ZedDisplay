@@ -938,7 +938,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
     }
 
     // Unit (not applicable for certain complex tools)
-    const excludeUnitOptions = ['autopilot', 'autopilot_v2', 'autopilot_simple', 'wind_compass', 'weatherflow_forecast', 'tanks', 'clock_alarm', 'weather_api_spinner', 'anchor_alarm', 'position_display', 'victron_flow', 'device_access_manager'];
+    const excludeUnitOptions = ['autopilot', 'autopilot_v2', 'autopilot_simple', 'wind_compass', 'weatherflow_forecast', 'tanks', 'clock_alarm', 'weather_api_spinner', 'anchor_alarm', 'position_display', 'victron_flow', 'device_access_manager', 'find_home'];
     if (!excludeUnitOptions.contains(_selectedToolTypeId)) {
       widgets.addAll([
         TextFormField(
