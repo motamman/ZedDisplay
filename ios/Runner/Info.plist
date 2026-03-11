@@ -66,6 +66,11 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<!-- Location permission for Find Home dinghy navigation -->
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>ZedDisplay needs your location to navigate back to your anchored vessel</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>ZedDisplay needs your location to navigate back to your anchored vessel</string>
 	<!-- Microphone permission for voice intercom -->
 	<key>NSMicrophoneUsageDescription</key>
 	<string>ZedDisplay needs microphone access for crew voice intercom</string>

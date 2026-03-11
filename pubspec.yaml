@@ -111,6 +111,9 @@ dependencies:
   # Device compass for anchor bearing
   flutter_compass: ^0.8.0
 
+  # Device GPS for dinghy position (Find Home navigation)
+  geolocator: ^14.0.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

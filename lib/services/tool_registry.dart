@@ -41,6 +41,7 @@ import '../widgets/tools/position_display_tool.dart';
 import '../widgets/tools/victron_flow_tool.dart';
 import '../widgets/tools/device_access_manager_tool.dart';
 import '../widgets/tools/user_management_tool.dart';
+import '../widgets/tools/find_home_tool.dart';
 
 /// Abstract builder for tool widgets
 abstract class ToolBuilder {
@@ -153,6 +154,7 @@ class ToolRegistry {
     register('victron_flow', VictronFlowToolBuilder());
     register('device_access_manager', DeviceAccessManagerToolBuilder());
     register('user_management', UserManagementToolBuilder());
+    register('find_home', FindHomeToolBuilder());
     // register('webview', WebViewToolBuilder()); // Hidden for now - uncomment to enable
   }
 }
