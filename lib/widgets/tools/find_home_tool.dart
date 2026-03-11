@@ -3,12 +3,16 @@ import 'dart:io' show Platform;
 import 'dart:math' as math;
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_map/flutter_map.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:latlong2/latlong.dart' hide Path;
+import 'package:provider/provider.dart';
 import 'package:vibration/vibration.dart';
 import '../../models/path_metadata.dart';
 import '../../models/tool_config.dart';
 import '../../models/tool_definition.dart';
 import '../../services/signalk_service.dart';
+import '../../services/storage_service.dart';
 import '../../services/tool_registry.dart';
 import '../../services/alarm_audio_player.dart';
 import '../../utils/angle_utils.dart';
@@ -20,7 +24,7 @@ import '../tool_info_button.dart';
 ///
 /// Data sources:
 ///   - Dinghy position / COG / SOG: device GPS via geolocator
-///   - Home target: configurable SignalK path, default navigation.anchor.position
+///   - Home target: manual position (persisted) or SignalK path
 ///
 /// Haptic feedback: 1 buzz = turn port, 2 buzzes = turn starboard.
 class FindHomeTool extends StatefulWidget {
@@ -72,6 +76,12 @@ class _FindHomeToolState extends State<FindHomeTool> {
   Position? _devicePosition;
   String? _gpsError;
 
+  // Manual home position (persisted)
+  double? _manualLat;
+  double? _manualLon;
+  bool _storageLoaded = false;
+  StorageService? _storage;
+
   /// SignalK path for the home target (boat position)
   String get _targetPath {
     if (widget.config.dataSources.isNotEmpty &&
@@ -89,6 +99,22 @@ class _FindHomeToolState extends State<FindHomeTool> {
         .subscribeToPaths([_targetPath], ownerId: _ownerId);
     widget.signalKService.addListener(_onSignalKUpdate);
     _initDeviceGps();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!_storageLoaded) {
+      _storageLoaded = true;
+      _storage = Provider.of<StorageService>(context, listen: false);
+      _manualLat = double.tryParse(_storage!.getSetting('find_home_lat') ?? '');
+      _manualLon = double.tryParse(_storage!.getSetting('find_home_lon') ?? '');
+      final wasActive = _storage!.getSetting('find_home_active') == 'true';
+      if (wasActive && (_manualLat != null && _manualLon != null || _getSignalKPosition().$1 != null)) {
+        _active = true;
+        // Feedback will start once GPS stream delivers the first position
+      }
+    }
   }
 
   @override
@@ -155,7 +181,13 @@ class _FindHomeToolState extends State<FindHomeTool> {
       _positionSub =
           Geolocator.getPositionStream(locationSettings: settings).listen(
         (position) {
-          if (mounted) setState(() => _devicePosition = position);
+          if (mounted) {
+            setState(() => _devicePosition = position);
+            // Auto-start feedback when GPS ready and active was restored
+            if (_active && _hapticTimer == null) {
+              _startFeedback();
+            }
+          }
         },
         onError: (error) {
           debugPrint('FindHome GPS stream error: $error');
@@ -170,8 +202,8 @@ class _FindHomeToolState extends State<FindHomeTool> {
 
   // --------------- Data helpers ---------------
 
-  /// Get home target position from SignalK
-  (double?, double?) _getTargetPosition() {
+  /// Get home target position from SignalK only
+  (double?, double?) _getSignalKPosition() {
     final data = widget.signalKService.getValue(_targetPath);
     if (data?.value is Map) {
       final m = data!.value as Map;
@@ -182,6 +214,38 @@ class _FindHomeToolState extends State<FindHomeTool> {
       }
     }
     return (null, null);
+  }
+
+  /// Get home target position: manual position first, then SignalK
+  (double?, double?) _getTargetPosition() {
+    if (_manualLat != null && _manualLon != null) {
+      return (_manualLat!, _manualLon!);
+    }
+    return _getSignalKPosition();
+  }
+
+  // --------------- Persistence helpers ---------------
+
+  void _saveManualPosition(double lat, double lon) {
+    setState(() {
+      _manualLat = lat;
+      _manualLon = lon;
+    });
+    _storage?.saveSetting('find_home_lat', lat.toString());
+    _storage?.saveSetting('find_home_lon', lon.toString());
+  }
+
+  void _clearManualPosition() {
+    setState(() {
+      _manualLat = null;
+      _manualLon = null;
+    });
+    _storage?.saveSetting('find_home_lat', '');
+    _storage?.saveSetting('find_home_lon', '');
+  }
+
+  void _persistActiveState() {
+    _storage?.saveSetting('find_home_active', _active ? 'true' : 'false');
   }
 
   // --------------- Unit helpers ---------------
@@ -218,6 +282,7 @@ class _FindHomeToolState extends State<FindHomeTool> {
     double distance,
     double cogDeg,
     double sogMs,
+    double vesselSogMs,
     bool isWrongWay,
   })? _computeNav() {
     final pos = _devicePosition;
@@ -236,6 +301,10 @@ class _FindHomeToolState extends State<FindHomeTool> {
     final sogMs = pos.speed >= 0 ? pos.speed : 0.0;
     final cogDeg = pos.heading >= 0 ? pos.heading : bearing;
 
+    // Vessel SOG from SignalK
+    final vesselSogData = widget.signalKService.getValue('navigation.speedOverGround');
+    final vesselSogMs = (vesselSogData?.value as num?)?.toDouble() ?? 0.0;
+
     // Only compute deviation when actually moving
     final deviation = sogMs >= _sogThreshold
         ? AngleUtils.difference(cogDeg, bearing)
@@ -250,6 +319,7 @@ class _FindHomeToolState extends State<FindHomeTool> {
       distance: distance,
       cogDeg: AngleUtils.normalize(cogDeg),
       sogMs: sogMs,
+      vesselSogMs: vesselSogMs,
       isWrongWay: isWrongWay,
     );
   }
@@ -260,6 +330,7 @@ class _FindHomeToolState extends State<FindHomeTool> {
     setState(() {
       _active = !_active;
     });
+    _persistActiveState();
     if (_active) {
       _startFeedback();
     } else {
@@ -390,6 +461,33 @@ class _FindHomeToolState extends State<FindHomeTool> {
     }
   }
 
+  // --------------- Map Picker ---------------
+
+  Future<void> _showSetHomeDialog() async {
+    debugPrint('FindHome: opening Set Home dialog');
+    final result = await showDialog<(double, double)>(
+      context: context,
+      barrierDismissible: true,
+      builder: (context) => _SetHomeDialog(
+        initialLat: _manualLat,
+        initialLon: _manualLon,
+        devicePosition: _devicePosition,
+      ),
+    );
+    debugPrint('FindHome: dialog result = $result');
+    if (result != null) {
+      if (result.$1 == double.infinity) {
+        // Sentinel: reset to SignalK default
+        _clearManualPosition();
+      } else {
+        _saveManualPosition(result.$1, result.$2);
+        if (!_active) {
+          _toggleActive();
+        }
+      }
+    }
+  }
+
   // --------------- Formatting ---------------
 
   String _formatDistance(double meters) {
@@ -400,23 +498,26 @@ class _FindHomeToolState extends State<FindHomeTool> {
         return '${converted.toStringAsFixed(converted < 10 ? 2 : 1)} ${meta.symbol ?? 'm'}';
       }
     }
-    // Fallback: nautical miles
-    final nm = meters / 1852.0;
-    return '${nm.toStringAsFixed(nm < 10 ? 2 : 1)} nm';
+    // Fallback: raw SI (meters)
+    return '${meters.toStringAsFixed(meters < 10 ? 1 : 0)} m';
   }
 
   String _formatAngle(double degrees) {
     return '${degrees.toStringAsFixed(0)}°';
   }
 
-  String _formatSpeed(double sogMs) {
-    final meta =
-        widget.signalKService.metadataStore.get('navigation.speedOverGround');
+  /// Format a speed value using metadata.
+  /// [skPath] — if provided, check path-specific WS meta first, then category.
+  ///            If null (device GPS), use category only.
+  String _formatSpeed(double speedMs, {String? skPath}) {
+    final store = widget.signalKService.metadataStore;
+    final meta = (skPath != null ? store.get(skPath) : null)
+        ?? store.get('__category__.speed');
     if (meta != null) {
-      return meta.format(sogMs, decimals: 1);
+      return meta.format(speedMs, decimals: 1);
     }
-    final kn = sogMs * 1.9438444924;
-    return '${kn.toStringAsFixed(1)} kn';
+    // Fallback: raw SI (m/s)
+    return '${speedMs.toStringAsFixed(1)} m/s';
   }
 
   String _formatEta(double distanceM, double sogMs) {
@@ -432,13 +533,25 @@ class _FindHomeToolState extends State<FindHomeTool> {
     return '$mins:${secs.toString().padLeft(2, '0')}';
   }
 
+  /// Format lat/lon in degrees decimal minutes
+  String _formatDDM(double lat, double lon) {
+    String fmt(double v, String pos, String neg) {
+      final h = v >= 0 ? pos : neg;
+      final a = v.abs();
+      final d = a.floor();
+      final m = (a - d) * 60;
+      return '$d\u00B0${m.toStringAsFixed(3)}\'$h';
+    }
+    return '${fmt(lat, 'N', 'S')} ${fmt(lon, 'E', 'W')}';
+  }
+
   // --------------- Build ---------------
 
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
-    // Check for target position from SignalK
+    // Check for target position (manual or SignalK)
     final (homeLat, _) = _getTargetPosition();
     if (homeLat == null) {
       return _buildNoTarget(isDark);
@@ -457,14 +570,14 @@ class _FindHomeToolState extends State<FindHomeTool> {
 
     final distMeta = _pickDistanceMeta(nav.distance);
     // Derive metersPerUnit from metadata for the runway painter
-    double metersPerUnit = 1852.0; // fallback: nm
-    String unitSymbol = 'nm';
+    double metersPerUnit = 1.0; // fallback: SI meters
+    String unitSymbol = 'm';
     if (distMeta != null) {
       final oneConverted = distMeta.convert(1.0);
       if (oneConverted != null && oneConverted > 0) {
         metersPerUnit = 1.0 / oneConverted;
       }
-      unitSymbol = distMeta.symbol ?? 'nm';
+      unitSymbol = distMeta.symbol ?? 'm';
     }
 
     return Stack(
@@ -530,10 +643,15 @@ class _FindHomeToolState extends State<FindHomeTool> {
                 'No home position',
                 style: TextStyle(color: Colors.grey),
               ),
-              const SizedBox(height: 4),
-              Text(
-                'Drop anchor to set target',
-                style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
+              const SizedBox(height: 12),
+              ElevatedButton.icon(
+                onPressed: _showSetHomeDialog,
+                icon: const Icon(Icons.home, size: 18),
+                label: const Text('Set Home'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.blue,
+                  foregroundColor: Colors.white,
+                ),
               ),
             ],
           ),
@@ -594,30 +712,62 @@ class _FindHomeToolState extends State<FindHomeTool> {
   Widget _buildHeader(dynamic nav, bool isDark) {
     final textColor = isDark ? Colors.white : Colors.black87;
     final labelColor = isDark ? Colors.white60 : Colors.black54;
+    final (homeLat, homeLon) = _getTargetPosition();
+    final hasManual = _manualLat != null && _manualLon != null;
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(12, 8, 40, 4),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            'FIND HOME',
-            style: TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.bold,
-              color: labelColor,
-              letterSpacing: 1.2,
-            ),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Row(
+                children: [
+                  Text(
+                    'FIND HOME',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.bold,
+                      color: labelColor,
+                      letterSpacing: 1.2,
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: _showSetHomeDialog,
+                    child: Padding(
+                      padding: const EdgeInsets.all(8),
+                      child: Icon(Icons.edit_location_alt, size: 18, color: labelColor),
+                    ),
+                  ),
+                  if (hasManual) ...[
+                    const SizedBox(width: 4),
+                    GestureDetector(
+                      onLongPress: _clearManualPosition,
+                      child: Icon(Icons.close, size: 14, color: Colors.grey.shade600),
+                    ),
+                  ],
+                ],
+              ),
+              Text(
+                _formatDistance(nav.distance),
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  fontFamily: 'monospace',
+                  color: textColor,
+                ),
+              ),
+            ],
           ),
-          Text(
-            _formatDistance(nav.distance),
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.bold,
-              fontFamily: 'monospace',
-              color: textColor,
+          if (homeLat != null && homeLon != null)
+            Text(
+              _formatDDM(homeLat, homeLon),
+              style: TextStyle(fontSize: 10, color: labelColor, fontFamily: 'monospace'),
             ),
-          ),
         ],
       ),
     );
@@ -680,7 +830,7 @@ class _FindHomeToolState extends State<FindHomeTool> {
                 ),
               ),
               Text(
-                _formatSpeed(nav.sogMs),
+                'YOU ${_formatSpeed(nav.sogMs)}',
                 style: TextStyle(
                     fontSize: 12, fontFamily: 'monospace', color: labelColor),
               ),
@@ -695,8 +845,17 @@ class _FindHomeToolState extends State<FindHomeTool> {
                 style: TextStyle(
                     fontSize: 12, fontFamily: 'monospace', color: labelColor),
               ),
-              Row(
-                children: [
+              Text(
+                'BOAT ${_formatSpeed(nav.vesselSogMs, skPath: 'navigation.speedOverGround')}',
+                style: TextStyle(
+                    fontSize: 12, fontFamily: 'monospace', color: labelColor),
+              ),
+            ],
+          ),
+          const SizedBox(height: 2),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
                   // Whistle toggle
                   GestureDetector(
                     onTap: _toggleWhistle,
@@ -751,11 +910,350 @@ class _FindHomeToolState extends State<FindHomeTool> {
                       ),
                     ),
                   ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// --------------- Set Home Dialog ---------------
+
+class _SetHomeDialog extends StatefulWidget {
+  final double? initialLat;
+  final double? initialLon;
+  final Position? devicePosition;
+
+  const _SetHomeDialog({
+    this.initialLat,
+    this.initialLon,
+    this.devicePosition,
+  });
+
+  @override
+  State<_SetHomeDialog> createState() => _SetHomeDialogState();
+}
+
+class _SetHomeDialogState extends State<_SetHomeDialog> {
+  late TextEditingController _latController;
+  late TextEditingController _lonController;
+  final MapController _mapController = MapController();
+  double? _selectedLat;
+  double? _selectedLon;
+  bool _mapReady = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _selectedLat = widget.initialLat;
+    _selectedLon = widget.initialLon;
+
+    _latController = TextEditingController(
+      text: _selectedLat != null ? _formatCoordForEdit(_selectedLat!, true) : '',
+    );
+    _lonController = TextEditingController(
+      text: _selectedLon != null ? _formatCoordForEdit(_selectedLon!, false) : '',
+    );
+  }
+
+  @override
+  void dispose() {
+    _latController.dispose();
+    _lonController.dispose();
+    _mapController.dispose();
+    super.dispose();
+  }
+
+  /// Format a coordinate for the text field: "47 36.352 N"
+  String _formatCoordForEdit(double value, bool isLat) {
+    final h = isLat ? (value >= 0 ? 'N' : 'S') : (value >= 0 ? 'E' : 'W');
+    final a = value.abs();
+    final d = a.floor();
+    final m = (a - d) * 60;
+    return '$d ${m.toStringAsFixed(3)} $h';
+  }
+
+  /// Parse a coordinate string into decimal degrees.
+  /// Accepts: "47.605867", "-47.605867", "47 36.352", "47 36.352 N"
+  double? _parseCoordinate(String input) {
+    final cleaned = input.trim().replaceAll(RegExp('[°\'"\\u00B0]'), ' ').trim();
+    if (cleaned.isEmpty) return null;
+
+    final tokens = cleaned.split(RegExp(r'\s+')).where((t) => t.isNotEmpty).toList();
+    if (tokens.isEmpty) return null;
+
+    // Determine sign from hemisphere letter
+    double sign = 1.0;
+    final lastToken = tokens.last.toUpperCase();
+    if (lastToken == 'S' || lastToken == 'W') {
+      sign = -1.0;
+      tokens.removeLast();
+    } else if (lastToken == 'N' || lastToken == 'E') {
+      tokens.removeLast();
+    }
+
+    if (tokens.isEmpty) return null;
+
+    if (tokens.length == 1) {
+      // Decimal degrees: sign from hemisphere if present, else from number
+      final dd = double.tryParse(tokens[0]);
+      if (dd == null) return null;
+      // If hemisphere was given, use its sign; otherwise keep number's sign
+      if (sign < 0) return -dd.abs();
+      return dd;
+    }
+
+    if (tokens.length == 2) {
+      // Degrees + decimal minutes
+      final deg = double.tryParse(tokens[0]);
+      final min = double.tryParse(tokens[1]);
+      if (deg == null || min == null) return null;
+      return sign * (deg.abs() + min / 60);
+    }
+
+    return null;
+  }
+
+  void _onLatLonTextChanged() {
+    final lat = _parseCoordinate(_latController.text);
+    final lon = _parseCoordinate(_lonController.text);
+    if (lat != null && lon != null && lat.abs() <= 90 && lon.abs() <= 180) {
+      setState(() {
+        _selectedLat = lat;
+        _selectedLon = lon;
+      });
+      if (_mapReady) {
+        _mapController.move(LatLng(lat, lon), _mapController.camera.zoom);
+      }
+    }
+  }
+
+  void _onMapTap(TapPosition tapPos, LatLng point) {
+    debugPrint('FindHome map tap: ${point.latitude}, ${point.longitude}');
+    setState(() {
+      _selectedLat = point.latitude;
+      _selectedLon = point.longitude;
+      _latController.text = _formatCoordForEdit(point.latitude, true);
+      _lonController.text = _formatCoordForEdit(point.longitude, false);
+    });
+  }
+
+  void _useCurrentGps() {
+    final pos = widget.devicePosition;
+    if (pos == null) return;
+    setState(() {
+      _selectedLat = pos.latitude;
+      _selectedLon = pos.longitude;
+      _latController.text = _formatCoordForEdit(pos.latitude, true);
+      _lonController.text = _formatCoordForEdit(pos.longitude, false);
+    });
+    if (_mapReady) {
+      _mapController.move(
+        LatLng(pos.latitude, pos.longitude),
+        _mapController.camera.zoom,
+      );
+    }
+  }
+
+  LatLng get _mapCenter {
+    if (_selectedLat != null && _selectedLon != null) {
+      return LatLng(_selectedLat!, _selectedLon!);
+    }
+    if (widget.devicePosition != null) {
+      return LatLng(widget.devicePosition!.latitude, widget.devicePosition!.longitude);
+    }
+    return const LatLng(0, 0);
+  }
+
+  /// Format preview as DDM
+  String get _preview {
+    if (_selectedLat == null || _selectedLon == null) return '';
+    String fmt(double v, String pos, String neg) {
+      final h = v >= 0 ? pos : neg;
+      final a = v.abs();
+      final d = a.floor();
+      final m = (a - d) * 60;
+      return '$d\u00B0${m.toStringAsFixed(3)}\'$h';
+    }
+    return '${fmt(_selectedLat!, 'N', 'S')} ${fmt(_selectedLon!, 'E', 'W')}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final hasSelection = _selectedLat != null && _selectedLon != null;
+
+    return Dialog(
+      insetPadding: const EdgeInsets.all(16),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 500, maxHeight: 600),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // Title row
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    'Set Home Position',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close),
+                    onPressed: () => Navigator.of(context).pop(),
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+
+              // Lat/Lon text fields
+              Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _latController,
+                      decoration: const InputDecoration(
+                        labelText: 'Lat',
+                        hintText: '47 36.352 N',
+                        isDense: true,
+                        border: OutlineInputBorder(),
+                      ),
+                      style: const TextStyle(fontFamily: 'monospace', fontSize: 14),
+                      onChanged: (_) => _onLatLonTextChanged(),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: TextField(
+                      controller: _lonController,
+                      decoration: const InputDecoration(
+                        labelText: 'Lon',
+                        hintText: '122 19.876 W',
+                        isDense: true,
+                        border: OutlineInputBorder(),
+                      ),
+                      style: const TextStyle(fontFamily: 'monospace', fontSize: 14),
+                      onChanged: (_) => _onLatLonTextChanged(),
+                    ),
+                  ),
+                ],
+              ),
+
+              // Preview
+              if (hasSelection) ...[
+                const SizedBox(height: 4),
+                Text(
+                  _preview,
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: isDark ? Colors.white60 : Colors.black54,
+                    fontFamily: 'monospace',
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+              ],
+
+              const SizedBox(height: 12),
+
+              // Map
+              Expanded(
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: FlutterMap(
+                    mapController: _mapController,
+                    options: MapOptions(
+                      initialCenter: _mapCenter,
+                      initialZoom: 12,
+                      minZoom: 3,
+                      maxZoom: 18,
+                      onTap: _onMapTap,
+                      onMapReady: () => _mapReady = true,
+                    ),
+                    children: [
+                      TileLayer(
+                        urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                        userAgentPackageName: 'com.zennora.signalk',
+                      ),
+                      TileLayer(
+                        urlTemplate: 'https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png',
+                        userAgentPackageName: 'com.zennora.signalk',
+                      ),
+                      MarkerLayer(
+                          markers: [
+                            if (hasSelection)
+                              Marker(
+                                point: LatLng(_selectedLat!, _selectedLon!),
+                                width: 40,
+                                height: 40,
+                                child: const Icon(
+                                  Icons.location_on,
+                                  color: Colors.red,
+                                  size: 40,
+                                ),
+                              ),
+                            if (widget.devicePosition != null)
+                              Marker(
+                                point: LatLng(
+                                  widget.devicePosition!.latitude,
+                                  widget.devicePosition!.longitude,
+                                ),
+                                width: 24,
+                                height: 24,
+                                child: Container(
+                                  decoration: BoxDecoration(
+                                    color: Colors.blue,
+                                    shape: BoxShape.circle,
+                                    border: Border.all(color: Colors.white, width: 2),
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+
+              const SizedBox(height: 12),
+
+              // Buttons
+              Row(
+                children: [
+                  TextButton.icon(
+                    onPressed: widget.devicePosition != null ? _useCurrentGps : null,
+                    icon: const Icon(Icons.my_location, size: 18),
+                    label: const Text('GPS'),
+                  ),
+                  const SizedBox(width: 4),
+                  if (widget.initialLat != null)
+                    TextButton.icon(
+                      onPressed: () => Navigator.of(context).pop((double.infinity, double.infinity)),
+                      icon: const Icon(Icons.restore, size: 18),
+                      label: const Text('Reset'),
+                      style: TextButton.styleFrom(foregroundColor: Colors.orange),
+                    ),
+                  const Spacer(),
+                  ElevatedButton(
+                    onPressed: hasSelection
+                        ? () => Navigator.of(context).pop((_selectedLat!, _selectedLon!))
+                        : null,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.blue,
+                      foregroundColor: Colors.white,
+                    ),
+                    child: const Text('Set Home'),
+                  ),
                 ],
               ),
             ],
           ),
-        ],
+        ),
       ),
     );
   }

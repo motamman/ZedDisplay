@@ -2151,7 +2151,10 @@ class _ConversionManager {
       // Load new unitpreferences format if available
       if (cached.containsKey('_unitDefinitions')) {
         _unitDefinitions = cached['_unitDefinitions'] as Map<String, dynamic>?;
-        _defaultCategories = cached['_defaultCategories'] as Map<String, dynamic>?;
+        final cachedDc = cached['_defaultCategories'] as Map<String, dynamic>?;
+        _defaultCategories = (cachedDc?.containsKey('categories') == true)
+            ? cachedDc!['categories'] as Map<String, dynamic>?
+            : cachedDc;
         _presetDetails = cached['_presetDetails'] as Map<String, dynamic>?;
         _activePresetName = cached['_activePresetName'] as String?;
         // Load categoryToBaseUnit if available
@@ -2215,7 +2218,8 @@ class _ConversionManager {
 
       // Parse default categories (path patterns)
       if (defaultCategoriesResponse.statusCode == 200) {
-        _defaultCategories = jsonDecode(defaultCategoriesResponse.body) as Map<String, dynamic>;
+        final dcBody = jsonDecode(defaultCategoriesResponse.body) as Map<String, dynamic>;
+        _defaultCategories = dcBody['categories'] as Map<String, dynamic>?;
       }
 
       // Parse categories (categoryToBaseUnit mapping)

@@ -543,6 +543,37 @@ tools:
       - View connected devices
       - Revoke access
 
+  find_home:
+    name: "Find Home"
+    description: |
+      ILS-style approach display for navigating back to your anchored vessel — on foot, by dinghy, or swimming.
+
+      **How it works:**
+      - Uses your phone's GPS for position, course, and speed
+      - Shows a runway-style deviation indicator pointing toward the boat
+      - Haptic feedback guides you without looking at the screen: 1 buzz = turn port, 2 buzzes = turn starboard, 3 rapid = wrong way
+
+      **Display:**
+      - Runway centerline with lateral deviation bars
+      - Distance to boat (auto-switches nautical miles ↔ close-range units)
+      - COG (your heading) and bearing to boat
+      - YOU speed (your device GPS) and BOAT speed (vessel SOG from SignalK)
+      - ETA based on current speed
+
+      **Setting Home Position:**
+      - Tap the edit icon next to FIND HOME to open the map picker
+      - Tap the map, enter coordinates manually, or use current vessel position from SignalK
+      - Long-press the X to clear a manual position and revert to SignalK
+
+      **Audio & Haptic Feedback:**
+      - Configurable vibration patterns and interval
+      - Optional whistle/audio feedback with selectable alert sound
+      - Wrong-way detection with urgent triple-buzz alert
+
+      **Units:**
+      - All conversions follow server unit preferences (speed, distance)
+      - Falls back to raw SI (m/s, meters) when no metadata available
+
   forecast_spinner:
     name: "Forecast Spinner"
     description: |
