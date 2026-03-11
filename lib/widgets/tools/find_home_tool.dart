@@ -1,9 +1,10 @@
 import 'dart:async';
-import 'dart:math' as math;
-import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'dart:io' show Platform;
+import 'dart:math' as math;
+import 'package:audioplayers/audioplayers.dart';
+import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:vibration/vibration.dart';
 import '../../models/tool_config.dart';
 import '../../models/tool_definition.dart';
 import '../../services/signalk_service.dart';
@@ -44,14 +45,19 @@ class _FindHomeToolState extends State<FindHomeTool> {
   /// Minimum SOG (m/s) to compute ETA and deviation
   static const _sogThreshold = 0.5;
 
-  /// Haptic repeat interval
-  static const _hapticInterval = Duration(seconds: 3);
-
   /// Deviation threshold for haptic feedback (degrees)
   static const _hapticDeviationThreshold = 5.0;
 
+  /// Feedback interval from config (5-60 seconds, default 10)
+  int get _feedbackIntervalSec {
+    final val = widget.config.style.customProperties?['feedbackInterval'] as int?;
+    return (val ?? 10).clamp(5, 60);
+  }
+
   bool _active = false;
+  bool _whistleEnabled = false;
   Timer? _hapticTimer;
+  AudioPlayer? _whistlePlayer;
 
   // Device GPS state
   StreamSubscription<Position>? _positionSub;
@@ -81,6 +87,7 @@ class _FindHomeToolState extends State<FindHomeTool> {
   void dispose() {
     _hapticTimer?.cancel();
     _positionSub?.cancel();
+    _whistlePlayer?.dispose();
     widget.signalKService.removeListener(_onSignalKUpdate);
     widget.signalKService
         .unsubscribeFromPaths([_targetPath], ownerId: _ownerId);
@@ -214,30 +221,39 @@ class _FindHomeToolState extends State<FindHomeTool> {
     );
   }
 
-  // --------------- Haptic engine ---------------
+  // --------------- Feedback engine ---------------
 
   void _toggleActive() {
     setState(() {
       _active = !_active;
     });
     if (_active) {
-      _startHaptics();
+      _startFeedback();
     } else {
-      _stopHaptics();
+      _stopFeedback();
     }
   }
 
-  void _startHaptics() {
-    _hapticTimer?.cancel();
-    _hapticTimer = Timer.periodic(_hapticInterval, (_) => _fireHaptic());
+  void _toggleWhistle() {
+    setState(() {
+      _whistleEnabled = !_whistleEnabled;
+    });
   }
 
-  void _stopHaptics() {
+  void _startFeedback() {
+    _hapticTimer?.cancel();
+    _hapticTimer = Timer.periodic(
+      Duration(seconds: _feedbackIntervalSec),
+      (_) => _fireFeedback(),
+    );
+  }
+
+  void _stopFeedback() {
     _hapticTimer?.cancel();
     _hapticTimer = null;
   }
 
-  void _fireHaptic() {
+  void _fireFeedback() {
     if (!_active || !mounted) return;
     final nav = _computeNav();
     if (nav == null) return;
@@ -246,14 +262,59 @@ class _FindHomeToolState extends State<FindHomeTool> {
     if (absDev < _hapticDeviationThreshold) return;
 
     if (nav.deviation > 0) {
-      // Left of course → turn starboard → 2 buzzes
-      HapticFeedback.heavyImpact();
-      Future.delayed(const Duration(milliseconds: 300), () {
-        HapticFeedback.heavyImpact();
-      });
+      // On starboard side of course → turn port → 1 buzz / 1 whistle
+      _vibrateSingle();
+      if (_whistleEnabled) _whistleSingle();
     } else {
-      // Right of course → turn port → 1 buzz
-      HapticFeedback.heavyImpact();
+      // On port side of course → turn starboard → 2 buzzes / 2 whistles
+      _vibrateDouble();
+      if (_whistleEnabled) _whistleDouble();
+    }
+  }
+
+  /// Single long vibration: 500ms at max intensity
+  void _vibrateSingle() {
+    Vibration.vibrate(
+      pattern: [0, 500],
+      intensities: [0, 255],
+    );
+  }
+
+  /// Double long vibration: 500ms, pause 300ms, 500ms
+  void _vibrateDouble() {
+    Vibration.vibrate(
+      pattern: [0, 500, 300, 500],
+      intensities: [0, 255, 0, 255],
+    );
+  }
+
+  /// Play one whistle blast
+  Future<void> _whistleSingle() async {
+    try {
+      _whistlePlayer?.dispose();
+      _whistlePlayer = AudioPlayer();
+      await _whistlePlayer!.play(AssetSource('sounds/alarm_whistle.mp3'));
+    } catch (e) {
+      debugPrint('FindHome whistle error: $e');
+    }
+  }
+
+  /// Play two whistle blasts
+  Future<void> _whistleDouble() async {
+    try {
+      _whistlePlayer?.dispose();
+      _whistlePlayer = AudioPlayer();
+      await _whistlePlayer!.play(AssetSource('sounds/alarm_whistle.mp3'));
+      // Wait for first blast to finish, then play second
+      _whistlePlayer!.onPlayerComplete.first.then((_) async {
+        await Future.delayed(const Duration(milliseconds: 200));
+        if (!mounted || !_active) return;
+        _whistlePlayer?.dispose();
+        _whistlePlayer = AudioPlayer();
+        await _whistlePlayer!.play(AssetSource('sounds/alarm_whistle.mp3'));
+      });
+    } catch (e) {
+      debugPrint('FindHome whistle error: $e');
     }
   }
 
@@ -534,30 +595,63 @@ class _FindHomeToolState extends State<FindHomeTool> {
                 style: TextStyle(
                     fontSize: 12, fontFamily: 'monospace', color: labelColor),
               ),
-              GestureDetector(
-                onTap: _toggleActive,
-                child: Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: _active
-                        ? Colors.green.withValues(alpha: 0.3)
-                        : Colors.grey.withValues(alpha: 0.2),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: _active ? Colors.green : Colors.grey,
-                      width: 1,
+              Row(
+                children: [
+                  // Whistle toggle
+                  GestureDetector(
+                    onTap: _toggleWhistle,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: _whistleEnabled
+                            ? Colors.orange.withValues(alpha: 0.3)
+                            : Colors.grey.withValues(alpha: 0.2),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color:
+                              _whistleEnabled ? Colors.orange : Colors.grey,
+                          width: 1,
+                        ),
+                      ),
+                      child: Icon(
+                        _whistleEnabled
+                            ? Icons.volume_up
+                            : Icons.volume_off,
+                        size: 14,
+                        color:
+                            _whistleEnabled ? Colors.orange : Colors.grey,
+                      ),
                     ),
                   ),
-                  child: Text(
-                    _active ? 'ACTIVE' : 'OFF',
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.bold,
-                      color: _active ? Colors.green : Colors.grey,
+                  const SizedBox(width: 8),
+                  // Vibration/active toggle
+                  GestureDetector(
+                    onTap: _toggleActive,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: _active
+                            ? Colors.green.withValues(alpha: 0.3)
+                            : Colors.grey.withValues(alpha: 0.2),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: _active ? Colors.green : Colors.grey,
+                          width: 1,
+                        ),
+                      ),
+                      child: Text(
+                        _active ? 'ACTIVE' : 'OFF',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold,
+                          color: _active ? Colors.green : Colors.grey,
+                        ),
+                      ),
                     ),
                   ),
-                ),
+                ],
               ),
             ],
           ),
@@ -868,7 +962,11 @@ class FindHomeToolBuilder extends ToolBuilder {
       dataSources: [
         DataSource(path: 'navigation.position', label: 'Home Target'),
       ],
-      style: StyleConfig(),
+      style: StyleConfig(
+        customProperties: {
+          'feedbackInterval': 10, // seconds (5-60)
+        },
+      ),
     );
   }
 
