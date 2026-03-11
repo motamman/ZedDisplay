@@ -763,7 +763,8 @@ class SignalKService extends ChangeNotifier implements DataService {
     }
   }
 
-  /// Attempt to reconnect with exponential backoff
+  /// Attempt to reconnect with exponential backoff.
+  /// Uses lightweight reconnect to preserve cached data across short dropouts.
   void _attemptReconnect() {
     if (_reconnectAttempts >= _maxReconnectAttempts) {
       if (kDebugMode) {
@@ -772,7 +773,7 @@ class SignalKService extends ChangeNotifier implements DataService {
       _connectionState = SignalKConnectionState.disconnected;
       _connectionStateController.add(SignalKConnectionState.disconnected);
       _errorMessage = 'Connection lost. Please reconnect manually.';
-      // notifyListeners() only for error message if needed
+      notifyListeners();
       return;
     }
 
@@ -790,23 +791,68 @@ class SignalKService extends ChangeNotifier implements DataService {
     _reconnectTimer?.cancel();
     _reconnectTimer = Timer(delay, () async {
       try {
-        await connect(
-          _serverUrl,
-          secure: _useSecureConnection,
-          authToken: _authToken,
-        );
+        await _reconnectLight();
         if (kDebugMode) {
-          print('Reconnected successfully!');
+          print('Reconnected successfully (lightweight)!');
         }
       } catch (e) {
         if (kDebugMode) {
           print('Reconnect attempt #$_reconnectAttempts failed: $e');
         }
-        // connect() failure doesn't trigger _handleDisconnect (that's only for established connections)
-        // So we need to manually trigger the next attempt
         _attemptReconnect();
       }
     });
+  }
+
+  /// Lightweight reconnect: replace WebSocket and re-send subscriptions
+  /// without clearing cached data (metadata, conversions, AIS, data cache).
+  /// This makes short dropouts (subway, Wi-Fi handoff) nearly invisible.
+  Future<void> _reconnectLight() async {
+    // Tear down old socket only
+    await _subscription?.cancel();
+    _subscription = null;
+    try {
+      await _channel?.sink.close();
+    } catch (_) {}
+    _channel = null;
+
+    // Open new WebSocket
+    final wsUrl = await _discoverWebSocketEndpoint();
+
+    if (_authToken != null) {
+      final headers = <String, String>{
+        'Authorization': 'Bearer ${_authToken!.token}',
+      };
+      final socket = await WebSocket.connect(wsUrl, headers: headers);
+      socket.pingInterval = const Duration(seconds: 30);
+      _channel = IOWebSocketChannel(socket);
+    } else {
+      _channel = WebSocketChannel.connect(Uri.parse(wsUrl));
+    }
+
+    // Listen on new stream
+    _subscription = _channel!.stream.listen(
+      _handleMessage,
+      onError: _handleError,
+      onDone: _handleDisconnect,
+      cancelOnError: false,
+    );
+
+    _isConnected = true;
+    _errorMessage = null;
+    _reconnectAttempts = 0;
+    _intentionalDisconnect = false;
+    _connectionState = SignalKConnectionState.connected;
+    _connectionStateController.add(SignalKConnectionState.connected);
+    notifyListeners();
+
+    // Re-send existing subscriptions to the new WebSocket
+    await _updateSubscription();
+
+    // Re-subscribe RTC paths if active
+    if (_rtcDeltaCallback != null) {
+      _subscribeToRtcPaths();
+    }
   }
 
   /// Send PUT request to SignalK server
