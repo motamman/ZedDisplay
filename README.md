@@ -93,8 +93,10 @@ A customizable SignalK marine dashboard and crew comms application to display re
     - Favorites tab with live distance/SOG for in-range vessels
     - Manual add by MMSI for vessels not currently visible
     - Detection works even when AIS chart is off-screen or app is backgrounded
+  - **Find Home Integration**: Tap a vessel to set it as the Find Home navigation target (requires Find Home widget on any screen)
   - Hide stale vessels option to reduce clutter
   - Dedicated AIS vessel registry for structured vessel tracking
+  - Requires AIS receiver or AIS data source feeding SignalK
   - Range control (auto-scaling or manual)
   - Tap vessels for detailed info
 
@@ -165,9 +167,12 @@ A customizable SignalK marine dashboard and crew comms application to display re
   - Raise anchor to clear and reset
   - Works with SignalK anchor alarm plugin
 - **Find Home**: Navigate back to a saved home position using device GPS
+  - ILS-style runway deviation display with bearing and distance
   - Haptic feedback with configurable vibration patterns
   - Wrong-way detection with audio/vibration alerts
   - Configurable alert sounds and feedback intervals
+  - **AIS Vessel Targeting**: Select any vessel from AIS Tracker as your destination (requires AIS Tracker widget on any screen and an AIS receiver)
+  - **Track Mode**: Use vessel's SignalK position instead of device GPS for boat-to-target guidance
   - Distance display with proper unit formatting
 
 - **Position Display**: Current vessel position in configurable formats
