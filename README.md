@@ -34,6 +34,7 @@ A customizable SignalK marine dashboard and crew comms application to display re
 - Multiple dashboard screens with custom layouts
 - Drag-and-drop tool placement
 - Grid-based responsive layout
+- **5 Themed Starter Dashboards**: Sailing, Weather Station, Passage, Boat Systems, and Controls — covering all 39 widget types
 
 ### Tool Library
 
@@ -173,6 +174,11 @@ A customizable SignalK marine dashboard and crew comms application to display re
   - Configurable alert sounds and feedback intervals
   - **AIS Vessel Targeting**: Select any vessel from AIS Tracker as your destination (requires AIS Tracker widget on any screen and an AIS receiver)
   - **Track Mode**: Use vessel's SignalK position instead of device GPS for boat-to-target guidance
+  - **Dodge Mode**: Intercept-geometry course guidance for passing safely behind (or ahead of) a moving AIS vessel
+    - Calculates course-to-steer with configurable safe distance (default 300m)
+    - Stern pass (default) or bow pass toggle with safety checks
+    - Color-coded runway display (cyan=stern, orange=bow) with target vessel at apex
+    - Auto-appears when AIS target has COG/SOG
   - Distance display with proper unit formatting
 
 - **Position Display**: Current vessel position in configurable formats
@@ -209,6 +215,12 @@ A customizable SignalK marine dashboard and crew comms application to display re
   <img src="screenshots/tanks.png" alt="Tanks" width="350">
 
 **Utility Tools**
+- **Sun/Moon Arc**: Celestial display showing sun and moon arc paths
+  - Real-time sun and moon positions on the sky arc
+  - Rise/set times with localized formatting
+  - Twilight phases (civil, nautical, astronomical)
+  - Uses vessel position from SignalK — no configuration needed
+
 - **Clock/Alarm**: Smart clock with customizable faces and alarms
   - 5 clock face styles: analog, digital, minimal, nautical, modern
   - Multiple alarms with 5 sound options (ding, fog horn, ship bell, whistle, chimes)

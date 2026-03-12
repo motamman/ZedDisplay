@@ -1,4 +1,54 @@
-# What's New in v0.5.51
+# What's New in v0.5.60
+
+## Release Notes (Google Play - max 500 chars)
+
+v0.5.60 Dodge Mode, Sun/Moon Arc & Themed Dashboards
+
+NEW: Find Home Dodge Mode — intercept geometry calculates course to pass safely behind (or ahead of) a moving AIS vessel. Sun/Moon Arc tool shows celestial positions and twilight phases.
+
+NEW: 5 themed dashboards covering all 39 widgets. Pick one from Settings → Dashboards.
+
+IMPROVED: AIS max range filtering, vessel lookup, faster dashboard loading.
+
+## Release Notes (App Store / TestFlight - max 4000 chars)
+
+### Find Home — Dodge Mode (NEW)
+- **Intercept Geometry** - Calculates course-to-steer to pass safely behind (or ahead of) a moving AIS vessel
+- **Stern/Bow Pass** - Toggle between passing astern (default, safer) or ahead with safety checks
+- **Safe Distance** - Configurable clearance distance (default 300m) stored in tool config
+- **Runway Display** - Target vessel chevron at apex, color-coded track lines (cyan=stern, orange=bow), BOW/STERN labels
+- **Haptic Guidance** - Feedback steers to dodge course; wrong-way alerts if deviating > 90°
+- **Auto-Detect** - DODGE button appears when AIS target has COG/SOG (is moving); hidden for stationary targets
+- **Bow Pass Safety** - Warns when bow pass requires > 90° course change or < 60s to apex
+
+### Sun/Moon Arc Tool (NEW)
+- **Celestial Display** - Visual arc showing sun and moon paths across the sky
+- **Rise/Set Times** - Sunrise, sunset, moonrise, and moonset with localized formatting
+- **Current Position** - Real-time sun and moon position on the arc
+- **Twilight Phases** - Civil, nautical, and astronomical twilight indicated
+- **Self-Contained** - No data source configuration needed; uses vessel position from SignalK
+
+### 5 Themed Dashboard Layouts (NEW)
+- **Sailing** - Wind instruments (windsteer, polar radar), autopilot V2, attitude indicator, realtime charts, position display
+- **Weather Station** - All three forecast spinners, weather alerts, sun/moon arc, clock/alarm, historical charts, environmental gauges
+- **Passage** - Navigation compass, AIS tracker, find home, autopilot simple, GNSS status, anchor alarm, compass
+- **Boat Systems** - Victron power flow, tanks, RPi monitor, system monitor, server & device management, user management, webview, conversion test
+- **Controls** - Knob, slider, switch, checkbox, dropdown, radial & linear gauges, text displays, clock & sun/moon arc
+- All 39 widget types used at least once across the 5 dashboards
+- Select from Settings → Dashboard Setups
+
+### AIS Improvements (IMPROVED)
+- **Vessel Lookup** - AIS Polar Chart now configures vessel lookup service for better vessel identification
+- **Max Range Filtering** - Distant vessels beyond configured range are filtered for better performance
+
+### Under the Hood (IMPROVED)
+- **Dashboard Loading** - Faster startup by avoiding redundant setup service retrieval
+- **Expression Evaluation** - ConversionUtils refactored to use GrammarParser for reliable formula parsing
+- **Admin Menu** - Cleaner sync bundled setups button (IconButton instead of PopupMenuButton)
+
+---
+
+# Previous: v0.5.51
 
 ## Release Notes (Google Play - max 500 chars)
 

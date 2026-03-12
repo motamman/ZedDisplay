@@ -5,6 +5,38 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.60+42] - 2026-03-12
+
+### Added
+- **Find Home — Dodge Mode**: Intercept-geometry course guidance for passing safely behind (or ahead of) a moving AIS vessel
+  - `DodgeUtils` calculates course-to-steer using quadratic intercept solution with configurable safe distance (default 300 m)
+  - Stern pass (default) or bow pass toggle — bow pass includes safety checks (t > 60 s, course change < 90°)
+  - Runway painter shows target vessel chevron at apex, color-coded track lines, and BOW/STERN labels
+  - Haptic and audio feedback steers to dodge course instead of bearing-to-target
+  - DODGE button appears automatically when AIS target has COG/SOG (is moving)
+  - Configurable `dodgeDistance` in tool config (stored in SI meters)
+- **Sun/Moon Arc Tool**: New celestial display showing sun and moon arc paths with rise/set times, current positions, and twilight phases
+  - Date/time formatting utility for localized display
+  - Excluded from data source and options configurators (self-contained tool)
+- **5 Themed Dashboard Layouts**: Pre-built dashboards covering all 39 widget types
+  - **Sailing**: Wind instruments, polar charts, autopilot, attitude indicator, realtime charts
+  - **Weather Station**: Forecast spinners, weather alerts, sun/moon arc, environmental gauges
+  - **Passage**: Navigation, AIS, anchor watch, GNSS status, autopilot simple
+  - **Boat Systems**: Power flow, tanks, RPi monitor, server management, webview, diagnostics
+  - **Controls**: Knob, slider, switch, checkbox, dropdown, gauges, text displays
+- **Bundled Dashboard Assets**: Default dashboard now ships with the app for first-time setup
+- **Widget Creation Guide**: Comprehensive developer documentation for creating new dashboard tools
+
+### Changed
+- **AIS Polar Chart**: Added vessel lookup service configuration for enhanced vessel identification
+- **AIS Data Handling**: Max range filtering to improve performance with distant vessels
+- **Admin Menu**: Sync bundled setups button changed from PopupMenuButton to IconButton for cleaner UI
+- **Dashboard Loading**: Optimized to avoid redundant setup service retrieval
+
+### Fixed
+- **Expression Evaluation**: Refactored ConversionUtils to use GrammarParser and ContextModel for more reliable formula parsing
+- **CPA Alert Service**: Refactored evaluation logic for consistency; AIS Polar Chart labels updated to use const for performance
+
 ## [0.5.51+41] - 2026-03-12
 
 ### Added
