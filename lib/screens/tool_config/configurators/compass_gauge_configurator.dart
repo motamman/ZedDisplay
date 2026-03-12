@@ -76,7 +76,6 @@ class CompassGaugeConfigurator extends ToolConfigurator {
                 initialValue: compassStyle,
                 items: const [
                   DropdownMenuItem(value: 'classic', child: Text('Classic')),
-                  DropdownMenuItem(value: 'arc', child: Text('Arc')),
                   DropdownMenuItem(value: 'minimal', child: Text('Minimal')),
                   DropdownMenuItem(value: 'marine', child: Text('Marine')),
                 ],
