@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+import '../utils/sun_calc.dart';
 
 /// Sun times for a single day
 class DaySunTimes {
@@ -16,6 +17,20 @@ class DaySunTimes {
   final DateTime? nightEnd;
   final DateTime? moonrise;
   final DateTime? moonset;
+  final double? moonPhase;    // 0-1 (0=new, 0.5=full) for this day
+  final double? moonFraction; // 0-1 illumination fraction for this day
+
+  /// Polar night - sun never rises (stays below horizon all day)
+  final bool alwaysNight;
+
+  /// Midnight sun - sun never sets (stays above horizon all day)
+  final bool alwaysDay;
+
+  /// Moon is circumpolar - always above horizon (doesn't set)
+  final bool moonAlwaysUp;
+
+  /// Moon is always below horizon (doesn't rise)
+  final bool moonAlwaysDown;
 
   const DaySunTimes({
     this.sunrise,
@@ -31,61 +46,171 @@ class DaySunTimes {
     this.nightEnd,
     this.moonrise,
     this.moonset,
+    this.moonPhase,
+    this.moonFraction,
+    this.alwaysNight = false,
+    this.alwaysDay = false,
+    this.moonAlwaysUp = false,
+    this.moonAlwaysDown = false,
   });
 }
 
 /// Sun/Moon times for multiple days
 class SunMoonTimes {
-  /// List of daily sun/moon times, index 0 = today, 1 = tomorrow, etc.
+  /// List of daily sun/moon times
+  /// When todayIndex > 0, earlier indices are past days (e.g., yesterday)
   final List<DaySunTimes> days;
+
+  /// Index in [days] that represents today (default 0)
+  /// Set to 1 when yesterday is included at index 0
+  final int todayIndex;
 
   /// Moon phase info (current)
   final double? moonPhase; // 0-1 (0=new, 0.5=full) - determines which side is lit
   final double? moonFraction; // 0-1 illumination fraction - how much is lit
   final double? moonAngle; // radians
 
+  /// Latitude for hemisphere-aware moon display
+  /// Negative = Southern Hemisphere (moon appears flipped)
+  final double? latitude;
+
+  /// Longitude for on-demand sun/moon calculations
+  final double? longitude;
+
+  /// UTC offset in seconds for the location's timezone
+  /// Used to display times in the location's local time, not device time
+  final int? utcOffsetSeconds;
+
   const SunMoonTimes({
     this.days = const [],
+    this.todayIndex = 0,
     this.moonPhase,
     this.moonFraction,
     this.moonAngle,
+    this.latitude,
+    this.longitude,
+    this.utcOffsetSeconds,
   });
 
-  /// Get sun times for a specific day (0 = today, 1 = tomorrow, etc.)
-  DaySunTimes? getDay(int index) {
+  /// Whether location is in Southern Hemisphere
+  bool get isSouthernHemisphere => (latitude ?? 0) < 0;
+
+  /// Convert a UTC DateTime to the location's timezone
+  /// IMPORTANT: Input should be in UTC for correct conversion
+  /// If utcOffsetSeconds is not set, falls back to device local time
+  DateTime toLocationTime(DateTime utcTime) {
+    if (utcOffsetSeconds == null) {
+      return utcTime.toLocal();
+    }
+    // Ensure we're working with UTC
+    final utc = utcTime.isUtc ? utcTime : utcTime.toUtc();
+    return utc.add(Duration(seconds: utcOffsetSeconds!));
+  }
+
+  /// Convert a location-time DateTime back to real UTC
+  /// This is the inverse of toLocationTime()
+  /// IMPORTANT: Input should be a DateTime that was created via toLocationTime()
+  DateTime toUtcFromLocation(DateTime locationTime) {
+    if (utcOffsetSeconds == null) {
+      return locationTime.toUtc();
+    }
+    // The locationTime has `isUtc = true` but represents location time values
+    // Subtract the offset to get back to real UTC
+    return DateTime.fromMillisecondsSinceEpoch(
+      locationTime.millisecondsSinceEpoch - (utcOffsetSeconds! * 1000),
+      isUtc: true,
+    );
+  }
+
+  /// Get sun times for a specific day relative to today
+  /// 0 = today, 1 = tomorrow, -1 = yesterday, etc.
+  DaySunTimes? getDay(int relativeDay) {
+    final index = todayIndex + relativeDay;
     if (index >= 0 && index < days.length) {
       return days[index];
     }
     return null;
   }
 
-  /// Convenience getters for backwards compatibility
-  DateTime? get sunrise => days.isNotEmpty ? days[0].sunrise : null;
-  DateTime? get sunset => days.isNotEmpty ? days[0].sunset : null;
-  DateTime? get dawn => days.isNotEmpty ? days[0].dawn : null;
-  DateTime? get dusk => days.isNotEmpty ? days[0].dusk : null;
-  DateTime? get nauticalDawn => days.isNotEmpty ? days[0].nauticalDawn : null;
-  DateTime? get nauticalDusk => days.isNotEmpty ? days[0].nauticalDusk : null;
-  DateTime? get solarNoon => days.isNotEmpty ? days[0].solarNoon : null;
-  DateTime? get goldenHour => days.isNotEmpty ? days[0].goldenHour : null;
-  DateTime? get goldenHourEnd => days.isNotEmpty ? days[0].goldenHourEnd : null;
-  DateTime? get night => days.isNotEmpty ? days[0].night : null;
-  DateTime? get nightEnd => days.isNotEmpty ? days[0].nightEnd : null;
-  DateTime? get moonrise => days.isNotEmpty ? days[0].moonrise : null;
-  DateTime? get moonset => days.isNotEmpty ? days[0].moonset : null;
+  /// Get sun/moon times for any date (on-demand calculation, no limit)
+  /// Uses cached days array if available, otherwise calculates dynamically
+  DaySunTimes? getTimesForDate(DateTime date) {
+    if (latitude == null || longitude == null) return null;
+
+    // Check if in cached range first
+    final locationDate = toLocationTime(date);
+    final locationNow = toLocationTime(DateTime.now().toUtc());
+    // MUST use DateTime.utc() since times have isUtc=true - DateTime() would use device timezone
+    final today = DateTime.utc(locationNow.year, locationNow.month, locationNow.day);
+    final targetDay = DateTime.utc(locationDate.year, locationDate.month, locationDate.day);
+    final dayOffset = targetDay.difference(today).inDays;
+    final index = todayIndex + dayOffset;
+
+    // Use cache if available
+    if (index >= 0 && index < days.length) {
+      return days[index];
+    }
+
+    // Calculate on-demand
+    final sunTimes = SunCalc.getTimes(date, latitude!, longitude!);
+    final moonTimes = MoonCalc.getTimes(date, latitude!, longitude!);
+    final moonIllum = MoonCalc.getIllumination(
+      DateTime.utc(date.year, date.month, date.day, 12),
+    );
+
+    return DaySunTimes(
+      sunrise: sunTimes.sunrise,
+      sunset: sunTimes.sunset,
+      dawn: sunTimes.dawn,
+      dusk: sunTimes.dusk,
+      nauticalDawn: sunTimes.nauticalDawn,
+      nauticalDusk: sunTimes.nauticalDusk,
+      solarNoon: sunTimes.solarNoon,
+      goldenHour: sunTimes.goldenHour,
+      goldenHourEnd: sunTimes.goldenHourEnd,
+      night: sunTimes.night,
+      nightEnd: sunTimes.nightEnd,
+      moonrise: moonTimes.rise,
+      moonset: moonTimes.set,
+      alwaysDay: sunTimes.alwaysDay,
+      alwaysNight: sunTimes.alwaysNight,
+      moonAlwaysUp: moonTimes.alwaysUp,
+      moonAlwaysDown: moonTimes.alwaysDown,
+      moonPhase: moonIllum.phase,
+      moonFraction: moonIllum.fraction,
+    );
+  }
+
+  /// Get today's sun times
+  DaySunTimes? get today => getDay(0);
+
+  /// Convenience getters for today's times (backwards compatible)
+  DateTime? get sunrise => today?.sunrise;
+  DateTime? get sunset => today?.sunset;
+  DateTime? get dawn => today?.dawn;
+  DateTime? get dusk => today?.dusk;
+  DateTime? get nauticalDawn => today?.nauticalDawn;
+  DateTime? get nauticalDusk => today?.nauticalDusk;
+  DateTime? get solarNoon => today?.solarNoon;
+  DateTime? get goldenHour => today?.goldenHour;
+  DateTime? get goldenHourEnd => today?.goldenHourEnd;
+  DateTime? get night => today?.night;
+  DateTime? get nightEnd => today?.nightEnd;
+  DateTime? get moonrise => today?.moonrise;
+  DateTime? get moonset => today?.moonset;
 
   // Tomorrow convenience getters
-  DateTime? get tomorrowSunrise => days.length > 1 ? days[1].sunrise : null;
-  DateTime? get tomorrowSunset => days.length > 1 ? days[1].sunset : null;
-  DateTime? get tomorrowDawn => days.length > 1 ? days[1].dawn : null;
-  DateTime? get tomorrowDusk => days.length > 1 ? days[1].dusk : null;
-  DateTime? get tomorrowNauticalDawn => days.length > 1 ? days[1].nauticalDawn : null;
-  DateTime? get tomorrowNauticalDusk => days.length > 1 ? days[1].nauticalDusk : null;
-  DateTime? get tomorrowSolarNoon => days.length > 1 ? days[1].solarNoon : null;
-  DateTime? get tomorrowGoldenHour => days.length > 1 ? days[1].goldenHour : null;
-  DateTime? get tomorrowGoldenHourEnd => days.length > 1 ? days[1].goldenHourEnd : null;
-  DateTime? get tomorrowMoonrise => days.length > 1 ? days[1].moonrise : null;
-  DateTime? get tomorrowMoonset => days.length > 1 ? days[1].moonset : null;
+  DateTime? get tomorrowSunrise => getDay(1)?.sunrise;
+  DateTime? get tomorrowSunset => getDay(1)?.sunset;
+  DateTime? get tomorrowDawn => getDay(1)?.dawn;
+  DateTime? get tomorrowDusk => getDay(1)?.dusk;
+  DateTime? get tomorrowNauticalDawn => getDay(1)?.nauticalDawn;
+  DateTime? get tomorrowNauticalDusk => getDay(1)?.nauticalDusk;
+  DateTime? get tomorrowSolarNoon => getDay(1)?.solarNoon;
+  DateTime? get tomorrowGoldenHour => getDay(1)?.goldenHour;
+  DateTime? get tomorrowGoldenHourEnd => getDay(1)?.goldenHourEnd;
+  DateTime? get tomorrowMoonrise => getDay(1)?.moonrise;
+  DateTime? get tomorrowMoonset => getDay(1)?.moonset;
 }
 
 /// Daily forecast entry

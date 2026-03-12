@@ -4,10 +4,12 @@ import '../services/signalk_service.dart';
 import '../services/auth_service.dart';
 import '../services/storage_service.dart';
 import '../services/dashboard_service.dart';
+import '../services/setup_service.dart';
 import '../models/auth_token.dart';
 import '../utils/conversion_utils.dart';
 import 'server_list_screen.dart';
 import 'dashboard_manager_screen.dart';
+import 'dashboard_picker_screen.dart';
 
 /// Splash screen shown on app launch while auto-connecting
 class SplashScreen extends StatefulWidget {
@@ -110,6 +112,17 @@ class _SplashScreenState extends State<SplashScreen> {
     if (!mounted) return;
 
     final signalKService = Provider.of<SignalKService>(context, listen: false);
+    final setupService = Provider.of<SetupService>(context, listen: false);
+
+    // First run: show dashboard picker
+    if (setupService.needsDashboardPicker) {
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(
+          builder: (context) => const DashboardPickerScreen(isFirstRun: true),
+        ),
+      );
+      return;
+    }
 
     // Navigate to appropriate screen
     if (signalKService.isConnected) {

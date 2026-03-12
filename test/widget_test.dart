@@ -17,6 +17,8 @@ import 'package:zed_display/services/intercom_service.dart';
 import 'package:zed_display/services/alert_coordinator.dart';
 import 'package:zed_display/services/notification_navigation_service.dart';
 import 'package:zed_display/services/ais_favorites_service.dart';
+import 'package:zed_display/services/find_home_target_service.dart';
+import 'package:zed_display/services/dashboard_store_service.dart';
 
 void main() {
   late StorageService storageService;
@@ -35,6 +37,8 @@ void main() {
   late AlertCoordinator alertCoordinator;
   late NotificationNavigationService notificationNavigationService;
   late AISFavoritesService aisFavoritesService;
+  late FindHomeTargetService findHomeTargetService;
+  late DashboardStoreService dashboardStoreService;
 
   setUp(() async {
     // Initialize storage service for tests
@@ -100,6 +104,12 @@ void main() {
     aisFavoritesService = AISFavoritesService();
     aisFavoritesService.loadFromStorage(storageService);
 
+    // Initialize Find Home target service
+    findHomeTargetService = FindHomeTargetService();
+
+    // Initialize dashboard store service
+    dashboardStoreService = DashboardStoreService(signalKService);
+
     // Initialize setup service
     setupService = SetupService(
       storageService,
@@ -132,6 +142,8 @@ void main() {
       alertCoordinator: alertCoordinator,
       notificationNavigationService: notificationNavigationService,
       aisFavoritesService: aisFavoritesService,
+      findHomeTargetService: findHomeTargetService,
+      dashboardStoreService: dashboardStoreService,
     ));
 
     // Verify that the app launches
@@ -155,6 +167,8 @@ void main() {
       alertCoordinator: alertCoordinator,
       notificationNavigationService: notificationNavigationService,
       aisFavoritesService: aisFavoritesService,
+      findHomeTargetService: findHomeTargetService,
+      dashboardStoreService: dashboardStoreService,
     ));
 
     // Verify services are initialized

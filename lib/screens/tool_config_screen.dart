@@ -426,7 +426,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
     if (!_formKey.currentState!.validate()) return;
     // WebView, server_manager, system_monitor, and crew tools don't need data sources
     if (_selectedToolTypeId == null) return;
-    if (_selectedToolTypeId != 'webview' && _selectedToolTypeId != 'server_manager' && _selectedToolTypeId != 'system_monitor' && _selectedToolTypeId != 'crew_messages' && _selectedToolTypeId != 'crew_list' && _selectedToolTypeId != 'intercom' && _selectedToolTypeId != 'file_share' && _selectedToolTypeId != 'weather_alerts' && _selectedToolTypeId != 'clock_alarm' && _selectedToolTypeId != 'weather_api_spinner' && _selectedToolTypeId != 'victron_flow' && _selectedToolTypeId != 'device_access_manager' && _selectedToolTypeId != 'rpi_monitor' && _dataSources.isEmpty) return;
+    if (_selectedToolTypeId != 'webview' && _selectedToolTypeId != 'server_manager' && _selectedToolTypeId != 'system_monitor' && _selectedToolTypeId != 'crew_messages' && _selectedToolTypeId != 'crew_list' && _selectedToolTypeId != 'intercom' && _selectedToolTypeId != 'file_share' && _selectedToolTypeId != 'weather_alerts' && _selectedToolTypeId != 'clock_alarm' && _selectedToolTypeId != 'weather_api_spinner' && _selectedToolTypeId != 'victron_flow' && _selectedToolTypeId != 'device_access_manager' && _selectedToolTypeId != 'rpi_monitor' && _selectedToolTypeId != 'sun_moon_arc' && _dataSources.isEmpty) return;
 
     final toolService = Provider.of<ToolService>(context, listen: false);
 
@@ -619,7 +619,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
         title: Text(widget.existingTool == null ? 'Add Tool' : 'Edit Tool'),
         actions: [
           TextButton.icon(
-            onPressed: _selectedToolTypeId != null && (_dataSources.isNotEmpty || _selectedToolTypeId == 'webview' || _selectedToolTypeId == 'server_manager' || _selectedToolTypeId == 'system_monitor' || _selectedToolTypeId == 'crew_messages' || _selectedToolTypeId == 'crew_list' || _selectedToolTypeId == 'intercom' || _selectedToolTypeId == 'file_share' || _selectedToolTypeId == 'weather_alerts' || _selectedToolTypeId == 'clock_alarm' || _selectedToolTypeId == 'weather_api_spinner' || _selectedToolTypeId == 'victron_flow' || _selectedToolTypeId == 'device_access_manager' || _selectedToolTypeId == 'rpi_monitor')
+            onPressed: _selectedToolTypeId != null && (_dataSources.isNotEmpty || _selectedToolTypeId == 'webview' || _selectedToolTypeId == 'server_manager' || _selectedToolTypeId == 'system_monitor' || _selectedToolTypeId == 'crew_messages' || _selectedToolTypeId == 'crew_list' || _selectedToolTypeId == 'intercom' || _selectedToolTypeId == 'file_share' || _selectedToolTypeId == 'weather_alerts' || _selectedToolTypeId == 'clock_alarm' || _selectedToolTypeId == 'weather_api_spinner' || _selectedToolTypeId == 'victron_flow' || _selectedToolTypeId == 'device_access_manager' || _selectedToolTypeId == 'rpi_monitor' || _selectedToolTypeId == 'sun_moon_arc')
                 ? _saveTool
                 : null,
             icon: const Icon(Icons.check),
@@ -633,7 +633,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
           padding: const EdgeInsets.all(16),
           children: [
             // Data Source Configuration (hide for webview, server_manager, system_monitor, crew tools, weather_alerts, clock_alarm, weather_api_spinner, victron_flow, device_access_manager, rpi_monitor)
-            if (_selectedToolTypeId != 'webview' && _selectedToolTypeId != 'server_manager' && _selectedToolTypeId != 'system_monitor' && _selectedToolTypeId != 'crew_messages' && _selectedToolTypeId != 'crew_list' && _selectedToolTypeId != 'intercom' && _selectedToolTypeId != 'file_share' && _selectedToolTypeId != 'weather_alerts' && _selectedToolTypeId != 'clock_alarm' && _selectedToolTypeId != 'weather_api_spinner' && _selectedToolTypeId != 'victron_flow' && _selectedToolTypeId != 'device_access_manager' && _selectedToolTypeId != 'rpi_monitor')
+            if (_selectedToolTypeId != 'webview' && _selectedToolTypeId != 'server_manager' && _selectedToolTypeId != 'system_monitor' && _selectedToolTypeId != 'crew_messages' && _selectedToolTypeId != 'crew_list' && _selectedToolTypeId != 'intercom' && _selectedToolTypeId != 'file_share' && _selectedToolTypeId != 'weather_alerts' && _selectedToolTypeId != 'clock_alarm' && _selectedToolTypeId != 'weather_api_spinner' && _selectedToolTypeId != 'victron_flow' && _selectedToolTypeId != 'device_access_manager' && _selectedToolTypeId != 'rpi_monitor' && _selectedToolTypeId != 'sun_moon_arc')
               Card(
               child: Padding(
                 padding: const EdgeInsets.all(16),
@@ -938,7 +938,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
     }
 
     // Unit (not applicable for certain complex tools)
-    const excludeUnitOptions = ['autopilot', 'autopilot_v2', 'autopilot_simple', 'wind_compass', 'weatherflow_forecast', 'tanks', 'clock_alarm', 'weather_api_spinner', 'anchor_alarm', 'position_display', 'victron_flow', 'device_access_manager', 'find_home'];
+    const excludeUnitOptions = ['autopilot', 'autopilot_v2', 'autopilot_simple', 'wind_compass', 'weatherflow_forecast', 'tanks', 'clock_alarm', 'weather_api_spinner', 'anchor_alarm', 'position_display', 'victron_flow', 'device_access_manager', 'find_home', 'sun_moon_arc'];
     if (!excludeUnitOptions.contains(_selectedToolTypeId)) {
       widgets.addAll([
         TextFormField(
@@ -1027,7 +1027,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
     }
 
     // Show/Hide Options (not applicable for certain tools)
-    const excludeShowHideOptions = ['autopilot', 'autopilot_v2', 'autopilot_simple', 'wind_compass', 'weatherflow_forecast', 'tanks', 'clock_alarm', 'weather_api_spinner', 'anchor_alarm', 'position_display', 'victron_flow', 'device_access_manager'];
+    const excludeShowHideOptions = ['autopilot', 'autopilot_v2', 'autopilot_simple', 'wind_compass', 'weatherflow_forecast', 'tanks', 'clock_alarm', 'weather_api_spinner', 'anchor_alarm', 'position_display', 'victron_flow', 'device_access_manager', 'sun_moon_arc'];
     if (!excludeShowHideOptions.contains(_selectedToolTypeId)) {
       widgets.addAll([
         SwitchListTile(
@@ -1060,7 +1060,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
     }
 
     // TTL (not applicable for certain tools that have their own state management)
-    const excludeTTLOptions = ['autopilot', 'autopilot_v2', 'autopilot_simple', 'clock_alarm', 'anchor_alarm', 'server_manager', 'crew_messages', 'crew_list', 'intercom', 'file_share', 'position_display', 'victron_flow', 'device_access_manager'];
+    const excludeTTLOptions = ['autopilot', 'autopilot_v2', 'autopilot_simple', 'clock_alarm', 'anchor_alarm', 'server_manager', 'crew_messages', 'crew_list', 'intercom', 'file_share', 'position_display', 'victron_flow', 'device_access_manager', 'sun_moon_arc'];
     if (!excludeTTLOptions.contains(_selectedToolTypeId)) {
       widgets.addAll([
         DropdownButtonFormField<int?>(

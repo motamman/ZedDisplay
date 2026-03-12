@@ -59,6 +59,7 @@ class CpaAlertConfig {
   final String alarmSound;
   final int cooldownSeconds;
   final bool sendCrewAlert;
+  final double maxRangeMeters; // Max range filter — ignore vessels beyond this distance
 
   const CpaAlertConfig({
     this.enabled = true,
@@ -68,6 +69,7 @@ class CpaAlertConfig {
     this.alarmSound = 'foghorn',
     this.cooldownSeconds = 300, // 5 min
     this.sendCrewAlert = true,
+    this.maxRangeMeters = 185200.0, // 100 nm
   });
 
   Map<String, dynamic> toJson() => {
@@ -78,6 +80,7 @@ class CpaAlertConfig {
         'alarmSound': alarmSound,
         'cooldownSeconds': cooldownSeconds,
         'sendCrewAlert': sendCrewAlert,
+        'maxRangeMeters': maxRangeMeters,
       };
 
   factory CpaAlertConfig.fromJson(Map<String, dynamic> json) {
@@ -92,6 +95,8 @@ class CpaAlertConfig {
       alarmSound: json['alarmSound'] as String? ?? 'foghorn',
       cooldownSeconds: json['cooldownSeconds'] as int? ?? 300,
       sendCrewAlert: json['sendCrewAlert'] as bool? ?? true,
+      maxRangeMeters:
+          (json['maxRangeMeters'] as num?)?.toDouble() ?? 185200.0,
     );
   }
 

@@ -18,6 +18,7 @@ import '../../services/alarm_audio_player.dart';
 import '../../services/find_home_target_service.dart';
 import '../../utils/angle_utils.dart';
 import '../../utils/cpa_utils.dart';
+import '../../utils/dodge_utils.dart';
 import '../tool_info_button.dart';
 
 /// Find Home Tool - ILS-style approach display for navigating back to an
@@ -93,6 +94,17 @@ class _FindHomeToolState extends State<FindHomeTool> {
   double? _lastKnownAisLat;   // Stale fallback
   double? _lastKnownAisLon;
   bool _aisTargetStale = false;
+
+  // Dodge mode
+  bool _dodgeMode = false;       // dodge vs track view
+  bool _dodgeBowPass = false;    // stern (default) vs bow
+
+  /// Safe pass distance in SI meters (from config, default 300m).
+  /// Stored in SI; displayed via MetadataStore through _formatDistance().
+  double get _dodgeSafeDistanceM {
+    final val = widget.config.style.customProperties?['dodgeDistance'] as num?;
+    return val?.toDouble() ?? 300.0;
+  }
 
   /// SignalK path for the home target (boat position)
   String get _targetPath {
@@ -187,6 +199,8 @@ class _FindHomeToolState extends State<FindHomeTool> {
       _aisTargetStale = false;
       _lastKnownAisLat = null;
       _lastKnownAisLon = null;
+      _dodgeMode = false;
+      _dodgeBowPass = false;
     });
   }
 
@@ -457,6 +471,117 @@ class _FindHomeToolState extends State<FindHomeTool> {
     );
   }
 
+  // --------------- Dodge computation ---------------
+
+  /// Whether the current AIS target has COG/SOG data (is moving).
+  bool get _aisTargetIsMoving {
+    if (_aisVesselId == null) return false;
+    final vessel = widget.signalKService.aisVesselRegistry.vessels[_aisVesselId];
+    if (vessel == null) return false;
+    return vessel.cogRad != null && (vessel.sogMs ?? 0) > 0.1;
+  }
+
+  /// Compute dodge intercept when in dodge mode.
+  /// Returns a record with dodge-derived nav data for the runway display,
+  /// or null if infeasible.
+  ({
+    double bearing,       // course to steer (degrees)
+    double deviation,     // deviation from recommended course
+    double distance,      // distance to apex (meters)
+    double cogDeg,        // own COG (degrees)
+    double sogMs,         // own SOG (m/s)
+    double vesselSogMs,   // own vessel SOG from SignalK
+    bool isWrongWay,
+    DodgeResult dodge,    // full dodge result
+    double targetCogDeg,  // target COG for painter
+  })? _computeDodge() {
+    if (_aisVesselId == null) return null;
+
+    final registry = widget.signalKService.aisVesselRegistry;
+    final vessel = registry.vessels[_aisVesselId];
+    if (vessel == null || !vessel.hasPosition) return null;
+    if (vessel.cogRad == null || (vessel.sogMs ?? 0) < 0.1) return null;
+
+    // Own vessel position and motion
+    double ownLat, ownLon, ownSogMs, ownCogDeg;
+
+    if (_trackMode) {
+      final posData = widget.signalKService.getValue(_targetPath);
+      if (posData?.value is! Map) return null;
+      final m = posData!.value as Map;
+      final skLat = m['latitude'];
+      final skLon = m['longitude'];
+      if (skLat is! num || skLon is! num) return null;
+      ownLat = skLat.toDouble();
+      ownLon = skLon.toDouble();
+
+      final cogData = widget.signalKService.getValue(_trackCogPath);
+      final sogData = widget.signalKService.getValue(_trackSogPath);
+      ownSogMs = (sogData?.value as num?)?.toDouble() ?? 0.0;
+      final cogRad = (cogData?.value as num?)?.toDouble();
+      ownCogDeg = cogRad != null ? cogRad * 180.0 / math.pi : 0.0;
+    } else {
+      final pos = _devicePosition;
+      if (pos == null) return null;
+      ownLat = pos.latitude;
+      ownLon = pos.longitude;
+      ownSogMs = pos.speed >= 0 ? pos.speed : 0.0;
+      ownCogDeg = pos.heading >= 0 ? pos.heading : 0.0;
+    }
+
+    // Bearing and distance to target
+    final bearingToTarget = CpaUtils.calculateBearing(
+      ownLat, ownLon, vessel.latitude!, vessel.longitude!,
+    );
+    final distToTarget = CpaUtils.calculateDistance(
+      ownLat, ownLon, vessel.latitude!, vessel.longitude!,
+    );
+
+    // Calculate dodge
+    final dodgeResult = DodgeUtils.calculateDodge(
+      bearingDeg: bearingToTarget,
+      distanceM: distToTarget,
+      ownSogMs: ownSogMs,
+      targetCogRad: vessel.cogRad!,
+      targetSogMs: vessel.sogMs!,
+      safeDistanceM: _dodgeSafeDistanceM,
+      bowPass: _dodgeBowPass,
+    );
+
+    if (dodgeResult == null || !dodgeResult.isFeasible) return null;
+
+    final courseToSteerDeg = dodgeResult.courseToSteerRad * 180.0 / math.pi;
+    final apexDist = math.sqrt(
+      dodgeResult.apexX * dodgeResult.apexX +
+      dodgeResult.apexY * dodgeResult.apexY,
+    );
+
+    // Deviation from recommended dodge course
+    final deviation = ownSogMs >= _sogThreshold
+        ? AngleUtils.difference(ownCogDeg, courseToSteerDeg)
+        : 0.0;
+
+    final isWrongWay = ownSogMs >= _sogThreshold && deviation.abs() > 90.0;
+
+    // Vessel SOG from SignalK
+    final vesselSogData = widget.signalKService.getValue(_trackSogPath);
+    final vesselSogMs = (vesselSogData?.value as num?)?.toDouble() ?? 0.0;
+
+    final targetCogDeg = vessel.cogRad! * 180.0 / math.pi;
+
+    return (
+      bearing: AngleUtils.normalize(courseToSteerDeg),
+      deviation: deviation,
+      distance: apexDist,
+      cogDeg: AngleUtils.normalize(ownCogDeg),
+      sogMs: ownSogMs,
+      vesselSogMs: vesselSogMs,
+      isWrongWay: isWrongWay,
+      dodge: dodgeResult,
+      targetCogDeg: AngleUtils.normalize(targetCogDeg),
+    );
+  }
+
   // --------------- Feedback engine ---------------
 
   void _toggleActive() {
@@ -492,20 +617,33 @@ class _FindHomeToolState extends State<FindHomeTool> {
 
   void _fireFeedback() {
     if (!_active || !mounted) return;
-    final nav = _computeNav();
-    if (nav == null) return;
+
+    // In dodge mode, use dodge-derived deviation
+    final double deviation;
+    final bool isWrongWay;
+    if (_dodgeMode) {
+      final dodge = _computeDodge();
+      if (dodge == null) return;
+      deviation = dodge.deviation;
+      isWrongWay = dodge.isWrongWay;
+    } else {
+      final nav = _computeNav();
+      if (nav == null) return;
+      deviation = nav.deviation;
+      isWrongWay = nav.isWrongWay;
+    }
 
     // Wrong way: 3 rapid buzzes regardless of direction
-    if (nav.isWrongWay) {
+    if (isWrongWay) {
       _vibrateTriple();
       if (_whistleEnabled) _whistleTriple();
       return;
     }
 
-    final absDev = nav.deviation.abs();
+    final absDev = deviation.abs();
     if (absDev < _hapticDeviationThreshold) return;
 
-    if (nav.deviation > 0) {
+    if (deviation > 0) {
       // On PORT side of course → turn starboard → 2 buzzes / 2 whistles
       _vibrateDouble();
       if (_whistleEnabled) _whistleDouble();
@@ -703,7 +841,20 @@ class _FindHomeToolState extends State<FindHomeTool> {
           : _buildAcquiringGps(isDark);
     }
 
-    final distMeta = _pickDistanceMeta(nav.distance);
+    // Dodge mode: compute dodge and use dodge-derived values for display
+    final dodgeNav = _dodgeMode ? _computeDodge() : null;
+    final inDodge = dodgeNav != null;
+
+    // Extract display values — dodge overrides nav when active
+    final displayBearing = inDodge ? dodgeNav.bearing : nav.bearing;
+    final displayDeviation = inDodge ? dodgeNav.deviation : nav.deviation;
+    final displayDistance = inDodge ? dodgeNav.distance : nav.distance;
+    final displayCogDeg = inDodge ? dodgeNav.cogDeg : nav.cogDeg;
+    final displaySogMs = inDodge ? dodgeNav.sogMs : nav.sogMs;
+    final displayVesselSogMs = inDodge ? dodgeNav.vesselSogMs : nav.vesselSogMs;
+    final displayIsWrongWay = inDodge ? dodgeNav.isWrongWay : nav.isWrongWay;
+
+    final distMeta = _pickDistanceMeta(displayDistance);
     // Derive metersPerUnit from metadata for the runway painter
     double metersPerUnit = 1.0; // fallback: SI meters
     String unitSymbol = 'm';
@@ -719,29 +870,52 @@ class _FindHomeToolState extends State<FindHomeTool> {
       children: [
         Column(
           children: [
-            _buildHeader(nav, isDark),
+            _buildHeader(
+              bearing: displayBearing,
+              deviation: displayDeviation,
+              distance: displayDistance,
+              cogDeg: displayCogDeg,
+              sogMs: displaySogMs,
+              vesselSogMs: displayVesselSogMs,
+              isWrongWay: displayIsWrongWay,
+              isDark: isDark,
+              inDodge: inDodge,
+            ),
             Expanded(
               child: ClipRect(
                 child: CustomPaint(
                   painter: _RunwayPainter(
-                    deviation: nav.deviation,
+                    deviation: displayDeviation,
                     maxDeviation: _maxDeviation,
-                    distanceMeters: nav.distance,
+                    distanceMeters: displayDistance,
                     metersPerUnit: metersPerUnit,
                     unitSymbol: unitSymbol,
                     isDark: isDark,
                     active: _active,
                     hapticThreshold: _hapticDeviationThreshold,
-                    isWrongWay: nav.isWrongWay,
+                    isWrongWay: displayIsWrongWay,
                     isAisMode: _aisVesselId != null,
                     isStaleTarget: _aisTargetStale,
                     isTrackMode: _trackMode,
+                    isDodgeMode: inDodge,
+                    targetCogDeg: dodgeNav?.targetCogDeg,
+                    isBowPass: _dodgeBowPass,
                   ),
                   size: Size.infinite,
                 ),
               ),
             ),
-            _buildFooter(nav, isDark),
+            _buildFooter(
+              bearing: displayBearing,
+              deviation: displayDeviation,
+              distance: displayDistance,
+              cogDeg: displayCogDeg,
+              sogMs: displaySogMs,
+              vesselSogMs: displayVesselSogMs,
+              isWrongWay: displayIsWrongWay,
+              isDark: isDark,
+              inDodge: inDodge,
+            ),
           ],
         ),
         _buildInfoButton(),
@@ -882,12 +1056,26 @@ class _FindHomeToolState extends State<FindHomeTool> {
     );
   }
 
-  Widget _buildHeader(dynamic nav, bool isDark) {
+  Widget _buildHeader({
+    required double bearing,
+    required double deviation,
+    required double distance,
+    required double cogDeg,
+    required double sogMs,
+    required double vesselSogMs,
+    required bool isWrongWay,
+    required bool isDark,
+    required bool inDodge,
+  }) {
     final textColor = isDark ? Colors.white : Colors.black87;
     final labelColor = isDark ? Colors.white60 : Colors.black54;
     final (homeLat, homeLon) = _getTargetPosition();
     final hasManual = _manualLat != null && _manualLon != null;
     final inAisMode = _aisVesselId != null;
+    final headerTitle = inDodge ? 'DODGE' : 'FIND HOME';
+    final headerColor = inDodge
+        ? (_dodgeBowPass ? Colors.orange : Colors.cyan)
+        : labelColor;
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(12, 8, 40, 4),
@@ -901,25 +1089,25 @@ class _FindHomeToolState extends State<FindHomeTool> {
                 child: Row(
                   children: [
                     Text(
-                      'FIND HOME',
+                      headerTitle,
                       style: TextStyle(
                         fontSize: 13,
                         fontWeight: FontWeight.bold,
-                        color: labelColor,
+                        color: inDodge ? headerColor : labelColor,
                         letterSpacing: 1.2,
                       ),
                     ),
                     if (inAisMode) ...[
                       const SizedBox(width: 4),
-                      const Icon(Icons.arrow_forward, size: 12, color: Colors.cyan),
+                      Icon(Icons.arrow_forward, size: 12, color: headerColor),
                       const SizedBox(width: 4),
                       Flexible(
                         child: Text(
                           _aisVesselName ?? 'AIS',
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontSize: 12,
                             fontWeight: FontWeight.bold,
-                            color: Colors.cyan,
+                            color: headerColor,
                           ),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
@@ -928,7 +1116,7 @@ class _FindHomeToolState extends State<FindHomeTool> {
                       const SizedBox(width: 4),
                       GestureDetector(
                         onTap: _clearAisMode,
-                        child: const Icon(Icons.close, size: 14, color: Colors.cyan),
+                        child: Icon(Icons.close, size: 14, color: headerColor),
                       ),
                     ],
                     if (!inAisMode) ...[
@@ -953,17 +1141,24 @@ class _FindHomeToolState extends State<FindHomeTool> {
                 ),
               ),
               Text(
-                _formatDistance(nav.distance),
+                inDodge
+                    ? 'APEX ${_formatDistance(distance)}'
+                    : _formatDistance(distance),
                 style: TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.bold,
                   fontFamily: 'monospace',
-                  color: textColor,
+                  color: inDodge ? headerColor : textColor,
                 ),
               ),
             ],
           ),
-          if (homeLat != null && homeLon != null)
+          if (inDodge)
+            Text(
+              '${_dodgeBowPass ? 'BOW' : 'STERN'} PASS @ ${_formatDistance(_dodgeSafeDistanceM)}  STR ${_formatAngle(bearing)}',
+              style: TextStyle(fontSize: 10, color: headerColor, fontFamily: 'monospace'),
+            )
+          else if (homeLat != null && homeLon != null)
             Text(
               _formatDDM(homeLat, homeLon),
               style: TextStyle(fontSize: 10, color: labelColor, fontFamily: 'monospace'),
@@ -973,11 +1168,20 @@ class _FindHomeToolState extends State<FindHomeTool> {
     );
   }
 
-  Widget _buildFooter(dynamic nav, bool isDark) {
+  Widget _buildFooter({
+    required double bearing,
+    required double deviation,
+    required double distance,
+    required double cogDeg,
+    required double sogMs,
+    required double vesselSogMs,
+    required bool isWrongWay,
+    required bool isDark,
+    required bool inDodge,
+  }) {
     final labelColor = isDark ? Colors.white60 : Colors.black54;
-    final absDev = nav.deviation.abs() as double;
-    final devSide = nav.deviation > 0 ? 'P' : 'S';
-    final bool isWrongWay = nav.isWrongWay as bool;
+    final absDev = deviation.abs();
+    final devSide = deviation > 0 ? 'P' : 'S';
     final inAisMode = _aisVesselId != null;
 
     Color devColor;
@@ -996,12 +1200,17 @@ class _FindHomeToolState extends State<FindHomeTool> {
         : 'DEV ${absDev.toStringAsFixed(0)}° $devSide';
     final etaLabel = isWrongWay
         ? 'ETA --:--'
-        : 'ETA ${_formatEta(nav.distance, nav.sogMs)}';
+        : 'ETA ${_formatEta(distance, sogMs)}';
 
-    // Labels change based on AIS mode and track mode
-    final bearingLabel = inAisMode
-        ? 'TO ${_aisVesselName ?? 'AIS'}'
-        : 'TO BOAT';
+    // Labels change based on AIS mode, track mode, and dodge mode
+    final String bearingLabel;
+    if (inDodge) {
+      bearingLabel = 'STR ${_formatAngle(bearing)}';
+    } else if (inAisMode) {
+      bearingLabel = 'TO ${_aisVesselName ?? 'AIS'}';
+    } else {
+      bearingLabel = 'TO BOAT';
+    }
     final youLabel = _trackMode ? 'VESSEL' : 'YOU';
 
     return Padding(
@@ -1012,15 +1221,15 @@ class _FindHomeToolState extends State<FindHomeTool> {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(
-                'COG ${_formatAngle(nav.cogDeg)}',
+                'COG ${_formatAngle(cogDeg)}',
                 style: TextStyle(
                     fontSize: 12, fontFamily: 'monospace', color: labelColor),
               ),
               Flexible(
                 child: Text(
-                  '$bearingLabel ${_formatAngle(nav.bearing)}',
+                  inDodge ? bearingLabel : '$bearingLabel ${_formatAngle(bearing)}',
                   style: TextStyle(
-                      fontSize: 12, fontFamily: 'monospace', color: labelColor),
+                      fontSize: 12, fontFamily: 'monospace', color: inDodge ? (_dodgeBowPass ? Colors.orange : Colors.cyan) : labelColor),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
@@ -1041,7 +1250,7 @@ class _FindHomeToolState extends State<FindHomeTool> {
                 ),
               ),
               Text(
-                '$youLabel ${_formatSpeed(nav.sogMs, skPath: _trackMode ? 'navigation.speedOverGround' : null)}',
+                '$youLabel ${_formatSpeed(sogMs, skPath: _trackMode ? 'navigation.speedOverGround' : null)}',
                 style: TextStyle(
                     fontSize: 12, fontFamily: 'monospace', color: labelColor),
               ),
@@ -1056,19 +1265,31 @@ class _FindHomeToolState extends State<FindHomeTool> {
                 style: TextStyle(
                     fontSize: 12, fontFamily: 'monospace', color: labelColor),
               ),
-              Text(
-                'BOAT ${_formatSpeed(nav.vesselSogMs, skPath: _trackSogPath)}',
-                style: TextStyle(
-                    fontSize: 12, fontFamily: 'monospace', color: labelColor),
-              ),
+              if (inDodge)
+                Text(
+                  '${_dodgeBowPass ? 'BOW' : 'STERN'} PASS',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontFamily: 'monospace',
+                    fontWeight: FontWeight.bold,
+                    color: _dodgeBowPass ? Colors.orange : Colors.cyan,
+                  ),
+                )
+              else
+                Text(
+                  'BOAT ${_formatSpeed(vesselSogMs, skPath: _trackSogPath)}',
+                  style: TextStyle(
+                      fontSize: 12, fontFamily: 'monospace', color: labelColor),
+                ),
             ],
           ),
           const SizedBox(height: 2),
           Row(
             mainAxisAlignment: MainAxisAlignment.end,
             children: [
-                  // Return-to-home button + Track toggle (only in AIS mode)
+                  // Return-to-home button + Track/Dodge toggles (only in AIS mode)
                   if (inAisMode) ...[
+                    // HOME button
                     GestureDetector(
                       onTap: _clearAisMode,
                       child: Container(
@@ -1093,32 +1314,95 @@ class _FindHomeToolState extends State<FindHomeTool> {
                       ),
                     ),
                     const SizedBox(width: 8),
-                    GestureDetector(
-                      onTap: () => setState(() => _trackMode = !_trackMode),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 8, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: _trackMode
-                              ? Colors.cyan.withValues(alpha: 0.3)
-                              : Colors.grey.withValues(alpha: 0.2),
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(
-                            color: _trackMode ? Colors.cyan : Colors.grey,
-                            width: 1,
+                    // TRACK button (hidden when dodge is active)
+                    if (!_dodgeMode)
+                      GestureDetector(
+                        onTap: () => setState(() => _trackMode = !_trackMode),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: _trackMode
+                                ? Colors.cyan.withValues(alpha: 0.3)
+                                : Colors.grey.withValues(alpha: 0.2),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: _trackMode ? Colors.cyan : Colors.grey,
+                              width: 1,
+                            ),
                           ),
-                        ),
-                        child: Text(
-                          'TRACK',
-                          style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.bold,
-                            color: _trackMode ? Colors.cyan : Colors.grey,
+                          child: Text(
+                            'TRACK',
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                              color: _trackMode ? Colors.cyan : Colors.grey,
+                            ),
                           ),
                         ),
                       ),
-                    ),
-                    const SizedBox(width: 8),
+                    if (!_dodgeMode) const SizedBox(width: 8),
+                    // DODGE button (only when target is moving)
+                    if (_aisTargetIsMoving) ...[
+                      GestureDetector(
+                        onTap: () => setState(() {
+                          _dodgeMode = !_dodgeMode;
+                          if (_dodgeMode) _trackMode = true; // dodge uses SignalK position
+                        }),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: _dodgeMode
+                                ? Colors.cyan.withValues(alpha: 0.3)
+                                : Colors.grey.withValues(alpha: 0.2),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: _dodgeMode ? Colors.cyan : Colors.grey,
+                              width: 1,
+                            ),
+                          ),
+                          child: Text(
+                            'DODGE',
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                              color: _dodgeMode ? Colors.cyan : Colors.grey,
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                    ],
+                    // STERN/BOW toggle (only in dodge mode)
+                    if (_dodgeMode) ...[
+                      GestureDetector(
+                        onTap: () => setState(() => _dodgeBowPass = !_dodgeBowPass),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: _dodgeBowPass
+                                ? Colors.orange.withValues(alpha: 0.3)
+                                : Colors.cyan.withValues(alpha: 0.2),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: _dodgeBowPass ? Colors.orange : Colors.cyan,
+                              width: 1,
+                            ),
+                          ),
+                          child: Text(
+                            _dodgeBowPass ? 'BOW' : 'STERN',
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                              color: _dodgeBowPass ? Colors.orange : Colors.cyan,
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                    ],
                   ],
                   // Whistle toggle
                   GestureDetector(
@@ -1538,6 +1822,9 @@ class _RunwayPainter extends CustomPainter {
   final bool isAisMode;
   final bool isStaleTarget;
   final bool isTrackMode;
+  final bool isDodgeMode;
+  final double? targetCogDeg;
+  final bool isBowPass;
 
   _RunwayPainter({
     required this.deviation,
@@ -1552,6 +1839,9 @@ class _RunwayPainter extends CustomPainter {
     this.isAisMode = false,
     this.isStaleTarget = false,
     this.isTrackMode = false,
+    this.isDodgeMode = false,
+    this.targetCogDeg,
+    this.isBowPass = false,
   });
 
   @override
@@ -1576,10 +1866,16 @@ class _RunwayPainter extends CustomPainter {
       devColor = Colors.red;
     }
 
-    // Background — red tint when wrong way
-    final effectiveBg = isWrongWay
-        ? Color.lerp(bgColor, Colors.red.shade900, 0.4)!
-        : bgColor;
+    // Background — red tint when wrong way, subtle dodge tint in dodge mode
+    Color effectiveBg;
+    if (isWrongWay) {
+      effectiveBg = Color.lerp(bgColor, Colors.red.shade900, 0.4)!;
+    } else if (isDodgeMode) {
+      final tintColor = isBowPass ? Colors.orange.shade900 : Colors.cyan.shade900;
+      effectiveBg = Color.lerp(bgColor, tintColor, 0.15)!;
+    } else {
+      effectiveBg = bgColor;
+    }
     canvas.drawRect(
       Rect.fromLTWH(0, 0, w, h),
       Paint()..color = effectiveBg,
@@ -1660,14 +1956,31 @@ class _RunwayPainter extends CustomPainter {
         canvas, centerX, apexY, baseY, runwayHeight, distInUnits);
 
     // --- Target icon at apex ---
-    if (isTrackMode) {
+    if (isDodgeMode && targetCogDeg != null) {
+      // In dodge mode: draw target vessel chevron rotated to its COG
+      _drawTargetVesselAtApex(canvas, Offset(centerX, apexY + 10), targetCogDeg!);
+    } else if (isTrackMode) {
       _drawBoatIcon(canvas, Offset(centerX, apexY + 10));
     } else {
       _drawAnchorIcon(canvas, Offset(centerX, apexY + 10));
     }
 
-    // --- AIS label over anchor icon ---
-    if (isAisMode) {
+    // --- Label over apex icon ---
+    if (isDodgeMode) {
+      final dodgeColor = isBowPass ? Colors.orange : Colors.cyan;
+      final label = isBowPass ? 'BOW' : 'STERN';
+      final labelStyle = TextStyle(
+        fontSize: 9,
+        fontWeight: FontWeight.w900,
+        color: dodgeColor,
+        letterSpacing: 0.5,
+      );
+      final labelTp = TextPainter(
+        text: TextSpan(text: label, style: labelStyle),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      labelTp.paint(canvas, Offset(centerX - labelTp.width / 2, apexY - 4));
+    } else if (isAisMode) {
       final aisColor = isStaleTarget ? Colors.orange : Colors.cyan;
       final aisStyle = TextStyle(
         fontSize: 9,
@@ -1700,12 +2013,34 @@ class _RunwayPainter extends CustomPainter {
           Offset(vesselX, apexY + 20), cogPaint, 5, 4);
     }
 
-    // --- Bearing line (dotted, from vessel to anchor — where you need to go) ---
+    // --- Bearing line (dotted, from vessel to apex — where you need to go) ---
+    final bearingLineColor = isDodgeMode
+        ? (isBowPass ? Colors.orange : Colors.cyan).withValues(alpha: active ? 0.7 : 0.4)
+        : devColor.withValues(alpha: active ? 0.7 : 0.4);
     final bearingPaint = Paint()
-      ..color = devColor.withValues(alpha: active ? 0.7 : 0.4)
+      ..color = bearingLineColor
       ..strokeWidth = 1.5;
     _drawDashedLine(canvas, Offset(vesselX, vesselY - 12),
         Offset(centerX, apexY + 18), bearingPaint, 6, 4);
+
+    // --- Target COG track line through apex (dodge mode only) ---
+    if (isDodgeMode && targetCogDeg != null) {
+      final cogTrackColor = (isBowPass ? Colors.orange : Colors.cyan)
+          .withValues(alpha: 0.3);
+      final cogTrackPaint = Paint()
+        ..color = cogTrackColor
+        ..strokeWidth = 1.0;
+      // Draw a line extending upward from apex in target's COG direction
+      // Since runway is heading-up, we just draw a vertical-ish line from apex
+      _drawDashedLine(
+        canvas,
+        Offset(centerX, apexY + 20),
+        Offset(centerX, apexY - 10),
+        cogTrackPaint,
+        4,
+        3,
+      );
+    }
 
     // Vessel chevron — open V-shape rotated by COG deviation
     canvas.save();
@@ -1913,6 +2248,44 @@ class _RunwayPainter extends CustomPainter {
     canvas.drawLine(Offset(x, y - 8), Offset(x, y + 6), paint);
   }
 
+  /// Draw target vessel chevron at apex, rotated to target COG.
+  /// The rotation is relative: 0° means target heading same as dodge course (up).
+  void _drawTargetVesselAtApex(Canvas canvas, Offset center, double cogDeg) {
+    final color = isBowPass ? Colors.orange : Colors.cyan;
+    final paint = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.5
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
+
+    // Draw a filled vessel shape rotated to target COG
+    // Since the runway is heading-up (dodge course = up), the rotation
+    // relative to vertical is (targetCOG - dodgeCourse). For simplicity,
+    // we don't have dodgeCourse here, so we draw a non-rotated chevron
+    // (the apex IS the target's track, so its COG line goes through it).
+    canvas.save();
+    canvas.translate(center.dx, center.dy);
+
+    // Vessel hull
+    final hull = Path()
+      ..moveTo(0, -8)       // bow
+      ..lineTo(-6, 2)       // port
+      ..lineTo(-5, 6)       // port stern
+      ..lineTo(5, 6)        // starboard stern
+      ..lineTo(6, 2)        // starboard
+      ..close();
+    canvas.drawPath(hull, paint);
+
+    // Fill with translucent color
+    final fillPaint = Paint()
+      ..color = color.withValues(alpha: 0.2)
+      ..style = PaintingStyle.fill;
+    canvas.drawPath(hull, fillPaint);
+
+    canvas.restore();
+  }
+
   void _drawDashedLine(Canvas canvas, Offset from, Offset to, Paint paint,
       double dashLen, double gapLen) {
     final dx = to.dx - from.dx;
@@ -1951,7 +2324,10 @@ class _RunwayPainter extends CustomPainter {
         oldDelegate.isWrongWay != isWrongWay ||
         oldDelegate.isAisMode != isAisMode ||
         oldDelegate.isStaleTarget != isStaleTarget ||
-        oldDelegate.isTrackMode != isTrackMode;
+        oldDelegate.isTrackMode != isTrackMode ||
+        oldDelegate.isDodgeMode != isDodgeMode ||
+        oldDelegate.targetCogDeg != targetCogDeg ||
+        oldDelegate.isBowPass != isBowPass;
   }
 }
 
@@ -1992,6 +2368,7 @@ class FindHomeToolBuilder extends ToolBuilder {
           'alertSound': 'whistle',
           'trackCogPath': 'navigation.courseOverGroundTrue',
           'trackSogPath': 'navigation.speedOverGround',
+          'dodgeDistance': 300.0, // meters (SI) — displayed via MetadataStore
         },
       ),
     );

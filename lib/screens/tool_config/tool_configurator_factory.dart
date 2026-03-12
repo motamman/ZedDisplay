@@ -15,6 +15,7 @@ import 'configurators/anchor_alarm_configurator.dart';
 import 'configurators/position_display_configurator.dart';
 import 'configurators/victron_flow_configurator.dart';
 import 'configurators/find_home_configurator.dart';
+import 'configurators/sun_moon_arc_configurator.dart';
 
 /// Factory for creating tool-specific configurators
 ///
@@ -103,6 +104,10 @@ class ToolConfiguratorFactory {
       case 'find_home':
         return FindHomeConfigurator();
 
+      // Sun/Moon Arc
+      case 'sun_moon_arc':
+        return SunMoonArcConfigurator();
+
       // No custom configurator - use default UI
       default:
         return null;
@@ -142,6 +147,7 @@ class ToolConfiguratorFactory {
       'position_display',
       'victron_flow',
       'find_home',
+      'sun_moon_arc',
     ];
   }
 }

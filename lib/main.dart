@@ -32,6 +32,7 @@ import 'services/anchor_alarm_service.dart';
 import 'services/alert_coordinator.dart';
 import 'services/ais_favorites_service.dart';
 import 'services/find_home_target_service.dart';
+import 'services/dashboard_store_service.dart';
 import 'models/alert_event.dart' as alert_models;
 import 'widgets/tools/weather_alerts_tool.dart';
 
@@ -173,6 +174,9 @@ void main() async {
   // Initialize Find Home target service (AIS → Find Home bridge)
   final findHomeTargetService = FindHomeTargetService();
 
+  // Initialize dashboard store service (server-side dashboard CRUD)
+  final dashboardStoreService = DashboardStoreService(signalKService);
+
   // Initialize AIS favorites service
   final aisFavoritesService = AISFavoritesService();
   aisFavoritesService.loadFromStorage(storageService);
@@ -198,6 +202,7 @@ void main() async {
     alertCoordinator: alertCoordinator,
     aisFavoritesService: aisFavoritesService,
     findHomeTargetService: findHomeTargetService,
+    dashboardStoreService: dashboardStoreService,
   ));
 }
 
@@ -218,6 +223,7 @@ class ZedDisplayApp extends StatefulWidget {
   final AlertCoordinator alertCoordinator;
   final AISFavoritesService aisFavoritesService;
   final FindHomeTargetService findHomeTargetService;
+  final DashboardStoreService dashboardStoreService;
 
   const ZedDisplayApp({
     super.key,
@@ -237,6 +243,7 @@ class ZedDisplayApp extends StatefulWidget {
     required this.alertCoordinator,
     required this.aisFavoritesService,
     required this.findHomeTargetService,
+    required this.dashboardStoreService,
   });
 
   @override
@@ -490,6 +497,7 @@ class _ZedDisplayAppState extends State<ZedDisplayApp> with WidgetsBindingObserv
         ChangeNotifierProvider.value(value: widget.alertCoordinator),
         ChangeNotifierProvider.value(value: widget.aisFavoritesService),
         ChangeNotifierProvider.value(value: widget.findHomeTargetService),
+        ChangeNotifierProvider.value(value: widget.dashboardStoreService),
       ],
       child: MaterialApp(
         navigatorKey: _navigatorKey,

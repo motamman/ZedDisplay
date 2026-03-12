@@ -277,12 +277,10 @@ class ConversionUtils {
       final formulaWithValue = formula.replaceAll('value', rawValue.toString());
 
       // Parse and evaluate the expression
-      Parser parser = Parser();
-      Expression exp = parser.parse(formulaWithValue);
-
-      // Evaluate using new RealEvaluator API (math_expressions v3.x)
-      // RealEvaluator.evaluate() takes only Expression, returns num
-      num result = RealEvaluator().evaluate(exp);
+      final parser = GrammarParser();
+      final exp = parser.parse(formulaWithValue);
+      final cm = ContextModel();
+      num result = RealEvaluator(cm).evaluate(exp);
       return result.toDouble();
     } catch (e) {
       // If evaluation fails, return null

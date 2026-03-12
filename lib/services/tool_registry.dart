@@ -42,6 +42,7 @@ import '../widgets/tools/victron_flow_tool.dart';
 import '../widgets/tools/device_access_manager_tool.dart';
 import '../widgets/tools/user_management_tool.dart';
 import '../widgets/tools/find_home_tool.dart';
+import '../widgets/tools/sun_moon_arc_tool.dart';
 
 /// Abstract builder for tool widgets
 abstract class ToolBuilder {
@@ -155,6 +156,7 @@ class ToolRegistry {
     register('device_access_manager', DeviceAccessManagerToolBuilder());
     register('user_management', UserManagementToolBuilder());
     register('find_home', FindHomeToolBuilder());
+    register('sun_moon_arc', SunMoonArcToolBuilder());
     // register('webview', WebViewToolBuilder()); // Hidden for now - uncomment to enable
   }
 }

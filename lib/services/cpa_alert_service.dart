@@ -144,7 +144,9 @@ class CpaAlertService extends ChangeNotifier {
     if (!_config.enabled) return;
     final now = DateTime.now();
     if (_lastEvaluation != null &&
-        now.difference(_lastEvaluation!) < _evaluationThrottle) return;
+        now.difference(_lastEvaluation!) < _evaluationThrottle) {
+      return;
+    }
     _lastEvaluation = now;
     _evaluate();
   }
@@ -185,6 +187,9 @@ class CpaAlertService extends ChangeNotifier {
           ownLat, ownLon, vessel.latitude!, vessel.longitude!);
       final distance = CpaUtils.calculateDistance(
           ownLat, ownLon, vessel.latitude!, vessel.longitude!);
+
+      // Skip vessels beyond max range (garbage AIS data)
+      if (distance > _config.maxRangeMeters) continue;
 
       final cpaTcpa = CpaUtils.calculateCpaTcpa(
         bearingDeg: bearing,
