@@ -769,7 +769,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                         child: ElevatedButton.icon(
                           onPressed: _addDataSource,
                           icon: const Icon(Icons.add),
-                          label: const Text('Add Data Source'),
+                          label: const Text('Add Path'),
                         ),
                       ),
                   ],
