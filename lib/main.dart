@@ -31,6 +31,7 @@ import 'widgets/crew/intercom_panel.dart';
 import 'services/anchor_alarm_service.dart';
 import 'services/alert_coordinator.dart';
 import 'services/ais_favorites_service.dart';
+import 'services/find_home_target_service.dart';
 import 'models/alert_event.dart' as alert_models;
 import 'widgets/tools/weather_alerts_tool.dart';
 
@@ -169,6 +170,9 @@ void main() async {
   final toolRegistry = ToolRegistry();
   toolRegistry.registerDefaults();
 
+  // Initialize Find Home target service (AIS → Find Home bridge)
+  final findHomeTargetService = FindHomeTargetService();
+
   // Initialize AIS favorites service
   final aisFavoritesService = AISFavoritesService();
   aisFavoritesService.loadFromStorage(storageService);
@@ -193,6 +197,7 @@ void main() async {
     intercomService: intercomService,
     alertCoordinator: alertCoordinator,
     aisFavoritesService: aisFavoritesService,
+    findHomeTargetService: findHomeTargetService,
   ));
 }
 
@@ -212,6 +217,7 @@ class ZedDisplayApp extends StatefulWidget {
   final IntercomService intercomService;
   final AlertCoordinator alertCoordinator;
   final AISFavoritesService aisFavoritesService;
+  final FindHomeTargetService findHomeTargetService;
 
   const ZedDisplayApp({
     super.key,
@@ -230,6 +236,7 @@ class ZedDisplayApp extends StatefulWidget {
     required this.intercomService,
     required this.alertCoordinator,
     required this.aisFavoritesService,
+    required this.findHomeTargetService,
   });
 
   @override
@@ -482,6 +489,7 @@ class _ZedDisplayAppState extends State<ZedDisplayApp> with WidgetsBindingObserv
         ChangeNotifierProvider.value(value: widget.intercomService),
         ChangeNotifierProvider.value(value: widget.alertCoordinator),
         ChangeNotifierProvider.value(value: widget.aisFavoritesService),
+        ChangeNotifierProvider.value(value: widget.findHomeTargetService),
       ],
       child: MaterialApp(
         navigatorKey: _navigatorKey,

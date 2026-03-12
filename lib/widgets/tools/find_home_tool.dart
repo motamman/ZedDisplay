@@ -15,6 +15,7 @@ import '../../services/signalk_service.dart';
 import '../../services/storage_service.dart';
 import '../../services/tool_registry.dart';
 import '../../services/alarm_audio_player.dart';
+import '../../services/find_home_target_service.dart';
 import '../../utils/angle_utils.dart';
 import '../../utils/cpa_utils.dart';
 import '../tool_info_button.dart';
@@ -44,6 +45,8 @@ class FindHomeTool extends StatefulWidget {
 class _FindHomeToolState extends State<FindHomeTool> {
   static const _ownerId = 'find_home';
   static const _defaultTargetPath = 'navigation.position';
+  static const _defaultTrackCogPath = 'navigation.courseOverGroundTrue';
+  static const _defaultTrackSogPath = 'navigation.speedOverGround';
 
   /// Full deflection angle in degrees
   static const _maxDeviation = 30.0;
@@ -82,6 +85,15 @@ class _FindHomeToolState extends State<FindHomeTool> {
   bool _storageLoaded = false;
   StorageService? _storage;
 
+  // AIS target mode
+  FindHomeTargetService? _findHomeTargetService;
+  String? _aisVesselId;       // Tracked AIS vessel URN/MMSI
+  String? _aisVesselName;     // Display name
+  bool _trackMode = false;    // Use SignalK position instead of device GPS
+  double? _lastKnownAisLat;   // Stale fallback
+  double? _lastKnownAisLon;
+  bool _aisTargetStale = false;
+
   /// SignalK path for the home target (boat position)
   String get _targetPath {
     if (widget.config.dataSources.isNotEmpty &&
@@ -91,12 +103,26 @@ class _FindHomeToolState extends State<FindHomeTool> {
     return _defaultTargetPath;
   }
 
+  /// SignalK path for vessel COG in track mode
+  String get _trackCogPath {
+    return widget.config.style.customProperties?['trackCogPath'] as String?
+        ?? _defaultTrackCogPath;
+  }
+
+  /// SignalK path for vessel SOG in track mode
+  String get _trackSogPath {
+    return widget.config.style.customProperties?['trackSogPath'] as String?
+        ?? _defaultTrackSogPath;
+  }
+
   @override
   void initState() {
     super.initState();
-    // Subscribe to the target position from SignalK
-    widget.signalKService
-        .subscribeToPaths([_targetPath], ownerId: _ownerId);
+    // Subscribe to the target position + track-mode nav paths from SignalK
+    widget.signalKService.subscribeToPaths(
+      [_targetPath, _trackCogPath, _trackSogPath],
+      ownerId: _ownerId,
+    );
     widget.signalKService.addListener(_onSignalKUpdate);
     _initDeviceGps();
   }
@@ -114,7 +140,54 @@ class _FindHomeToolState extends State<FindHomeTool> {
         _active = true;
         // Feedback will start once GPS stream delivers the first position
       }
+
+      // Listen for AIS target requests from the AIS chart
+      _findHomeTargetService = Provider.of<FindHomeTargetService>(context, listen: false);
+      _findHomeTargetService!.addListener(_onFindHomeTargetUpdate);
+      // Check if a target was set before we loaded
+      _onFindHomeTargetUpdate();
     }
+  }
+
+  void _onFindHomeTargetUpdate() {
+    final service = _findHomeTargetService;
+    if (service == null) return;
+    final id = service.aisVesselId;
+    final name = service.aisVesselName;
+    if (id == null) return;
+
+    // Consume the target
+    service.clearTarget();
+
+    setState(() {
+      _aisVesselId = id;
+      _aisVesselName = name;
+      _aisTargetStale = false;
+      _lastKnownAisLat = null;
+      _lastKnownAisLon = null;
+    });
+
+    // Listen to AIS registry for position updates
+    widget.signalKService.aisVesselRegistry.addListener(_onAISRegistryUpdate);
+
+    // Auto-activate
+    if (!_active) _toggleActive();
+  }
+
+  void _onAISRegistryUpdate() {
+    if (_aisVesselId != null && mounted) setState(() {});
+  }
+
+  void _clearAisMode() {
+    widget.signalKService.aisVesselRegistry.removeListener(_onAISRegistryUpdate);
+    setState(() {
+      _aisVesselId = null;
+      _aisVesselName = null;
+      _trackMode = false;
+      _aisTargetStale = false;
+      _lastKnownAisLat = null;
+      _lastKnownAisLon = null;
+    });
   }
 
   @override
@@ -123,8 +196,14 @@ class _FindHomeToolState extends State<FindHomeTool> {
     _positionSub?.cancel();
     _whistlePlayer?.dispose();
     widget.signalKService.removeListener(_onSignalKUpdate);
-    widget.signalKService
-        .unsubscribeFromPaths([_targetPath], ownerId: _ownerId);
+    widget.signalKService.unsubscribeFromPaths(
+      [_targetPath, _trackCogPath, _trackSogPath],
+      ownerId: _ownerId,
+    );
+    _findHomeTargetService?.removeListener(_onFindHomeTargetUpdate);
+    if (_aisVesselId != null) {
+      widget.signalKService.aisVesselRegistry.removeListener(_onAISRegistryUpdate);
+    }
     super.dispose();
   }
 
@@ -216,8 +295,29 @@ class _FindHomeToolState extends State<FindHomeTool> {
     return (null, null);
   }
 
-  /// Get home target position: manual position first, then SignalK
+  /// Get home target position: AIS vessel first, then manual, then SignalK
   (double?, double?) _getTargetPosition() {
+    // AIS mode: target is the AIS vessel position
+    if (_aisVesselId != null) {
+      final registry = widget.signalKService.aisVesselRegistry;
+      final vessel = registry.vessels[_aisVesselId];
+      if (vessel != null && vessel.latitude != null && vessel.longitude != null) {
+        _lastKnownAisLat = vessel.latitude;
+        _lastKnownAisLon = vessel.longitude;
+        // Stale if last seen > 5 minutes ago
+        final ageMinutes = DateTime.now().difference(vessel.lastSeen).inMinutes;
+        _aisTargetStale = ageMinutes > 5;
+        return (vessel.latitude!, vessel.longitude!);
+      }
+      // Vessel not found or no position — use last known
+      if (_lastKnownAisLat != null && _lastKnownAisLon != null) {
+        _aisTargetStale = true;
+        return (_lastKnownAisLat!, _lastKnownAisLon!);
+      }
+      // No position at all for this AIS target
+      return (null, null);
+    }
+
     if (_manualLat != null && _manualLon != null) {
       return (_manualLat!, _manualLon!);
     }
@@ -285,24 +385,46 @@ class _FindHomeToolState extends State<FindHomeTool> {
     double vesselSogMs,
     bool isWrongWay,
   })? _computeNav() {
-    final pos = _devicePosition;
-    if (pos == null) return null;
+    double lat, lon, sogMs, cogDeg;
+
+    if (_trackMode) {
+      // Track mode: own position from SignalK (primary vessel)
+      final posData = widget.signalKService.getValue(_targetPath);
+      if (posData?.value is! Map) return null;
+      final m = posData!.value as Map;
+      final skLat = m['latitude'];
+      final skLon = m['longitude'];
+      if (skLat is! num || skLon is! num) return null;
+      lat = skLat.toDouble();
+      lon = skLon.toDouble();
+
+      final cogData = widget.signalKService.getValue(_trackCogPath);
+      final sogData = widget.signalKService.getValue(_trackSogPath);
+      sogMs = (sogData?.value as num?)?.toDouble() ?? 0.0;
+      // SignalK COG is in radians
+      final cogRad = (cogData?.value as num?)?.toDouble();
+      cogDeg = cogRad != null ? cogRad * 180.0 / math.pi : 0.0;
+    } else {
+      // Dinghy mode: own position from device GPS
+      final pos = _devicePosition;
+      if (pos == null) return null;
+      lat = pos.latitude;
+      lon = pos.longitude;
+      sogMs = pos.speed >= 0 ? pos.speed : 0.0;
+      cogDeg = pos.heading >= 0 ? pos.heading : 0.0;
+    }
 
     final (homeLat, homeLon) = _getTargetPosition();
     if (homeLat == null || homeLon == null) return null;
 
-    final lat = pos.latitude;
-    final lon = pos.longitude;
-
     final bearing = AngleUtils.bearing(lat, lon, homeLat, homeLon);
     final distance = CpaUtils.calculateDistance(lat, lon, homeLat, homeLon);
 
-    // COG and SOG from device GPS
-    final sogMs = pos.speed >= 0 ? pos.speed : 0.0;
-    final cogDeg = pos.heading >= 0 ? pos.heading : bearing;
+    // Default COG to bearing when not moving
+    if (sogMs < _sogThreshold) cogDeg = bearing;
 
     // Vessel SOG from SignalK
-    final vesselSogData = widget.signalKService.getValue('navigation.speedOverGround');
+    final vesselSogData = widget.signalKService.getValue(_trackSogPath);
     final vesselSogMs = (vesselSogData?.value as num?)?.toDouble() ?? 0.0;
 
     // Only compute deviation when actually moving
@@ -557,12 +679,12 @@ class _FindHomeToolState extends State<FindHomeTool> {
       return _buildNoTarget(isDark);
     }
 
-    // Check for device GPS errors
-    if (_gpsError != null) {
+    // Check for device GPS errors (skip in track mode — using SignalK position)
+    if (!_trackMode && _gpsError != null) {
       return _buildGpsError(isDark);
     }
 
-    // Check for device GPS fix
+    // Check for position fix (device GPS or SignalK in track mode)
     final nav = _computeNav();
     if (nav == null) {
       return _buildAcquiringGps(isDark);
@@ -598,6 +720,9 @@ class _FindHomeToolState extends State<FindHomeTool> {
                     active: _active,
                     hapticThreshold: _hapticDeviationThreshold,
                     isWrongWay: nav.isWrongWay,
+                    isAisMode: _aisVesselId != null,
+                    isStaleTarget: _aisTargetStale,
+                    isTrackMode: _trackMode,
                   ),
                   size: Size.infinite,
                 ),
@@ -714,6 +839,7 @@ class _FindHomeToolState extends State<FindHomeTool> {
     final labelColor = isDark ? Colors.white60 : Colors.black54;
     final (homeLat, homeLon) = _getTargetPosition();
     final hasManual = _manualLat != null && _manualLon != null;
+    final inAisMode = _aisVesselId != null;
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(12, 8, 40, 4),
@@ -723,34 +849,60 @@ class _FindHomeToolState extends State<FindHomeTool> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Row(
-                children: [
-                  Text(
-                    'FIND HOME',
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.bold,
-                      color: labelColor,
-                      letterSpacing: 1.2,
+              Flexible(
+                child: Row(
+                  children: [
+                    Text(
+                      'FIND HOME',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.bold,
+                        color: labelColor,
+                        letterSpacing: 1.2,
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 6),
-                  GestureDetector(
-                    behavior: HitTestBehavior.opaque,
-                    onTap: _showSetHomeDialog,
-                    child: Padding(
-                      padding: const EdgeInsets.all(8),
-                      child: Icon(Icons.edit_location_alt, size: 18, color: labelColor),
-                    ),
-                  ),
-                  if (hasManual) ...[
-                    const SizedBox(width: 4),
-                    GestureDetector(
-                      onLongPress: _clearManualPosition,
-                      child: Icon(Icons.close, size: 14, color: Colors.grey.shade600),
-                    ),
+                    if (inAisMode) ...[
+                      const SizedBox(width: 4),
+                      const Icon(Icons.arrow_forward, size: 12, color: Colors.cyan),
+                      const SizedBox(width: 4),
+                      Flexible(
+                        child: Text(
+                          _aisVesselName ?? 'AIS',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.cyan,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                      GestureDetector(
+                        onTap: _clearAisMode,
+                        child: const Icon(Icons.close, size: 14, color: Colors.cyan),
+                      ),
+                    ],
+                    if (!inAisMode) ...[
+                      const SizedBox(width: 6),
+                      GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onTap: _showSetHomeDialog,
+                        child: Padding(
+                          padding: const EdgeInsets.all(8),
+                          child: Icon(Icons.edit_location_alt, size: 18, color: labelColor),
+                        ),
+                      ),
+                      if (hasManual) ...[
+                        const SizedBox(width: 4),
+                        GestureDetector(
+                          onLongPress: _clearManualPosition,
+                          child: Icon(Icons.close, size: 14, color: Colors.grey.shade600),
+                        ),
+                      ],
+                    ],
                   ],
-                ],
+                ),
               ),
               Text(
                 _formatDistance(nav.distance),
@@ -778,6 +930,7 @@ class _FindHomeToolState extends State<FindHomeTool> {
     final absDev = nav.deviation.abs() as double;
     final devSide = nav.deviation > 0 ? 'P' : 'S';
     final bool isWrongWay = nav.isWrongWay as bool;
+    final inAisMode = _aisVesselId != null;
 
     Color devColor;
     if (isWrongWay) {
@@ -797,6 +950,12 @@ class _FindHomeToolState extends State<FindHomeTool> {
         ? 'ETA --:--'
         : 'ETA ${_formatEta(nav.distance, nav.sogMs)}';
 
+    // Labels change based on AIS mode and track mode
+    final bearingLabel = inAisMode
+        ? 'TO ${_aisVesselName ?? 'AIS'}'
+        : 'TO BOAT';
+    final youLabel = _trackMode ? 'VESSEL' : 'YOU';
+
     return Padding(
       padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
       child: Column(
@@ -809,10 +968,14 @@ class _FindHomeToolState extends State<FindHomeTool> {
                 style: TextStyle(
                     fontSize: 12, fontFamily: 'monospace', color: labelColor),
               ),
-              Text(
-                'TO BOAT ${_formatAngle(nav.bearing)}',
-                style: TextStyle(
-                    fontSize: 12, fontFamily: 'monospace', color: labelColor),
+              Flexible(
+                child: Text(
+                  '$bearingLabel ${_formatAngle(nav.bearing)}',
+                  style: TextStyle(
+                      fontSize: 12, fontFamily: 'monospace', color: labelColor),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
               ),
             ],
           ),
@@ -830,7 +993,7 @@ class _FindHomeToolState extends State<FindHomeTool> {
                 ),
               ),
               Text(
-                'YOU ${_formatSpeed(nav.sogMs)}',
+                '$youLabel ${_formatSpeed(nav.sogMs, skPath: _trackMode ? 'navigation.speedOverGround' : null)}',
                 style: TextStyle(
                     fontSize: 12, fontFamily: 'monospace', color: labelColor),
               ),
@@ -846,7 +1009,7 @@ class _FindHomeToolState extends State<FindHomeTool> {
                     fontSize: 12, fontFamily: 'monospace', color: labelColor),
               ),
               Text(
-                'BOAT ${_formatSpeed(nav.vesselSogMs, skPath: 'navigation.speedOverGround')}',
+                'BOAT ${_formatSpeed(nav.vesselSogMs, skPath: _trackSogPath)}',
                 style: TextStyle(
                     fontSize: 12, fontFamily: 'monospace', color: labelColor),
               ),
@@ -856,6 +1019,59 @@ class _FindHomeToolState extends State<FindHomeTool> {
           Row(
             mainAxisAlignment: MainAxisAlignment.end,
             children: [
+                  // Return-to-home button + Track toggle (only in AIS mode)
+                  if (inAisMode) ...[
+                    GestureDetector(
+                      onTap: _clearAisMode,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: Colors.grey.withValues(alpha: 0.2),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: Colors.grey,
+                            width: 1,
+                          ),
+                        ),
+                        child: Text(
+                          widget.signalKService.getValue('name')?.value as String? ?? 'HOME',
+                          style: const TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.grey,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    GestureDetector(
+                      onTap: () => setState(() => _trackMode = !_trackMode),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: _trackMode
+                              ? Colors.cyan.withValues(alpha: 0.3)
+                              : Colors.grey.withValues(alpha: 0.2),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: _trackMode ? Colors.cyan : Colors.grey,
+                            width: 1,
+                          ),
+                        ),
+                        child: Text(
+                          'TRACK',
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
+                            color: _trackMode ? Colors.cyan : Colors.grey,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                  ],
                   // Whistle toggle
                   GestureDetector(
                     onTap: _toggleWhistle,
@@ -1271,6 +1487,9 @@ class _RunwayPainter extends CustomPainter {
   final bool active;
   final double hapticThreshold;
   final bool isWrongWay;
+  final bool isAisMode;
+  final bool isStaleTarget;
+  final bool isTrackMode;
 
   _RunwayPainter({
     required this.deviation,
@@ -1282,6 +1501,9 @@ class _RunwayPainter extends CustomPainter {
     required this.active,
     required this.hapticThreshold,
     required this.isWrongWay,
+    this.isAisMode = false,
+    this.isStaleTarget = false,
+    this.isTrackMode = false,
   });
 
   @override
@@ -1389,8 +1611,28 @@ class _RunwayPainter extends CustomPainter {
     _drawDistanceMarkers(
         canvas, centerX, apexY, baseY, runwayHeight, distInUnits);
 
-    // --- Anchor icon at apex ---
-    _drawAnchorIcon(canvas, Offset(centerX, apexY + 10));
+    // --- Target icon at apex ---
+    if (isTrackMode) {
+      _drawBoatIcon(canvas, Offset(centerX, apexY + 10));
+    } else {
+      _drawAnchorIcon(canvas, Offset(centerX, apexY + 10));
+    }
+
+    // --- AIS label over anchor icon ---
+    if (isAisMode) {
+      final aisColor = isStaleTarget ? Colors.orange : Colors.cyan;
+      final aisStyle = TextStyle(
+        fontSize: 9,
+        fontWeight: FontWeight.w900,
+        color: aisColor,
+        letterSpacing: 0.5,
+      );
+      final aisTp = TextPainter(
+        text: TextSpan(text: isStaleTarget ? 'AIS ?' : 'AIS', style: aisStyle),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      aisTp.paint(canvas, Offset(centerX - aisTp.width / 2, apexY - 4));
+    }
 
     // --- Vessel triangle ---
     // deviation > 0 = on PORT side (bearing is CW from COG) → triangle LEFT
@@ -1563,8 +1805,16 @@ class _RunwayPainter extends CustomPainter {
   }
 
   void _drawAnchorIcon(Canvas canvas, Offset center) {
+    final Color anchorColor;
+    if (isAisMode && isStaleTarget) {
+      anchorColor = Colors.orange;
+    } else if (isAisMode) {
+      anchorColor = Colors.cyan;
+    } else {
+      anchorColor = isDark ? Colors.white70 : Colors.black54;
+    }
     final paint = Paint()
-      ..color = isDark ? Colors.white70 : Colors.black54
+      ..color = anchorColor
       ..style = PaintingStyle.stroke
       ..strokeWidth = 2.0;
 
@@ -1579,6 +1829,40 @@ class _RunwayPainter extends CustomPainter {
       ..quadraticBezierTo(x - 6, y + 7, x, y + 6)
       ..quadraticBezierTo(x + 6, y + 7, x + 6, y + 2);
     canvas.drawPath(flukePath, paint);
+  }
+
+  /// Draw a simple boat icon pointing up (bow at top).
+  void _drawBoatIcon(Canvas canvas, Offset center) {
+    final Color boatColor;
+    if (isAisMode && isStaleTarget) {
+      boatColor = Colors.orange;
+    } else if (isAisMode) {
+      boatColor = Colors.cyan;
+    } else {
+      boatColor = isDark ? Colors.white70 : Colors.black54;
+    }
+    final paint = Paint()
+      ..color = boatColor
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.0
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
+
+    final x = center.dx;
+    final y = center.dy;
+
+    // Hull outline — pointed bow at top, flat stern at bottom
+    final hull = Path()
+      ..moveTo(x, y - 8)          // bow
+      ..lineTo(x - 6, y + 2)      // port chine
+      ..lineTo(x - 5, y + 6)      // port stern
+      ..lineTo(x + 5, y + 6)      // starboard stern
+      ..lineTo(x + 6, y + 2)      // starboard chine
+      ..close();
+    canvas.drawPath(hull, paint);
+
+    // Keel line (centerline from bow down)
+    canvas.drawLine(Offset(x, y - 8), Offset(x, y + 6), paint);
   }
 
   void _drawDashedLine(Canvas canvas, Offset from, Offset to, Paint paint,
@@ -1616,7 +1900,10 @@ class _RunwayPainter extends CustomPainter {
         oldDelegate.isDark != isDark ||
         oldDelegate.active != active ||
         oldDelegate.metersPerUnit != metersPerUnit ||
-        oldDelegate.isWrongWay != isWrongWay;
+        oldDelegate.isWrongWay != isWrongWay ||
+        oldDelegate.isAisMode != isAisMode ||
+        oldDelegate.isStaleTarget != isStaleTarget ||
+        oldDelegate.isTrackMode != isTrackMode;
   }
 }
 
@@ -1655,6 +1942,8 @@ class FindHomeToolBuilder extends ToolBuilder {
         customProperties: {
           'feedbackInterval': 10, // seconds (5-60)
           'alertSound': 'whistle',
+          'trackCogPath': 'navigation.courseOverGroundTrue',
+          'trackSogPath': 'navigation.speedOverGround',
         },
       ),
     );
