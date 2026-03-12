@@ -15,9 +15,9 @@ The `SunMoonArcWidget` displays a configurable arc showing the 24-hour progressi
 | `lib/widgets/tools/sun_moon_arc_tool.dart` | Dashboard tool wrapper |
 | `lib/screens/tool_config/configurators/sun_moon_arc_configurator.dart` | Config UI |
 
-## Using as a Standalone Dashboard Tool
+## Tool Registration
 
-The tool is registered as `'sun_moon_arc'` in `ToolRegistry`. It subscribes to `navigation.position` and computes everything locally. No server-side sun/moon plugin needed.
+The tool is registered as `'sun_moon_arc'` in `ToolRegistry`. It subscribes to `navigation.position` and computes everything locally. No server-side sun/moon plugin needed. Excluded from both data source and style config sections in `tool_config_screen.dart` (see `.claude/CREATE_WIDGET_GUIDE.md` for the exclusion pattern).
 
 ## Embedding in Another Widget
 
