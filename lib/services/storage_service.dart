@@ -698,6 +698,19 @@ class StorageService extends ChangeNotifier {
     return _settingsBox.get('notifications_enabled', defaultValue: 'false') == 'true';
   }
 
+  /// Save diagnostics enabled preference
+  Future<void> saveDiagnosticsEnabled(bool enabled) async {
+    if (!_initialized) throw Exception('StorageService not initialized');
+    await _settingsBox.put('diagnostics_enabled', enabled ? 'true' : 'false');
+    notifyListeners();
+  }
+
+  /// Get diagnostics enabled preference (defaults to true)
+  bool getDiagnosticsEnabled() {
+    if (!_initialized) return true;
+    return _settingsBox.get('diagnostics_enabled', defaultValue: 'true') == 'true';
+  }
+
   /// Save crew message notifications enabled preference
   Future<void> saveCrewNotificationsEnabled(bool enabled) async {
     if (!_initialized) throw Exception('StorageService not initialized');

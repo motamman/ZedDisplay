@@ -91,7 +91,9 @@ void main() async {
     deviceId: deviceId,
   );
   signalKService.setDiagnosticService(diagnosticService);
-  await diagnosticService.start();
+  if (storageService.getDiagnosticsEnabled()) {
+    await diagnosticService.start();
+  }
 
   // Initialize messaging service
   final messagingService = MessagingService(signalKService, storageService, crewService);
@@ -431,7 +433,9 @@ class _ZedDisplayAppState extends State<ZedDisplayApp> with WidgetsBindingObserv
         // Resume snackbar delivery
         widget.alertCoordinator.setAppInForeground(true);
         // Restart diagnostic logging on foreground return
-        DiagnosticService.instance?.start();
+        if (widget.storageService.getDiagnosticsEnabled()) {
+          DiagnosticService.instance?.start();
+        }
         // Reconnect when app returns to foreground
         if (_lastServerUrl != null && _lastToken != null && !widget.signalKService.isConnected) {
           _reconnect();
