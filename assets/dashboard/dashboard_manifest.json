@@ -1,0 +1,33 @@
+{
+  "version": "1.0.0",
+  "categories": [
+    {
+      "id": "default",
+      "name": "Default",
+      "description": "Standard dashboards suitable for most devices",
+      "path": "assets/dashboard/default/",
+      "dashboards": [
+        {
+          "filename": "default_dashboard.zedjson",
+          "name": "Default Dashboard",
+          "description": "Complete starter dashboard with navigation, AIS, autopilot, anchor alarm, and more",
+          "isDefault": true
+        }
+      ]
+    },
+    {
+      "id": "smallScreen",
+      "name": "Phone",
+      "description": "Dashboards optimized for phone-sized screens",
+      "path": "assets/dashboard/smallScreen/",
+      "dashboards": []
+    },
+    {
+      "id": "largeScreen",
+      "name": "Tablet",
+      "description": "Dashboards optimized for tablet-sized screens",
+      "path": "assets/dashboard/largeScreen/",
+      "dashboards": []
+    }
+  ]
+}

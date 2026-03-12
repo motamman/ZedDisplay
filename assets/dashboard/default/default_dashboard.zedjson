@@ -1,0 +1,1206 @@
+{
+  "version": "1.0.0",
+  "metadata": {
+    "name": "Default Dashboard",
+    "description": "default install",
+    "author": "User",
+    "createdAt": "2026-03-12T06:47:52.011546",
+    "updatedAt": null,
+    "thumbnailUrl": null,
+    "tags": []
+  },
+  "layout": {
+    "id": "layout_default",
+    "name": "Default Dashboard",
+    "intendedUse": null,
+    "screens": [
+      {
+        "id": "screen_main",
+        "name": "Main",
+        "portraitPlacements": [
+          {
+            "toolId": "tool_1773023397007",
+            "screenId": "screen_main",
+            "position": {
+              "row": 0,
+              "col": 0,
+              "width": 20,
+              "height": 16
+            }
+          }
+        ],
+        "landscapePlacements": [
+          {
+            "toolId": "tool_1773023397007",
+            "screenId": "screen_main",
+            "position": {
+              "row": 0,
+              "col": 0,
+              "width": 20,
+              "height": 16
+            }
+          }
+        ],
+        "allowOverflow": false,
+        "placements": null,
+        "order": 0
+      },
+      {
+        "id": "screen_1773023420619",
+        "name": "Ais tracker",
+        "portraitPlacements": [
+          {
+            "toolId": "tool_1773023434195",
+            "screenId": "screen_1773023420619",
+            "position": {
+              "row": 0,
+              "col": 0,
+              "width": 20,
+              "height": 20
+            }
+          }
+        ],
+        "landscapePlacements": [
+          {
+            "toolId": "tool_1773023434195",
+            "screenId": "screen_1773023420619",
+            "position": {
+              "row": 0,
+              "col": 0,
+              "width": 20,
+              "height": 20
+            }
+          }
+        ],
+        "allowOverflow": false,
+        "placements": null,
+        "order": 1
+      },
+      {
+        "id": "screen_1773023456442",
+        "name": "Autopilot",
+        "portraitPlacements": [
+          {
+            "toolId": "tool_1773023473746",
+            "screenId": "screen_1773023456442",
+            "position": {
+              "row": 0,
+              "col": 0,
+              "width": 20,
+              "height": 13
+            }
+          }
+        ],
+        "landscapePlacements": [
+          {
+            "toolId": "tool_1773023473746",
+            "screenId": "screen_1773023456442",
+            "position": {
+              "row": 0,
+              "col": 0,
+              "width": 20,
+              "height": 13
+            }
+          }
+        ],
+        "allowOverflow": false,
+        "placements": null,
+        "order": 2
+      },
+      {
+        "id": "screen_1773023515943",
+        "name": "history",
+        "portraitPlacements": [
+          {
+            "toolId": "tool_1773072945537",
+            "screenId": "screen_1773023515943",
+            "position": {
+              "row": 0,
+              "col": 0,
+              "width": 20,
+              "height": 16
+            }
+          }
+        ],
+        "landscapePlacements": [
+          {
+            "toolId": "tool_1773072945537",
+            "screenId": "screen_1773023515943",
+            "position": {
+              "row": 0,
+              "col": 0,
+              "width": 20,
+              "height": 16
+            }
+          }
+        ],
+        "allowOverflow": false,
+        "placements": null,
+        "order": 3
+      },
+      {
+        "id": "screen_1773028740749",
+        "name": "Anchor",
+        "portraitPlacements": [
+          {
+            "toolId": "tool_1773028749779",
+            "screenId": "screen_1773028740749",
+            "position": {
+              "row": 0,
+              "col": 0,
+              "width": 20,
+              "height": 20
+            }
+          }
+        ],
+        "landscapePlacements": [
+          {
+            "toolId": "tool_1773028749779",
+            "screenId": "screen_1773028740749",
+            "position": {
+              "row": 0,
+              "col": 0,
+              "width": 20,
+              "height": 14
+            }
+          }
+        ],
+        "allowOverflow": false,
+        "placements": null,
+        "order": 4
+      },
+      {
+        "id": "screen_1773029105234",
+        "name": "Conversations",
+        "portraitPlacements": [
+          {
+            "toolId": "tool_1773232098732",
+            "screenId": "screen_1773029105234",
+            "position": {
+              "row": 0,
+              "col": 0,
+              "width": 20,
+              "height": 17
+            }
+          }
+        ],
+        "landscapePlacements": [
+          {
+            "toolId": "tool_1773232098732",
+            "screenId": "screen_1773029105234",
+            "position": {
+              "row": 0,
+              "col": 0,
+              "width": 20,
+              "height": 20
+            }
+          }
+        ],
+        "allowOverflow": false,
+        "placements": null,
+        "order": 5
+      },
+      {
+        "id": "screen_1773029255224",
+        "name": "Gauges 1",
+        "portraitPlacements": [
+          {
+            "toolId": "tool_1773029277996",
+            "screenId": "screen_1773029255224",
+            "position": {
+              "row": 0,
+              "col": 0,
+              "width": 19,
+              "height": 14
+            }
+          }
+        ],
+        "landscapePlacements": [
+          {
+            "toolId": "tool_1773029277996",
+            "screenId": "screen_1773029255224",
+            "position": {
+              "row": 0,
+              "col": 0,
+              "width": 19,
+              "height": 14
+            }
+          }
+        ],
+        "allowOverflow": false,
+        "placements": null,
+        "order": 6
+      },
+      {
+        "id": "screen_1773066924713",
+        "name": "Server",
+        "portraitPlacements": [
+          {
+            "toolId": "tool_1773066934400",
+            "screenId": "screen_1773066924713",
+            "position": {
+              "row": 0,
+              "col": 0,
+              "width": 19,
+              "height": 13
+            }
+          },
+          {
+            "toolId": "tool_1773283386598",
+            "screenId": "screen_1773066924713",
+            "position": {
+              "row": 13,
+              "col": 0,
+              "width": 19,
+              "height": 7
+            }
+          }
+        ],
+        "landscapePlacements": [
+          {
+            "toolId": "tool_1773066934400",
+            "screenId": "screen_1773066924713",
+            "position": {
+              "row": 0,
+              "col": 0,
+              "width": 20,
+              "height": 18
+            }
+          },
+          {
+            "toolId": "tool_1773283386598",
+            "screenId": "screen_1773066924713",
+            "position": {
+              "row": 17,
+              "col": 0,
+              "width": 8,
+              "height": 2
+            }
+          }
+        ],
+        "allowOverflow": false,
+        "placements": null,
+        "order": 7
+      },
+      {
+        "id": "screen_1773304301720",
+        "name": "Simple Compass",
+        "portraitPlacements": [
+          {
+            "toolId": "tool_1773304340749",
+            "screenId": "screen_1773304301720",
+            "position": {
+              "row": 0,
+              "col": 0,
+              "width": 20,
+              "height": 14
+            }
+          }
+        ],
+        "landscapePlacements": [
+          {
+            "toolId": "tool_1773304340749",
+            "screenId": "screen_1773304301720",
+            "position": {
+              "row": 0,
+              "col": 0,
+              "width": 20,
+              "height": 14
+            }
+          }
+        ],
+        "allowOverflow": false,
+        "placements": null,
+        "order": 8
+      }
+    ],
+    "activeScreenIndex": 3
+  },
+  "tools": [
+    {
+      "id": "tool_1773023397007",
+      "name": "10 paths",
+      "description": "Custom tool for navigation.headingTrue, navigation.headingMagnetic, environment.wind.directionTrue, environment.wind.angleApparent, environment.wind.speedTrue, environment.wind.speedApparent, navigation.speedOverGround, navigation.courseOverGroundTrue, navigation.courseGreatCircle.nextPoint.bearingTrue, navigation.courseGreatCircle.nextPoint.distance",
+      "author": "Local User",
+      "version": "1.0.0",
+      "createdAt": "2026-03-08T22:29:57.007463",
+      "updatedAt": null,
+      "toolTypeId": "wind_compass",
+      "config": {
+        "vesselId": null,
+        "dataSources": [
+          {
+            "path": "navigation.headingTrue",
+            "source": null,
+            "label": "Heading True",
+            "color": null,
+            "baseUnit": null
+          },
+          {
+            "path": "navigation.headingMagnetic",
+            "source": null,
+            "label": "Heading Magnetic",
+            "color": null,
+            "baseUnit": null
+          },
+          {
+            "path": "environment.wind.directionTrue",
+            "source": null,
+            "label": "Wind Direction True",
+            "color": null,
+            "baseUnit": null
+          },
+          {
+            "path": "environment.wind.angleApparent",
+            "source": null,
+            "label": "Wind Angle Apparent",
+            "color": null,
+            "baseUnit": null
+          },
+          {
+            "path": "environment.wind.speedTrue",
+            "source": null,
+            "label": "Wind Speed True",
+            "color": null,
+            "baseUnit": null
+          },
+          {
+            "path": "environment.wind.speedApparent",
+            "source": null,
+            "label": "Wind Speed Apparent",
+            "color": null,
+            "baseUnit": null
+          },
+          {
+            "path": "navigation.speedOverGround",
+            "source": null,
+            "label": "Speed Over Ground",
+            "color": null,
+            "baseUnit": null
+          },
+          {
+            "path": "navigation.courseOverGroundTrue",
+            "source": null,
+            "label": "Course Over Ground",
+            "color": null,
+            "baseUnit": null
+          },
+          {
+            "path": "navigation.courseGreatCircle.nextPoint.bearingTrue",
+            "source": null,
+            "label": "Waypoint Bearing",
+            "color": null,
+            "baseUnit": null
+          },
+          {
+            "path": "navigation.courseGreatCircle.nextPoint.distance",
+            "source": null,
+            "label": "Waypoint Distance",
+            "color": null,
+            "baseUnit": null
+          }
+        ],
+        "style": {
+          "minValue": null,
+          "maxValue": null,
+          "unit": null,
+          "primaryColor": null,
+          "secondaryColor": null,
+          "showLabel": true,
+          "showValue": true,
+          "showUnit": true,
+          "ttlSeconds": null,
+          "laylineAngle": 40.0,
+          "targetTolerance": 3.0,
+          "showLaylines": null,
+          "showTrueWind": null,
+          "showCOG": null,
+          "showAWS": null,
+          "showTWS": null,
+          "customProperties": {
+            "showAWANumbers": true,
+            "enableVMG": false,
+            "_toolId": "tool_1773023397007"
+          }
+        }
+      },
+      "defaultWidth": 8,
+      "defaultHeight": 8,
+      "category": "other",
+      "tags": [
+        "wind_compass"
+      ],
+      "thumbnailUrl": null,
+      "iconUrl": null,
+      "requiredPaths": [
+        "navigation.headingTrue",
+        "navigation.headingMagnetic",
+        "environment.wind.directionTrue",
+        "environment.wind.angleApparent",
+        "environment.wind.speedTrue",
+        "environment.wind.speedApparent",
+        "navigation.speedOverGround",
+        "navigation.courseOverGroundTrue",
+        "navigation.courseGreatCircle.nextPoint.bearingTrue",
+        "navigation.courseGreatCircle.nextPoint.distance"
+      ],
+      "minAppVersion": null,
+      "usageCount": 0,
+      "rating": 0.0,
+      "ratingCount": 0,
+      "sourceUrl": null,
+      "isLocal": true
+    },
+    {
+      "id": "tool_1773023434195",
+      "name": "3 paths",
+      "description": "Custom tool for navigation.position, navigation.courseOverGroundTrue, navigation.speedOverGround",
+      "author": "Local User",
+      "version": "1.0.0",
+      "createdAt": "2026-03-08T22:30:34.195779",
+      "updatedAt": null,
+      "toolTypeId": "ais_polar_chart",
+      "config": {
+        "vesselId": null,
+        "dataSources": [
+          {
+            "path": "navigation.position",
+            "source": null,
+            "label": "Own Position",
+            "color": null,
+            "baseUnit": null
+          },
+          {
+            "path": "navigation.courseOverGroundTrue",
+            "source": null,
+            "label": "Own COG",
+            "color": null,
+            "baseUnit": null
+          },
+          {
+            "path": "navigation.speedOverGround",
+            "source": null,
+            "label": "Own SOG",
+            "color": null,
+            "baseUnit": null
+          }
+        ],
+        "style": {
+          "minValue": null,
+          "maxValue": null,
+          "unit": null,
+          "primaryColor": null,
+          "secondaryColor": null,
+          "showLabel": true,
+          "showValue": true,
+          "showUnit": true,
+          "ttlSeconds": null,
+          "laylineAngle": null,
+          "targetTolerance": null,
+          "showLaylines": null,
+          "showTrueWind": null,
+          "showCOG": null,
+          "showAWS": null,
+          "showTWS": null,
+          "customProperties": {
+            "maxRangeNm": 5.0,
+            "updateInterval": 10000,
+            "showLabels": true,
+            "showGrid": true,
+            "pruneMinutes": 15,
+            "colorByShipType": true,
+            "showProjectedPositions": true,
+            "_toolId": "tool_1773023434195",
+            "cpaAlertsEnabled": true,
+            "cpaWarnNm": 0.5,
+            "cpaAlarmNm": 0.1,
+            "cpaTcpaMinutes": 5.0,
+            "cpaAlarmSound": "foghorn",
+            "cpaSendCrewAlert": false,
+            "cpaCooldownMinutes": 15
+          }
+        }
+      },
+      "defaultWidth": 8,
+      "defaultHeight": 8,
+      "category": "other",
+      "tags": [
+        "ais_polar_chart"
+      ],
+      "thumbnailUrl": null,
+      "iconUrl": null,
+      "requiredPaths": [
+        "navigation.position",
+        "navigation.courseOverGroundTrue",
+        "navigation.speedOverGround"
+      ],
+      "minAppVersion": null,
+      "usageCount": 0,
+      "rating": 0.0,
+      "ratingCount": 0,
+      "sourceUrl": null,
+      "isLocal": true
+    },
+    {
+      "id": "tool_1773023473746",
+      "name": "8 paths",
+      "description": "Custom tool for steering.autopilot.state, steering.autopilot.mode, steering.autopilot.engaged, steering.autopilot.target.headingMagnetic, navigation.headingMagnetic, steering.rudderAngle, environment.wind.angleApparent, navigation.course.calcValues.crossTrackError",
+      "author": "Local User",
+      "version": "1.0.0",
+      "createdAt": "2026-03-08T22:31:13.746179",
+      "updatedAt": null,
+      "toolTypeId": "autopilot_v2",
+      "config": {
+        "vesselId": null,
+        "dataSources": [
+          {
+            "path": "steering.autopilot.state",
+            "source": null,
+            "label": "Autopilot State",
+            "color": null,
+            "baseUnit": null
+          },
+          {
+            "path": "steering.autopilot.mode",
+            "source": null,
+            "label": "Autopilot Mode",
+            "color": null,
+            "baseUnit": null
+          },
+          {
+            "path": "steering.autopilot.engaged",
+            "source": null,
+            "label": "Autopilot Engaged (V2 only)",
+            "color": null,
+            "baseUnit": null
+          },
+          {
+            "path": "steering.autopilot.target.headingMagnetic",
+            "source": null,
+            "label": "Target Heading",
+            "color": null,
+            "baseUnit": null
+          },
+          {
+            "path": "navigation.headingMagnetic",
+            "source": null,
+            "label": "Current Heading",
+            "color": null,
+            "baseUnit": null
+          },
+          {
+            "path": "steering.rudderAngle",
+            "source": null,
+            "label": "Rudder Angle",
+            "color": null,
+            "baseUnit": null
+          },
+          {
+            "path": "environment.wind.angleApparent",
+            "source": null,
+            "label": "Apparent Wind Angle",
+            "color": null,
+            "baseUnit": null
+          },
+          {
+            "path": "navigation.course.calcValues.crossTrackError",
+            "source": null,
+            "label": "Cross Track Error",
+            "color": null,
+            "baseUnit": null
+          }
+        ],
+        "style": {
+          "minValue": null,
+          "maxValue": null,
+          "unit": null,
+          "primaryColor": "#FF0000",
+          "secondaryColor": null,
+          "showLabel": true,
+          "showValue": true,
+          "showUnit": true,
+          "ttlSeconds": null,
+          "laylineAngle": null,
+          "targetTolerance": null,
+          "showLaylines": null,
+          "showTrueWind": null,
+          "showCOG": null,
+          "showAWS": null,
+          "showTWS": null,
+          "customProperties": {
+            "divisions": 10,
+            "orientation": "horizontal",
+            "showTickLabels": false,
+            "pointerOnly": false,
+            "_toolId": "tool_1773023473746"
+          }
+        }
+      },
+      "defaultWidth": 8,
+      "defaultHeight": 8,
+      "category": "other",
+      "tags": [
+        "autopilot_v2"
+      ],
+      "thumbnailUrl": null,
+      "iconUrl": null,
+      "requiredPaths": [
+        "steering.autopilot.state",
+        "steering.autopilot.mode",
+        "steering.autopilot.engaged",
+        "steering.autopilot.target.headingMagnetic",
+        "navigation.headingMagnetic",
+        "steering.rudderAngle",
+        "environment.wind.angleApparent",
+        "navigation.course.calcValues.crossTrackError"
+      ],
+      "minAppVersion": null,
+      "usageCount": 0,
+      "rating": 0.0,
+      "ratingCount": 0,
+      "sourceUrl": null,
+      "isLocal": true
+    },
+    {
+      "id": "tool_1773072945537",
+      "name": "2 paths",
+      "description": "Custom tool for environment.wind.speedApparent, environment.wind.speedTrue",
+      "author": "Local User",
+      "version": "1.0.0",
+      "createdAt": "2026-03-09T12:15:45.537375",
+      "updatedAt": "2026-03-12T06:46:37.608270",
+      "toolTypeId": "historical_chart",
+      "config": {
+        "vesselId": null,
+        "dataSources": [
+          {
+            "path": "environment.wind.speedApparent",
+            "source": null,
+            "label": "apparent",
+            "color": null,
+            "baseUnit": null
+          },
+          {
+            "path": "environment.wind.speedTrue",
+            "source": null,
+            "label": "true",
+            "color": null,
+            "baseUnit": null
+          }
+        ],
+        "style": {
+          "minValue": null,
+          "maxValue": null,
+          "unit": null,
+          "primaryColor": null,
+          "secondaryColor": null,
+          "showLabel": true,
+          "showValue": true,
+          "showUnit": true,
+          "ttlSeconds": null,
+          "laylineAngle": null,
+          "targetTolerance": null,
+          "showLaylines": null,
+          "showTrueWind": null,
+          "showCOG": null,
+          "showAWS": null,
+          "showTWS": null,
+          "customProperties": {
+            "duration": "2d",
+            "resolution": null,
+            "showLegend": true,
+            "showGrid": true,
+            "autoRefresh": false,
+            "refreshInterval": 60,
+            "chartStyle": "stepLine",
+            "showMovingAverage": true,
+            "movingAverageWindow": 20,
+            "smoothingType": "sma",
+            "title": "wind speed",
+            "_toolId": "tool_1773072945537"
+          }
+        }
+      },
+      "defaultWidth": 20,
+      "defaultHeight": 16,
+      "category": "other",
+      "tags": [
+        "historical_chart"
+      ],
+      "thumbnailUrl": null,
+      "iconUrl": null,
+      "requiredPaths": [
+        "environment.outside.rapidWind.windSpeed"
+      ],
+      "minAppVersion": null,
+      "usageCount": 0,
+      "rating": 0.0,
+      "ratingCount": 0,
+      "sourceUrl": null,
+      "isLocal": true
+    },
+    {
+      "id": "tool_1773028749779",
+      "name": "11 paths",
+      "description": "Custom tool for navigation.anchor.position, navigation.anchor.maxRadius, navigation.anchor.currentRadius, navigation.anchor.rodeLength, navigation.anchor.bearingTrue, navigation.position, navigation.headingTrue, sensors.gps.fromBow, environment.depth.belowSurface, navigation.anchor.fudgeFactor, design.length",
+      "author": "Local User",
+      "version": "1.0.0",
+      "createdAt": "2026-03-08T23:59:09.779364",
+      "updatedAt": "2026-03-10T11:37:44.260566",
+      "toolTypeId": "anchor_alarm",
+      "config": {
+        "vesselId": null,
+        "dataSources": [
+          {
+            "path": "navigation.anchor.position",
+            "source": null,
+            "label": "Anchor Position",
+            "color": null,
+            "baseUnit": null
+          },
+          {
+            "path": "navigation.anchor.maxRadius",
+            "source": null,
+            "label": "Alarm Radius",
+            "color": null,
+            "baseUnit": null
+          },
+          {
+            "path": "navigation.anchor.currentRadius",
+            "source": null,
+            "label": "Current Distance",
+            "color": null,
+            "baseUnit": null
+          },
+          {
+            "path": "navigation.anchor.rodeLength",
+            "source": null,
+            "label": "Rode Length",
+            "color": null,
+            "baseUnit": null
+          },
+          {
+            "path": "navigation.anchor.bearingTrue",
+            "source": null,
+            "label": "Bearing to Anchor",
+            "color": null,
+            "baseUnit": null
+          },
+          {
+            "path": "navigation.position",
+            "source": null,
+            "label": "Vessel Position",
+            "color": null,
+            "baseUnit": null
+          },
+          {
+            "path": "navigation.headingTrue",
+            "source": null,
+            "label": "Vessel Heading",
+            "color": null,
+            "baseUnit": null
+          },
+          {
+            "path": "sensors.gps.fromBow",
+            "source": null,
+            "label": "GPS from Bow",
+            "color": null,
+            "baseUnit": null
+          },
+          {
+            "path": "environment.depth.belowSurface",
+            "source": null,
+            "label": "Water Depth",
+            "color": null,
+            "baseUnit": null
+          },
+          {
+            "path": "navigation.anchor.fudgeFactor",
+            "source": null,
+            "label": "Radius Buffer",
+            "color": null,
+            "baseUnit": null
+          },
+          {
+            "path": "design.length",
+            "source": null,
+            "label": "Vessel Length",
+            "color": null,
+            "baseUnit": null
+          }
+        ],
+        "style": {
+          "minValue": null,
+          "maxValue": null,
+          "unit": null,
+          "primaryColor": null,
+          "secondaryColor": null,
+          "showLabel": true,
+          "showValue": true,
+          "showUnit": true,
+          "ttlSeconds": null,
+          "laylineAngle": null,
+          "targetTolerance": null,
+          "showLaylines": null,
+          "showTrueWind": null,
+          "showCOG": null,
+          "showAWS": null,
+          "showTWS": null,
+          "customProperties": {
+            "divisions": 10,
+            "orientation": "horizontal",
+            "showTickLabels": false,
+            "pointerOnly": false,
+            "alarmSound": "foghorn",
+            "checkInEnabled": false,
+            "checkInIntervalMinutes": 2,
+            "checkInGracePeriodSeconds": 60,
+            "_toolId": "tool_1773028749779"
+          }
+        }
+      },
+      "defaultWidth": 20,
+      "defaultHeight": 20,
+      "category": "other",
+      "tags": [
+        "anchor_alarm"
+      ],
+      "thumbnailUrl": null,
+      "iconUrl": null,
+      "requiredPaths": [
+        "navigation.anchor.position",
+        "navigation.anchor.maxRadius",
+        "navigation.anchor.currentRadius",
+        "navigation.anchor.rodeLength",
+        "navigation.anchor.bearingTrue",
+        "navigation.position",
+        "navigation.headingTrue",
+        "sensors.gps.fromBow",
+        "environment.depth.belowSurface",
+        "navigation.anchor.fudgeFactor",
+        "design.length"
+      ],
+      "minAppVersion": null,
+      "usageCount": 0,
+      "rating": 0.0,
+      "ratingCount": 0,
+      "sourceUrl": null,
+      "isLocal": true
+    },
+    {
+      "id": "tool_1773232098732",
+      "name": "position",
+      "description": "Custom tool for navigation.position",
+      "author": "Local User",
+      "version": "1.0.0",
+      "createdAt": "2026-03-11T08:28:18.732701",
+      "updatedAt": "2026-03-12T05:10:40.318605",
+      "toolTypeId": "find_home",
+      "config": {
+        "vesselId": null,
+        "dataSources": [
+          {
+            "path": "navigation.position",
+            "source": null,
+            "label": "position",
+            "color": null,
+            "baseUnit": null
+          }
+        ],
+        "style": {
+          "minValue": null,
+          "maxValue": null,
+          "unit": null,
+          "primaryColor": null,
+          "secondaryColor": null,
+          "showLabel": true,
+          "showValue": true,
+          "showUnit": true,
+          "ttlSeconds": null,
+          "laylineAngle": null,
+          "targetTolerance": null,
+          "showLaylines": null,
+          "showTrueWind": null,
+          "showCOG": null,
+          "showAWS": null,
+          "showTWS": null,
+          "customProperties": {
+            "divisions": 10,
+            "orientation": "horizontal",
+            "showTickLabels": false,
+            "pointerOnly": false,
+            "feedbackInterval": 25,
+            "alertSound": "whistle",
+            "_toolId": "tool_1773232098732"
+          }
+        }
+      },
+      "defaultWidth": 20,
+      "defaultHeight": 17,
+      "category": "other",
+      "tags": [
+        "find_home"
+      ],
+      "thumbnailUrl": null,
+      "iconUrl": null,
+      "requiredPaths": [
+        "navigation.position"
+      ],
+      "minAppVersion": null,
+      "usageCount": 0,
+      "rating": 0.0,
+      "ratingCount": 0,
+      "sourceUrl": null,
+      "isLocal": true
+    },
+    {
+      "id": "tool_1773029277996",
+      "name": "windSpeed",
+      "description": "Custom tool for environment.outside.rapidWind.windSpeed",
+      "author": "Local User",
+      "version": "1.0.0",
+      "createdAt": "2026-03-09T00:07:57.996982",
+      "updatedAt": "2026-03-09T00:30:46.390463",
+      "toolTypeId": "radial_gauge",
+      "config": {
+        "vesselId": null,
+        "dataSources": [
+          {
+            "path": "environment.outside.rapidWind.windSpeed",
+            "source": null,
+            "label": "windSpeed",
+            "color": null,
+            "baseUnit": null
+          }
+        ],
+        "style": {
+          "minValue": null,
+          "maxValue": 10.0,
+          "unit": null,
+          "primaryColor": null,
+          "secondaryColor": null,
+          "showLabel": true,
+          "showValue": true,
+          "showUnit": true,
+          "ttlSeconds": null,
+          "laylineAngle": null,
+          "targetTolerance": null,
+          "showLaylines": null,
+          "showTrueWind": null,
+          "showCOG": null,
+          "showAWS": null,
+          "showTWS": null,
+          "customProperties": {
+            "divisions": 10,
+            "orientation": "horizontal",
+            "showTickLabels": true,
+            "pointerOnly": false,
+            "gaugeStyle": "arc",
+            "_toolId": "tool_1773029277996"
+          }
+        }
+      },
+      "defaultWidth": 19,
+      "defaultHeight": 14,
+      "category": "other",
+      "tags": [
+        "radial_gauge"
+      ],
+      "thumbnailUrl": null,
+      "iconUrl": null,
+      "requiredPaths": [
+        "environment.outside.rapidWind.windSpeed"
+      ],
+      "minAppVersion": null,
+      "usageCount": 0,
+      "rating": 0.0,
+      "ratingCount": 0,
+      "sourceUrl": null,
+      "isLocal": true
+    },
+    {
+      "id": "tool_1773066934400",
+      "name": "0 paths",
+      "description": "Custom tool for ",
+      "author": "Local User",
+      "version": "1.0.0",
+      "createdAt": "2026-03-09T10:35:34.400261",
+      "updatedAt": null,
+      "toolTypeId": "server_manager",
+      "config": {
+        "vesselId": null,
+        "dataSources": [],
+        "style": {
+          "minValue": null,
+          "maxValue": null,
+          "unit": null,
+          "primaryColor": null,
+          "secondaryColor": null,
+          "showLabel": true,
+          "showValue": true,
+          "showUnit": true,
+          "ttlSeconds": null,
+          "laylineAngle": null,
+          "targetTolerance": null,
+          "showLaylines": null,
+          "showTrueWind": null,
+          "showCOG": null,
+          "showAWS": null,
+          "showTWS": null,
+          "customProperties": {
+            "divisions": 10,
+            "orientation": "horizontal",
+            "showTickLabels": false,
+            "pointerOnly": false,
+            "_toolId": "tool_1773066934400"
+          }
+        }
+      },
+      "defaultWidth": 8,
+      "defaultHeight": 8,
+      "category": "other",
+      "tags": [
+        "server_manager"
+      ],
+      "thumbnailUrl": null,
+      "iconUrl": null,
+      "requiredPaths": [],
+      "minAppVersion": null,
+      "usageCount": 0,
+      "rating": 0.0,
+      "ratingCount": 0,
+      "sourceUrl": null,
+      "isLocal": true
+    },
+    {
+      "id": "tool_1773283386598",
+      "name": "Device Access",
+      "description": "Manage device access requests and permissions - approve, deny, and revoke device access to the SignalK server",
+      "author": "Local User",
+      "version": "1.0.0",
+      "createdAt": "2026-03-11T22:43:06.598444",
+      "updatedAt": null,
+      "toolTypeId": "device_access_manager",
+      "config": {
+        "vesselId": null,
+        "dataSources": [],
+        "style": {
+          "minValue": null,
+          "maxValue": null,
+          "unit": null,
+          "primaryColor": null,
+          "secondaryColor": null,
+          "showLabel": true,
+          "showValue": true,
+          "showUnit": true,
+          "ttlSeconds": null,
+          "laylineAngle": null,
+          "targetTolerance": null,
+          "showLaylines": null,
+          "showTrueWind": null,
+          "showCOG": null,
+          "showAWS": null,
+          "showTWS": null,
+          "customProperties": {
+            "_toolId": "tool_1773283386598"
+          }
+        }
+      },
+      "defaultWidth": 8,
+      "defaultHeight": 8,
+      "category": "other",
+      "tags": [
+        "device_access_manager"
+      ],
+      "thumbnailUrl": null,
+      "iconUrl": null,
+      "requiredPaths": [],
+      "minAppVersion": null,
+      "usageCount": 0,
+      "rating": 0.0,
+      "ratingCount": 0,
+      "sourceUrl": null,
+      "isLocal": true
+    },
+    {
+      "id": "tool_1773304340749",
+      "name": "3 paths",
+      "description": "Custom tool for environment.wind.angleApparent, environment.wind.directionTrue, navigation.headingMagnetic",
+      "author": "Local User",
+      "version": "1.0.0",
+      "createdAt": "2026-03-12T04:32:20.749605",
+      "updatedAt": "2026-03-12T04:50:46.396637",
+      "toolTypeId": "compass",
+      "config": {
+        "vesselId": null,
+        "dataSources": [
+          {
+            "path": "environment.wind.angleApparent",
+            "source": null,
+            "label": "angleApparent",
+            "color": null,
+            "baseUnit": null
+          },
+          {
+            "path": "environment.wind.directionTrue",
+            "source": null,
+            "label": "directionTrue",
+            "color": null,
+            "baseUnit": null
+          },
+          {
+            "path": "navigation.headingMagnetic",
+            "source": null,
+            "label": "headingMagnetic",
+            "color": null,
+            "baseUnit": null
+          }
+        ],
+        "style": {
+          "minValue": null,
+          "maxValue": null,
+          "unit": null,
+          "primaryColor": "#D8F321",
+          "secondaryColor": null,
+          "showLabel": true,
+          "showValue": true,
+          "showUnit": true,
+          "ttlSeconds": 10,
+          "laylineAngle": null,
+          "targetTolerance": null,
+          "showLaylines": null,
+          "showTrueWind": null,
+          "showCOG": null,
+          "showAWS": null,
+          "showTWS": null,
+          "customProperties": {
+            "divisions": 10,
+            "orientation": "horizontal",
+            "showTickLabels": false,
+            "pointerOnly": false,
+            "compassStyle": "marine",
+            "_toolId": "tool_1773304340749"
+          }
+        }
+      },
+      "defaultWidth": 20,
+      "defaultHeight": 14,
+      "category": "other",
+      "tags": [
+        "compass"
+      ],
+      "thumbnailUrl": null,
+      "iconUrl": null,
+      "requiredPaths": [
+        "environment.wind.angleApparent",
+        "environment.wind.directionTrue"
+      ],
+      "minAppVersion": null,
+      "usageCount": 0,
+      "rating": 0.0,
+      "ratingCount": 0,
+      "sourceUrl": null,
+      "isLocal": true
+    }
+  ]
+}

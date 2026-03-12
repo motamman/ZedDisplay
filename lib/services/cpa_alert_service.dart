@@ -186,6 +186,9 @@ class CpaAlertService extends ChangeNotifier {
       final distance = CpaUtils.calculateDistance(
           ownLat, ownLon, vessel.latitude!, vessel.longitude!);
 
+      // Skip vessels beyond max range (garbage AIS data)
+      if (distance > _config.maxRangeMeters) continue;
+
       final cpaTcpa = CpaUtils.calculateCpaTcpa(
         bearingDeg: bearing,
         distanceM: distance,

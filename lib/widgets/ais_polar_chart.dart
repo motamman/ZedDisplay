@@ -35,6 +35,7 @@ class AISPolarChart extends StatefulWidget {
   final bool showProjectedPositions; // Show projected course lines
   final CpaAlertService? cpaAlertService;
   final ValueChanged<Map<String, dynamic>>? onCpaConfigChanged;
+  final double maxRangeNm; // Max display range in nautical miles (filters garbage AIS data)
 
   const AISPolarChart({
     super.key,
@@ -51,6 +52,7 @@ class AISPolarChart extends StatefulWidget {
     this.showProjectedPositions = true,
     this.cpaAlertService,
     this.onCpaConfigChanged,
+    this.maxRangeNm = 100.0,
   });
 
   @override
@@ -674,6 +676,10 @@ class _AISPolarChartState extends State<AISPolarChart>
       final lon = vessel.longitude!;
       final bearing = CpaUtils.calculateBearing(_ownLat!, _ownLon!, lat, lon);
       final distance = CpaUtils.calculateDistance(_ownLat!, _ownLon!, lat, lon);
+
+      // Filter out vessels beyond max range (garbage AIS data)
+      final maxRangeMeters = widget.maxRangeNm * 1852.0;
+      if (distance > maxRangeMeters) continue;
 
       // Convert COG from radians to display units (degrees) via MetadataStore
       final cogDisplay = vessel.cogRad != null

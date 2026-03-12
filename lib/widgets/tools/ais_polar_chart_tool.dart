@@ -97,6 +97,7 @@ class _AISPolarChartToolState extends State<AISPolarChartTool> {
       alarmSound: props['cpaAlarmSound'] as String? ?? 'foghorn',
       cooldownSeconds: ((props['cpaCooldownMinutes'] as int?) ?? 5) * 60,
       sendCrewAlert: props['cpaSendCrewAlert'] as bool? ?? true,
+      maxRangeMeters: ((props['maxRangeNm'] as num?)?.toDouble() ?? 100.0) * 1852.0,
     ));
   }
 
@@ -255,6 +256,7 @@ class _AISPolarChartToolState extends State<AISPolarChartTool> {
     final pruneMinutes = widget.config.style.customProperties?['pruneMinutes'] as int? ?? 15;
     final colorByShipType = widget.config.style.customProperties?['colorByShipType'] as bool? ?? true;
     final showProjectedPositions = widget.config.style.customProperties?['showProjectedPositions'] as bool? ?? true;
+    final maxRangeNm = (widget.config.style.customProperties?['maxRangeNm'] as num?)?.toDouble() ?? 100.0;
 
     // Get paths from data sources (with defaults)
     final positionPath = _getPath(0);
@@ -282,6 +284,7 @@ class _AISPolarChartToolState extends State<AISPolarChartTool> {
           pruneMinutes: pruneMinutes,
           colorByShipType: colorByShipType,
           showProjectedPositions: showProjectedPositions,
+          maxRangeNm: maxRangeNm,
           cpaAlertService: _cpaAlertService,
           onCpaConfigChanged: _onCpaConfigChanged,
         ),
@@ -357,6 +360,7 @@ class AISPolarChartBuilder extends ToolBuilder {
           'pruneMinutes': 15,
           'colorByShipType': true,
           'showProjectedPositions': true,
+          'maxRangeNm': 100.0,
           'cpaAlertsEnabled': true,
           'cpaWarnNm': 1.0,
           'cpaAlarmNm': 0.5,

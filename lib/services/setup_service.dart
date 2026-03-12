@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import '../models/dashboard_setup.dart';
 import '../models/tool.dart';
+import 'bundled_dashboard_service.dart';
 import 'storage_service.dart';
 import 'tool_service.dart';
 import 'dashboard_service.dart';
@@ -28,6 +29,15 @@ class SetupService extends ChangeNotifier {
   final DashboardService _dashboardService;
 
   String? _activeSetupId; // Track the currently active setup
+  bool _needsDashboardPicker = false;
+
+  /// Whether the dashboard picker should be shown (first run).
+  bool get needsDashboardPicker => _needsDashboardPicker;
+
+  /// Clear the flag after the picker has been shown or skipped.
+  void clearNeedsDashboardPicker() {
+    _needsDashboardPicker = false;
+  }
 
   SetupService(
     this._storageService,
@@ -38,48 +48,73 @@ class SetupService extends ChangeNotifier {
     _dashboardService.addListener(_onDashboardChanged);
   }
 
-  /// Initialize and create default setup if needed
+  /// Initialize and load bundled default dashboard on first run
   Future<void> initialize() async {
     try {
       // Check if any setups exist
       final setups = _storageService.getSavedSetupReferences();
 
-      // If no setups exist, create a default one from current dashboard
-      if (setups.isEmpty && _dashboardService.currentLayout != null) {
-        final layout = _dashboardService.currentLayout!;
+      if (setups.isEmpty) {
+        // First run — flag for dashboard picker, but load default as fallback
+        _needsDashboardPicker = true;
 
-        // Get all tools from the layout
-        final toolIds = layout.getAllToolIds();
-        final tools = <Tool>[];
-        for (final toolId in toolIds) {
-          final tool = _toolService.getTool(toolId);
-          if (tool != null) {
-            tools.add(tool);
+        final defaultInfo =
+            await BundledDashboardService.getDefaultDashboard();
+
+        if (defaultInfo != null) {
+          try {
+            final jsonString =
+                await BundledDashboardService.loadDashboardJson(defaultInfo);
+            final result = await importAndLoadSetup(jsonString);
+
+            if (result.success) {
+              _activeSetupId = _dashboardService.currentLayout?.id;
+              if (kDebugMode) {
+                print(
+                    'Loaded bundled default dashboard: ${result.setupName}');
+              }
+              return;
+            }
+          } catch (e) {
+            if (kDebugMode) {
+              print('Failed to load bundled dashboard, '
+                  'falling back to empty layout: $e');
+            }
           }
         }
 
-        // Create default setup
-        final metadata = SetupMetadata(
-          name: 'Default Dashboard',
-          description: 'Your first dashboard',
-          author: 'System',
-          createdAt: DateTime.now(),
-          tags: ['default'],
-        );
+        // Fallback: save current (empty) layout as a setup
+        if (_dashboardService.currentLayout != null) {
+          final layout = _dashboardService.currentLayout!;
+          final toolIds = layout.getAllToolIds();
+          final tools = <Tool>[];
+          for (final toolId in toolIds) {
+            final tool = _toolService.getTool(toolId);
+            if (tool != null) {
+              tools.add(tool);
+            }
+          }
 
-        final setup = DashboardSetup(
-          metadata: metadata,
-          layout: layout,
-          tools: tools,
-        );
+          final metadata = SetupMetadata(
+            name: 'Default Dashboard',
+            description: 'Your first dashboard',
+            author: 'System',
+            createdAt: DateTime.now(),
+            tags: ['default'],
+          );
 
-        await _storageService.saveSetup(setup);
+          final setup = DashboardSetup(
+            metadata: metadata,
+            layout: layout,
+            tools: tools,
+          );
 
-        // Set as active setup
-        _activeSetupId = layout.id;
+          await _storageService.saveSetup(setup);
+          _activeSetupId = layout.id;
 
-        if (kDebugMode) {
-          print('Created default setup on first install');
+          if (kDebugMode) {
+            print('Created empty default setup on first install');
+          }
         }
       }
     } catch (e) {
