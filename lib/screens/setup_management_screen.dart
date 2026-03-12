@@ -395,6 +395,7 @@ class _SetupManagementScreenState extends State<SetupManagementScreen> {
   // --- Actions: load bundled / server dashboard ---
 
   Future<void> _loadBundledDashboard(BundledDashboardInfo info) async {
+    final setupService = Provider.of<SetupService>(context, listen: false);
     final confirmed = await _confirmLoad(info.name);
     if (confirmed != true || !mounted) return;
 
@@ -403,8 +404,6 @@ class _SetupManagementScreenState extends State<SetupManagementScreen> {
     try {
       final jsonString =
           await BundledDashboardService.loadDashboardJson(info);
-      final setupService =
-          Provider.of<SetupService>(context, listen: false);
       final result = await setupService.importAndLoadSetup(jsonString);
 
       if (!mounted) return;
