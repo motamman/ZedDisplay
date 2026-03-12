@@ -1,13 +1,20 @@
 import 'dart:async';
-import 'dart:math' as math;
-import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'dart:io' show Platform;
+import 'dart:math' as math;
+import 'package:audioplayers/audioplayers.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_map/flutter_map.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:latlong2/latlong.dart' hide Path;
+import 'package:provider/provider.dart';
+import 'package:vibration/vibration.dart';
+import '../../models/path_metadata.dart';
 import '../../models/tool_config.dart';
 import '../../models/tool_definition.dart';
 import '../../services/signalk_service.dart';
+import '../../services/storage_service.dart';
 import '../../services/tool_registry.dart';
+import '../../services/alarm_audio_player.dart';
 import '../../utils/angle_utils.dart';
 import '../../utils/cpa_utils.dart';
 import '../tool_info_button.dart';
@@ -17,7 +24,7 @@ import '../tool_info_button.dart';
 ///
 /// Data sources:
 ///   - Dinghy position / COG / SOG: device GPS via geolocator
-///   - Home target: configurable SignalK path, default navigation.anchor.position
+///   - Home target: manual position (persisted) or SignalK path
 ///
 /// Haptic feedback: 1 buzz = turn port, 2 buzzes = turn starboard.
 class FindHomeTool extends StatefulWidget {
@@ -44,19 +51,36 @@ class _FindHomeToolState extends State<FindHomeTool> {
   /// Minimum SOG (m/s) to compute ETA and deviation
   static const _sogThreshold = 0.5;
 
-  /// Haptic repeat interval
-  static const _hapticInterval = Duration(seconds: 3);
-
   /// Deviation threshold for haptic feedback (degrees)
   static const _hapticDeviationThreshold = 5.0;
 
+  /// Feedback interval from config (5-60 seconds, default 10)
+  int get _feedbackIntervalSec {
+    final val = widget.config.style.customProperties?['feedbackInterval'] as int?;
+    return (val ?? 10).clamp(5, 60);
+  }
+
+  /// Sound asset path from config (default: whistle)
+  String get _soundAsset {
+    final key = widget.config.style.customProperties?['alertSound'] as String? ?? 'whistle';
+    return AlarmAudioPlayer.alarmSounds[key] ?? 'sounds/alarm_whistle.mp3';
+  }
+
   bool _active = false;
+  bool _whistleEnabled = false;
   Timer? _hapticTimer;
+  AudioPlayer? _whistlePlayer;
 
   // Device GPS state
   StreamSubscription<Position>? _positionSub;
   Position? _devicePosition;
   String? _gpsError;
+
+  // Manual home position (persisted)
+  double? _manualLat;
+  double? _manualLon;
+  bool _storageLoaded = false;
+  StorageService? _storage;
 
   /// SignalK path for the home target (boat position)
   String get _targetPath {
@@ -78,9 +102,26 @@ class _FindHomeToolState extends State<FindHomeTool> {
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!_storageLoaded) {
+      _storageLoaded = true;
+      _storage = Provider.of<StorageService>(context, listen: false);
+      _manualLat = double.tryParse(_storage!.getSetting('find_home_lat') ?? '');
+      _manualLon = double.tryParse(_storage!.getSetting('find_home_lon') ?? '');
+      final wasActive = _storage!.getSetting('find_home_active') == 'true';
+      if (wasActive && (_manualLat != null && _manualLon != null || _getSignalKPosition().$1 != null)) {
+        _active = true;
+        // Feedback will start once GPS stream delivers the first position
+      }
+    }
+  }
+
+  @override
   void dispose() {
     _hapticTimer?.cancel();
     _positionSub?.cancel();
+    _whistlePlayer?.dispose();
     widget.signalKService.removeListener(_onSignalKUpdate);
     widget.signalKService
         .unsubscribeFromPaths([_targetPath], ownerId: _ownerId);
@@ -94,58 +135,75 @@ class _FindHomeToolState extends State<FindHomeTool> {
   // --------------- Device GPS ---------------
 
   Future<void> _initDeviceGps() async {
-    final serviceEnabled = await Geolocator.isLocationServiceEnabled();
-    if (!serviceEnabled) {
-      if (mounted) setState(() => _gpsError = 'Location services disabled');
-      return;
-    }
-
-    var permission = await Geolocator.checkPermission();
-    if (permission == LocationPermission.denied) {
-      permission = await Geolocator.requestPermission();
-      if (permission == LocationPermission.denied) {
-        if (mounted) setState(() => _gpsError = 'Location permission denied');
+    try {
+      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        if (mounted) setState(() => _gpsError = 'Location services disabled');
         return;
       }
-    }
-    if (permission == LocationPermission.deniedForever) {
-      if (mounted) {
-        setState(() => _gpsError = 'Location permanently denied');
+
+      var permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+        if (permission == LocationPermission.denied) {
+          if (mounted) setState(() => _gpsError = 'Location permission denied');
+          return;
+        }
       }
-      return;
-    }
+      if (permission == LocationPermission.deniedForever) {
+        if (mounted) {
+          setState(() => _gpsError = 'Location permanently denied');
+        }
+        return;
+      }
 
-    final LocationSettings settings;
-    if (Platform.isAndroid) {
-      settings = AndroidSettings(
-        accuracy: LocationAccuracy.high,
-        distanceFilter: 0,
-        intervalDuration: const Duration(seconds: 1),
-        forceLocationManager: false,
-      );
-    } else {
-      settings = const LocationSettings(
-        accuracy: LocationAccuracy.high,
-        distanceFilter: 0,
-      );
-    }
+      // Get an immediate position first so the UI doesn't wait for the stream
+      final lastKnown = await Geolocator.getLastKnownPosition();
+      if (lastKnown != null && mounted) {
+        setState(() => _devicePosition = lastKnown);
+      }
 
-    _positionSub =
-        Geolocator.getPositionStream(locationSettings: settings).listen(
-      (position) {
-        if (mounted) setState(() => _devicePosition = position);
-      },
-      onError: (error) {
-        debugPrint('FindHome GPS error: $error');
-        if (mounted) setState(() => _gpsError = 'GPS error');
-      },
-    );
+      final LocationSettings settings;
+      if (Platform.isAndroid) {
+        settings = AndroidSettings(
+          accuracy: LocationAccuracy.high,
+          distanceFilter: 0,
+          intervalDuration: const Duration(seconds: 1),
+          forceLocationManager: false,
+        );
+      } else {
+        settings = const LocationSettings(
+          accuracy: LocationAccuracy.high,
+          distanceFilter: 0,
+        );
+      }
+
+      _positionSub =
+          Geolocator.getPositionStream(locationSettings: settings).listen(
+        (position) {
+          if (mounted) {
+            setState(() => _devicePosition = position);
+            // Auto-start feedback when GPS ready and active was restored
+            if (_active && _hapticTimer == null) {
+              _startFeedback();
+            }
+          }
+        },
+        onError: (error) {
+          debugPrint('FindHome GPS stream error: $error');
+          if (mounted) setState(() => _gpsError = 'GPS error');
+        },
+      );
+    } catch (e) {
+      debugPrint('FindHome GPS init error: $e');
+      if (mounted) setState(() => _gpsError = 'GPS init failed');
+    }
   }
 
   // --------------- Data helpers ---------------
 
-  /// Get home target position from SignalK
-  (double?, double?) _getTargetPosition() {
+  /// Get home target position from SignalK only
+  (double?, double?) _getSignalKPosition() {
     final data = widget.signalKService.getValue(_targetPath);
     if (data?.value is Map) {
       final m = data!.value as Map;
@@ -158,21 +216,62 @@ class _FindHomeToolState extends State<FindHomeTool> {
     return (null, null);
   }
 
+  /// Get home target position: manual position first, then SignalK
+  (double?, double?) _getTargetPosition() {
+    if (_manualLat != null && _manualLon != null) {
+      return (_manualLat!, _manualLon!);
+    }
+    return _getSignalKPosition();
+  }
+
+  // --------------- Persistence helpers ---------------
+
+  void _saveManualPosition(double lat, double lon) {
+    setState(() {
+      _manualLat = lat;
+      _manualLon = lon;
+    });
+    _storage?.saveSetting('find_home_lat', lat.toString());
+    _storage?.saveSetting('find_home_lon', lon.toString());
+  }
+
+  void _clearManualPosition() {
+    setState(() {
+      _manualLat = null;
+      _manualLon = null;
+    });
+    _storage?.saveSetting('find_home_lat', '');
+    _storage?.saveSetting('find_home_lon', '');
+  }
+
+  void _persistActiveState() {
+    _storage?.saveSetting('find_home_active', _active ? 'true' : 'false');
+  }
+
   // --------------- Unit helpers ---------------
 
-  ({double metersPerUnit, String symbol}) _getDistanceUnit() {
-    final meta = widget.signalKService.metadataStore
-        .get('navigation.anchor.currentRadius');
-    if (meta != null) {
-      final oneInDisplay = meta.convert(1.0);
-      if (oneInDisplay != null && oneInDisplay > 0) {
-        return (
-          metersPerUnit: 1.0 / oneInDisplay,
-          symbol: meta.symbol ?? 'm',
-        );
+  /// Returns the metadata to use for formatting [meters]:
+  /// - distance category (e.g., nm) when value >= 1 in that unit
+  /// - length category (e.g., ft, m) for shorter distances
+  PathMetadata? _pickDistanceMeta(double meters) {
+    final store = widget.signalKService.metadataStore;
+
+    // Direct lookup of canonical category entries from REST preset
+    // (getByCategory can return path-specific WS meta with wrong units)
+    final distMeta = store.get('__category__.distance');
+    if (distMeta != null) {
+      final converted = distMeta.convert(meters);
+      if (converted != null && converted >= 1.0) {
+        return distMeta;
       }
     }
-    return (metersPerUnit: 1852.0, symbol: 'nm');
+
+    // < 1 distance unit → use length (e.g., ft, m)
+    final lengthMeta = store.get('__category__.length');
+    if (lengthMeta != null) return lengthMeta;
+
+    // Fall back to distance even if < 1
+    return distMeta;
   }
 
   // --------------- Computed nav data ---------------
@@ -183,6 +282,8 @@ class _FindHomeToolState extends State<FindHomeTool> {
     double distance,
     double cogDeg,
     double sogMs,
+    double vesselSogMs,
+    bool isWrongWay,
   })? _computeNav() {
     final pos = _devicePosition;
     if (pos == null) return null;
@@ -200,10 +301,17 @@ class _FindHomeToolState extends State<FindHomeTool> {
     final sogMs = pos.speed >= 0 ? pos.speed : 0.0;
     final cogDeg = pos.heading >= 0 ? pos.heading : bearing;
 
+    // Vessel SOG from SignalK
+    final vesselSogData = widget.signalKService.getValue('navigation.speedOverGround');
+    final vesselSogMs = (vesselSogData?.value as num?)?.toDouble() ?? 0.0;
+
     // Only compute deviation when actually moving
     final deviation = sogMs >= _sogThreshold
         ? AngleUtils.difference(cogDeg, bearing)
         : 0.0;
+
+    // Wrong way: heading more than 90° away from target
+    final isWrongWay = sogMs >= _sogThreshold && deviation.abs() > 90.0;
 
     return (
       bearing: bearing,
@@ -211,72 +319,205 @@ class _FindHomeToolState extends State<FindHomeTool> {
       distance: distance,
       cogDeg: AngleUtils.normalize(cogDeg),
       sogMs: sogMs,
+      vesselSogMs: vesselSogMs,
+      isWrongWay: isWrongWay,
     );
   }
 
-  // --------------- Haptic engine ---------------
+  // --------------- Feedback engine ---------------
 
   void _toggleActive() {
     setState(() {
       _active = !_active;
     });
+    _persistActiveState();
     if (_active) {
-      _startHaptics();
+      _startFeedback();
     } else {
-      _stopHaptics();
+      _stopFeedback();
     }
   }
 
-  void _startHaptics() {
-    _hapticTimer?.cancel();
-    _hapticTimer = Timer.periodic(_hapticInterval, (_) => _fireHaptic());
+  void _toggleWhistle() {
+    setState(() {
+      _whistleEnabled = !_whistleEnabled;
+    });
   }
 
-  void _stopHaptics() {
+  void _startFeedback() {
+    _hapticTimer?.cancel();
+    _hapticTimer = Timer.periodic(
+      Duration(seconds: _feedbackIntervalSec),
+      (_) => _fireFeedback(),
+    );
+  }
+
+  void _stopFeedback() {
     _hapticTimer?.cancel();
     _hapticTimer = null;
   }
 
-  void _fireHaptic() {
+  void _fireFeedback() {
     if (!_active || !mounted) return;
     final nav = _computeNav();
     if (nav == null) return;
+
+    // Wrong way: 3 rapid buzzes regardless of direction
+    if (nav.isWrongWay) {
+      _vibrateTriple();
+      if (_whistleEnabled) _whistleTriple();
+      return;
+    }
 
     final absDev = nav.deviation.abs();
     if (absDev < _hapticDeviationThreshold) return;
 
     if (nav.deviation > 0) {
-      // Left of course → turn starboard → 2 buzzes
-      HapticFeedback.heavyImpact();
-      Future.delayed(const Duration(milliseconds: 300), () {
-        HapticFeedback.heavyImpact();
-      });
+      // On PORT side of course → turn starboard → 2 buzzes / 2 whistles
+      _vibrateDouble();
+      if (_whistleEnabled) _whistleDouble();
     } else {
-      // Right of course → turn port → 1 buzz
-      HapticFeedback.heavyImpact();
+      // On STARBOARD side of course → turn port → 1 buzz / 1 whistle
+      _vibrateSingle();
+      if (_whistleEnabled) _whistleSingle();
+    }
+  }
+
+  /// Single long vibration: 500ms at max intensity
+  void _vibrateSingle() {
+    Vibration.vibrate(
+      pattern: [0, 500],
+      intensities: [0, 255],
+    );
+  }
+
+  /// Double long vibration: 500ms, pause 300ms, 500ms
+  void _vibrateDouble() {
+    Vibration.vibrate(
+      pattern: [0, 500, 300, 500],
+      intensities: [0, 255, 0, 255],
+    );
+  }
+
+  /// Triple rapid vibration: wrong-way signal
+  void _vibrateTriple() {
+    Vibration.vibrate(
+      pattern: [0, 300, 200, 300, 200, 300],
+      intensities: [0, 255, 0, 255, 0, 255],
+    );
+  }
+
+  /// Play one whistle blast
+  Future<void> _whistleSingle() async {
+    try {
+      _whistlePlayer?.dispose();
+      _whistlePlayer = AudioPlayer();
+      await _whistlePlayer!.play(AssetSource(_soundAsset));
+    } catch (e) {
+      debugPrint('FindHome whistle error: $e');
+    }
+  }
+
+  /// Play two whistle blasts
+  Future<void> _whistleDouble() async {
+    try {
+      _whistlePlayer?.dispose();
+      _whistlePlayer = AudioPlayer();
+      await _whistlePlayer!.play(AssetSource(_soundAsset));
+      // Wait for first blast to finish, then play second
+      _whistlePlayer!.onPlayerComplete.first.then((_) async {
+        await Future.delayed(const Duration(milliseconds: 200));
+        if (!mounted || !_active) return;
+        _whistlePlayer?.dispose();
+        _whistlePlayer = AudioPlayer();
+        await _whistlePlayer!.play(AssetSource(_soundAsset));
+      });
+    } catch (e) {
+      debugPrint('FindHome whistle error: $e');
+    }
+  }
+
+  /// Play three rapid whistle blasts: wrong-way signal
+  Future<void> _whistleTriple() async {
+    try {
+      var remaining = 3;
+      void playNext() async {
+        remaining--;
+        if (remaining <= 0 || !mounted || !_active) return;
+        await Future.delayed(const Duration(milliseconds: 150));
+        if (!mounted || !_active) return;
+        _whistlePlayer?.dispose();
+        _whistlePlayer = AudioPlayer();
+        await _whistlePlayer!.play(AssetSource(_soundAsset));
+        _whistlePlayer!.onPlayerComplete.first.then((_) => playNext());
+      }
+
+      _whistlePlayer?.dispose();
+      _whistlePlayer = AudioPlayer();
+      await _whistlePlayer!.play(AssetSource(_soundAsset));
+      _whistlePlayer!.onPlayerComplete.first.then((_) => playNext());
+    } catch (e) {
+      debugPrint('FindHome whistle error: $e');
+    }
+  }
+
+  // --------------- Map Picker ---------------
+
+  Future<void> _showSetHomeDialog() async {
+    debugPrint('FindHome: opening Set Home dialog');
+    final result = await showDialog<(double, double)>(
+      context: context,
+      barrierDismissible: true,
+      builder: (context) => _SetHomeDialog(
+        initialLat: _manualLat,
+        initialLon: _manualLon,
+        devicePosition: _devicePosition,
+      ),
+    );
+    debugPrint('FindHome: dialog result = $result');
+    if (result != null) {
+      if (result.$1 == double.infinity) {
+        // Sentinel: reset to SignalK default
+        _clearManualPosition();
+      } else {
+        _saveManualPosition(result.$1, result.$2);
+        if (!_active) {
+          _toggleActive();
+        }
+      }
     }
   }
 
   // --------------- Formatting ---------------
 
   String _formatDistance(double meters) {
-    final unit = _getDistanceUnit();
-    final display = meters / unit.metersPerUnit;
-    return '${display.toStringAsFixed(display < 10 ? 2 : 1)} ${unit.symbol}';
+    final meta = _pickDistanceMeta(meters);
+    if (meta != null) {
+      final converted = meta.convert(meters);
+      if (converted != null) {
+        return '${converted.toStringAsFixed(converted < 10 ? 2 : 1)} ${meta.symbol ?? 'm'}';
+      }
+    }
+    // Fallback: raw SI (meters)
+    return '${meters.toStringAsFixed(meters < 10 ? 1 : 0)} m';
   }
 
   String _formatAngle(double degrees) {
     return '${degrees.toStringAsFixed(0)}°';
   }
 
-  String _formatSpeed(double sogMs) {
-    final meta =
-        widget.signalKService.metadataStore.get('navigation.speedOverGround');
+  /// Format a speed value using metadata.
+  /// [skPath] — if provided, check path-specific WS meta first, then category.
+  ///            If null (device GPS), use category only.
+  String _formatSpeed(double speedMs, {String? skPath}) {
+    final store = widget.signalKService.metadataStore;
+    final meta = (skPath != null ? store.get(skPath) : null)
+        ?? store.get('__category__.speed');
     if (meta != null) {
-      return meta.format(sogMs, decimals: 1);
+      return meta.format(speedMs, decimals: 1);
     }
-    final kn = sogMs * 1.9438444924;
-    return '${kn.toStringAsFixed(1)} kn';
+    // Fallback: raw SI (m/s)
+    return '${speedMs.toStringAsFixed(1)} m/s';
   }
 
   String _formatEta(double distanceM, double sogMs) {
@@ -292,13 +533,25 @@ class _FindHomeToolState extends State<FindHomeTool> {
     return '$mins:${secs.toString().padLeft(2, '0')}';
   }
 
+  /// Format lat/lon in degrees decimal minutes
+  String _formatDDM(double lat, double lon) {
+    String fmt(double v, String pos, String neg) {
+      final h = v >= 0 ? pos : neg;
+      final a = v.abs();
+      final d = a.floor();
+      final m = (a - d) * 60;
+      return '$d\u00B0${m.toStringAsFixed(3)}\'$h';
+    }
+    return '${fmt(lat, 'N', 'S')} ${fmt(lon, 'E', 'W')}';
+  }
+
   // --------------- Build ---------------
 
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
-    // Check for target position from SignalK
+    // Check for target position (manual or SignalK)
     final (homeLat, _) = _getTargetPosition();
     if (homeLat == null) {
       return _buildNoTarget(isDark);
@@ -315,7 +568,17 @@ class _FindHomeToolState extends State<FindHomeTool> {
       return _buildAcquiringGps(isDark);
     }
 
-    final unit = _getDistanceUnit();
+    final distMeta = _pickDistanceMeta(nav.distance);
+    // Derive metersPerUnit from metadata for the runway painter
+    double metersPerUnit = 1.0; // fallback: SI meters
+    String unitSymbol = 'm';
+    if (distMeta != null) {
+      final oneConverted = distMeta.convert(1.0);
+      if (oneConverted != null && oneConverted > 0) {
+        metersPerUnit = 1.0 / oneConverted;
+      }
+      unitSymbol = distMeta.symbol ?? 'm';
+    }
 
     return Stack(
       children: [
@@ -329,11 +592,12 @@ class _FindHomeToolState extends State<FindHomeTool> {
                     deviation: nav.deviation,
                     maxDeviation: _maxDeviation,
                     distanceMeters: nav.distance,
-                    metersPerUnit: unit.metersPerUnit,
-                    unitSymbol: unit.symbol,
+                    metersPerUnit: metersPerUnit,
+                    unitSymbol: unitSymbol,
                     isDark: isDark,
                     active: _active,
                     hapticThreshold: _hapticDeviationThreshold,
+                    isWrongWay: nav.isWrongWay,
                   ),
                   size: Size.infinite,
                 ),
@@ -379,10 +643,15 @@ class _FindHomeToolState extends State<FindHomeTool> {
                 'No home position',
                 style: TextStyle(color: Colors.grey),
               ),
-              const SizedBox(height: 4),
-              Text(
-                'Drop anchor to set target',
-                style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
+              const SizedBox(height: 12),
+              ElevatedButton.icon(
+                onPressed: _showSetHomeDialog,
+                icon: const Icon(Icons.home, size: 18),
+                label: const Text('Set Home'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.blue,
+                  foregroundColor: Colors.white,
+                ),
               ),
             ],
           ),
@@ -443,30 +712,62 @@ class _FindHomeToolState extends State<FindHomeTool> {
   Widget _buildHeader(dynamic nav, bool isDark) {
     final textColor = isDark ? Colors.white : Colors.black87;
     final labelColor = isDark ? Colors.white60 : Colors.black54;
+    final (homeLat, homeLon) = _getTargetPosition();
+    final hasManual = _manualLat != null && _manualLon != null;
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(12, 8, 40, 4),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            'FIND HOME',
-            style: TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.bold,
-              color: labelColor,
-              letterSpacing: 1.2,
-            ),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Row(
+                children: [
+                  Text(
+                    'FIND HOME',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.bold,
+                      color: labelColor,
+                      letterSpacing: 1.2,
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: _showSetHomeDialog,
+                    child: Padding(
+                      padding: const EdgeInsets.all(8),
+                      child: Icon(Icons.edit_location_alt, size: 18, color: labelColor),
+                    ),
+                  ),
+                  if (hasManual) ...[
+                    const SizedBox(width: 4),
+                    GestureDetector(
+                      onLongPress: _clearManualPosition,
+                      child: Icon(Icons.close, size: 14, color: Colors.grey.shade600),
+                    ),
+                  ],
+                ],
+              ),
+              Text(
+                _formatDistance(nav.distance),
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  fontFamily: 'monospace',
+                  color: textColor,
+                ),
+              ),
+            ],
           ),
-          Text(
-            _formatDistance(nav.distance),
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.bold,
-              fontFamily: 'monospace',
-              color: textColor,
+          if (homeLat != null && homeLon != null)
+            Text(
+              _formatDDM(homeLat, homeLon),
+              style: TextStyle(fontSize: 10, color: labelColor, fontFamily: 'monospace'),
             ),
-          ),
         ],
       ),
     );
@@ -475,16 +776,26 @@ class _FindHomeToolState extends State<FindHomeTool> {
   Widget _buildFooter(dynamic nav, bool isDark) {
     final labelColor = isDark ? Colors.white60 : Colors.black54;
     final absDev = nav.deviation.abs() as double;
-    final devSide = nav.deviation > 0 ? 'S' : 'P';
+    final devSide = nav.deviation > 0 ? 'P' : 'S';
+    final bool isWrongWay = nav.isWrongWay as bool;
 
     Color devColor;
-    if (absDev < 5) {
+    if (isWrongWay) {
+      devColor = Colors.red;
+    } else if (absDev < 5) {
       devColor = Colors.green;
     } else if (absDev < 15) {
       devColor = Colors.amber;
     } else {
       devColor = Colors.red;
     }
+
+    final devLabel = isWrongWay
+        ? 'WRONG WAY'
+        : 'DEV ${absDev.toStringAsFixed(0)}° $devSide';
+    final etaLabel = isWrongWay
+        ? 'ETA --:--'
+        : 'ETA ${_formatEta(nav.distance, nav.sogMs)}';
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
@@ -499,7 +810,7 @@ class _FindHomeToolState extends State<FindHomeTool> {
                     fontSize: 12, fontFamily: 'monospace', color: labelColor),
               ),
               Text(
-                'BRG ${_formatAngle(nav.bearing)}',
+                'TO BOAT ${_formatAngle(nav.bearing)}',
                 style: TextStyle(
                     fontSize: 12, fontFamily: 'monospace', color: labelColor),
               ),
@@ -510,7 +821,7 @@ class _FindHomeToolState extends State<FindHomeTool> {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(
-                'DEV ${absDev.toStringAsFixed(0)}° $devSide',
+                devLabel,
                 style: TextStyle(
                   fontSize: 12,
                   fontFamily: 'monospace',
@@ -519,7 +830,7 @@ class _FindHomeToolState extends State<FindHomeTool> {
                 ),
               ),
               Text(
-                _formatSpeed(nav.sogMs),
+                'YOU ${_formatSpeed(nav.sogMs)}',
                 style: TextStyle(
                     fontSize: 12, fontFamily: 'monospace', color: labelColor),
               ),
@@ -530,38 +841,419 @@ class _FindHomeToolState extends State<FindHomeTool> {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(
-                'ETA ${_formatEta(nav.distance, nav.sogMs)}',
+                etaLabel,
                 style: TextStyle(
                     fontSize: 12, fontFamily: 'monospace', color: labelColor),
               ),
-              GestureDetector(
-                onTap: _toggleActive,
-                child: Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: _active
-                        ? Colors.green.withValues(alpha: 0.3)
-                        : Colors.grey.withValues(alpha: 0.2),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: _active ? Colors.green : Colors.grey,
-                      width: 1,
-                    ),
-                  ),
-                  child: Text(
-                    _active ? 'ACTIVE' : 'OFF',
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.bold,
-                      color: _active ? Colors.green : Colors.grey,
-                    ),
-                  ),
-                ),
+              Text(
+                'BOAT ${_formatSpeed(nav.vesselSogMs, skPath: 'navigation.speedOverGround')}',
+                style: TextStyle(
+                    fontSize: 12, fontFamily: 'monospace', color: labelColor),
               ),
             ],
           ),
+          const SizedBox(height: 2),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+                  // Whistle toggle
+                  GestureDetector(
+                    onTap: _toggleWhistle,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: _whistleEnabled
+                            ? Colors.orange.withValues(alpha: 0.3)
+                            : Colors.grey.withValues(alpha: 0.2),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color:
+                              _whistleEnabled ? Colors.orange : Colors.grey,
+                          width: 1,
+                        ),
+                      ),
+                      child: Icon(
+                        _whistleEnabled
+                            ? Icons.volume_up
+                            : Icons.volume_off,
+                        size: 14,
+                        color:
+                            _whistleEnabled ? Colors.orange : Colors.grey,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  // Vibration/active toggle
+                  GestureDetector(
+                    onTap: _toggleActive,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: _active
+                            ? Colors.green.withValues(alpha: 0.3)
+                            : Colors.grey.withValues(alpha: 0.2),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: _active ? Colors.green : Colors.grey,
+                          width: 1,
+                        ),
+                      ),
+                      child: Text(
+                        _active ? 'ACTIVE' : 'OFF',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold,
+                          color: _active ? Colors.green : Colors.grey,
+                        ),
+                      ),
+                    ),
+                  ),
+            ],
+          ),
         ],
+      ),
+    );
+  }
+}
+
+// --------------- Set Home Dialog ---------------
+
+class _SetHomeDialog extends StatefulWidget {
+  final double? initialLat;
+  final double? initialLon;
+  final Position? devicePosition;
+
+  const _SetHomeDialog({
+    this.initialLat,
+    this.initialLon,
+    this.devicePosition,
+  });
+
+  @override
+  State<_SetHomeDialog> createState() => _SetHomeDialogState();
+}
+
+class _SetHomeDialogState extends State<_SetHomeDialog> {
+  late TextEditingController _latController;
+  late TextEditingController _lonController;
+  final MapController _mapController = MapController();
+  double? _selectedLat;
+  double? _selectedLon;
+  bool _mapReady = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _selectedLat = widget.initialLat;
+    _selectedLon = widget.initialLon;
+
+    _latController = TextEditingController(
+      text: _selectedLat != null ? _formatCoordForEdit(_selectedLat!, true) : '',
+    );
+    _lonController = TextEditingController(
+      text: _selectedLon != null ? _formatCoordForEdit(_selectedLon!, false) : '',
+    );
+  }
+
+  @override
+  void dispose() {
+    _latController.dispose();
+    _lonController.dispose();
+    _mapController.dispose();
+    super.dispose();
+  }
+
+  /// Format a coordinate for the text field: "47 36.352 N"
+  String _formatCoordForEdit(double value, bool isLat) {
+    final h = isLat ? (value >= 0 ? 'N' : 'S') : (value >= 0 ? 'E' : 'W');
+    final a = value.abs();
+    final d = a.floor();
+    final m = (a - d) * 60;
+    return '$d ${m.toStringAsFixed(3)} $h';
+  }
+
+  /// Parse a coordinate string into decimal degrees.
+  /// Accepts: "47.605867", "-47.605867", "47 36.352", "47 36.352 N"
+  double? _parseCoordinate(String input) {
+    final cleaned = input.trim().replaceAll(RegExp('[°\'"\\u00B0]'), ' ').trim();
+    if (cleaned.isEmpty) return null;
+
+    final tokens = cleaned.split(RegExp(r'\s+')).where((t) => t.isNotEmpty).toList();
+    if (tokens.isEmpty) return null;
+
+    // Determine sign from hemisphere letter
+    double sign = 1.0;
+    final lastToken = tokens.last.toUpperCase();
+    if (lastToken == 'S' || lastToken == 'W') {
+      sign = -1.0;
+      tokens.removeLast();
+    } else if (lastToken == 'N' || lastToken == 'E') {
+      tokens.removeLast();
+    }
+
+    if (tokens.isEmpty) return null;
+
+    if (tokens.length == 1) {
+      // Decimal degrees: sign from hemisphere if present, else from number
+      final dd = double.tryParse(tokens[0]);
+      if (dd == null) return null;
+      // If hemisphere was given, use its sign; otherwise keep number's sign
+      if (sign < 0) return -dd.abs();
+      return dd;
+    }
+
+    if (tokens.length == 2) {
+      // Degrees + decimal minutes
+      final deg = double.tryParse(tokens[0]);
+      final min = double.tryParse(tokens[1]);
+      if (deg == null || min == null) return null;
+      return sign * (deg.abs() + min / 60);
+    }
+
+    return null;
+  }
+
+  void _onLatLonTextChanged() {
+    final lat = _parseCoordinate(_latController.text);
+    final lon = _parseCoordinate(_lonController.text);
+    if (lat != null && lon != null && lat.abs() <= 90 && lon.abs() <= 180) {
+      setState(() {
+        _selectedLat = lat;
+        _selectedLon = lon;
+      });
+      if (_mapReady) {
+        _mapController.move(LatLng(lat, lon), _mapController.camera.zoom);
+      }
+    }
+  }
+
+  void _onMapTap(TapPosition tapPos, LatLng point) {
+    debugPrint('FindHome map tap: ${point.latitude}, ${point.longitude}');
+    setState(() {
+      _selectedLat = point.latitude;
+      _selectedLon = point.longitude;
+      _latController.text = _formatCoordForEdit(point.latitude, true);
+      _lonController.text = _formatCoordForEdit(point.longitude, false);
+    });
+  }
+
+  void _useCurrentGps() {
+    final pos = widget.devicePosition;
+    if (pos == null) return;
+    setState(() {
+      _selectedLat = pos.latitude;
+      _selectedLon = pos.longitude;
+      _latController.text = _formatCoordForEdit(pos.latitude, true);
+      _lonController.text = _formatCoordForEdit(pos.longitude, false);
+    });
+    if (_mapReady) {
+      _mapController.move(
+        LatLng(pos.latitude, pos.longitude),
+        _mapController.camera.zoom,
+      );
+    }
+  }
+
+  LatLng get _mapCenter {
+    if (_selectedLat != null && _selectedLon != null) {
+      return LatLng(_selectedLat!, _selectedLon!);
+    }
+    if (widget.devicePosition != null) {
+      return LatLng(widget.devicePosition!.latitude, widget.devicePosition!.longitude);
+    }
+    return const LatLng(0, 0);
+  }
+
+  /// Format preview as DDM
+  String get _preview {
+    if (_selectedLat == null || _selectedLon == null) return '';
+    String fmt(double v, String pos, String neg) {
+      final h = v >= 0 ? pos : neg;
+      final a = v.abs();
+      final d = a.floor();
+      final m = (a - d) * 60;
+      return '$d\u00B0${m.toStringAsFixed(3)}\'$h';
+    }
+    return '${fmt(_selectedLat!, 'N', 'S')} ${fmt(_selectedLon!, 'E', 'W')}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final hasSelection = _selectedLat != null && _selectedLon != null;
+
+    return Dialog(
+      insetPadding: const EdgeInsets.all(16),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 500, maxHeight: 600),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // Title row
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    'Set Home Position',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close),
+                    onPressed: () => Navigator.of(context).pop(),
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+
+              // Lat/Lon text fields
+              Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _latController,
+                      decoration: const InputDecoration(
+                        labelText: 'Lat',
+                        hintText: '47 36.352 N',
+                        isDense: true,
+                        border: OutlineInputBorder(),
+                      ),
+                      style: const TextStyle(fontFamily: 'monospace', fontSize: 14),
+                      onChanged: (_) => _onLatLonTextChanged(),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: TextField(
+                      controller: _lonController,
+                      decoration: const InputDecoration(
+                        labelText: 'Lon',
+                        hintText: '122 19.876 W',
+                        isDense: true,
+                        border: OutlineInputBorder(),
+                      ),
+                      style: const TextStyle(fontFamily: 'monospace', fontSize: 14),
+                      onChanged: (_) => _onLatLonTextChanged(),
+                    ),
+                  ),
+                ],
+              ),
+
+              // Preview
+              if (hasSelection) ...[
+                const SizedBox(height: 4),
+                Text(
+                  _preview,
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: isDark ? Colors.white60 : Colors.black54,
+                    fontFamily: 'monospace',
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+              ],
+
+              const SizedBox(height: 12),
+
+              // Map
+              Expanded(
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: FlutterMap(
+                    mapController: _mapController,
+                    options: MapOptions(
+                      initialCenter: _mapCenter,
+                      initialZoom: 12,
+                      minZoom: 3,
+                      maxZoom: 18,
+                      onTap: _onMapTap,
+                      onMapReady: () => _mapReady = true,
+                    ),
+                    children: [
+                      TileLayer(
+                        urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                        userAgentPackageName: 'com.zennora.signalk',
+                      ),
+                      TileLayer(
+                        urlTemplate: 'https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png',
+                        userAgentPackageName: 'com.zennora.signalk',
+                      ),
+                      MarkerLayer(
+                          markers: [
+                            if (hasSelection)
+                              Marker(
+                                point: LatLng(_selectedLat!, _selectedLon!),
+                                width: 40,
+                                height: 40,
+                                child: const Icon(
+                                  Icons.location_on,
+                                  color: Colors.red,
+                                  size: 40,
+                                ),
+                              ),
+                            if (widget.devicePosition != null)
+                              Marker(
+                                point: LatLng(
+                                  widget.devicePosition!.latitude,
+                                  widget.devicePosition!.longitude,
+                                ),
+                                width: 24,
+                                height: 24,
+                                child: Container(
+                                  decoration: BoxDecoration(
+                                    color: Colors.blue,
+                                    shape: BoxShape.circle,
+                                    border: Border.all(color: Colors.white, width: 2),
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+
+              const SizedBox(height: 12),
+
+              // Buttons
+              Row(
+                children: [
+                  TextButton.icon(
+                    onPressed: widget.devicePosition != null ? _useCurrentGps : null,
+                    icon: const Icon(Icons.my_location, size: 18),
+                    label: const Text('GPS'),
+                  ),
+                  const SizedBox(width: 4),
+                  if (widget.initialLat != null)
+                    TextButton.icon(
+                      onPressed: () => Navigator.of(context).pop((double.infinity, double.infinity)),
+                      icon: const Icon(Icons.restore, size: 18),
+                      label: const Text('Reset'),
+                      style: TextButton.styleFrom(foregroundColor: Colors.orange),
+                    ),
+                  const Spacer(),
+                  ElevatedButton(
+                    onPressed: hasSelection
+                        ? () => Navigator.of(context).pop((_selectedLat!, _selectedLon!))
+                        : null,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.blue,
+                      foregroundColor: Colors.white,
+                    ),
+                    child: const Text('Set Home'),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -578,6 +1270,7 @@ class _RunwayPainter extends CustomPainter {
   final bool isDark;
   final bool active;
   final double hapticThreshold;
+  final bool isWrongWay;
 
   _RunwayPainter({
     required this.deviation,
@@ -588,6 +1281,7 @@ class _RunwayPainter extends CustomPainter {
     required this.isDark,
     required this.active,
     required this.hapticThreshold,
+    required this.isWrongWay,
   });
 
   @override
@@ -612,11 +1306,17 @@ class _RunwayPainter extends CustomPainter {
       devColor = Colors.red;
     }
 
-    // Background
+    // Background — red tint when wrong way
+    final effectiveBg = isWrongWay
+        ? Color.lerp(bgColor, Colors.red.shade900, 0.4)!
+        : bgColor;
     canvas.drawRect(
       Rect.fromLTWH(0, 0, w, h),
-      Paint()..color = bgColor,
+      Paint()..color = effectiveBg,
     );
+
+    // Dim runway elements when wrong way
+    final dimFactor = isWrongWay ? 0.5 : 1.0;
 
     // Runway geometry — apex (anchor) at top, base (vessel) at bottom
     final apexY = 20.0;
@@ -627,8 +1327,8 @@ class _RunwayPainter extends CustomPainter {
     // --- Localizer beam triangle (full ±30° cone) ---
     final beamPaint = Paint()
       ..color = isDark
-          ? Colors.white.withValues(alpha: 0.04)
-          : Colors.black.withValues(alpha: 0.03);
+          ? Colors.white.withValues(alpha: 0.04 * dimFactor)
+          : Colors.black.withValues(alpha: 0.03 * dimFactor);
     final beamPath = Path()
       ..moveTo(centerX, apexY)
       ..lineTo(centerX - baseHalfWidth, baseY)
@@ -639,8 +1339,8 @@ class _RunwayPainter extends CustomPainter {
     // Beam edge lines
     final beamEdgePaint = Paint()
       ..color = isDark
-          ? Colors.white.withValues(alpha: 0.15)
-          : Colors.black.withValues(alpha: 0.1)
+          ? Colors.white.withValues(alpha: 0.15 * dimFactor)
+          : Colors.black.withValues(alpha: 0.1 * dimFactor)
       ..strokeWidth = 1.0;
     canvas.drawLine(Offset(centerX, apexY),
         Offset(centerX - baseHalfWidth, baseY), beamEdgePaint);
@@ -651,7 +1351,7 @@ class _RunwayPainter extends CustomPainter {
     final hapticFrac = hapticThreshold / maxDeviation;
     final hapticBaseHalf = baseHalfWidth * hapticFrac;
     final hapticFillPaint = Paint()
-      ..color = Colors.green.withValues(alpha: isDark ? 0.10 : 0.07);
+      ..color = Colors.green.withValues(alpha: (isDark ? 0.10 : 0.07) * dimFactor);
     final hapticPath = Path()
       ..moveTo(centerX, apexY)
       ..lineTo(centerX - hapticBaseHalf, baseY)
@@ -661,7 +1361,7 @@ class _RunwayPainter extends CustomPainter {
 
     // Haptic corridor edge lines
     final hapticEdgePaint = Paint()
-      ..color = Colors.green.withValues(alpha: 0.35)
+      ..color = Colors.green.withValues(alpha: 0.35 * dimFactor)
       ..strokeWidth = 1.0;
     canvas.drawLine(Offset(centerX, apexY),
         Offset(centerX - hapticBaseHalf, baseY), hapticEdgePaint);
@@ -692,29 +1392,47 @@ class _RunwayPainter extends CustomPainter {
     // --- Anchor icon at apex ---
     _drawAnchorIcon(canvas, Offset(centerX, apexY + 10));
 
-    // --- Vessel triangle offset by deviation ---
+    // --- Vessel triangle ---
+    // deviation > 0 = on PORT side (bearing is CW from COG) → triangle LEFT
+    // deviation < 0 = on STARBOARD side → triangle RIGHT
     final clampedDev = deviation.clamp(-maxDeviation, maxDeviation);
-    final vesselX = centerX + (clampedDev / maxDeviation) * baseHalfWidth;
+    final vesselX = centerX - (clampedDev / maxDeviation) * baseHalfWidth;
     final vesselY = baseY - 16;
 
-    // Approach line from vessel to anchor
-    final approachPaint = Paint()
-      ..color = devColor.withValues(alpha: active ? 0.5 : 0.25)
-      ..strokeWidth = 2.0;
-    canvas.drawLine(
-      Offset(vesselX, vesselY),
-      Offset(centerX, apexY + 18),
-      approachPaint,
-    );
+    // --- COG line (dotted, from vessel upward — where you're actually heading) ---
+    // Only draw when vessel is within the runway (not clamped at edge)
+    final isClamped = deviation.abs() >= maxDeviation;
+    if (!isClamped) {
+      final cogPaint = Paint()
+        ..color = (isDark ? Colors.white : Colors.black).withValues(alpha: 0.4)
+        ..strokeWidth = 1.0;
+      _drawDashedLine(canvas, Offset(vesselX, vesselY - 12),
+          Offset(vesselX, apexY + 20), cogPaint, 5, 4);
+    }
 
-    // Vessel triangle
-    final vesselPaint = Paint()..color = devColor;
-    final vPath = Path()
-      ..moveTo(vesselX, vesselY - 10)
-      ..lineTo(vesselX - 8, vesselY + 6)
-      ..lineTo(vesselX + 8, vesselY + 6)
-      ..close();
-    canvas.drawPath(vPath, vesselPaint);
+    // --- Bearing line (dotted, from vessel to anchor — where you need to go) ---
+    final bearingPaint = Paint()
+      ..color = devColor.withValues(alpha: active ? 0.7 : 0.4)
+      ..strokeWidth = 1.5;
+    _drawDashedLine(canvas, Offset(vesselX, vesselY - 12),
+        Offset(centerX, apexY + 18), bearingPaint, 6, 4);
+
+    // Vessel chevron — open V-shape rotated by COG deviation
+    canvas.save();
+    canvas.translate(vesselX, vesselY);
+    canvas.rotate(-deviation * math.pi / 180);
+    final chevronPaint = Paint()
+      ..color = devColor
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 3.0
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
+    final chevronPath = Path()
+      ..moveTo(-8, 6)
+      ..lineTo(0, -8)
+      ..lineTo(8, 6);
+    canvas.drawPath(chevronPath, chevronPaint);
+    canvas.restore();
 
     // --- P / S labels ---
     final labelStyle = TextStyle(
@@ -724,6 +1442,50 @@ class _RunwayPainter extends CustomPainter {
     );
     _drawText(canvas, 'P', Offset(8, baseY - 20), labelStyle);
     _drawText(canvas, 'S', Offset(w - 16, baseY - 20), labelStyle);
+
+    // --- Wrong-way overlay ---
+    if (isWrongWay) {
+      _drawWrongWayOverlay(canvas, size, deviation);
+    }
+  }
+
+  void _drawWrongWayOverlay(Canvas canvas, Size size, double deviation) {
+    final centerX = size.width / 2;
+    final centerY = size.height / 2;
+
+    // "TURN AROUND" title
+    final titleStyle = TextStyle(
+      fontSize: 22,
+      fontWeight: FontWeight.w900,
+      color: Colors.red.shade300,
+      letterSpacing: 2.0,
+    );
+    final titleTp = TextPainter(
+      text: TextSpan(text: 'TURN AROUND', style: titleStyle),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    titleTp.paint(
+      canvas,
+      Offset(centerX - titleTp.width / 2, centerY - titleTp.height - 4),
+    );
+
+    // Direction hint: deviation > 0 means boat is to port → turn starboard
+    final turnDir = deviation > 0 ? 'TURN STARBOARD' : 'TURN PORT';
+    final arrow = deviation > 0 ? '\u21BB' : '\u21BA'; // ↻ or ↺
+    final dirStyle = TextStyle(
+      fontSize: 16,
+      fontWeight: FontWeight.bold,
+      color: Colors.red.shade200,
+      letterSpacing: 1.0,
+    );
+    final dirTp = TextPainter(
+      text: TextSpan(text: '$arrow $turnDir', style: dirStyle),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    dirTp.paint(
+      canvas,
+      Offset(centerX - dirTp.width / 2, centerY + 4),
+    );
   }
 
   /// Draw 3-4 evenly spaced distance markers ON the centerline.
@@ -819,6 +1581,26 @@ class _RunwayPainter extends CustomPainter {
     canvas.drawPath(flukePath, paint);
   }
 
+  void _drawDashedLine(Canvas canvas, Offset from, Offset to, Paint paint,
+      double dashLen, double gapLen) {
+    final dx = to.dx - from.dx;
+    final dy = to.dy - from.dy;
+    final dist = math.sqrt(dx * dx + dy * dy);
+    if (dist < 1) return;
+    final ux = dx / dist;
+    final uy = dy / dist;
+    var drawn = 0.0;
+    while (drawn < dist) {
+      final segEnd = math.min(drawn + dashLen, dist);
+      canvas.drawLine(
+        Offset(from.dx + ux * drawn, from.dy + uy * drawn),
+        Offset(from.dx + ux * segEnd, from.dy + uy * segEnd),
+        paint,
+      );
+      drawn = segEnd + gapLen;
+    }
+  }
+
   void _drawText(Canvas canvas, String text, Offset offset, TextStyle style) {
     final tp = TextPainter(
       text: TextSpan(text: text, style: style),
@@ -833,7 +1615,8 @@ class _RunwayPainter extends CustomPainter {
         oldDelegate.distanceMeters != distanceMeters ||
         oldDelegate.isDark != isDark ||
         oldDelegate.active != active ||
-        oldDelegate.metersPerUnit != metersPerUnit;
+        oldDelegate.metersPerUnit != metersPerUnit ||
+        oldDelegate.isWrongWay != isWrongWay;
   }
 }
 
@@ -868,7 +1651,12 @@ class FindHomeToolBuilder extends ToolBuilder {
       dataSources: [
         DataSource(path: 'navigation.position', label: 'Home Target'),
       ],
-      style: StyleConfig(),
+      style: StyleConfig(
+        customProperties: {
+          'feedbackInterval': 10, // seconds (5-60)
+          'alertSound': 'whistle',
+        },
+      ),
     );
   }
 

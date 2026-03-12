@@ -89,6 +89,10 @@ A customizable SignalK marine dashboard and crew comms application to display re
   - Vessel freshness colors (green → yellow → red based on age)
   - CPA/TCPA calculations for collision avoidance
   - **CPA Alerts**: Configurable collision alerts with distance and time thresholds
+  - **Vessel Favorites**: Mark vessels of interest with heart icon, get notified when they appear in AIS range
+    - Favorites tab with live distance/SOG for in-range vessels
+    - Manual add by MMSI for vessels not currently visible
+    - Detection works even when AIS chart is off-screen or app is backgrounded
   - Hide stale vessels option to reduce clutter
   - Dedicated AIS vessel registry for structured vessel tracking
   - Range control (auto-scaling or manual)
@@ -160,6 +164,12 @@ A customizable SignalK marine dashboard and crew comms application to display re
   - Check-in system with configurable intervals
   - Raise anchor to clear and reset
   - Works with SignalK anchor alarm plugin
+- **Find Home**: Navigate back to a saved home position using device GPS
+  - Haptic feedback with configurable vibration patterns
+  - Wrong-way detection with audio/vibration alerts
+  - Configurable alert sounds and feedback intervals
+  - Distance display with proper unit formatting
+
 - **Position Display**: Current vessel position in configurable formats
   - Latitude/longitude display with multiple format options
   - Degrees, minutes, seconds or decimal degrees
@@ -528,6 +538,8 @@ lib/
 │   ├── messaging_service.dart  # Text messaging
 │   ├── file_share_service.dart # File sharing
 │   ├── file_server_service.dart # HTTP server for files
+│   ├── ais_favorites_service.dart # AIS vessel favorites & detection
+│   ├── alert_coordinator.dart  # Central alert delivery gateway
 │   └── intercom_service.dart   # WebRTC voice intercom
 ├── widgets/          # UI components
 │   ├── compass_gauge.dart

@@ -14,6 +14,9 @@ import 'package:zed_display/services/messaging_service.dart';
 import 'package:zed_display/services/file_share_service.dart';
 import 'package:zed_display/services/file_server_service.dart';
 import 'package:zed_display/services/intercom_service.dart';
+import 'package:zed_display/services/alert_coordinator.dart';
+import 'package:zed_display/services/notification_navigation_service.dart';
+import 'package:zed_display/services/ais_favorites_service.dart';
 
 void main() {
   late StorageService storageService;
@@ -29,6 +32,9 @@ void main() {
   late FileServerService fileServerService;
   late FileShareService fileShareService;
   late IntercomService intercomService;
+  late AlertCoordinator alertCoordinator;
+  late NotificationNavigationService notificationNavigationService;
+  late AISFavoritesService aisFavoritesService;
 
   setUp(() async {
     // Initialize storage service for tests
@@ -80,6 +86,20 @@ void main() {
     // Initialize auth service
     authService = AuthService(storageService);
 
+    // Initialize alert coordinator
+    alertCoordinator = AlertCoordinator(
+      storageService: storageService,
+      notificationService: notificationService,
+      messagingService: messagingService,
+    );
+
+    // Initialize notification navigation service
+    notificationNavigationService = NotificationNavigationService(dashboardService);
+
+    // Initialize AIS favorites service
+    aisFavoritesService = AISFavoritesService();
+    aisFavoritesService.loadFromStorage(storageService);
+
     // Initialize setup service
     setupService = SetupService(
       storageService,
@@ -109,6 +129,9 @@ void main() {
       messagingService: messagingService,
       fileShareService: fileShareService,
       intercomService: intercomService,
+      alertCoordinator: alertCoordinator,
+      notificationNavigationService: notificationNavigationService,
+      aisFavoritesService: aisFavoritesService,
     ));
 
     // Verify that the app launches
@@ -129,6 +152,9 @@ void main() {
       messagingService: messagingService,
       fileShareService: fileShareService,
       intercomService: intercomService,
+      alertCoordinator: alertCoordinator,
+      notificationNavigationService: notificationNavigationService,
+      aisFavoritesService: aisFavoritesService,
     ));
 
     // Verify services are initialized

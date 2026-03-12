@@ -1,7 +1,7 @@
 name: zed_display
 description: A SignalK data display app with gauges and charts
 publish_to: 'none'
-version: 0.5.44+39
+version: 0.5.50+40
 
 
 environment:
@@ -113,6 +113,9 @@ dependencies:
 
   # Device GPS for dinghy position (Find Home navigation)
   geolocator: ^14.0.0
+
+  # Vibration patterns for Find Home haptic feedback
+  vibration: ^3.1.8
 
 dev_dependencies:
   flutter_test:

@@ -14,6 +14,7 @@ import 'configurators/clock_alarm_configurator.dart';
 import 'configurators/anchor_alarm_configurator.dart';
 import 'configurators/position_display_configurator.dart';
 import 'configurators/victron_flow_configurator.dart';
+import 'configurators/find_home_configurator.dart';
 
 /// Factory for creating tool-specific configurators
 ///
@@ -98,6 +99,10 @@ class ToolConfiguratorFactory {
       case 'victron_flow':
         return VictronFlowConfigurator();
 
+      // Find Home
+      case 'find_home':
+        return FindHomeConfigurator();
+
       // No custom configurator - use default UI
       default:
         return null;
@@ -136,6 +141,7 @@ class ToolConfiguratorFactory {
       'anchor_alarm',
       'position_display',
       'victron_flow',
+      'find_home',
     ];
   }
 }
