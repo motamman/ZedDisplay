@@ -71,10 +71,9 @@ class _AISPolarChartToolState extends State<AISPolarChartTool> {
       storageService = Provider.of<StorageService>(context, listen: false);
     } catch (_) {}
 
-    // Get alert coordinator from provider if available
-    AlertCoordinator? alertCoordinator;
+    // Get alert coordinator from provider if available (reserved for future use)
     try {
-      alertCoordinator = Provider.of<AlertCoordinator>(context, listen: false);
+      Provider.of<AlertCoordinator>(context, listen: false);
     } catch (_) {}
 
     // Always create the service so the modal can enable/disable it
@@ -117,7 +116,7 @@ class _AISPolarChartToolState extends State<AISPolarChartTool> {
         isAlarm ? const Duration(seconds: 10) : const Duration(seconds: 5);
 
     // Build navigation target
-    final payload = NotificationPayload(
+    const payload = NotificationPayload(
       type: 'signalk',
       toolTypeId: 'ais_polar_chart',
     );

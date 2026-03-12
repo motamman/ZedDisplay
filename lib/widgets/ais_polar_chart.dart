@@ -2195,7 +2195,7 @@ class _AISPolarChartState extends State<AISPolarChart>
             child: Row(
               children: [
                 ChoiceChip(
-                  label: Text('Nearby', style: TextStyle(fontSize: 12)),
+                  label: const Text('Nearby', style: TextStyle(fontSize: 12)),
                   selected: _vesselListTabIndex == 0,
                   onSelected: (_) => setState(() => _vesselListTabIndex = 0),
                   visualDensity: VisualDensity.compact,
@@ -2203,7 +2203,7 @@ class _AISPolarChartState extends State<AISPolarChart>
                 ),
                 const SizedBox(width: 6),
                 ChoiceChip(
-                  label: Text('Favorites', style: TextStyle(fontSize: 12)),
+                  label: const Text('Favorites', style: TextStyle(fontSize: 12)),
                   selected: _vesselListTabIndex == 1,
                   onSelected: (_) => setState(() => _vesselListTabIndex = 1),
                   visualDensity: VisualDensity.compact,

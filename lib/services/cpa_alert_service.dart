@@ -144,7 +144,9 @@ class CpaAlertService extends ChangeNotifier {
     if (!_config.enabled) return;
     final now = DateTime.now();
     if (_lastEvaluation != null &&
-        now.difference(_lastEvaluation!) < _evaluationThrottle) return;
+        now.difference(_lastEvaluation!) < _evaluationThrottle) {
+      return;
+    }
     _lastEvaluation = now;
     _evaluate();
   }
