@@ -178,29 +178,40 @@ class SunMoonArcWidget extends StatelessWidget {
       arcCenter = now;
     }
 
-    return SizedBox(
-      height: config.height,
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          return CustomPaint(
-            size: Size(constraints.maxWidth, constraints.maxHeight),
-            painter: _SunMoonArcPainter(
-              times: times,
-              now: arcCenter,
-              isDark: effectiveIsDark,
-              config: config,
-              isSelectedDay: showNoonIndicator,
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // Reserve top padding for icons that extend above the arc
+        final iconOverflow = constraints.maxHeight * 0.15;
+        final arcHeight = constraints.maxHeight - iconOverflow;
+        final effectiveConfig = config.copyWith(height: arcHeight);
+
+        return Padding(
+          padding: EdgeInsets.only(top: iconOverflow),
+          child: ClipRect(
+            clipBehavior: Clip.none,
+            child: CustomPaint(
+              size: Size(constraints.maxWidth, arcHeight),
+              painter: _SunMoonArcPainter(
+                times: times,
+                now: arcCenter,
+                isDark: effectiveIsDark,
+                config: effectiveConfig,
+                isSelectedDay: showNoonIndicator,
+              ),
+              child: _buildIconsOverlay(
+                BoxConstraints(
+                  maxWidth: constraints.maxWidth,
+                  maxHeight: arcHeight,
+                ),
+                arcCenter,
+                showNoonIndicator,
+                effectiveIsDark,
+                centerHour,
+              ),
             ),
-            child: _buildIconsOverlay(
-              constraints,
-              arcCenter,
-              showNoonIndicator,
-              effectiveIsDark,
-              centerHour,
-            ),
-          );
-        },
-      ),
+          ),
+        );
+      },
     );
   }
 
@@ -214,6 +225,9 @@ class SunMoonArcWidget extends StatelessWidget {
     final width = constraints.maxWidth;
     final height = constraints.maxHeight;
     final arcAngle = config.arcStyle.radians;
+
+    // Scale factor for icons: 1.0 at default height (70), grows proportionally
+    final scale = (height / 70.0).clamp(0.5, 3.0);
 
     // Arc spans 24 hours centered on 'now'
     final arcStart = now.subtract(const Duration(hours: 12));
@@ -267,7 +281,7 @@ class SunMoonArcWidget extends StatelessWidget {
           day.sunrise != null &&
           day.sunrise!.isAfter(arcStart) &&
           day.sunrise!.isBefore(arcEnd)) {
-        final sunrisePos = getArcPosition(day.sunrise!, size: 20);
+        final sunrisePos = getArcPosition(day.sunrise!, size: 20 * scale);
         if (sunrisePos != null) {
           children.add(
             Positioned(
@@ -279,9 +293,9 @@ class SunMoonArcWidget extends StatelessWidget {
                   Icon(
                     Icons.arrow_upward,
                     color: Colors.amber.shade600,
-                    size: 10,
+                    size: 10 * scale,
                   ),
-                  const Icon(Icons.wb_sunny, color: Colors.amber, size: 16),
+                  Icon(Icons.wb_sunny, color: Colors.amber, size: 16 * scale),
                 ],
               ),
             ),
@@ -294,20 +308,20 @@ class SunMoonArcWidget extends StatelessWidget {
           day.sunset != null &&
           day.sunset!.isAfter(arcStart) &&
           day.sunset!.isBefore(arcEnd)) {
-        final sunsetPos = getArcPosition(day.sunset!, size: 20);
+        final sunsetPos = getArcPosition(day.sunset!, size: 20 * scale);
         if (sunsetPos != null) {
           children.add(
             Positioned(
               left: sunsetPos.$1,
-              top: sunsetPos.$2 - 10,
+              top: sunsetPos.$2 - 10 * scale,
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Icon(Icons.wb_sunny, color: Colors.deepOrange, size: 16),
+                  Icon(Icons.wb_sunny, color: Colors.deepOrange, size: 16 * scale),
                   Icon(
                     Icons.arrow_downward,
                     color: Colors.deepOrange.shade600,
-                    size: 10,
+                    size: 10 * scale,
                   ),
                 ],
               ),
@@ -321,13 +335,13 @@ class SunMoonArcWidget extends StatelessWidget {
           day.solarNoon != null &&
           day.solarNoon!.isAfter(arcStart) &&
           day.solarNoon!.isBefore(arcEnd)) {
-        final noonPos = getArcPosition(day.solarNoon!, size: 24);
+        final noonPos = getArcPosition(day.solarNoon!, size: 24 * scale);
         if (noonPos != null) {
           children.add(
             Positioned(
               left: noonPos.$1,
-              top: noonPos.$2 - 8,
-              child: const Icon(Icons.wb_sunny, color: Colors.amber, size: 24),
+              top: noonPos.$2 - 8 * scale,
+              child: Icon(Icons.wb_sunny, color: Colors.amber, size: 24 * scale),
             ),
           );
         }
@@ -338,7 +352,7 @@ class SunMoonArcWidget extends StatelessWidget {
           day.moonrise != null &&
           day.moonrise!.isAfter(arcStart) &&
           day.moonrise!.isBefore(arcEnd)) {
-        final moonrisePos = getArcPosition(day.moonrise!, size: 20);
+        final moonrisePos = getArcPosition(day.moonrise!, size: 20 * scale);
         if (moonrisePos != null) {
           children.add(
             Positioned(
@@ -350,9 +364,9 @@ class SunMoonArcWidget extends StatelessWidget {
                   Icon(
                     Icons.arrow_upward,
                     color: Colors.blueGrey.shade300,
-                    size: 8,
+                    size: 8 * scale,
                   ),
-                  _buildMoonIcon(day.moonPhase, day.moonFraction, size: 14),
+                  _buildMoonIcon(day.moonPhase, day.moonFraction, size: 14 * scale),
                 ],
               ),
             ),
@@ -365,20 +379,20 @@ class SunMoonArcWidget extends StatelessWidget {
           day.moonset != null &&
           day.moonset!.isAfter(arcStart) &&
           day.moonset!.isBefore(arcEnd)) {
-        final moonsetPos = getArcPosition(day.moonset!, size: 20);
+        final moonsetPos = getArcPosition(day.moonset!, size: 20 * scale);
         if (moonsetPos != null) {
           children.add(
             Positioned(
               left: moonsetPos.$1,
-              top: moonsetPos.$2 - 8,
+              top: moonsetPos.$2 - 8 * scale,
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  _buildMoonIcon(day.moonPhase, day.moonFraction, size: 14),
+                  _buildMoonIcon(day.moonPhase, day.moonFraction, size: 14 * scale),
                   Icon(
                     Icons.arrow_downward,
                     color: Colors.blueGrey.shade400,
-                    size: 8,
+                    size: 8 * scale,
                   ),
                 ],
               ),
@@ -400,13 +414,13 @@ class SunMoonArcWidget extends StatelessWidget {
         }
 
         if (lunarTransit.isAfter(arcStart) && lunarTransit.isBefore(arcEnd)) {
-          final transitPos = getArcPosition(lunarTransit, size: 20);
+          final transitPos = getArcPosition(lunarTransit, size: 20 * scale);
           if (transitPos != null) {
             children.add(
               Positioned(
                 left: transitPos.$1,
-                top: transitPos.$2 - 6,
-                child: _buildMoonIcon(day.moonPhase, day.moonFraction, size: 20),
+                top: transitPos.$2 - 6 * scale,
+                child: _buildMoonIcon(day.moonPhase, day.moonFraction, size: 20 * scale),
               ),
             );
           }
@@ -415,20 +429,22 @@ class SunMoonArcWidget extends StatelessWidget {
 
       // Secondary twilight icons (dawn, dusk, golden hours)
       if (config.showSecondaryIcons) {
+        final twilightSize = 14 * scale;
+
         // Nautical Dawn
         if (day.nauticalDawn != null &&
             day.nauticalDawn!.isAfter(arcStart) &&
             day.nauticalDawn!.isBefore(arcEnd)) {
-          final pos = getArcPosition(day.nauticalDawn!, size: 14);
+          final pos = getArcPosition(day.nauticalDawn!, size: twilightSize);
           if (pos != null) {
             children.add(
               Positioned(
-                left: pos.$1 - 1,
-                top: pos.$2 - 6,
-                child: const _TwilightIcon(
+                left: pos.$1 - 1 * scale,
+                top: pos.$2 - 6 * scale,
+                child: _TwilightIcon(
                   isDawn: true,
                   isNautical: true,
-                  size: 14,
+                  size: twilightSize,
                 ),
               ),
             );
@@ -439,16 +455,16 @@ class SunMoonArcWidget extends StatelessWidget {
         if (day.dawn != null &&
             day.dawn!.isAfter(arcStart) &&
             day.dawn!.isBefore(arcEnd)) {
-          final pos = getArcPosition(day.dawn!, size: 14);
+          final pos = getArcPosition(day.dawn!, size: twilightSize);
           if (pos != null) {
             children.add(
               Positioned(
-                left: pos.$1 - 1,
-                top: pos.$2 - 6,
-                child: const _TwilightIcon(
+                left: pos.$1 - 1 * scale,
+                top: pos.$2 - 6 * scale,
+                child: _TwilightIcon(
                   isDawn: true,
                   isNautical: false,
-                  size: 14,
+                  size: twilightSize,
                 ),
               ),
             );
@@ -459,16 +475,16 @@ class SunMoonArcWidget extends StatelessWidget {
         if (day.goldenHourEnd != null &&
             day.goldenHourEnd!.isAfter(arcStart) &&
             day.goldenHourEnd!.isBefore(arcEnd)) {
-          final pos = getArcPosition(day.goldenHourEnd!, size: 14);
+          final pos = getArcPosition(day.goldenHourEnd!, size: twilightSize);
           if (pos != null) {
             children.add(
               Positioned(
                 left: pos.$1,
-                top: pos.$2 - 5,
+                top: pos.$2 - 5 * scale,
                 child: Icon(
                   Icons.wb_twilight,
                   color: Colors.orange.shade300,
-                  size: 12,
+                  size: 12 * scale,
                 ),
               ),
             );
@@ -479,16 +495,16 @@ class SunMoonArcWidget extends StatelessWidget {
         if (day.goldenHour != null &&
             day.goldenHour!.isAfter(arcStart) &&
             day.goldenHour!.isBefore(arcEnd)) {
-          final pos = getArcPosition(day.goldenHour!, size: 14);
+          final pos = getArcPosition(day.goldenHour!, size: twilightSize);
           if (pos != null) {
             children.add(
               Positioned(
                 left: pos.$1,
-                top: pos.$2 - 5,
+                top: pos.$2 - 5 * scale,
                 child: Icon(
                   Icons.wb_twilight,
                   color: Colors.orange.shade400,
-                  size: 12,
+                  size: 12 * scale,
                 ),
               ),
             );
@@ -499,16 +515,16 @@ class SunMoonArcWidget extends StatelessWidget {
         if (day.dusk != null &&
             day.dusk!.isAfter(arcStart) &&
             day.dusk!.isBefore(arcEnd)) {
-          final pos = getArcPosition(day.dusk!, size: 14);
+          final pos = getArcPosition(day.dusk!, size: twilightSize);
           if (pos != null) {
             children.add(
               Positioned(
-                left: pos.$1 - 1,
-                top: pos.$2 - 6,
-                child: const _TwilightIcon(
+                left: pos.$1 - 1 * scale,
+                top: pos.$2 - 6 * scale,
+                child: _TwilightIcon(
                   isDawn: false,
                   isNautical: false,
-                  size: 14,
+                  size: twilightSize,
                 ),
               ),
             );
@@ -519,16 +535,16 @@ class SunMoonArcWidget extends StatelessWidget {
         if (day.nauticalDusk != null &&
             day.nauticalDusk!.isAfter(arcStart) &&
             day.nauticalDusk!.isBefore(arcEnd)) {
-          final pos = getArcPosition(day.nauticalDusk!, size: 14);
+          final pos = getArcPosition(day.nauticalDusk!, size: twilightSize);
           if (pos != null) {
             children.add(
               Positioned(
-                left: pos.$1 - 1,
-                top: pos.$2 - 6,
-                child: const _TwilightIcon(
+                left: pos.$1 - 1 * scale,
+                top: pos.$2 - 6 * scale,
+                child: _TwilightIcon(
                   isDawn: false,
                   isNautical: true,
-                  size: 14,
+                  size: twilightSize,
                 ),
               ),
             );
@@ -537,119 +553,7 @@ class SunMoonArcWidget extends StatelessWidget {
       }
     }
 
-    // Center indicator - "now" if current hour, otherwise show the hour
-    if (config.showCenterIndicator) {
-      // isSelectedDay is true when NOT showing current hour today
-      final isNow = !isSelectedDay;
-      final indicatorColor = isNow ? Colors.red : Colors.blue;
-
-      // Format hour label (e.g., "6 AM", "2 PM")
-      String indicatorLabel;
-      if (isNow) {
-        indicatorLabel = 'now';
-      } else if (centerHourValue != null) {
-        final hour = centerHourValue % 12 == 0 ? 12 : centerHourValue % 12;
-        final amPm = centerHourValue < 12 ? 'AM' : 'PM';
-        indicatorLabel = '$hour $amPm';
-      } else {
-        indicatorLabel = '';
-      }
-
-      // For 180° arc, position at chord baseline
-      // For all other arcs, position ON the arc at center (progress 0.5)
-      if (config.arcStyle == ArcStyle.half) {
-        // 180° - position at chord midpoint (baseline)
-        final leftPoint = _calculateArcPosition(
-          progress: 0.0,
-          width: width,
-          height: height,
-          arcAngle: arcAngle,
-        );
-        final rightPoint = _calculateArcPosition(
-          progress: 1.0,
-          width: width,
-          height: height,
-          arcAngle: arcAngle,
-        );
-        final chordMidX = (leftPoint.dx + rightPoint.dx) / 2;
-        final chordMidY = (leftPoint.dy + rightPoint.dy) / 2;
-
-        children.add(
-          Positioned(
-            left: chordMidX - (indicatorLabel.isEmpty ? 1 : 20),
-            top: chordMidY - (indicatorLabel.isEmpty ? 16 : 26),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                if (indicatorLabel.isNotEmpty)
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                    decoration: BoxDecoration(
-                      color: indicatorColor.withValues(alpha: 0.2),
-                      borderRadius: BorderRadius.circular(4),
-                      border: Border.all(color: indicatorColor, width: 1),
-                    ),
-                    child: Text(
-                      indicatorLabel.toUpperCase(),
-                      style: TextStyle(
-                        fontSize: 10,
-                        color: indicatorColor,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                Container(
-                  width: 2,
-                  height: indicatorLabel.isEmpty ? 16 : 12,
-                  color: indicatorColor,
-                ),
-              ],
-            ),
-          ),
-        );
-      } else {
-        // All other arcs - position ON the arc at center (top of arc)
-        final arcCenter = _calculateArcPosition(
-          progress: 0.5,
-          width: width,
-          height: height,
-          arcAngle: arcAngle,
-        );
-        children.add(
-          Positioned(
-            left: arcCenter.dx - (indicatorLabel.isEmpty ? 1 : 20),
-            top: arcCenter.dy - (indicatorLabel.isEmpty ? 20 : 30),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                if (indicatorLabel.isNotEmpty)
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                    decoration: BoxDecoration(
-                      color: indicatorColor.withValues(alpha: 0.2),
-                      borderRadius: BorderRadius.circular(4),
-                      border: Border.all(color: indicatorColor, width: 1),
-                    ),
-                    child: Text(
-                      indicatorLabel.toUpperCase(),
-                      style: TextStyle(
-                        fontSize: 10,
-                        color: indicatorColor,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                Container(
-                  width: 2,
-                  height: indicatorLabel.isEmpty ? 16 : 12,
-                  color: indicatorColor,
-                ),
-              ],
-            ),
-          ),
-        );
-      }
-    }
+    // Center indicator is now drawn as a red hash mark by the painter (no overlay needed)
 
     // Interior time display (current time inside the arc)
     if (config.showInteriorTime) {
@@ -658,12 +562,12 @@ class SunMoonArcWidget extends StatelessWidget {
       final locationTime = times.toLocationTime(now);
       final timeStr = DateTimeFormatter.formatTime(locationTime, use24Hour: config.use24HourFormat);
       final dateStr = DateTimeFormatter.formatDateShort(locationTime);
-      // Proportional font size based on widget height
-      final fontSize = (height * 0.25).clamp(14.0, 32.0);
-      final dateFontSize = fontSize * 0.5;
-      final textWidth = fontSize * 5; // Approximate width for time text
-      // Position at 1/3 from top (2/3 up from bottom)
-      final topPosition = height * 0.33 - fontSize / 2;
+      // Proportional font size based on widget height (gentle scaling)
+      final fontSize = (height * 0.15).clamp(12.0, 24.0);
+      final dateFontSize = fontSize * 0.55;
+      final textWidth = fontSize * 6; // Approximate width for time text
+      // Position in lower half of arc to avoid stepping on markers
+      final topPosition = height * 0.5 - fontSize / 2;
 
       children.add(
         Positioned(
@@ -784,9 +688,12 @@ class _SunMoonArcPainter extends CustomPainter {
     const arcDuration = 1440.0;
     final arcAngle = config.arcStyle.radians;
 
+    // Scale factor for painter elements
+    final scale = (size.height / 70.0).clamp(0.5, 3.0);
+
     final paint = Paint()
       ..style = PaintingStyle.stroke
-      ..strokeWidth = config.strokeWidth;
+      ..strokeWidth = config.strokeWidth * scale;
 
     if (config.showTwilightSegments) {
       final segments = <_ArcSegment>[];
@@ -913,12 +820,47 @@ class _SunMoonArcPainter extends CustomPainter {
       rightPoint,
       Paint()
         ..color = isDark ? Colors.white24 : Colors.black12
-        ..strokeWidth = 1,
+        ..strokeWidth = 1 * scale,
     );
 
     // Draw time labels
     if (config.showTimeLabels) {
       _drawTimeLabels(canvas, size, arcStart, arcAngle);
+    }
+
+    // Draw red hash mark at center (progress 0.5 = "now")
+    if (config.showCenterIndicator && !isSelectedDay) {
+      final arcPos = _getArcPosition(0.5, size, arcAngle);
+      final hashLength = 8 * scale;
+      final hashPaint = Paint()
+        ..color = Colors.red
+        ..strokeWidth = 2 * scale
+        ..strokeCap = StrokeCap.round;
+      // Draw perpendicular to arc at center point
+      // For half arc, hash is vertical; for others, radial from center
+      if (config.arcStyle == ArcStyle.half) {
+        canvas.drawLine(
+          Offset(arcPos.dx, arcPos.dy - hashLength),
+          Offset(arcPos.dx, arcPos.dy + hashLength),
+          hashPaint,
+        );
+      } else {
+        // Radial hash: from center of circle through arc point
+        final cx = size.width / 2;
+        final cy = size.height / 2;
+        final dx = arcPos.dx - cx;
+        final dy = arcPos.dy - cy;
+        final dist = math.sqrt(dx * dx + dy * dy);
+        if (dist > 0) {
+          final nx = dx / dist;
+          final ny = dy / dist;
+          canvas.drawLine(
+            Offset(arcPos.dx - nx * hashLength, arcPos.dy - ny * hashLength),
+            Offset(arcPos.dx + nx * hashLength, arcPos.dy + ny * hashLength),
+            hashPaint,
+          );
+        }
+      }
     }
   }
 
@@ -983,6 +925,9 @@ class _SunMoonArcPainter extends CustomPainter {
   void _drawTimeLabels(Canvas canvas, Size size, DateTime arcStart, double arcAngle) {
     // Use configured label color or default based on theme
     final neutralColor = config.labelColor ?? (isDark ? Colors.white54 : Colors.black45);
+    final scale = (size.height / 70.0).clamp(0.5, 3.0);
+    final fontScale = math.sqrt(scale).clamp(0.7, 2.0);
+    final labelFontSize = 8 * fontScale;
 
     // Get endpoint positions for label placement
     final leftPoint = _getArcPosition(0.0, size, arcAngle);
@@ -998,14 +943,14 @@ class _SunMoonArcPainter extends CustomPainter {
       // - Other labels (sunrise/sunset): below their arc position
       double labelY;
       if (isEndpoint) {
-        labelY = chordY + 2;
+        labelY = chordY + 2 * scale;
       } else {
-        labelY = pos.dy + 12;
+        labelY = pos.dy + 12 * scale;
       }
 
       final textSpan = TextSpan(
         text: text,
-        style: TextStyle(fontSize: 8, color: color, fontWeight: FontWeight.w500),
+        style: TextStyle(fontSize: labelFontSize, color: color, fontWeight: FontWeight.w500),
       );
       final textPainter = TextPainter(
         text: textSpan,
