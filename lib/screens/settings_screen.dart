@@ -8,6 +8,7 @@ import '../services/auth_service.dart';
 import '../services/dashboard_service.dart';
 import '../services/foreground_service.dart';
 import '../services/notification_service.dart';
+import '../services/diagnostic_service.dart';
 import '../services/setup_service.dart';
 import '../models/server_connection.dart';
 import '../models/auth_token.dart';
@@ -32,6 +33,7 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   late bool _showConnections;
   bool _notificationsEnabled = false;
+  bool _diagnosticsEnabled = true;
 
   // In-app notification level filters
   bool _showInAppEmergency = true;
@@ -64,6 +66,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
     setState(() {
       _notificationsEnabled = storageService.getNotificationsEnabled();
+      _diagnosticsEnabled = storageService.getDiagnosticsEnabled();
 
       // Load in-app notification filters
       _showInAppEmergency = storageService.getInAppNotificationFilter('emergency');
@@ -519,6 +522,34 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                 ],
               ],
+            ),
+          ),
+
+          const Divider(height: 32),
+
+          // Diagnostics Section
+          Card(
+            margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: SwitchListTile(
+              secondary: const Icon(Icons.analytics_outlined, color: Colors.blueGrey),
+              title: const Text(
+                'Diagnostics',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+              subtitle: const Text(
+                'Send anonymous performance data to help improve ZedDisplay',
+                style: TextStyle(fontSize: 12),
+              ),
+              value: _diagnosticsEnabled,
+              onChanged: (value) async {
+                setState(() => _diagnosticsEnabled = value);
+                await storageService.saveDiagnosticsEnabled(value);
+                if (value) {
+                  DiagnosticService.instance?.start();
+                } else {
+                  DiagnosticService.instance?.stop();
+                }
+              },
             ),
           ),
 

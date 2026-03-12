@@ -523,6 +523,11 @@ tools:
       - ![](icon:add)/![](icon:remove) Plus/minus — zoom in/out
       - ![](icon:my_location) Crosshair — auto-range (radar) or auto-follow (map)
 
+      **Find Home Integration:**
+      - Tap a vessel in the detail sheet to set it as the Find Home target
+      - Requires the Find Home widget mounted on any screen
+      - AIS receiver (or AIS data source) required for vessel positions
+
   file_share:
     name: "File Share"
     description: |
@@ -569,6 +574,15 @@ tools:
       - Configurable vibration patterns and interval
       - Optional whistle/audio feedback with selectable alert sound
       - Wrong-way detection with urgent triple-buzz alert
+
+      **AIS Vessel Tracking:**
+      - Select an AIS vessel as your target from the AIS Tracker widget
+      - Runway updates in real time using the tracked vessel's position
+      - Requires the AIS Tracker widget mounted on any screen and an AIS receiver (or AIS data source)
+
+      **Track Mode:**
+      - Toggle Track to navigate using the vessel's SignalK position instead of device GPS
+      - Useful when your phone is aboard and you want boat-to-target guidance
 
       **Units:**
       - All conversions follow server unit preferences (speed, distance)

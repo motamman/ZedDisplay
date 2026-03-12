@@ -4,7 +4,6 @@ import 'package:syncfusion_flutter_gauges/gauges.dart';
 /// Available compass display styles
 enum CompassStyle {
   classic,  // Full circle with needle (default)
-  arc,      // 180° arc showing heading range
   minimal,  // Clean modern with simplified markings
   marine,   // Card rotates, needle points up (traditional marine compass)
 }
@@ -118,7 +117,7 @@ class CompassGauge extends StatelessWidget {
 
                         // Hide axis line
                         showAxisLine: false,
-                        showLastLabel: compassStyle != CompassStyle.arc,
+                        showLastLabel: true,
 
                         // Tick configuration
                         majorTickStyle: MajorTickStyle(
@@ -286,21 +285,11 @@ class CompassGauge extends StatelessWidget {
   }
 
   double _getStartAngle() {
-    switch (compassStyle) {
-      case CompassStyle.arc:
-        return 180; // Bottom half
-      default:
-        return 270; // Top (north)
-    }
+    return 270; // Top (north)
   }
 
   double _getEndAngle() {
-    switch (compassStyle) {
-      case CompassStyle.arc:
-        return 0; // 180 degree arc
-      default:
-        return 270; // Full circle
-    }
+    return 270; // Full circle
   }
 
   double _getInterval() {
@@ -354,21 +343,15 @@ class CompassGauge extends StatelessWidget {
           fontSize = 16;
           break;
         default:
-          if (!showTickLabels) continue;
+          // Minimal can't fit non-cardinal labels — skip them
+          if (!showTickLabels || compassStyle == CompassStyle.minimal) continue;
           labelText = '$i°';
           labelColor = Colors.grey.withValues(alpha: 0.6);
           fontSize = 14;
       }
 
-      double labelAngle;
-      if (compassStyle == CompassStyle.arc) {
-        // Arc compresses 360° into 180° semicircle
-        // Gauge value i maps to screen position 180 + (i/2)
-        labelAngle = 180 + (i / 2);
-      } else {
-        // Full circle: add 270° offset to align N to top
-        labelAngle = (i + 270) % 360;
-      }
+      // Full circle: add 270° offset to align N to top
+      final double labelAngle = (i + 270) % 360;
 
       labels.add(
         GaugeAnnotation(
@@ -502,14 +485,14 @@ class CompassGauge extends StatelessWidget {
                         RadialAxis(
                           minimum: 0,
                           maximum: 360,
-                          interval: 30,
+                          interval: _getInterval(),
                           startAngle: 270,
                           endAngle: 270,
                           showAxisLine: false,
                           showLastLabel: true,
 
-                          majorTickStyle: const MajorTickStyle(
-                            length: 12,
+                          majorTickStyle: MajorTickStyle(
+                            length: _getMajorTickLength(),
                             thickness: 2,
                             color: Colors.grey,
                           ),
@@ -522,15 +505,7 @@ class CompassGauge extends StatelessWidget {
 
                           showLabels: false,
 
-                          ranges: [
-                            GaugeRange(
-                              startValue: 0,
-                              endValue: 360,
-                              color: Colors.grey.withValues(alpha: 0.2),
-                              startWidth: 2,
-                              endWidth: 2,
-                            ),
-                          ],
+                          ranges: _getRanges(),
 
                           pointers: const [],
 
@@ -546,11 +521,12 @@ class CompassGauge extends StatelessWidget {
                       Transform.rotate(
                         angle: (needle.value - heading) * 3.14159265359 / 180,
                         child: Center(
-                          child: CustomPaint(
-                            size: const Size(200, 200),
-                            painter: _MarineNeedlePainter(
-                              needle.color,
-                              isSecondary: true,
+                          child: SizedBox.expand(
+                            child: CustomPaint(
+                              painter: _MarineNeedlePainter(
+                                needle.color,
+                                isSecondary: true,
+                              ),
                             ),
                           ),
                         ),
@@ -565,9 +541,10 @@ class CompassGauge extends StatelessWidget {
                     return Transform.rotate(
                       angle: (active.value - heading) * 3.14159265359 / 180,
                       child: Center(
-                        child: CustomPaint(
-                          size: const Size(200, 200),
-                          painter: _MarineNeedlePainter(active.color),
+                        child: SizedBox.expand(
+                          child: CustomPaint(
+                            painter: _MarineNeedlePainter(active.color),
+                          ),
                         ),
                       ),
                     );
@@ -706,8 +683,8 @@ class _MarineNeedlePainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final center = Offset(size.width / 2, size.height / 2);
     final radius = size.width / 2;
-    final northNeedleLength = radius * (isSecondary ? 0.7 : 0.8);
-    final southTailLength = radius * (isSecondary ? 0.65 : 0.75);
+    final northNeedleLength = radius * (isSecondary ? 0.75 : 0.85);
+    final southTailLength = radius * 0.3;
     final needleWidth = isSecondary ? 6.0 : 8.0;
 
     final paint = Paint()

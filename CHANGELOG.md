@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.51+41] - 2026-03-12
+
+### Added
+- **Find Home — AIS Vessel Targeting**: Select any AIS vessel as the Find Home target directly from the AIS Tracker vessel detail sheet
+  - FindHomeTargetService bridges AIS Tracker → Find Home via a one-shot ChangeNotifier signal
+  - Find Home persists the selected vessel ID and name across widget rebuilds
+  - Real-time position tracking of the targeted AIS vessel as home destination
+  - Find Home configurator shows active AIS target with clear button
+- **Find Home — Track Mode Waiting State**: Track mode now shows "Waiting for vessel position..." with a sailing icon instead of the misleading "Acquiring device GPS..." message
+- **Diagnostics Feature Toggle**: Diagnostics can now be enabled/disabled from Settings without restarting the app
+
+### Fixed
+- **Find Home — GPS Acquisition Hang**: After screen switch, widget could get stuck on "Acquiring device GPS..." because `getLastKnownPosition()` returned null and the stream hadn't started yet. Now falls back to `getCurrentPosition()` to eliminate the async gap
+- **Find Home — Wrong Waiting State in Track Mode**: Track mode doesn't use device GPS, so showing "Acquiring GPS" was incorrect. Now displays the appropriate waiting message per mode
+- **Find Home — AIS Target Name Visibility**: When waiting for GPS in AIS mode, the selected vessel name is now shown so the user knows their selection wasn't lost
+
+### Changed
+- **Compass Gauge**: Removed 'arc' style option from CompassGauge and related configurator
+- **Tool Config Screen**: Renamed 'Add Data Source' button label to 'Add Path' for clarity
+- **AIS Tracker / Find Home Info**: Updated tool_info.yaml with cross-widget integration notes and hardware requirements (AIS receiver)
+
 ## [0.5.50+40] - 2026-03-11
 
 ### Added

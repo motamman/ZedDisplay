@@ -10,7 +10,9 @@ AuthToken _$AuthTokenFromJson(Map<String, dynamic> json) => AuthToken(
   token: json['token'] as String,
   clientId: json['clientId'] as String?,
   username: json['username'] as String?,
-  authType: $enumDecodeNullable(_$AuthTypeEnumMap, json['authType']) ?? AuthType.device,
+  authType:
+      $enumDecodeNullable(_$AuthTypeEnumMap, json['authType']) ??
+      AuthType.device,
   expiresAt: json['expiresAt'] == null
       ? null
       : DateTime.parse(json['expiresAt'] as String),
@@ -32,7 +34,4 @@ Map<String, dynamic> _$AuthTokenToJson(AuthToken instance) => <String, dynamic>{
   'connectionId': instance.connectionId,
 };
 
-const _$AuthTypeEnumMap = {
-  AuthType.device: 'device',
-  AuthType.user: 'user',
-};
+const _$AuthTypeEnumMap = {AuthType.device: 'device', AuthType.user: 'user'};

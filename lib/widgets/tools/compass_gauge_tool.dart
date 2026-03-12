@@ -182,8 +182,6 @@ class _CompassGaugeToolState extends State<CompassGaugeTool> {
 
   CompassStyle _parseCompassStyle(String styleStr) {
     switch (styleStr.toLowerCase()) {
-      case 'arc':
-        return CompassStyle.arc;
       case 'minimal':
         return CompassStyle.minimal;
       case 'marine':
@@ -213,7 +211,7 @@ class CompassGaugeBuilder extends ToolBuilder {
           'primaryColor',
           'showLabel',
           'showValue',
-          'compassStyle', // 'classic', 'arc', 'minimal', 'marine'
+          'compassStyle', // 'classic', 'minimal', 'marine'
         ],
       ),
     );

@@ -1,4 +1,41 @@
-# What's New in v0.5.50
+# What's New in v0.5.51
+
+## Release Notes (Google Play - max 500 chars)
+
+v0.5.51 AIS Vessel Targeting for Find Home
+
+NEW: Select any AIS vessel as the Find Home target — tap a vessel in AIS Tracker to track it. Find Home follows the vessel's live position as your destination.
+
+FIXED: Find Home no longer hangs on "Acquiring device GPS..." after screen switch. Track mode shows correct waiting state.
+
+CHANGED: Compass Gauge 'arc' style removed. 'Add Data Source' renamed to 'Add Path'.
+
+## Release Notes (App Store / TestFlight - max 4000 chars)
+
+### Find Home — AIS Vessel Targeting (NEW)
+- **Select from AIS Tracker** - Tap any vessel in the AIS Tracker detail sheet to set it as the Find Home target
+- **Live Position Tracking** - Find Home follows the targeted vessel's real-time AIS position as your destination
+- **Persistent Selection** - Target vessel survives screen switches and widget rebuilds
+- **Clear Target** - Configurator shows active AIS target with a clear button to revert to manual position
+- **Requires** - AIS Tracker widget mounted on any screen, plus an AIS receiver (or AIS data source) feeding your SignalK server
+
+### Find Home — Bug Fixes (FIXED)
+- **GPS Acquisition Hang** - No longer gets stuck on "Acquiring device GPS..." after switching screens. Falls back to `getCurrentPosition()` when no cached position is available
+- **Track Mode Waiting State** - Track mode now shows "Waiting for vessel position..." instead of the misleading "Acquiring device GPS..." message (track mode uses SignalK, not device GPS)
+- **AIS Target Visibility** - Selected vessel name now shown during GPS acquisition so you know your selection wasn't lost
+
+### Compass Gauge (CHANGED)
+- **Arc Style Removed** - The 'arc' display style has been removed from compass gauge options
+
+### UI (CHANGED)
+- **Add Path** - 'Add Data Source' button in tool configurators renamed to 'Add Path' for clarity
+
+### Diagnostics (NEW)
+- **Feature Toggle** - Diagnostics can now be enabled/disabled from Settings without restarting
+
+---
+
+# Previous: v0.5.50
 
 ## Release Notes (Google Play - max 500 chars)
 

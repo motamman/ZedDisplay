@@ -9,6 +9,8 @@ import 'package:provider/provider.dart';
 import '../services/signalk_service.dart';
 import '../services/cpa_alert_service.dart';
 import '../services/ais_favorites_service.dart';
+import '../services/find_home_target_service.dart';
+import '../services/dashboard_service.dart';
 import '../models/ais_favorite.dart';  // For manual add dialog
 import '../models/cpa_alert_state.dart';
 import '../utils/cpa_utils.dart';
@@ -475,6 +477,22 @@ class _AISPolarChartState extends State<AISPolarChart>
                         ],
                       ),
                     ),
+                    // Navigate to Find Home with this vessel as target
+                    Builder(builder: (_) {
+                      final dashService = context.read<DashboardService>();
+                      final findHomeScreen = dashService.findScreenWithToolType('find_home');
+                      if (findHomeScreen == null) return const SizedBox.shrink();
+                      return IconButton(
+                        icon: const Icon(Icons.home_outlined),
+                        tooltip: 'Track in Find Home',
+                        onPressed: () {
+                          final targetService = context.read<FindHomeTargetService>();
+                          targetService.setAisTarget(mmsi, vesselName);
+                          dashService.setActiveScreen(findHomeScreen.$1);
+                          _dismissVesselDetails();
+                        },
+                      );
+                    }),
                   ],
                 ),
                 const SizedBox(height: 6),
@@ -2302,6 +2320,7 @@ class _AISPolarChartState extends State<AISPolarChart>
             final tile = ListTile(
               dense: true,
               onTap: () => _highlightVessel(vessel.mmsi),
+              onLongPress: () => _navigateToFindHome(vessel.mmsi, vessel.name ?? _extractMMSI(vessel.mmsi)),
               leading: stale
                   ? Stack(
                       alignment: Alignment.center,
@@ -2435,6 +2454,16 @@ class _AISPolarChartState extends State<AISPolarChart>
     }
   }
 
+  /// Navigate to Find Home screen with vessel as AIS target.
+  void _navigateToFindHome(String vesselId, String vesselName) {
+    final dashService = context.read<DashboardService>();
+    final findHomeScreen = dashService.findScreenWithToolType('find_home');
+    if (findHomeScreen == null) return;
+    final targetService = context.read<FindHomeTargetService>();
+    targetService.setAisTarget(vesselId, vesselName);
+    dashService.setActiveScreen(findHomeScreen.$1);
+  }
+
   /// Build the Favorites list tab
   Widget _buildFavoritesList(BuildContext context, bool isDark) {
     final favService = context.watch<AISFavoritesService>();
@@ -2513,6 +2542,9 @@ class _AISPolarChartState extends State<AISPolarChart>
 
                     return ListTile(
                       dense: true,
+                      onLongPress: inRange
+                          ? () => _navigateToFindHome(inRangeVessel.mmsi, fav.name)
+                          : null,
                       onTap: () {
                         if (inRange) {
                           setState(() {

@@ -14,6 +14,8 @@ class FindHomeConfigurator extends ToolConfigurator {
 
   int feedbackInterval = 10;
   String alertSound = 'whistle';
+  String trackCogPath = 'navigation.courseOverGroundTrue';
+  String trackSogPath = 'navigation.speedOverGround';
 
   static const Map<String, String> soundNames = {
     'bell': 'Bell',
@@ -28,6 +30,8 @@ class FindHomeConfigurator extends ToolConfigurator {
   void reset() {
     feedbackInterval = 10;
     alertSound = 'whistle';
+    trackCogPath = 'navigation.courseOverGroundTrue';
+    trackSogPath = 'navigation.speedOverGround';
   }
 
   @override
@@ -40,6 +44,8 @@ class FindHomeConfigurator extends ToolConfigurator {
     final props = tool.config.style.customProperties ?? {};
     feedbackInterval = (props['feedbackInterval'] as int?) ?? 10;
     alertSound = props['alertSound'] as String? ?? 'whistle';
+    trackCogPath = props['trackCogPath'] as String? ?? 'navigation.courseOverGroundTrue';
+    trackSogPath = props['trackSogPath'] as String? ?? 'navigation.speedOverGround';
   }
 
   @override
@@ -50,6 +56,8 @@ class FindHomeConfigurator extends ToolConfigurator {
         customProperties: {
           'feedbackInterval': feedbackInterval,
           'alertSound': alertSound,
+          'trackCogPath': trackCogPath,
+          'trackSogPath': trackSogPath,
         },
       ),
     );
@@ -85,6 +93,53 @@ class FindHomeConfigurator extends ToolConfigurator {
                   if (value != null) {
                     setState(() => alertSound = value);
                   }
+                },
+              ),
+
+              const SizedBox(height: 24),
+              const Divider(),
+              const SizedBox(height: 16),
+
+              // Track Mode Paths
+              Text(
+                'Track Mode Paths',
+                style: Theme.of(context).textTheme.titleSmall,
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'SignalK paths used for vessel position when Track mode is on',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                initialValue: trackCogPath,
+                decoration: const InputDecoration(
+                  labelText: 'COG Path',
+                  hintText: 'navigation.courseOverGroundTrue',
+                  isDense: true,
+                  border: OutlineInputBorder(),
+                ),
+                style: const TextStyle(fontFamily: 'monospace', fontSize: 13),
+                onChanged: (value) {
+                  trackCogPath = value.trim().isEmpty
+                      ? 'navigation.courseOverGroundTrue'
+                      : value.trim();
+                },
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                initialValue: trackSogPath,
+                decoration: const InputDecoration(
+                  labelText: 'SOG Path',
+                  hintText: 'navigation.speedOverGround',
+                  isDense: true,
+                  border: OutlineInputBorder(),
+                ),
+                style: const TextStyle(fontFamily: 'monospace', fontSize: 13),
+                onChanged: (value) {
+                  trackSogPath = value.trim().isEmpty
+                      ? 'navigation.speedOverGround'
+                      : value.trim();
                 },
               ),
 
