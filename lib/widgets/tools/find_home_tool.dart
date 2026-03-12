@@ -240,6 +240,17 @@ class _FindHomeToolState extends State<FindHomeTool> {
       final lastKnown = await Geolocator.getLastKnownPosition();
       if (lastKnown != null && mounted) {
         setState(() => _devicePosition = lastKnown);
+      } else if (mounted) {
+        try {
+          final current = await Geolocator.getCurrentPosition(
+            locationSettings: const LocationSettings(
+              accuracy: LocationAccuracy.high,
+            ),
+          );
+          if (mounted) setState(() => _devicePosition = current);
+        } catch (_) {
+          // Stream below will provide position eventually
+        }
       }
 
       final LocationSettings settings;
@@ -687,7 +698,9 @@ class _FindHomeToolState extends State<FindHomeTool> {
     // Check for position fix (device GPS or SignalK in track mode)
     final nav = _computeNav();
     if (nav == null) {
-      return _buildAcquiringGps(isDark);
+      return _trackMode
+          ? _buildWaitingForSignalK(isDark)
+          : _buildAcquiringGps(isDark);
     }
 
     final distMeta = _pickDistanceMeta(nav.distance);
@@ -816,16 +829,51 @@ class _FindHomeToolState extends State<FindHomeTool> {
   Widget _buildAcquiringGps(bool isDark) {
     return Stack(
       children: [
-        const Center(
+        Center(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(Icons.location_searching, size: 32, color: Colors.grey),
-              SizedBox(height: 8),
-              Text(
+              const Icon(Icons.location_searching, size: 32, color: Colors.grey),
+              const SizedBox(height: 8),
+              const Text(
                 'Acquiring device GPS...',
                 style: TextStyle(color: Colors.grey),
               ),
+              if (_aisVesselName != null) ...[
+                const SizedBox(height: 4),
+                Text(
+                  'Target: $_aisVesselName',
+                  style: const TextStyle(color: Colors.cyan, fontSize: 12),
+                ),
+              ],
+            ],
+          ),
+        ),
+        _buildInfoButton(),
+      ],
+    );
+  }
+
+  Widget _buildWaitingForSignalK(bool isDark) {
+    return Stack(
+      children: [
+        Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(Icons.sailing, size: 32, color: Colors.grey),
+              const SizedBox(height: 8),
+              const Text(
+                'Waiting for vessel position...',
+                style: TextStyle(color: Colors.grey),
+              ),
+              if (_aisVesselName != null) ...[
+                const SizedBox(height: 4),
+                Text(
+                  'Target: $_aisVesselName',
+                  style: const TextStyle(color: Colors.cyan, fontSize: 12),
+                ),
+              ],
             ],
           ),
         ),
