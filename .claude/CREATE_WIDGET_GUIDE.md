@@ -215,35 +215,57 @@ case 'my_tool':
 
 ## Step 4: Config Screen Exclusions
 
-`lib/screens/tool_config_screen.dart` has two hardcoded exclusion lists that hide standard config sections for tools that don't need them. If your tool doesn't use one of these, add your tool ID.
+`lib/screens/tool_config_screen.dart` has multiple hardcoded exclusion lists. If your tool doesn't need a standard section, add your tool ID to the relevant list(s). **All are in `tool_config_screen.dart`.**
 
-### Data Sources exclusion (~line 636)
+### 1. Save button enabled (~line 622)
 
-Hides the "Configure Data Sources" card (the SignalK path picker). Add your tool if it doesn't use standard path selection (e.g., it subscribes to fixed paths internally, or needs no paths at all).
-
-```dart
-// Find this line:
-if (_selectedToolTypeId != 'webview' && _selectedToolTypeId != 'server_manager' && ... && _selectedToolTypeId != 'rpi_monitor')
-
-// Append:
-&& _selectedToolTypeId != 'my_tool'
-```
-
-Currently excluded: `webview`, `server_manager`, `system_monitor`, `crew_messages`, `crew_list`, `intercom`, `file_share`, `weather_alerts`, `clock_alarm`, `weather_api_spinner`, `victron_flow`, `device_access_manager`, `rpi_monitor`, `sun_moon_arc`
-
-### Style Config exclusion (~line 782)
-
-Hides the "Configure Style" card (color picker, label, min/max). Add your tool if it has its own configurator that handles all styling, or doesn't need style config.
+The Save button is disabled when `_dataSources.isEmpty` unless your tool is listed here. **If your tool has no paths, you MUST add it or Save stays greyed out.**
 
 ```dart
-// Find this line:
-if (_selectedToolTypeId != null && _selectedToolTypeId != 'conversion_test' && ... && _selectedToolTypeId != 'device_access_manager')
-
-// Append:
-&& _selectedToolTypeId != 'my_tool'
+onPressed: _selectedToolTypeId != null && (_dataSources.isNotEmpty || _selectedToolTypeId == 'webview' || ... || _selectedToolTypeId == 'sun_moon_arc')
 ```
 
-Currently excluded: `conversion_test`, `server_manager`, `rpi_monitor`, `system_monitor`, `crew_messages`, `crew_list`, `intercom`, `file_share`, `weather_alerts`, `device_access_manager`, `sun_moon_arc`
+### 2. Save validation (~line 429)
+
+Same concept — `_saveTool()` silently returns if data sources are empty unless your tool is listed. **Must match list #1.**
+
+```dart
+if (_selectedToolTypeId != 'webview' && ... && _selectedToolTypeId != 'sun_moon_arc' && _dataSources.isEmpty) return;
+```
+
+### 3. Data Sources card (~line 636)
+
+Hides the "Configure Data Sources" card (the SignalK path picker). Add your tool if it doesn't use standard path selection.
+
+```dart
+if (_selectedToolTypeId != 'webview' && ... && _selectedToolTypeId != 'sun_moon_arc')
+```
+
+### 4. Standard style options inside `_buildStyleOptions()`
+
+The "Configure Style" card renders both standard options AND your custom configurator. The card itself should NOT be excluded if you have a custom configurator. Instead, add your tool to the individual option exclusion lists within `_buildStyleOptions()`:
+
+- **`excludeUnitOptions`** (~line 941): Hides the "Unit" text field
+- **`excludeShowHideOptions`** (~line 1030): Hides Show Label / Show Value / Show Unit switches
+- **`excludeTTLOptions`** (~line 1063): Hides the Data Staleness Threshold dropdown
+
+```dart
+const excludeUnitOptions = ['autopilot', ..., 'sun_moon_arc'];
+const excludeShowHideOptions = ['autopilot', ..., 'sun_moon_arc'];
+const excludeTTLOptions = ['autopilot', ..., 'sun_moon_arc'];
+```
+
+### Summary: No-path tool with custom configurator
+
+If your tool has no SignalK paths and has its own configurator, add it to ALL of these:
+1. Save button enabled list (line ~622)
+2. Save validation list (line ~429)
+3. Data Sources card exclusion (line ~636)
+4. `excludeUnitOptions` (line ~941)
+5. `excludeShowHideOptions` (line ~1030)
+6. `excludeTTLOptions` (line ~1063)
+
+Do NOT add it to the Style Config card exclusion (line ~782) — that would hide your custom configurator too.
 
 ## ToolCategory Options
 
