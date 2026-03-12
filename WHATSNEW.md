@@ -1,4 +1,55 @@
-# What's New in v0.5.42
+# What's New in v0.5.50
+
+## Release Notes (Google Play - max 500 chars)
+
+v0.5.50 AIS Favorites, Find Home & Alert Coordinator
+
+NEW: AIS Vessel Favorites - mark vessels of interest and get notified when they enter AIS range, even when the chart is off-screen. Find Home tool navigates back to saved position with haptic/audio feedback.
+
+IMPROVED: AlertCoordinator centralizes all alert delivery. Lightweight reconnect preserves cached data. Anchor alarm control locking.
+
+## Release Notes (App Store / TestFlight - max 4000 chars)
+
+### AIS Vessel Favorites (NEW)
+- **Heart Icon** - Tap to favorite any vessel in the Nearby list
+- **Favorites Tab** - New tab in vessel list shows all favorites with live distance/SOG when in range
+- **Manual Add** - Add vessels by MMSI + name + notes for boats not currently visible
+- **Detection Alerts** - Snackbar with "VIEW" action when a favorited vessel appears in AIS range
+- **Background Detection** - Works even when AIS chart is off-screen or app is backgrounded (via AlertCoordinator)
+- **Once Per Encounter** - Alert fires once when vessel arrives; resets when vessel leaves range and returns
+- **Persistent** - Favorites saved locally and survive app restarts
+
+### Find Home Tool (NEW)
+- **Device GPS Navigation** - Navigate back to a saved home position
+- **Haptic Feedback** - Configurable vibration patterns for directional guidance
+- **Wrong-Way Detection** - Audio and vibration alerts when heading away from home
+- **Alert Sounds** - Choose from bell, foghorn, or chimes
+- **Configurable Intervals** - Set feedback frequency for navigation updates
+
+### AlertCoordinator (NEW)
+- **Centralized Delivery** - All subsystems (anchor alarm, CPA, AIS favorites, weather, clock) route alerts through one gateway
+- **Filter Enforcement** - Master toggle, per-level filters, and per-subsystem crew broadcast preferences applied centrally
+- **Audio Preemption** - Only one alarm sound at a time; higher severity wins
+- **Smart Suppression** - Snackbars suppressed when subsystem overlay is visible or app is backgrounded
+
+### Reconnection & Stability (IMPROVED)
+- **Lightweight Reconnect** - Short dropouts preserve cached MetadataStore, subscriptions, and vessel registry instead of full teardown
+- **Lifecycle Hardening** - AlertCoordinator tracks foreground state; diagnostics pause/resume with app lifecycle
+- **Anchor Alarm** - Control locking prevents accidental changes; tap notification to silence alarm
+
+### AIS & Charts (IMPROVED)
+- **Auto-Highlight** - Newly alerted CPA vessels automatically highlighted on chart
+- **Mooring Buoy** - New SVG icon for mooring buoy vessel type
+- **Historical Chart** - 3-state series visibility (visible, hidden, muted) with improved legend rendering
+
+### Notifications (IMPROVED)
+- **Tap-to-Navigate** - System notifications now navigate to the relevant tool when tapped
+- **Crew Preferences** - Per-subsystem crew broadcast toggles in settings
+- **Message Deletion** - Crew messages can now be deleted
+
+---
+
+# Previous: v0.5.42
 
 ## Release Notes (Google Play - max 500 chars)
 

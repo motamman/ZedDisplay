@@ -5,6 +5,44 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.50+40] - 2026-03-11
+
+### Added
+- **AIS Vessel Favorites**: Mark vessels of interest and get notified when they appear in AIS range
+  - Heart icon on each vessel in the Nearby list to toggle favorite
+  - Favorites tab in the vessel list overlay (Nearby | Favorites) with live distance/SOG for in-range vessels
+  - Manual add dialog for vessels not currently visible (MMSI + name + notes)
+  - Detection snackbar with "VIEW" action to jump to vessel on chart — fires once per encounter, resets when vessel leaves range
+  - Service-layer detection via AlertCoordinator — works even when AIS chart is off-screen or app is backgrounded
+  - Favorites persisted locally via StorageService
+- **Find Home Tool**: Navigate back to a saved home position using device GPS
+  - Haptic feedback (configurable vibration patterns) with wrong-way detection
+  - Audio alert sound selection (bell, foghorn, chimes)
+  - Configurable feedback intervals
+  - Distance display with proper unit formatting via MetadataStore
+- **AlertCoordinator**: Centralized alert delivery gateway for all subsystems
+  - Subsystems keep domain logic, delegate delivery to coordinator
+  - Enforces master toggle, per-level filters, and per-subsystem crew broadcast preferences
+  - Severity-based audio preemption (only one audio at a time, higher severity wins)
+  - Overlay suppression — snackbars suppressed when subsystem has an overlay visible
+  - Snackbar delivery deferred while app is backgrounded to prevent jank on resume
+- **Notification Navigation**: Tap-to-navigate from system notifications to relevant tools
+- **Mooring Buoy Icon**: New SVG icon for mooring buoy AIS vessel type
+
+### Enhanced
+- **Reconnection Logic**: Lightweight reconnect preserves cached data (MetadataStore, subscriptions, vessel registry) during short dropouts instead of full teardown/rebuild
+- **App Lifecycle Hardening**: Background/resume stability improvements — AlertCoordinator tracks foreground state, diagnostic service pauses/resumes with lifecycle
+- **Anchor Alarm**: Control locking mechanism prevents accidental changes; alarm sound stops on notification tap/dismiss; proper check-in alert acknowledgment
+- **AIS Polar Chart**: Auto-highlight newly alerted CPA vessels; improved CPA/TCPA display logic
+- **Historical Line Chart**: 3-state series visibility (visible, hidden, muted) with improved legend item rendering
+- **Crew Notifications**: Per-subsystem crew broadcast toggles in settings; message deletion support
+- **Diagnostics**: Cache size metrics for MetadataStore, subscription registry, and vessel registry; app version tracking via package_info_plus
+- **iOS Configuration**: Updated AppDelegate for implicit engine support; scene manifest in Info.plist; AnchorAlarmService disposal checks
+
+### Fixed
+- **Anchor Alarm Notifications**: Tap handling now properly acknowledges alerts and silences alarms for non-check-in notifications
+- **Default Categories**: Refactored default categories handling in SignalK service for more reliable unit conversion fallbacks
+
 ## [0.5.42+39] - 2026-03-08
 
 ### Added
