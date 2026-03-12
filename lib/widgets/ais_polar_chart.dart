@@ -13,6 +13,7 @@ import '../services/find_home_target_service.dart';
 import '../services/dashboard_service.dart';
 import '../models/ais_favorite.dart';  // For manual add dialog
 import '../models/cpa_alert_state.dart';
+import 'package:webview_flutter/webview_flutter.dart';
 import '../utils/cpa_utils.dart';
 
 /// AIS Polar Chart that displays nearby vessels relative to own position
@@ -36,6 +37,7 @@ class AISPolarChart extends StatefulWidget {
   final CpaAlertService? cpaAlertService;
   final ValueChanged<Map<String, dynamic>>? onCpaConfigChanged;
   final double maxRangeNm; // Max display range in nautical miles (filters garbage AIS data)
+  final String vesselLookupService; // External lookup service key
 
   const AISPolarChart({
     super.key,
@@ -53,6 +55,7 @@ class AISPolarChart extends StatefulWidget {
     this.cpaAlertService,
     this.onCpaConfigChanged,
     this.maxRangeNm = 100.0,
+    this.vesselLookupService = 'vesselfinder',
   });
 
   @override
@@ -479,6 +482,27 @@ class _AISPolarChartState extends State<AISPolarChart>
                         ],
                       ),
                     ),
+                    // External vessel lookup
+                    if (widget.vesselLookupService != 'none') ...[
+                      Builder(builder: (_) {
+                        final url = _getVesselLookupUrl(displayMMSI, widget.vesselLookupService);
+                        if (url == null) return const SizedBox.shrink();
+                        return IconButton(
+                          icon: const Icon(Icons.travel_explore),
+                          tooltip: 'Look up on ${_getLookupServiceName(widget.vesselLookupService)}',
+                          onPressed: () {
+                          Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => _VesselLookupWebView(
+                                url: url,
+                                title: _getLookupServiceName(widget.vesselLookupService),
+                              ),
+                            ),
+                          );
+                        },
+                        );
+                      }),
+                    ],
                     // Navigate to Find Home with this vessel as target
                     Builder(builder: (_) {
                       final dashService = context.read<DashboardService>();
@@ -2730,6 +2754,32 @@ class _AISPolarChartState extends State<AISPolarChart>
     return vesselId; // Return as-is if not in URN format
   }
 
+  String? _getVesselLookupUrl(String mmsi, String service) {
+    switch (service) {
+      case 'vesselfinder':
+        return 'https://www.vesselfinder.com/vessels/details/$mmsi';
+      case 'marinetraffic':
+        return 'https://www.marinetraffic.com/en/ais/details/ships/mmsi:$mmsi';
+      case 'myshiptracking':
+        return 'https://www.myshiptracking.com/?mmsi=$mmsi';
+      default:
+        return null;
+    }
+  }
+
+  String _getLookupServiceName(String service) {
+    switch (service) {
+      case 'vesselfinder':
+        return 'VesselFinder';
+      case 'marinetraffic':
+        return 'MarineTraffic';
+      case 'myshiptracking':
+        return 'MyShipTracking';
+      default:
+        return service;
+    }
+  }
+
   /// Format time since last update
   String _formatTimeSince(DateTime timestamp) {
     final elapsed = DateTime.now().difference(timestamp);
@@ -2845,4 +2895,52 @@ class _CartesianPoint {
     this.aisClass,
     this.aisStatus,
   });
+}
+
+/// Simple full-screen WebView for vessel lookup
+class _VesselLookupWebView extends StatefulWidget {
+  final String url;
+  final String title;
+
+  const _VesselLookupWebView({required this.url, required this.title});
+
+  @override
+  State<_VesselLookupWebView> createState() => _VesselLookupWebViewState();
+}
+
+class _VesselLookupWebViewState extends State<_VesselLookupWebView> {
+  late final WebViewController _controller;
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = WebViewController()
+      ..setJavaScriptMode(JavaScriptMode.unrestricted)
+      ..setNavigationDelegate(NavigationDelegate(
+        onPageStarted: (_) => setState(() => _isLoading = true),
+        onPageFinished: (_) => setState(() => _isLoading = false),
+      ))
+      ..loadRequest(Uri.parse(widget.url));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(widget.title),
+        actions: [
+          if (_isLoading)
+            const Padding(
+              padding: EdgeInsets.only(right: 16),
+              child: SizedBox(
+                width: 20, height: 20,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+            ),
+        ],
+      ),
+      body: WebViewWidget(controller: _controller),
+    );
+  }
 }

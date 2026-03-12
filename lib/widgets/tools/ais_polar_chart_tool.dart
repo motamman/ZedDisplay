@@ -256,6 +256,7 @@ class _AISPolarChartToolState extends State<AISPolarChartTool> {
     final colorByShipType = widget.config.style.customProperties?['colorByShipType'] as bool? ?? true;
     final showProjectedPositions = widget.config.style.customProperties?['showProjectedPositions'] as bool? ?? true;
     final maxRangeNm = (widget.config.style.customProperties?['maxRangeNm'] as num?)?.toDouble() ?? 100.0;
+    final vesselLookupService = widget.config.style.customProperties?['vesselLookupService'] as String? ?? 'vesselfinder';
 
     // Get paths from data sources (with defaults)
     final positionPath = _getPath(0);
@@ -284,6 +285,7 @@ class _AISPolarChartToolState extends State<AISPolarChartTool> {
           colorByShipType: colorByShipType,
           showProjectedPositions: showProjectedPositions,
           maxRangeNm: maxRangeNm,
+          vesselLookupService: vesselLookupService,
           cpaAlertService: _cpaAlertService,
           onCpaConfigChanged: _onCpaConfigChanged,
         ),

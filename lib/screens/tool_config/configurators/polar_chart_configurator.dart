@@ -23,6 +23,7 @@ class PolarChartConfigurator extends ToolConfigurator {
   int pruneMinutes = 15; // For ais_polar_chart - minutes before vessel removed from display
   bool colorByShipType = true; // For ais_polar_chart - color vessels by AIS type
   bool showProjectedPositions = true; // For ais_polar_chart - show projected course lines
+  String vesselLookupService = 'vesselfinder'; // For ais_polar_chart - external lookup service
 
   @override
   void reset() {
@@ -32,6 +33,7 @@ class PolarChartConfigurator extends ToolConfigurator {
     pruneMinutes = 15;
     colorByShipType = true;
     showProjectedPositions = true;
+    vesselLookupService = 'vesselfinder';
   }
 
   @override
@@ -48,6 +50,7 @@ class PolarChartConfigurator extends ToolConfigurator {
       pruneMinutes = style.customProperties!['pruneMinutes'] as int? ?? 15;
       colorByShipType = style.customProperties!['colorByShipType'] as bool? ?? true;
       showProjectedPositions = style.customProperties!['showProjectedPositions'] as bool? ?? true;
+      vesselLookupService = style.customProperties!['vesselLookupService'] as String? ?? 'vesselfinder';
 
       // Convert milliseconds back to seconds for UI
       final updateIntervalMs = style.customProperties!['updateInterval'] as int? ?? 10000;
@@ -69,6 +72,7 @@ class PolarChartConfigurator extends ToolConfigurator {
       customProps['pruneMinutes'] = pruneMinutes;
       customProps['colorByShipType'] = colorByShipType;
       customProps['showProjectedPositions'] = showProjectedPositions;
+      customProps['vesselLookupService'] = vesselLookupService;
     }
 
     return ToolConfig(
@@ -200,6 +204,26 @@ class PolarChartConfigurator extends ToolConfigurator {
                     setState(() => showProjectedPositions = value);
                   },
                   contentPadding: EdgeInsets.zero,
+                ),
+                const SizedBox(height: 16),
+                DropdownButtonFormField<String>(
+                  decoration: const InputDecoration(
+                    labelText: 'Vessel Lookup Service',
+                    border: OutlineInputBorder(),
+                    helperText: 'External service for vessel details',
+                  ),
+                  initialValue: vesselLookupService,
+                  items: const [
+                    DropdownMenuItem(value: 'vesselfinder', child: Text('VesselFinder')),
+                    DropdownMenuItem(value: 'marinetraffic', child: Text('MarineTraffic')),
+                    DropdownMenuItem(value: 'myshiptracking', child: Text('MyShipTracking')),
+                    DropdownMenuItem(value: 'none', child: Text('None')),
+                  ],
+                  onChanged: (value) {
+                    if (value != null) {
+                      setState(() => vesselLookupService = value);
+                    }
+                  },
                 ),
                 const SizedBox(height: 16),
                 DropdownButtonFormField<int>(
