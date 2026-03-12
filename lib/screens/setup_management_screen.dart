@@ -67,23 +67,12 @@ class _SetupManagementScreenState extends State<SetupManagementScreen> {
             onPressed: _importSetup,
             tooltip: 'Import from File',
           ),
-          PopupMenuButton<String>(
-            icon: const Icon(Icons.more_vert),
-            onSelected: _onAdminMenuSelected,
-            itemBuilder: (context) => [
-              if (isConnected) ...[
-                const PopupMenuItem(
-                  value: 'sync_bundled',
-                  child: ListTile(
-                    leading: Icon(Icons.cloud_upload),
-                    title: Text('Sync Bundled to Server'),
-                    dense: true,
-                    contentPadding: EdgeInsets.zero,
-                  ),
-                ),
-              ],
-            ],
-          ),
+          if (isConnected)
+            IconButton(
+              icon: const Icon(Icons.cloud_upload),
+              onPressed: _syncBundledToServer,
+              tooltip: 'Sync Bundled to Server',
+            ),
         ],
       ),
       body: _isApplying
@@ -503,14 +492,6 @@ class _SetupManagementScreenState extends State<SetupManagementScreen> {
   }
 
   // --- Admin actions ---
-
-  Future<void> _onAdminMenuSelected(String value) async {
-    switch (value) {
-      case 'sync_bundled':
-        await _syncBundledToServer();
-        break;
-    }
-  }
 
   Future<void> _syncBundledToServer() async {
     final storeService =
