@@ -1,0 +1,1102 @@
+{
+  "version": "1.0.0",
+  "metadata": {
+    "name": "Sailing",
+    "description": "Active sailing and racing focus with wind instruments, polar charts, and autopilot",
+    "author": "User",
+    "createdAt": "2026-03-12T12:00:00.000000",
+    "updatedAt": null,
+    "thumbnailUrl": null,
+    "tags": []
+  },
+  "layout": {
+    "id": "layout_sailing",
+    "name": "Sailing",
+    "intendedUse": null,
+    "screens": [
+      {
+        "id": "screen_wind",
+        "name": "Wind",
+        "portraitPlacements": [
+          {
+            "toolId": "tool_1700000001000",
+            "screenId": "screen_wind",
+            "position": {
+              "row": 0,
+              "col": 0,
+              "width": 20,
+              "height": 20
+            }
+          }
+        ],
+        "landscapePlacements": [
+          {
+            "toolId": "tool_1700000001000",
+            "screenId": "screen_wind",
+            "position": {
+              "row": 0,
+              "col": 0,
+              "width": 20,
+              "height": 16
+            }
+          }
+        ],
+        "allowOverflow": false,
+        "placements": null,
+        "order": 0
+      },
+      {
+        "id": "screen_wind_auto",
+        "name": "Wind Auto",
+        "portraitPlacements": [
+          {
+            "toolId": "tool_1700000002000",
+            "screenId": "screen_wind_auto",
+            "position": {
+              "row": 0,
+              "col": 0,
+              "width": 20,
+              "height": 20
+            }
+          }
+        ],
+        "landscapePlacements": [
+          {
+            "toolId": "tool_1700000002000",
+            "screenId": "screen_wind_auto",
+            "position": {
+              "row": 0,
+              "col": 0,
+              "width": 20,
+              "height": 16
+            }
+          }
+        ],
+        "allowOverflow": false,
+        "placements": null,
+        "order": 1
+      },
+      {
+        "id": "screen_compass",
+        "name": "Compass",
+        "portraitPlacements": [
+          {
+            "toolId": "tool_1700000003000",
+            "screenId": "screen_compass",
+            "position": {
+              "row": 0,
+              "col": 0,
+              "width": 20,
+              "height": 16
+            }
+          }
+        ],
+        "landscapePlacements": [
+          {
+            "toolId": "tool_1700000003000",
+            "screenId": "screen_compass",
+            "position": {
+              "row": 0,
+              "col": 0,
+              "width": 20,
+              "height": 14
+            }
+          }
+        ],
+        "allowOverflow": false,
+        "placements": null,
+        "order": 2
+      },
+      {
+        "id": "screen_polar_wind",
+        "name": "Polar Wind",
+        "portraitPlacements": [
+          {
+            "toolId": "tool_1700000004000",
+            "screenId": "screen_polar_wind",
+            "position": {
+              "row": 0,
+              "col": 0,
+              "width": 20,
+              "height": 20
+            }
+          }
+        ],
+        "landscapePlacements": [
+          {
+            "toolId": "tool_1700000004000",
+            "screenId": "screen_polar_wind",
+            "position": {
+              "row": 0,
+              "col": 0,
+              "width": 20,
+              "height": 16
+            }
+          }
+        ],
+        "allowOverflow": false,
+        "placements": null,
+        "order": 3
+      },
+      {
+        "id": "screen_instruments",
+        "name": "Instruments",
+        "portraitPlacements": [
+          {
+            "toolId": "tool_1700000005000",
+            "screenId": "screen_instruments",
+            "position": {
+              "row": 0,
+              "col": 0,
+              "width": 20,
+              "height": 10
+            }
+          },
+          {
+            "toolId": "tool_1700000006000",
+            "screenId": "screen_instruments",
+            "position": {
+              "row": 10,
+              "col": 0,
+              "width": 20,
+              "height": 10
+            }
+          }
+        ],
+        "landscapePlacements": [
+          {
+            "toolId": "tool_1700000005000",
+            "screenId": "screen_instruments",
+            "position": {
+              "row": 0,
+              "col": 0,
+              "width": 10,
+              "height": 14
+            }
+          },
+          {
+            "toolId": "tool_1700000006000",
+            "screenId": "screen_instruments",
+            "position": {
+              "row": 0,
+              "col": 10,
+              "width": 10,
+              "height": 14
+            }
+          }
+        ],
+        "allowOverflow": false,
+        "placements": null,
+        "order": 4
+      },
+      {
+        "id": "screen_trend",
+        "name": "Trend",
+        "portraitPlacements": [
+          {
+            "toolId": "tool_1700000007000",
+            "screenId": "screen_trend",
+            "position": {
+              "row": 0,
+              "col": 0,
+              "width": 20,
+              "height": 16
+            }
+          }
+        ],
+        "landscapePlacements": [
+          {
+            "toolId": "tool_1700000007000",
+            "screenId": "screen_trend",
+            "position": {
+              "row": 0,
+              "col": 0,
+              "width": 20,
+              "height": 14
+            }
+          }
+        ],
+        "allowOverflow": false,
+        "placements": null,
+        "order": 5
+      },
+      {
+        "id": "screen_autopilot",
+        "name": "Autopilot",
+        "portraitPlacements": [
+          {
+            "toolId": "tool_1700000008000",
+            "screenId": "screen_autopilot",
+            "position": {
+              "row": 0,
+              "col": 0,
+              "width": 20,
+              "height": 13
+            }
+          }
+        ],
+        "landscapePlacements": [
+          {
+            "toolId": "tool_1700000008000",
+            "screenId": "screen_autopilot",
+            "position": {
+              "row": 0,
+              "col": 0,
+              "width": 20,
+              "height": 13
+            }
+          }
+        ],
+        "allowOverflow": false,
+        "placements": null,
+        "order": 6
+      },
+      {
+        "id": "screen_position",
+        "name": "Position",
+        "portraitPlacements": [
+          {
+            "toolId": "tool_1700000009000",
+            "screenId": "screen_position",
+            "position": {
+              "row": 0,
+              "col": 0,
+              "width": 20,
+              "height": 6
+            }
+          },
+          {
+            "toolId": "tool_1700000010000",
+            "screenId": "screen_position",
+            "position": {
+              "row": 6,
+              "col": 0,
+              "width": 20,
+              "height": 14
+            }
+          }
+        ],
+        "landscapePlacements": [
+          {
+            "toolId": "tool_1700000009000",
+            "screenId": "screen_position",
+            "position": {
+              "row": 0,
+              "col": 0,
+              "width": 8,
+              "height": 14
+            }
+          },
+          {
+            "toolId": "tool_1700000010000",
+            "screenId": "screen_position",
+            "position": {
+              "row": 0,
+              "col": 8,
+              "width": 12,
+              "height": 14
+            }
+          }
+        ],
+        "allowOverflow": false,
+        "placements": null,
+        "order": 7
+      }
+    ],
+    "activeScreenIndex": 0
+  },
+  "tools": [
+    {
+      "id": "tool_1700000001000",
+      "name": "Wind Steer",
+      "description": "Custom tool for steering.autopilot.target.headingMagnetic, navigation.headingMagnetic, environment.wind.angleApparent, environment.wind.speedApparent",
+      "author": "Local User",
+      "version": "1.0.0",
+      "createdAt": "2026-03-12T12:00:00.000000",
+      "updatedAt": null,
+      "toolTypeId": "windsteer",
+      "config": {
+        "vesselId": null,
+        "dataSources": [
+          {
+            "path": "steering.autopilot.target.headingMagnetic",
+            "source": null,
+            "label": "Target Heading",
+            "color": null,
+            "baseUnit": null
+          },
+          {
+            "path": "navigation.headingMagnetic",
+            "source": null,
+            "label": "Current Heading",
+            "color": null,
+            "baseUnit": null
+          },
+          {
+            "path": "environment.wind.angleApparent",
+            "source": null,
+            "label": "Apparent Wind Angle",
+            "color": null,
+            "baseUnit": null
+          },
+          {
+            "path": "environment.wind.speedApparent",
+            "source": null,
+            "label": "Apparent Wind Speed",
+            "color": null,
+            "baseUnit": null
+          }
+        ],
+        "style": {
+          "minValue": null,
+          "maxValue": null,
+          "unit": null,
+          "primaryColor": null,
+          "secondaryColor": null,
+          "showLabel": true,
+          "showValue": true,
+          "showUnit": true,
+          "ttlSeconds": null,
+          "laylineAngle": null,
+          "targetTolerance": null,
+          "showLaylines": null,
+          "showTrueWind": null,
+          "showCOG": null,
+          "showAWS": null,
+          "showTWS": null,
+          "customProperties": {
+            "_toolId": "tool_1700000001000"
+          }
+        }
+      },
+      "defaultWidth": 8,
+      "defaultHeight": 8,
+      "category": "other",
+      "tags": [
+        "windsteer"
+      ],
+      "thumbnailUrl": null,
+      "iconUrl": null,
+      "requiredPaths": [
+        "steering.autopilot.target.headingMagnetic",
+        "navigation.headingMagnetic",
+        "environment.wind.angleApparent",
+        "environment.wind.speedApparent"
+      ],
+      "minAppVersion": null,
+      "usageCount": 0,
+      "rating": 0.0,
+      "ratingCount": 0,
+      "sourceUrl": null,
+      "isLocal": true
+    },
+    {
+      "id": "tool_1700000002000",
+      "name": "Wind Steer Demo",
+      "description": "Custom tool for environment.wind.angleApparent, environment.wind.speedApparent",
+      "author": "Local User",
+      "version": "1.0.0",
+      "createdAt": "2026-03-12T12:00:00.000000",
+      "updatedAt": null,
+      "toolTypeId": "windsteer_demo",
+      "config": {
+        "vesselId": null,
+        "dataSources": [
+          {
+            "path": "environment.wind.angleApparent",
+            "source": null,
+            "label": "Apparent Wind Angle",
+            "color": null,
+            "baseUnit": null
+          },
+          {
+            "path": "environment.wind.speedApparent",
+            "source": null,
+            "label": "Apparent Wind Speed",
+            "color": null,
+            "baseUnit": null
+          }
+        ],
+        "style": {
+          "minValue": null,
+          "maxValue": null,
+          "unit": null,
+          "primaryColor": null,
+          "secondaryColor": null,
+          "showLabel": true,
+          "showValue": true,
+          "showUnit": true,
+          "ttlSeconds": null,
+          "laylineAngle": null,
+          "targetTolerance": null,
+          "showLaylines": null,
+          "showTrueWind": null,
+          "showCOG": null,
+          "showAWS": null,
+          "showTWS": null,
+          "customProperties": {
+            "_toolId": "tool_1700000002000"
+          }
+        }
+      },
+      "defaultWidth": 8,
+      "defaultHeight": 8,
+      "category": "other",
+      "tags": [
+        "windsteer_demo"
+      ],
+      "thumbnailUrl": null,
+      "iconUrl": null,
+      "requiredPaths": [
+        "environment.wind.angleApparent",
+        "environment.wind.speedApparent"
+      ],
+      "minAppVersion": null,
+      "usageCount": 0,
+      "rating": 0.0,
+      "ratingCount": 0,
+      "sourceUrl": null,
+      "isLocal": true
+    },
+    {
+      "id": "tool_1700000003000",
+      "name": "Wind Compass",
+      "description": "Custom tool for navigation.headingTrue, navigation.headingMagnetic, environment.wind.directionTrue, environment.wind.angleApparent, environment.wind.speedTrue, environment.wind.speedApparent, navigation.speedOverGround, navigation.courseOverGroundTrue",
+      "author": "Local User",
+      "version": "1.0.0",
+      "createdAt": "2026-03-12T12:00:00.000000",
+      "updatedAt": null,
+      "toolTypeId": "wind_compass",
+      "config": {
+        "vesselId": null,
+        "dataSources": [
+          {
+            "path": "navigation.headingTrue",
+            "source": null,
+            "label": "Heading True",
+            "color": null,
+            "baseUnit": null
+          },
+          {
+            "path": "navigation.headingMagnetic",
+            "source": null,
+            "label": "Heading Magnetic",
+            "color": null,
+            "baseUnit": null
+          },
+          {
+            "path": "environment.wind.directionTrue",
+            "source": null,
+            "label": "Wind Direction True",
+            "color": null,
+            "baseUnit": null
+          },
+          {
+            "path": "environment.wind.angleApparent",
+            "source": null,
+            "label": "Wind Angle Apparent",
+            "color": null,
+            "baseUnit": null
+          },
+          {
+            "path": "environment.wind.speedTrue",
+            "source": null,
+            "label": "Wind Speed True",
+            "color": null,
+            "baseUnit": null
+          },
+          {
+            "path": "environment.wind.speedApparent",
+            "source": null,
+            "label": "Wind Speed Apparent",
+            "color": null,
+            "baseUnit": null
+          },
+          {
+            "path": "navigation.speedOverGround",
+            "source": null,
+            "label": "Speed Over Ground",
+            "color": null,
+            "baseUnit": null
+          },
+          {
+            "path": "navigation.courseOverGroundTrue",
+            "source": null,
+            "label": "Course Over Ground",
+            "color": null,
+            "baseUnit": null
+          }
+        ],
+        "style": {
+          "minValue": null,
+          "maxValue": null,
+          "unit": null,
+          "primaryColor": null,
+          "secondaryColor": null,
+          "showLabel": true,
+          "showValue": true,
+          "showUnit": true,
+          "ttlSeconds": null,
+          "laylineAngle": null,
+          "targetTolerance": null,
+          "showLaylines": null,
+          "showTrueWind": null,
+          "showCOG": null,
+          "showAWS": null,
+          "showTWS": null,
+          "customProperties": {
+            "_toolId": "tool_1700000003000"
+          }
+        }
+      },
+      "defaultWidth": 8,
+      "defaultHeight": 8,
+      "category": "other",
+      "tags": [
+        "wind_compass"
+      ],
+      "thumbnailUrl": null,
+      "iconUrl": null,
+      "requiredPaths": [
+        "navigation.headingTrue",
+        "navigation.headingMagnetic",
+        "environment.wind.directionTrue",
+        "environment.wind.angleApparent",
+        "environment.wind.speedTrue",
+        "environment.wind.speedApparent",
+        "navigation.speedOverGround",
+        "navigation.courseOverGroundTrue"
+      ],
+      "minAppVersion": null,
+      "usageCount": 0,
+      "rating": 0.0,
+      "ratingCount": 0,
+      "sourceUrl": null,
+      "isLocal": true
+    },
+    {
+      "id": "tool_1700000004000",
+      "name": "Polar Radar Chart",
+      "description": "Custom tool for environment.wind.speedTrue, environment.wind.directionTrue, navigation.speedOverGround",
+      "author": "Local User",
+      "version": "1.0.0",
+      "createdAt": "2026-03-12T12:00:00.000000",
+      "updatedAt": null,
+      "toolTypeId": "polar_radar_chart",
+      "config": {
+        "vesselId": null,
+        "dataSources": [
+          {
+            "path": "environment.wind.speedTrue",
+            "source": null,
+            "label": "True Wind Speed",
+            "color": null,
+            "baseUnit": null
+          },
+          {
+            "path": "environment.wind.directionTrue",
+            "source": null,
+            "label": "True Wind Direction",
+            "color": null,
+            "baseUnit": null
+          },
+          {
+            "path": "navigation.speedOverGround",
+            "source": null,
+            "label": "Speed Over Ground",
+            "color": null,
+            "baseUnit": null
+          }
+        ],
+        "style": {
+          "minValue": null,
+          "maxValue": null,
+          "unit": null,
+          "primaryColor": null,
+          "secondaryColor": null,
+          "showLabel": true,
+          "showValue": true,
+          "showUnit": true,
+          "ttlSeconds": null,
+          "laylineAngle": null,
+          "targetTolerance": null,
+          "showLaylines": null,
+          "showTrueWind": null,
+          "showCOG": null,
+          "showAWS": null,
+          "showTWS": null,
+          "customProperties": {
+            "_toolId": "tool_1700000004000"
+          }
+        }
+      },
+      "defaultWidth": 8,
+      "defaultHeight": 8,
+      "category": "other",
+      "tags": [
+        "polar_radar_chart"
+      ],
+      "thumbnailUrl": null,
+      "iconUrl": null,
+      "requiredPaths": [
+        "environment.wind.speedTrue",
+        "environment.wind.directionTrue",
+        "navigation.speedOverGround"
+      ],
+      "minAppVersion": null,
+      "usageCount": 0,
+      "rating": 0.0,
+      "ratingCount": 0,
+      "sourceUrl": null,
+      "isLocal": true
+    },
+    {
+      "id": "tool_1700000005000",
+      "name": "SOG Gauge",
+      "description": "Custom tool for navigation.speedOverGround",
+      "author": "Local User",
+      "version": "1.0.0",
+      "createdAt": "2026-03-12T12:00:00.000000",
+      "updatedAt": null,
+      "toolTypeId": "radial_gauge",
+      "config": {
+        "vesselId": null,
+        "dataSources": [
+          {
+            "path": "navigation.speedOverGround",
+            "source": null,
+            "label": "SOG",
+            "color": null,
+            "baseUnit": null
+          }
+        ],
+        "style": {
+          "minValue": null,
+          "maxValue": null,
+          "unit": null,
+          "primaryColor": null,
+          "secondaryColor": null,
+          "showLabel": true,
+          "showValue": true,
+          "showUnit": true,
+          "ttlSeconds": null,
+          "laylineAngle": null,
+          "targetTolerance": null,
+          "showLaylines": null,
+          "showTrueWind": null,
+          "showCOG": null,
+          "showAWS": null,
+          "showTWS": null,
+          "customProperties": {
+            "divisions": 10,
+            "showTickLabels": true,
+            "gaugeStyle": "arc",
+            "_toolId": "tool_1700000005000"
+          }
+        }
+      },
+      "defaultWidth": 8,
+      "defaultHeight": 8,
+      "category": "other",
+      "tags": [
+        "radial_gauge"
+      ],
+      "thumbnailUrl": null,
+      "iconUrl": null,
+      "requiredPaths": [
+        "navigation.speedOverGround"
+      ],
+      "minAppVersion": null,
+      "usageCount": 0,
+      "rating": 0.0,
+      "ratingCount": 0,
+      "sourceUrl": null,
+      "isLocal": true
+    },
+    {
+      "id": "tool_1700000006000",
+      "name": "Depth Gauge",
+      "description": "Custom tool for environment.depth.belowSurface",
+      "author": "Local User",
+      "version": "1.0.0",
+      "createdAt": "2026-03-12T12:00:00.000000",
+      "updatedAt": null,
+      "toolTypeId": "linear_gauge",
+      "config": {
+        "vesselId": null,
+        "dataSources": [
+          {
+            "path": "environment.depth.belowSurface",
+            "source": null,
+            "label": "Depth",
+            "color": null,
+            "baseUnit": null
+          }
+        ],
+        "style": {
+          "minValue": null,
+          "maxValue": null,
+          "unit": null,
+          "primaryColor": null,
+          "secondaryColor": null,
+          "showLabel": true,
+          "showValue": true,
+          "showUnit": true,
+          "ttlSeconds": null,
+          "laylineAngle": null,
+          "targetTolerance": null,
+          "showLaylines": null,
+          "showTrueWind": null,
+          "showCOG": null,
+          "showAWS": null,
+          "showTWS": null,
+          "customProperties": {
+            "divisions": 10,
+            "orientation": "vertical",
+            "showTickLabels": true,
+            "_toolId": "tool_1700000006000"
+          }
+        }
+      },
+      "defaultWidth": 8,
+      "defaultHeight": 8,
+      "category": "other",
+      "tags": [
+        "linear_gauge"
+      ],
+      "thumbnailUrl": null,
+      "iconUrl": null,
+      "requiredPaths": [
+        "environment.depth.belowSurface"
+      ],
+      "minAppVersion": null,
+      "usageCount": 0,
+      "rating": 0.0,
+      "ratingCount": 0,
+      "sourceUrl": null,
+      "isLocal": true
+    },
+    {
+      "id": "tool_1700000007000",
+      "name": "Speed Trend",
+      "description": "Custom tool for navigation.speedOverGround, environment.wind.speedTrue",
+      "author": "Local User",
+      "version": "1.0.0",
+      "createdAt": "2026-03-12T12:00:00.000000",
+      "updatedAt": null,
+      "toolTypeId": "realtime_chart",
+      "config": {
+        "vesselId": null,
+        "dataSources": [
+          {
+            "path": "navigation.speedOverGround",
+            "source": null,
+            "label": "SOG",
+            "color": null,
+            "baseUnit": null
+          },
+          {
+            "path": "environment.wind.speedTrue",
+            "source": null,
+            "label": "True Wind Speed",
+            "color": null,
+            "baseUnit": null
+          }
+        ],
+        "style": {
+          "minValue": null,
+          "maxValue": null,
+          "unit": null,
+          "primaryColor": null,
+          "secondaryColor": null,
+          "showLabel": true,
+          "showValue": true,
+          "showUnit": true,
+          "ttlSeconds": null,
+          "laylineAngle": null,
+          "targetTolerance": null,
+          "showLaylines": null,
+          "showTrueWind": null,
+          "showCOG": null,
+          "showAWS": null,
+          "showTWS": null,
+          "customProperties": {
+            "showLegend": true,
+            "showGrid": true,
+            "_toolId": "tool_1700000007000"
+          }
+        }
+      },
+      "defaultWidth": 8,
+      "defaultHeight": 8,
+      "category": "other",
+      "tags": [
+        "realtime_chart"
+      ],
+      "thumbnailUrl": null,
+      "iconUrl": null,
+      "requiredPaths": [
+        "navigation.speedOverGround",
+        "environment.wind.speedTrue"
+      ],
+      "minAppVersion": null,
+      "usageCount": 0,
+      "rating": 0.0,
+      "ratingCount": 0,
+      "sourceUrl": null,
+      "isLocal": true
+    },
+    {
+      "id": "tool_1700000008000",
+      "name": "Autopilot",
+      "description": "Custom tool for steering.autopilot.state, steering.autopilot.mode, steering.autopilot.engaged, steering.autopilot.target.headingMagnetic, navigation.headingMagnetic, steering.rudderAngle, environment.wind.angleApparent, navigation.course.calcValues.crossTrackError",
+      "author": "Local User",
+      "version": "1.0.0",
+      "createdAt": "2026-03-12T12:00:00.000000",
+      "updatedAt": null,
+      "toolTypeId": "autopilot_v2",
+      "config": {
+        "vesselId": null,
+        "dataSources": [
+          {
+            "path": "steering.autopilot.state",
+            "source": null,
+            "label": "Autopilot State",
+            "color": null,
+            "baseUnit": null
+          },
+          {
+            "path": "steering.autopilot.mode",
+            "source": null,
+            "label": "Autopilot Mode",
+            "color": null,
+            "baseUnit": null
+          },
+          {
+            "path": "steering.autopilot.engaged",
+            "source": null,
+            "label": "Autopilot Engaged",
+            "color": null,
+            "baseUnit": null
+          },
+          {
+            "path": "steering.autopilot.target.headingMagnetic",
+            "source": null,
+            "label": "Target Heading",
+            "color": null,
+            "baseUnit": null
+          },
+          {
+            "path": "navigation.headingMagnetic",
+            "source": null,
+            "label": "Current Heading",
+            "color": null,
+            "baseUnit": null
+          },
+          {
+            "path": "steering.rudderAngle",
+            "source": null,
+            "label": "Rudder Angle",
+            "color": null,
+            "baseUnit": null
+          },
+          {
+            "path": "environment.wind.angleApparent",
+            "source": null,
+            "label": "Apparent Wind Angle",
+            "color": null,
+            "baseUnit": null
+          },
+          {
+            "path": "navigation.course.calcValues.crossTrackError",
+            "source": null,
+            "label": "Cross Track Error",
+            "color": null,
+            "baseUnit": null
+          }
+        ],
+        "style": {
+          "minValue": null,
+          "maxValue": null,
+          "unit": null,
+          "primaryColor": null,
+          "secondaryColor": null,
+          "showLabel": true,
+          "showValue": true,
+          "showUnit": true,
+          "ttlSeconds": null,
+          "laylineAngle": null,
+          "targetTolerance": null,
+          "showLaylines": null,
+          "showTrueWind": null,
+          "showCOG": null,
+          "showAWS": null,
+          "showTWS": null,
+          "customProperties": {
+            "_toolId": "tool_1700000008000"
+          }
+        }
+      },
+      "defaultWidth": 8,
+      "defaultHeight": 8,
+      "category": "other",
+      "tags": [
+        "autopilot_v2"
+      ],
+      "thumbnailUrl": null,
+      "iconUrl": null,
+      "requiredPaths": [
+        "steering.autopilot.state",
+        "steering.autopilot.mode",
+        "steering.autopilot.engaged",
+        "steering.autopilot.target.headingMagnetic",
+        "navigation.headingMagnetic",
+        "steering.rudderAngle",
+        "environment.wind.angleApparent",
+        "navigation.course.calcValues.crossTrackError"
+      ],
+      "minAppVersion": null,
+      "usageCount": 0,
+      "rating": 0.0,
+      "ratingCount": 0,
+      "sourceUrl": null,
+      "isLocal": true
+    },
+    {
+      "id": "tool_1700000009000",
+      "name": "Position Display",
+      "description": "Custom tool for navigation.position, navigation.speedOverGround, navigation.courseOverGroundTrue",
+      "author": "Local User",
+      "version": "1.0.0",
+      "createdAt": "2026-03-12T12:00:00.000000",
+      "updatedAt": null,
+      "toolTypeId": "position_display",
+      "config": {
+        "vesselId": null,
+        "dataSources": [
+          {
+            "path": "navigation.position",
+            "source": null,
+            "label": "Position",
+            "color": null,
+            "baseUnit": null
+          },
+          {
+            "path": "navigation.speedOverGround",
+            "source": null,
+            "label": "SOG",
+            "color": null,
+            "baseUnit": null
+          },
+          {
+            "path": "navigation.courseOverGroundTrue",
+            "source": null,
+            "label": "COG",
+            "color": null,
+            "baseUnit": null
+          }
+        ],
+        "style": {
+          "minValue": null,
+          "maxValue": null,
+          "unit": null,
+          "primaryColor": null,
+          "secondaryColor": null,
+          "showLabel": true,
+          "showValue": true,
+          "showUnit": true,
+          "ttlSeconds": null,
+          "laylineAngle": null,
+          "targetTolerance": null,
+          "showLaylines": null,
+          "showTrueWind": null,
+          "showCOG": null,
+          "showAWS": null,
+          "showTWS": null,
+          "customProperties": {
+            "_toolId": "tool_1700000009000"
+          }
+        }
+      },
+      "defaultWidth": 8,
+      "defaultHeight": 8,
+      "category": "other",
+      "tags": [
+        "position_display"
+      ],
+      "thumbnailUrl": null,
+      "iconUrl": null,
+      "requiredPaths": [
+        "navigation.position",
+        "navigation.speedOverGround",
+        "navigation.courseOverGroundTrue"
+      ],
+      "minAppVersion": null,
+      "usageCount": 0,
+      "rating": 0.0,
+      "ratingCount": 0,
+      "sourceUrl": null,
+      "isLocal": true
+    },
+    {
+      "id": "tool_1700000010000",
+      "name": "Attitude Indicator",
+      "description": "Custom tool for navigation.attitude",
+      "author": "Local User",
+      "version": "1.0.0",
+      "createdAt": "2026-03-12T12:00:00.000000",
+      "updatedAt": null,
+      "toolTypeId": "attitude_indicator",
+      "config": {
+        "vesselId": null,
+        "dataSources": [
+          {
+            "path": "navigation.attitude",
+            "source": null,
+            "label": "Attitude",
+            "color": null,
+            "baseUnit": null
+          }
+        ],
+        "style": {
+          "minValue": null,
+          "maxValue": null,
+          "unit": null,
+          "primaryColor": null,
+          "secondaryColor": null,
+          "showLabel": true,
+          "showValue": true,
+          "showUnit": true,
+          "ttlSeconds": null,
+          "laylineAngle": null,
+          "targetTolerance": null,
+          "showLaylines": null,
+          "showTrueWind": null,
+          "showCOG": null,
+          "showAWS": null,
+          "showTWS": null,
+          "customProperties": {
+            "_toolId": "tool_1700000010000"
+          }
+        }
+      },
+      "defaultWidth": 8,
+      "defaultHeight": 8,
+      "category": "other",
+      "tags": [
+        "attitude_indicator"
+      ],
+      "thumbnailUrl": null,
+      "iconUrl": null,
+      "requiredPaths": [
+        "navigation.attitude"
+      ],
+      "minAppVersion": null,
+      "usageCount": 0,
+      "rating": 0.0,
+      "ratingCount": 0,
+      "sourceUrl": null,
+      "isLocal": true
+    }
+  ]
+}

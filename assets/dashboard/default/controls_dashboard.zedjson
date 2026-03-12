@@ -1,0 +1,947 @@
+{
+  "version": "1.0.0",
+  "metadata": {
+    "name": "Controls",
+    "description": "Interactive controls, gauges, and instrument displays"
+  },
+  "layout": {
+    "id": "layout_controls",
+    "name": "Controls",
+    "intendedUse": null,
+    "screens": [
+      {
+        "id": "screen_1700000041000",
+        "name": "Knob",
+        "portraitPlacements": [
+          {
+            "toolId": "tool_1700000041000",
+            "screenId": "screen_1700000041000",
+            "position": {
+              "row": 0,
+              "col": 0,
+              "width": 20,
+              "height": 16
+            }
+          }
+        ],
+        "landscapePlacements": [
+          {
+            "toolId": "tool_1700000041000",
+            "screenId": "screen_1700000041000",
+            "position": {
+              "row": 0,
+              "col": 3,
+              "width": 14,
+              "height": 14
+            }
+          }
+        ],
+        "allowOverflow": false,
+        "placements": null,
+        "order": 0
+      },
+      {
+        "id": "screen_1700000042000",
+        "name": "Slider",
+        "portraitPlacements": [
+          {
+            "toolId": "tool_1700000042000",
+            "screenId": "screen_1700000042000",
+            "position": {
+              "row": 0,
+              "col": 0,
+              "width": 20,
+              "height": 13
+            }
+          }
+        ],
+        "landscapePlacements": [
+          {
+            "toolId": "tool_1700000042000",
+            "screenId": "screen_1700000042000",
+            "position": {
+              "row": 0,
+              "col": 0,
+              "width": 20,
+              "height": 10
+            }
+          }
+        ],
+        "allowOverflow": false,
+        "placements": null,
+        "order": 1
+      },
+      {
+        "id": "screen_1700000043000",
+        "name": "Toggles",
+        "portraitPlacements": [
+          {
+            "toolId": "tool_1700000043000",
+            "screenId": "screen_1700000043000",
+            "position": {
+              "row": 0,
+              "col": 0,
+              "width": 20,
+              "height": 10
+            }
+          },
+          {
+            "toolId": "tool_1700000044000",
+            "screenId": "screen_1700000043000",
+            "position": {
+              "row": 10,
+              "col": 0,
+              "width": 20,
+              "height": 10
+            }
+          }
+        ],
+        "landscapePlacements": [
+          {
+            "toolId": "tool_1700000043000",
+            "screenId": "screen_1700000043000",
+            "position": {
+              "row": 0,
+              "col": 0,
+              "width": 10,
+              "height": 14
+            }
+          },
+          {
+            "toolId": "tool_1700000044000",
+            "screenId": "screen_1700000043000",
+            "position": {
+              "row": 0,
+              "col": 10,
+              "width": 10,
+              "height": 14
+            }
+          }
+        ],
+        "allowOverflow": false,
+        "placements": null,
+        "order": 2
+      },
+      {
+        "id": "screen_1700000044000",
+        "name": "Dropdown",
+        "portraitPlacements": [
+          {
+            "toolId": "tool_1700000045000",
+            "screenId": "screen_1700000044000",
+            "position": {
+              "row": 0,
+              "col": 0,
+              "width": 20,
+              "height": 13
+            }
+          }
+        ],
+        "landscapePlacements": [
+          {
+            "toolId": "tool_1700000045000",
+            "screenId": "screen_1700000044000",
+            "position": {
+              "row": 0,
+              "col": 0,
+              "width": 20,
+              "height": 10
+            }
+          }
+        ],
+        "allowOverflow": false,
+        "placements": null,
+        "order": 3
+      },
+      {
+        "id": "screen_1700000045000",
+        "name": "Gauges",
+        "portraitPlacements": [
+          {
+            "toolId": "tool_1700000046000",
+            "screenId": "screen_1700000045000",
+            "position": {
+              "row": 0,
+              "col": 0,
+              "width": 20,
+              "height": 10
+            }
+          },
+          {
+            "toolId": "tool_1700000047000",
+            "screenId": "screen_1700000045000",
+            "position": {
+              "row": 10,
+              "col": 0,
+              "width": 20,
+              "height": 10
+            }
+          }
+        ],
+        "landscapePlacements": [
+          {
+            "toolId": "tool_1700000046000",
+            "screenId": "screen_1700000045000",
+            "position": {
+              "row": 0,
+              "col": 0,
+              "width": 10,
+              "height": 14
+            }
+          },
+          {
+            "toolId": "tool_1700000047000",
+            "screenId": "screen_1700000045000",
+            "position": {
+              "row": 0,
+              "col": 10,
+              "width": 10,
+              "height": 14
+            }
+          }
+        ],
+        "allowOverflow": false,
+        "placements": null,
+        "order": 4
+      },
+      {
+        "id": "screen_1700000046000",
+        "name": "Clock",
+        "portraitPlacements": [
+          {
+            "toolId": "tool_1700000048000",
+            "screenId": "screen_1700000046000",
+            "position": {
+              "row": 0,
+              "col": 0,
+              "width": 20,
+              "height": 12
+            }
+          },
+          {
+            "toolId": "tool_1700000049000",
+            "screenId": "screen_1700000046000",
+            "position": {
+              "row": 12,
+              "col": 0,
+              "width": 20,
+              "height": 8
+            }
+          }
+        ],
+        "landscapePlacements": [
+          {
+            "toolId": "tool_1700000048000",
+            "screenId": "screen_1700000046000",
+            "position": {
+              "row": 0,
+              "col": 0,
+              "width": 8,
+              "height": 14
+            }
+          },
+          {
+            "toolId": "tool_1700000049000",
+            "screenId": "screen_1700000046000",
+            "position": {
+              "row": 0,
+              "col": 8,
+              "width": 12,
+              "height": 14
+            }
+          }
+        ],
+        "allowOverflow": false,
+        "placements": null,
+        "order": 5
+      },
+      {
+        "id": "screen_1700000047000",
+        "name": "Text",
+        "portraitPlacements": [
+          {
+            "toolId": "tool_1700000050000",
+            "screenId": "screen_1700000047000",
+            "position": {
+              "row": 0,
+              "col": 0,
+              "width": 20,
+              "height": 10
+            }
+          },
+          {
+            "toolId": "tool_1700000051000",
+            "screenId": "screen_1700000047000",
+            "position": {
+              "row": 10,
+              "col": 0,
+              "width": 20,
+              "height": 10
+            }
+          }
+        ],
+        "landscapePlacements": [
+          {
+            "toolId": "tool_1700000050000",
+            "screenId": "screen_1700000047000",
+            "position": {
+              "row": 0,
+              "col": 0,
+              "width": 10,
+              "height": 14
+            }
+          },
+          {
+            "toolId": "tool_1700000051000",
+            "screenId": "screen_1700000047000",
+            "position": {
+              "row": 0,
+              "col": 10,
+              "width": 10,
+              "height": 14
+            }
+          }
+        ],
+        "allowOverflow": false,
+        "placements": null,
+        "order": 6
+      }
+    ],
+    "activeScreenIndex": 0
+  },
+  "tools": [
+    {
+      "id": "tool_1700000041000",
+      "name": "knob",
+      "description": "knob",
+      "author": "Local User",
+      "version": "1.0.0",
+      "createdAt": "2026-03-12T12:00:00.000000",
+      "updatedAt": null,
+      "toolTypeId": "knob",
+      "config": {
+        "vesselId": null,
+        "dataSources": [
+          {
+            "path": "steering.autopilot.target.headingMagnetic",
+            "source": null,
+            "label": "Target Heading",
+            "color": null,
+            "baseUnit": null
+          }
+        ],
+        "style": {
+          "minValue": null,
+          "maxValue": null,
+          "unit": null,
+          "primaryColor": null,
+          "secondaryColor": null,
+          "showLabel": true,
+          "showValue": true,
+          "showUnit": true,
+          "ttlSeconds": null,
+          "laylineAngle": null,
+          "targetTolerance": null,
+          "showLaylines": null,
+          "showTrueWind": null,
+          "showCOG": null,
+          "showAWS": null,
+          "showTWS": null,
+          "customProperties": {
+            "minValue": 0,
+            "maxValue": 360,
+            "divisions": 36,
+            "_toolId": "tool_1700000041000"
+          }
+        }
+      },
+      "defaultWidth": 8,
+      "defaultHeight": 8,
+      "category": "other",
+      "tags": ["knob"],
+      "thumbnailUrl": null,
+      "iconUrl": null,
+      "requiredPaths": ["steering.autopilot.target.headingMagnetic"],
+      "minAppVersion": null,
+      "usageCount": 0,
+      "rating": 0.0,
+      "ratingCount": 0,
+      "sourceUrl": null,
+      "isLocal": true
+    },
+    {
+      "id": "tool_1700000042000",
+      "name": "slider",
+      "description": "slider",
+      "author": "Local User",
+      "version": "1.0.0",
+      "createdAt": "2026-03-12T12:00:00.000000",
+      "updatedAt": null,
+      "toolTypeId": "slider",
+      "config": {
+        "vesselId": null,
+        "dataSources": [
+          {
+            "path": "electrical.switches.dimmer.state",
+            "source": null,
+            "label": "Dimmer",
+            "color": null,
+            "baseUnit": null
+          }
+        ],
+        "style": {
+          "minValue": null,
+          "maxValue": null,
+          "unit": null,
+          "primaryColor": null,
+          "secondaryColor": null,
+          "showLabel": true,
+          "showValue": true,
+          "showUnit": true,
+          "ttlSeconds": null,
+          "laylineAngle": null,
+          "targetTolerance": null,
+          "showLaylines": null,
+          "showTrueWind": null,
+          "showCOG": null,
+          "showAWS": null,
+          "showTWS": null,
+          "customProperties": {
+            "minValue": 0,
+            "maxValue": 100,
+            "_toolId": "tool_1700000042000"
+          }
+        }
+      },
+      "defaultWidth": 8,
+      "defaultHeight": 8,
+      "category": "other",
+      "tags": ["slider"],
+      "thumbnailUrl": null,
+      "iconUrl": null,
+      "requiredPaths": ["electrical.switches.dimmer.state"],
+      "minAppVersion": null,
+      "usageCount": 0,
+      "rating": 0.0,
+      "ratingCount": 0,
+      "sourceUrl": null,
+      "isLocal": true
+    },
+    {
+      "id": "tool_1700000043000",
+      "name": "switch",
+      "description": "switch",
+      "author": "Local User",
+      "version": "1.0.0",
+      "createdAt": "2026-03-12T12:00:00.000000",
+      "updatedAt": null,
+      "toolTypeId": "switch",
+      "config": {
+        "vesselId": null,
+        "dataSources": [
+          {
+            "path": "electrical.switches.anchorLight.state",
+            "source": null,
+            "label": "Anchor Light",
+            "color": null,
+            "baseUnit": null
+          },
+          {
+            "path": "electrical.switches.navLights.state",
+            "source": null,
+            "label": "Nav Lights",
+            "color": null,
+            "baseUnit": null
+          }
+        ],
+        "style": {
+          "minValue": null,
+          "maxValue": null,
+          "unit": null,
+          "primaryColor": null,
+          "secondaryColor": null,
+          "showLabel": true,
+          "showValue": true,
+          "showUnit": true,
+          "ttlSeconds": null,
+          "laylineAngle": null,
+          "targetTolerance": null,
+          "showLaylines": null,
+          "showTrueWind": null,
+          "showCOG": null,
+          "showAWS": null,
+          "showTWS": null,
+          "customProperties": {
+            "_toolId": "tool_1700000043000"
+          }
+        }
+      },
+      "defaultWidth": 8,
+      "defaultHeight": 8,
+      "category": "other",
+      "tags": ["switch"],
+      "thumbnailUrl": null,
+      "iconUrl": null,
+      "requiredPaths": ["electrical.switches.anchorLight.state", "electrical.switches.navLights.state"],
+      "minAppVersion": null,
+      "usageCount": 0,
+      "rating": 0.0,
+      "ratingCount": 0,
+      "sourceUrl": null,
+      "isLocal": true
+    },
+    {
+      "id": "tool_1700000044000",
+      "name": "checkbox",
+      "description": "checkbox",
+      "author": "Local User",
+      "version": "1.0.0",
+      "createdAt": "2026-03-12T12:00:00.000000",
+      "updatedAt": null,
+      "toolTypeId": "checkbox",
+      "config": {
+        "vesselId": null,
+        "dataSources": [
+          {
+            "path": "electrical.switches.bilgePump.state",
+            "source": null,
+            "label": "Bilge Pump",
+            "color": null,
+            "baseUnit": null
+          },
+          {
+            "path": "electrical.switches.freshWaterPump.state",
+            "source": null,
+            "label": "Water Pump",
+            "color": null,
+            "baseUnit": null
+          }
+        ],
+        "style": {
+          "minValue": null,
+          "maxValue": null,
+          "unit": null,
+          "primaryColor": null,
+          "secondaryColor": null,
+          "showLabel": true,
+          "showValue": true,
+          "showUnit": true,
+          "ttlSeconds": null,
+          "laylineAngle": null,
+          "targetTolerance": null,
+          "showLaylines": null,
+          "showTrueWind": null,
+          "showCOG": null,
+          "showAWS": null,
+          "showTWS": null,
+          "customProperties": {
+            "_toolId": "tool_1700000044000"
+          }
+        }
+      },
+      "defaultWidth": 8,
+      "defaultHeight": 8,
+      "category": "other",
+      "tags": ["checkbox"],
+      "thumbnailUrl": null,
+      "iconUrl": null,
+      "requiredPaths": ["electrical.switches.bilgePump.state", "electrical.switches.freshWaterPump.state"],
+      "minAppVersion": null,
+      "usageCount": 0,
+      "rating": 0.0,
+      "ratingCount": 0,
+      "sourceUrl": null,
+      "isLocal": true
+    },
+    {
+      "id": "tool_1700000045000",
+      "name": "dropdown",
+      "description": "dropdown",
+      "author": "Local User",
+      "version": "1.0.0",
+      "createdAt": "2026-03-12T12:00:00.000000",
+      "updatedAt": null,
+      "toolTypeId": "dropdown",
+      "config": {
+        "vesselId": null,
+        "dataSources": [
+          {
+            "path": "steering.autopilot.mode",
+            "source": null,
+            "label": "Autopilot Mode",
+            "color": null,
+            "baseUnit": null
+          }
+        ],
+        "style": {
+          "minValue": null,
+          "maxValue": null,
+          "unit": null,
+          "primaryColor": null,
+          "secondaryColor": null,
+          "showLabel": true,
+          "showValue": true,
+          "showUnit": true,
+          "ttlSeconds": null,
+          "laylineAngle": null,
+          "targetTolerance": null,
+          "showLaylines": null,
+          "showTrueWind": null,
+          "showCOG": null,
+          "showAWS": null,
+          "showTWS": null,
+          "customProperties": {
+            "_toolId": "tool_1700000045000"
+          }
+        }
+      },
+      "defaultWidth": 8,
+      "defaultHeight": 8,
+      "category": "other",
+      "tags": ["dropdown"],
+      "thumbnailUrl": null,
+      "iconUrl": null,
+      "requiredPaths": ["steering.autopilot.mode"],
+      "minAppVersion": null,
+      "usageCount": 0,
+      "rating": 0.0,
+      "ratingCount": 0,
+      "sourceUrl": null,
+      "isLocal": true
+    },
+    {
+      "id": "tool_1700000046000",
+      "name": "radial_gauge",
+      "description": "radial_gauge",
+      "author": "Local User",
+      "version": "1.0.0",
+      "createdAt": "2026-03-12T12:00:00.000000",
+      "updatedAt": null,
+      "toolTypeId": "radial_gauge",
+      "config": {
+        "vesselId": null,
+        "dataSources": [
+          {
+            "path": "environment.wind.speedApparent",
+            "source": null,
+            "label": "Wind Speed",
+            "color": null,
+            "baseUnit": null
+          }
+        ],
+        "style": {
+          "minValue": null,
+          "maxValue": null,
+          "unit": null,
+          "primaryColor": null,
+          "secondaryColor": null,
+          "showLabel": true,
+          "showValue": true,
+          "showUnit": true,
+          "ttlSeconds": null,
+          "laylineAngle": null,
+          "targetTolerance": null,
+          "showLaylines": null,
+          "showTrueWind": null,
+          "showCOG": null,
+          "showAWS": null,
+          "showTWS": null,
+          "customProperties": {
+            "divisions": 10,
+            "showTickLabels": true,
+            "gaugeStyle": "arc",
+            "_toolId": "tool_1700000046000"
+          }
+        }
+      },
+      "defaultWidth": 8,
+      "defaultHeight": 8,
+      "category": "other",
+      "tags": ["radial_gauge"],
+      "thumbnailUrl": null,
+      "iconUrl": null,
+      "requiredPaths": ["environment.wind.speedApparent"],
+      "minAppVersion": null,
+      "usageCount": 0,
+      "rating": 0.0,
+      "ratingCount": 0,
+      "sourceUrl": null,
+      "isLocal": true
+    },
+    {
+      "id": "tool_1700000047000",
+      "name": "linear_gauge",
+      "description": "linear_gauge",
+      "author": "Local User",
+      "version": "1.0.0",
+      "createdAt": "2026-03-12T12:00:00.000000",
+      "updatedAt": null,
+      "toolTypeId": "linear_gauge",
+      "config": {
+        "vesselId": null,
+        "dataSources": [
+          {
+            "path": "environment.depth.belowSurface",
+            "source": null,
+            "label": "Depth",
+            "color": null,
+            "baseUnit": null
+          }
+        ],
+        "style": {
+          "minValue": null,
+          "maxValue": null,
+          "unit": null,
+          "primaryColor": null,
+          "secondaryColor": null,
+          "showLabel": true,
+          "showValue": true,
+          "showUnit": true,
+          "ttlSeconds": null,
+          "laylineAngle": null,
+          "targetTolerance": null,
+          "showLaylines": null,
+          "showTrueWind": null,
+          "showCOG": null,
+          "showAWS": null,
+          "showTWS": null,
+          "customProperties": {
+            "divisions": 10,
+            "orientation": "vertical",
+            "showTickLabels": true,
+            "_toolId": "tool_1700000047000"
+          }
+        }
+      },
+      "defaultWidth": 8,
+      "defaultHeight": 8,
+      "category": "other",
+      "tags": ["linear_gauge"],
+      "thumbnailUrl": null,
+      "iconUrl": null,
+      "requiredPaths": ["environment.depth.belowSurface"],
+      "minAppVersion": null,
+      "usageCount": 0,
+      "rating": 0.0,
+      "ratingCount": 0,
+      "sourceUrl": null,
+      "isLocal": true
+    },
+    {
+      "id": "tool_1700000048000",
+      "name": "clock_alarm",
+      "description": "clock_alarm",
+      "author": "Local User",
+      "version": "1.0.0",
+      "createdAt": "2026-03-12T12:00:00.000000",
+      "updatedAt": null,
+      "toolTypeId": "clock_alarm",
+      "config": {
+        "vesselId": null,
+        "dataSources": [],
+        "style": {
+          "minValue": null,
+          "maxValue": null,
+          "unit": null,
+          "primaryColor": null,
+          "secondaryColor": null,
+          "showLabel": true,
+          "showValue": true,
+          "showUnit": true,
+          "ttlSeconds": null,
+          "laylineAngle": null,
+          "targetTolerance": null,
+          "showLaylines": null,
+          "showTrueWind": null,
+          "showCOG": null,
+          "showAWS": null,
+          "showTWS": null,
+          "customProperties": {
+            "_toolId": "tool_1700000048000"
+          }
+        }
+      },
+      "defaultWidth": 8,
+      "defaultHeight": 8,
+      "category": "other",
+      "tags": ["clock_alarm"],
+      "thumbnailUrl": null,
+      "iconUrl": null,
+      "requiredPaths": [],
+      "minAppVersion": null,
+      "usageCount": 0,
+      "rating": 0.0,
+      "ratingCount": 0,
+      "sourceUrl": null,
+      "isLocal": true
+    },
+    {
+      "id": "tool_1700000049000",
+      "name": "sun_moon_arc",
+      "description": "sun_moon_arc",
+      "author": "Local User",
+      "version": "1.0.0",
+      "createdAt": "2026-03-12T12:00:00.000000",
+      "updatedAt": null,
+      "toolTypeId": "sun_moon_arc",
+      "config": {
+        "vesselId": null,
+        "dataSources": [
+          {
+            "path": "navigation.position",
+            "source": null,
+            "label": "Position",
+            "color": null,
+            "baseUnit": null
+          }
+        ],
+        "style": {
+          "minValue": null,
+          "maxValue": null,
+          "unit": null,
+          "primaryColor": null,
+          "secondaryColor": null,
+          "showLabel": true,
+          "showValue": true,
+          "showUnit": true,
+          "ttlSeconds": null,
+          "laylineAngle": null,
+          "targetTolerance": null,
+          "showLaylines": null,
+          "showTrueWind": null,
+          "showCOG": null,
+          "showAWS": null,
+          "showTWS": null,
+          "customProperties": {
+            "_toolId": "tool_1700000049000"
+          }
+        }
+      },
+      "defaultWidth": 8,
+      "defaultHeight": 8,
+      "category": "other",
+      "tags": ["sun_moon_arc"],
+      "thumbnailUrl": null,
+      "iconUrl": null,
+      "requiredPaths": ["navigation.position"],
+      "minAppVersion": null,
+      "usageCount": 0,
+      "rating": 0.0,
+      "ratingCount": 0,
+      "sourceUrl": null,
+      "isLocal": true
+    },
+    {
+      "id": "tool_1700000050000",
+      "name": "text_display",
+      "description": "text_display",
+      "author": "Local User",
+      "version": "1.0.0",
+      "createdAt": "2026-03-12T12:00:00.000000",
+      "updatedAt": null,
+      "toolTypeId": "text_display",
+      "config": {
+        "vesselId": null,
+        "dataSources": [
+          {
+            "path": "navigation.speedOverGround",
+            "source": null,
+            "label": "SOG",
+            "color": null,
+            "baseUnit": null
+          }
+        ],
+        "style": {
+          "minValue": null,
+          "maxValue": null,
+          "unit": null,
+          "primaryColor": null,
+          "secondaryColor": null,
+          "showLabel": true,
+          "showValue": true,
+          "showUnit": true,
+          "ttlSeconds": null,
+          "laylineAngle": null,
+          "targetTolerance": null,
+          "showLaylines": null,
+          "showTrueWind": null,
+          "showCOG": null,
+          "showAWS": null,
+          "showTWS": null,
+          "customProperties": {
+            "_toolId": "tool_1700000050000"
+          }
+        }
+      },
+      "defaultWidth": 8,
+      "defaultHeight": 8,
+      "category": "other",
+      "tags": ["text_display"],
+      "thumbnailUrl": null,
+      "iconUrl": null,
+      "requiredPaths": ["navigation.speedOverGround"],
+      "minAppVersion": null,
+      "usageCount": 0,
+      "rating": 0.0,
+      "ratingCount": 0,
+      "sourceUrl": null,
+      "isLocal": true
+    },
+    {
+      "id": "tool_1700000051000",
+      "name": "text_display",
+      "description": "text_display",
+      "author": "Local User",
+      "version": "1.0.0",
+      "createdAt": "2026-03-12T12:00:00.000000",
+      "updatedAt": null,
+      "toolTypeId": "text_display",
+      "config": {
+        "vesselId": null,
+        "dataSources": [
+          {
+            "path": "environment.depth.belowSurface",
+            "source": null,
+            "label": "Depth",
+            "color": null,
+            "baseUnit": null
+          }
+        ],
+        "style": {
+          "minValue": null,
+          "maxValue": null,
+          "unit": null,
+          "primaryColor": null,
+          "secondaryColor": null,
+          "showLabel": true,
+          "showValue": true,
+          "showUnit": true,
+          "ttlSeconds": null,
+          "laylineAngle": null,
+          "targetTolerance": null,
+          "showLaylines": null,
+          "showTrueWind": null,
+          "showCOG": null,
+          "showAWS": null,
+          "showTWS": null,
+          "customProperties": {
+            "_toolId": "tool_1700000051000"
+          }
+        }
+      },
+      "defaultWidth": 8,
+      "defaultHeight": 8,
+      "category": "other",
+      "tags": ["text_display"],
+      "thumbnailUrl": null,
+      "iconUrl": null,
+      "requiredPaths": ["environment.depth.belowSurface"],
+      "minAppVersion": null,
+      "usageCount": 0,
+      "rating": 0.0,
+      "ratingCount": 0,
+      "sourceUrl": null,
+      "isLocal": true
+    }
+  ]
+}

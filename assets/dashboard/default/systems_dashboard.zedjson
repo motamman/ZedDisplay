@@ -1,0 +1,793 @@
+{
+  "version": "1.0.0",
+  "metadata": {
+    "name": "Boat Systems",
+    "description": "Electrical systems, tanks, server management, and diagnostics",
+    "author": "User",
+    "createdAt": "2026-03-12T12:00:00.000000",
+    "updatedAt": null,
+    "thumbnailUrl": null,
+    "tags": []
+  },
+  "layout": {
+    "id": "layout_systems",
+    "name": "Boat Systems",
+    "intendedUse": null,
+    "screens": [
+      {
+        "id": "screen_1700000031000",
+        "name": "Power",
+        "portraitPlacements": [
+          {
+            "toolId": "tool_1700000031000",
+            "screenId": "screen_1700000031000",
+            "position": {
+              "row": 0,
+              "col": 0,
+              "width": 20,
+              "height": 20
+            }
+          }
+        ],
+        "landscapePlacements": [
+          {
+            "toolId": "tool_1700000031000",
+            "screenId": "screen_1700000031000",
+            "position": {
+              "row": 0,
+              "col": 0,
+              "width": 20,
+              "height": 16
+            }
+          }
+        ],
+        "allowOverflow": false,
+        "placements": null,
+        "order": 0
+      },
+      {
+        "id": "screen_1700000032000",
+        "name": "Tanks",
+        "portraitPlacements": [
+          {
+            "toolId": "tool_1700000032000",
+            "screenId": "screen_1700000032000",
+            "position": {
+              "row": 0,
+              "col": 0,
+              "width": 20,
+              "height": 18
+            }
+          }
+        ],
+        "landscapePlacements": [
+          {
+            "toolId": "tool_1700000032000",
+            "screenId": "screen_1700000032000",
+            "position": {
+              "row": 0,
+              "col": 0,
+              "width": 20,
+              "height": 14
+            }
+          }
+        ],
+        "allowOverflow": false,
+        "placements": null,
+        "order": 1
+      },
+      {
+        "id": "screen_1700000033000",
+        "name": "RPi",
+        "portraitPlacements": [
+          {
+            "toolId": "tool_1700000033000",
+            "screenId": "screen_1700000033000",
+            "position": {
+              "row": 0,
+              "col": 0,
+              "width": 20,
+              "height": 16
+            }
+          }
+        ],
+        "landscapePlacements": [
+          {
+            "toolId": "tool_1700000033000",
+            "screenId": "screen_1700000033000",
+            "position": {
+              "row": 0,
+              "col": 0,
+              "width": 20,
+              "height": 14
+            }
+          }
+        ],
+        "allowOverflow": false,
+        "placements": null,
+        "order": 2
+      },
+      {
+        "id": "screen_1700000034000",
+        "name": "Device",
+        "portraitPlacements": [
+          {
+            "toolId": "tool_1700000034000",
+            "screenId": "screen_1700000034000",
+            "position": {
+              "row": 0,
+              "col": 0,
+              "width": 20,
+              "height": 16
+            }
+          }
+        ],
+        "landscapePlacements": [
+          {
+            "toolId": "tool_1700000034000",
+            "screenId": "screen_1700000034000",
+            "position": {
+              "row": 0,
+              "col": 0,
+              "width": 20,
+              "height": 14
+            }
+          }
+        ],
+        "allowOverflow": false,
+        "placements": null,
+        "order": 3
+      },
+      {
+        "id": "screen_1700000035000",
+        "name": "Server",
+        "portraitPlacements": [
+          {
+            "toolId": "tool_1700000035000",
+            "screenId": "screen_1700000035000",
+            "position": {
+              "row": 0,
+              "col": 0,
+              "width": 19,
+              "height": 13
+            }
+          },
+          {
+            "toolId": "tool_1700000036000",
+            "screenId": "screen_1700000035000",
+            "position": {
+              "row": 13,
+              "col": 0,
+              "width": 19,
+              "height": 7
+            }
+          }
+        ],
+        "landscapePlacements": [
+          {
+            "toolId": "tool_1700000035000",
+            "screenId": "screen_1700000035000",
+            "position": {
+              "row": 0,
+              "col": 0,
+              "width": 20,
+              "height": 18
+            }
+          },
+          {
+            "toolId": "tool_1700000036000",
+            "screenId": "screen_1700000035000",
+            "position": {
+              "row": 17,
+              "col": 0,
+              "width": 8,
+              "height": 2
+            }
+          }
+        ],
+        "allowOverflow": false,
+        "placements": null,
+        "order": 4
+      },
+      {
+        "id": "screen_1700000036000",
+        "name": "Users",
+        "portraitPlacements": [
+          {
+            "toolId": "tool_1700000037000",
+            "screenId": "screen_1700000036000",
+            "position": {
+              "row": 0,
+              "col": 0,
+              "width": 20,
+              "height": 16
+            }
+          }
+        ],
+        "landscapePlacements": [
+          {
+            "toolId": "tool_1700000037000",
+            "screenId": "screen_1700000036000",
+            "position": {
+              "row": 0,
+              "col": 0,
+              "width": 20,
+              "height": 14
+            }
+          }
+        ],
+        "allowOverflow": false,
+        "placements": null,
+        "order": 5
+      },
+      {
+        "id": "screen_1700000037000",
+        "name": "Web",
+        "portraitPlacements": [
+          {
+            "toolId": "tool_1700000038000",
+            "screenId": "screen_1700000037000",
+            "position": {
+              "row": 0,
+              "col": 0,
+              "width": 20,
+              "height": 20
+            }
+          }
+        ],
+        "landscapePlacements": [
+          {
+            "toolId": "tool_1700000038000",
+            "screenId": "screen_1700000037000",
+            "position": {
+              "row": 0,
+              "col": 0,
+              "width": 20,
+              "height": 16
+            }
+          }
+        ],
+        "allowOverflow": false,
+        "placements": null,
+        "order": 6
+      },
+      {
+        "id": "screen_1700000038000",
+        "name": "Diagnostics",
+        "portraitPlacements": [
+          {
+            "toolId": "tool_1700000039000",
+            "screenId": "screen_1700000038000",
+            "position": {
+              "row": 0,
+              "col": 0,
+              "width": 20,
+              "height": 16
+            }
+          }
+        ],
+        "landscapePlacements": [
+          {
+            "toolId": "tool_1700000039000",
+            "screenId": "screen_1700000038000",
+            "position": {
+              "row": 0,
+              "col": 0,
+              "width": 20,
+              "height": 14
+            }
+          }
+        ],
+        "allowOverflow": false,
+        "placements": null,
+        "order": 7
+      }
+    ],
+    "activeScreenIndex": 0
+  },
+  "tools": [
+    {
+      "id": "tool_1700000031000",
+      "name": "Power Monitor",
+      "description": "Custom tool for electrical.batteries.0.voltage, electrical.batteries.0.current, electrical.solar.0.panelPower",
+      "author": "Local User",
+      "version": "1.0.0",
+      "createdAt": "2026-03-12T12:00:00.000000",
+      "updatedAt": null,
+      "toolTypeId": "victron_flow",
+      "config": {
+        "vesselId": null,
+        "dataSources": [
+          {
+            "path": "electrical.batteries.0.voltage",
+            "source": null,
+            "label": "Battery Voltage",
+            "color": null,
+            "baseUnit": null
+          },
+          {
+            "path": "electrical.batteries.0.current",
+            "source": null,
+            "label": "Battery Current",
+            "color": null,
+            "baseUnit": null
+          },
+          {
+            "path": "electrical.solar.0.panelPower",
+            "source": null,
+            "label": "Solar Power",
+            "color": null,
+            "baseUnit": null
+          }
+        ],
+        "style": {
+          "minValue": null,
+          "maxValue": null,
+          "unit": null,
+          "primaryColor": null,
+          "secondaryColor": null,
+          "showLabel": true,
+          "showValue": true,
+          "showUnit": true,
+          "ttlSeconds": null,
+          "laylineAngle": null,
+          "targetTolerance": null,
+          "showLaylines": null,
+          "showTrueWind": null,
+          "showCOG": null,
+          "showAWS": null,
+          "showTWS": null,
+          "customProperties": {
+            "_toolId": "tool_1700000031000"
+          }
+        }
+      },
+      "defaultWidth": 8,
+      "defaultHeight": 8,
+      "category": "other",
+      "tags": [
+        "victron_flow"
+      ],
+      "thumbnailUrl": null,
+      "iconUrl": null,
+      "requiredPaths": [
+        "electrical.batteries.0.voltage",
+        "electrical.batteries.0.current",
+        "electrical.solar.0.panelPower"
+      ],
+      "minAppVersion": null,
+      "usageCount": 0,
+      "rating": 0.0,
+      "ratingCount": 0,
+      "sourceUrl": null,
+      "isLocal": true
+    },
+    {
+      "id": "tool_1700000032000",
+      "name": "Tank Levels",
+      "description": "Custom tool for tanks.freshWater.0.currentLevel, tanks.fuel.0.currentLevel, tanks.blackWater.0.currentLevel",
+      "author": "Local User",
+      "version": "1.0.0",
+      "createdAt": "2026-03-12T12:00:00.000000",
+      "updatedAt": null,
+      "toolTypeId": "tanks",
+      "config": {
+        "vesselId": null,
+        "dataSources": [
+          {
+            "path": "tanks.freshWater.0.currentLevel",
+            "source": null,
+            "label": "Fresh Water",
+            "color": null,
+            "baseUnit": null
+          },
+          {
+            "path": "tanks.fuel.0.currentLevel",
+            "source": null,
+            "label": "Fuel",
+            "color": null,
+            "baseUnit": null
+          },
+          {
+            "path": "tanks.blackWater.0.currentLevel",
+            "source": null,
+            "label": "Black Water",
+            "color": null,
+            "baseUnit": null
+          }
+        ],
+        "style": {
+          "minValue": null,
+          "maxValue": null,
+          "unit": null,
+          "primaryColor": null,
+          "secondaryColor": null,
+          "showLabel": true,
+          "showValue": true,
+          "showUnit": true,
+          "ttlSeconds": null,
+          "laylineAngle": null,
+          "targetTolerance": null,
+          "showLaylines": null,
+          "showTrueWind": null,
+          "showCOG": null,
+          "showAWS": null,
+          "showTWS": null,
+          "customProperties": {
+            "_toolId": "tool_1700000032000"
+          }
+        }
+      },
+      "defaultWidth": 8,
+      "defaultHeight": 8,
+      "category": "other",
+      "tags": [
+        "tanks"
+      ],
+      "thumbnailUrl": null,
+      "iconUrl": null,
+      "requiredPaths": [
+        "tanks.freshWater.0.currentLevel",
+        "tanks.fuel.0.currentLevel",
+        "tanks.blackWater.0.currentLevel"
+      ],
+      "minAppVersion": null,
+      "usageCount": 0,
+      "rating": 0.0,
+      "ratingCount": 0,
+      "sourceUrl": null,
+      "isLocal": true
+    },
+    {
+      "id": "tool_1700000033000",
+      "name": "RPi Monitor",
+      "description": "Raspberry Pi system monitor",
+      "author": "Local User",
+      "version": "1.0.0",
+      "createdAt": "2026-03-12T12:00:00.000000",
+      "updatedAt": null,
+      "toolTypeId": "rpi_monitor",
+      "config": {
+        "vesselId": null,
+        "dataSources": [],
+        "style": {
+          "minValue": null,
+          "maxValue": null,
+          "unit": null,
+          "primaryColor": null,
+          "secondaryColor": null,
+          "showLabel": true,
+          "showValue": true,
+          "showUnit": true,
+          "ttlSeconds": null,
+          "laylineAngle": null,
+          "targetTolerance": null,
+          "showLaylines": null,
+          "showTrueWind": null,
+          "showCOG": null,
+          "showAWS": null,
+          "showTWS": null,
+          "customProperties": {
+            "_toolId": "tool_1700000033000"
+          }
+        }
+      },
+      "defaultWidth": 8,
+      "defaultHeight": 8,
+      "category": "other",
+      "tags": [
+        "rpi_monitor"
+      ],
+      "thumbnailUrl": null,
+      "iconUrl": null,
+      "requiredPaths": [],
+      "minAppVersion": null,
+      "usageCount": 0,
+      "rating": 0.0,
+      "ratingCount": 0,
+      "sourceUrl": null,
+      "isLocal": true
+    },
+    {
+      "id": "tool_1700000034000",
+      "name": "Device Monitor",
+      "description": "Local device system monitor",
+      "author": "Local User",
+      "version": "1.0.0",
+      "createdAt": "2026-03-12T12:00:00.000000",
+      "updatedAt": null,
+      "toolTypeId": "system_monitor",
+      "config": {
+        "vesselId": null,
+        "dataSources": [],
+        "style": {
+          "minValue": null,
+          "maxValue": null,
+          "unit": null,
+          "primaryColor": null,
+          "secondaryColor": null,
+          "showLabel": true,
+          "showValue": true,
+          "showUnit": true,
+          "ttlSeconds": null,
+          "laylineAngle": null,
+          "targetTolerance": null,
+          "showLaylines": null,
+          "showTrueWind": null,
+          "showCOG": null,
+          "showAWS": null,
+          "showTWS": null,
+          "customProperties": {
+            "_toolId": "tool_1700000034000"
+          }
+        }
+      },
+      "defaultWidth": 8,
+      "defaultHeight": 8,
+      "category": "other",
+      "tags": [
+        "system_monitor"
+      ],
+      "thumbnailUrl": null,
+      "iconUrl": null,
+      "requiredPaths": [],
+      "minAppVersion": null,
+      "usageCount": 0,
+      "rating": 0.0,
+      "ratingCount": 0,
+      "sourceUrl": null,
+      "isLocal": true
+    },
+    {
+      "id": "tool_1700000035000",
+      "name": "Server Manager",
+      "description": "SignalK server management",
+      "author": "Local User",
+      "version": "1.0.0",
+      "createdAt": "2026-03-12T12:00:00.000000",
+      "updatedAt": null,
+      "toolTypeId": "server_manager",
+      "config": {
+        "vesselId": null,
+        "dataSources": [],
+        "style": {
+          "minValue": null,
+          "maxValue": null,
+          "unit": null,
+          "primaryColor": null,
+          "secondaryColor": null,
+          "showLabel": true,
+          "showValue": true,
+          "showUnit": true,
+          "ttlSeconds": null,
+          "laylineAngle": null,
+          "targetTolerance": null,
+          "showLaylines": null,
+          "showTrueWind": null,
+          "showCOG": null,
+          "showAWS": null,
+          "showTWS": null,
+          "customProperties": {
+            "_toolId": "tool_1700000035000"
+          }
+        }
+      },
+      "defaultWidth": 8,
+      "defaultHeight": 8,
+      "category": "other",
+      "tags": [
+        "server_manager"
+      ],
+      "thumbnailUrl": null,
+      "iconUrl": null,
+      "requiredPaths": [],
+      "minAppVersion": null,
+      "usageCount": 0,
+      "rating": 0.0,
+      "ratingCount": 0,
+      "sourceUrl": null,
+      "isLocal": true
+    },
+    {
+      "id": "tool_1700000036000",
+      "name": "Device Access Manager",
+      "description": "Device access management",
+      "author": "Local User",
+      "version": "1.0.0",
+      "createdAt": "2026-03-12T12:00:00.000000",
+      "updatedAt": null,
+      "toolTypeId": "device_access_manager",
+      "config": {
+        "vesselId": null,
+        "dataSources": [],
+        "style": {
+          "minValue": null,
+          "maxValue": null,
+          "unit": null,
+          "primaryColor": null,
+          "secondaryColor": null,
+          "showLabel": true,
+          "showValue": true,
+          "showUnit": true,
+          "ttlSeconds": null,
+          "laylineAngle": null,
+          "targetTolerance": null,
+          "showLaylines": null,
+          "showTrueWind": null,
+          "showCOG": null,
+          "showAWS": null,
+          "showTWS": null,
+          "customProperties": {
+            "_toolId": "tool_1700000036000"
+          }
+        }
+      },
+      "defaultWidth": 8,
+      "defaultHeight": 8,
+      "category": "other",
+      "tags": [
+        "device_access_manager"
+      ],
+      "thumbnailUrl": null,
+      "iconUrl": null,
+      "requiredPaths": [],
+      "minAppVersion": null,
+      "usageCount": 0,
+      "rating": 0.0,
+      "ratingCount": 0,
+      "sourceUrl": null,
+      "isLocal": true
+    },
+    {
+      "id": "tool_1700000037000",
+      "name": "User Management",
+      "description": "SignalK user management",
+      "author": "Local User",
+      "version": "1.0.0",
+      "createdAt": "2026-03-12T12:00:00.000000",
+      "updatedAt": null,
+      "toolTypeId": "user_management",
+      "config": {
+        "vesselId": null,
+        "dataSources": [],
+        "style": {
+          "minValue": null,
+          "maxValue": null,
+          "unit": null,
+          "primaryColor": null,
+          "secondaryColor": null,
+          "showLabel": true,
+          "showValue": true,
+          "showUnit": true,
+          "ttlSeconds": null,
+          "laylineAngle": null,
+          "targetTolerance": null,
+          "showLaylines": null,
+          "showTrueWind": null,
+          "showCOG": null,
+          "showAWS": null,
+          "showTWS": null,
+          "customProperties": {
+            "_toolId": "tool_1700000037000"
+          }
+        }
+      },
+      "defaultWidth": 8,
+      "defaultHeight": 8,
+      "category": "other",
+      "tags": [
+        "user_management"
+      ],
+      "thumbnailUrl": null,
+      "iconUrl": null,
+      "requiredPaths": [],
+      "minAppVersion": null,
+      "usageCount": 0,
+      "rating": 0.0,
+      "ratingCount": 0,
+      "sourceUrl": null,
+      "isLocal": true
+    },
+    {
+      "id": "tool_1700000038000",
+      "name": "Web View",
+      "description": "Embedded web browser",
+      "author": "Local User",
+      "version": "1.0.0",
+      "createdAt": "2026-03-12T12:00:00.000000",
+      "updatedAt": null,
+      "toolTypeId": "webview",
+      "config": {
+        "vesselId": null,
+        "dataSources": [],
+        "style": {
+          "minValue": null,
+          "maxValue": null,
+          "unit": null,
+          "primaryColor": null,
+          "secondaryColor": null,
+          "showLabel": true,
+          "showValue": true,
+          "showUnit": true,
+          "ttlSeconds": null,
+          "laylineAngle": null,
+          "targetTolerance": null,
+          "showLaylines": null,
+          "showTrueWind": null,
+          "showCOG": null,
+          "showAWS": null,
+          "showTWS": null,
+          "customProperties": {
+            "url": "https://signalk.org",
+            "_toolId": "tool_1700000038000"
+          }
+        }
+      },
+      "defaultWidth": 8,
+      "defaultHeight": 8,
+      "category": "other",
+      "tags": [
+        "webview"
+      ],
+      "thumbnailUrl": null,
+      "iconUrl": null,
+      "requiredPaths": [],
+      "minAppVersion": null,
+      "usageCount": 0,
+      "rating": 0.0,
+      "ratingCount": 0,
+      "sourceUrl": null,
+      "isLocal": true
+    },
+    {
+      "id": "tool_1700000039000",
+      "name": "Conversion Test",
+      "description": "Unit conversion diagnostics",
+      "author": "Local User",
+      "version": "1.0.0",
+      "createdAt": "2026-03-12T12:00:00.000000",
+      "updatedAt": null,
+      "toolTypeId": "conversion_test",
+      "config": {
+        "vesselId": null,
+        "dataSources": [],
+        "style": {
+          "minValue": null,
+          "maxValue": null,
+          "unit": null,
+          "primaryColor": null,
+          "secondaryColor": null,
+          "showLabel": true,
+          "showValue": true,
+          "showUnit": true,
+          "ttlSeconds": null,
+          "laylineAngle": null,
+          "targetTolerance": null,
+          "showLaylines": null,
+          "showTrueWind": null,
+          "showCOG": null,
+          "showAWS": null,
+          "showTWS": null,
+          "customProperties": {
+            "_toolId": "tool_1700000039000"
+          }
+        }
+      },
+      "defaultWidth": 8,
+      "defaultHeight": 8,
+      "category": "other",
+      "tags": [
+        "conversion_test"
+      ],
+      "thumbnailUrl": null,
+      "iconUrl": null,
+      "requiredPaths": [],
+      "minAppVersion": null,
+      "usageCount": 0,
+      "rating": 0.0,
+      "ratingCount": 0,
+      "sourceUrl": null,
+      "isLocal": true
+    }
+  ]
+}

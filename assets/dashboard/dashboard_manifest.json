@@ -12,6 +12,36 @@
           "name": "Default Dashboard",
           "description": "Complete starter dashboard with navigation, AIS, autopilot, anchor alarm, and more",
           "isDefault": true
+        },
+        {
+          "filename": "sailing_dashboard.zedjson",
+          "name": "Sailing",
+          "description": "Active sailing and racing focus with wind instruments, polar charts, and autopilot",
+          "isDefault": false
+        },
+        {
+          "filename": "weather_dashboard.zedjson",
+          "name": "Weather Station",
+          "description": "Weather forecasts, alerts, environmental monitoring, and celestial data",
+          "isDefault": false
+        },
+        {
+          "filename": "passage_dashboard.zedjson",
+          "name": "Passage",
+          "description": "Offshore passage-making with navigation, AIS, autopilot, and anchor watch",
+          "isDefault": false
+        },
+        {
+          "filename": "systems_dashboard.zedjson",
+          "name": "Boat Systems",
+          "description": "Electrical systems, tanks, server management, and diagnostics",
+          "isDefault": false
+        },
+        {
+          "filename": "controls_dashboard.zedjson",
+          "name": "Controls",
+          "description": "Interactive controls, gauges, and instrument displays",
+          "isDefault": false
         }
       ]
     },
