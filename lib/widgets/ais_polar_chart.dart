@@ -5,8 +5,11 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'dart:async';
 import 'dart:math' as math;
+import 'package:provider/provider.dart';
 import '../services/signalk_service.dart';
 import '../services/cpa_alert_service.dart';
+import '../services/ais_favorites_service.dart';
+import '../models/ais_favorite.dart';  // For manual add dialog
 import '../models/cpa_alert_state.dart';
 import '../utils/cpa_utils.dart';
 
@@ -95,6 +98,7 @@ class _AISPolarChartState extends State<AISPolarChart>
   bool _showVesselListOverlay = false; // Vessel list overlay in fullscreen
   bool _hideStale = false; // Hide stale vessels from display
   List<_VesselPoint> _displayVessels = []; // Cached filtered vessel list
+  int _vesselListTabIndex = 0; // 0=Nearby, 1=Favorites
 
   // Throttle updates to prevent ANR on tablets
   DateTime? _lastUpdate;
@@ -118,6 +122,8 @@ class _AISPolarChartState extends State<AISPolarChart>
     final metadata = widget.signalKService.metadataStore.get(path);
     return metadata?.convert(rawValue) ?? rawValue;
   }
+
+  AISFavoritesService? _favoritesService;
 
   @override
   void initState() {
@@ -146,6 +152,28 @@ class _AISPolarChartState extends State<AISPolarChart>
 
     // Fetch immediately on init
     _updateVesselData();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Wire up favorites highlight listener (needs context for Provider)
+    if (_favoritesService == null) {
+      _favoritesService = context.read<AISFavoritesService>();
+      _favoritesService!.addListener(_onFavoritesChanged);
+    }
+  }
+
+  void _onFavoritesChanged() {
+    if (!mounted) return;
+    final requestedId = _favoritesService?.highlightRequestedVesselId;
+    if (requestedId != null) {
+      _favoritesService!.clearHighlightRequest();
+      setState(() {
+        _showVesselListOverlay = false;
+      });
+      _highlightVessel(requestedId);
+    }
   }
 
   void _subscribeIfConnected() {
@@ -236,6 +264,7 @@ class _AISPolarChartState extends State<AISPolarChart>
   @override
   void dispose() {
     widget.cpaAlertService?.removeListener(_onCpaChanged);
+    _favoritesService?.removeListener(_onFavoritesChanged);
     widget.signalKService.removeListener(_onServiceUpdate);
     widget.signalKService.aisVesselRegistry.removeListener(_onAISUpdate);
     _highlightTimer?.cancel();
@@ -720,6 +749,7 @@ class _AISPolarChartState extends State<AISPolarChart>
         _calculatedRange = maxDistance * 1.2; // 20% padding, auto-fit to farthest vessel
       }
     });
+
   }
 
   double _getDisplayRange() {
@@ -2125,22 +2155,61 @@ class _AISPolarChartState extends State<AISPolarChart>
     }).toList();
   }
 
-  /// Build vessel list
+  /// Build vessel list with Nearby/Favorites tabs
   Widget _buildVesselList(BuildContext context, bool isDark) {
-    if (_displayVessels.isEmpty) {
-      return Container(
-        decoration: BoxDecoration(
-          color: isDark ? Colors.grey.shade900 : Colors.grey.shade100,
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Center(
-          child: Text(
-            'No vessels in range',
-            style: TextStyle(color: isDark ? Colors.white70 : Colors.black54),
+    return Container(
+      decoration: BoxDecoration(
+        color: isDark ? Colors.grey.shade900 : Colors.grey.shade100,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // Tab row
+          Padding(
+            padding: const EdgeInsets.only(top: 8.0, left: 8, right: 8),
+            child: Row(
+              children: [
+                ChoiceChip(
+                  label: Text('Nearby', style: TextStyle(fontSize: 12)),
+                  selected: _vesselListTabIndex == 0,
+                  onSelected: (_) => setState(() => _vesselListTabIndex = 0),
+                  visualDensity: VisualDensity.compact,
+                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+                const SizedBox(width: 6),
+                ChoiceChip(
+                  label: Text('Favorites', style: TextStyle(fontSize: 12)),
+                  selected: _vesselListTabIndex == 1,
+                  onSelected: (_) => setState(() => _vesselListTabIndex = 1),
+                  visualDensity: VisualDensity.compact,
+                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+              ],
+            ),
           ),
+          Expanded(
+            child: _vesselListTabIndex == 0
+                ? _buildNearbyList(context, isDark)
+                : _buildFavoritesList(context, isDark),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Build the Nearby vessels list tab
+  Widget _buildNearbyList(BuildContext context, bool isDark) {
+    if (_displayVessels.isEmpty) {
+      return Center(
+        child: Text(
+          'No vessels in range',
+          style: TextStyle(color: isDark ? Colors.white70 : Colors.black54),
         ),
       );
     }
+
+    final favService = context.watch<AISFavoritesService>();
 
     // Sort by distance
     final sortedVessels = List<_VesselPoint>.from(_displayVessels)
@@ -2159,190 +2228,457 @@ class _AISPolarChartState extends State<AISPolarChart>
       }
     }
 
-    return Container(
-      decoration: BoxDecoration(
-        color: isDark ? Colors.grey.shade900 : Colors.grey.shade100,
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Padding(
-            padding: const EdgeInsets.only(top: 8.0, bottom: 8.0, left: 12, right: 4),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    'Last update: $lastUpdateText',
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: isDark ? Colors.white70 : Colors.black54,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(top: 4.0, bottom: 4.0, left: 12, right: 4),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Last update: $lastUpdateText',
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: isDark ? Colors.white70 : Colors.black54,
+                  ),
+                ),
+              ),
+              if (widget.cpaAlertService != null &&
+                  widget.cpaAlertService!.vesselAlerts.isNotEmpty)
+                SizedBox(
+                  height: 24,
+                  child: TextButton.icon(
+                    onPressed: () => widget.cpaAlertService!.dismissAllAlerts(),
+                    icon: Icon(Icons.delete_outline, size: 14,
+                        color: isDark ? Colors.white60 : Colors.black45),
+                    label: Text('Clear All',
+                        style: TextStyle(fontSize: 11,
+                            color: isDark ? Colors.white60 : Colors.black45)),
+                    style: TextButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                      minimumSize: Size.zero,
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                     ),
                   ),
                 ),
-                if (widget.cpaAlertService != null &&
-                    widget.cpaAlertService!.vesselAlerts.isNotEmpty)
-                  SizedBox(
-                    height: 24,
-                    child: TextButton.icon(
-                      onPressed: () => widget.cpaAlertService!.dismissAllAlerts(),
-                      icon: Icon(Icons.delete_outline, size: 14,
-                          color: isDark ? Colors.white60 : Colors.black45),
-                      label: Text('Clear All',
-                          style: TextStyle(fontSize: 11,
-                              color: isDark ? Colors.white60 : Colors.black45)),
-                      style: TextButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(horizontal: 8),
-                        minimumSize: Size.zero,
-                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-          ),
-          Expanded(
-            child: ListView.builder(
-            itemCount: sortedVessels.length,
-            itemBuilder: (context, index) {
-              final vessel = sortedVessels[index];
-              // Use cached CPA/TCPA values from vessel
-              final cpa = vessel.cpa;
-              final tcpa = vessel.tcpa;
-
-              // Type-based color with freshness opacity (or plain freshness color)
-              final typeColor = widget.colorByShipType
-                  ? _getVesselTypeColor(vessel.aisShipType, aisClass: vessel.aisClass)
-                  : _getVesselFreshnessColor(vessel.timestamp);
-              final freshnessOpacity = widget.colorByShipType
-                  ? _getFreshnessOpacity(vessel.timestamp, aisStatus: vessel.aisStatus)
-                  : 1.0;
-              final displayColor = typeColor.withValues(alpha: freshnessOpacity);
-              final stale = _isStale(vessel.timestamp, aisStatus: vessel.aisStatus);
-              final iconWidget = Transform.rotate(
-                angle: ((vessel.headingTrue ?? vessel.cog ?? 0.0) * math.pi / 180),
-                child: _buildVesselIcon(
-                  aisShipType: vessel.aisShipType,
-                  navState: vessel.navState,
-                  sogRaw: vessel.sogRaw,
-                  color: displayColor,
-                  size: 20,
-                ),
-              );
-
-              final hasAlert = widget.cpaAlertService?.vesselAlerts
-                  .containsKey(vessel.mmsi) ?? false;
-
-              final tile = ListTile(
-                dense: true,
-                onTap: () => _highlightVessel(vessel.mmsi),
-                leading: stale
-                    ? Stack(
-                        alignment: Alignment.center,
-                        children: [
-                          iconWidget,
-                          const Icon(Icons.close, color: Colors.red, size: 16),
-                        ],
-                      )
-                    : iconWidget,
-                title: Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        vessel.name ?? _extractMMSI(vessel.mmsi),
-                        style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w500,
-                          color: displayColor,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                    if (vessel.timestamp != null)
-                      Text(
-                        _formatTimeSince(vessel.timestamp!),
-                        style: TextStyle(
-                          fontSize: 10,
-                          color: typeColor.withValues(alpha: freshnessOpacity * 0.7),
-                        ),
-                      ),
-                  ],
-                ),
-                subtitle: Row(
-                  children: [
-                    Text(
-                      '${_convertDistance(vessel.distance).toStringAsFixed(1)}${_getDistanceUnit()}',
-                      style: const TextStyle(fontSize: 11),
-                    ),
-                    const SizedBox(width: 8),
-                    if (vessel.cog != null)
-                      Text(
-                        'COG ${vessel.cog!.toStringAsFixed(0)}${_getAngleSymbol()}',
-                        style: const TextStyle(fontSize: 11),
-                      ),
-                    const SizedBox(width: 8),
-                    if (vessel.sogRaw != null)
-                      Text(
-                        'SOG ${_convertSpeed(vessel.sogRaw!).toStringAsFixed(1)}${_getSpeedUnit()}',
-                        style: const TextStyle(fontSize: 11),
-                      ),
-                  ],
-                ),
-                trailing: cpa != null
-                    ? Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: cpa < 926 ? Colors.red.withValues(alpha: 0.2) : Colors.orange.withValues(alpha: 0.2), // 926m = 0.5nm
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          crossAxisAlignment: CrossAxisAlignment.end,
-                          children: [
-                            Text(
-                              'CPA ${_convertDistance(cpa).toStringAsFixed(2)}${_getDistanceUnit()}',
-                              style: TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.w600,
-                                color: cpa < 926 ? Colors.red : Colors.orange, // 926m = 0.5nm
-                              ),
-                            ),
-                            if (tcpa != null && tcpa.isFinite && tcpa > 0)
-                              Text(
-                                'TCPA ${_formatTCPA(tcpa)}',
-                                style: TextStyle(
-                                  fontSize: 10,
-                                  color: cpa < 926 ? Colors.red : Colors.orange,
-                                ),
-                              ),
-                          ],
-                        ),
-                      )
-                    : null,
-              );
-
-              if (!hasAlert) return tile;
-
-              return Dismissible(
-                key: Key('cpa_dismiss_${vessel.mmsi}'),
-                direction: DismissDirection.endToStart,
-                onDismissed: (_) {
-                  widget.cpaAlertService?.dismissAlert(vessel.mmsi);
-                },
-                background: Container(
-                  alignment: Alignment.centerRight,
-                  padding: const EdgeInsets.only(right: 16),
-                  color: Colors.red.shade700,
-                  child: const Icon(Icons.delete, color: Colors.white, size: 20),
-                ),
-                child: tile,
-              );
-            },
+            ],
           ),
         ),
-        ],
+        Expanded(
+          child: ListView.builder(
+          itemCount: sortedVessels.length,
+          itemBuilder: (context, index) {
+            final vessel = sortedVessels[index];
+            final bareMMSI = _extractMMSI(vessel.mmsi);
+            final isFav = favService.isFavorite(bareMMSI);
+            // Use cached CPA/TCPA values from vessel
+            final cpa = vessel.cpa;
+            final tcpa = vessel.tcpa;
+
+            // Type-based color with freshness opacity (or plain freshness color)
+            final typeColor = widget.colorByShipType
+                ? _getVesselTypeColor(vessel.aisShipType, aisClass: vessel.aisClass)
+                : _getVesselFreshnessColor(vessel.timestamp);
+            final freshnessOpacity = widget.colorByShipType
+                ? _getFreshnessOpacity(vessel.timestamp, aisStatus: vessel.aisStatus)
+                : 1.0;
+            final displayColor = typeColor.withValues(alpha: freshnessOpacity);
+            final stale = _isStale(vessel.timestamp, aisStatus: vessel.aisStatus);
+            final iconWidget = Transform.rotate(
+              angle: ((vessel.headingTrue ?? vessel.cog ?? 0.0) * math.pi / 180),
+              child: _buildVesselIcon(
+                aisShipType: vessel.aisShipType,
+                navState: vessel.navState,
+                sogRaw: vessel.sogRaw,
+                color: displayColor,
+                size: 20,
+              ),
+            );
+
+            final hasAlert = widget.cpaAlertService?.vesselAlerts
+                .containsKey(vessel.mmsi) ?? false;
+
+            final tile = ListTile(
+              dense: true,
+              onTap: () => _highlightVessel(vessel.mmsi),
+              leading: stale
+                  ? Stack(
+                      alignment: Alignment.center,
+                      children: [
+                        iconWidget,
+                        const Icon(Icons.close, color: Colors.red, size: 16),
+                      ],
+                    )
+                  : iconWidget,
+              title: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      vessel.name ?? _extractMMSI(vessel.mmsi),
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
+                        color: displayColor,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  GestureDetector(
+                    onTap: () => _toggleFavorite(vessel),
+                    child: Padding(
+                      padding: const EdgeInsets.all(4),
+                      child: Icon(
+                        isFav ? Icons.favorite : Icons.favorite_border,
+                        size: 16,
+                        color: isFav ? Colors.red : Colors.grey,
+                      ),
+                    ),
+                  ),
+                  if (vessel.timestamp != null)
+                    Text(
+                      _formatTimeSince(vessel.timestamp!),
+                      style: TextStyle(
+                        fontSize: 10,
+                        color: typeColor.withValues(alpha: freshnessOpacity * 0.7),
+                      ),
+                    ),
+                ],
+              ),
+              subtitle: Row(
+                children: [
+                  Text(
+                    '${_convertDistance(vessel.distance).toStringAsFixed(1)}${_getDistanceUnit()}',
+                    style: const TextStyle(fontSize: 11),
+                  ),
+                  const SizedBox(width: 8),
+                  if (vessel.cog != null)
+                    Text(
+                      'COG ${vessel.cog!.toStringAsFixed(0)}${_getAngleSymbol()}',
+                      style: const TextStyle(fontSize: 11),
+                    ),
+                  const SizedBox(width: 8),
+                  if (vessel.sogRaw != null)
+                    Text(
+                      'SOG ${_convertSpeed(vessel.sogRaw!).toStringAsFixed(1)}${_getSpeedUnit()}',
+                      style: const TextStyle(fontSize: 11),
+                    ),
+                ],
+              ),
+              trailing: cpa != null
+                  ? Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: cpa < 926 ? Colors.red.withValues(alpha: 0.2) : Colors.orange.withValues(alpha: 0.2), // 926m = 0.5nm
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          Text(
+                            'CPA ${_convertDistance(cpa).toStringAsFixed(2)}${_getDistanceUnit()}',
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              color: cpa < 926 ? Colors.red : Colors.orange, // 926m = 0.5nm
+                            ),
+                          ),
+                          if (tcpa != null && tcpa.isFinite && tcpa > 0)
+                            Text(
+                              'TCPA ${_formatTCPA(tcpa)}',
+                              style: TextStyle(
+                                fontSize: 10,
+                                color: cpa < 926 ? Colors.red : Colors.orange,
+                              ),
+                            ),
+                        ],
+                      ),
+                    )
+                  : null,
+            );
+
+            if (!hasAlert) return tile;
+
+            return Dismissible(
+              key: Key('cpa_dismiss_${vessel.mmsi}'),
+              direction: DismissDirection.endToStart,
+              onDismissed: (_) {
+                widget.cpaAlertService?.dismissAlert(vessel.mmsi);
+              },
+              background: Container(
+                alignment: Alignment.centerRight,
+                padding: const EdgeInsets.only(right: 16),
+                color: Colors.red.shade700,
+                child: const Icon(Icons.delete, color: Colors.white, size: 20),
+              ),
+              child: tile,
+            );
+          },
+        ),
       ),
+      ],
+    );
+  }
+
+  void _toggleFavorite(_VesselPoint vessel) {
+    final favService = context.read<AISFavoritesService>();
+    final bareMMSI = _extractMMSI(vessel.mmsi);
+    if (favService.isFavorite(bareMMSI)) {
+      favService.removeFavorite(bareMMSI);
+    } else {
+      favService.addFavorite(AISFavorite(
+        mmsi: bareMMSI,
+        name: vessel.name ?? bareMMSI,
+      ));
+    }
+  }
+
+  /// Build the Favorites list tab
+  Widget _buildFavoritesList(BuildContext context, bool isDark) {
+    final favService = context.watch<AISFavoritesService>();
+    final favorites = favService.favorites;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(top: 4.0, bottom: 4.0, left: 12, right: 4),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  '${favorites.length} favorite${favorites.length == 1 ? '' : 's'}',
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: isDark ? Colors.white70 : Colors.black54,
+                  ),
+                ),
+              ),
+              SizedBox(
+                height: 24,
+                child: TextButton.icon(
+                  onPressed: () => _showManualAddFavoriteDialog(),
+                  icon: Icon(Icons.add, size: 14,
+                      color: isDark ? Colors.white60 : Colors.black45),
+                  label: Text('Add',
+                      style: TextStyle(fontSize: 11,
+                          color: isDark ? Colors.white60 : Colors.black45)),
+                  style: TextButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    minimumSize: Size.zero,
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                ),
+              ),
+              if (favorites.isNotEmpty)
+                SizedBox(
+                  height: 24,
+                  child: TextButton.icon(
+                    onPressed: () => favService.clearAll(),
+                    icon: Icon(Icons.delete_outline, size: 14,
+                        color: isDark ? Colors.white60 : Colors.black45),
+                    label: Text('Clear All',
+                        style: TextStyle(fontSize: 11,
+                            color: isDark ? Colors.white60 : Colors.black45)),
+                    style: TextButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                      minimumSize: Size.zero,
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+        Expanded(
+          child: favorites.isEmpty
+              ? Center(
+                  child: Text(
+                    'No favorites yet',
+                    style: TextStyle(color: isDark ? Colors.white70 : Colors.black54),
+                  ),
+                )
+              : ListView.builder(
+                  itemCount: favorites.length,
+                  itemBuilder: (context, index) {
+                    final fav = favorites[index];
+                    // Check if vessel is currently in range
+                    final inRangeVessel = _displayVessels.cast<_VesselPoint?>().firstWhere(
+                      (v) => _extractMMSI(v!.mmsi) == fav.mmsi,
+                      orElse: () => null,
+                    );
+                    final inRange = inRangeVessel != null;
+
+                    return ListTile(
+                      dense: true,
+                      onTap: () {
+                        if (inRange) {
+                          setState(() {
+                            _showVesselListOverlay = false;
+                          });
+                          _highlightVessel(inRangeVessel.mmsi);
+                        } else {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Not in range'),
+                              duration: Duration(seconds: 2),
+                            ),
+                          );
+                        }
+                      },
+                      leading: const Icon(Icons.favorite, size: 18, color: Colors.red),
+                      title: Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              fav.name,
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w500,
+                                color: inRange
+                                    ? (isDark ? Colors.white : Colors.black87)
+                                    : (isDark ? Colors.white38 : Colors.black38),
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                      subtitle: Row(
+                        children: [
+                          Text(
+                            fav.mmsi,
+                            style: TextStyle(fontSize: 11,
+                                color: isDark ? Colors.white54 : Colors.black45),
+                          ),
+                          if (fav.notes != null && fav.notes!.isNotEmpty) ...[
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                fav.notes!,
+                                style: TextStyle(fontSize: 11,
+                                    color: isDark ? Colors.white38 : Colors.black38,
+                                    fontStyle: FontStyle.italic),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
+                          if (inRange) ...[
+                            const SizedBox(width: 8),
+                            Text(
+                              '${_convertDistance(inRangeVessel.distance).toStringAsFixed(1)}${_getDistanceUnit()}',
+                              style: const TextStyle(fontSize: 11),
+                            ),
+                            if (inRangeVessel.sogRaw != null) ...[
+                              const SizedBox(width: 6),
+                              Text(
+                                'SOG ${_convertSpeed(inRangeVessel.sogRaw!).toStringAsFixed(1)}${_getSpeedUnit()}',
+                                style: const TextStyle(fontSize: 11),
+                              ),
+                            ],
+                          ],
+                        ],
+                      ),
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (!inRange)
+                            Text('Not in range',
+                                style: TextStyle(fontSize: 10,
+                                    color: isDark ? Colors.white38 : Colors.black38)),
+                          IconButton(
+                            icon: const Icon(Icons.delete_outline, size: 18),
+                            onPressed: () => favService.removeFavorite(fav.mmsi),
+                            padding: EdgeInsets.zero,
+                            constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
+        ),
+      ],
+    );
+  }
+
+  void _showManualAddFavoriteDialog() {
+    final mmsiController = TextEditingController();
+    final nameController = TextEditingController();
+    final notesController = TextEditingController();
+    String? mmsiError;
+
+    showDialog(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: const Text('Add Favorite Vessel'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: mmsiController,
+                    decoration: InputDecoration(
+                      labelText: 'MMSI (9 digits)',
+                      errorText: mmsiError,
+                    ),
+                    keyboardType: TextInputType.number,
+                    maxLength: 9,
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: nameController,
+                    decoration: const InputDecoration(labelText: 'Vessel Name'),
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: notesController,
+                    decoration: const InputDecoration(labelText: 'Notes (optional)'),
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(),
+                  child: const Text('Cancel'),
+                ),
+                TextButton(
+                  onPressed: () {
+                    final mmsi = mmsiController.text.trim();
+                    final name = nameController.text.trim();
+
+                    if (!RegExp(r'^\d{9}$').hasMatch(mmsi)) {
+                      setDialogState(() => mmsiError = 'Must be exactly 9 digits');
+                      return;
+                    }
+                    if (name.isEmpty) {
+                      setDialogState(() => mmsiError = null);
+                      return;
+                    }
+
+                    final favService = this.context.read<AISFavoritesService>();
+                    favService.addFavorite(AISFavorite(
+                      mmsi: mmsi,
+                      name: name,
+                      notes: notesController.text.trim().isEmpty
+                          ? null
+                          : notesController.text.trim(),
+                    ));
+                    Navigator.of(dialogContext).pop();
+                  },
+                  child: const Text('Add'),
+                ),
+              ],
+            );
+          },
+        );
+      },
     );
   }
 

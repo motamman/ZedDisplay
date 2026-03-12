@@ -30,6 +30,7 @@ import 'screens/setup_management_screen.dart';
 import 'widgets/crew/intercom_panel.dart';
 import 'services/anchor_alarm_service.dart';
 import 'services/alert_coordinator.dart';
+import 'services/ais_favorites_service.dart';
 import 'models/alert_event.dart' as alert_models;
 import 'widgets/tools/weather_alerts_tool.dart';
 
@@ -166,6 +167,11 @@ void main() async {
   final toolRegistry = ToolRegistry();
   toolRegistry.registerDefaults();
 
+  // Initialize AIS favorites service
+  final aisFavoritesService = AISFavoritesService();
+  aisFavoritesService.loadFromStorage(storageService);
+  aisFavoritesService.startMonitoring(signalKService, alertCoordinator);
+
   // Initialize scale service (for menu items)
   await ScaleService.instance.initialize();
 
@@ -184,6 +190,7 @@ void main() async {
     fileShareService: fileShareService,
     intercomService: intercomService,
     alertCoordinator: alertCoordinator,
+    aisFavoritesService: aisFavoritesService,
   ));
 }
 
@@ -202,6 +209,7 @@ class ZedDisplayApp extends StatefulWidget {
   final FileShareService fileShareService;
   final IntercomService intercomService;
   final AlertCoordinator alertCoordinator;
+  final AISFavoritesService aisFavoritesService;
 
   const ZedDisplayApp({
     super.key,
@@ -219,6 +227,7 @@ class ZedDisplayApp extends StatefulWidget {
     required this.fileShareService,
     required this.intercomService,
     required this.alertCoordinator,
+    required this.aisFavoritesService,
   });
 
   @override
@@ -468,6 +477,7 @@ class _ZedDisplayAppState extends State<ZedDisplayApp> with WidgetsBindingObserv
         ChangeNotifierProvider.value(value: widget.fileShareService),
         ChangeNotifierProvider.value(value: widget.intercomService),
         ChangeNotifierProvider.value(value: widget.alertCoordinator),
+        ChangeNotifierProvider.value(value: widget.aisFavoritesService),
       ],
       child: MaterialApp(
         navigatorKey: _navigatorKey,
@@ -627,6 +637,40 @@ class _SignalKNotificationListenerState extends State<SignalKNotificationListene
     // If the callbackData is a SignalKNotification, use the full snackbar
     if (event.callbackData is SignalKNotification) {
       _showSignalKSnackbar(event.callbackData as SignalKNotification);
+      return;
+    }
+
+    // AIS Favorites: snackbar with "VIEW" action to highlight vessel on chart
+    if (event.subsystem == alert_models.AlertSubsystem.aisFavorites &&
+        event.callbackData is String) {
+      final vesselId = event.callbackData as String;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Row(
+            children: [
+              const Icon(Icons.favorite, color: Colors.white, size: 20),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  '${event.title} ${event.body}',
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Colors.white),
+                ),
+              ),
+            ],
+          ),
+          backgroundColor: Colors.blue.shade700,
+          duration: const Duration(seconds: 5),
+          behavior: SnackBarBehavior.floating,
+          action: SnackBarAction(
+            label: 'VIEW',
+            textColor: Colors.white,
+            onPressed: () {
+              final favService = Provider.of<AISFavoritesService>(context, listen: false);
+              favService.requestHighlight(vesselId);
+            },
+          ),
+        ),
+      );
       return;
     }
 
