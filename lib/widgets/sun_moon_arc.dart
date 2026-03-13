@@ -9,6 +9,19 @@ import 'package:flutter/material.dart';
 import 'weatherflow_forecast.dart';
 import '../utils/date_time_formatter.dart';
 
+/// Convert UTC time to device local time
+DateTime _toLocal(DateTime utc) => utc.toLocal();
+
+/// Convert local time to UTC
+DateTime _toUtc(DateTime local) {
+  if (local.isUtc) {
+    // Treat as local time even though marked UTC (used for day iteration)
+    final asLocal = DateTime(local.year, local.month, local.day, local.hour, local.minute);
+    return asLocal.toUtc();
+  }
+  return local.toUtc();
+}
+
 /// Available arc styles
 enum ArcStyle {
   /// 180° arc - half circle (default)
@@ -148,23 +161,21 @@ class SunMoonArcWidget extends StatelessWidget {
     bool showNoonIndicator = false;
 
     if (centerHour != null) {
-      // Center on specific hour - convert location hour to UTC
+      // Center on specific hour - convert local hour to UTC
       final dayOffset = selectedDayIndex ?? 0;
-      final utcOffsetHours = (times.utcOffsetSeconds ?? 0) / 3600;
 
       // Get the date for the selected day (on-demand, no day limit)
       final targetDate = now.add(Duration(days: dayOffset));
       final day = times.getTimesForDate(targetDate);
       final baseDate = day?.sunrise ?? day?.sunset ?? targetDate;
 
-      // Convert location hour to UTC: subtract the offset
-      // e.g., 6 AM PST (offset=-8) -> 6 - (-8) = 14:00 UTC
-      final utcHour = centerHour! - utcOffsetHours.round();
-      arcCenter = DateTime.utc(baseDate.year, baseDate.month, baseDate.day, utcHour, 0);
+      // Convert local hour to UTC
+      final localNoon = DateTime(baseDate.year, baseDate.month, baseDate.day, centerHour!, 0);
+      arcCenter = localNoon.toUtc();
 
       // Only show "now" if same hour AND same day (dayOffset == 0)
-      final locationNow = times.toLocationTime(now);
-      final isCurrentHourToday = (dayOffset == 0) && (centerHour == locationNow.hour);
+      final localNow = now.toLocal();
+      final isCurrentHourToday = (dayOffset == 0) && (centerHour == localNow.hour);
       showNoonIndicator = !isCurrentHourToday;
     } else if (selectedDayIndex != null && selectedDayIndex! > 0) {
       // Future day selected - center on noon (on-demand, no day limit)
@@ -256,15 +267,15 @@ class SunMoonArcWidget extends StatelessWidget {
     // Get days that fall within arc range (typically 1-2 days)
     // Must iterate through LOCATION days, then convert back to UTC for getTimesForDate
     final arcDays = <DaySunTimes>[];
-    final locationArcStart = times.toLocationTime(arcStart);
-    final locationArcEnd = times.toLocationTime(arcEnd);
+    final locationArcStart = _toLocal(arcStart);
+    final locationArcEnd = _toLocal(arcEnd);
     final startLocationDay = DateTime.utc(locationArcStart.year, locationArcStart.month, locationArcStart.day);
     final endLocationDay = DateTime.utc(locationArcEnd.year, locationArcEnd.month, locationArcEnd.day);
 
     var currentLocationDay = startLocationDay;
     while (!currentLocationDay.isAfter(endLocationDay)) {
       // Convert noon on this location day back to UTC for getTimesForDate
-      final noonUtc = times.toUtcFromLocation(
+      final noonUtc = _toUtc(
         DateTime.utc(currentLocationDay.year, currentLocationDay.month, currentLocationDay.day, 12),
       );
       final dayData = times.getTimesForDate(noonUtc);
@@ -559,7 +570,7 @@ class SunMoonArcWidget extends StatelessWidget {
     if (config.showInteriorTime) {
       final centerX = width / 2;
       // Use location time instead of device time
-      final locationTime = times.toLocationTime(now);
+      final locationTime = _toLocal(now);
       final timeStr = DateTimeFormatter.formatTime(locationTime, use24Hour: config.use24HourFormat);
       final dateStr = DateTimeFormatter.formatDateShort(locationTime);
       // Proportional font size based on widget height (gentle scaling)
@@ -695,6 +706,13 @@ class _SunMoonArcPainter extends CustomPainter {
       ..style = PaintingStyle.stroke
       ..strokeWidth = config.strokeWidth * scale;
 
+    // Background arc ensures full shape is always visible (night portions won't disappear)
+    final bgPaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = config.strokeWidth * scale
+      ..color = isDark ? Colors.white12 : Colors.black12;
+    _drawArcSegment(canvas, size, 0.0, 1.0, bgPaint, arcAngle);
+
     if (config.showTwilightSegments) {
       final segments = <_ArcSegment>[];
 
@@ -707,15 +725,15 @@ class _SunMoonArcPainter extends CustomPainter {
       // Get days that fall within arc range (typically 1-2 days)
       // Must iterate through LOCATION days, then convert back to UTC for getTimesForDate
       final arcDays = <DaySunTimes>[];
-      final locationArcStart = times.toLocationTime(arcStart);
-      final locationArcEnd = times.toLocationTime(arcEnd);
+      final locationArcStart = _toLocal(arcStart);
+      final locationArcEnd = _toLocal(arcEnd);
       final startLocationDay = DateTime.utc(locationArcStart.year, locationArcStart.month, locationArcStart.day);
       final endLocationDay = DateTime.utc(locationArcEnd.year, locationArcEnd.month, locationArcEnd.day);
 
       var currentLocationDay = startLocationDay;
       while (!currentLocationDay.isAfter(endLocationDay)) {
         // Convert noon on this location day back to UTC for getTimesForDate
-        final noonUtc = times.toUtcFromLocation(
+        final noonUtc = _toUtc(
           DateTime.utc(currentLocationDay.year, currentLocationDay.month, currentLocationDay.day, 12),
         );
         final dayData = times.getTimesForDate(noonUtc);
@@ -730,7 +748,7 @@ class _SunMoonArcPainter extends CustomPainter {
         // Night before dawn
         if (day.nauticalDawn != null) {
           final nightStart = day.nauticalDawn!.subtract(const Duration(hours: 6));
-          addSegment(nightStart, day.nauticalDawn, Colors.indigo.shade900.withValues(alpha: 0.5));
+          addSegment(nightStart, day.nauticalDawn, Colors.indigo.shade800.withValues(alpha: 0.7));
         }
         addSegment(day.nauticalDawn, day.dawn, Colors.indigo.shade700);
         addSegment(day.dawn, day.sunrise, Colors.indigo.shade400);
@@ -742,7 +760,7 @@ class _SunMoonArcPainter extends CustomPainter {
         addSegment(day.dusk, day.nauticalDusk, Colors.indigo.shade400);
         if (day.nauticalDusk != null) {
           final nightEnd = day.nauticalDusk!.add(const Duration(hours: 6));
-          addSegment(day.nauticalDusk, nightEnd, Colors.indigo.shade900.withValues(alpha: 0.5));
+          addSegment(day.nauticalDusk, nightEnd, Colors.indigo.shade800.withValues(alpha: 0.7));
         }
       }
 
@@ -961,8 +979,8 @@ class _SunMoonArcPainter extends CustomPainter {
     }
 
     // Edge time labels (at chord endpoints)
-    final startTime = times.toLocationTime(arcStart);
-    final endTime = times.toLocationTime(arcStart.add(const Duration(hours: 24)));
+    final startTime = _toLocal(arcStart);
+    final endTime = _toLocal(arcStart.add(const Duration(hours: 24)));
     drawLabel(0.0, _formatTime(startTime, includeMinutes: false), neutralColor, isEndpoint: true);
     drawLabel(1.0, _formatTime(endTime, includeMinutes: false), neutralColor, isEndpoint: true);
 
@@ -970,7 +988,7 @@ class _SunMoonArcPainter extends CustomPainter {
     if (times.sunrise != null) {
       final progress = times.sunrise!.difference(arcStart).inMinutes / 1440.0;
       if (progress >= 0 && progress <= 1) {
-        final local = times.toLocationTime(times.sunrise!);
+        final local = _toLocal(times.sunrise!);
         drawLabel(progress, _formatTime(local), Colors.amber, isEndpoint: false);
       }
     }
@@ -978,7 +996,7 @@ class _SunMoonArcPainter extends CustomPainter {
     if (times.sunset != null) {
       final progress = times.sunset!.difference(arcStart).inMinutes / 1440.0;
       if (progress >= 0 && progress <= 1) {
-        final local = times.toLocationTime(times.sunset!);
+        final local = _toLocal(times.sunset!);
         drawLabel(progress, _formatTime(local), Colors.deepOrange, isEndpoint: false);
       }
     }

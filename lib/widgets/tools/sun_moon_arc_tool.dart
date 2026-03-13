@@ -87,10 +87,23 @@ class _SunMoonArcToolState extends State<SunMoonArcTool> {
     _lng = lng;
 
     final now = DateTime.now().toUtc();
-    final today = DateTime.utc(now.year, now.month, now.day, 12);
-    final tomorrow = today.add(const Duration(days: 1));
+    // Use LOCAL date for yesterday/today/tomorrow so that todayIndex aligns
+    // with getTimesForDate() which indexes by local date. When UTC day != local
+    // day (e.g. 9 PM EDT = next day UTC), using UTC dates causes a one-day
+    // offset in the lookup.
+    final localNow = DateTime.now();
+    final localToday = DateTime(localNow.year, localNow.month, localNow.day, 12);
+    final yesterday = localToday.subtract(const Duration(days: 1)).toUtc();
+    final today = localToday.toUtc();
+    final tomorrow = localToday.add(const Duration(days: 1)).toUtc();
 
-    // Compute sun times for today and tomorrow
+    // Compute sun times for yesterday, today, and tomorrow
+    // The arc spans ±12 hours from now, so when UTC day != local day,
+    // we need yesterday's data for the left side of the arc.
+    final yesterdaySun = SunCalc.getTimes(yesterday, lat, lng);
+    final yesterdayMoon = MoonCalc.getTimes(yesterday, lat, lng);
+    final yesterdayMoonIllum = MoonCalc.getIllumination(yesterday);
+
     final todaySun = SunCalc.getTimes(today, lat, lng);
     final todayMoon = MoonCalc.getTimes(today, lat, lng);
     final todayMoonIllum = MoonCalc.getIllumination(today);
@@ -103,6 +116,27 @@ class _SunMoonArcToolState extends State<SunMoonArcTool> {
 
     final times = SunMoonTimes(
       days: [
+        DaySunTimes(
+          sunrise: yesterdaySun.sunrise,
+          sunset: yesterdaySun.sunset,
+          dawn: yesterdaySun.dawn,
+          dusk: yesterdaySun.dusk,
+          nauticalDawn: yesterdaySun.nauticalDawn,
+          nauticalDusk: yesterdaySun.nauticalDusk,
+          solarNoon: yesterdaySun.solarNoon,
+          goldenHour: yesterdaySun.goldenHour,
+          goldenHourEnd: yesterdaySun.goldenHourEnd,
+          night: yesterdaySun.night,
+          nightEnd: yesterdaySun.nightEnd,
+          moonrise: yesterdayMoon.rise,
+          moonset: yesterdayMoon.set,
+          alwaysDay: yesterdaySun.alwaysDay,
+          alwaysNight: yesterdaySun.alwaysNight,
+          moonAlwaysUp: yesterdayMoon.alwaysUp,
+          moonAlwaysDown: yesterdayMoon.alwaysDown,
+          moonPhase: yesterdayMoonIllum.phase,
+          moonFraction: yesterdayMoonIllum.fraction,
+        ),
         DaySunTimes(
           sunrise: todaySun.sunrise,
           sunset: todaySun.sunset,
@@ -146,7 +180,7 @@ class _SunMoonArcToolState extends State<SunMoonArcTool> {
           moonFraction: tomorrowMoonIllum.fraction,
         ),
       ],
-      todayIndex: 0,
+      todayIndex: 1,
       moonPhase: currentMoonIllum.phase,
       moonFraction: currentMoonIllum.fraction,
       moonAngle: currentMoonIllum.angle,
