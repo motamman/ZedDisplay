@@ -15,8 +15,12 @@ import '../../services/signalk_service.dart';
 import '../../services/storage_service.dart';
 import '../../services/tool_registry.dart';
 import '../../services/alarm_audio_player.dart';
+import '../../services/alert_coordinator.dart';
+import '../../services/dodge_autopilot_service.dart';
 import '../../services/find_home_target_service.dart';
+import '../../models/alert_event.dart';
 import '../../utils/angle_utils.dart';
+import '../../widgets/countdown_confirmation_overlay.dart';
 import '../../utils/cpa_utils.dart';
 import '../../utils/dodge_utils.dart';
 import '../tool_info_button.dart';
@@ -99,6 +103,11 @@ class _FindHomeToolState extends State<FindHomeTool> {
   bool _dodgeMode = false;       // dodge vs track view
   bool _dodgeBowPass = false;    // stern (default) vs bow
 
+  // Auto-dodge autopilot integration
+  DodgeAutopilotService? _dodgeAutopilotService;
+  bool _autoDodgeEnabled = false;
+  AlertCoordinator? _alertCoordinator;
+
   /// Safe pass distance in SI meters (from config, default 300m).
   /// Stored in SI; displayed via MetadataStore through _formatDistance().
   double get _dodgeSafeDistanceM {
@@ -153,6 +162,9 @@ class _FindHomeToolState extends State<FindHomeTool> {
         // Feedback will start once GPS stream delivers the first position
       }
 
+      // Alert coordinator for dodge notifications
+      _alertCoordinator = Provider.of<AlertCoordinator>(context, listen: false);
+
       // Listen for AIS target requests from the AIS chart
       _findHomeTargetService = Provider.of<FindHomeTargetService>(context, listen: false);
       _findHomeTargetService!.addListener(_onFindHomeTargetUpdate);
@@ -191,6 +203,7 @@ class _FindHomeToolState extends State<FindHomeTool> {
   }
 
   void _clearAisMode() {
+    _disengageAutoDodge();
     widget.signalKService.aisVesselRegistry.removeListener(_onAISRegistryUpdate);
     setState(() {
       _aisVesselId = null;
@@ -206,6 +219,8 @@ class _FindHomeToolState extends State<FindHomeTool> {
 
   @override
   void dispose() {
+    _dodgeAutopilotService?.deactivate();
+    _dodgeAutopilotService?.dispose();
     _hapticTimer?.cancel();
     _positionSub?.cancel();
     _whistlePlayer?.dispose();
@@ -569,6 +584,11 @@ class _FindHomeToolState extends State<FindHomeTool> {
 
     final targetCogDeg = vessel.cogRad! * 180.0 / math.pi;
 
+    // Feed dodge result to autopilot if auto-dodge is active
+    if (_autoDodgeEnabled && dodgeResult.isFeasible) {
+      _dodgeAutopilotService?.sendDodgeHeading(dodgeResult);
+    }
+
     return (
       bearing: AngleUtils.normalize(courseToSteerDeg),
       deviation: deviation,
@@ -580,6 +600,77 @@ class _FindHomeToolState extends State<FindHomeTool> {
       dodge: dodgeResult,
       targetCogDeg: AngleUtils.normalize(targetCogDeg),
     );
+  }
+
+  // --------------- Auto-dodge autopilot ---------------
+
+  Future<void> _handleAutoDodgeTap() async {
+    if (_autoDodgeEnabled) {
+      _disengageAutoDodge();
+      return;
+    }
+
+    // Lazy-create the service
+    _dodgeAutopilotService ??=
+        DodgeAutopilotService(signalKService: widget.signalKService);
+
+    // Step 1: Detect autopilot
+    final detected = await _dodgeAutopilotService!.detectAutopilot();
+    if (!detected) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No autopilot detected')),
+        );
+      }
+      return;
+    }
+
+    // Step 2: Verify AP in auto mode
+    final error = await _dodgeAutopilotService!.verifyAutopilotReady();
+    if (error != null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(error)),
+        );
+      }
+      return;
+    }
+
+    // Step 3: Countdown confirmation
+    if (!mounted) return;
+    final confirmed = await showCountdownConfirmation(
+      context: context,
+      title: 'Engage Auto-Dodge?',
+      action: 'Engage',
+      countdownSeconds: 5,
+    );
+    if (!confirmed) return;
+
+    // Step 4: Activate
+    _dodgeAutopilotService!.activate();
+    setState(() => _autoDodgeEnabled = true);
+
+    _alertCoordinator?.submitAlert(const AlertEvent(
+      subsystem: AlertSubsystem.dodge,
+      severity: AlertSeverity.alert,
+      title: 'Auto-Dodge',
+      body: 'Auto-dodge engaged — sending headings to autopilot',
+      wantsInAppSnackbar: true,
+    ));
+  }
+
+  void _disengageAutoDodge() {
+    if (!_autoDodgeEnabled) return;
+    _dodgeAutopilotService?.deactivate();
+    setState(() => _autoDodgeEnabled = false);
+
+    _alertCoordinator?.submitAlert(const AlertEvent(
+      subsystem: AlertSubsystem.dodge,
+      severity: AlertSeverity.alert,
+      title: 'Auto-Dodge',
+      body: 'Auto-dodge off. AP holding last heading.',
+      wantsInAppSnackbar: true,
+    ));
   }
 
   // --------------- Feedback engine ---------------
@@ -1347,7 +1438,11 @@ class _FindHomeToolState extends State<FindHomeTool> {
                       GestureDetector(
                         onTap: () => setState(() {
                           _dodgeMode = !_dodgeMode;
-                          if (_dodgeMode) _trackMode = true; // dodge uses SignalK position
+                          if (_dodgeMode) {
+                            _trackMode = true; // dodge uses SignalK position
+                          } else {
+                            _disengageAutoDodge(); // turning off dodge disengages auto-dodge
+                          }
                         }),
                         child: Container(
                           padding: const EdgeInsets.symmetric(
@@ -1401,6 +1496,61 @@ class _FindHomeToolState extends State<FindHomeTool> {
                           ),
                         ),
                       ),
+                      const SizedBox(width: 8),
+                      // AUTO button (auto-dodge to autopilot)
+                      GestureDetector(
+                        onTap: _handleAutoDodgeTap,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: _autoDodgeEnabled
+                                ? (_dodgeAutopilotService?.lastError != null
+                                    ? Colors.red.withValues(alpha: 0.3)
+                                    : Colors.green.withValues(alpha: 0.3))
+                                : Colors.grey.withValues(alpha: 0.2),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: _autoDodgeEnabled
+                                  ? (_dodgeAutopilotService?.lastError != null
+                                      ? Colors.red
+                                      : Colors.green)
+                                  : Colors.grey,
+                              width: 1,
+                            ),
+                          ),
+                          child: Text(
+                            'AUTO',
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                              color: _autoDodgeEnabled
+                                  ? (_dodgeAutopilotService?.lastError != null
+                                      ? Colors.red
+                                      : Colors.green)
+                                  : Colors.grey,
+                            ),
+                          ),
+                        ),
+                      ),
+                      // Status label showing last sent heading
+                      if (_autoDodgeEnabled) ...[
+                        const SizedBox(width: 4),
+                        Builder(builder: (_) {
+                          final status = _dodgeAutopilotService?.status;
+                          final hdg = status?.lastSentHeadingDeg;
+                          return Text(
+                            hdg != null
+                                ? 'AP\u2192${hdg.toStringAsFixed(0)}\u00B0'
+                                : 'AP\u2192...',
+                            style: const TextStyle(
+                              fontSize: 10,
+                              fontFamily: 'monospace',
+                              color: Colors.green,
+                            ),
+                          );
+                        }),
+                      ],
                       const SizedBox(width: 8),
                     ],
                   ],
