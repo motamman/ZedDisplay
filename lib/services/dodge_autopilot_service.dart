@@ -5,6 +5,9 @@ import 'autopilot_v2_api.dart';
 import 'signalk_service.dart';
 import '../utils/dodge_utils.dart';
 
+/// Why the dodge completed.
+enum DodgeCompletionReason { none, vesselsDiverging, dodgeInfeasible }
+
 /// Status record for UI display of dodge autopilot state.
 class DodgeAutopilotStatus {
   final bool active;
@@ -33,6 +36,9 @@ class DodgeAutopilotService {
   // Active state
   bool _active = false;
 
+  // Pre-dodge AP state (null if AP was already in 'auto')
+  String? _preDodgeApState;
+
   // Throttle / deadband tracking
   double? _lastSentHeadingRad;
   DateTime? _lastSentTime;
@@ -50,6 +56,7 @@ class DodgeAutopilotService {
 
   bool get isActive => _active;
   String? get lastError => _lastError;
+  String? get preDodgeApState => _preDodgeApState;
 
   DodgeAutopilotStatus get status => DodgeAutopilotStatus(
         active: _active,
@@ -89,28 +96,109 @@ class DodgeAutopilotService {
     }
   }
 
-  /// Verify the autopilot is in 'auto' mode and ready to accept heading commands.
-  /// Records the current target heading as pre-dodge heading.
+  /// Ensure the autopilot is in 'auto' mode, engaging it if necessary.
+  /// Remembers the pre-dodge state for later restoration.
   /// Returns null on success, or an error message.
-  Future<String?> verifyAutopilotReady() async {
+  Future<String?> ensureAutopilotInAuto() async {
     try {
-      // Check AP state from SignalK cache
       final stateData =
           _signalKService.getValue('steering.autopilot.state');
       final state = stateData?.value as String?;
 
       if (state == null) {
-        return 'Autopilot state unknown';
-      }
-      if (state != 'auto') {
-        return 'Autopilot not in auto mode (currently: $state)';
+        return 'Autopilot state not available';
       }
 
+      if (state == 'auto') {
+        _preDodgeApState = null; // already in auto, nothing to restore
+        _lastError = null;
+        return null;
+      }
+
+      // Remember current state for post-dodge recovery
+      _preDodgeApState = state;
+
+      // Switch to auto
+      if (_apiVersion?.isV2 == true &&
+          _v2Api != null &&
+          _selectedInstanceId != null) {
+        // V2: engage first if in standby, then set mode
+        if (state == 'standby') {
+          await _v2Api!.engage(_selectedInstanceId!);
+        }
+        await _v2Api!.setMode(_selectedInstanceId!, 'auto');
+      } else {
+        // V1: PUT state to 'auto'
+        await _signalKService.sendPutRequest(
+          'steering.autopilot.state',
+          'auto',
+        );
+      }
+
+      if (kDebugMode) {
+        print('DodgeAP: switched AP from "$state" to "auto"');
+      }
       _lastError = null;
       return null;
     } catch (e) {
-      return 'Failed to verify autopilot: $e';
+      return 'Failed to engage autopilot: $e';
     }
+  }
+
+  /// Restore the AP to its pre-dodge state (e.g., 'wind', 'route', 'standby').
+  Future<void> restorePreDodgeState() async {
+    final state = _preDodgeApState;
+    if (state == null) return;
+    try {
+      if (_apiVersion?.isV2 == true &&
+          _v2Api != null &&
+          _selectedInstanceId != null) {
+        if (state == 'standby') {
+          await _v2Api!.disengage(_selectedInstanceId!);
+        } else {
+          await _v2Api!.setMode(_selectedInstanceId!, state);
+        }
+      } else {
+        await _signalKService.sendPutRequest(
+          'steering.autopilot.state',
+          state,
+        );
+      }
+      if (kDebugMode) print('DodgeAP: restored AP to "$state"');
+    } catch (e) {
+      if (kDebugMode) print('DodgeAP: restore failed: $e');
+    }
+    _preDodgeApState = null;
+  }
+
+  /// Disengage the autopilot (set to standby).
+  Future<void> disengageAutopilot() async {
+    try {
+      if (_apiVersion?.isV2 == true &&
+          _v2Api != null &&
+          _selectedInstanceId != null) {
+        await _v2Api!.disengage(_selectedInstanceId!);
+      } else {
+        await _signalKService.sendPutRequest(
+          'steering.autopilot.state',
+          'standby',
+        );
+      }
+      if (kDebugMode) print('DodgeAP: disengaged AP');
+    } catch (e) {
+      if (kDebugMode) print('DodgeAP: disengage failed: $e');
+    }
+    _preDodgeApState = null;
+  }
+
+  /// Check whether the dodge maneuver has completed.
+  DodgeCompletionReason checkCompletion({
+    required double? tcpa,
+    required bool dodgeFeasible,
+  }) {
+    if (tcpa != null && tcpa <= 0) return DodgeCompletionReason.vesselsDiverging;
+    if (!dodgeFeasible) return DodgeCompletionReason.dodgeInfeasible;
+    return DodgeCompletionReason.none;
   }
 
   /// Activate auto-dodge heading updates.

@@ -41,6 +41,7 @@ class AutopilotWidget extends StatefulWidget {
   final VoidCallback? onEngageDisengage;
   final Function(String mode)? onModeChange;
   final Function(int degrees)? onAdjustHeading;
+  final Function(double heading)? onSetTarget;
   final Function(String direction)? onTack;
   final Function(String direction)? onGybe;
   final VoidCallback? onAdvanceWaypoint;
@@ -78,6 +79,7 @@ class AutopilotWidget extends StatefulWidget {
     this.onEngageDisengage,
     this.onModeChange,
     this.onAdjustHeading,
+    this.onSetTarget,
     this.onTack,
     this.onGybe,
     this.onAdvanceWaypoint,
@@ -94,6 +96,10 @@ class AutopilotWidget extends StatefulWidget {
 class _AutopilotWidgetState extends State<AutopilotWidget> {
   Timer? _dimTimer;
   double _controlsOpacity = 0.7;
+
+  // Target arrow dragging state
+  bool _isDraggingTarget = false;
+  double? _dragTargetHeading;
 
   @override
   void dispose() {
@@ -136,6 +142,80 @@ class _AutopilotWidgetState extends State<AutopilotWidget> {
     }
   }
 
+  // Target arrow dragging methods
+  void _onTargetDragStart(Offset localPosition, Size size) {
+    setState(() {
+      _isDraggingTarget = true;
+      _dragTargetHeading = widget.targetHeading;
+      _controlsOpacity = 0.7;
+    });
+    _dimTimer?.cancel();
+  }
+
+  void _onTargetDragUpdate(Offset localPosition, Size size) {
+    if (!_isDraggingTarget) return;
+
+    final center = Offset(size.width / 2, size.height / 2);
+    final dx = localPosition.dx - center.dx;
+    final dy = localPosition.dy - center.dy;
+
+    // Calculate screen angle from center (0 = top of screen, clockwise positive)
+    var screenAngle = math.atan2(dx, -dy) * 180 / math.pi;
+    if (screenAngle < 0) screenAngle += 360;
+
+    // Compass is rotated so currentHeading is at top — convert to compass heading
+    var heading = (screenAngle + widget.currentHeading) % 360;
+
+    setState(() {
+      _dragTargetHeading = heading;
+    });
+  }
+
+  void _onTargetDragEnd() {
+    if (!_isDraggingTarget || _dragTargetHeading == null) {
+      setState(() {
+        _isDraggingTarget = false;
+        _dragTargetHeading = null;
+      });
+      return;
+    }
+
+    final selectedHeading = _dragTargetHeading!;
+
+    setState(() {
+      _isDraggingTarget = false;
+      _dragTargetHeading = null;
+    });
+
+    _onHeadingAdjustmentSent();
+
+    // Show confirmation dialog
+    final isStandby = !widget.engaged;
+    showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(isStandby ? 'Engage & Set Heading' : 'Set Heading'),
+        content: Text(isStandby
+            ? 'Engage autopilot and set heading to ${selectedHeading.round()}°?'
+            : 'Set heading to ${selectedHeading.round()}°?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: Text(isStandby ? 'Engage' : 'Confirm'),
+          ),
+        ],
+      ),
+    ).then((confirmed) {
+      if (confirmed == true) {
+        widget.onSetTarget?.call(selectedHeading);
+      }
+    });
+  }
+
   // Removed: _normalizeAngle - now using AngleUtils.normalize()
 
   /// Build autopilot zones - SAME STYLE AS WIND COMPASS
@@ -167,24 +247,53 @@ class _AutopilotWidgetState extends State<AutopilotWidget> {
     // final usingTrueHeading = widget.headingTrue; // Unused for now
 
     // Target heading marker (needle with rounded end) - drawn first (below)
+    // Show drag position when dragging, otherwise actual target
+    final displayTargetHeading = _isDraggingTarget && _dragTargetHeading != null
+        ? _dragTargetHeading!
+        : widget.targetHeading;
+
     pointers.add(NeedlePointer(
-      value: widget.targetHeading,
+      value: displayTargetHeading,
       needleLength: 0.92,
       needleStartWidth: 0,
       needleEndWidth: 10,
-      needleColor: widget.primaryColor,
+      needleColor: _isDraggingTarget
+          ? const Color(0xFFFFD600)
+          : widget.primaryColor,
       knobStyle: const KnobStyle(knobRadius: 0),
     ));
 
     // Rounded end for target heading indicator
     pointers.add(MarkerPointer(
-      value: widget.targetHeading,
+      value: displayTargetHeading,
       markerType: MarkerType.circle,
-      markerHeight: 16,
-      markerWidth: 16,
-      color: widget.primaryColor,
+      markerHeight: _isDraggingTarget ? 20 : 16,
+      markerWidth: _isDraggingTarget ? 20 : 16,
+      color: _isDraggingTarget
+          ? const Color(0xFFFFD600)
+          : widget.primaryColor,
       markerOffset: -5,
     ));
+
+    // Show "ghost" marker at original position when dragging
+    if (_isDraggingTarget) {
+      pointers.add(NeedlePointer(
+        value: widget.targetHeading,
+        needleLength: 0.92,
+        needleStartWidth: 0,
+        needleEndWidth: 10,
+        needleColor: widget.primaryColor.withValues(alpha: 0.4),
+        knobStyle: const KnobStyle(knobRadius: 0),
+      ));
+      pointers.add(MarkerPointer(
+        value: widget.targetHeading,
+        markerType: MarkerType.circle,
+        markerHeight: 14,
+        markerWidth: 14,
+        color: widget.primaryColor.withValues(alpha: 0.4),
+        markerOffset: -5,
+      ));
+    }
 
     // Current heading indicator - only show dot (no needle) since vessel shadow shows direction
     // Rounded end for current heading indicator
@@ -291,6 +400,60 @@ class _AutopilotWidgetState extends State<AutopilotWidget> {
   /// Empty builder to hide heading labels inside compass
   Widget _buildEmptyHeadingDisplay(double headingDegrees, bool isActive) {
     return const SizedBox.shrink();
+  }
+
+  /// Build target info box during drag (shows drag heading)
+  Widget _buildDragTargetInfoBox() {
+    final dragHeading = _dragTargetHeading ?? widget.targetHeading;
+    double delta = dragHeading - widget.targetHeading;
+    while (delta > 180) { delta -= 360; }
+    while (delta < -180) { delta += 360; }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.8),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: const Color(0xFFFFD600), width: 2),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Text(
+            'DRAG TARGET',
+            style: TextStyle(
+              fontSize: 10,
+              color: Colors.white60,
+              fontWeight: FontWeight.bold,
+              letterSpacing: 1.2,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                '${dragHeading.toStringAsFixed(0)}°',
+                style: const TextStyle(
+                  fontSize: 16,
+                  color: Color(0xFFFFD600),
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                '${delta >= 0 ? '+' : ''}${delta.round()}°',
+                style: const TextStyle(
+                  fontSize: 12,
+                  color: Colors.white70,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
   }
 
   /// Build target info box
@@ -455,11 +618,53 @@ class _AutopilotWidgetState extends State<AutopilotWidget> {
           ),
         ),
 
+        // Target arrow drag overlay (long press to drag - works in Standby too to engage+set)
+        if (widget.mode == 'Auto' || widget.mode == 'Compass' || widget.mode == 'Standby')
+          Center(
+            child: FractionallySizedBox(
+              widthFactor: 0.85,
+              heightFactor: 0.85,
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final compassSize = Size(constraints.maxWidth, constraints.maxHeight);
+                  return GestureDetector(
+                    behavior: HitTestBehavior.translucent,
+                    onLongPressStart: (details) {
+                      _onTargetDragStart(details.localPosition, compassSize);
+                    },
+                    onLongPressMoveUpdate: (details) {
+                      _onTargetDragUpdate(details.localPosition, compassSize);
+                    },
+                    onLongPressEnd: (details) {
+                      _onTargetDragEnd();
+                    },
+                    onLongPressCancel: () {
+                      _onTargetDragEnd();
+                    },
+                    child: _isDraggingTarget
+                        ? CustomPaint(
+                            size: compassSize,
+                            painter: _DragIndicatorPainter(
+                              fromHeading: widget.currentHeading,
+                              dragHeading: _dragTargetHeading ?? widget.currentHeading,
+                              currentHeading: widget.currentHeading,
+                              primaryColor: widget.primaryColor,
+                            ),
+                          )
+                        : null,
+                  );
+                },
+              ),
+            ),
+          ),
+
         // Target box - top left corner
         Positioned(
           left: 16,
           top: 16,
-          child: _buildTargetInfoBox(),
+          child: _isDraggingTarget && _dragTargetHeading != null
+              ? _buildDragTargetInfoBox()
+              : _buildTargetInfoBox(),
         ),
 
         // Heading label - top right corner (shifted down to make room for info button)
@@ -1040,5 +1245,91 @@ class _NoGoZoneVPainter extends CustomPainter {
   bool shouldRepaint(_NoGoZoneVPainter oldDelegate) {
     return oldDelegate.windDirection != windDirection ||
            oldDelegate.noGoAngle != noGoAngle;
+  }
+}
+
+/// Custom painter for drag indicator arc between target and drag headings
+class _DragIndicatorPainter extends CustomPainter {
+  final double fromHeading;  // Arc starts here (current heading)
+  final double dragHeading;  // Arc ends here (selected heading)
+  final double currentHeading;  // For screen coordinate conversion
+  final Color primaryColor;
+
+  _DragIndicatorPainter({
+    required this.fromHeading,
+    required this.dragHeading,
+    required this.currentHeading,
+    required this.primaryColor,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+    final radius = math.min(size.width, size.height) / 2 * 0.85;
+
+    // Convert compass headings to screen angles
+    // Compass is rotated so currentHeading is at top of screen
+    // Canvas: 0° = right, -90° = top
+    // A compass heading H appears at screen angle: (H - currentHeading - 90)°
+    double startAngle = (fromHeading - currentHeading - 90) * math.pi / 180;
+    double endAngle = (dragHeading - currentHeading - 90) * math.pi / 180;
+
+    // Calculate sweep angle (shortest path)
+    double sweep = endAngle - startAngle;
+    while (sweep > math.pi) { sweep -= 2 * math.pi; }
+    while (sweep < -math.pi) { sweep += 2 * math.pi; }
+
+    // Draw the arc showing the change
+    final arcPaint = Paint()
+      ..color = const Color(0xFFFFD600).withValues(alpha: 0.5)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 20
+      ..strokeCap = StrokeCap.round;
+
+    canvas.drawArc(
+      Rect.fromCircle(center: center, radius: radius),
+      startAngle,
+      sweep,
+      false,
+      arcPaint,
+    );
+
+    // Show absolute heading at the drag position
+    final textPainter = TextPainter(
+      text: TextSpan(
+        text: '${dragHeading.round()}°',
+        style: TextStyle(
+          color: Colors.white,
+          fontSize: 24,
+          fontWeight: FontWeight.bold,
+          shadows: [
+            Shadow(
+              color: Colors.black.withValues(alpha: 0.8),
+              blurRadius: 4,
+              offset: const Offset(2, 2),
+            ),
+          ],
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+    );
+    textPainter.layout();
+
+    // Position text at the drag location (screen coordinates)
+    final textScreenAngle = (dragHeading - currentHeading - 90) * math.pi / 180;
+    final textRadius = radius * 0.6;
+    final textCenter = Offset(
+      center.dx + textRadius * math.cos(textScreenAngle) - textPainter.width / 2,
+      center.dy + textRadius * math.sin(textScreenAngle) - textPainter.height / 2,
+    );
+
+    textPainter.paint(canvas, textCenter);
+  }
+
+  @override
+  bool shouldRepaint(_DragIndicatorPainter oldDelegate) {
+    return oldDelegate.fromHeading != fromHeading ||
+           oldDelegate.dragHeading != dragHeading ||
+           oldDelegate.currentHeading != currentHeading;
   }
 }

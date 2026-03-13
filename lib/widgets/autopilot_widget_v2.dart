@@ -35,6 +35,7 @@ class AutopilotWidgetV2 extends StatefulWidget {
   final Function(int degrees)? onAdjustHeading;
   final Function(String direction)? onTack;
   final Function(String direction)? onGybe;
+  final Function(double heading)? onSetTarget;
   final VoidCallback? onAdvanceWaypoint;
   final VoidCallback? onDodgeToggle;
   final bool isV2Api;
@@ -68,6 +69,7 @@ class AutopilotWidgetV2 extends StatefulWidget {
     this.onAdjustHeading,
     this.onTack,
     this.onGybe,
+    this.onSetTarget,
     this.onAdvanceWaypoint,
     this.onDodgeToggle,
     this.isV2Api = false,
@@ -86,27 +88,10 @@ class _AutopilotWidgetV2State extends State<AutopilotWidgetV2> {
   // Target arrow dragging state
   bool _isDraggingTarget = false;
   double? _dragTargetHeading;
-  final List<int> _commandQueue = [];
-  bool _isProcessingCommands = false;
-  double? _lastAcknowledgedHeading;
-
-  @override
-  void didUpdateWidget(AutopilotWidgetV2 oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    // Check if target heading changed (command acknowledged)
-    if (_isProcessingCommands && _lastAcknowledgedHeading != null) {
-      final headingDiff = (widget.targetHeading - _lastAcknowledgedHeading!).abs();
-      if (headingDiff < 0.5 || headingDiff > 359.5) {
-        // Command was acknowledged, process next in queue
-        _processNextCommand();
-      }
-    }
-  }
 
   @override
   void dispose() {
     _dimTimer?.cancel();
-    _commandQueue.clear();
     super.dispose();
   }
 
@@ -138,8 +123,6 @@ class _AutopilotWidgetV2State extends State<AutopilotWidgetV2> {
 
   // Target arrow dragging methods
   void _onTargetDragStart(Offset localPosition, Size size) {
-    if (!widget.engaged) return;
-
     setState(() {
       _isDraggingTarget = true;
       _dragTargetHeading = widget.targetHeading;
@@ -155,12 +138,15 @@ class _AutopilotWidgetV2State extends State<AutopilotWidgetV2> {
     final dx = localPosition.dx - center.dx;
     final dy = localPosition.dy - center.dy;
 
-    // Calculate angle from center (0 = top, clockwise positive)
-    var angle = math.atan2(dx, -dy) * 180 / math.pi;
-    if (angle < 0) angle += 360;
+    // Calculate screen angle from center (0 = top of screen, clockwise positive)
+    var screenAngle = math.atan2(dx, -dy) * 180 / math.pi;
+    if (screenAngle < 0) screenAngle += 360;
+
+    // Compass is rotated so currentHeading is at top — convert to compass heading
+    var heading = (screenAngle + widget.currentHeading) % 360;
 
     setState(() {
-      _dragTargetHeading = angle;
+      _dragTargetHeading = heading;
     });
   }
 
@@ -173,87 +159,39 @@ class _AutopilotWidgetV2State extends State<AutopilotWidgetV2> {
       return;
     }
 
-    // Calculate the delta needed
-    double delta = _dragTargetHeading! - widget.targetHeading;
-
-    // Normalize to -180 to 180
-    while (delta > 180) { delta -= 360; }
-    while (delta < -180) { delta += 360; }
-
-    // Build command queue with 10° and 1° increments
-    _buildCommandQueue(delta);
+    final selectedHeading = _dragTargetHeading!;
 
     setState(() {
       _isDraggingTarget = false;
       _dragTargetHeading = null;
     });
 
-    // Start processing commands
-    _startProcessingCommands();
-  }
+    _onHeadingAdjustmentSent();
 
-  void _buildCommandQueue(double totalDelta) {
-    _commandQueue.clear();
-
-    int remaining = totalDelta.round();
-    final direction = remaining >= 0 ? 1 : -1;
-    remaining = remaining.abs();
-
-    // Add 10° increments
-    while (remaining >= 10) {
-      _commandQueue.add(10 * direction);
-      remaining -= 10;
-    }
-
-    // Add 1° increments for remainder
-    while (remaining >= 1) {
-      _commandQueue.add(1 * direction);
-      remaining -= 1;
-    }
-  }
-
-  void _startProcessingCommands() {
-    if (_commandQueue.isEmpty) return;
-
-    setState(() {
-      _isProcessingCommands = true;
-    });
-
-    _processNextCommand();
-  }
-
-  void _processNextCommand() {
-    if (_commandQueue.isEmpty) {
-      setState(() {
-        _isProcessingCommands = false;
-        _lastAcknowledgedHeading = null;
-      });
-      _onHeadingAdjustmentSent();
-      return;
-    }
-
-    final command = _commandQueue.removeAt(0);
-
-    // Calculate expected heading after this command
-    _lastAcknowledgedHeading = (widget.targetHeading + command) % 360;
-
-    // Send the command
-    widget.onAdjustHeading?.call(command);
-
-    // Set a timeout in case acknowledgment doesn't come
-    Future.delayed(const Duration(seconds: 3), () {
-      if (_isProcessingCommands && _commandQueue.isNotEmpty) {
-        // Timeout - try next command anyway
-        _processNextCommand();
+    // Show confirmation dialog
+    final isStandby = !widget.engaged;
+    showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(isStandby ? 'Engage & Set Heading' : 'Set Heading'),
+        content: Text(isStandby
+            ? 'Engage autopilot and set heading to ${selectedHeading.round()}°?'
+            : 'Set heading to ${selectedHeading.round()}°?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: Text(isStandby ? 'Engage' : 'Confirm'),
+          ),
+        ],
+      ),
+    ).then((confirmed) {
+      if (confirmed == true) {
+        widget.onSetTarget?.call(selectedHeading);
       }
-    });
-  }
-
-  void _cancelCommandQueue() {
-    setState(() {
-      _commandQueue.clear();
-      _isProcessingCommands = false;
-      _lastAcknowledgedHeading = null;
     });
   }
 
@@ -1033,8 +971,8 @@ class _AutopilotWidgetV2State extends State<AutopilotWidgetV2> {
                 ),
               ),
 
-              // Target arrow drag overlay (long press to drag)
-              if (widget.engaged && (widget.mode == 'Auto' || widget.mode == 'Compass'))
+              // Target arrow drag overlay (long press to drag - works in Standby too to engage+set)
+              if (widget.mode == 'Auto' || widget.mode == 'Compass' || widget.mode == 'Standby')
                 Center(
                   child: SizedBox(
                     width: compassSize,
@@ -1057,64 +995,13 @@ class _AutopilotWidgetV2State extends State<AutopilotWidgetV2> {
                           ? CustomPaint(
                               size: Size(compassSize, compassSize),
                               painter: _DragIndicatorPainter(
-                                targetHeading: widget.targetHeading,
-                                dragHeading: _dragTargetHeading ?? widget.targetHeading,
+                                fromHeading: widget.currentHeading,
+                                dragHeading: _dragTargetHeading ?? widget.currentHeading,
+                                currentHeading: widget.currentHeading,
                                 primaryColor: widget.primaryColor,
                               ),
                             )
                           : null,
-                    ),
-                  ),
-                ),
-
-              // Command queue progress indicator
-              if (_isProcessingCommands)
-                Positioned(
-                  top: 50,
-                  left: 0,
-                  right: 0,
-                  child: Center(
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                      decoration: BoxDecoration(
-                        color: Colors.black.withValues(alpha: 0.8),
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(
-                          color: const Color(0xFF00B0FF),
-                          width: 2,
-                        ),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const SizedBox(
-                            width: 14,
-                            height: 14,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: Color(0xFF00B0FF),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Text(
-                            'Moving... ${_commandQueue.length} left',
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 11,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          GestureDetector(
-                            onTap: _cancelCommandQueue,
-                            child: const Icon(
-                              Icons.close,
-                              size: 16,
-                              color: Colors.white70,
-                            ),
-                          ),
-                        ],
-                      ),
                     ),
                   ),
                 ),
@@ -1680,13 +1567,15 @@ class _AdvanceWaypointBananaPainter extends CustomPainter {
 
 /// Custom painter for drag indicator showing the arc between original and drag position
 class _DragIndicatorPainter extends CustomPainter {
-  final double targetHeading;
-  final double dragHeading;
+  final double fromHeading;  // Arc starts here (current heading)
+  final double dragHeading;  // Arc ends here (selected heading)
+  final double currentHeading;  // For screen coordinate conversion
   final Color primaryColor;
 
   _DragIndicatorPainter({
-    required this.targetHeading,
+    required this.fromHeading,
     required this.dragHeading,
+    required this.currentHeading,
     required this.primaryColor,
   });
 
@@ -1695,9 +1584,12 @@ class _DragIndicatorPainter extends CustomPainter {
     final center = Offset(size.width / 2, size.height / 2);
     final radius = math.min(size.width, size.height) / 2 * 0.85;
 
-    // Calculate the arc between target and drag position
-    double startAngle = (targetHeading - 90) * math.pi / 180; // Convert to radians, adjust for canvas coords
-    double endAngle = (dragHeading - 90) * math.pi / 180;
+    // Convert compass headings to screen angles
+    // Compass is rotated so currentHeading is at top of screen
+    // Canvas: 0° = right, -90° = top
+    // A compass heading H appears at screen angle: (H - currentHeading - 90)°
+    double startAngle = (fromHeading - currentHeading - 90) * math.pi / 180;
+    double endAngle = (dragHeading - currentHeading - 90) * math.pi / 180;
 
     // Calculate sweep angle (shortest path)
     double sweep = endAngle - startAngle;
@@ -1719,14 +1611,10 @@ class _DragIndicatorPainter extends CustomPainter {
       arcPaint,
     );
 
-    // Draw degrees indicator
-    double delta = dragHeading - targetHeading;
-    while (delta > 180) { delta -= 360; }
-    while (delta < -180) { delta += 360; }
-
+    // Show absolute heading at the drag position
     final textPainter = TextPainter(
       text: TextSpan(
-        text: '${delta >= 0 ? '+' : ''}${delta.round()}°',
+        text: '${dragHeading.round()}°',
         style: TextStyle(
           color: Colors.white,
           fontSize: 24,
@@ -1744,12 +1632,12 @@ class _DragIndicatorPainter extends CustomPainter {
     );
     textPainter.layout();
 
-    // Position at the drag location
-    final midAngle = (dragHeading - 90) * math.pi / 180;
+    // Position text at the drag location (screen coordinates)
+    final textScreenAngle = (dragHeading - currentHeading - 90) * math.pi / 180;
     final textRadius = radius * 0.6;
     final textCenter = Offset(
-      center.dx + textRadius * math.cos(midAngle) - textPainter.width / 2,
-      center.dy + textRadius * math.sin(midAngle) - textPainter.height / 2,
+      center.dx + textRadius * math.cos(textScreenAngle) - textPainter.width / 2,
+      center.dy + textRadius * math.sin(textScreenAngle) - textPainter.height / 2,
     );
 
     textPainter.paint(canvas, textCenter);
@@ -1757,7 +1645,8 @@ class _DragIndicatorPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_DragIndicatorPainter oldDelegate) {
-    return oldDelegate.targetHeading != targetHeading ||
-           oldDelegate.dragHeading != dragHeading;
+    return oldDelegate.fromHeading != fromHeading ||
+           oldDelegate.dragHeading != dragHeading ||
+           oldDelegate.currentHeading != currentHeading;
   }
 }
