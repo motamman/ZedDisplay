@@ -104,12 +104,15 @@ class _AISPolarChartState extends State<AISPolarChart>
   bool _fullScreenRadar = false; // Full-screen radar/map mode
   bool _showVesselListOverlay = false; // Vessel list overlay in fullscreen
   bool _hideStale = false; // Hide stale vessels from display
+  bool _showProjections = true; // Show projected course lines (declutter toggle)
   List<_VesselPoint> _displayVessels = []; // Cached filtered vessel list
   int _vesselListTabIndex = 0; // 0=Nearby, 1=Favorites
 
   // Throttle updates to prevent ANR on tablets
   DateTime? _lastUpdate;
   static const _updateThrottle = Duration(milliseconds: 500);
+
+  bool get _projectionsVisible => widget.showProjectedPositions && _showProjections;
 
   /// Helper to get raw SI value from a data point
   double? _getRawValue(String path) {
@@ -1174,6 +1177,16 @@ class _AISPolarChartState extends State<AISPolarChart>
                   right: 4,
                   child: _buildViewControls(context),
                 ),
+                // Declutter toggle (bottom left)
+                Positioned(
+                  bottom: 4,
+                  left: 4,
+                  child: _buildOverlayButton(
+                    icon: Icons.timeline,
+                    onPressed: () => setState(() => _showProjections = !_showProjections),
+                    color: _showProjections ? null : Colors.orange,
+                  ),
+                ),
                 // Stale + CPA (bottom right)
                 Positioned(
                   bottom: 4,
@@ -1719,7 +1732,7 @@ class _AISPolarChartState extends State<AISPolarChart>
 
     // Build projected position line series
     final projectionSeries = <CartesianSeries>[];
-    if (!widget.showProjectedPositions) {
+    if (!_projectionsVisible) {
       // Skip projection calculations
     } else {
     // Limit to closest ~20 moving vessels within display range
@@ -1963,7 +1976,7 @@ class _AISPolarChartState extends State<AISPolarChart>
           userAgentPackageName: 'com.zennora.signalk',
         ),
         // Projected position polylines
-        if (widget.showProjectedPositions)
+        if (_projectionsVisible)
           PolylineLayer(
             polylines: [
               ..._displayVessels
@@ -2058,7 +2071,7 @@ class _AISPolarChartState extends State<AISPolarChart>
               );
             }).whereType<Marker>(),
             // Projected position tick marks
-            if (widget.showProjectedPositions)
+            if (_projectionsVisible)
               ..._displayVessels
                   .where((v) => v.sogRaw != null && v.sogRaw! > 0.1 && v.latitude != null && v.longitude != null)
                   .take(20)
