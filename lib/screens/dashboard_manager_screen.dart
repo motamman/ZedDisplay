@@ -1021,16 +1021,12 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen>
     );
   }
 
-  /// Get color for connection state indicator dot
-  Color _getConnectionColor(SignalKConnectionState state) {
-    switch (state) {
-      case SignalKConnectionState.connected:
-        return Colors.green;
-      case SignalKConnectionState.reconnecting:
-        return Colors.orange;
-      case SignalKConnectionState.disconnected:
-        return Colors.red;
-    }
+  /// Get color for connection state indicator dot.
+  /// Orange when actively attempting reconnect, red when offline, green when connected.
+  Color _getConnectionColor(SignalKConnectionState state, bool activelyAttempting) {
+    if (state == SignalKConnectionState.connected) return Colors.green;
+    if (activelyAttempting) return Colors.orange;
+    return Colors.red;
   }
 
   /// Get display name from saved connection (falls back to hostname)
@@ -1155,10 +1151,12 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen>
         titleSpacing: 8,
         title: Consumer2<SignalKService, StorageService>(
           builder: (context, signalKService, storageService, child) {
-            return StreamBuilder<SignalKConnectionState>(
-              stream: signalKService.connectionStateStream,
-              builder: (context, snapshot) {
-                final state = snapshot.data ?? signalKService.connectionState;
+            return ListenableBuilder(
+              listenable: signalKService,
+              builder: (context, _) {
+                final state = signalKService.connectionState;
+                final isOffline = state != SignalKConnectionState.connected &&
+                    signalKService.wasConnected;
                 return Row(
                   children: [
                     // Colored dot indicator
@@ -1167,7 +1165,7 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen>
                       height: 10,
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
-                        color: _getConnectionColor(state),
+                        color: _getConnectionColor(state, signalKService.isActivelyAttempting),
                       ),
                     ),
                     const SizedBox(width: 8),
@@ -1184,6 +1182,11 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen>
                         ),
                       ),
                     ),
+                    // Reconnect status: attempt count + countdown + retry button
+                    if (isOffline) ...[
+                      const SizedBox(width: 8),
+                      _ReconnectStatus(signalKService: signalKService),
+                    ],
                   ],
                 );
               },
@@ -2136,5 +2139,71 @@ class _DeferredToolWidgetState extends State<_DeferredToolWidget> {
   @override
   Widget build(BuildContext context) {
     return _ready ? widget.child : const SizedBox.shrink();
+  }
+}
+
+/// Shows "attempt N  next attempt Ns" with a refresh icon for manual retry.
+/// Uses a periodic timer to update the countdown display.
+class _ReconnectStatus extends StatefulWidget {
+  final SignalKService signalKService;
+  const _ReconnectStatus({required this.signalKService});
+
+  @override
+  State<_ReconnectStatus> createState() => _ReconnectStatusState();
+}
+
+class _ReconnectStatusState extends State<_ReconnectStatus> {
+  Timer? _countdownTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    _startCountdown();
+  }
+
+  @override
+  void dispose() {
+    _countdownTimer?.cancel();
+    super.dispose();
+  }
+
+  void _startCountdown() {
+    _countdownTimer?.cancel();
+    _countdownTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final attempt = widget.signalKService.reconnectAttempt;
+    final secsLeft = widget.signalKService.secondsUntilNextAttempt;
+    final isAttempting = widget.signalKService.isActivelyAttempting;
+
+    final statusText = isAttempting
+        ? 'attempt $attempt  connecting...'
+        : 'attempt $attempt  next attempt ${secsLeft}s';
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          statusText,
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+            color: Colors.grey,
+            fontSize: 11,
+          ),
+        ),
+        const SizedBox(width: 4),
+        GestureDetector(
+          onTap: () => widget.signalKService.reconnect(),
+          child: Icon(
+            Icons.refresh,
+            size: 16,
+            color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5),
+          ),
+        ),
+      ],
+    );
   }
 }
