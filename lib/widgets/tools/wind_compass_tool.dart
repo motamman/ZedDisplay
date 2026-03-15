@@ -276,6 +276,18 @@ class WindCompassToolBuilder extends ToolBuilder {
           'customProperties.showAWANumbers',     // Show numeric AWA display with performance feedback (default: true)
           'customProperties.enableVMG',          // Enable VMG optimization with polar-based dynamic target AWA (default: false)
         ],
+        slotDefinitions: const [
+          SlotDefinition(roleLabel: 'Heading True', defaultPath: 'navigation.headingTrue'),
+          SlotDefinition(roleLabel: 'Heading Magnetic', defaultPath: 'navigation.headingMagnetic'),
+          SlotDefinition(roleLabel: 'Wind Direction True', defaultPath: 'environment.wind.directionTrue'),
+          SlotDefinition(roleLabel: 'Wind Angle Apparent', defaultPath: 'environment.wind.angleApparent'),
+          SlotDefinition(roleLabel: 'Wind Speed True', defaultPath: 'environment.wind.speedTrue'),
+          SlotDefinition(roleLabel: 'Wind Speed Apparent', defaultPath: 'environment.wind.speedApparent'),
+          SlotDefinition(roleLabel: 'Speed Over Ground', defaultPath: 'navigation.speedOverGround'),
+          SlotDefinition(roleLabel: 'Course Over Ground', defaultPath: 'navigation.courseOverGroundTrue'),
+          SlotDefinition(roleLabel: 'Waypoint Bearing', defaultPath: 'navigation.courseGreatCircle.nextPoint.bearingTrue'),
+          SlotDefinition(roleLabel: 'Waypoint Distance', defaultPath: 'navigation.courseGreatCircle.nextPoint.distance'),
+        ],
       ),
     );
   }

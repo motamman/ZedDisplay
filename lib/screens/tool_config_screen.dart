@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter_colorpicker/flutter_colorpicker.dart';
 import '../models/tool_config.dart';
+import '../models/tool_definition.dart' show SlotDefinition, ToolDefinition;
 import '../models/tool.dart';
 import '../services/signalk_service.dart';
 import '../services/tool_registry.dart';
@@ -148,6 +149,10 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
       }
     }
 
+    // Pad data sources to slot count if slot definitions exist
+    final definition = registry.getDefinition(toolTypeId);
+    _padDataSourcesToSlots(definition);
+
     // All tools default to full grid 8x8 - user can resize on dashboard
     _toolWidth = 8;
     _toolHeight = 8;
@@ -184,9 +189,43 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
 
     // NOTE: Tool-specific config is loaded by configurator's loadFromTool() method above
 
+    // Pad data sources to slot count if slot definitions exist
+    final registry = ToolRegistry();
+    final definition = registry.getDefinition(tool.toolTypeId);
+    _padDataSourcesToSlots(definition);
+
     // Size is managed in placements, not tools (default to full grid)
     _toolWidth = 8;
     _toolHeight = 8;
+  }
+
+  /// Pad _dataSources to match slotDefinitions length, filling missing slots
+  /// with defaults. Existing saved configs with fewer sources load correctly.
+  void _padDataSourcesToSlots(ToolDefinition? definition) {
+    final slots = definition?.configSchema.slotDefinitions;
+    if (slots == null) return;
+    while (_dataSources.length < slots.length) {
+      final slot = slots[_dataSources.length];
+      _dataSources.add(DataSource(
+        path: slot.defaultPath ?? '',
+      ));
+    }
+  }
+
+  /// Whether the current tool uses slot mode (fixed positional data sources).
+  bool get _isSlotMode {
+    if (_selectedToolTypeId == null) return false;
+    final registry = ToolRegistry();
+    final definition = registry.getDefinition(_selectedToolTypeId!);
+    return definition?.configSchema.slotDefinitions != null;
+  }
+
+  /// Get slot definitions for the current tool, or null.
+  List<SlotDefinition>? get _slotDefinitions {
+    if (_selectedToolTypeId == null) return null;
+    final registry = ToolRegistry();
+    final definition = registry.getDefinition(_selectedToolTypeId!);
+    return definition?.configSchema.slotDefinitions;
   }
 
   Future<void> _addDataSource() async {
@@ -281,10 +320,10 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
       builder: (context) => _EditDataSourceDialog(
         dataSource: dataSource,
         signalKService: signalKService,
-        onSave: (newSource, newLabel) {
+        onSave: (newPath, newSource, newLabel) {
           setState(() {
             _dataSources[index] = DataSource(
-              path: dataSource.path,
+              path: newPath ?? dataSource.path,
               source: newSource,
               label: newLabel?.trim().isEmpty == true ? null : newLabel,
             );
@@ -670,10 +709,14 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                         itemCount: _dataSources.length,
                         itemBuilder: (context, index) {
                           final ds = _dataSources[index];
+                          final slots = _slotDefinitions;
+                          final inSlotMode = slots != null;
 
-                          // Add role labels for tools with multiple indexed paths
+                          // Role labels: prefer slot definitions, fall back to hardcoded
                           String? roleLabel;
-                          if (_selectedToolTypeId == 'polar_radar_chart') {
+                          if (slots != null && index < slots.length) {
+                            roleLabel = slots[index].roleLabel;
+                          } else if (_selectedToolTypeId == 'polar_radar_chart') {
                             if (index == 0) {
                               roleLabel = 'Angle/Direction (e.g., wind direction, course)';
                             } else if (index == 1) {
@@ -721,19 +764,24 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
 
                           // Special display for webview
                           final isWebView = _selectedToolTypeId == 'webview';
+                          final isSlotEmpty = inSlotMode && ds.path.isEmpty;
+                          final slotIsRequired = inSlotMode && index < slots!.length && slots[index].required;
 
                           return Card(
                             child: ListTile(
                               leading: CircleAvatar(
+                                backgroundColor: isSlotEmpty
+                                    ? Colors.grey.shade700
+                                    : null,
                                 child: isWebView
                                     ? const Icon(Icons.web, size: 18)
                                     : Text('${index + 1}'),
                               ),
-                              title: Text(isWebView ? 'Web Page' : (ds.label ?? ds.path.split('.').last)),
+                              title: Text(isWebView ? 'Web Page' : (isSlotEmpty ? '(empty)' : (ds.label ?? ds.path.split('.').last))),
                               subtitle: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Text(isWebView ? (ds.label ?? 'No URL') : ds.path),
+                                  Text(isWebView ? (ds.label ?? 'No URL') : (isSlotEmpty ? 'Tap edit to assign a path' : ds.path)),
                                   if (roleLabel != null)
                                     Text(
                                       roleLabel,
@@ -752,10 +800,26 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                                     icon: const Icon(Icons.edit),
                                     onPressed: () => _editDataSource(index),
                                   ),
-                                  IconButton(
-                                    icon: const Icon(Icons.delete),
-                                    onPressed: () => _removeDataSource(index),
-                                  ),
+                                  if (inSlotMode) ...[
+                                    // Clear button instead of delete (only for non-required, non-empty slots)
+                                    if (!slotIsRequired && !isSlotEmpty)
+                                      IconButton(
+                                        icon: const Icon(Icons.clear),
+                                        tooltip: 'Clear this slot',
+                                        onPressed: () {
+                                          setState(() {
+                                            _dataSources[index] = DataSource(
+                                              path: '',
+                                            );
+                                          });
+                                        },
+                                      ),
+                                  ] else ...[
+                                    IconButton(
+                                      icon: const Icon(Icons.delete),
+                                      onPressed: () => _removeDataSource(index),
+                                    ),
+                                  ],
                                 ],
                               ),
                             ),
@@ -763,8 +827,8 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                         },
                       ),
                     const SizedBox(height: 16),
-                    // Add button
-                    if (_canAddMoreDataSources())
+                    // Add button (hidden in slot mode)
+                    if (!_isSlotMode && _canAddMoreDataSources())
                       Center(
                         child: ElevatedButton.icon(
                           onPressed: _addDataSource,
@@ -1156,7 +1220,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
 class _EditDataSourceDialog extends StatefulWidget {
   final DataSource dataSource;
   final SignalKService signalKService;
-  final Function(String?, String?) onSave;
+  final Function(String?, String?, String?) onSave; // (newPath, newSource, newLabel)
 
   const _EditDataSourceDialog({
     required this.dataSource,
@@ -1169,14 +1233,30 @@ class _EditDataSourceDialog extends StatefulWidget {
 }
 
 class _EditDataSourceDialogState extends State<_EditDataSourceDialog> {
+  late String _newPath;
   late String? _newSource;
   late String? _newLabel;
 
   @override
   void initState() {
     super.initState();
+    _newPath = widget.dataSource.path;
     _newSource = widget.dataSource.source;
     _newLabel = widget.dataSource.label;
+  }
+
+  Future<void> _selectPath() async {
+    await showDialog(
+      context: context,
+      builder: (context) => PathSelectorDialog(
+        signalKService: widget.signalKService,
+        onSelect: (path) {
+          setState(() {
+            _newPath = path;
+          });
+        },
+      ),
+    );
   }
 
   Future<void> _selectSource() async {
@@ -1184,7 +1264,7 @@ class _EditDataSourceDialogState extends State<_EditDataSourceDialog> {
       context: context,
       builder: (context) => SourceSelectorDialog(
         signalKService: widget.signalKService,
-        path: widget.dataSource.path,
+        path: _newPath,
         currentSource: _newSource,
         onSelect: (source) {
           setState(() {
@@ -1197,18 +1277,28 @@ class _EditDataSourceDialogState extends State<_EditDataSourceDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final displayPath = _newPath.isEmpty ? '(none)' : _newPath;
     return AlertDialog(
-      title: Text('Edit ${widget.dataSource.path}'),
+      title: Text('Edit ${widget.dataSource.label ?? widget.dataSource.path}'),
       content: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
+          // Path selection
+          ListTile(
+            leading: const Icon(Icons.route),
+            title: const Text('Path'),
+            subtitle: Text(displayPath),
+            trailing: const Icon(Icons.edit),
+            onTap: _selectPath,
+          ),
+          const Divider(),
           // Source selection
           ListTile(
             leading: const Icon(Icons.sensors),
             title: const Text('Data Source'),
             subtitle: Text(_newSource ?? 'Auto'),
             trailing: const Icon(Icons.edit),
-            onTap: _selectSource,
+            onTap: _newPath.isNotEmpty ? _selectSource : null,
           ),
           const SizedBox(height: 8),
           // Label input
@@ -1229,7 +1319,7 @@ class _EditDataSourceDialogState extends State<_EditDataSourceDialog> {
         ),
         TextButton(
           onPressed: () {
-            widget.onSave(_newSource, _newLabel);
+            widget.onSave(_newPath, _newSource, _newLabel);
             Navigator.of(context).pop();
           },
           child: const Text('Save'),
