@@ -107,6 +107,9 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
   LatLng? _dragPoint1Origin;
   LatLng? _dragPoint2Origin;
 
+  // Drag-to-resize handle
+  int? _draggingHandleIndex;
+
   // Vessel position
   LatLng? _vesselPosition;
   bool _centeredOnHomeport = false;
@@ -517,6 +520,19 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
     if (!mounted) return;
     final latLng = _mapController.camera
         .screenOffsetToLatLng(details.localPosition);
+
+    // Check if the long-press started on a handle → resize mode
+    final handleHit = _hitTestHandle(details.localPosition);
+    if (handleHit >= 0) {
+      setState(() {
+        _draggingHandleIndex = handleHit;
+        _dragPoint1Origin = _drawPoint1;
+        _dragPoint2Origin = _drawPoint2;
+      });
+      return;
+    }
+
+    // Otherwise, move-area mode
     if (!_isInsideArea(latLng)) return;
     setState(() {
       _isDraggingArea = true;
@@ -527,7 +543,51 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
   }
 
   void _onAreaDragUpdate(LongPressMoveUpdateDetails details) {
-    if (!mounted || !_isDraggingArea || _dragStartLatLng == null) return;
+    if (!mounted) return;
+
+    // Handle resize mode
+    if (_draggingHandleIndex != null) {
+      if (_drawPoint1 == null || _drawPoint2 == null) return;
+      final latLng = _mapController.camera
+          .screenOffsetToLatLng(details.localPosition);
+      final index = _draggingHandleIndex!;
+      setState(() {
+        if (_bboxParam != null) {
+          switch (index) {
+            case 0:
+              _drawPoint1 = LatLng(latLng.latitude, latLng.longitude);
+              break;
+            case 1:
+              _drawPoint1 = LatLng(latLng.latitude, _drawPoint1!.longitude);
+              _drawPoint2 = LatLng(_drawPoint2!.latitude, latLng.longitude);
+              break;
+            case 2:
+              _drawPoint2 = LatLng(latLng.latitude, latLng.longitude);
+              break;
+            case 3:
+              _drawPoint1 = LatLng(_drawPoint1!.latitude, latLng.longitude);
+              _drawPoint2 = LatLng(latLng.latitude, _drawPoint2!.longitude);
+              break;
+          }
+        } else if (_radiusParam != null) {
+          if (index == 0) {
+            final dLat = latLng.latitude - _drawPoint1!.latitude;
+            final dLng = latLng.longitude - _drawPoint1!.longitude;
+            _drawPoint1 = latLng;
+            _drawPoint2 = LatLng(
+              _drawPoint2!.latitude + dLat,
+              _drawPoint2!.longitude + dLng,
+            );
+          } else {
+            _drawPoint2 = latLng;
+          }
+        }
+      });
+      return;
+    }
+
+    // Move-area mode
+    if (!_isDraggingArea || _dragStartLatLng == null) return;
     final current = _mapController.camera
         .screenOffsetToLatLng(details.localPosition);
     final dLat = current.latitude - _dragStartLatLng!.latitude;
@@ -545,7 +605,8 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
   }
 
   void _onAreaDragEnd(LongPressEndDetails details) {
-    if (!mounted || !_isDraggingArea) return;
+    if (!mounted) return;
+    if (!_isDraggingArea && _draggingHandleIndex == null) return;
     // Recompute spatial param from new positions
     if (_bboxParam != null) {
       _computeBboxParam();
@@ -554,6 +615,7 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
     }
     setState(() {
       _isDraggingArea = false;
+      _draggingHandleIndex = null;
       _dragStartLatLng = null;
       _dragPoint1Origin = null;
       _dragPoint2Origin = null;
@@ -564,15 +626,42 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
   }
 
   void _onAreaDragCancel() {
-    if (!mounted || !_isDraggingArea) return;
+    if (!mounted) return;
+    if (!_isDraggingArea && _draggingHandleIndex == null) return;
     setState(() {
       _drawPoint1 = _dragPoint1Origin;
       _drawPoint2 = _dragPoint2Origin;
       _isDraggingArea = false;
+      _draggingHandleIndex = null;
       _dragStartLatLng = null;
       _dragPoint1Origin = null;
       _dragPoint2Origin = null;
     });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Handle hit-testing for resize
+  // ---------------------------------------------------------------------------
+
+  static const double _handleHitRadius = 24.0;
+
+  int _hitTestHandle(Offset screenPos) {
+    final positions = _handlePositions();
+    for (int i = 0; i < positions.length; i++) {
+      final screen = _mapController.camera.latLngToScreenOffset(positions[i]);
+      if ((screen - screenPos).distance <= _handleHitRadius) return i;
+    }
+    return -1;
+  }
+
+  List<LatLng> _handlePositions() {
+    if (_drawPoint1 == null || _drawPoint2 == null) return [];
+    if (_bboxParam != null) {
+      return _bboxCorners(_drawPoint1!, _drawPoint2!);
+    } else if (_radiusParam != null) {
+      return [_drawPoint1!, _drawPoint2!];
+    }
+    return [];
   }
 
   void _showModeSelectSheet() {
@@ -1131,7 +1220,8 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
               // Loading overlay
               if (_state == ExplorerState.loading) _buildLoadingOverlay(),
               // Dragging area overlay
-              if (_isDraggingArea) _buildDraggingOverlay(),
+              if (_isDraggingArea || _draggingHandleIndex != null)
+                _buildDraggingOverlay(),
               // No-position message
               if (_vesselPosition == null && _state == ExplorerState.idle)
                 _buildNoPositionOverlay(),
@@ -1159,29 +1249,30 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
     final canDrag = _state == ExplorerState.queryConfig ||
         _state == ExplorerState.results;
 
+    final isDragging = _isDraggingArea || _draggingHandleIndex != null;
+
     return Stack(
       children: [
-        FlutterMap(
-          mapController: _mapController,
-          options: MapOptions(
-            initialCenter: _mapCenter,
-            initialZoom: 12,
-            minZoom: 3,
-            maxZoom: 18,
-            onLongPress: _state == ExplorerState.idle
-                ? (_, _) {
-                    if (!mounted) return;
-                    setState(() => _state = ExplorerState.modeSelect);
-                    _showModeSelectSheet();
-                  }
-                : null,
-            onTap: _onMapTap,
-            interactionOptions: InteractionOptions(
-              flags: _isDraggingArea
-                  ? InteractiveFlag.all & ~InteractiveFlag.drag & ~InteractiveFlag.flingAnimation
-                  : InteractiveFlag.all,
+        // Wrap in IgnorePointer during drag to suppress map pan/fling
+        // without changing MapOptions (which would deactivate the widget).
+        IgnorePointer(
+          ignoring: isDragging,
+          child: FlutterMap(
+            mapController: _mapController,
+            options: MapOptions(
+              initialCenter: _mapCenter,
+              initialZoom: 12,
+              minZoom: 3,
+              maxZoom: 18,
+              onLongPress: _state == ExplorerState.idle
+                  ? (_, _) {
+                      if (!mounted) return;
+                      setState(() => _state = ExplorerState.modeSelect);
+                      _showModeSelectSheet();
+                    }
+                  : null,
+              onTap: _onMapTap,
             ),
-          ),
       children: [
         // Base map
         TileLayer(
@@ -1296,48 +1387,13 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
                 child: const Icon(Icons.navigation,
                     color: Colors.green, size: 24),
               ),
-            // Drawing point markers (diamond shape to distinguish from data)
-            if (_drawPoint1 != null)
-              Marker(
-                point: _drawPoint1!,
-                width: 22,
-                height: 22,
-                child: Transform.rotate(
-                  angle: 0.785398, // 45 degrees
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: Colors.deepPurple,
-                      borderRadius: BorderRadius.circular(3),
-                      border: Border.all(color: Colors.white, width: 2),
-                    ),
-                  ),
-                ),
-              ),
-            if (_drawPoint2 != null &&
-                (_state == ExplorerState.drawingBbox ||
-                    _state == ExplorerState.drawingRadius ||
-                    _state == ExplorerState.queryConfig ||
-                    _state == ExplorerState.loading ||
-                    _state == ExplorerState.results))
-              Marker(
-                point: _drawPoint2!,
-                width: 22,
-                height: 22,
-                child: Transform.rotate(
-                  angle: 0.785398,
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: Colors.deepPurple,
-                      borderRadius: BorderRadius.circular(3),
-                      border: Border.all(color: Colors.white, width: 2),
-                    ),
-                  ),
-                ),
-              ),
+            // Drawing point handles (diamond shape)
+            ..._buildHandleMarkers(),
           ],
         ),
       ],
     ),
+        ), // IgnorePointer
         // Drag-to-move overlay (above the map, only when area is drawn)
         if (canDrag)
           Positioned.fill(
@@ -1350,6 +1406,42 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
             ),
           ),
       ],
+    );
+  }
+
+  List<Marker> _buildHandleMarkers() {
+    if (_drawPoint1 == null) return [];
+    // During drawing, show only the points placed so far
+    if (_state == ExplorerState.drawingBbox ||
+        _state == ExplorerState.drawingRadius) {
+      final markers = <Marker>[_diamondMarker(_drawPoint1!)];
+      if (_drawPoint2 != null) markers.add(_diamondMarker(_drawPoint2!));
+      return markers;
+    }
+    // In queryConfig/loading/results, show all handle positions
+    if (_drawPoint2 == null) return [];
+    return _handlePositions().map((p) => _diamondMarker(p)).toList();
+  }
+
+  Marker _diamondMarker(LatLng point) {
+    return Marker(
+      point: point,
+      width: 32,
+      height: 32,
+      child: Center(
+        child: Transform.rotate(
+          angle: 0.785398,
+          child: Container(
+            width: 22,
+            height: 22,
+            decoration: BoxDecoration(
+              color: Colors.deepPurple,
+              borderRadius: BorderRadius.circular(3),
+              border: Border.all(color: Colors.white, width: 2),
+            ),
+          ),
+        ),
+      ),
     );
   }
 
@@ -1487,6 +1579,9 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
   }
 
   Widget _buildDraggingOverlay() {
+    final text = _draggingHandleIndex != null
+        ? 'Resizing area\u2026 release to re-query'
+        : 'Dragging area\u2026 release to re-query';
     return Positioned(
       top: 8,
       left: 8,
@@ -1496,9 +1591,9 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
           color: Colors.deepPurple.withValues(alpha: 0.8),
           borderRadius: BorderRadius.circular(6),
         ),
-        child: const Text(
-          'Dragging area\u2026 release to re-query',
-          style: TextStyle(color: Colors.white, fontSize: 12),
+        child: Text(
+          text,
+          style: const TextStyle(color: Colors.white, fontSize: 12),
         ),
       ),
     );
