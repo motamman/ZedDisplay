@@ -320,6 +320,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
       builder: (context) => _EditDataSourceDialog(
         dataSource: dataSource,
         signalKService: signalKService,
+        slotMode: _isSlotMode,
         onSave: (newPath, newSource, newLabel) {
           setState(() {
             _dataSources[index] = DataSource(
@@ -777,12 +778,20 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                                     ? const Icon(Icons.web, size: 18)
                                     : Text('${index + 1}'),
                               ),
-                              title: Text(isWebView ? 'Web Page' : (isSlotEmpty ? '(empty)' : (ds.label ?? ds.path.split('.').last))),
+                              title: Text(
+                                isWebView
+                                    ? 'Web Page'
+                                    : inSlotMode
+                                        ? (roleLabel ?? ds.path.split('.').last)
+                                        : isSlotEmpty
+                                            ? '(empty)'
+                                            : (ds.label ?? ds.path.split('.').last),
+                              ),
                               subtitle: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Text(isWebView ? (ds.label ?? 'No URL') : (isSlotEmpty ? 'Tap edit to assign a path' : ds.path)),
-                                  if (roleLabel != null)
+                                  if (!inSlotMode && roleLabel != null)
                                     Text(
                                       roleLabel,
                                       style: TextStyle(
@@ -1221,11 +1230,13 @@ class _EditDataSourceDialog extends StatefulWidget {
   final DataSource dataSource;
   final SignalKService signalKService;
   final Function(String?, String?, String?) onSave; // (newPath, newSource, newLabel)
+  final bool slotMode;
 
   const _EditDataSourceDialog({
     required this.dataSource,
     required this.signalKService,
     required this.onSave,
+    this.slotMode = false,
   });
 
   @override
@@ -1300,16 +1311,18 @@ class _EditDataSourceDialogState extends State<_EditDataSourceDialog> {
             trailing: const Icon(Icons.edit),
             onTap: _newPath.isNotEmpty ? _selectSource : null,
           ),
-          const SizedBox(height: 8),
-          // Label input
-          TextField(
-            decoration: const InputDecoration(
-              labelText: 'Custom Label',
-              border: OutlineInputBorder(),
+          if (!widget.slotMode) ...[
+            const SizedBox(height: 8),
+            // Label input
+            TextField(
+              decoration: const InputDecoration(
+                labelText: 'Custom Label',
+                border: OutlineInputBorder(),
+              ),
+              controller: TextEditingController(text: _newLabel),
+              onChanged: (value) => _newLabel = value,
             ),
-            controller: TextEditingController(text: _newLabel),
-            onChanged: (value) => _newLabel = value,
-          ),
+          ],
         ],
       ),
       actions: [
