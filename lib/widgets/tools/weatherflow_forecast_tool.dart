@@ -323,6 +323,7 @@ class WeatherFlowForecastToolBuilder extends ToolBuilder {
         ],
         allowsUnitSelection: false,
         allowsVisibilityToggles: false,
+        allowsTTL: false,
       ),
     );
   }

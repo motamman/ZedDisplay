@@ -2700,6 +2700,8 @@ class FindHomeToolBuilder extends ToolBuilder {
         maxPaths: 1,
         styleOptions: const [],
         allowsUnitSelection: false,
+        allowsVisibilityToggles: false,
+        allowsTTL: false,
       ),
       defaultWidth: 2,
       defaultHeight: 3,

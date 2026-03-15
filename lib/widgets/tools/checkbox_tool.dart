@@ -172,6 +172,8 @@ class CheckboxToolBuilder extends ToolBuilder {
           'secondaryColor',  // Inactive color
           'showLabel',
         ],
+        allowsUnitSelection: false,
+        allowsTTL: false,
       ),
     );
   }

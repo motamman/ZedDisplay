@@ -311,6 +311,9 @@ class WebViewToolBuilder extends ToolBuilder {
         maxPaths: 0,
         styleOptions: const ['url'],
         allowsDataSources: false,
+        allowsUnitSelection: false,
+        allowsVisibilityToggles: false,
+        allowsTTL: false,
       ),
     );
   }

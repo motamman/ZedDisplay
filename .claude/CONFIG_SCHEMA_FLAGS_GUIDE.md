@@ -121,35 +121,49 @@ ConfigSchema(
 
 ## Current Flag Assignments
 
-| Tool ID | DataSources | StyleConfig | UnitSelection | SecondaryColor | VisibilityToggles | TTL |
-|---------|:-----------:|:-----------:|:-------------:|:--------------:|:-----------------:|:---:|
-| *most tools* | * | * | * | | * | * |
-| server_manager | | | * | | * | |
-| crew_messages | | | * | | * | |
-| crew_list | | | * | | * | |
-| intercom | | | * | | * | |
-| file_share | | | * | | * | |
-| device_access_manager | | | | | | |
-| system_monitor | | | * | | * | * |
-| rpi_monitor | | | * | | * | * |
-| conversion_test | * | | * | | * | * |
-| weather_alerts | | | * | | * | * |
-| webview | | * | * | | * | * |
-| clock_alarm | | * | | | | |
-| weather_api_spinner | | * | | | | * |
-| victron_flow | | * | | | | |
-| sun_moon_arc | | * | | | | |
-| autopilot | * | * | | * | | |
-| autopilot_v2 | * | * | | | | |
-| autopilot_simple | * | * | | | | |
-| wind_compass | * | * | | * | | |
-| anchor_alarm | * | * | | | | |
-| position_display | * | * | | | | |
-| tanks | * | * | | | | * |
-| weatherflow_forecast | * | * | | | | * |
-| find_home | * | * | | | * | * |
-| switch | * | * | * | * | * | * |
-| checkbox | * | * | * | * | * | * |
-| windsteer | * | * | * | * | * | * |
+| Tool ID | DataSources | StyleConfig | UnitSelection | SecondaryColor | VisibilityToggles | TTL | MinMax |
+|---------|:-----------:|:-----------:|:-------------:|:--------------:|:-----------------:|:---:|:------:|
+| *standard instruments* | * | * | * | | * | * | * |
+| text_display | * | * | * | | * | | |
+| dropdown | * | * | * | | * | | * |
+| knob | * | * | * | | * | | * |
+| slider | * | * | * | | * | | * |
+| radial_gauge | * | * | * | | * | | * |
+| server_manager | | | * | | * | | |
+| crew_messages | | | * | | * | | |
+| crew_list | | | * | | * | | |
+| intercom | | | * | | * | | |
+| file_share | | | * | | * | | |
+| device_access_manager | | | | | | | |
+| system_monitor | | | * | | * | * | |
+| rpi_monitor | | | * | | * | * | |
+| conversion_test | * | | * | | * | * | |
+| weather_alerts | | | * | | * | * | |
+| webview | | * | | | | | |
+| clock_alarm | | * | | | | | |
+| weather_api_spinner | | * | | | | | |
+| weatherflow_forecast | * | * | | | | | |
+| victron_flow | | * | | | | | |
+| sun_moon_arc | | * | | | | | |
+| autopilot | * | * | | * | | | |
+| autopilot_v2 | * | * | | | | | |
+| autopilot_simple | * | * | | | | | |
+| wind_compass | * | * | | * | | | |
+| anchor_alarm | * | * | | | | | |
+| position_display | * | * | | | | | |
+| tanks | * | * | | | | * | |
+| find_home | * | * | | | | | |
+| switch | * | * | | * | | | |
+| checkbox | * | * | | * | | | |
+| windsteer | * | * | | * | | | |
+| forecast_spinner | * | * | | | | | |
+| ais_polar_chart | * | * | | | | | |
+| gnss_status | * | * | | | | | |
+| polar_radar_chart | * | * | | | | | |
+| realtime_chart | * | * | | | | | |
+| historical_chart | * | * | | | | | |
+| attitude_indicator | * | * | | | | | |
+| radial_bar_chart | * | * | | | | | |
+| compass_gauge | * | * | | | | | |
 
 `*` = feature enabled, blank = disabled

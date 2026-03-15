@@ -501,6 +501,7 @@ class WeatherApiSpinnerToolBuilder extends ToolBuilder {
         allowsDataSources: false,
         allowsUnitSelection: false,
         allowsVisibilityToggles: false,
+        allowsTTL: false,
       ),
     );
   }

@@ -329,6 +329,8 @@ class SwitchToolBuilder extends ToolBuilder {
           'showLabel',
           'showValue',       // Show ON/OFF text
         ],
+        allowsUnitSelection: false,
+        allowsTTL: false,
       ),
     );
   }

@@ -152,6 +152,9 @@ class RadialBarChartBuilder extends ToolBuilder {
           'innerRadius', // 0.0 to 1.0, default 0.4
           'gap', // gap between rings, 0.0 to 0.2, default 0.08
         ],
+        allowsUnitSelection: false,
+        allowsVisibilityToggles: false,
+        allowsTTL: false,
       ),
     );
   }

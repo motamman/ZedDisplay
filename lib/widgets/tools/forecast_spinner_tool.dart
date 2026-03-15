@@ -217,6 +217,9 @@ class ForecastSpinnerToolBuilder extends ToolBuilder {
           'primaryColor',
           'hoursToShow',
         ],
+        allowsUnitSelection: false,
+        allowsVisibilityToggles: false,
+        allowsTTL: false,
       ),
     );
   }

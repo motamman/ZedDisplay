@@ -232,6 +232,9 @@ class WindsteerToolBuilder extends ToolBuilder {
           'customProperties.showWaypoint',   // Show waypoint bearing (default: false)
           'customProperties.showWindSectors', // Show wind shift sectors (default: false)
         ],
+        allowsUnitSelection: false,
+        allowsVisibilityToggles: false,
+        allowsTTL: false,
       ),
     );
   }

@@ -241,6 +241,7 @@ class DropdownToolBuilder extends ToolBuilder {
           'showUnit',
           'unit',
         ],
+        allowsTTL: false,
       ),
     );
   }

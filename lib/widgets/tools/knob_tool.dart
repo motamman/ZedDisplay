@@ -278,6 +278,7 @@ class KnobToolBuilder extends ToolBuilder {
           'showValue',
           'showUnit',
         ],
+        allowsTTL: false,
       ),
     );
   }

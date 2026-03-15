@@ -215,6 +215,7 @@ class SliderToolBuilder extends ToolBuilder {
           'showValue',
           'showUnit',
         ],
+        allowsTTL: false,
       ),
     );
   }
