@@ -1418,6 +1418,10 @@ class ClockAlarmToolBuilder extends ToolBuilder {
           'primaryColor',
           'faceStyle',
         ],
+        allowsDataSources: false,
+        allowsUnitSelection: false,
+        allowsVisibilityToggles: false,
+        allowsTTL: false,
       ),
     );
   }

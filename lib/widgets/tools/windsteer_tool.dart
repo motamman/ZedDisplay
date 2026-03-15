@@ -214,6 +214,7 @@ class WindsteerToolBuilder extends ToolBuilder {
       configSchema: ConfigSchema(
         allowsMinMax: false,
         allowsColorCustomization: true,
+        allowsSecondaryColor: true,
         allowsMultiplePaths: true,
         minPaths: 1,
         maxPaths: 12,
@@ -231,6 +232,9 @@ class WindsteerToolBuilder extends ToolBuilder {
           'customProperties.showWaypoint',   // Show waypoint bearing (default: false)
           'customProperties.showWindSectors', // Show wind shift sectors (default: false)
         ],
+        allowsUnitSelection: false,
+        allowsVisibilityToggles: false,
+        allowsTTL: false,
       ),
     );
   }

@@ -588,6 +588,27 @@ tools:
       - All conversions follow server unit preferences (speed, distance)
       - Falls back to raw SI (m/s, meters) when no metadata available
 
+  historical_data_explorer:
+    name: "Historical Explorer"
+    description: |
+      Explore historical SignalK data by geographic area.
+
+      **How to use:**
+      - Long press the map to choose Bounding Box or Radius mode
+      - Tap to define the area (2 taps)
+      - Configure date range, paths, aggregation, and smoothing
+      - View results in summary bar and detail table
+
+      **Features:**
+      - Bounding box and radius spatial queries
+      - Up to 5 data paths with automatic batching
+      - SMA/EMA smoothing options
+      - Unit conversion via server preferences
+      - OpenSeaMap nautical chart overlay
+      - Homeport quick-center button
+    required_plugins:
+      - signalk-parquet
+
   forecast_spinner:
     name: "Forecast Spinner"
     description: |

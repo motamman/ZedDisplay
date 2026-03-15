@@ -121,6 +121,9 @@ class AttitudeIndicatorToolBuilder extends ToolBuilder {
           'maxPitch',
           'maxRoll',
         ],
+        allowsUnitSelection: false,
+        allowsVisibilityToggles: false,
+        allowsTTL: false,
       ),
     );
   }

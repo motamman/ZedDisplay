@@ -213,6 +213,8 @@ class CompassGaugeBuilder extends ToolBuilder {
           'showValue',
           'compassStyle', // 'classic', 'minimal', 'marine'
         ],
+        allowsUnitSelection: false,
+        allowsTTL: false,
       ),
     );
   }

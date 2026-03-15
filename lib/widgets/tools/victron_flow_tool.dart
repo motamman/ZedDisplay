@@ -1366,6 +1366,10 @@ class VictronFlowToolBuilder extends ToolBuilder {
         minPaths: 0,
         maxPaths: 0,
         styleOptions: const [],
+        allowsDataSources: false,
+        allowsUnitSelection: false,
+        allowsVisibilityToggles: false,
+        allowsTTL: false,
       ),
     );
   }

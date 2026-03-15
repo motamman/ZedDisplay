@@ -264,6 +264,9 @@ class GnssStatusToolBuilder extends ToolBuilder {
           'showSkyView',
           'showAccuracyCircle',
         ],
+        allowsUnitSelection: false,
+        allowsVisibilityToggles: false,
+        allowsTTL: false,
       ),
     );
   }

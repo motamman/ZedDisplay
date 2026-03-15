@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import '../models/historical_data.dart';
@@ -116,13 +117,11 @@ class HistoricalDataService {
     required DateTime to,
     int? resolution,
     String context = 'vessels.self',
+    String? bbox,
+    String? radius,
   }) async {
     if (paths.isEmpty) {
       throw ArgumentError('At least one path must be specified');
-    }
-
-    if (paths.length > 3) {
-      throw ArgumentError('Maximum 3 paths are supported');
     }
 
     final protocol = useSecureConnection ? 'https' : 'http';
@@ -141,6 +140,8 @@ class HistoricalDataService {
     if (resolution != null) {
       queryParams['resolution'] = resolution.toString();
     }
+    if (bbox != null) queryParams['bbox'] = bbox;
+    if (radius != null) queryParams['radius'] = radius;
 
     final uri = Uri.parse('$protocol://$serverUrl/signalk/v1/history/values')
         .replace(queryParameters: queryParams);
@@ -177,6 +178,61 @@ class HistoricalDataService {
       }
       rethrow;
     }
+  }
+
+  /// Fetch historical data with automatic batching for >3 paths
+  ///
+  /// Splits queries into batches of 3 paths and merges results.
+  Future<HistoricalDataResponse> fetchHistoricalDataBatched({
+    required List<String> paths,
+    required DateTime from,
+    required DateTime to,
+    int? resolution,
+    String context = 'vessels.self',
+    String? bbox,
+    String? radius,
+  }) async {
+    if (paths.length <= 3) {
+      return fetchHistoricalDataRange(
+        paths: paths, from: from, to: to,
+        resolution: resolution, context: context,
+        bbox: bbox, radius: radius,
+      );
+    }
+    // When spatial filtering, navigation.position must be in every batch
+    // so the server can correlate positions for filtering.
+    final hasSpatial = bbox != null || radius != null;
+    const posPath = 'navigation.position';
+    final hasPos = paths.contains(posPath);
+
+    // Remove position from the list to avoid double-counting in batches,
+    // then prepend it to each batch below.
+    final dataPaths = hasPos && hasSpatial
+        ? paths.where((p) => p != posPath).toList()
+        : paths;
+
+    // Each batch holds up to 3 paths (or 2 data paths + position)
+    final batchSize = hasSpatial && hasPos ? 2 : 3;
+    final batches = <List<String>>[];
+    for (var i = 0; i < dataPaths.length; i += batchSize) {
+      final batch = dataPaths.sublist(i, math.min(i + batchSize, dataPaths.length));
+      if (hasSpatial && hasPos) {
+        batch.insert(0, posPath);
+      }
+      batches.add(batch);
+    }
+    final results = await Future.wait(
+      batches.map((batch) => fetchHistoricalDataRange(
+        paths: batch, from: from, to: to,
+        resolution: resolution, context: context,
+        bbox: bbox, radius: radius,
+      )),
+    );
+    var merged = results.first;
+    for (var i = 1; i < results.length; i++) {
+      merged = HistoricalDataResponse.merge(merged, results[i]);
+    }
+    return merged;
   }
 
   /// Get available paths from the history API

@@ -332,6 +332,9 @@ class AISPolarChartBuilder extends ToolBuilder {
           'showGrid',          // Show grid lines
           'pruneMinutes',      // Minutes before vessel is removed from display
         ],
+        allowsUnitSelection: false,
+        allowsVisibilityToggles: false,
+        allowsTTL: false,
       ),
     );
   }

@@ -131,6 +131,9 @@ class PolarRadarChartBuilder extends ToolBuilder {
           'updateInterval',    // Update interval in milliseconds (default: 500)
           'maxMagnitude',      // Max value for radial axis (0 = auto-scale)
         ],
+        allowsUnitSelection: false,
+        allowsVisibilityToggles: false,
+        allowsTTL: false,
       ),
     );
   }

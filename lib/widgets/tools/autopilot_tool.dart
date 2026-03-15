@@ -1005,6 +1005,10 @@ class AutopilotToolBuilder extends ToolBuilder {
           'targetTolerance',  // Number: acceptable deviation from target (degrees) - same as wind compass
           'fadeDelaySeconds', // Number: seconds before controls fade (default: 5)
         ],
+        allowsUnitSelection: false,
+        allowsVisibilityToggles: false,
+        allowsTTL: false,
+        allowsSecondaryColor: true,
       ),
     );
   }

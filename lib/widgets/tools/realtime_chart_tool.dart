@@ -216,6 +216,9 @@ class RealtimeChartBuilder extends ToolBuilder {
           'showMovingAverage', // Show moving average line (default: false)
           'movingAverageWindow', // Moving average window size in data points (default: 5)
         ],
+        allowsUnitSelection: false,
+        allowsVisibilityToggles: false,
+        allowsTTL: false,
       ),
     );
   }

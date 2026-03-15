@@ -885,6 +885,9 @@ class AutopilotToolV2Builder extends ToolBuilder {
           'targetTolerance',
           'fadeDelaySeconds',
         ],
+        allowsUnitSelection: false,
+        allowsVisibilityToggles: false,
+        allowsTTL: false,
       ),
     );
   }

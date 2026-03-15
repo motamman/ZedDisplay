@@ -761,6 +761,11 @@ class DeviceAccessManagerToolBuilder extends ToolBuilder {
         minPaths: 0,
         maxPaths: 0,
         styleOptions: const [],
+        allowsDataSources: false,
+        allowsStyleConfig: false,
+        allowsUnitSelection: false,
+        allowsVisibilityToggles: false,
+        allowsTTL: false,
       ),
     );
   }

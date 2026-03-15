@@ -440,6 +440,9 @@ class PositionDisplayToolBuilder extends ToolBuilder {
         minPaths: 0,
         maxPaths: 1,
         styleOptions: const [],
+        allowsUnitSelection: false,
+        allowsVisibilityToggles: false,
+        allowsTTL: false,
       ),
     );
   }

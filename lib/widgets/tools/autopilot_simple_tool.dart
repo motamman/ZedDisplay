@@ -434,6 +434,9 @@ class AutopilotSimpleToolBuilder extends ToolBuilder {
         styleOptions: const [
           'primaryColor',
         ],
+        allowsUnitSelection: false,
+        allowsVisibilityToggles: false,
+        allowsTTL: false,
       ),
     );
   }

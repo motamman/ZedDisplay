@@ -43,6 +43,7 @@ import '../widgets/tools/device_access_manager_tool.dart';
 import '../widgets/tools/user_management_tool.dart';
 import '../widgets/tools/find_home_tool.dart';
 import '../widgets/tools/sun_moon_arc_tool.dart';
+import '../widgets/tools/historical_data_explorer_tool.dart';
 
 /// Abstract builder for tool widgets
 abstract class ToolBuilder {
@@ -70,7 +71,13 @@ class ToolRegistry {
     _builders[toolTypeId] = builder;
   }
 
-  /// Build a tool widget from configuration
+  /// Tools that work without a server connection
+  static const _independentTools = {
+    'system_monitor', 'webview', 'find_home',
+  };
+
+  /// Build a tool widget from configuration.
+  /// Server-dependent tools are dimmed when disconnected to signal stale data.
   Widget buildTool(String toolTypeId, ToolConfig config, SignalKService service) {
     final builder = _builders[toolTypeId];
     if (builder == null) {
@@ -81,7 +88,22 @@ class ToolRegistry {
         ),
       );
     }
-    return builder.build(config, service);
+    final toolWidget = builder.build(config, service);
+
+    // Independent tools stay at full brightness regardless of connection state
+    if (_independentTools.contains(toolTypeId)) {
+      return toolWidget;
+    }
+
+    return ListenableBuilder(
+      listenable: service,
+      builder: (context, _) {
+        if (service.connectionState == SignalKConnectionState.connected) {
+          return toolWidget;
+        }
+        return Opacity(opacity: 0.6, child: toolWidget);
+      },
+    );
   }
 
   /// Get definition for a tool type
@@ -157,6 +179,7 @@ class ToolRegistry {
     register('user_management', UserManagementToolBuilder());
     register('find_home', FindHomeToolBuilder());
     register('sun_moon_arc', SunMoonArcToolBuilder());
+    register('historical_data_explorer', HistoricalDataExplorerBuilder());
     // register('webview', WebViewToolBuilder()); // Hidden for now - uncomment to enable
   }
 }

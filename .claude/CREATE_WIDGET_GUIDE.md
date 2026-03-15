@@ -15,7 +15,7 @@ Guide to adding a new dashboard tool to ZedDisplay. A "tool" is a widget that us
 |------|-------------|
 | `lib/services/tool_registry.dart` | Import + `register('tool_id', YourToolBuilder())` in `registerDefaults()` |
 | `lib/screens/tool_config/tool_configurator_factory.dart` | Import + `case` in `create()` + add to `getConfiguratorToolTypes()` list |
-| `lib/screens/tool_config_screen.dart` | Exclusion lists (see below) |
+| `lib/screens/tool_config_screen.dart` | No changes needed — flags on ConfigSchema control visibility |
 
 ## Step 1: Tool Widget + Builder
 
@@ -213,59 +213,41 @@ case 'my_tool':
 'my_tool',
 ```
 
-## Step 4: Config Screen Exclusions
+## Step 4: Config Screen Flags
 
-`lib/screens/tool_config_screen.dart` has multiple hardcoded exclusion lists. If your tool doesn't need a standard section, add your tool ID to the relevant list(s). **All are in `tool_config_screen.dart`.**
+The config screen reads boolean flags from your tool's `ConfigSchema` to decide which sections to show. No changes to `tool_config_screen.dart` needed — just set the right flags in your `getDefinition()`.
 
-### 1. Save button enabled (~line 622)
+See `.claude/CONFIG_SCHEMA_FLAGS_GUIDE.md` for the full reference.
 
-The Save button is disabled when `_dataSources.isEmpty` unless your tool is listed here. **If your tool has no paths, you MUST add it or Save stays greyed out.**
+### Quick reference
 
-```dart
-onPressed: _selectedToolTypeId != null && (_dataSources.isNotEmpty || _selectedToolTypeId == 'webview' || ... || _selectedToolTypeId == 'sun_moon_arc')
-```
+Set these on your `ConfigSchema` (only the ones that differ from defaults):
 
-### 2. Save validation (~line 429)
+| Flag | Default | Set `false` when... |
+|------|---------|---------------------|
+| `allowsDataSources` | `true` | Tool doesn't use SignalK path picker |
+| `allowsStyleConfig` | `true` | Tool has zero style config (hides entire style card) |
+| `allowsUnitSelection` | `true` | Tool handles its own units |
+| `allowsVisibilityToggles` | `true` | Tool handles its own label/value/unit display |
+| `allowsTTL` | `true` | Tool manages its own data staleness |
 
-Same concept — `_saveTool()` silently returns if data sources are empty unless your tool is listed. **Must match list #1.**
+Set `true` (default is `false`):
 
-```dart
-if (_selectedToolTypeId != 'webview' && ... && _selectedToolTypeId != 'sun_moon_arc' && _dataSources.isEmpty) return;
-```
+| Flag | Set `true` when... |
+|------|---------------------|
+| `allowsSecondaryColor` | Tool uses a secondary color (requires `allowsColorCustomization: true`) |
 
-### 3. Data Sources card (~line 636)
-
-Hides the "Configure Data Sources" card (the SignalK path picker). Add your tool if it doesn't use standard path selection.
-
-```dart
-if (_selectedToolTypeId != 'webview' && ... && _selectedToolTypeId != 'sun_moon_arc')
-```
-
-### 4. Standard style options inside `_buildStyleOptions()`
-
-The "Configure Style" card renders both standard options AND your custom configurator. The card itself should NOT be excluded if you have a custom configurator. Instead, add your tool to the individual option exclusion lists within `_buildStyleOptions()`:
-
-- **`excludeUnitOptions`** (~line 941): Hides the "Unit" text field
-- **`excludeShowHideOptions`** (~line 1030): Hides Show Label / Show Value / Show Unit switches
-- **`excludeTTLOptions`** (~line 1063): Hides the Data Staleness Threshold dropdown
+### Example: No-path tool with custom configurator
 
 ```dart
-const excludeUnitOptions = ['autopilot', ..., 'sun_moon_arc'];
-const excludeShowHideOptions = ['autopilot', ..., 'sun_moon_arc'];
-const excludeTTLOptions = ['autopilot', ..., 'sun_moon_arc'];
+ConfigSchema(
+  allowsDataSources: false,
+  allowsUnitSelection: false,
+  allowsVisibilityToggles: false,
+  allowsTTL: false,
+  // Keep allowsStyleConfig: true (default) — your configurator renders inside the style card
+)
 ```
-
-### Summary: No-path tool with custom configurator
-
-If your tool has no SignalK paths and has its own configurator, add it to ALL of these:
-1. Save button enabled list (line ~622)
-2. Save validation list (line ~429)
-3. Data Sources card exclusion (line ~636)
-4. `excludeUnitOptions` (line ~941)
-5. `excludeShowHideOptions` (line ~1030)
-6. `excludeTTLOptions` (line ~1063)
-
-Do NOT add it to the Style Config card exclusion (line ~782) — that would hide your custom configurator too.
 
 ## ToolCategory Options
 
