@@ -1,4 +1,37 @@
-# What's New in v0.5.60
+# What's New in v0.5.62
+
+## Release Notes (Google Play - max 500 chars)
+
+v0.5.62 Wind Compass Slots, Dodge Autopilot & Raymarine
+
+NEW: Wind compass config uses fixed named slots — no more index corruption from add/delete. All tools now support path editing in the data source dialog.
+
+NEW: Dodge mode saves/restores autopilot heading and auto-disengages on completion. Raymarine hull type and auto-turn settings.
+
+## Release Notes (App Store / TestFlight - max 4000 chars)
+
+### Wind Compass Slot Definitions (NEW)
+- **Named Slots** - 10 fixed slots (Heading True/Magnetic, Wind Direction True, Wind Angle Apparent, Wind Speed True/Apparent, SOG, COG, Waypoint Bearing, Waypoint Distance)
+- **No More Index Corruption** - Add/delete buttons hidden; slots can be cleared or have their path changed
+- **Path Editing** - Tap edit on any slot to change its SignalK path via the path selector
+- **Role Labels** - Each slot shows its role name as the title, path as subtitle
+
+### Path Editing in Edit Dialog (NEW)
+- **All Tools** - Every tool's edit data source dialog now includes a Path tile to change the SignalK path
+- **Path Selector** - Opens the full path browser to pick a new path
+
+### Dodge Autopilot (NEW)
+- **Pre-Dodge State** - Saves current autopilot heading before engaging dodge mode
+- **Auto-Restore** - Restores original heading when dodge completes
+- **Completion Checks** - Automatically disengages dodge mode when maneuver is complete
+
+### Raymarine Settings (NEW)
+- **Hull Type** - Select hull type for autopilot calculations
+- **Auto-Turn Speed** - Configure turn rate for autopilot heading changes
+
+---
+
+# Previous: v0.5.60
 
 ## Release Notes (Google Play - max 500 chars)
 

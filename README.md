@@ -105,6 +105,7 @@ A customizable SignalK marine dashboard and crew comms application to display re
 
 **Navigation Tools**
 - **Wind Compass**: Advanced compass with multiple sailing modes
+  - **Fixed Slot Configuration**: 10 named data source slots (heading, wind, speed, waypoint) — no index corruption from add/delete
   - **Target AWA Mode**: Performance steering with configurable target angles and tolerance zones
   - **Laylines Mode**: True navigation laylines for upwind waypoint navigation with "can fetch" indicators
   - **VMG Mode**: Real-time Velocity Made Good with polar-based optimization
