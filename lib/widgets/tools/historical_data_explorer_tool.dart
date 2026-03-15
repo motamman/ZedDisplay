@@ -101,6 +101,12 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
   String? _bboxParam;
   String? _radiusParam;
 
+  // Drag-to-move area
+  bool _isDraggingArea = false;
+  LatLng? _dragStartLatLng;
+  LatLng? _dragPoint1Origin;
+  LatLng? _dragPoint2Origin;
+
   // Vessel position
   LatLng? _vesselPosition;
   bool _centeredOnHomeport = false;
@@ -485,10 +491,88 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
   // Map interaction
   // ---------------------------------------------------------------------------
 
-  void _onMapLongPress(TapPosition tapPosition, LatLng point) {
-    if (_state != ExplorerState.idle) return;
-    setState(() => _state = ExplorerState.modeSelect);
-    _showModeSelectSheet();
+  bool _isInsideArea(LatLng point) {
+    if (_drawPoint1 == null || _drawPoint2 == null) return false;
+    if (_bboxParam != null) {
+      final minLat = math.min(_drawPoint1!.latitude, _drawPoint2!.latitude);
+      final maxLat = math.max(_drawPoint1!.latitude, _drawPoint2!.latitude);
+      final minLng = math.min(_drawPoint1!.longitude, _drawPoint2!.longitude);
+      final maxLng = math.max(_drawPoint1!.longitude, _drawPoint2!.longitude);
+      return point.latitude >= minLat &&
+          point.latitude <= maxLat &&
+          point.longitude >= minLng &&
+          point.longitude <= maxLng;
+    }
+    if (_radiusParam != null) {
+      final dist = const Distance().as(
+          LengthUnit.Meter, _drawPoint1!, point);
+      final edgeDist = const Distance().as(
+          LengthUnit.Meter, _drawPoint1!, _drawPoint2!);
+      return dist <= edgeDist;
+    }
+    return false;
+  }
+
+  void _onAreaDragStart(LongPressStartDetails details) {
+    if (!mounted) return;
+    final latLng = _mapController.camera
+        .screenOffsetToLatLng(details.localPosition);
+    if (!_isInsideArea(latLng)) return;
+    setState(() {
+      _isDraggingArea = true;
+      _dragStartLatLng = latLng;
+      _dragPoint1Origin = _drawPoint1;
+      _dragPoint2Origin = _drawPoint2;
+    });
+  }
+
+  void _onAreaDragUpdate(LongPressMoveUpdateDetails details) {
+    if (!mounted || !_isDraggingArea || _dragStartLatLng == null) return;
+    final current = _mapController.camera
+        .screenOffsetToLatLng(details.localPosition);
+    final dLat = current.latitude - _dragStartLatLng!.latitude;
+    final dLng = current.longitude - _dragStartLatLng!.longitude;
+    setState(() {
+      _drawPoint1 = LatLng(
+        _dragPoint1Origin!.latitude + dLat,
+        _dragPoint1Origin!.longitude + dLng,
+      );
+      _drawPoint2 = LatLng(
+        _dragPoint2Origin!.latitude + dLat,
+        _dragPoint2Origin!.longitude + dLng,
+      );
+    });
+  }
+
+  void _onAreaDragEnd(LongPressEndDetails details) {
+    if (!mounted || !_isDraggingArea) return;
+    // Recompute spatial param from new positions
+    if (_bboxParam != null) {
+      _computeBboxParam();
+    } else if (_radiusParam != null) {
+      _computeRadiusParam();
+    }
+    setState(() {
+      _isDraggingArea = false;
+      _dragStartLatLng = null;
+      _dragPoint1Origin = null;
+      _dragPoint2Origin = null;
+    });
+    if (_selectedPaths.isNotEmpty) {
+      _executeQuery();
+    }
+  }
+
+  void _onAreaDragCancel() {
+    if (!mounted || !_isDraggingArea) return;
+    setState(() {
+      _drawPoint1 = _dragPoint1Origin;
+      _drawPoint2 = _dragPoint2Origin;
+      _isDraggingArea = false;
+      _dragStartLatLng = null;
+      _dragPoint1Origin = null;
+      _dragPoint2Origin = null;
+    });
   }
 
   void _showModeSelectSheet() {
@@ -1046,6 +1130,8 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
                 _buildDrawingInstructions(),
               // Loading overlay
               if (_state == ExplorerState.loading) _buildLoadingOverlay(),
+              // Dragging area overlay
+              if (_isDraggingArea) _buildDraggingOverlay(),
               // No-position message
               if (_vesselPosition == null && _state == ExplorerState.idle)
                 _buildNoPositionOverlay(),
@@ -1070,16 +1156,32 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
   // ---------------------------------------------------------------------------
 
   Widget _buildMap() {
-    return FlutterMap(
-      mapController: _mapController,
-      options: MapOptions(
-        initialCenter: _mapCenter,
-        initialZoom: 12,
-        minZoom: 3,
-        maxZoom: 18,
-        onLongPress: _onMapLongPress,
-        onTap: _onMapTap,
-      ),
+    final canDrag = _state == ExplorerState.queryConfig ||
+        _state == ExplorerState.results;
+
+    return Stack(
+      children: [
+        FlutterMap(
+          mapController: _mapController,
+          options: MapOptions(
+            initialCenter: _mapCenter,
+            initialZoom: 12,
+            minZoom: 3,
+            maxZoom: 18,
+            onLongPress: _state == ExplorerState.idle
+                ? (_, _) {
+                    if (!mounted) return;
+                    setState(() => _state = ExplorerState.modeSelect);
+                    _showModeSelectSheet();
+                  }
+                : null,
+            onTap: _onMapTap,
+            interactionOptions: InteractionOptions(
+              flags: _isDraggingArea
+                  ? InteractiveFlag.all & ~InteractiveFlag.drag & ~InteractiveFlag.flingAnimation
+                  : InteractiveFlag.all,
+            ),
+          ),
       children: [
         // Base map
         TileLayer(
@@ -1105,8 +1207,8 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
             polygons: [
               Polygon(
                 points: _bboxCorners(_drawPoint1!, _drawPoint2!),
-                color: Colors.blue.withValues(alpha: 0.15),
-                borderColor: Colors.blue,
+                color: Colors.deepPurple.withValues(alpha: 0.1),
+                borderColor: Colors.deepPurple,
                 borderStrokeWidth: 2,
               ),
             ],
@@ -1126,8 +1228,8 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
                 radius: const Distance()
                     .as(LengthUnit.Meter, _drawPoint1!, _drawPoint2!),
                 useRadiusInMeter: true,
-                color: Colors.blue.withValues(alpha: 0.15),
-                borderColor: Colors.blue,
+                color: Colors.deepPurple.withValues(alpha: 0.1),
+                borderColor: Colors.deepPurple,
                 borderStrokeWidth: 2,
               ),
             ],
@@ -1194,17 +1296,20 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
                 child: const Icon(Icons.navigation,
                     color: Colors.green, size: 24),
               ),
-            // Drawing point markers
+            // Drawing point markers (diamond shape to distinguish from data)
             if (_drawPoint1 != null)
               Marker(
                 point: _drawPoint1!,
-                width: 20,
-                height: 20,
-                child: Container(
-                  decoration: BoxDecoration(
-                    color: Colors.blue,
-                    shape: BoxShape.circle,
-                    border: Border.all(color: Colors.white, width: 2),
+                width: 22,
+                height: 22,
+                child: Transform.rotate(
+                  angle: 0.785398, // 45 degrees
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: Colors.deepPurple,
+                      borderRadius: BorderRadius.circular(3),
+                      border: Border.all(color: Colors.white, width: 2),
+                    ),
                   ),
                 ),
               ),
@@ -1216,18 +1321,34 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
                     _state == ExplorerState.results))
               Marker(
                 point: _drawPoint2!,
-                width: 20,
-                height: 20,
-                child: Container(
-                  decoration: BoxDecoration(
-                    color: Colors.blue,
-                    shape: BoxShape.circle,
-                    border: Border.all(color: Colors.white, width: 2),
+                width: 22,
+                height: 22,
+                child: Transform.rotate(
+                  angle: 0.785398,
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: Colors.deepPurple,
+                      borderRadius: BorderRadius.circular(3),
+                      border: Border.all(color: Colors.white, width: 2),
+                    ),
                   ),
                 ),
               ),
           ],
         ),
+      ],
+    ),
+        // Drag-to-move overlay (above the map, only when area is drawn)
+        if (canDrag)
+          Positioned.fill(
+            child: GestureDetector(
+              behavior: HitTestBehavior.translucent,
+              onLongPressStart: _onAreaDragStart,
+              onLongPressMoveUpdate: _onAreaDragUpdate,
+              onLongPressEnd: _onAreaDragEnd,
+              onLongPressCancel: _onAreaDragCancel,
+            ),
+          ),
       ],
     );
   }
@@ -1245,6 +1366,28 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
   // Overlays
   // ---------------------------------------------------------------------------
 
+  Widget _buildOverlayButton({
+    required IconData icon,
+    required VoidCallback onPressed,
+    Color? color,
+  }) {
+    return Material(
+      color: Colors.white.withValues(alpha: 0.9),
+      borderRadius: BorderRadius.circular(6),
+      elevation: 2,
+      child: InkWell(
+        onTap: onPressed,
+        borderRadius: BorderRadius.circular(6),
+        child: Container(
+          width: 32,
+          height: 32,
+          alignment: Alignment.center,
+          child: Icon(icon, color: color ?? Colors.black87, size: 18),
+        ),
+      ),
+    );
+  }
+
   Widget _buildOverlayControls() {
     return Positioned(
       top: 8,
@@ -1253,99 +1396,62 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
         mainAxisSize: MainAxisSize.min,
         children: [
           // Info button
-          Container(
-            decoration: BoxDecoration(
-              color: Colors.black.withValues(alpha: 0.5),
-              shape: BoxShape.circle,
-            ),
-            child: ToolInfoButton(
-              toolId: 'historical_data_explorer',
-              signalKService: widget.signalKService,
-              iconSize: 20,
-              iconColor: Colors.white,
+          Material(
+            color: Colors.white.withValues(alpha: 0.9),
+            borderRadius: BorderRadius.circular(6),
+            elevation: 2,
+            child: SizedBox(
+              width: 32,
+              height: 32,
+              child: Center(
+                child: ToolInfoButton(
+                  toolId: 'historical_data_explorer',
+                  signalKService: widget.signalKService,
+                  iconSize: 18,
+                  iconColor: Colors.black87,
+                ),
+              ),
             ),
           ),
           const SizedBox(height: 4),
           // Homeport toggle
           if (_homeportPosition != null)
-            Container(
-              decoration: BoxDecoration(
-                color: Colors.black.withValues(alpha: 0.5),
-                shape: BoxShape.circle,
-              ),
-              child: IconButton(
-                icon: Icon(
-                  _centeredOnHomeport ? Icons.home : Icons.home_outlined,
-                  color: Colors.white,
-                  size: 20,
-                ),
-                padding: EdgeInsets.zero,
-                constraints:
-                    const BoxConstraints(minWidth: 36, minHeight: 36),
-                onPressed: () {
-                  setState(() => _centeredOnHomeport = !_centeredOnHomeport);
-                  _mapController.move(_mapCenter, _mapController.camera.zoom);
-                },
-              ),
+            _buildOverlayButton(
+              icon: _centeredOnHomeport ? Icons.home : Icons.home_outlined,
+              onPressed: () {
+                setState(() => _centeredOnHomeport = !_centeredOnHomeport);
+                _mapController.move(_mapCenter, _mapController.camera.zoom);
+              },
             ),
           const SizedBox(height: 4),
           // Recenter on drawn area
           if (_areaCenter != null &&
               (_state == ExplorerState.results ||
                _state == ExplorerState.queryConfig))
-            Container(
-              decoration: BoxDecoration(
-                color: Colors.black.withValues(alpha: 0.5),
-                shape: BoxShape.circle,
-              ),
-              child: IconButton(
-                icon: const Icon(Icons.center_focus_strong,
-                    color: Colors.white, size: 20),
-                padding: EdgeInsets.zero,
-                constraints:
-                    const BoxConstraints(minWidth: 36, minHeight: 36),
-                tooltip: 'Recenter on area',
-                onPressed: () {
-                  final center = _areaCenter;
-                  if (center != null) {
-                    _mapController.move(center, _mapController.camera.zoom);
-                  }
-                },
-              ),
+            _buildOverlayButton(
+              icon: Icons.center_focus_strong,
+              onPressed: () {
+                final center = _areaCenter;
+                if (center != null) {
+                  _mapController.move(center, _mapController.camera.zoom);
+                }
+              },
             ),
           const SizedBox(height: 4),
-          // Share CSV
+          // Share
           if (_state == ExplorerState.results && _resultPoints.isNotEmpty)
-            Container(
-              decoration: BoxDecoration(
-                color: Colors.black.withValues(alpha: 0.5),
-                shape: BoxShape.circle,
-              ),
-              child: IconButton(
-                icon: const Icon(Icons.share, color: Colors.white, size: 20),
-                padding: EdgeInsets.zero,
-                constraints:
-                    const BoxConstraints(minWidth: 36, minHeight: 36),
-                tooltip: 'Export & share',
-                onPressed: _showShareFormatPicker,
-              ),
+            _buildOverlayButton(
+              icon: Icons.share,
+              onPressed: _showShareFormatPicker,
             ),
           const SizedBox(height: 4),
-          // Clear button (when drawing or results exist)
+          // Clear
           if (_state != ExplorerState.idle &&
               _state != ExplorerState.modeSelect)
-            Container(
-              decoration: BoxDecoration(
-                color: Colors.black.withValues(alpha: 0.5),
-                shape: BoxShape.circle,
-              ),
-              child: IconButton(
-                icon: const Icon(Icons.clear, color: Colors.white, size: 20),
-                padding: EdgeInsets.zero,
-                constraints:
-                    const BoxConstraints(minWidth: 36, minHeight: 36),
-                onPressed: _clearDrawing,
-              ),
+            _buildOverlayButton(
+              icon: Icons.clear,
+              color: Colors.red,
+              onPressed: _clearDrawing,
             ),
         ],
       ),
@@ -1376,6 +1482,24 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
           borderRadius: BorderRadius.circular(6),
         ),
         child: Text(text, style: const TextStyle(color: Colors.white, fontSize: 12)),
+      ),
+    );
+  }
+
+  Widget _buildDraggingOverlay() {
+    return Positioned(
+      top: 8,
+      left: 8,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: Colors.deepPurple.withValues(alpha: 0.8),
+          borderRadius: BorderRadius.circular(6),
+        ),
+        child: const Text(
+          'Dragging area\u2026 release to re-query',
+          style: TextStyle(color: Colors.white, fontSize: 12),
+        ),
       ),
     );
   }
