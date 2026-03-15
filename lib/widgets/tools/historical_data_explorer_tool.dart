@@ -1,11 +1,18 @@
+import 'dart:convert';
+import 'dart:io';
 import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:provider/provider.dart';
+import 'package:share_plus/share_plus.dart';
+import '../../models/ais_favorite.dart';
 import '../../models/tool_config.dart';
 import '../../models/tool_definition.dart';
 import '../../models/historical_data.dart' as hist;
+import '../../services/ais_favorites_service.dart';
 import '../../services/signalk_service.dart';
 import '../../services/historical_data_service.dart';
 import '../../services/tool_registry.dart';
@@ -76,7 +83,7 @@ class HistoricalDataExplorerTool extends StatefulWidget {
 }
 
 class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
-    with AutomaticKeepAliveClientMixin {
+    with AutomaticKeepAliveClientMixin, SingleTickerProviderStateMixin {
   @override
   bool get wantKeepAlive => true;
 
@@ -102,6 +109,11 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
   List<String> _availablePaths = [];
   bool _pathsLoading = false;
 
+  // Available contexts
+  List<String> _availableContexts = ['vessels.self'];
+  bool _contextsLoading = false;
+  String _context = 'vessels.self';
+
   // Query config
   DateTime _fromDate = DateTime.now().subtract(const Duration(days: 7));
   DateTime _toDate = DateTime.now();
@@ -117,12 +129,20 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
   List<_ResultPoint> _resultPoints = [];
   int _selectedRowIndex = -1;
 
+  // Legend
+  int _activeLegendIndex = 0;
+  Set<int> _visibleLegendIndices = {0};
+
+  // Bottom panel tabs
+  late TabController _tabController;
+
   // Service
   HistoricalDataService? _historyService;
 
   @override
   void initState() {
     super.initState();
+    _tabController = TabController(length: 2, vsync: this);
     widget.signalKService.addListener(_onSignalKChanged);
     _updateVesselPosition();
     _initService();
@@ -139,6 +159,7 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
 
   @override
   void dispose() {
+    _tabController.dispose();
     widget.signalKService.removeListener(_onSignalKChanged);
     super.dispose();
   }
@@ -199,6 +220,17 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
     return _vesselPosition ?? const LatLng(0, 0);
   }
 
+  LatLng? get _areaCenter {
+    if (_drawPoint1 == null) return null;
+    if (_bboxParam != null && _drawPoint2 != null) {
+      return LatLng(
+        (_drawPoint1!.latitude + _drawPoint2!.latitude) / 2,
+        (_drawPoint1!.longitude + _drawPoint2!.longitude) / 2,
+      );
+    }
+    return _drawPoint1;
+  }
+
   Future<void> _fetchAvailablePaths() async {
     if (_historyService == null || _pathsLoading) return;
     setState(() => _pathsLoading = true);
@@ -222,6 +254,78 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
     } finally {
       if (mounted) setState(() => _pathsLoading = false);
     }
+  }
+
+  Future<void> _fetchAvailableContexts(
+    DateTime from,
+    DateTime to, {
+    void Function(void Function())? dialogSetState,
+  }) async {
+    if (_historyService == null || _contextsLoading) return;
+    _contextsLoading = true;
+    dialogSetState?.call(() {});
+    try {
+      // Use spatial endpoint when bbox/radius is available, otherwise
+      // fall back to time-only contexts endpoint.
+      final List<String> contexts;
+      if (_bboxParam != null || _radiusParam != null) {
+        contexts = await _historyService!.getSpatialContexts(
+          from: from,
+          to: to,
+          bbox: _bboxParam,
+          radius: _radiusParam,
+        );
+      } else {
+        contexts = await _historyService!.getAvailableContexts(
+          from: from,
+          to: to,
+        );
+      }
+      // Ensure 'vessels.self' is always present
+      if (!contexts.contains('vessels.self')) {
+        contexts.insert(0, 'vessels.self');
+      }
+      // Remove own vessel's full URN — it duplicates 'vessels.self'
+      final ownContext = widget.signalKService.vesselContext;
+      if (ownContext != null) {
+        contexts.remove(ownContext);
+      }
+      _availableContexts = contexts;
+    } catch (e) {
+      if (kDebugMode) print('Failed to fetch available contexts: $e');
+    } finally {
+      _contextsLoading = false;
+      if (mounted) dialogSetState?.call(() {});
+    }
+  }
+
+  /// Extract bare MMSI from a context string, or null.
+  String? _extractMMSI(String ctx) {
+    return RegExp(r'mmsi:(\d+)').firstMatch(ctx)?.group(1);
+  }
+
+  /// Friendly display name for a context string.
+  /// If [favorites] is provided, favorite names are included.
+  String _contextDisplayName(String ctx, [List<AISFavorite>? favorites]) {
+    if (ctx == 'vessels.self') {
+      final nameData = widget.signalKService.getValue('name');
+      final name = nameData?.value is String ? nameData!.value as String : null;
+      return name != null ? 'Self ($name)' : 'Self';
+    }
+    final mmsi = _extractMMSI(ctx);
+    if (mmsi != null) {
+      // Check favorites for a name
+      if (favorites != null) {
+        final fav = favorites.cast<AISFavorite?>().firstWhere(
+            (f) => f!.mmsi == mmsi,
+            orElse: () => null);
+        if (fav != null) return '⭐ ${fav.name} ($mmsi)';
+      }
+      return 'MMSI $mmsi';
+    }
+    // Fallback: last segment
+    final lastDot = ctx.lastIndexOf('.');
+    return lastDot >= 0 ? ctx.substring(lastDot + 1) : ctx;
   }
 
   // ---------------------------------------------------------------------------
@@ -347,6 +451,8 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
           _resultPoints = points;
           _state = ExplorerState.results;
           _selectedRowIndex = -1;
+          _activeLegendIndex = 0;
+          _visibleLegendIndices = {0};
         });
       }
     } catch (e) {
@@ -369,6 +475,7 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
       paths: paths,
       from: from,
       to: to,
+      context: _context,
       bbox: _bboxParam,
       radius: _radiusParam,
     );
@@ -514,11 +621,17 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
     var localFrom = _fromDate;
     var localTo = _toDate;
     final localSelected = Set<String>.from(_selectedPaths);
+    var localContext = _context;
     var localAggregation = _aggregation;
     var localSmoothing = _smoothing;
     var localSmaWindow = _smaWindow;
     var localEmaAlpha = _emaAlpha;
     var pathFilter = '';
+    var contextFilter = '';
+    var lookupOtherVessels = _context != 'vessels.self';
+
+    // Will be set once StatefulBuilder is built
+    void Function(void Function())? dialogSetState;
 
     showDialog(
       context: context,
@@ -526,12 +639,33 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
       builder: (ctx) {
         return StatefulBuilder(
           builder: (ctx, setDialogState) {
+            // Capture for async context fetch; kick off on first build only if enabled
+            if (dialogSetState == null) {
+              dialogSetState = setDialogState;
+              if (lookupOtherVessels) {
+                _fetchAvailableContexts(localFrom, localTo,
+                    dialogSetState: setDialogState);
+              }
+            }
+            dialogSetState = setDialogState;
             final filteredPaths = pathFilter.isEmpty
                 ? _availablePaths
                 : _availablePaths
                     .where((p) =>
                         p.toLowerCase().contains(pathFilter.toLowerCase()))
                     .toList();
+
+            // Re-fetch contexts when dates change
+            void onDatesChanged() {
+              if (!lookupOtherVessels) return;
+              // Reset context if it was a vessel-specific one that may
+              // not exist in the new date range
+              if (localContext != 'vessels.self') {
+                localContext = 'vessels.self';
+              }
+              _fetchAvailableContexts(localFrom, localTo,
+                  dialogSetState: setDialogState);
+            }
 
             return AlertDialog(
               title: const Text('Query Configuration'),
@@ -561,7 +695,10 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
                                   lastDate: DateTime.now(),
                                 );
                                 if (d != null) {
-                                  setDialogState(() => localFrom = d);
+                                  setDialogState(() {
+                                    localFrom = d;
+                                    onDatesChanged();
+                                  });
                                 }
                               },
                             ),
@@ -583,13 +720,140 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
                                   lastDate: DateTime.now(),
                                 );
                                 if (d != null) {
-                                  setDialogState(() => localTo = d);
+                                  setDialogState(() {
+                                    localTo = d;
+                                    onDatesChanged();
+                                  });
                                 }
                               },
                             ),
                           ),
                         ],
                       ),
+                      const SizedBox(height: 12),
+
+                      // -- Context --
+                      CheckboxListTile(
+                        dense: true,
+                        contentPadding: EdgeInsets.zero,
+                        title: Text(
+                          lookupOtherVessels
+                              ? 'Vessel: ${_contextDisplayName(localContext)}'
+                              : 'Look up other vessels',
+                          style: const TextStyle(
+                              fontWeight: FontWeight.bold, fontSize: 13),
+                        ),
+                        value: lookupOtherVessels,
+                        onChanged: (v) {
+                          setDialogState(() {
+                            lookupOtherVessels = v ?? false;
+                            if (lookupOtherVessels) {
+                              _fetchAvailableContexts(localFrom, localTo,
+                                  dialogSetState: setDialogState);
+                            } else {
+                              localContext = 'vessels.self';
+                            }
+                          });
+                        },
+                      ),
+                      if (lookupOtherVessels) ...[
+                        if (_contextsLoading)
+                          const Padding(
+                            padding: EdgeInsets.symmetric(vertical: 8),
+                            child: Row(
+                              children: [
+                                SizedBox(
+                                  width: 16, height: 16,
+                                  child: CircularProgressIndicator(
+                                      strokeWidth: 2),
+                                ),
+                                SizedBox(width: 8),
+                                Text('Loading vessels in area…',
+                                    style: TextStyle(fontSize: 12)),
+                              ],
+                            ),
+                          )
+                        else ...[
+                          TextField(
+                            decoration: const InputDecoration(
+                              hintText: 'Filter MMSI…',
+                              isDense: true,
+                              prefixIcon: Icon(Icons.search, size: 18),
+                            ),
+                            onChanged: (v) =>
+                                setDialogState(() => contextFilter = v),
+                          ),
+                          const SizedBox(height: 4),
+                          SizedBox(
+                            height: 120,
+                            child: () {
+                              final favService =
+                                  context.read<AISFavoritesService>();
+                              final favs = favService.favorites;
+                              final favMMSIs =
+                                  favs.map((f) => f.mmsi).toSet();
+
+                              final nonSelf = _availableContexts
+                                  .where((c) => c != 'vessels.self')
+                                  .toList();
+
+                              // Sort: favorites first, then the rest
+                              final favContexts = nonSelf
+                                  .where((c) {
+                                    final m = _extractMMSI(c);
+                                    return m != null && favMMSIs.contains(m);
+                                  })
+                                  .toList();
+                              final otherContexts = nonSelf
+                                  .where((c) => !favContexts.contains(c))
+                                  .toList();
+                              final allContexts = [
+                                ...favContexts,
+                                ...otherContexts,
+                              ];
+
+                              final filtered = contextFilter.isEmpty
+                                  ? allContexts
+                                  : allContexts.where((c) {
+                                      final label =
+                                          _contextDisplayName(c, favs)
+                                              .toLowerCase();
+                                      final raw = c.toLowerCase();
+                                      final q = contextFilter.toLowerCase();
+                                      return label.contains(q) ||
+                                          raw.contains(q);
+                                    }).toList();
+                              if (filtered.isEmpty) {
+                                return const Center(
+                                    child: Text('No vessels found in area',
+                                        style: TextStyle(fontSize: 11)));
+                              }
+                              return RadioGroup<String>(
+                                groupValue: localContext,
+                                onChanged: (v) {
+                                  if (v != null) {
+                                    setDialogState(() => localContext = v);
+                                  }
+                                },
+                                child: ListView.builder(
+                                  itemCount: filtered.length,
+                                  itemBuilder: (_, i) {
+                                    final c = filtered[i];
+                                    return RadioListTile<String>(
+                                      dense: true,
+                                      value: c,
+                                      title: Text(
+                                          _contextDisplayName(c, favs),
+                                          style:
+                                              const TextStyle(fontSize: 12)),
+                                    );
+                                  },
+                                ),
+                              );
+                            }(),
+                          ),
+                        ],
+                      ],
                       const SizedBox(height: 12),
 
                       // -- Path selection --
@@ -735,6 +999,7 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
                       : () {
                           Navigator.pop(ctx);
                           setState(() {
+                            _context = localContext;
                             _fromDate = localFrom;
                             _toDate = localTo;
                             _selectedPaths
@@ -786,13 +1051,16 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
                 _buildNoPositionOverlay(),
               // Top-right controls
               _buildOverlayControls(),
+              // Legend overlay at bottom-left
+              if (_state == ExplorerState.results && _resultSeries.isNotEmpty)
+                _buildLegend(),
             ],
           ),
         ),
 
-        // Bottom detail table (results only)
+        // Bottom tabbed panel (results only)
         if (_state == ExplorerState.results && _resultSeries.isNotEmpty)
-          SizedBox(height: 120, child: _buildDetailTable()),
+          SizedBox(height: 160, child: _buildBottomPanel()),
       ],
     );
   }
@@ -875,35 +1143,41 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
               ),
             ],
           ),
-        // Result data point markers (color-coded by first series value)
+        // Result data point markers (color-coded by active legend series)
         if (_state == ExplorerState.results && _resultPoints.isNotEmpty)
           MarkerLayer(
-            markers: _resultPoints.map((pt) {
+            markers: _resultPoints.where((pt) {
+              // Only show markers for visible legend indices
+              if (_visibleLegendIndices.isEmpty) return false;
+              return true;
+            }).map((pt) {
               final isSelected = pt.index == _selectedRowIndex;
-              final firstSeries =
-                  _resultSeries.isNotEmpty ? _resultSeries.first : null;
-              final firstValue = firstSeries != null
-                  ? pt.values[firstSeries.path]
+              final activeSeries =
+                  _activeLegendIndex < _resultSeries.length
+                      ? _resultSeries[_activeLegendIndex]
+                      : _resultSeries.isNotEmpty ? _resultSeries.first : null;
+              final activeValue = activeSeries != null
+                  ? pt.values[activeSeries.path]
                   : null;
-              final color = firstSeries != null
-                  ? _pointColor(firstValue, firstSeries)
+              final color = activeSeries != null
+                  ? _pointColor(activeValue, activeSeries)
                   : Colors.blue;
+              final activePath = activeSeries?.path;
+              final category = activePath != null
+                  ? widget.signalKService.metadataStore.get(activePath)?.category
+                  : null;
+              final size = isSelected ? 22.0 : 16.0;
               return Marker(
                 point: pt.position,
-                width: isSelected ? 18 : 12,
-                height: isSelected ? 18 : 12,
+                width: size,
+                height: size,
                 child: GestureDetector(
-                  onTap: () => setState(() => _selectedRowIndex = pt.index),
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: color,
-                      shape: BoxShape.circle,
-                      border: Border.all(
-                        color: isSelected ? Colors.white : Colors.black54,
-                        width: isSelected ? 3 : 1,
-                      ),
-                    ),
-                  ),
+                  onTap: () {
+                    setState(() => _selectedRowIndex = pt.index);
+                    _tabController.animateTo(1); // Switch to Detail tab
+                  },
+                  child: _markerForCategory(
+                    category, activeValue, color, isSelected, size),
                 ),
               );
             }).toList(),
@@ -1015,6 +1289,48 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
               ),
             ),
           const SizedBox(height: 4),
+          // Recenter on drawn area
+          if (_areaCenter != null &&
+              (_state == ExplorerState.results ||
+               _state == ExplorerState.queryConfig))
+            Container(
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.5),
+                shape: BoxShape.circle,
+              ),
+              child: IconButton(
+                icon: const Icon(Icons.center_focus_strong,
+                    color: Colors.white, size: 20),
+                padding: EdgeInsets.zero,
+                constraints:
+                    const BoxConstraints(minWidth: 36, minHeight: 36),
+                tooltip: 'Recenter on area',
+                onPressed: () {
+                  final center = _areaCenter;
+                  if (center != null) {
+                    _mapController.move(center, _mapController.camera.zoom);
+                  }
+                },
+              ),
+            ),
+          const SizedBox(height: 4),
+          // Share CSV
+          if (_state == ExplorerState.results && _resultPoints.isNotEmpty)
+            Container(
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.5),
+                shape: BoxShape.circle,
+              ),
+              child: IconButton(
+                icon: const Icon(Icons.share, color: Colors.white, size: 20),
+                padding: EdgeInsets.zero,
+                constraints:
+                    const BoxConstraints(minWidth: 36, minHeight: 36),
+                tooltip: 'Export & share',
+                onPressed: _showShareFormatPicker,
+              ),
+            ),
+          const SizedBox(height: 4),
           // Clear button (when drawing or results exist)
           if (_state != ExplorerState.idle &&
               _state != ExplorerState.modeSelect)
@@ -1105,6 +1421,7 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
     final range = _response?.range;
     final areaType = _bboxParam != null ? 'Bbox' : 'Radius';
     final pathCount = _resultSeries.length;
+    final contextLabel = _contextDisplayName(_context);
 
     return Container(
       width: double.infinity,
@@ -1116,7 +1433,7 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
           children: [
             // Query info
             Text(
-              '$areaType | '
+              '$contextLabel | $areaType | '
               '${range != null ? _fmtDate(range.from) : '?'} - '
               '${range != null ? _fmtDate(range.to) : '?'} | '
               '$pathCount path${pathCount != 1 ? 's' : ''}',
@@ -1151,83 +1468,560 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
   }
 
   // ---------------------------------------------------------------------------
-  // Results: Bottom detail table
+  // Legend
   // ---------------------------------------------------------------------------
 
-  Widget _buildDetailTable() {
-    if (_resultPoints.isEmpty) return const SizedBox.shrink();
-
-    return Container(
-      color: Theme.of(context).colorScheme.surface,
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
+  Widget _buildLegend() {
+    return Positioned(
+      bottom: 8,
+      left: 8,
+      right: 56, // Leave room for overlay controls on the right
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+        decoration: BoxDecoration(
+          color: Colors.black.withValues(alpha: 0.6),
+          borderRadius: BorderRadius.circular(6),
+        ),
         child: SingleChildScrollView(
-          child: DataTable(
-            columnSpacing: 16,
-            dataRowMinHeight: 24,
-            dataRowMaxHeight: 28,
-            headingRowHeight: 30,
-            columns: [
-              const DataColumn(
-                  label: Text('Time', style: TextStyle(fontSize: 11))),
-              const DataColumn(
-                  label: Text('Position', style: TextStyle(fontSize: 11))),
-              ..._resultSeries.map((s) {
-                final metadata =
-                    widget.signalKService.metadataStore.get(s.path);
-                final symbol = metadata?.symbol;
-                final short = s.path.split('.').last;
-                final header = symbol != null ? '$short ($symbol)' : short;
-                return DataColumn(
-                    label: Text(header, style: const TextStyle(fontSize: 11)));
-              }),
-            ],
-            rows: _resultPoints.map((pt) {
-              final isSelected = pt.index == _selectedRowIndex;
-              return DataRow(
-                selected: isSelected,
-                color: isSelected
-                    ? WidgetStateProperty.all(Theme.of(context)
-                        .colorScheme
-                        .primary
-                        .withValues(alpha: 0.15))
-                    : null,
-                onSelectChanged: (_) {
-                  setState(() => _selectedRowIndex = pt.index);
-                  // Pan map to selected point
-                  try {
-                    _mapController.move(
-                        pt.position, _mapController.camera.zoom);
-                  } catch (_) {}
-                },
-                cells: [
-                  DataCell(Text(_fmtTimestamp(pt.timestamp),
-                      style: const TextStyle(fontSize: 10))),
-                  DataCell(Text(
-                      '${pt.position.latitude.toStringAsFixed(4)}, '
-                      '${pt.position.longitude.toStringAsFixed(4)}',
-                      style: const TextStyle(fontSize: 10))),
-                  ..._resultSeries.map((s) {
-                    final rawVal = pt.values[s.path];
-                    if (rawVal == null) {
-                      return const DataCell(
-                          Text('--', style: TextStyle(fontSize: 10)));
-                    }
-                    final metadata =
-                        widget.signalKService.metadataStore.get(s.path);
-                    final display =
-                        metadata?.format(rawVal, decimals: 2) ??
-                            rawVal.toStringAsFixed(2);
-                    return DataCell(
-                        Text(display, style: const TextStyle(fontSize: 10)));
-                  }),
-                ],
+          scrollDirection: Axis.horizontal,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: List.generate(_resultSeries.length, (i) {
+              final s = _resultSeries[i];
+              final isActive = i == _activeLegendIndex;
+              final isVisible = _visibleLegendIndices.contains(i);
+              final metadata =
+                  widget.signalKService.metadataStore.get(s.path);
+              final shortName = s.path.split('.').last;
+              final color = isVisible
+                  ? _legendColor(i)
+                  : Colors.grey;
+              final category = metadata?.category;
+
+              return Padding(
+                padding: const EdgeInsets.only(right: 4),
+                child: GestureDetector(
+                  onTap: () {
+                    setState(() {
+                      if (isVisible && !isActive) {
+                        // Make this the active legend
+                        _activeLegendIndex = i;
+                      } else if (isVisible && isActive) {
+                        // Toggle off
+                        _visibleLegendIndices.remove(i);
+                        if (_activeLegendIndex == i &&
+                            _visibleLegendIndices.isNotEmpty) {
+                          _activeLegendIndex =
+                              _visibleLegendIndices.first;
+                        }
+                      } else {
+                        // Toggle on and make active
+                        _visibleLegendIndices.add(i);
+                        _activeLegendIndex = i;
+                      }
+                    });
+                  },
+                  child: Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: isActive
+                          ? Colors.white.withValues(alpha: 0.2)
+                          : Colors.transparent,
+                      borderRadius: BorderRadius.circular(4),
+                      border: isActive
+                          ? Border.all(color: Colors.white54, width: 1)
+                          : null,
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        SizedBox(
+                          width: 14,
+                          height: 14,
+                          child: _markerForCategory(
+                              category, null, color, false, 14),
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          shortName,
+                          style: TextStyle(
+                            color: isVisible ? Colors.white : Colors.grey,
+                            fontSize: 10,
+                            fontWeight:
+                                isActive ? FontWeight.bold : FontWeight.normal,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
               );
-            }).toList(),
+            }),
           ),
         ),
       ),
     );
+  }
+
+  Color _legendColor(int index) {
+    const colors = [
+      Colors.blue,
+      Colors.orange,
+      Colors.green,
+      Colors.purple,
+      Colors.cyan,
+    ];
+    return colors[index % colors.length];
+  }
+
+  // ---------------------------------------------------------------------------
+  // Category-aware marker icons
+  // ---------------------------------------------------------------------------
+
+  Widget _markerForCategory(
+      String? category, double? rawSiValue, Color color, bool isSelected,
+      double size) {
+    final borderColor = isSelected ? Colors.white : Colors.black54;
+    final borderWidth = isSelected ? 3.0 : 1.0;
+
+    switch (category) {
+      case 'angle':
+      case 'direction':
+        // Chevron rotated by the raw SI value (radians)
+        return Transform.rotate(
+          angle: rawSiValue ?? 0,
+          child: Icon(Icons.navigation, color: color, size: size),
+        );
+      case 'speed':
+        return Icon(Icons.speed, color: color, size: size);
+      case 'distance':
+      case 'length':
+        return Icon(Icons.straighten, color: color, size: size);
+      case 'depth':
+        return Icon(Icons.vertical_align_bottom, color: color, size: size);
+      case 'temperature':
+        return Icon(Icons.thermostat, color: color, size: size);
+      case 'pressure':
+        return Icon(Icons.compress, color: color, size: size);
+      default:
+        // Filled circle (original behavior)
+        return Container(
+          decoration: BoxDecoration(
+            color: color,
+            shape: BoxShape.circle,
+            border: Border.all(color: borderColor, width: borderWidth),
+          ),
+        );
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Results: Bottom tabbed panel
+  // ---------------------------------------------------------------------------
+
+  Widget _buildBottomPanel() {
+    return Container(
+      color: Theme.of(context).colorScheme.surface,
+      child: Column(
+        children: [
+          TabBar(
+            controller: _tabController,
+            labelStyle: const TextStyle(fontSize: 11),
+            tabs: const [
+              Tab(text: 'All Points'),
+              Tab(text: 'Detail'),
+            ],
+          ),
+          Expanded(
+            child: TabBarView(
+              controller: _tabController,
+              children: [
+                _buildAllPointsTab(),
+                _buildDetailTab(),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAllPointsTab() {
+    if (_resultPoints.isEmpty) {
+      return const Center(
+          child: Text('No data points', style: TextStyle(fontSize: 11)));
+    }
+
+    return ListView.builder(
+      itemCount: _resultPoints.length,
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      itemBuilder: (ctx, i) {
+        final pt = _resultPoints[i];
+        final isSelected = pt.index == _selectedRowIndex;
+
+        return InkWell(
+          onTap: () {
+            setState(() => _selectedRowIndex = pt.index);
+            try {
+              _mapController.move(pt.position, _mapController.camera.zoom);
+            } catch (_) {}
+          },
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            color: isSelected
+                ? Theme.of(context)
+                    .colorScheme
+                    .primary
+                    .withValues(alpha: 0.15)
+                : null,
+            child: Row(
+              children: [
+                // Timestamp
+                SizedBox(
+                  width: 60,
+                  child: Text(
+                    _fmtTimestamp(pt.timestamp),
+                    style: const TextStyle(
+                        fontSize: 10, fontWeight: FontWeight.w500),
+                  ),
+                ),
+                // Position
+                SizedBox(
+                  width: 90,
+                  child: Text(
+                    _fmtDDM(pt.position.latitude, pt.position.longitude),
+                    style: const TextStyle(fontSize: 9),
+                  ),
+                ),
+                // Values
+                Expanded(
+                  child: Row(
+                    children: _resultSeries.map((s) {
+                      final rawVal = pt.values[s.path];
+                      final metadata =
+                          widget.signalKService.metadataStore.get(s.path);
+                      final category = metadata?.category;
+                      final display = rawVal != null
+                          ? (metadata?.format(rawVal, decimals: 1) ??
+                              rawVal.toStringAsFixed(1))
+                          : '--';
+                      return Expanded(
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            SizedBox(
+                              width: 10,
+                              height: 10,
+                              child: _markerForCategory(
+                                  category, rawVal, Colors.grey, false, 10),
+                            ),
+                            const SizedBox(width: 2),
+                            Flexible(
+                              child: Text(
+                                display,
+                                style: const TextStyle(fontSize: 10),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildDetailTab() {
+    if (_selectedRowIndex < 0) {
+      return const Center(
+        child: Text(
+          'Tap a point on the map or list',
+          style: TextStyle(fontSize: 11, color: Colors.grey),
+        ),
+      );
+    }
+
+    final pt = _resultPoints.firstWhere(
+      (p) => p.index == _selectedRowIndex,
+      orElse: () => _resultPoints.first,
+    );
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Timestamp
+          Text(
+            '${_fmtDate(pt.timestamp)} ${_fmtTimestamp(pt.timestamp)}',
+            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 2),
+          // Position in DDM
+          Text(
+            _fmtDDM(pt.position.latitude, pt.position.longitude),
+            style: const TextStyle(fontSize: 11),
+          ),
+          const Divider(height: 8),
+          // Per-path values
+          ..._resultSeries.map((s) {
+            final rawVal = pt.values[s.path];
+            final metadata =
+                widget.signalKService.metadataStore.get(s.path);
+            final category = metadata?.category;
+            final display = rawVal != null
+                ? (metadata?.format(rawVal, decimals: 2) ??
+                    rawVal.toStringAsFixed(2))
+                : '--';
+            final rawStr =
+                rawVal != null ? rawVal.toStringAsFixed(4) : '--';
+
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 4),
+              child: Row(
+                children: [
+                  SizedBox(
+                    width: 14,
+                    height: 14,
+                    child: _markerForCategory(
+                        category, rawVal, Colors.grey, false, 14),
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(s.path,
+                            style: const TextStyle(
+                                fontSize: 10, color: Colors.grey)),
+                        Text(
+                          '$display  (SI: $rawStr)',
+                          style: const TextStyle(fontSize: 11),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }),
+        ],
+      ),
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Export & Share
+  // ---------------------------------------------------------------------------
+
+  void _showShareFormatPicker() {
+    showModalBottomSheet<String>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.table_chart),
+              title: const Text('CSV'),
+              subtitle: const Text('Comma-separated values'),
+              onTap: () => Navigator.pop(ctx, 'csv'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.map),
+              title: const Text('GeoJSON'),
+              subtitle: const Text('Geographic features for GIS tools'),
+              onTap: () => Navigator.pop(ctx, 'geojson'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.place),
+              title: const Text('KML'),
+              subtitle: const Text('Google Earth / Google Maps'),
+              onTap: () => Navigator.pop(ctx, 'kml'),
+            ),
+          ],
+        ),
+      ),
+    ).then((format) {
+      if (format == 'csv') {
+        _shareAsCsv();
+      } else if (format == 'geojson') {
+        _shareAsGeoJson();
+      } else if (format == 'kml') {
+        _shareAsKml();
+      }
+    });
+  }
+
+  Future<void> _shareAsCsv() async {
+    if (_resultPoints.isEmpty) return;
+
+    try {
+      final pathHeaders = _resultSeries.map((s) {
+        final metadata = widget.signalKService.metadataStore.get(s.path);
+        final symbol = metadata?.symbol;
+        return symbol != null ? '${s.path} ($symbol)' : s.path;
+      }).toList();
+
+      final header = ['timestamp', 'latitude', 'longitude', ...pathHeaders]
+          .join(',');
+
+      final rows = _resultPoints.map((pt) {
+        final vals = _resultSeries.map((s) {
+          final rawVal = pt.values[s.path];
+          if (rawVal == null) return '';
+          final metadata = widget.signalKService.metadataStore.get(s.path);
+          return (metadata?.convert(rawVal) ?? rawVal).toStringAsFixed(4);
+        }).toList();
+
+        return [
+          pt.timestamp.toUtc().toIso8601String(),
+          pt.position.latitude.toStringAsFixed(6),
+          pt.position.longitude.toStringAsFixed(6),
+          ...vals,
+        ].join(',');
+      }).toList();
+
+      final csv = [header, ...rows].join('\n');
+
+      final directory = await getTemporaryDirectory();
+      final file = File('${directory.path}/explorer_data.csv');
+      await file.writeAsString(csv);
+
+      await SharePlus.instance.share(
+        ShareParams(
+          files: [XFile(file.path)],
+          subject: 'Historical Data Export',
+        ),
+      );
+    } catch (e) {
+      _showSnack('Failed to share: $e');
+    }
+  }
+
+  Future<void> _shareAsGeoJson() async {
+    if (_resultPoints.isEmpty) return;
+
+    try {
+      final features = _resultPoints.map((pt) {
+        final properties = <String, dynamic>{
+          'timestamp': pt.timestamp.toUtc().toIso8601String(),
+        };
+        for (final s in _resultSeries) {
+          final rawVal = pt.values[s.path];
+          if (rawVal == null) continue;
+          final metadata = widget.signalKService.metadataStore.get(s.path);
+          final displayVal = metadata?.convert(rawVal) ?? rawVal;
+          final symbol = metadata?.symbol;
+          properties[s.path] = displayVal;
+          if (symbol != null) {
+            properties['${s.path}_unit'] = symbol;
+          }
+        }
+        return {
+          'type': 'Feature',
+          'geometry': {
+            'type': 'Point',
+            'coordinates': [
+              pt.position.longitude,
+              pt.position.latitude,
+            ],
+          },
+          'properties': properties,
+        };
+      }).toList();
+
+      final geojson = {
+        'type': 'FeatureCollection',
+        'features': features,
+      };
+
+      final jsonStr = const JsonEncoder.withIndent('  ').convert(geojson);
+
+      final directory = await getTemporaryDirectory();
+      final file = File('${directory.path}/explorer_data.geojson');
+      await file.writeAsString(jsonStr);
+
+      await SharePlus.instance.share(
+        ShareParams(
+          files: [XFile(file.path)],
+          subject: 'Historical Data Export',
+        ),
+      );
+    } catch (e) {
+      _showSnack('Failed to share: $e');
+    }
+  }
+
+  Future<void> _shareAsKml() async {
+    if (_resultPoints.isEmpty) return;
+
+    try {
+      final buf = StringBuffer();
+      buf.writeln('<?xml version="1.0" encoding="UTF-8"?>');
+      buf.writeln('<kml xmlns="http://www.opengis.net/kml/2.2">');
+      buf.writeln('<Document>');
+      buf.writeln('  <name>Historical Data Export</name>');
+
+      for (final pt in _resultPoints) {
+        final ts = pt.timestamp.toUtc().toIso8601String();
+        final lat = pt.position.latitude;
+        final lon = pt.position.longitude;
+
+        // Build description from path values
+        final descParts = <String>[];
+        for (final s in _resultSeries) {
+          final rawVal = pt.values[s.path];
+          if (rawVal == null) continue;
+          final metadata = widget.signalKService.metadataStore.get(s.path);
+          final display = metadata?.format(rawVal, decimals: 2) ??
+              rawVal.toStringAsFixed(2);
+          descParts.add('${s.path}: $display');
+        }
+
+        buf.writeln('  <Placemark>');
+        buf.writeln('    <name>$ts</name>');
+        if (descParts.isNotEmpty) {
+          buf.writeln(
+              '    <description>${_xmlEscape(descParts.join('\n'))}</description>');
+        }
+        buf.writeln('    <TimeStamp><when>$ts</when></TimeStamp>');
+        buf.writeln('    <Point><coordinates>$lon,$lat</coordinates></Point>');
+        buf.writeln('  </Placemark>');
+      }
+
+      buf.writeln('</Document>');
+      buf.writeln('</kml>');
+
+      final directory = await getTemporaryDirectory();
+      final file = File('${directory.path}/explorer_data.kml');
+      await file.writeAsString(buf.toString());
+
+      await SharePlus.instance.share(
+        ShareParams(
+          files: [XFile(file.path)],
+          subject: 'Historical Data Export',
+        ),
+      );
+    } catch (e) {
+      _showSnack('Failed to share: $e');
+    }
+  }
+
+  String _xmlEscape(String input) {
+    return input
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&apos;');
   }
 
   // ---------------------------------------------------------------------------
@@ -1239,6 +2033,18 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
 
   String _fmtTimestamp(DateTime d) =>
       '${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}:${d.second.toString().padLeft(2, '0')}';
+
+  /// Format lat/lon in Degrees Decimal Minutes (DDM) format.
+  String _fmtDDM(double lat, double lon) {
+    String toDDM(double value, String pos, String neg) {
+      final dir = value >= 0 ? pos : neg;
+      final abs = value.abs();
+      final deg = abs.truncate();
+      final min = (abs - deg) * 60;
+      return '$deg°${min.toStringAsFixed(3)}\'$dir';
+    }
+    return '${toDDM(lat, 'N', 'S')} ${toDDM(lon, 'E', 'W')}';
+  }
 
   void _showSnack(String msg) {
     if (!mounted) return;
