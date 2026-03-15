@@ -166,6 +166,7 @@ class ConversionTestToolBuilder extends ToolBuilder {
         allowsMultiplePaths: true,
         minPaths: 1,
         maxPaths: 20,
+        allowsStyleConfig: false,
         styleOptions: const [],
       ),
     );

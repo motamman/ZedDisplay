@@ -117,6 +117,30 @@ class ConfigSchema {
   @JsonKey(includeFromJson: false, includeToJson: false)
   final List<SlotDefinition>? slotDefinitions;
 
+  /// Whether the tool shows the Data Sources configuration card.
+  @JsonKey(includeFromJson: false, includeToJson: false)
+  final bool allowsDataSources;
+
+  /// Whether the tool shows the Style configuration card.
+  @JsonKey(includeFromJson: false, includeToJson: false)
+  final bool allowsStyleConfig;
+
+  /// Whether the tool shows the Unit text field in style options.
+  @JsonKey(includeFromJson: false, includeToJson: false)
+  final bool allowsUnitSelection;
+
+  /// Whether the tool shows the secondary color picker.
+  @JsonKey(includeFromJson: false, includeToJson: false)
+  final bool allowsSecondaryColor;
+
+  /// Whether the tool shows Show Label/Value/Unit toggles.
+  @JsonKey(includeFromJson: false, includeToJson: false)
+  final bool allowsVisibilityToggles;
+
+  /// Whether the tool shows the TTL dropdown.
+  @JsonKey(includeFromJson: false, includeToJson: false)
+  final bool allowsTTL;
+
   ConfigSchema({
     this.allowsMinMax = true,
     this.allowsColorCustomization = true,
@@ -125,6 +149,12 @@ class ConfigSchema {
     this.maxPaths = 1,
     this.styleOptions = const [],
     this.slotDefinitions,
+    this.allowsDataSources = true,
+    this.allowsStyleConfig = true,
+    this.allowsUnitSelection = true,
+    this.allowsSecondaryColor = false,
+    this.allowsVisibilityToggles = true,
+    this.allowsTTL = true,
   });
 
   factory ConfigSchema.fromJson(Map<String, dynamic> json) =>

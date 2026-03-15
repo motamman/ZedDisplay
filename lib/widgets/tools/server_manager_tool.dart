@@ -1398,6 +1398,9 @@ class ServerManagerToolBuilder extends ToolBuilder {
         minPaths: 0,
         maxPaths: 0,
         styleOptions: const [],
+        allowsDataSources: false,
+        allowsStyleConfig: false,
+        allowsTTL: false,
       ),
     );
   }

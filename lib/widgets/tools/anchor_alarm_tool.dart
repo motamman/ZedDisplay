@@ -1550,6 +1550,9 @@ class AnchorAlarmToolBuilder extends ToolBuilder {
         minPaths: 0,
         maxPaths: 11,
         styleOptions: const [],
+        allowsUnitSelection: false,
+        allowsVisibilityToggles: false,
+        allowsTTL: false,
       ),
     );
   }

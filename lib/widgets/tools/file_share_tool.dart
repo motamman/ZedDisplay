@@ -284,6 +284,9 @@ class FileShareToolBuilder implements ToolBuilder {
         allowsMultiplePaths: false,
         minPaths: 0,
         maxPaths: 0,
+        allowsDataSources: false,
+        allowsStyleConfig: false,
+        allowsTTL: false,
       ),
     );
   }

@@ -553,6 +553,8 @@ class TanksToolBuilder extends ToolBuilder {
           'showCapacity',
           'tankTypes',
         ],
+        allowsUnitSelection: false,
+        allowsVisibilityToggles: false,
       ),
     );
   }

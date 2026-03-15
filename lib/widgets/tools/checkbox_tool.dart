@@ -163,6 +163,7 @@ class CheckboxToolBuilder extends ToolBuilder {
       configSchema: ConfigSchema(
         allowsMinMax: false,
         allowsColorCustomization: true,
+        allowsSecondaryColor: true,
         allowsMultiplePaths: false,
         minPaths: 1,
         maxPaths: 1,

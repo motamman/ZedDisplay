@@ -288,6 +288,10 @@ class WindCompassToolBuilder extends ToolBuilder {
           SlotDefinition(roleLabel: 'Waypoint Bearing', defaultPath: 'navigation.courseGreatCircle.nextPoint.bearingTrue'),
           SlotDefinition(roleLabel: 'Waypoint Distance', defaultPath: 'navigation.courseGreatCircle.nextPoint.distance'),
         ],
+        allowsUnitSelection: false,
+        allowsVisibilityToggles: false,
+        allowsTTL: false,
+        allowsSecondaryColor: true,
       ),
     );
   }

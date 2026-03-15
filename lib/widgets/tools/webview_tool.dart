@@ -310,6 +310,7 @@ class WebViewToolBuilder extends ToolBuilder {
         minPaths: 0,
         maxPaths: 0,
         styleOptions: const ['url'],
+        allowsDataSources: false,
       ),
     );
   }

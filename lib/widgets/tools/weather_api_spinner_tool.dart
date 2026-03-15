@@ -498,6 +498,9 @@ class WeatherApiSpinnerToolBuilder extends ToolBuilder {
           'provider',
           'forecastDays',
         ],
+        allowsDataSources: false,
+        allowsUnitSelection: false,
+        allowsVisibilityToggles: false,
       ),
     );
   }

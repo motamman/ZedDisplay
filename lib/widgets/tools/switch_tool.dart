@@ -319,6 +319,7 @@ class SwitchToolBuilder extends ToolBuilder {
       configSchema: ConfigSchema(
         allowsMinMax: false,
         allowsColorCustomization: true,
+        allowsSecondaryColor: true,
         allowsMultiplePaths: true,
         minPaths: 1,
         maxPaths: 8,

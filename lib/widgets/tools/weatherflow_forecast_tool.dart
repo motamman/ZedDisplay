@@ -321,6 +321,8 @@ class WeatherFlowForecastToolBuilder extends ToolBuilder {
           'showCurrentConditions',
           'showSunMoonArc',
         ],
+        allowsUnitSelection: false,
+        allowsVisibilityToggles: false,
       ),
     );
   }

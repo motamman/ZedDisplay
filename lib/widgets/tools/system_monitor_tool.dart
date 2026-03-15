@@ -665,6 +665,8 @@ class SystemMonitorBuilder extends ToolBuilder {
         allowsMultiplePaths: false,
         minPaths: 0,
         maxPaths: 0,
+        allowsDataSources: false,
+        allowsStyleConfig: false,
         styleOptions: const [],
       ),
     );
