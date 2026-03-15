@@ -28,6 +28,56 @@ class HistoricalDataResponse {
           [],
     );
   }
+
+  /// Merge two responses (combine values lists, merge data rows by timestamp)
+  static HistoricalDataResponse merge(
+    HistoricalDataResponse a,
+    HistoricalDataResponse b,
+  ) {
+    final mergedValues = [...a.values, ...b.values];
+
+    // Build a map of timestamp → merged row values
+    final Map<String, List<dynamic>> rowMap = {};
+    final aCount = a.values.length;
+    final bCount = b.values.length;
+
+    for (final row in a.data) {
+      final key = row.timestamp.toIso8601String();
+      rowMap[key] = [...row.values, ...List.filled(bCount, null)];
+    }
+
+    for (final row in b.data) {
+      final key = row.timestamp.toIso8601String();
+      if (rowMap.containsKey(key)) {
+        // Replace the null padding with actual values
+        final existing = rowMap[key]!;
+        for (var i = 0; i < row.values.length; i++) {
+          existing[aCount + i] = row.values[i];
+        }
+      } else {
+        rowMap[key] = [...List.filled(aCount, null), ...row.values];
+      }
+    }
+
+    // Sort by timestamp and rebuild DataRows
+    final sortedKeys = rowMap.keys.toList()..sort();
+    final mergedData = sortedKeys.map((key) {
+      return DataRow(
+        timestamp: DateTime.parse(key),
+        values: rowMap[key]!,
+      );
+    }).toList();
+
+    return HistoricalDataResponse(
+      context: a.context,
+      range: TimeRange(
+        from: a.range.from.isBefore(b.range.from) ? a.range.from : b.range.from,
+        to: a.range.to.isAfter(b.range.to) ? a.range.to : b.range.to,
+      ),
+      values: mergedValues,
+      data: mergedData,
+    );
+  }
 }
 
 class TimeRange {
