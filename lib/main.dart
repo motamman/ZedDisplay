@@ -255,6 +255,7 @@ class _ZedDisplayAppState extends State<ZedDisplayApp> with WidgetsBindingObserv
   bool? _lastUseSecure;
   AuthToken? _lastToken;
   late ThemeMode _themeMode;
+  bool _offlineModeDismissed = false;
   static const platform = MethodChannel('com.zennora.zed_display/intent');
   final GlobalKey<NavigatorState> _navigatorKey = GlobalKey<NavigatorState>();
   final GlobalKey<ScaffoldMessengerState> _scaffoldMessengerKey = GlobalKey<ScaffoldMessengerState>();
@@ -532,23 +533,43 @@ class _ZedDisplayAppState extends State<ZedDisplayApp> with WidgetsBindingObserv
                 child ?? const SizedBox.shrink(),
                 // Intercom status indicator overlay (shows when receiving transmission)
                 const IntercomStatusIndicator(),
-                // Global reconnection overlay
+                // Global reconnection banner (non-blocking)
                 StreamBuilder<SignalKConnectionState>(
                   stream: widget.signalKService.connectionStateStream,
                   builder: (context, snapshot) {
                     final state = snapshot.data ?? widget.signalKService.connectionState;
+
+                    // Reset dismiss flag when reconnected
+                    if (state == SignalKConnectionState.connected) {
+                      if (_offlineModeDismissed) {
+                        WidgetsBinding.instance.addPostFrameCallback((_) {
+                          if (mounted) setState(() => _offlineModeDismissed = false);
+                        });
+                      }
+                      return const SizedBox.shrink();
+                    }
+
                     if (state == SignalKConnectionState.reconnecting) {
-                      return _ReconnectingOverlay(
+                      return _ReconnectingBanner(
                         attempt: widget.signalKService.reconnectAttempt,
                         maxAttempts: widget.signalKService.maxReconnectAttempts,
                       );
                     }
+
                     if (state == SignalKConnectionState.disconnected &&
                         widget.signalKService.wasConnected) {
-                      return _DisconnectedOverlay(
+                      if (_offlineModeDismissed) {
+                        return _OfflineIndicatorDot(
+                          onTap: () => setState(() => _offlineModeDismissed = false),
+                        );
+                      }
+                      return _DisconnectedBanner(
                         onRetry: () => widget.signalKService.reconnect(),
+                        onDismiss: () => setState(() => _offlineModeDismissed = true),
+                        isProbing: widget.signalKService.isBackgroundProbing,
                       );
                     }
+
                     return const SizedBox.shrink();
                   },
                 ),
@@ -849,34 +870,45 @@ class _SignalKNotificationListenerState extends State<SignalKNotificationListene
   }
 }
 
-/// Overlay shown when attempting to reconnect to SignalK server
-class _ReconnectingOverlay extends StatelessWidget {
+/// Non-blocking top banner shown during reconnection attempts
+class _ReconnectingBanner extends StatelessWidget {
   final int attempt;
   final int maxAttempts;
 
-  const _ReconnectingOverlay({
+  const _ReconnectingBanner({
     required this.attempt,
     required this.maxAttempts,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      color: Colors.black54,
-      child: Center(
-        child: Card(
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const CircularProgressIndicator(),
-                const SizedBox(height: 16),
-                const Text('Reconnecting...', style: TextStyle(fontSize: 18)),
-                const SizedBox(height: 8),
-                Text('Attempt $attempt of $maxAttempts'),
-              ],
-            ),
+    return Positioned(
+      top: MediaQuery.of(context).padding.top,
+      left: 0,
+      right: 0,
+      child: Material(
+        color: Colors.transparent,
+        child: Container(
+          color: Colors.amber.shade800,
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          child: Row(
+            children: [
+              const SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: Colors.white,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  'Reconnecting... (attempt $attempt of $maxAttempts)',
+                  style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w500),
+                ),
+              ),
+            ],
           ),
         ),
       ),
@@ -884,37 +916,86 @@ class _ReconnectingOverlay extends StatelessWidget {
   }
 }
 
-/// Overlay shown when connection to SignalK server is lost
-class _DisconnectedOverlay extends StatelessWidget {
+/// Non-blocking top banner shown when disconnected
+class _DisconnectedBanner extends StatelessWidget {
   final VoidCallback onRetry;
+  final VoidCallback onDismiss;
+  final bool isProbing;
 
-  const _DisconnectedOverlay({
+  const _DisconnectedBanner({
     required this.onRetry,
+    required this.onDismiss,
+    required this.isProbing,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      color: Colors.black54,
-      child: Center(
-        child: Card(
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(Icons.cloud_off, size: 48, color: Colors.red),
-                const SizedBox(height: 16),
-                const Text('Connection Lost', style: TextStyle(fontSize: 18)),
-                const SizedBox(height: 16),
-                ElevatedButton.icon(
-                  onPressed: onRetry,
-                  icon: const Icon(Icons.refresh),
-                  label: const Text('Retry'),
+    return Positioned(
+      top: MediaQuery.of(context).padding.top,
+      left: 0,
+      right: 0,
+      child: Material(
+        color: Colors.transparent,
+        child: Container(
+          color: Colors.red.shade800,
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: Row(
+            children: [
+              const Icon(Icons.cloud_off, color: Colors.white, size: 18),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  isProbing ? 'Offline (probing...)' : 'Offline',
+                  style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w500),
                 ),
-              ],
-            ),
+              ),
+              TextButton(
+                onPressed: onRetry,
+                style: TextButton.styleFrom(
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  minimumSize: const Size(0, 32),
+                ),
+                child: const Text('RETRY', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+              ),
+              TextButton(
+                onPressed: onDismiss,
+                style: TextButton.styleFrom(
+                  foregroundColor: Colors.white70,
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  minimumSize: const Size(0, 32),
+                ),
+                child: const Text('DISMISS', style: TextStyle(fontSize: 12)),
+              ),
+            ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Small floating dot shown after dismissing the offline banner
+class _OfflineIndicatorDot extends StatelessWidget {
+  final VoidCallback onTap;
+
+  const _OfflineIndicatorDot({required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Positioned(
+      top: MediaQuery.of(context).padding.top + 8,
+      right: 8,
+      child: GestureDetector(
+        onTap: onTap,
+        child: Container(
+          width: 32,
+          height: 32,
+          decoration: BoxDecoration(
+            color: Colors.red.shade800.withValues(alpha: 0.85),
+            shape: BoxShape.circle,
+          ),
+          child: const Icon(Icons.cloud_off, color: Colors.white, size: 16),
         ),
       ),
     );

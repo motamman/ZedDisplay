@@ -70,7 +70,13 @@ class ToolRegistry {
     _builders[toolTypeId] = builder;
   }
 
-  /// Build a tool widget from configuration
+  /// Tools that work without a server connection
+  static const _independentTools = {
+    'system_monitor', 'webview', 'find_home',
+  };
+
+  /// Build a tool widget from configuration.
+  /// Server-dependent tools are dimmed when disconnected to signal stale data.
   Widget buildTool(String toolTypeId, ToolConfig config, SignalKService service) {
     final builder = _builders[toolTypeId];
     if (builder == null) {
@@ -81,7 +87,22 @@ class ToolRegistry {
         ),
       );
     }
-    return builder.build(config, service);
+    final toolWidget = builder.build(config, service);
+
+    // Independent tools stay at full brightness regardless of connection state
+    if (_independentTools.contains(toolTypeId)) {
+      return toolWidget;
+    }
+
+    return ListenableBuilder(
+      listenable: service,
+      builder: (context, _) {
+        if (service.connectionState == SignalKConnectionState.connected) {
+          return toolWidget;
+        }
+        return Opacity(opacity: 0.6, child: toolWidget);
+      },
+    );
   }
 
   /// Get definition for a tool type

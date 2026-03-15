@@ -35,8 +35,10 @@ class SignalKService extends ChangeNotifier implements DataService {
   String? _errorMessage;
   Timer? _reconnectTimer;
   int _reconnectAttempts = 0;
-  static const int _maxReconnectAttempts = 5;
+  static const int _maxReconnectAttempts = 60;
   bool _intentionalDisconnect = false;
+  Timer? _backgroundProbeTimer;
+  bool _backgroundProbing = false;
   bool _isConnecting = false;
   bool _wasConnected = false;
 
@@ -267,6 +269,7 @@ class SignalKService extends ChangeNotifier implements DataService {
   int get reconnectAttempt => _reconnectAttempts;
   int get maxReconnectAttempts => _maxReconnectAttempts;
   bool get wasConnected => _wasConnected;
+  bool get isBackgroundProbing => _backgroundProbing;
 
   /// The full vessel context path (e.g., 'vessels.urn:mrn:imo:mmsi:367780840')
   /// Used for PUT requests to ensure proper routing
@@ -763,22 +766,35 @@ class SignalKService extends ChangeNotifier implements DataService {
     }
   }
 
-  /// Attempt to reconnect with exponential backoff.
-  /// Uses lightweight reconnect to preserve cached data across short dropouts.
+  /// Attempt to reconnect with two-tier backoff.
+  /// Tier 1 (attempts 1–10): aggressive, ~1 min total.
+  /// Tier 2 (attempts 11–60): patient, 30s each (~25 min).
+  /// After max attempts, switches to background probe every 2 min.
   void _attemptReconnect() {
     if (_reconnectAttempts >= _maxReconnectAttempts) {
       if (kDebugMode) {
-        print('Max reconnect attempts reached. Giving up.');
+        print('Max reconnect attempts reached. Starting background probe.');
       }
       _connectionState = SignalKConnectionState.disconnected;
       _connectionStateController.add(SignalKConnectionState.disconnected);
-      _errorMessage = 'Connection lost. Please reconnect manually.';
+      _errorMessage = 'Connection lost. Probing in background...';
       notifyListeners();
+      _startBackgroundProbe();
       return;
     }
 
     _reconnectAttempts++;
-    final delay = Duration(seconds: 2 * _reconnectAttempts); // Exponential backoff: 2s, 4s, 6s, 8s, 10s
+
+    // Two-tier backoff:
+    // Tier 1 (1–10): min(attempt * 2, 10) seconds — aggressive
+    // Tier 2 (11–60): 30 seconds each — patient
+    final int delaySecs;
+    if (_reconnectAttempts <= 10) {
+      delaySecs = (_reconnectAttempts * 2).clamp(2, 10);
+    } else {
+      delaySecs = 30;
+    }
+    final delay = Duration(seconds: delaySecs);
 
     // Re-emit reconnecting state so UI updates with new attempt count
     _connectionState = SignalKConnectionState.reconnecting;
@@ -802,6 +818,40 @@ class SignalKService extends ChangeNotifier implements DataService {
         _attemptReconnect();
       }
     });
+  }
+
+  /// Start background probe: silently try to reconnect every 2 minutes.
+  void _startBackgroundProbe() {
+    _stopBackgroundProbe();
+    _backgroundProbing = true;
+    notifyListeners();
+    _backgroundProbeTimer = Timer.periodic(const Duration(seconds: 120), (_) async {
+      if (kDebugMode) {
+        print('Background probe: attempting reconnect...');
+      }
+      try {
+        await _reconnectLight();
+        if (kDebugMode) {
+          print('Background probe: reconnected!');
+        }
+        _stopBackgroundProbe();
+      } catch (e) {
+        if (kDebugMode) {
+          print('Background probe failed: $e');
+        }
+        // Silently continue — next tick will retry
+      }
+    });
+  }
+
+  /// Stop background probe timer.
+  void _stopBackgroundProbe() {
+    _backgroundProbeTimer?.cancel();
+    _backgroundProbeTimer = null;
+    if (_backgroundProbing) {
+      _backgroundProbing = false;
+      notifyListeners();
+    }
   }
 
   /// Lightweight reconnect: replace WebSocket and re-send subscriptions
@@ -1766,6 +1816,7 @@ class SignalKService extends ChangeNotifier implements DataService {
       // Mark as intentional disconnect to prevent auto-reconnect
       _intentionalDisconnect = true;
       _reconnectTimer?.cancel();
+      _stopBackgroundProbe();
       // Flush displayUnits cache immediately before clearing
       if (_displayUnitsSaveTimer?.isActive ?? false) {
         _displayUnitsSaveTimer!.cancel();
@@ -1824,6 +1875,7 @@ class SignalKService extends ChangeNotifier implements DataService {
   Future<void> reconnect() async {
     if (_serverUrl.isEmpty) return;
 
+    _stopBackgroundProbe();
     _reconnectAttempts = 0;
     _intentionalDisconnect = false;
     _connectionState = SignalKConnectionState.reconnecting;
@@ -1847,6 +1899,7 @@ class SignalKService extends ChangeNotifier implements DataService {
 
   @override
   void dispose() {
+    _stopBackgroundProbe();
     disconnect();
     _connectionStateController.close();
     _dataCache.dispose();
