@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.62+45] - 2026-03-14
+
+### Added
+- **Wind Compass Slot Definitions**: Fixed-slot configuration for wind compass data sources
+  - 10 named slots (Heading True/Magnetic, Wind Direction/Angle/Speed, SOG, COG, Waypoint Bearing/Distance) replace free-form add/delete
+  - Slot mode prevents accidental index corruption from add/delete operations
+  - Clear button for optional slots; path editing via PathSelectorDialog
+- **Path Editing in Data Source Dialog**: All tools can now change the SignalK path of an existing data source (not just source and label)
+- **Dodge Autopilot Service**: Pre-dodge state management saves and restores autopilot heading; completion checks auto-disengage dodge mode
+- **Raymarine Settings UI**: Hull type selector and auto-turn speed configuration in autopilot settings
+
+### Changed
+- **Tool Config Screen**: Slot-mode tools hide Add/Delete buttons and Custom Label field; role labels shown as list item titles
+- **Wind Compass Defaults**: Removed redundant DataSource labels (slot roleLabel provides the display name)
+
 ## [0.5.60+42] - 2026-03-12
 
 ### Added

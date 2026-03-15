@@ -29,6 +29,7 @@ enum AlertSubsystem {
   crewMessage,
   intercom,
   aisFavorites,
+  dodge,
 }
 
 /// What a subsystem wants delivered. AlertCoordinator enforces filters.

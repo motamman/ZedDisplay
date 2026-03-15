@@ -88,6 +88,21 @@ extension ToolCategoryExtension on ToolCategory {
   }
 }
 
+/// Defines a fixed data-source slot for tools with positional indexing.
+/// When a tool's ConfigSchema has slotDefinitions, the config screen enters
+/// "slot mode": fixed-length list, no add/delete, path editing enabled.
+class SlotDefinition {
+  final String roleLabel;     // e.g. "Speed Over Ground"
+  final String? defaultPath;  // e.g. "navigation.speedOverGround"
+  final bool required;        // false = user can clear the slot
+
+  const SlotDefinition({
+    required this.roleLabel,
+    this.defaultPath,
+    this.required = false,
+  });
+}
+
 /// Configuration schema defining what can be configured
 @JsonSerializable()
 class ConfigSchema {
@@ -98,6 +113,10 @@ class ConfigSchema {
   final int maxPaths;             // Maximum allowed paths
   final List<String> styleOptions; // Available style properties
 
+  /// When non-null, the config screen uses fixed slots instead of add/delete.
+  @JsonKey(includeFromJson: false, includeToJson: false)
+  final List<SlotDefinition>? slotDefinitions;
+
   ConfigSchema({
     this.allowsMinMax = true,
     this.allowsColorCustomization = true,
@@ -105,6 +124,7 @@ class ConfigSchema {
     this.minPaths = 1,
     this.maxPaths = 1,
     this.styleOptions = const [],
+    this.slotDefinitions,
   });
 
   factory ConfigSchema.fromJson(Map<String, dynamic> json) =>

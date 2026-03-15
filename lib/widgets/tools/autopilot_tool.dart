@@ -526,6 +526,85 @@ class _AutopilotToolState extends State<AutopilotTool> with AutomaticKeepAliveCl
     );
   }
 
+  /// Handle setting absolute target heading (works with both V1 and V2)
+  /// If autopilot is in standby, engages first then sets target.
+  void _handleSetTarget(double heading) async {
+    // If not engaged, engage first
+    if (!_engaged) {
+      await _sendCommand(
+        description: 'Engage autopilot',
+        v1Command: () async {
+          await widget.signalKService.sendPutRequest(
+            'steering.autopilot.state',
+            'auto',
+          );
+        },
+        v2Command: () async {
+          await _v2Api!.engage(_selectedInstanceId!);
+        },
+        verifyPath: 'steering.autopilot.state',
+        verifyValue: 'auto',
+      );
+    }
+
+    _sendCommand(
+      description: 'Set heading ${heading.round()}°',
+      v1Command: () async {
+        await widget.signalKService.sendPutRequest(
+          'steering.autopilot.target.headingMagnetic',
+          heading,
+        );
+      },
+      v2Command: () async {
+        await _v2Api!.setTarget(_selectedInstanceId!, heading);
+      },
+      verifyPath: 'steering.autopilot.target.headingMagnetic',
+      verifyValue: heading,
+    );
+  }
+
+  /// Handle Raymarine hull type setting
+  void _handleSetHullType(String hullType) async {
+    _sendCommand(
+      description: 'Set hull type: $hullType',
+      v1Command: () async {
+        await widget.signalKService.sendPutRequest(
+          'steering.autopilot.hullType',
+          hullType,
+        );
+      },
+      v2Command: () async {
+        await widget.signalKService.sendPutRequest(
+          'steering.autopilot.hullType',
+          hullType,
+        );
+      },
+      verifyPath: null,
+      verifyValue: null,
+    );
+  }
+
+  /// Handle Raymarine auto-turn setting
+  void _handleSetAutoTurn(bool enabled) async {
+    _sendCommand(
+      description: '${enabled ? "Enable" : "Disable"} auto-turn',
+      v1Command: () async {
+        await widget.signalKService.sendPutRequest(
+          'steering.autopilot.autoTurn.state',
+          enabled,
+        );
+      },
+      v2Command: () async {
+        await widget.signalKService.sendPutRequest(
+          'steering.autopilot.autoTurn.state',
+          enabled,
+        );
+      },
+      verifyPath: null,
+      verifyValue: null,
+    );
+  }
+
   /// Handle heading adjustment (works with both V1 and V2)
   void _handleAdjustHeading(int degrees) {
     _sendCommand(
@@ -782,11 +861,29 @@ class _AutopilotToolState extends State<AutopilotTool> with AutomaticKeepAliveCl
           onEngageDisengage: _handleEngageDisengage,
           onModeChange: _handleModeChange,
           onAdjustHeading: _handleAdjustHeading,
+          onSetTarget: _handleSetTarget,
           onTack: _handleTack,
           onGybe: _handleGybe,
           onAdvanceWaypoint: _handleAdvanceWaypoint,
           onDodgeToggle: _handleDodgeToggle,
         ),
+        // Raymarine settings gear (only show when configured and in standby)
+        if (_raymarineHullType != null && !_engaged)
+          Positioned(
+            bottom: 8,
+            right: 8,
+            child: Container(
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.5),
+                shape: BoxShape.circle,
+              ),
+              child: IconButton(
+                icon: const Icon(Icons.settings, color: Colors.white70, size: 20),
+                onPressed: _showRaymarineSettings,
+                tooltip: 'Raymarine Settings',
+              ),
+            ),
+          ),
         Positioned(
           top: 8,
           right: 8,
@@ -807,6 +904,82 @@ class _AutopilotToolState extends State<AutopilotTool> with AutomaticKeepAliveCl
     );
   }
 
+  // Raymarine config state
+  String? get _raymarineHullType =>
+      widget.config.style.customProperties?['raymarineHullType'] as String?;
+  bool get _raymarineAutoTurn =>
+      widget.config.style.customProperties?['raymarineAutoTurn'] as bool? ?? false;
+
+  void _showRaymarineSettings() {
+    showModalBottomSheet(
+      context: context,
+      builder: (context) {
+        String selectedHullType = _raymarineHullType ?? 'power';
+        bool autoTurnEnabled = _raymarineAutoTurn;
+
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            return Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Raymarine Settings',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 4),
+                  const Text(
+                    'Autopilot must be in standby to change these settings.',
+                    style: TextStyle(fontSize: 12, color: Colors.grey),
+                  ),
+                  const SizedBox(height: 16),
+                  const Text('Hull Type', style: TextStyle(fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 8),
+                  DropdownButton<String>(
+                    value: selectedHullType,
+                    isExpanded: true,
+                    items: const [
+                      DropdownMenuItem(value: 'sailSlowTurn', child: Text('Sail - Slow Turn')),
+                      DropdownMenuItem(value: 'sail', child: Text('Sail')),
+                      DropdownMenuItem(value: 'sailCatamaran', child: Text('Sail - Catamaran')),
+                      DropdownMenuItem(value: 'power', child: Text('Power')),
+                      DropdownMenuItem(value: 'powerSlowTurn', child: Text('Power - Slow Turn')),
+                      DropdownMenuItem(value: 'powerFastTurn', child: Text('Power - Fast Turn')),
+                    ],
+                    onChanged: (value) {
+                      if (value != null) {
+                        setSheetState(() { selectedHullType = value; });
+                        _handleSetHullType(value);
+                      }
+                    },
+                  ),
+                  const SizedBox(height: 16),
+                  SwitchListTile(
+                    title: const Text('Auto-Turn'),
+                    subtitle: const Text('Enable automatic turn mode'),
+                    value: autoTurnEnabled,
+                    onChanged: (value) {
+                      setSheetState(() { autoTurnEnabled = value; });
+                      _handleSetAutoTurn(value);
+                    },
+                  ),
+                  const SizedBox(height: 16),
+                  Center(
+                    child: TextButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: const Text('Close'),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
 }
 
 /// Builder for autopilot tools

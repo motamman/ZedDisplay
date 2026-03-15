@@ -276,6 +276,18 @@ class WindCompassToolBuilder extends ToolBuilder {
           'customProperties.showAWANumbers',     // Show numeric AWA display with performance feedback (default: true)
           'customProperties.enableVMG',          // Enable VMG optimization with polar-based dynamic target AWA (default: false)
         ],
+        slotDefinitions: const [
+          SlotDefinition(roleLabel: 'Heading True', defaultPath: 'navigation.headingTrue'),
+          SlotDefinition(roleLabel: 'Heading Magnetic', defaultPath: 'navigation.headingMagnetic'),
+          SlotDefinition(roleLabel: 'Wind Direction True', defaultPath: 'environment.wind.directionTrue'),
+          SlotDefinition(roleLabel: 'Wind Angle Apparent', defaultPath: 'environment.wind.angleApparent'),
+          SlotDefinition(roleLabel: 'Wind Speed True', defaultPath: 'environment.wind.speedTrue'),
+          SlotDefinition(roleLabel: 'Wind Speed Apparent', defaultPath: 'environment.wind.speedApparent'),
+          SlotDefinition(roleLabel: 'Speed Over Ground', defaultPath: 'navigation.speedOverGround'),
+          SlotDefinition(roleLabel: 'Course Over Ground', defaultPath: 'navigation.courseOverGroundTrue'),
+          SlotDefinition(roleLabel: 'Waypoint Bearing', defaultPath: 'navigation.courseGreatCircle.nextPoint.bearingTrue'),
+          SlotDefinition(roleLabel: 'Waypoint Distance', defaultPath: 'navigation.courseGreatCircle.nextPoint.distance'),
+        ],
       ),
     );
   }
@@ -285,16 +297,16 @@ class WindCompassToolBuilder extends ToolBuilder {
     return ToolConfig(
       vesselId: vesselId,
       dataSources: [
-        DataSource(path: 'navigation.headingTrue', label: 'Heading True'),
-        DataSource(path: 'navigation.headingMagnetic', label: 'Heading Magnetic'),
-        DataSource(path: 'environment.wind.directionTrue', label: 'Wind Direction True'),
-        DataSource(path: 'environment.wind.angleApparent', label: 'Wind Angle Apparent'),
-        DataSource(path: 'environment.wind.speedTrue', label: 'Wind Speed True'),
-        DataSource(path: 'environment.wind.speedApparent', label: 'Wind Speed Apparent'),
-        DataSource(path: 'navigation.speedOverGround', label: 'Speed Over Ground'),
-        DataSource(path: 'navigation.courseOverGroundTrue', label: 'Course Over Ground'),
-        DataSource(path: 'navigation.courseGreatCircle.nextPoint.bearingTrue', label: 'Waypoint Bearing'),
-        DataSource(path: 'navigation.courseGreatCircle.nextPoint.distance', label: 'Waypoint Distance'),
+        DataSource(path: 'navigation.headingTrue'),
+        DataSource(path: 'navigation.headingMagnetic'),
+        DataSource(path: 'environment.wind.directionTrue'),
+        DataSource(path: 'environment.wind.angleApparent'),
+        DataSource(path: 'environment.wind.speedTrue'),
+        DataSource(path: 'environment.wind.speedApparent'),
+        DataSource(path: 'navigation.speedOverGround'),
+        DataSource(path: 'navigation.courseOverGroundTrue'),
+        DataSource(path: 'navigation.courseGreatCircle.nextPoint.bearingTrue'),
+        DataSource(path: 'navigation.courseGreatCircle.nextPoint.distance'),
       ],
       style: StyleConfig(
         laylineAngle: 40.0,

@@ -15,8 +15,12 @@ import '../../services/signalk_service.dart';
 import '../../services/storage_service.dart';
 import '../../services/tool_registry.dart';
 import '../../services/alarm_audio_player.dart';
+import '../../services/alert_coordinator.dart';
+import '../../services/dodge_autopilot_service.dart';
 import '../../services/find_home_target_service.dart';
+import '../../models/alert_event.dart';
 import '../../utils/angle_utils.dart';
+import '../../widgets/countdown_confirmation_overlay.dart';
 import '../../utils/cpa_utils.dart';
 import '../../utils/dodge_utils.dart';
 import '../tool_info_button.dart';
@@ -45,6 +49,7 @@ class FindHomeTool extends StatefulWidget {
 
 class _FindHomeToolState extends State<FindHomeTool> {
   static const _ownerId = 'find_home';
+  static const _apStatePath = 'steering.autopilot.state';
   static const _defaultTargetPath = 'navigation.position';
   static const _defaultTrackCogPath = 'navigation.courseOverGroundTrue';
   static const _defaultTrackSogPath = 'navigation.speedOverGround';
@@ -98,6 +103,12 @@ class _FindHomeToolState extends State<FindHomeTool> {
   // Dodge mode
   bool _dodgeMode = false;       // dodge vs track view
   bool _dodgeBowPass = false;    // stern (default) vs bow
+
+  // Auto-dodge autopilot integration
+  DodgeAutopilotService? _dodgeAutopilotService;
+  bool _autoDodgeEnabled = false;
+  bool _dodgeCompleting = false;
+  AlertCoordinator? _alertCoordinator;
 
   /// Safe pass distance in SI meters (from config, default 300m).
   /// Stored in SI; displayed via MetadataStore through _formatDistance().
@@ -153,6 +164,9 @@ class _FindHomeToolState extends State<FindHomeTool> {
         // Feedback will start once GPS stream delivers the first position
       }
 
+      // Alert coordinator for dodge notifications
+      _alertCoordinator = Provider.of<AlertCoordinator>(context, listen: false);
+
       // Listen for AIS target requests from the AIS chart
       _findHomeTargetService = Provider.of<FindHomeTargetService>(context, listen: false);
       _findHomeTargetService!.addListener(_onFindHomeTargetUpdate);
@@ -191,6 +205,7 @@ class _FindHomeToolState extends State<FindHomeTool> {
   }
 
   void _clearAisMode() {
+    _disengageAutoDodge();
     widget.signalKService.aisVesselRegistry.removeListener(_onAISRegistryUpdate);
     setState(() {
       _aisVesselId = null;
@@ -206,12 +221,14 @@ class _FindHomeToolState extends State<FindHomeTool> {
 
   @override
   void dispose() {
+    _dodgeAutopilotService?.deactivate();
+    _dodgeAutopilotService?.dispose();
     _hapticTimer?.cancel();
     _positionSub?.cancel();
     _whistlePlayer?.dispose();
     widget.signalKService.removeListener(_onSignalKUpdate);
     widget.signalKService.unsubscribeFromPaths(
-      [_targetPath, _trackCogPath, _trackSogPath],
+      [_targetPath, _trackCogPath, _trackSogPath, _apStatePath],
       ownerId: _ownerId,
     );
     _findHomeTargetService?.removeListener(_onFindHomeTargetUpdate);
@@ -569,6 +586,30 @@ class _FindHomeToolState extends State<FindHomeTool> {
 
     final targetCogDeg = vessel.cogRad! * 180.0 / math.pi;
 
+    // Feed dodge result to autopilot if auto-dodge is active
+    if (_autoDodgeEnabled && dodgeResult.isFeasible) {
+      _dodgeAutopilotService?.sendDodgeHeading(dodgeResult);
+    }
+
+    // Completion detection: check CPA/TCPA for diverging vessels
+    if (_autoDodgeEnabled && _dodgeAutopilotService != null) {
+      final cpaTcpa = CpaUtils.calculateCpaTcpa(
+        bearingDeg: bearingToTarget,
+        distanceM: distToTarget,
+        ownCogRad: ownSogMs > 0.1 ? ownCogDeg * math.pi / 180.0 : null,
+        ownSogMs: ownSogMs,
+        targetCogRad: vessel.cogRad,
+        targetSogMs: vessel.sogMs,
+      );
+      final reason = _dodgeAutopilotService!.checkCompletion(
+        tcpa: cpaTcpa?.tcpa,
+        dodgeFeasible: true,
+      );
+      if (reason != DodgeCompletionReason.none) {
+        WidgetsBinding.instance.addPostFrameCallback((_) => _onDodgeComplete(reason));
+      }
+    }
+
     return (
       bearing: AngleUtils.normalize(courseToSteerDeg),
       deviation: deviation,
@@ -580,6 +621,157 @@ class _FindHomeToolState extends State<FindHomeTool> {
       dodge: dodgeResult,
       targetCogDeg: AngleUtils.normalize(targetCogDeg),
     );
+  }
+
+  // --------------- Auto-dodge autopilot ---------------
+
+  Future<void> _handleAutoDodgeTap() async {
+    if (_autoDodgeEnabled) {
+      _disengageAutoDodge();
+      return;
+    }
+
+    // Step 1: Subscribe to AP state path so cache is populated
+    widget.signalKService.subscribeToPaths([_apStatePath], ownerId: _ownerId);
+    await Future.delayed(const Duration(milliseconds: 500));
+
+    // Lazy-create the service
+    _dodgeAutopilotService ??=
+        DodgeAutopilotService(signalKService: widget.signalKService);
+
+    // Step 2: Detect autopilot
+    final detected = await _dodgeAutopilotService!.detectAutopilot();
+    if (!detected) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No autopilot detected')),
+        );
+      }
+      return;
+    }
+
+    // Step 3: Ensure AP is in auto mode (engage if needed)
+    final error = await _dodgeAutopilotService!.ensureAutopilotInAuto();
+    if (error != null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(error)),
+        );
+      }
+      return;
+    }
+
+    // Step 4: Countdown confirmation
+    if (!mounted) return;
+    final preDodge = _dodgeAutopilotService!.preDodgeApState;
+    final confirmTitle = preDodge != null
+        ? 'Engage Auto-Dodge?\nAP switched from $preDodge → auto'
+        : 'Engage Auto-Dodge?';
+    final confirmed = await showCountdownConfirmation(
+      context: context,
+      title: confirmTitle,
+      action: 'Engage',
+      countdownSeconds: 5,
+    );
+    if (!confirmed) {
+      // User cancelled — restore AP if we changed it
+      if (preDodge != null) {
+        await _dodgeAutopilotService!.restorePreDodgeState();
+      }
+      return;
+    }
+
+    // Step 5: Activate
+    _dodgeAutopilotService!.activate();
+    setState(() => _autoDodgeEnabled = true);
+
+    _alertCoordinator?.submitAlert(AlertEvent(
+      subsystem: AlertSubsystem.dodge,
+      severity: AlertSeverity.alert,
+      title: 'Auto-Dodge',
+      body: preDodge != null
+          ? 'Auto-dodge engaged — AP switched from $preDodge to auto'
+          : 'Auto-dodge engaged — sending headings to autopilot',
+      wantsInAppSnackbar: true,
+    ));
+  }
+
+  void _disengageAutoDodge() {
+    if (!_autoDodgeEnabled) return;
+    _dodgeAutopilotService?.deactivate();
+    widget.signalKService.unsubscribeFromPaths([_apStatePath], ownerId: _ownerId);
+    setState(() => _autoDodgeEnabled = false);
+
+    _alertCoordinator?.submitAlert(const AlertEvent(
+      subsystem: AlertSubsystem.dodge,
+      severity: AlertSeverity.alert,
+      title: 'Auto-Dodge',
+      body: 'Auto-dodge off. AP holding last heading.',
+      wantsInAppSnackbar: true,
+    ));
+  }
+
+  // --------------- Post-dodge recovery ---------------
+
+  void _onDodgeComplete(DodgeCompletionReason reason) {
+    if (_dodgeCompleting || !_autoDodgeEnabled || !mounted) return;
+    _dodgeCompleting = true;
+
+    // Stop sending headings immediately
+    _dodgeAutopilotService?.deactivate();
+
+    final preDodge = _dodgeAutopilotService?.preDodgeApState;
+    final reasonLabel = reason == DodgeCompletionReason.vesselsDiverging
+        ? 'Vessels diverging — safe passage'
+        : 'Dodge no longer feasible';
+
+    showDialog<String>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => _DodgeRecoveryDialog(
+        reasonLabel: reasonLabel,
+        preDodgeApState: preDodge,
+      ),
+    ).then((choice) async {
+      choice ??= 'continue'; // default on auto-dismiss
+
+      switch (choice) {
+        case 'restore':
+          await _dodgeAutopilotService?.restorePreDodgeState();
+          break;
+        case 'disengage':
+          await _dodgeAutopilotService?.disengageAutopilot();
+          break;
+        case 'continue':
+        default:
+          break; // AP holds current heading
+      }
+
+      widget.signalKService.unsubscribeFromPaths([_apStatePath], ownerId: _ownerId);
+
+      if (mounted) {
+        setState(() {
+          _autoDodgeEnabled = false;
+          _dodgeMode = false; // fall back to track mode
+        });
+      }
+
+      final actionLabel = choice == 'restore'
+          ? 'AP restored to $preDodge'
+          : choice == 'disengage'
+              ? 'AP disengaged'
+              : 'AP holding current course';
+
+      _alertCoordinator?.submitAlert(AlertEvent(
+        subsystem: AlertSubsystem.dodge,
+        severity: AlertSeverity.alert,
+        title: 'Auto-Dodge Complete',
+        body: '$reasonLabel. $actionLabel.',
+        wantsInAppSnackbar: true,
+      ));
+
+      _dodgeCompleting = false;
+    });
   }
 
   // --------------- Feedback engine ---------------
@@ -844,6 +1036,13 @@ class _FindHomeToolState extends State<FindHomeTool> {
     // Dodge mode: compute dodge and use dodge-derived values for display
     final dodgeNav = _dodgeMode ? _computeDodge() : null;
     final inDodge = dodgeNav != null;
+
+    // Dodge infeasible while auto-dodge active → trigger completion
+    if (_autoDodgeEnabled && dodgeNav == null && _dodgeMode) {
+      WidgetsBinding.instance.addPostFrameCallback(
+        (_) => _onDodgeComplete(DodgeCompletionReason.dodgeInfeasible),
+      );
+    }
 
     // Extract display values — dodge overrides nav when active
     final displayBearing = inDodge ? dodgeNav.bearing : nav.bearing;
@@ -1347,7 +1546,11 @@ class _FindHomeToolState extends State<FindHomeTool> {
                       GestureDetector(
                         onTap: () => setState(() {
                           _dodgeMode = !_dodgeMode;
-                          if (_dodgeMode) _trackMode = true; // dodge uses SignalK position
+                          if (_dodgeMode) {
+                            _trackMode = true; // dodge uses SignalK position
+                          } else {
+                            _disengageAutoDodge(); // turning off dodge disengages auto-dodge
+                          }
                         }),
                         child: Container(
                           padding: const EdgeInsets.symmetric(
@@ -1401,6 +1604,61 @@ class _FindHomeToolState extends State<FindHomeTool> {
                           ),
                         ),
                       ),
+                      const SizedBox(width: 8),
+                      // AUTO button (auto-dodge to autopilot)
+                      GestureDetector(
+                        onTap: _handleAutoDodgeTap,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: _autoDodgeEnabled
+                                ? (_dodgeAutopilotService?.lastError != null
+                                    ? Colors.red.withValues(alpha: 0.3)
+                                    : Colors.green.withValues(alpha: 0.3))
+                                : Colors.grey.withValues(alpha: 0.2),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: _autoDodgeEnabled
+                                  ? (_dodgeAutopilotService?.lastError != null
+                                      ? Colors.red
+                                      : Colors.green)
+                                  : Colors.grey,
+                              width: 1,
+                            ),
+                          ),
+                          child: Text(
+                            'AUTO',
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                              color: _autoDodgeEnabled
+                                  ? (_dodgeAutopilotService?.lastError != null
+                                      ? Colors.red
+                                      : Colors.green)
+                                  : Colors.grey,
+                            ),
+                          ),
+                        ),
+                      ),
+                      // Status label showing last sent heading
+                      if (_autoDodgeEnabled) ...[
+                        const SizedBox(width: 4),
+                        Builder(builder: (_) {
+                          final status = _dodgeAutopilotService?.status;
+                          final hdg = status?.lastSentHeadingDeg;
+                          return Text(
+                            hdg != null
+                                ? 'AP\u2192${hdg.toStringAsFixed(0)}\u00B0'
+                                : 'AP\u2192...',
+                            style: const TextStyle(
+                              fontSize: 10,
+                              fontFamily: 'monospace',
+                              color: Colors.green,
+                            ),
+                          );
+                        }),
+                      ],
                       const SizedBox(width: 8),
                     ],
                   ],
@@ -1462,6 +1720,98 @@ class _FindHomeToolState extends State<FindHomeTool> {
           ),
         ],
       ),
+    );
+  }
+}
+
+// --------------- Dodge Recovery Dialog ---------------
+
+class _DodgeRecoveryDialog extends StatefulWidget {
+  final String reasonLabel;
+  final String? preDodgeApState;
+
+  const _DodgeRecoveryDialog({
+    required this.reasonLabel,
+    required this.preDodgeApState,
+  });
+
+  @override
+  State<_DodgeRecoveryDialog> createState() => _DodgeRecoveryDialogState();
+}
+
+class _DodgeRecoveryDialogState extends State<_DodgeRecoveryDialog> {
+  static const _timeoutSeconds = 30;
+  late int _remaining;
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _remaining = _timeoutSeconds;
+    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted) return;
+      setState(() => _remaining--);
+      if (_remaining <= 0) {
+        Navigator.of(context).pop('continue');
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final hasPrevState = widget.preDodgeApState != null;
+
+    return AlertDialog(
+      backgroundColor: Colors.grey.shade900,
+      title: const Text(
+        'Dodge Complete',
+        style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+      ),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            widget.reasonLabel,
+            style: const TextStyle(color: Colors.white70),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            'Auto-selecting "Continue" in $_remaining s',
+            style: const TextStyle(color: Colors.amber, fontSize: 12),
+          ),
+        ],
+      ),
+      actions: [
+        if (hasPrevState)
+          TextButton(
+            onPressed: () => Navigator.of(context).pop('restore'),
+            child: Text(
+              'Resume ${widget.preDodgeApState}',
+              style: const TextStyle(color: Colors.cyan),
+            ),
+          ),
+        TextButton(
+          onPressed: () => Navigator.of(context).pop('continue'),
+          child: const Text(
+            'Continue current course',
+            style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold),
+          ),
+        ),
+        TextButton(
+          onPressed: () => Navigator.of(context).pop('disengage'),
+          child: const Text(
+            'Disengage autopilot',
+            style: TextStyle(color: Colors.red),
+          ),
+        ),
+      ],
     );
   }
 }
