@@ -9,11 +9,13 @@ import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 import 'package:share_plus/share_plus.dart';
 import '../../models/ais_favorite.dart';
+import '../../models/saved_search_area.dart';
 import '../../models/tool_config.dart';
 import '../../models/tool_definition.dart';
 import '../../models/historical_data.dart' as hist;
 import '../../services/ais_favorites_service.dart';
 import '../../services/signalk_service.dart';
+import '../../services/storage_service.dart';
 import '../../services/historical_data_service.dart';
 import '../../services/tool_registry.dart';
 import '../tool_info_button.dart';
@@ -148,6 +150,11 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
   // Service
   HistoricalDataService? _historyService;
 
+  // Saved search areas
+  static const String _searchAreaResourceType = 'zeddisplay-search-areas';
+  static const String _localStorageKey = 'saved_search_areas';
+  List<SavedSearchArea> _savedAreas = [];
+
   @override
   void initState() {
     super.initState();
@@ -155,6 +162,7 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
     widget.signalKService.addListener(_onSignalKChanged);
     _updateVesselPosition();
     _initService();
+    _loadSavedAreas();
   }
 
   @override
@@ -179,6 +187,7 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
     // Re-init service on reconnect (new auth token, etc.)
     if (_historyService == null && widget.signalKService.isConnected) {
       _initService();
+      _loadSavedAreas(); // Reload from server on reconnect
     }
     setState(() {});
   }
@@ -335,6 +344,290 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
     // Fallback: last segment
     final lastDot = ctx.lastIndexOf('.');
     return lastDot >= 0 ? ctx.substring(lastDot + 1) : ctx;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Saved search areas
+  // ---------------------------------------------------------------------------
+
+  Future<void> _loadSavedAreas() async {
+    // Load from local cache first
+    try {
+      final storageService = context.read<StorageService>();
+      final cached = storageService.getSetting(_localStorageKey);
+      if (cached != null) {
+        final list = jsonDecode(cached) as List;
+        _savedAreas = list
+            .map((e) => SavedSearchArea.fromJson(e as Map<String, dynamic>))
+            .toList();
+      }
+    } catch (e) {
+      if (kDebugMode) print('Error loading saved areas from cache: $e');
+    }
+
+    // If connected, fetch from server (source of truth) and merge
+    if (widget.signalKService.isConnected) {
+      try {
+        final resources =
+            await widget.signalKService.getResources(_searchAreaResourceType);
+        if (resources.isNotEmpty) {
+          final serverAreas = <SavedSearchArea>[];
+          for (final entry in resources.entries) {
+            try {
+              serverAreas.add(SavedSearchArea.fromResourceData(
+                entry.key,
+                entry.value as Map<String, dynamic>,
+              ));
+            } catch (_) {}
+          }
+          // Server is source of truth — merge with local-only items
+          final serverIds = serverAreas.map((a) => a.id).toSet();
+          final localOnly =
+              _savedAreas.where((a) => !serverIds.contains(a.id)).toList();
+          _savedAreas = [...serverAreas, ...localOnly];
+        }
+      } catch (e) {
+        if (kDebugMode) print('Error loading saved areas from server: $e');
+      }
+    }
+
+    // Sort by creation date (newest first)
+    _savedAreas.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+
+    // Persist merged list locally
+    _persistLocalAreas();
+
+    if (mounted) setState(() {});
+  }
+
+  void _persistLocalAreas() {
+    try {
+      final storageService = context.read<StorageService>();
+      final json = jsonEncode(_savedAreas.map((a) => a.toJson()).toList());
+      storageService.saveSetting(_localStorageKey, json);
+    } catch (_) {}
+  }
+
+  Future<void> _saveArea(SavedSearchArea area) async {
+    // Save to server
+    if (widget.signalKService.isConnected) {
+      await widget.signalKService.ensureResourceTypeExists(
+        _searchAreaResourceType,
+        description: 'ZedDisplay saved search areas',
+      );
+      await widget.signalKService.putResource(
+        _searchAreaResourceType,
+        area.id,
+        area.toResourceData(),
+      );
+    }
+
+    // Add to local list
+    _savedAreas.insert(0, area);
+    _persistLocalAreas();
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _deleteArea(SavedSearchArea area) async {
+    // Delete from server
+    if (widget.signalKService.isConnected) {
+      await widget.signalKService.deleteResource(
+        _searchAreaResourceType,
+        area.id,
+      );
+    }
+
+    // Remove from local list
+    _savedAreas.removeWhere((a) => a.id == area.id);
+    _persistLocalAreas();
+    if (mounted) setState(() {});
+  }
+
+  void _applySavedArea(SavedSearchArea area) {
+    setState(() {
+      _drawPoint1 = area.drawPoint1;
+      _drawPoint2 = area.drawPoint2;
+      if (area.type == 'bbox') {
+        _computeBboxParam();
+      } else {
+        _computeRadiusParam();
+      }
+      _state = ExplorerState.queryConfig;
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _showQueryConfigDialog();
+    });
+  }
+
+  void _showSaveAreaDialog() {
+    if (_drawPoint1 == null || _drawPoint2 == null) return;
+
+    final nameController = TextEditingController();
+    final descController = TextEditingController();
+    final areaType = _bboxParam != null ? 'bbox' : 'radius';
+
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          title: const Text('Save Search Area'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: nameController,
+                decoration: const InputDecoration(
+                  labelText: 'Name *',
+                  hintText: 'e.g. Marina Bay',
+                ),
+                autofocus: true,
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: descController,
+                decoration: const InputDecoration(
+                  labelText: 'Description (optional)',
+                ),
+                maxLines: 2,
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () {
+                final name = nameController.text.trim();
+                if (name.isEmpty) return;
+
+                double? radius;
+                if (areaType == 'radius') {
+                  radius = const Distance()
+                      .as(LengthUnit.Meter, _drawPoint1!, _drawPoint2!)
+                      .roundToDouble();
+                }
+
+                final area = SavedSearchArea(
+                  name: name,
+                  description: descController.text.trim().isEmpty
+                      ? null
+                      : descController.text.trim(),
+                  type: areaType,
+                  point1Lat: _drawPoint1!.latitude,
+                  point1Lng: _drawPoint1!.longitude,
+                  point2Lat: _drawPoint2!.latitude,
+                  point2Lng: _drawPoint2!.longitude,
+                  radiusMeters: radius,
+                );
+
+                Navigator.pop(ctx);
+                _saveArea(area);
+                _showSnack('Area saved: $name');
+              },
+              child: const Text('Save'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _showSavedAreasSheet() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setSheetState) {
+            return SafeArea(
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxHeight: MediaQuery.of(ctx).size.height * 0.5,
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 16, vertical: 12),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.folder_open),
+                          const SizedBox(width: 8),
+                          Text(
+                            'Saved Areas (${_savedAreas.length})',
+                            style: const TextStyle(
+                                fontSize: 16, fontWeight: FontWeight.bold),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const Divider(height: 1),
+                    if (_savedAreas.isEmpty)
+                      const Padding(
+                        padding: EdgeInsets.all(24),
+                        child: Text('No saved areas yet.\n'
+                            'Draw an area and tap the save button to save it.'),
+                      )
+                    else
+                      Flexible(
+                        child: ListView.builder(
+                          shrinkWrap: true,
+                          itemCount: _savedAreas.length,
+                          itemBuilder: (ctx, i) {
+                            final area = _savedAreas[i];
+                            return Dismissible(
+                              key: ValueKey(area.id),
+                              direction: DismissDirection.endToStart,
+                              background: Container(
+                                color: Colors.red,
+                                alignment: Alignment.centerRight,
+                                padding: const EdgeInsets.only(right: 16),
+                                child: const Icon(Icons.delete,
+                                    color: Colors.white),
+                              ),
+                              onDismissed: (_) {
+                                _deleteArea(area);
+                                setSheetState(() {});
+                              },
+                              child: ListTile(
+                                leading: Icon(
+                                  area.type == 'bbox'
+                                      ? Icons.crop_square
+                                      : Icons.radio_button_unchecked,
+                                ),
+                                title: Text(area.name),
+                                subtitle: Text(
+                                  [
+                                    _fmtDate(area.createdAt),
+                                    if (area.description != null &&
+                                        area.description!.isNotEmpty)
+                                      area.description!.length > 40
+                                          ? '${area.description!.substring(0, 40)}...'
+                                          : area.description!,
+                                  ].join(' \u2022 '),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                onTap: () {
+                                  Navigator.pop(ctx);
+                                  _applySavedArea(area);
+                                },
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
   }
 
   // ---------------------------------------------------------------------------
@@ -683,6 +976,13 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
               subtitle: const Text('Tap center then edge to define a circle'),
               onTap: () => Navigator.pop(ctx, 'radius'),
             ),
+            if (_savedAreas.isNotEmpty)
+              ListTile(
+                leading: const Icon(Icons.folder_open),
+                title: const Text('Saved Areas'),
+                subtitle: Text('${_savedAreas.length} saved'),
+                onTap: () => Navigator.pop(ctx, 'saved'),
+              ),
             ListTile(
               leading: const Icon(Icons.close),
               title: const Text('Cancel'),
@@ -705,6 +1005,9 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
           _drawPoint1 = null;
           _drawPoint2 = null;
         });
+      } else if (value == 'saved') {
+        setState(() => _state = ExplorerState.idle);
+        _showSavedAreasSheet();
       } else {
         setState(() => _state = ExplorerState.idle);
       }
@@ -1528,6 +1831,16 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
                   _mapController.move(center, _mapController.camera.zoom);
                 }
               },
+            ),
+          const SizedBox(height: 4),
+          // Save area
+          if (_drawPoint1 != null &&
+              _drawPoint2 != null &&
+              (_state == ExplorerState.queryConfig ||
+               _state == ExplorerState.results))
+            _buildOverlayButton(
+              icon: Icons.save_outlined,
+              onPressed: _showSaveAreaDialog,
             ),
           const SizedBox(height: 4),
           // Share
