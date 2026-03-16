@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:ui' as ui;
 import 'dart:io';
 import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
@@ -1506,40 +1507,45 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
   Widget build(BuildContext context) {
     super.build(context); // AutomaticKeepAliveClientMixin
 
+    final hasResults =
+        _state == ExplorerState.results && _resultSeries.isNotEmpty;
+
+    final mapStack = Stack(
+      children: [
+        _buildMap(),
+        // Drawing instruction overlay
+        if (_state == ExplorerState.drawingBbox ||
+            _state == ExplorerState.drawingRadius)
+          _buildDrawingInstructions(),
+        // Loading overlay
+        if (_state == ExplorerState.loading) _buildLoadingOverlay(),
+        // Dragging area overlay
+        if (_isDraggingArea || _draggingHandleIndex != null)
+          _buildDraggingOverlay(),
+        // No-position message
+        if (_vesselPosition == null && _state == ExplorerState.idle)
+          _buildNoPositionOverlay(),
+        // Top-right controls
+        _buildOverlayControls(),
+        // Legend overlay at bottom-left
+        if (_state == ExplorerState.results && _resultSeries.isNotEmpty)
+          _buildLegend(),
+      ],
+    );
+
     return Column(
       children: [
         // Top summary bar (results only)
         if (_state == ExplorerState.results) _buildSummaryBar(),
 
-        // Map
-        Expanded(
-          child: Stack(
-            children: [
-              _buildMap(),
-              // Drawing instruction overlay
-              if (_state == ExplorerState.drawingBbox ||
-                  _state == ExplorerState.drawingRadius)
-                _buildDrawingInstructions(),
-              // Loading overlay
-              if (_state == ExplorerState.loading) _buildLoadingOverlay(),
-              // Dragging area overlay
-              if (_isDraggingArea || _draggingHandleIndex != null)
-                _buildDraggingOverlay(),
-              // No-position message
-              if (_vesselPosition == null && _state == ExplorerState.idle)
-                _buildNoPositionOverlay(),
-              // Top-right controls
-              _buildOverlayControls(),
-              // Legend overlay at bottom-left
-              if (_state == ExplorerState.results && _resultSeries.isNotEmpty)
-                _buildLegend(),
-            ],
-          ),
-        ),
-
-        // Bottom tabbed panel (results only)
-        if (_state == ExplorerState.results && _resultSeries.isNotEmpty)
-          SizedBox(height: 160, child: _buildBottomPanel()),
+        if (hasResults) ...[
+          // Map capped at 2/3
+          Expanded(flex: 2, child: mapStack),
+          // Bottom panel gets remaining 1/3
+          Expanded(flex: 1, child: _buildBottomPanel()),
+        ] else
+          // No results — map gets all space
+          Expanded(child: mapStack),
       ],
     );
   }
@@ -1844,7 +1850,9 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
             ),
           const SizedBox(height: 4),
           // Share
-          if (_state == ExplorerState.results && _resultPoints.isNotEmpty)
+          if (_state == ExplorerState.results &&
+              _response != null &&
+              _response!.data.isNotEmpty)
             _buildOverlayButton(
               icon: Icons.share,
               onPressed: _showShareFormatPicker,
@@ -2211,11 +2219,22 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
               children: [
                 // Timestamp
                 SizedBox(
-                  width: 60,
-                  child: Text(
-                    _fmtTimestamp(pt.timestamp),
-                    style: const TextStyle(
-                        fontSize: 10, fontWeight: FontWeight.w500),
+                  width: 80,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        _fmtDate(pt.timestamp),
+                        style: const TextStyle(
+                            fontSize: 9, color: Colors.grey),
+                      ),
+                      Text(
+                        _fmtAmPm(pt.timestamp),
+                        style: const TextStyle(
+                            fontSize: 10, fontWeight: FontWeight.w500),
+                      ),
+                    ],
                   ),
                 ),
                 // Position
@@ -2290,10 +2309,15 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Timestamp
+          // Date
           Text(
-            '${_fmtDate(pt.timestamp)} ${_fmtTimestamp(pt.timestamp)}',
+            _fmtDate(pt.timestamp),
             style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+          ),
+          // AM/PM time
+          Text(
+            _fmtAmPm(pt.timestamp),
+            style: const TextStyle(fontSize: 11),
           ),
           const SizedBox(height: 2),
           // Position in DDM
@@ -2301,6 +2325,40 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
             _fmtDDM(pt.position.latitude, pt.position.longitude),
             style: const TextStyle(fontSize: 11),
           ),
+          const Divider(height: 8),
+          // Sparklines per series
+          ..._resultSeries.asMap().entries.map((entry) {
+            final idx = entry.key;
+            final s = entry.value;
+            final markerIndex = s.points.indexWhere(
+                (p) => p.timestamp == pt.timestamp);
+            final seriesColor = _sparklineSeriesColor(idx);
+            final metadata =
+                widget.signalKService.metadataStore.get(s.path);
+            final rawVal = pt.values[s.path];
+            final display = rawVal != null
+                ? (metadata?.format(rawVal, decimals: 1) ??
+                    rawVal.toStringAsFixed(1))
+                : null;
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 6),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(s.path.split('.').last,
+                      style: TextStyle(fontSize: 9, color: seriesColor)),
+                  const SizedBox(height: 2),
+                  _SparklineWithMarker(
+                    values: s.points.map((p) => p.value).toList(),
+                    markerIndex: markerIndex >= 0 ? markerIndex : null,
+                    markerLabel: display,
+                    lineColor: seriesColor,
+                    height: 50,
+                  ),
+                ],
+              ),
+            );
+          }),
           const Divider(height: 8),
           // Per-path values
           ..._resultSeries.map((s) {
@@ -2312,9 +2370,6 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
                 ? (metadata?.format(rawVal, decimals: 2) ??
                     rawVal.toStringAsFixed(2))
                 : '--';
-            final rawStr =
-                rawVal != null ? rawVal.toStringAsFixed(4) : '--';
-
             return Padding(
               padding: const EdgeInsets.only(bottom: 4),
               child: Row(
@@ -2334,7 +2389,7 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
                             style: const TextStyle(
                                 fontSize: 10, color: Colors.grey)),
                         Text(
-                          '$display  (SI: $rawStr)',
+                          display,
                           style: const TextStyle(fontSize: 11),
                         ),
                       ],
@@ -2392,36 +2447,92 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
     });
   }
 
+  /// Build column-index lookup for export iteration.
+  Map<String, int> _buildExportColIndices() {
+    final colIndices = <String, int>{};
+    for (final s in _resultSeries) {
+      final idx = _response!.values.indexWhere((v) {
+        if (v.path != s.path) return false;
+        if (s.smoothing == null) return v.smoothing == null;
+        return v.smoothing == s.smoothing;
+      });
+      if (idx != -1) colIndices[s.path] = idx;
+    }
+    return colIndices;
+  }
+
+  /// Build metadata comment lines for export headers.
+  List<String> _buildExportMetadataLines() {
+    final lines = <String>[];
+    lines.add('# context: $_context');
+    if (_bboxParam != null) {
+      lines.add('# area: bbox $_bboxParam');
+    } else if (_radiusParam != null) {
+      lines.add('# area: radius $_radiusParam');
+    }
+    lines.add('# aggregation: $_aggregation');
+    if (_smoothing != 'none') {
+      final param = _smoothing == 'sma'
+          ? '$_smoothing($_smaWindow)'
+          : '$_smoothing($_emaAlpha)';
+      lines.add('# smoothing: $param');
+    }
+    if (_response != null) {
+      lines.add('# from: ${_response!.range.from.toUtc().toIso8601String()}');
+      lines.add('# to: ${_response!.range.to.toUtc().toIso8601String()}');
+    }
+    return lines;
+  }
+
   Future<void> _shareAsCsv() async {
-    if (_resultPoints.isEmpty) return;
+    if (_response == null || _response!.data.isEmpty) return;
 
     try {
+      final colIndices = _buildExportColIndices();
+      final posIdx = _response!.values
+          .indexWhere((v) => v.path == 'navigation.position');
+
       final pathHeaders = _resultSeries.map((s) {
         final metadata = widget.signalKService.metadataStore.get(s.path);
         final symbol = metadata?.symbol;
         return symbol != null ? '${s.path} ($symbol)' : s.path;
       }).toList();
 
+      final metaLines = _buildExportMetadataLines();
       final header = ['timestamp', 'latitude', 'longitude', ...pathHeaders]
           .join(',');
 
-      final rows = _resultPoints.map((pt) {
+      final rows = _response!.data.map((row) {
+        // Position
+        String lat = '';
+        String lon = '';
+        if (posIdx != -1 && posIdx < row.values.length) {
+          final latLng = _parsePosition(row.values[posIdx]);
+          if (latLng != null) {
+            lat = latLng.latitude.toStringAsFixed(6);
+            lon = latLng.longitude.toStringAsFixed(6);
+          }
+        }
+
+        // Path values
         final vals = _resultSeries.map((s) {
-          final rawVal = pt.values[s.path];
-          if (rawVal == null) return '';
+          final idx = colIndices[s.path];
+          if (idx == null || idx >= row.values.length) return '';
+          final raw = row.values[idx];
+          if (raw is! num) return '';
           final metadata = widget.signalKService.metadataStore.get(s.path);
-          return (metadata?.convert(rawVal) ?? rawVal).toStringAsFixed(4);
+          return (metadata?.convert(raw.toDouble()) ?? raw).toStringAsFixed(4);
         }).toList();
 
         return [
-          pt.timestamp.toUtc().toIso8601String(),
-          pt.position.latitude.toStringAsFixed(6),
-          pt.position.longitude.toStringAsFixed(6),
+          row.timestamp.toUtc().toIso8601String(),
+          lat,
+          lon,
           ...vals,
         ].join(',');
       }).toList();
 
-      final csv = [header, ...rows].join('\n');
+      final csv = [...metaLines, header, ...rows].join('\n');
 
       final directory = await getTemporaryDirectory();
       final file = File('${directory.path}/explorer_data.csv');
@@ -2439,39 +2550,117 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
   }
 
   Future<void> _shareAsGeoJson() async {
-    if (_resultPoints.isEmpty) return;
+    if (_response == null || _response!.data.isEmpty) return;
 
     try {
-      final features = _resultPoints.map((pt) {
+      final colIndices = _buildExportColIndices();
+      final posIdx = _response!.values
+          .indexWhere((v) => v.path == 'navigation.position');
+
+      final features = <Map<String, dynamic>>[];
+
+      // Search area feature
+      if (_drawPoint1 != null) {
+        if (_bboxParam != null && _drawPoint2 != null) {
+          final p1 = _drawPoint1!;
+          final p2 = _drawPoint2!;
+          features.add({
+            'type': 'Feature',
+            'geometry': {
+              'type': 'Polygon',
+              'coordinates': [
+                [
+                  [p1.longitude, p1.latitude],
+                  [p2.longitude, p1.latitude],
+                  [p2.longitude, p2.latitude],
+                  [p1.longitude, p2.latitude],
+                  [p1.longitude, p1.latitude],
+                ]
+              ],
+            },
+            'properties': {
+              'role': 'searchArea',
+              'areaType': 'bbox',
+            },
+          });
+        } else if (_radiusParam != null) {
+          final parts = _radiusParam!.split(',');
+          final radiusM =
+              parts.length >= 3 ? double.tryParse(parts[2]) : null;
+          features.add({
+            'type': 'Feature',
+            'geometry': {
+              'type': 'Point',
+              'coordinates': [
+                _drawPoint1!.longitude,
+                _drawPoint1!.latitude,
+              ],
+            },
+            'properties': {
+              'role': 'searchArea',
+              'areaType': 'radius',
+              if (radiusM != null) 'radiusMeters': radiusM,
+            },
+          });
+        }
+      }
+
+      // Data features from full response
+      for (final row in _response!.data) {
         final properties = <String, dynamic>{
-          'timestamp': pt.timestamp.toUtc().toIso8601String(),
+          'timestamp': row.timestamp.toUtc().toIso8601String(),
         };
+
         for (final s in _resultSeries) {
-          final rawVal = pt.values[s.path];
-          if (rawVal == null) continue;
+          final idx = colIndices[s.path];
+          if (idx == null || idx >= row.values.length) continue;
+          final raw = row.values[idx];
+          if (raw is! num) continue;
           final metadata = widget.signalKService.metadataStore.get(s.path);
-          final displayVal = metadata?.convert(rawVal) ?? rawVal;
+          final displayVal =
+              metadata?.convert(raw.toDouble()) ?? raw.toDouble();
           final symbol = metadata?.symbol;
           properties[s.path] = displayVal;
           if (symbol != null) {
             properties['${s.path}_unit'] = symbol;
           }
         }
-        return {
+
+        // Position (may be null → null geometry, valid per GeoJSON spec)
+        Map<String, dynamic>? geometry;
+        if (posIdx != -1 && posIdx < row.values.length) {
+          final latLng = _parsePosition(row.values[posIdx]);
+          if (latLng != null) {
+            geometry = {
+              'type': 'Point',
+              'coordinates': [latLng.longitude, latLng.latitude],
+            };
+          }
+        }
+
+        features.add({
           'type': 'Feature',
-          'geometry': {
-            'type': 'Point',
-            'coordinates': [
-              pt.position.longitude,
-              pt.position.latitude,
-            ],
-          },
+          'geometry': geometry,
           'properties': properties,
-        };
-      }).toList();
+        });
+      }
+
+      // Top-level metadata
+      final metaProps = <String, dynamic>{
+        'context': _context,
+        if (_bboxParam != null) 'areaType': 'bbox',
+        if (_bboxParam != null) 'bbox': _bboxParam,
+        if (_radiusParam != null) 'areaType': 'radius',
+        if (_radiusParam != null) 'radius': _radiusParam,
+        'aggregation': _aggregation,
+        if (_smoothing != 'none') 'smoothing': _smoothing,
+        'from': _response!.range.from.toUtc().toIso8601String(),
+        'to': _response!.range.to.toUtc().toIso8601String(),
+      };
 
       final geojson = {
         'type': 'FeatureCollection',
+        'properties': metaProps,
         'features': features,
       };
 
@@ -2493,39 +2682,109 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
   }
 
   Future<void> _shareAsKml() async {
-    if (_resultPoints.isEmpty) return;
+    if (_response == null || _response!.data.isEmpty) return;
 
     try {
+      final colIndices = _buildExportColIndices();
+      final posIdx = _response!.values
+          .indexWhere((v) => v.path == 'navigation.position');
+
       final buf = StringBuffer();
       buf.writeln('<?xml version="1.0" encoding="UTF-8"?>');
       buf.writeln('<kml xmlns="http://www.opengis.net/kml/2.2">');
       buf.writeln('<Document>');
       buf.writeln('  <name>Historical Data Export</name>');
 
-      for (final pt in _resultPoints) {
-        final ts = pt.timestamp.toUtc().toIso8601String();
-        final lat = pt.position.latitude;
-        final lon = pt.position.longitude;
+      // Document-level metadata
+      final metaParts = <String>['Context: $_context'];
+      if (_bboxParam != null) metaParts.add('Area: bbox $_bboxParam');
+      if (_radiusParam != null) metaParts.add('Area: radius $_radiusParam');
+      metaParts.add('Aggregation: $_aggregation');
+      if (_smoothing != 'none') {
+        final param = _smoothing == 'sma'
+            ? '$_smoothing($_smaWindow)'
+            : '$_smoothing($_emaAlpha)';
+        metaParts.add('Smoothing: $param');
+      }
+      if (_response != null) {
+        metaParts.add(
+            'From: ${_response!.range.from.toUtc().toIso8601String()}');
+        metaParts.add('To: ${_response!.range.to.toUtc().toIso8601String()}');
+      }
+      buf.writeln(
+          '  <description>${_xmlEscape(metaParts.join('\n'))}</description>');
 
-        // Build description from path values
-        final descParts = <String>[];
-        for (final s in _resultSeries) {
-          final rawVal = pt.values[s.path];
-          if (rawVal == null) continue;
-          final metadata = widget.signalKService.metadataStore.get(s.path);
-          final display = metadata?.format(rawVal, decimals: 2) ??
-              rawVal.toStringAsFixed(2);
-          descParts.add('${s.path}: $display');
+      // Search area style
+      buf.writeln('  <Style id="searchArea">');
+      buf.writeln('    <PolyStyle>');
+      buf.writeln('      <color>4000ff00</color>');
+      buf.writeln('    </PolyStyle>');
+      buf.writeln('    <LineStyle>');
+      buf.writeln('      <color>ff00ff00</color>');
+      buf.writeln('      <width>2</width>');
+      buf.writeln('    </LineStyle>');
+      buf.writeln('  </Style>');
+
+      // Search area placemark
+      if (_drawPoint1 != null) {
+        if (_bboxParam != null && _drawPoint2 != null) {
+          final p1 = _drawPoint1!;
+          final p2 = _drawPoint2!;
+          buf.writeln('  <Placemark>');
+          buf.writeln('    <name>Search Area</name>');
+          buf.writeln('    <styleUrl>#searchArea</styleUrl>');
+          buf.writeln('    <Polygon>');
+          buf.writeln('      <outerBoundaryIs><LinearRing><coordinates>');
+          buf.writeln(
+              '        ${p1.longitude},${p1.latitude} ${p2.longitude},${p1.latitude} ${p2.longitude},${p2.latitude} ${p1.longitude},${p2.latitude} ${p1.longitude},${p1.latitude}');
+          buf.writeln('      </coordinates></LinearRing></outerBoundaryIs>');
+          buf.writeln('    </Polygon>');
+          buf.writeln('  </Placemark>');
+        } else if (_radiusParam != null) {
+          final parts = _radiusParam!.split(',');
+          final radiusM =
+              parts.length >= 3 ? parts[2] : 'unknown';
+          buf.writeln('  <Placemark>');
+          buf.writeln('    <name>Search Area Center</name>');
+          buf.writeln(
+              '    <description>Radius: ${_xmlEscape(radiusM)} meters</description>');
+          buf.writeln(
+              '    <Point><coordinates>${_drawPoint1!.longitude},${_drawPoint1!.latitude}</coordinates></Point>');
+          buf.writeln('  </Placemark>');
         }
+      }
+
+      // Data placemarks from full response
+      for (final row in _response!.data) {
+        // Position required for KML placemarks
+        LatLng? latLng;
+        if (posIdx != -1 && posIdx < row.values.length) {
+          latLng = _parsePosition(row.values[posIdx]);
+        }
+        if (latLng == null) continue; // KML requires coordinates
+
+        final ts = row.timestamp.toUtc().toIso8601String();
 
         buf.writeln('  <Placemark>');
         buf.writeln('    <name>$ts</name>');
-        if (descParts.isNotEmpty) {
-          buf.writeln(
-              '    <description>${_xmlEscape(descParts.join('\n'))}</description>');
-        }
         buf.writeln('    <TimeStamp><when>$ts</when></TimeStamp>');
-        buf.writeln('    <Point><coordinates>$lon,$lat</coordinates></Point>');
+        buf.writeln(
+            '    <Point><coordinates>${latLng.longitude},${latLng.latitude}</coordinates></Point>');
+
+        // ExtendedData with all values
+        buf.writeln('    <ExtendedData>');
+        for (final s in _resultSeries) {
+          final idx = colIndices[s.path];
+          if (idx == null || idx >= row.values.length) continue;
+          final raw = row.values[idx];
+          if (raw is! num) continue;
+          final metadata = widget.signalKService.metadataStore.get(s.path);
+          final display = metadata?.format(raw.toDouble(), decimals: 2) ??
+              raw.toStringAsFixed(2);
+          buf.writeln(
+              '      <Data name="${_xmlEscape(s.path)}"><value>${_xmlEscape(display)}</value></Data>');
+        }
+        buf.writeln('    </ExtendedData>');
         buf.writeln('  </Placemark>');
       }
 
@@ -2563,8 +2822,12 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
   String _fmtDate(DateTime d) =>
       '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
 
-  String _fmtTimestamp(DateTime d) =>
-      '${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}:${d.second.toString().padLeft(2, '0')}';
+  String _fmtAmPm(DateTime d) {
+    final hour = d.hour;
+    final displayHour = hour == 0 ? 12 : (hour > 12 ? hour - 12 : hour);
+    final ampm = hour < 12 ? 'AM' : 'PM';
+    return '$displayHour:${d.minute.toString().padLeft(2, '0')} $ampm';
+  }
 
   /// Format lat/lon in Degrees Decimal Minutes (DDM) format.
   String _fmtDDM(double lat, double lon) {
@@ -2577,6 +2840,18 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
     }
     return '${toDDM(lat, 'N', 'S')} ${toDDM(lon, 'E', 'W')}';
   }
+
+  static const _sparklineColors = [
+    Colors.blue,
+    Colors.orange,
+    Colors.green,
+    Colors.red,
+    Colors.purple,
+    Colors.teal,
+  ];
+
+  Color _sparklineSeriesColor(int index) =>
+      _sparklineColors[index % _sparklineColors.length];
 
   void _showSnack(String msg) {
     if (!mounted) return;
@@ -2601,4 +2876,135 @@ class _ResultPoint {
     required this.timestamp,
     required this.values,
   });
+}
+
+// ---------------------------------------------------------------------------
+// Sparkline widget with marker for Detail tab
+// ---------------------------------------------------------------------------
+
+class _SparklineWithMarker extends StatelessWidget {
+  final List<double> values;
+  final int? markerIndex;
+  final String? markerLabel;
+  final Color lineColor;
+  final double height;
+
+  const _SparklineWithMarker({
+    required this.values,
+    this.markerIndex,
+    this.markerLabel,
+    required this.lineColor,
+    this.height = 50,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (values.length < 2) {
+      return SizedBox(
+        height: height,
+        child: const Center(
+          child: Text('Insufficient data', style: TextStyle(fontSize: 9)),
+        ),
+      );
+    }
+    return SizedBox(
+      height: height,
+      width: double.infinity,
+      child: CustomPaint(
+        painter: _SparklinePainter(
+          values: values,
+          markerIndex: markerIndex,
+          markerLabel: markerLabel,
+          lineColor: lineColor,
+        ),
+      ),
+    );
+  }
+}
+
+class _SparklinePainter extends CustomPainter {
+  final List<double> values;
+  final int? markerIndex;
+  final String? markerLabel;
+  final Color lineColor;
+
+  _SparklinePainter({
+    required this.values,
+    this.markerIndex,
+    this.markerLabel,
+    required this.lineColor,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (values.length < 2) return;
+
+    final minVal = values.reduce(math.min);
+    final maxVal = values.reduce(math.max);
+    final range = maxVal - minVal;
+    final topPad = 12.0; // space for marker label
+    final drawHeight = size.height - topPad;
+
+    double normalize(double v) {
+      if (range == 0) return drawHeight / 2 + topPad;
+      return topPad + drawHeight - ((v - minVal) / range) * drawHeight;
+    }
+
+    final stepX = size.width / (values.length - 1);
+
+    // Draw line
+    final linePaint = Paint()
+      ..color = lineColor.withValues(alpha: 0.6)
+      ..strokeWidth = 1.5
+      ..style = PaintingStyle.stroke
+      ..strokeJoin = StrokeJoin.round;
+
+    final linePath = ui.Path();
+    linePath.moveTo(0, normalize(values[0]));
+    for (var i = 1; i < values.length; i++) {
+      linePath.lineTo(i * stepX, normalize(values[i]));
+    }
+    canvas.drawPath(linePath, linePaint);
+
+    // Draw marker
+    if (markerIndex != null && markerIndex! >= 0 && markerIndex! < values.length) {
+      final mx = markerIndex! * stepX;
+      final my = normalize(values[markerIndex!]);
+
+      // Vertical line
+      final vLinePaint = Paint()
+        ..color = lineColor.withValues(alpha: 0.3)
+        ..strokeWidth = 1.0;
+      canvas.drawLine(Offset(mx, topPad), Offset(mx, size.height), vLinePaint);
+
+      // Dot
+      final dotPaint = Paint()
+        ..color = lineColor
+        ..style = PaintingStyle.fill;
+      canvas.drawCircle(Offset(mx, my), 3.5, dotPaint);
+
+      // Label
+      if (markerLabel != null) {
+        final tp = TextPainter(
+          text: TextSpan(
+            text: markerLabel!,
+            style: TextStyle(fontSize: 9, color: lineColor, fontWeight: FontWeight.w600),
+          ),
+          textDirection: TextDirection.ltr,
+        )..layout();
+        // Position label above dot, clamped to canvas bounds
+        var labelX = mx - tp.width / 2;
+        if (labelX < 0) labelX = 0;
+        if (labelX + tp.width > size.width) labelX = size.width - tp.width;
+        tp.paint(canvas, Offset(labelX, 0));
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(_SparklinePainter old) =>
+      old.markerIndex != markerIndex ||
+      old.markerLabel != markerLabel ||
+      old.lineColor != lineColor ||
+      old.values.length != values.length;
 }
