@@ -203,6 +203,8 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
   HistoricalDataService? _historyService;
 
   // Saved search areas
+  static const String _cacheKey = 'historical_data_explorer';
+
   static const String _searchAreaResourceType = 'zeddisplay-search-areas';
   static const String _localStorageKey = 'saved_search_areas';
   List<SavedSearchArea> _savedAreas = [];
@@ -211,6 +213,7 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
+    _restoreFromCache();
     widget.signalKService.addListener(_onSignalKChanged);
     _updateVesselPosition();
     _initService();
@@ -228,9 +231,65 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
 
   @override
   void dispose() {
+    _saveToCache();
     _tabController.dispose();
     widget.signalKService.removeListener(_onSignalKChanged);
     super.dispose();
+  }
+
+  void _saveToCache() {
+    if (_state != ExplorerState.results || _resultPoints.isEmpty) return;
+    LatLng? center;
+    try { center = _mapController.camera.center; } catch (_) {}
+    _ExplorerStateCache.save(_cacheKey, _CachedState(
+      state: _state,
+      response: _response,
+      resultSeries: _resultSeries,
+      resultPoints: _resultPoints,
+      selectedRowIndex: _selectedRowIndex,
+      activeLegendIndex: _activeLegendIndex,
+      visibleLegendIndices: Set.from(_visibleLegendIndices),
+      selectedPaths: Set.from(_selectedPaths),
+      bboxParam: _bboxParam,
+      radiusParam: _radiusParam,
+      drawPoint1: _drawPoint1,
+      drawPoint2: _drawPoint2,
+      context: _context,
+      fromDate: _fromDate,
+      toDate: _toDate,
+      aggregation: _aggregation,
+      smoothing: _smoothing,
+      mapCenter: center,
+    ));
+  }
+
+  void _restoreFromCache() {
+    final cached = _ExplorerStateCache.get(_cacheKey);
+    if (cached == null) return;
+    _state = cached.state;
+    _response = cached.response;
+    _resultSeries = cached.resultSeries;
+    _resultPoints = cached.resultPoints;
+    _selectedRowIndex = cached.selectedRowIndex;
+    _activeLegendIndex = cached.activeLegendIndex;
+    _visibleLegendIndices = Set.from(cached.visibleLegendIndices);
+    _selectedPaths..clear()..addAll(cached.selectedPaths);
+    _bboxParam = cached.bboxParam;
+    _radiusParam = cached.radiusParam;
+    _drawPoint1 = cached.drawPoint1;
+    _drawPoint2 = cached.drawPoint2;
+    _context = cached.context;
+    _fromDate = cached.fromDate;
+    _toDate = cached.toDate;
+    _aggregation = cached.aggregation;
+    _smoothing = cached.smoothing;
+    if (cached.mapCenter != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          try { _mapController.move(cached.mapCenter!, 14); } catch (_) {}
+        }
+      });
+    }
   }
 
   void _onSignalKChanged() {
