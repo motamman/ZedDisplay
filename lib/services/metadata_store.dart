@@ -13,6 +13,11 @@ import '../models/path_metadata.dart';
 class MetadataStore extends ChangeNotifier {
   final Map<String, PathMetadata> _metadata = {};
 
+  /// Optional category lookup function, set after connection.
+  /// Used by [get] to fall back to category-level metadata when
+  /// no path-specific entry exists.
+  String? Function(String path)? categoryLookup;
+
   /// Update metadata from WebSocket meta delta.
   /// Called when a meta entry with displayUnits is received.
   ///
@@ -59,7 +64,14 @@ class MetadataStore extends ChangeNotifier {
   }
 
   /// Get metadata for a path.
-  PathMetadata? get(String path) => _metadata[path];
+  /// Falls back to category-level metadata when [categoryLookup] is set
+  /// and no path-specific entry exists.
+  PathMetadata? get(String path) {
+    final direct = _metadata[path];
+    if (direct != null) return direct;
+    if (categoryLookup == null) return null;
+    return getWithFallback(path, categoryLookup!);
+  }
 
   /// Check if metadata exists for a path.
   bool has(String path) => _metadata.containsKey(path);

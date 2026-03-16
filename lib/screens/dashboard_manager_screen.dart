@@ -61,6 +61,9 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen>
   bool _showAppBar = true;
   Timer? _appBarHideTimer;
 
+  // Cache built tool widgets so they persist across page rebuilds
+  final Map<String, Widget> _toolWidgetCache = {};
+
   @override
   void initState() {
     super.initState();
@@ -1299,12 +1302,26 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen>
               _showAppBarTemporarily();
               _revealSelectorDots();
             }
+
+            // Normalize virtualPage back to canonical range to prevent
+            // duplicate page Elements from accumulating on wrap-around.
+            final int canonical = _virtualPageOffset * screenCount + actualIndex;
+            if (virtualPage != canonical) {
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (mounted && _pageController.hasClients) {
+                  _pageController.jumpToPage(canonical);
+                }
+              });
+            }
           },
           itemBuilder: (context, virtualPage) {
             // Convert virtual page to actual screen index (wrap-around)
             final int actualIndex = virtualPage % screenCount;
             final screen = layout.screens[actualIndex];
-            return _buildScreenContent(screen, signalKService);
+            return _KeepAlivePage(
+              key: ValueKey('screen_$actualIndex'),
+              child: _buildScreenContent(screen, signalKService),
+            );
           },
           // No itemCount = infinite scrolling for wrap-around
         ),
@@ -1697,11 +1714,11 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen>
               );
             } else {
               // Normal mode - stagger tool mounting to avoid building
-              // all heavy gauge widgets in the same frame
-              widgetContent = _DeferredToolWidget(
-                key: ValueKey('deferred_${placement.toolId}'),
-                index: placementIndex,
-                child: Padding(
+              // all heavy gauge widgets in the same frame.
+              // Cache tool widgets so they persist across page rebuilds.
+              final cachedTool = _toolWidgetCache.putIfAbsent(
+                placement.toolId,
+                () => Padding(
                   padding: const EdgeInsets.all(8),
                   child: registry.buildTool(
                     tool.toolTypeId,
@@ -1709,6 +1726,11 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen>
                     signalKService,
                   ),
                 ),
+              );
+              widgetContent = _DeferredToolWidget(
+                key: ValueKey('deferred_${placement.toolId}'),
+                index: placementIndex,
+                child: cachedTool,
               );
             }
 
@@ -2139,6 +2161,27 @@ class _DeferredToolWidgetState extends State<_DeferredToolWidget> {
   @override
   Widget build(BuildContext context) {
     return _ready ? widget.child : const SizedBox.shrink();
+  }
+}
+
+/// Wraps a page so the PageView keeps it alive across swipes.
+class _KeepAlivePage extends StatefulWidget {
+  final Widget child;
+  const _KeepAlivePage({super.key, required this.child});
+
+  @override
+  State<_KeepAlivePage> createState() => _KeepAlivePageState();
+}
+
+class _KeepAlivePageState extends State<_KeepAlivePage>
+    with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
+
+  @override
+  Widget build(BuildContext context) {
+    super.build(context);
+    return widget.child;
   }
 }
 

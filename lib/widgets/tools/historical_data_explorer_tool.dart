@@ -1,12 +1,23 @@
+import 'dart:convert';
+import 'dart:ui' as ui;
+import 'dart:io';
 import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:provider/provider.dart';
+import 'package:share_plus/share_plus.dart';
+import '../../models/ais_favorite.dart';
+import '../../models/saved_search_area.dart';
 import '../../models/tool_config.dart';
 import '../../models/tool_definition.dart';
 import '../../models/historical_data.dart' as hist;
+import '../../services/ais_favorites_service.dart';
+import '../../models/path_metadata.dart';
 import '../../services/signalk_service.dart';
+import '../../services/storage_service.dart';
 import '../../services/historical_data_service.dart';
 import '../../services/tool_registry.dart';
 import '../tool_info_button.dart';
@@ -60,6 +71,57 @@ enum ExplorerState {
 // Widget
 // ---------------------------------------------------------------------------
 
+/// Static cache to preserve query results across widget disposal (screen lock, reconnect).
+class _ExplorerStateCache {
+  static final Map<String, _CachedState> _cache = {};
+
+  static void save(String key, _CachedState state) => _cache[key] = state;
+  static _CachedState? get(String key) => _cache[key];
+  static void remove(String key) => _cache.remove(key);
+}
+
+class _CachedState {
+  final ExplorerState state;
+  final hist.HistoricalDataResponse? response;
+  final List<hist.ChartDataSeries> resultSeries;
+  final List<_ResultPoint> resultPoints;
+  final int selectedRowIndex;
+  final int activeLegendIndex;
+  final Set<int> visibleLegendIndices;
+  final Set<String> selectedPaths;
+  final String? bboxParam;
+  final String? radiusParam;
+  final LatLng? drawPoint1;
+  final LatLng? drawPoint2;
+  final String context;
+  final DateTime fromDate;
+  final DateTime toDate;
+  final String aggregation;
+  final String smoothing;
+  final LatLng? mapCenter;
+
+  _CachedState({
+    required this.state,
+    this.response,
+    required this.resultSeries,
+    required this.resultPoints,
+    required this.selectedRowIndex,
+    required this.activeLegendIndex,
+    required this.visibleLegendIndices,
+    required this.selectedPaths,
+    this.bboxParam,
+    this.radiusParam,
+    this.drawPoint1,
+    this.drawPoint2,
+    required this.context,
+    required this.fromDate,
+    required this.toDate,
+    required this.aggregation,
+    required this.smoothing,
+    this.mapCenter,
+  });
+}
+
 class HistoricalDataExplorerTool extends StatefulWidget {
   final ToolConfig config;
   final SignalKService signalKService;
@@ -76,7 +138,7 @@ class HistoricalDataExplorerTool extends StatefulWidget {
 }
 
 class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
-    with AutomaticKeepAliveClientMixin {
+    with AutomaticKeepAliveClientMixin, SingleTickerProviderStateMixin {
   @override
   bool get wantKeepAlive => true;
 
@@ -94,6 +156,15 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
   String? _bboxParam;
   String? _radiusParam;
 
+  // Drag-to-move area
+  bool _isDraggingArea = false;
+  LatLng? _dragStartLatLng;
+  LatLng? _dragPoint1Origin;
+  LatLng? _dragPoint2Origin;
+
+  // Drag-to-resize handle
+  int? _draggingHandleIndex;
+
   // Vessel position
   LatLng? _vesselPosition;
   bool _centeredOnHomeport = false;
@@ -101,6 +172,11 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
   // Available paths (cached)
   List<String> _availablePaths = [];
   bool _pathsLoading = false;
+
+  // Available contexts
+  List<String> _availableContexts = ['vessels.self'];
+  bool _contextsLoading = false;
+  String _context = 'vessels.self';
 
   // Query config
   DateTime _fromDate = DateTime.now().subtract(const Duration(days: 7));
@@ -117,15 +193,32 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
   List<_ResultPoint> _resultPoints = [];
   int _selectedRowIndex = -1;
 
+  // Legend
+  int _activeLegendIndex = 0;
+  Set<int> _visibleLegendIndices = {0};
+
+  // Bottom panel tabs
+  late TabController _tabController;
+
   // Service
   HistoricalDataService? _historyService;
+
+  // Saved search areas
+  static const String _cacheKey = 'historical_data_explorer';
+
+  static const String _searchAreaResourceType = 'zeddisplay-search-areas';
+  static const String _localStorageKey = 'saved_search_areas';
+  List<SavedSearchArea> _savedAreas = [];
 
   @override
   void initState() {
     super.initState();
+    _tabController = TabController(length: 2, vsync: this);
+    _restoreFromCache();
     widget.signalKService.addListener(_onSignalKChanged);
     _updateVesselPosition();
     _initService();
+    _loadSavedAreas();
   }
 
   @override
@@ -139,8 +232,65 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
 
   @override
   void dispose() {
+    _saveToCache();
+    _tabController.dispose();
     widget.signalKService.removeListener(_onSignalKChanged);
     super.dispose();
+  }
+
+  void _saveToCache() {
+    if (_state != ExplorerState.results || _resultPoints.isEmpty) return;
+    LatLng? center;
+    try { center = _mapController.camera.center; } catch (_) {}
+    _ExplorerStateCache.save(_cacheKey, _CachedState(
+      state: _state,
+      response: _response,
+      resultSeries: _resultSeries,
+      resultPoints: _resultPoints,
+      selectedRowIndex: _selectedRowIndex,
+      activeLegendIndex: _activeLegendIndex,
+      visibleLegendIndices: Set.from(_visibleLegendIndices),
+      selectedPaths: Set.from(_selectedPaths),
+      bboxParam: _bboxParam,
+      radiusParam: _radiusParam,
+      drawPoint1: _drawPoint1,
+      drawPoint2: _drawPoint2,
+      context: _context,
+      fromDate: _fromDate,
+      toDate: _toDate,
+      aggregation: _aggregation,
+      smoothing: _smoothing,
+      mapCenter: center,
+    ));
+  }
+
+  void _restoreFromCache() {
+    final cached = _ExplorerStateCache.get(_cacheKey);
+    if (cached == null) return;
+    _state = cached.state;
+    _response = cached.response;
+    _resultSeries = cached.resultSeries;
+    _resultPoints = cached.resultPoints;
+    _selectedRowIndex = cached.selectedRowIndex;
+    _activeLegendIndex = cached.activeLegendIndex;
+    _visibleLegendIndices = Set.from(cached.visibleLegendIndices);
+    _selectedPaths..clear()..addAll(cached.selectedPaths);
+    _bboxParam = cached.bboxParam;
+    _radiusParam = cached.radiusParam;
+    _drawPoint1 = cached.drawPoint1;
+    _drawPoint2 = cached.drawPoint2;
+    _context = cached.context;
+    _fromDate = cached.fromDate;
+    _toDate = cached.toDate;
+    _aggregation = cached.aggregation;
+    _smoothing = cached.smoothing;
+    if (cached.mapCenter != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          try { _mapController.move(cached.mapCenter!, 14); } catch (_) {}
+        }
+      });
+    }
   }
 
   void _onSignalKChanged() {
@@ -149,6 +299,7 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
     // Re-init service on reconnect (new auth token, etc.)
     if (_historyService == null && widget.signalKService.isConnected) {
       _initService();
+      _loadSavedAreas(); // Reload from server on reconnect
     }
     setState(() {});
   }
@@ -199,6 +350,17 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
     return _vesselPosition ?? const LatLng(0, 0);
   }
 
+  LatLng? get _areaCenter {
+    if (_drawPoint1 == null) return null;
+    if (_bboxParam != null && _drawPoint2 != null) {
+      return LatLng(
+        (_drawPoint1!.latitude + _drawPoint2!.latitude) / 2,
+        (_drawPoint1!.longitude + _drawPoint2!.longitude) / 2,
+      );
+    }
+    return _drawPoint1;
+  }
+
   Future<void> _fetchAvailablePaths() async {
     if (_historyService == null || _pathsLoading) return;
     setState(() => _pathsLoading = true);
@@ -209,12 +371,16 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
       _availablePaths = allPaths.where((p) {
         if (p == 'navigation.position') return false;
         if (p == 'navigation.attitude') return false;
-        // Boolean / notification / state paths don't aggregate
+        // Boolean / notification / state / command paths don't aggregate
+        if (p.startsWith('commands.')) return false;
         if (p.contains('.notification')) return false;
         if (p.endsWith('.state')) return false;
-        // Also check live cache — if value is not a num, skip
+        // Check live cache — if value is not numeric, skip
         final dp = widget.signalKService.getValue(p);
         if (dp != null && dp.value is! num) return false;
+        // Check metadata — skip boolean/enum categories
+        final meta = widget.signalKService.metadataStore.get(p);
+        if (meta != null && meta.category == 'boolean') return false;
         return true;
       }).toList();
     } catch (e) {
@@ -222,6 +388,362 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
     } finally {
       if (mounted) setState(() => _pathsLoading = false);
     }
+  }
+
+  Future<void> _fetchAvailableContexts(
+    DateTime from,
+    DateTime to, {
+    void Function(void Function())? dialogSetState,
+  }) async {
+    if (_historyService == null || _contextsLoading) return;
+    _contextsLoading = true;
+    dialogSetState?.call(() {});
+    try {
+      // Use spatial endpoint when bbox/radius is available, otherwise
+      // fall back to time-only contexts endpoint.
+      final List<String> contexts;
+      if (_bboxParam != null || _radiusParam != null) {
+        contexts = await _historyService!.getSpatialContexts(
+          from: from,
+          to: to,
+          bbox: _bboxParam,
+          radius: _radiusParam,
+        );
+      } else {
+        contexts = await _historyService!.getAvailableContexts(
+          from: from,
+          to: to,
+        );
+      }
+      // Ensure 'vessels.self' is always present
+      if (!contexts.contains('vessels.self')) {
+        contexts.insert(0, 'vessels.self');
+      }
+      // Remove own vessel's full URN — it duplicates 'vessels.self'
+      final ownContext = widget.signalKService.vesselContext;
+      if (ownContext != null) {
+        contexts.remove(ownContext);
+      }
+      _availableContexts = contexts;
+    } catch (e) {
+      if (kDebugMode) print('Failed to fetch available contexts: $e');
+    } finally {
+      _contextsLoading = false;
+      if (mounted) dialogSetState?.call(() {});
+    }
+  }
+
+  /// Extract bare MMSI from a context string, or null.
+  String? _extractMMSI(String ctx) {
+    return RegExp(r'mmsi:(\d+)').firstMatch(ctx)?.group(1);
+  }
+
+  /// Friendly display name for a context string.
+  /// If [favorites] is provided, favorite names are included.
+  String _contextDisplayName(String ctx, [List<AISFavorite>? favorites]) {
+    if (ctx == 'vessels.self') {
+      final nameData = widget.signalKService.getValue('name');
+      final name = nameData?.value is String ? nameData!.value as String : null;
+      return name != null ? 'Self ($name)' : 'Self';
+    }
+    final mmsi = _extractMMSI(ctx);
+    if (mmsi != null) {
+      // Check favorites for a name
+      if (favorites != null) {
+        final fav = favorites.cast<AISFavorite?>().firstWhere(
+            (f) => f!.mmsi == mmsi,
+            orElse: () => null);
+        if (fav != null) return '⭐ ${fav.name} ($mmsi)';
+      }
+      return 'MMSI $mmsi';
+    }
+    // Fallback: last segment
+    final lastDot = ctx.lastIndexOf('.');
+    return lastDot >= 0 ? ctx.substring(lastDot + 1) : ctx;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Saved search areas
+  // ---------------------------------------------------------------------------
+
+  Future<void> _loadSavedAreas() async {
+    // Load from local cache first
+    try {
+      final storageService = context.read<StorageService>();
+      final cached = storageService.getSetting(_localStorageKey);
+      if (cached != null) {
+        final list = jsonDecode(cached) as List;
+        _savedAreas = list
+            .map((e) => SavedSearchArea.fromJson(e as Map<String, dynamic>))
+            .toList();
+      }
+    } catch (e) {
+      if (kDebugMode) print('Error loading saved areas from cache: $e');
+    }
+
+    // If connected, fetch from server (source of truth) and merge
+    if (widget.signalKService.isConnected) {
+      try {
+        final resources =
+            await widget.signalKService.getResources(_searchAreaResourceType);
+        if (resources.isNotEmpty) {
+          final serverAreas = <SavedSearchArea>[];
+          for (final entry in resources.entries) {
+            try {
+              serverAreas.add(SavedSearchArea.fromResourceData(
+                entry.key,
+                entry.value as Map<String, dynamic>,
+              ));
+            } catch (_) {}
+          }
+          // Server is source of truth — merge with local-only items
+          final serverIds = serverAreas.map((a) => a.id).toSet();
+          final localOnly =
+              _savedAreas.where((a) => !serverIds.contains(a.id)).toList();
+          _savedAreas = [...serverAreas, ...localOnly];
+        }
+      } catch (e) {
+        if (kDebugMode) print('Error loading saved areas from server: $e');
+      }
+    }
+
+    // Sort by creation date (newest first)
+    _savedAreas.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+
+    // Persist merged list locally
+    _persistLocalAreas();
+
+    if (mounted) setState(() {});
+  }
+
+  void _persistLocalAreas() {
+    try {
+      final storageService = context.read<StorageService>();
+      final json = jsonEncode(_savedAreas.map((a) => a.toJson()).toList());
+      storageService.saveSetting(_localStorageKey, json);
+    } catch (_) {}
+  }
+
+  Future<void> _saveArea(SavedSearchArea area) async {
+    // Save to server
+    if (widget.signalKService.isConnected) {
+      await widget.signalKService.ensureResourceTypeExists(
+        _searchAreaResourceType,
+        description: 'ZedDisplay saved search areas',
+      );
+      await widget.signalKService.putResource(
+        _searchAreaResourceType,
+        area.id,
+        area.toResourceData(),
+      );
+    }
+
+    // Add to local list
+    _savedAreas.insert(0, area);
+    _persistLocalAreas();
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _deleteArea(SavedSearchArea area) async {
+    // Delete from server
+    if (widget.signalKService.isConnected) {
+      await widget.signalKService.deleteResource(
+        _searchAreaResourceType,
+        area.id,
+      );
+    }
+
+    // Remove from local list
+    _savedAreas.removeWhere((a) => a.id == area.id);
+    _persistLocalAreas();
+    if (mounted) setState(() {});
+  }
+
+  void _applySavedArea(SavedSearchArea area) {
+    setState(() {
+      _drawPoint1 = area.drawPoint1;
+      _drawPoint2 = area.drawPoint2;
+      if (area.type == 'bbox') {
+        _computeBboxParam();
+      } else {
+        _computeRadiusParam();
+      }
+      _state = ExplorerState.queryConfig;
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _showQueryConfigDialog();
+    });
+  }
+
+  void _showSaveAreaDialog() {
+    if (_drawPoint1 == null || _drawPoint2 == null) return;
+
+    final nameController = TextEditingController();
+    final descController = TextEditingController();
+    final areaType = _bboxParam != null ? 'bbox' : 'radius';
+
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          title: const Text('Save Search Area'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: nameController,
+                decoration: const InputDecoration(
+                  labelText: 'Name *',
+                  hintText: 'e.g. Marina Bay',
+                ),
+                autofocus: true,
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: descController,
+                decoration: const InputDecoration(
+                  labelText: 'Description (optional)',
+                ),
+                maxLines: 2,
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () {
+                final name = nameController.text.trim();
+                if (name.isEmpty) return;
+
+                double? radius;
+                if (areaType == 'radius') {
+                  radius = const Distance()
+                      .as(LengthUnit.Meter, _drawPoint1!, _drawPoint2!)
+                      .roundToDouble();
+                }
+
+                final area = SavedSearchArea(
+                  name: name,
+                  description: descController.text.trim().isEmpty
+                      ? null
+                      : descController.text.trim(),
+                  type: areaType,
+                  point1Lat: _drawPoint1!.latitude,
+                  point1Lng: _drawPoint1!.longitude,
+                  point2Lat: _drawPoint2!.latitude,
+                  point2Lng: _drawPoint2!.longitude,
+                  radiusMeters: radius,
+                );
+
+                Navigator.pop(ctx);
+                _saveArea(area);
+                _showSnack('Area saved: $name');
+              },
+              child: const Text('Save'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _showSavedAreasSheet() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setSheetState) {
+            return SafeArea(
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxHeight: MediaQuery.of(ctx).size.height * 0.5,
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 16, vertical: 12),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.folder_open),
+                          const SizedBox(width: 8),
+                          Text(
+                            'Saved Areas (${_savedAreas.length})',
+                            style: const TextStyle(
+                                fontSize: 16, fontWeight: FontWeight.bold),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const Divider(height: 1),
+                    if (_savedAreas.isEmpty)
+                      const Padding(
+                        padding: EdgeInsets.all(24),
+                        child: Text('No saved areas yet.\n'
+                            'Draw an area and tap the save button to save it.'),
+                      )
+                    else
+                      Flexible(
+                        child: ListView.builder(
+                          shrinkWrap: true,
+                          itemCount: _savedAreas.length,
+                          itemBuilder: (ctx, i) {
+                            final area = _savedAreas[i];
+                            return Dismissible(
+                              key: ValueKey(area.id),
+                              direction: DismissDirection.endToStart,
+                              background: Container(
+                                color: Colors.red,
+                                alignment: Alignment.centerRight,
+                                padding: const EdgeInsets.only(right: 16),
+                                child: const Icon(Icons.delete,
+                                    color: Colors.white),
+                              ),
+                              onDismissed: (_) {
+                                _deleteArea(area);
+                                setSheetState(() {});
+                              },
+                              child: ListTile(
+                                leading: Icon(
+                                  area.type == 'bbox'
+                                      ? Icons.crop_square
+                                      : Icons.radio_button_unchecked,
+                                ),
+                                title: Text(area.name),
+                                subtitle: Text(
+                                  [
+                                    _fmtDate(area.createdAt),
+                                    if (area.description != null &&
+                                        area.description!.isNotEmpty)
+                                      area.description!.length > 40
+                                          ? '${area.description!.substring(0, 40)}...'
+                                          : area.description!,
+                                  ].join(' \u2022 '),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                onTap: () {
+                                  Navigator.pop(ctx);
+                                  _applySavedArea(area);
+                                },
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
   }
 
   // ---------------------------------------------------------------------------
@@ -291,6 +813,13 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
         to: _toDate,
       );
 
+      // Ensure metadata exists for all selected paths (fetch from server if missing)
+      await Future.wait(_selectedPaths.map((path) async {
+        if (widget.signalKService.metadataStore.get(path) == null) {
+          await widget.signalKService.fetchPathMeta(path);
+        }
+      }));
+
       // Build chart series for each user-selected path
       final series = <hist.ChartDataSeries>[];
       for (final path in _selectedPaths) {
@@ -347,7 +876,10 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
           _resultPoints = points;
           _state = ExplorerState.results;
           _selectedRowIndex = -1;
+          _activeLegendIndex = 0;
+          _visibleLegendIndices = {0};
         });
+        _saveToCache();
       }
     } catch (e) {
       if (mounted) {
@@ -369,6 +901,7 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
       paths: paths,
       from: from,
       to: to,
+      context: _context,
       bbox: _bboxParam,
       radius: _radiusParam,
     );
@@ -378,10 +911,174 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
   // Map interaction
   // ---------------------------------------------------------------------------
 
-  void _onMapLongPress(TapPosition tapPosition, LatLng point) {
-    if (_state != ExplorerState.idle) return;
-    setState(() => _state = ExplorerState.modeSelect);
-    _showModeSelectSheet();
+  bool _isInsideArea(LatLng point) {
+    if (_drawPoint1 == null || _drawPoint2 == null) return false;
+    if (_bboxParam != null) {
+      final minLat = math.min(_drawPoint1!.latitude, _drawPoint2!.latitude);
+      final maxLat = math.max(_drawPoint1!.latitude, _drawPoint2!.latitude);
+      final minLng = math.min(_drawPoint1!.longitude, _drawPoint2!.longitude);
+      final maxLng = math.max(_drawPoint1!.longitude, _drawPoint2!.longitude);
+      return point.latitude >= minLat &&
+          point.latitude <= maxLat &&
+          point.longitude >= minLng &&
+          point.longitude <= maxLng;
+    }
+    if (_radiusParam != null) {
+      final dist = const Distance().as(
+          LengthUnit.Meter, _drawPoint1!, point);
+      final edgeDist = const Distance().as(
+          LengthUnit.Meter, _drawPoint1!, _drawPoint2!);
+      return dist <= edgeDist;
+    }
+    return false;
+  }
+
+  void _onAreaDragStart(LongPressStartDetails details) {
+    if (!mounted) return;
+    final latLng = _mapController.camera
+        .screenOffsetToLatLng(details.localPosition);
+
+    // Check if the long-press started on a handle → resize mode
+    final handleHit = _hitTestHandle(details.localPosition);
+    if (handleHit >= 0) {
+      setState(() {
+        _draggingHandleIndex = handleHit;
+        _dragPoint1Origin = _drawPoint1;
+        _dragPoint2Origin = _drawPoint2;
+      });
+      return;
+    }
+
+    // Otherwise, move-area mode
+    if (!_isInsideArea(latLng)) return;
+    setState(() {
+      _isDraggingArea = true;
+      _dragStartLatLng = latLng;
+      _dragPoint1Origin = _drawPoint1;
+      _dragPoint2Origin = _drawPoint2;
+    });
+  }
+
+  void _onAreaDragUpdate(LongPressMoveUpdateDetails details) {
+    if (!mounted) return;
+
+    // Handle resize mode
+    if (_draggingHandleIndex != null) {
+      if (_drawPoint1 == null || _drawPoint2 == null) return;
+      final latLng = _mapController.camera
+          .screenOffsetToLatLng(details.localPosition);
+      final index = _draggingHandleIndex!;
+      setState(() {
+        if (_bboxParam != null) {
+          switch (index) {
+            case 0:
+              _drawPoint1 = LatLng(latLng.latitude, latLng.longitude);
+              break;
+            case 1:
+              _drawPoint1 = LatLng(latLng.latitude, _drawPoint1!.longitude);
+              _drawPoint2 = LatLng(_drawPoint2!.latitude, latLng.longitude);
+              break;
+            case 2:
+              _drawPoint2 = LatLng(latLng.latitude, latLng.longitude);
+              break;
+            case 3:
+              _drawPoint1 = LatLng(_drawPoint1!.latitude, latLng.longitude);
+              _drawPoint2 = LatLng(latLng.latitude, _drawPoint2!.longitude);
+              break;
+          }
+        } else if (_radiusParam != null) {
+          if (index == 0) {
+            final dLat = latLng.latitude - _drawPoint1!.latitude;
+            final dLng = latLng.longitude - _drawPoint1!.longitude;
+            _drawPoint1 = latLng;
+            _drawPoint2 = LatLng(
+              _drawPoint2!.latitude + dLat,
+              _drawPoint2!.longitude + dLng,
+            );
+          } else {
+            _drawPoint2 = latLng;
+          }
+        }
+      });
+      return;
+    }
+
+    // Move-area mode
+    if (!_isDraggingArea || _dragStartLatLng == null) return;
+    final current = _mapController.camera
+        .screenOffsetToLatLng(details.localPosition);
+    final dLat = current.latitude - _dragStartLatLng!.latitude;
+    final dLng = current.longitude - _dragStartLatLng!.longitude;
+    setState(() {
+      _drawPoint1 = LatLng(
+        _dragPoint1Origin!.latitude + dLat,
+        _dragPoint1Origin!.longitude + dLng,
+      );
+      _drawPoint2 = LatLng(
+        _dragPoint2Origin!.latitude + dLat,
+        _dragPoint2Origin!.longitude + dLng,
+      );
+    });
+  }
+
+  void _onAreaDragEnd(LongPressEndDetails details) {
+    if (!mounted) return;
+    if (!_isDraggingArea && _draggingHandleIndex == null) return;
+    // Recompute spatial param from new positions
+    if (_bboxParam != null) {
+      _computeBboxParam();
+    } else if (_radiusParam != null) {
+      _computeRadiusParam();
+    }
+    setState(() {
+      _isDraggingArea = false;
+      _draggingHandleIndex = null;
+      _dragStartLatLng = null;
+      _dragPoint1Origin = null;
+      _dragPoint2Origin = null;
+    });
+    if (_selectedPaths.isNotEmpty) {
+      _executeQuery();
+    }
+  }
+
+  void _onAreaDragCancel() {
+    if (!mounted) return;
+    if (!_isDraggingArea && _draggingHandleIndex == null) return;
+    setState(() {
+      _drawPoint1 = _dragPoint1Origin;
+      _drawPoint2 = _dragPoint2Origin;
+      _isDraggingArea = false;
+      _draggingHandleIndex = null;
+      _dragStartLatLng = null;
+      _dragPoint1Origin = null;
+      _dragPoint2Origin = null;
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Handle hit-testing for resize
+  // ---------------------------------------------------------------------------
+
+  static const double _handleHitRadius = 24.0;
+
+  int _hitTestHandle(Offset screenPos) {
+    final positions = _handlePositions();
+    for (int i = 0; i < positions.length; i++) {
+      final screen = _mapController.camera.latLngToScreenOffset(positions[i]);
+      if ((screen - screenPos).distance <= _handleHitRadius) return i;
+    }
+    return -1;
+  }
+
+  List<LatLng> _handlePositions() {
+    if (_drawPoint1 == null || _drawPoint2 == null) return [];
+    if (_bboxParam != null) {
+      return _bboxCorners(_drawPoint1!, _drawPoint2!);
+    } else if (_radiusParam != null) {
+      return [_drawPoint1!, _drawPoint2!];
+    }
+    return [];
   }
 
   void _showModeSelectSheet() {
@@ -403,6 +1100,13 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
               subtitle: const Text('Tap center then edge to define a circle'),
               onTap: () => Navigator.pop(ctx, 'radius'),
             ),
+            if (_savedAreas.isNotEmpty)
+              ListTile(
+                leading: const Icon(Icons.folder_open),
+                title: const Text('Saved Areas'),
+                subtitle: Text('${_savedAreas.length} saved'),
+                onTap: () => Navigator.pop(ctx, 'saved'),
+              ),
             ListTile(
               leading: const Icon(Icons.close),
               title: const Text('Cancel'),
@@ -425,6 +1129,9 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
           _drawPoint1 = null;
           _drawPoint2 = null;
         });
+      } else if (value == 'saved') {
+        setState(() => _state = ExplorerState.idle);
+        _showSavedAreasSheet();
       } else {
         setState(() => _state = ExplorerState.idle);
       }
@@ -514,11 +1221,17 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
     var localFrom = _fromDate;
     var localTo = _toDate;
     final localSelected = Set<String>.from(_selectedPaths);
+    var localContext = _context;
     var localAggregation = _aggregation;
     var localSmoothing = _smoothing;
     var localSmaWindow = _smaWindow;
     var localEmaAlpha = _emaAlpha;
     var pathFilter = '';
+    var contextFilter = '';
+    var lookupOtherVessels = _context != 'vessels.self';
+
+    // Will be set once StatefulBuilder is built
+    void Function(void Function())? dialogSetState;
 
     showDialog(
       context: context,
@@ -526,12 +1239,33 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
       builder: (ctx) {
         return StatefulBuilder(
           builder: (ctx, setDialogState) {
+            // Capture for async context fetch; kick off on first build only if enabled
+            if (dialogSetState == null) {
+              dialogSetState = setDialogState;
+              if (lookupOtherVessels) {
+                _fetchAvailableContexts(localFrom, localTo,
+                    dialogSetState: setDialogState);
+              }
+            }
+            dialogSetState = setDialogState;
             final filteredPaths = pathFilter.isEmpty
                 ? _availablePaths
                 : _availablePaths
                     .where((p) =>
                         p.toLowerCase().contains(pathFilter.toLowerCase()))
                     .toList();
+
+            // Re-fetch contexts when dates change
+            void onDatesChanged() {
+              if (!lookupOtherVessels) return;
+              // Reset context if it was a vessel-specific one that may
+              // not exist in the new date range
+              if (localContext != 'vessels.self') {
+                localContext = 'vessels.self';
+              }
+              _fetchAvailableContexts(localFrom, localTo,
+                  dialogSetState: setDialogState);
+            }
 
             return AlertDialog(
               title: const Text('Query Configuration'),
@@ -561,7 +1295,10 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
                                   lastDate: DateTime.now(),
                                 );
                                 if (d != null) {
-                                  setDialogState(() => localFrom = d);
+                                  setDialogState(() {
+                                    localFrom = d;
+                                    onDatesChanged();
+                                  });
                                 }
                               },
                             ),
@@ -583,7 +1320,10 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
                                   lastDate: DateTime.now(),
                                 );
                                 if (d != null) {
-                                  setDialogState(() => localTo = d);
+                                  setDialogState(() {
+                                    localTo = d;
+                                    onDatesChanged();
+                                  });
                                 }
                               },
                             ),
@@ -592,9 +1332,133 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
                       ),
                       const SizedBox(height: 12),
 
+                      // -- Context --
+                      CheckboxListTile(
+                        dense: true,
+                        contentPadding: EdgeInsets.zero,
+                        title: Text(
+                          lookupOtherVessels
+                              ? 'Vessel: ${_contextDisplayName(localContext)}'
+                              : 'Look up other vessels',
+                          style: const TextStyle(
+                              fontWeight: FontWeight.bold, fontSize: 13),
+                        ),
+                        value: lookupOtherVessels,
+                        onChanged: (v) {
+                          setDialogState(() {
+                            lookupOtherVessels = v ?? false;
+                            if (lookupOtherVessels) {
+                              _fetchAvailableContexts(localFrom, localTo,
+                                  dialogSetState: setDialogState);
+                            } else {
+                              localContext = 'vessels.self';
+                            }
+                          });
+                        },
+                      ),
+                      if (lookupOtherVessels) ...[
+                        if (_contextsLoading)
+                          const Padding(
+                            padding: EdgeInsets.symmetric(vertical: 8),
+                            child: Row(
+                              children: [
+                                SizedBox(
+                                  width: 16, height: 16,
+                                  child: CircularProgressIndicator(
+                                      strokeWidth: 2),
+                                ),
+                                SizedBox(width: 8),
+                                Text('Loading vessels in area…',
+                                    style: TextStyle(fontSize: 12)),
+                              ],
+                            ),
+                          )
+                        else ...[
+                          TextField(
+                            decoration: const InputDecoration(
+                              hintText: 'Filter MMSI…',
+                              isDense: true,
+                              prefixIcon: Icon(Icons.search, size: 18),
+                            ),
+                            onChanged: (v) =>
+                                setDialogState(() => contextFilter = v),
+                          ),
+                          const SizedBox(height: 4),
+                          SizedBox(
+                            height: 120,
+                            child: () {
+                              final favService =
+                                  context.read<AISFavoritesService>();
+                              final favs = favService.favorites;
+                              final favMMSIs =
+                                  favs.map((f) => f.mmsi).toSet();
+
+                              final nonSelf = _availableContexts
+                                  .where((c) => c != 'vessels.self')
+                                  .toList();
+
+                              // Sort: favorites first, then the rest
+                              final favContexts = nonSelf
+                                  .where((c) {
+                                    final m = _extractMMSI(c);
+                                    return m != null && favMMSIs.contains(m);
+                                  })
+                                  .toList();
+                              final otherContexts = nonSelf
+                                  .where((c) => !favContexts.contains(c))
+                                  .toList();
+                              final allContexts = [
+                                ...favContexts,
+                                ...otherContexts,
+                              ];
+
+                              final filtered = contextFilter.isEmpty
+                                  ? allContexts
+                                  : allContexts.where((c) {
+                                      final label =
+                                          _contextDisplayName(c, favs)
+                                              .toLowerCase();
+                                      final raw = c.toLowerCase();
+                                      final q = contextFilter.toLowerCase();
+                                      return label.contains(q) ||
+                                          raw.contains(q);
+                                    }).toList();
+                              if (filtered.isEmpty) {
+                                return const Center(
+                                    child: Text('No vessels found in area',
+                                        style: TextStyle(fontSize: 11)));
+                              }
+                              return RadioGroup<String>(
+                                groupValue: localContext,
+                                onChanged: (v) {
+                                  if (v != null) {
+                                    setDialogState(() => localContext = v);
+                                  }
+                                },
+                                child: ListView.builder(
+                                  itemCount: filtered.length,
+                                  itemBuilder: (_, i) {
+                                    final c = filtered[i];
+                                    return RadioListTile<String>(
+                                      dense: true,
+                                      value: c,
+                                      title: Text(
+                                          _contextDisplayName(c, favs),
+                                          style:
+                                              const TextStyle(fontSize: 12)),
+                                    );
+                                  },
+                                ),
+                              );
+                            }(),
+                          ),
+                        ],
+                      ],
+                      const SizedBox(height: 12),
+
                       // -- Path selection --
                       Text(
-                        'Paths (${localSelected.length}/5)',
+                        'Paths (${localSelected.length}/3)',
                         style: const TextStyle(fontWeight: FontWeight.bold),
                       ),
                       const SizedBox(height: 4),
@@ -628,7 +1492,7 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
                                         onChanged: (v) {
                                           setDialogState(() {
                                             if (v == true &&
-                                                localSelected.length < 5) {
+                                                localSelected.length < 3) {
                                               localSelected.add(p);
                                             } else {
                                               localSelected.remove(p);
@@ -735,6 +1599,7 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
                       : () {
                           Navigator.pop(ctx);
                           setState(() {
+                            _context = localContext;
                             _fromDate = localFrom;
                             _toDate = localTo;
                             _selectedPaths
@@ -765,34 +1630,62 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
   Widget build(BuildContext context) {
     super.build(context); // AutomaticKeepAliveClientMixin
 
+    final hasResults =
+        _state == ExplorerState.results && _resultSeries.isNotEmpty;
+
+    final mapStack = Stack(
+      children: [
+        _buildMap(),
+        // Drawing instruction overlay
+        if (_state == ExplorerState.drawingBbox ||
+            _state == ExplorerState.drawingRadius)
+          _buildDrawingInstructions(),
+        // Loading overlay
+        if (_state == ExplorerState.loading) _buildLoadingOverlay(),
+        // Dragging area overlay
+        if (_isDraggingArea || _draggingHandleIndex != null)
+          _buildDraggingOverlay(),
+        // No-position message
+        if (_vesselPosition == null && _state == ExplorerState.idle)
+          _buildNoPositionOverlay(),
+        // Top-right controls
+        _buildOverlayControls(),
+        // Legend overlay at bottom-left
+        if (_state == ExplorerState.results && _resultSeries.isNotEmpty)
+          _buildLegend(),
+      ],
+    );
+
+    final isWide = MediaQuery.of(context).size.width >= 600;
+
+    if (hasResults && isWide) {
+      // Landscape: summary bar on top, then map left | panel right
+      return Column(
+        children: [
+          if (_state == ExplorerState.results) _buildSummaryBar(),
+          Expanded(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Expanded(flex: 3, child: mapStack),
+                const SizedBox(width: 4),
+                Expanded(flex: 2, child: _buildBottomPanel()),
+              ],
+            ),
+          ),
+        ],
+      );
+    }
+
+    // Portrait / no results: stacked layout
     return Column(
       children: [
-        // Top summary bar (results only)
         if (_state == ExplorerState.results) _buildSummaryBar(),
-
-        // Map
-        Expanded(
-          child: Stack(
-            children: [
-              _buildMap(),
-              // Drawing instruction overlay
-              if (_state == ExplorerState.drawingBbox ||
-                  _state == ExplorerState.drawingRadius)
-                _buildDrawingInstructions(),
-              // Loading overlay
-              if (_state == ExplorerState.loading) _buildLoadingOverlay(),
-              // No-position message
-              if (_vesselPosition == null && _state == ExplorerState.idle)
-                _buildNoPositionOverlay(),
-              // Top-right controls
-              _buildOverlayControls(),
-            ],
-          ),
-        ),
-
-        // Bottom detail table (results only)
-        if (_state == ExplorerState.results && _resultSeries.isNotEmpty)
-          SizedBox(height: 120, child: _buildDetailTable()),
+        if (hasResults) ...[
+          Expanded(child: mapStack),
+          Expanded(child: _buildBottomPanel()),
+        ] else
+          Expanded(child: mapStack),
       ],
     );
   }
@@ -802,16 +1695,33 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
   // ---------------------------------------------------------------------------
 
   Widget _buildMap() {
-    return FlutterMap(
-      mapController: _mapController,
-      options: MapOptions(
-        initialCenter: _mapCenter,
-        initialZoom: 12,
-        minZoom: 3,
-        maxZoom: 18,
-        onLongPress: _onMapLongPress,
-        onTap: _onMapTap,
-      ),
+    final canDrag = _state == ExplorerState.queryConfig ||
+        _state == ExplorerState.results;
+
+    final isDragging = _isDraggingArea || _draggingHandleIndex != null;
+
+    return Stack(
+      children: [
+        // Wrap in IgnorePointer during drag to suppress map pan/fling
+        // without changing MapOptions (which would deactivate the widget).
+        IgnorePointer(
+          ignoring: isDragging,
+          child: FlutterMap(
+            mapController: _mapController,
+            options: MapOptions(
+              initialCenter: _mapCenter,
+              initialZoom: 12,
+              minZoom: 3,
+              maxZoom: 18,
+              onLongPress: _state == ExplorerState.idle
+                  ? (_, _) {
+                      if (!mounted) return;
+                      setState(() => _state = ExplorerState.modeSelect);
+                      _showModeSelectSheet();
+                    }
+                  : null,
+              onTap: _onMapTap,
+            ),
       children: [
         // Base map
         TileLayer(
@@ -837,8 +1747,8 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
             polygons: [
               Polygon(
                 points: _bboxCorners(_drawPoint1!, _drawPoint2!),
-                color: Colors.blue.withValues(alpha: 0.15),
-                borderColor: Colors.blue,
+                color: Colors.deepPurple.withValues(alpha: 0.1),
+                borderColor: Colors.deepPurple,
                 borderStrokeWidth: 2,
               ),
             ],
@@ -858,8 +1768,8 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
                 radius: const Distance()
                     .as(LengthUnit.Meter, _drawPoint1!, _drawPoint2!),
                 useRadiusInMeter: true,
-                color: Colors.blue.withValues(alpha: 0.15),
-                borderColor: Colors.blue,
+                color: Colors.deepPurple.withValues(alpha: 0.1),
+                borderColor: Colors.deepPurple,
                 borderStrokeWidth: 2,
               ),
             ],
@@ -875,39 +1785,103 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
               ),
             ],
           ),
-        // Result data point markers (color-coded by first series value)
+        // Result data point markers (color-coded by active legend series)
         if (_state == ExplorerState.results && _resultPoints.isNotEmpty)
-          MarkerLayer(
-            markers: _resultPoints.map((pt) {
+          Builder(builder: (context) {
+            final valueRange = _activeValueRange();
+            return MarkerLayer(
+            markers: _resultPoints.where((pt) {
+              // Only show markers for visible legend indices
+              if (_visibleLegendIndices.isEmpty) return false;
+              // Hide points with no data for the active path
+              final activePath = _activeLegendIndex < _resultSeries.length
+                  ? _resultSeries[_activeLegendIndex].path
+                  : _resultSeries.isNotEmpty ? _resultSeries.first.path : null;
+              if (activePath != null && pt.values[activePath] == null) return false;
+              return true;
+            }).map((pt) {
               final isSelected = pt.index == _selectedRowIndex;
-              final firstSeries =
-                  _resultSeries.isNotEmpty ? _resultSeries.first : null;
-              final firstValue = firstSeries != null
-                  ? pt.values[firstSeries.path]
+              final activeSeries =
+                  _activeLegendIndex < _resultSeries.length
+                      ? _resultSeries[_activeLegendIndex]
+                      : _resultSeries.isNotEmpty ? _resultSeries.first : null;
+              final color = _legendColor(_activeLegendIndex);
+              final activePath = activeSeries?.path;
+              final category = activePath != null
+                  ? widget.signalKService.metadataStore.get(activePath)?.category
                   : null;
-              final color = firstSeries != null
-                  ? _pointColor(firstValue, firstSeries)
-                  : Colors.blue;
+              final isAngle = category == 'angle' || category == 'direction';
+              final rawSiValue = activePath != null
+                  ? pt.values[activePath]
+                  : null;
+
+              const double minSize = 12.0;
+              const double maxSize = 28.0;
+              const double selectedBoost = 8.0;
+              double baseSize = minSize;
+              if (valueRange != null && rawSiValue != null) {
+                final (lo, hi) = valueRange;
+                final span = hi - lo;
+                if (span > 0) {
+                  final t = ((rawSiValue - lo) / span).clamp(0.0, 1.0);
+                  baseSize = minSize + t * (maxSize - minSize);
+                } else {
+                  baseSize = (minSize + maxSize) / 2;
+                }
+              }
+              final size = isSelected ? baseSize + selectedBoost : baseSize;
+
+              Widget markerChild;
+              if (isAngle) {
+                markerChild = Transform.rotate(
+                  angle: rawSiValue ?? 0,
+                  child: Icon(
+                    Icons.navigation,
+                    color: color,
+                    size: size,
+                    shadows: [
+                      Shadow(
+                        color: isSelected ? Colors.white : Colors.black54,
+                        blurRadius: isSelected ? 4.0 : 2.0,
+                      ),
+                    ],
+                  ),
+                );
+              } else {
+                markerChild = Container(
+                  decoration: BoxDecoration(
+                    color: color,
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color: isSelected ? Colors.white : Colors.black54,
+                      width: isSelected ? 3.0 : 1.5,
+                    ),
+                    boxShadow: isSelected
+                        ? [BoxShadow(
+                            color: color.withValues(alpha: 0.5),
+                            blurRadius: 6,
+                            spreadRadius: 1,
+                          )]
+                        : null,
+                  ),
+                );
+              }
+
               return Marker(
                 point: pt.position,
-                width: isSelected ? 18 : 12,
-                height: isSelected ? 18 : 12,
+                width: size,
+                height: size,
                 child: GestureDetector(
-                  onTap: () => setState(() => _selectedRowIndex = pt.index),
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: color,
-                      shape: BoxShape.circle,
-                      border: Border.all(
-                        color: isSelected ? Colors.white : Colors.black54,
-                        width: isSelected ? 3 : 1,
-                      ),
-                    ),
-                  ),
+                  onTap: () {
+                    setState(() => _selectedRowIndex = pt.index);
+                    _tabController.animateTo(1); // Switch to Detail tab
+                  },
+                  child: markerChild,
                 ),
               );
             }).toList(),
-          ),
+          );
+          }),
         // Markers (vessel + drawing points)
         MarkerLayer(
           markers: [
@@ -920,41 +1894,61 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
                 child: const Icon(Icons.navigation,
                     color: Colors.green, size: 24),
               ),
-            // Drawing point markers
-            if (_drawPoint1 != null)
-              Marker(
-                point: _drawPoint1!,
-                width: 20,
-                height: 20,
-                child: Container(
-                  decoration: BoxDecoration(
-                    color: Colors.blue,
-                    shape: BoxShape.circle,
-                    border: Border.all(color: Colors.white, width: 2),
-                  ),
-                ),
-              ),
-            if (_drawPoint2 != null &&
-                (_state == ExplorerState.drawingBbox ||
-                    _state == ExplorerState.drawingRadius ||
-                    _state == ExplorerState.queryConfig ||
-                    _state == ExplorerState.loading ||
-                    _state == ExplorerState.results))
-              Marker(
-                point: _drawPoint2!,
-                width: 20,
-                height: 20,
-                child: Container(
-                  decoration: BoxDecoration(
-                    color: Colors.blue,
-                    shape: BoxShape.circle,
-                    border: Border.all(color: Colors.white, width: 2),
-                  ),
-                ),
-              ),
+            // Drawing point handles (diamond shape)
+            ..._buildHandleMarkers(),
           ],
         ),
       ],
+    ),
+        ), // IgnorePointer
+        // Drag-to-move overlay (above the map, only when area is drawn)
+        if (canDrag)
+          Positioned.fill(
+            child: GestureDetector(
+              behavior: HitTestBehavior.translucent,
+              onLongPressStart: _onAreaDragStart,
+              onLongPressMoveUpdate: _onAreaDragUpdate,
+              onLongPressEnd: _onAreaDragEnd,
+              onLongPressCancel: _onAreaDragCancel,
+            ),
+          ),
+      ],
+    );
+  }
+
+  List<Marker> _buildHandleMarkers() {
+    if (_drawPoint1 == null) return [];
+    // During drawing, show only the points placed so far
+    if (_state == ExplorerState.drawingBbox ||
+        _state == ExplorerState.drawingRadius) {
+      final markers = <Marker>[_diamondMarker(_drawPoint1!)];
+      if (_drawPoint2 != null) markers.add(_diamondMarker(_drawPoint2!));
+      return markers;
+    }
+    // In queryConfig/loading/results, show all handle positions
+    if (_drawPoint2 == null) return [];
+    return _handlePositions().map((p) => _diamondMarker(p)).toList();
+  }
+
+  Marker _diamondMarker(LatLng point) {
+    return Marker(
+      point: point,
+      width: 32,
+      height: 32,
+      child: Center(
+        child: Transform.rotate(
+          angle: 0.785398,
+          child: Container(
+            width: 22,
+            height: 22,
+            decoration: BoxDecoration(
+              color: Colors.deepPurple,
+              borderRadius: BorderRadius.circular(3),
+              border: Border.all(color: Colors.white, width: 2),
+            ),
+          ),
+        ),
+      ),
     );
   }
 
@@ -968,8 +1962,87 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
   }
 
   // ---------------------------------------------------------------------------
+  // Map helpers
+  // ---------------------------------------------------------------------------
+
+  void _zoomToArea() {
+    if (_drawPoint1 == null || _drawPoint2 == null) return;
+
+    LatLngBounds bounds;
+    if (_radiusParam != null) {
+      // Radius mode: _drawPoint1 is center, _drawPoint2 is edge point.
+      // Compute bounding box from center ± radius.
+      final center = _drawPoint1!;
+      final radiusM = const Distance()
+          .as(LengthUnit.Meter, center, _drawPoint2!);
+      // Approximate degree offsets for the radius
+      final dLat = radiusM / 111320.0;
+      final dLng = radiusM /
+          (111320.0 * math.cos(center.latitude * math.pi / 180.0));
+      bounds = LatLngBounds(
+        LatLng(center.latitude - dLat, center.longitude - dLng),
+        LatLng(center.latitude + dLat, center.longitude + dLng),
+      );
+    } else {
+      // Bbox mode: two opposite corners
+      bounds = LatLngBounds(
+        LatLng(
+          math.min(_drawPoint1!.latitude, _drawPoint2!.latitude),
+          math.min(_drawPoint1!.longitude, _drawPoint2!.longitude),
+        ),
+        LatLng(
+          math.max(_drawPoint1!.latitude, _drawPoint2!.latitude),
+          math.max(_drawPoint1!.longitude, _drawPoint2!.longitude),
+        ),
+      );
+    }
+    _mapController.fitCamera(
+      CameraFit.bounds(bounds: bounds, padding: const EdgeInsets.all(40)),
+    );
+  }
+
+  /// Returns (min, max) for the active legend path across all result points.
+  (double, double)? _activeValueRange() {
+    if (_resultSeries.isEmpty || _resultPoints.isEmpty) return null;
+    final series = _activeLegendIndex < _resultSeries.length
+        ? _resultSeries[_activeLegendIndex]
+        : _resultSeries.first;
+    double? lo, hi;
+    for (final pt in _resultPoints) {
+      final v = pt.values[series.path];
+      if (v == null || v.isNaN) continue;
+      lo = lo == null ? v : math.min(lo, v);
+      hi = hi == null ? v : math.max(hi, v);
+    }
+    if (lo == null || hi == null) return null;
+    return (lo, hi);
+  }
+
+  // ---------------------------------------------------------------------------
   // Overlays
   // ---------------------------------------------------------------------------
+
+  Widget _buildOverlayButton({
+    required IconData icon,
+    required VoidCallback onPressed,
+    Color? color,
+  }) {
+    return Material(
+      color: Colors.white.withValues(alpha: 0.9),
+      borderRadius: BorderRadius.circular(6),
+      elevation: 2,
+      child: InkWell(
+        onTap: onPressed,
+        borderRadius: BorderRadius.circular(6),
+        child: Container(
+          width: 32,
+          height: 32,
+          alignment: Alignment.center,
+          child: Icon(icon, color: color ?? Colors.black87, size: 18),
+        ),
+      ),
+    );
+  }
 
   Widget _buildOverlayControls() {
     return Positioned(
@@ -978,58 +2051,101 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // Info button
-          Container(
-            decoration: BoxDecoration(
-              color: Colors.black.withValues(alpha: 0.5),
-              shape: BoxShape.circle,
+          // Zoom in
+          _buildOverlayButton(
+            icon: Icons.add,
+            onPressed: () => _mapController.move(
+              _mapController.camera.center,
+              _mapController.camera.zoom + 1,
             ),
-            child: ToolInfoButton(
-              toolId: 'historical_data_explorer',
-              signalKService: widget.signalKService,
-              iconSize: 20,
-              iconColor: Colors.white,
+          ),
+          const SizedBox(height: 4),
+          // Zoom out
+          _buildOverlayButton(
+            icon: Icons.remove,
+            onPressed: () => _mapController.move(
+              _mapController.camera.center,
+              _mapController.camera.zoom - 1,
+            ),
+          ),
+          const SizedBox(height: 4),
+          // Zoom to area
+          if (_drawPoint1 != null && _drawPoint2 != null)
+            _buildOverlayButton(
+              icon: Icons.fit_screen,
+              onPressed: _zoomToArea,
+            ),
+          if (_drawPoint1 != null && _drawPoint2 != null)
+            const SizedBox(height: 4),
+          // Info button
+          Material(
+            color: Colors.white.withValues(alpha: 0.9),
+            borderRadius: BorderRadius.circular(6),
+            elevation: 2,
+            child: SizedBox(
+              width: 32,
+              height: 32,
+              child: Center(
+                child: ToolInfoButton(
+                  toolId: 'historical_data_explorer',
+                  signalKService: widget.signalKService,
+                  iconSize: 18,
+                  iconColor: Colors.black87,
+                ),
+              ),
             ),
           ),
           const SizedBox(height: 4),
           // Homeport toggle
           if (_homeportPosition != null)
-            Container(
-              decoration: BoxDecoration(
-                color: Colors.black.withValues(alpha: 0.5),
-                shape: BoxShape.circle,
-              ),
-              child: IconButton(
-                icon: Icon(
-                  _centeredOnHomeport ? Icons.home : Icons.home_outlined,
-                  color: Colors.white,
-                  size: 20,
-                ),
-                padding: EdgeInsets.zero,
-                constraints:
-                    const BoxConstraints(minWidth: 36, minHeight: 36),
-                onPressed: () {
-                  setState(() => _centeredOnHomeport = !_centeredOnHomeport);
-                  _mapController.move(_mapCenter, _mapController.camera.zoom);
-                },
-              ),
+            _buildOverlayButton(
+              icon: _centeredOnHomeport ? Icons.home : Icons.home_outlined,
+              onPressed: () {
+                setState(() => _centeredOnHomeport = !_centeredOnHomeport);
+                _mapController.move(_mapCenter, _mapController.camera.zoom);
+              },
             ),
           const SizedBox(height: 4),
-          // Clear button (when drawing or results exist)
+          // Recenter on drawn area
+          if (_areaCenter != null &&
+              (_state == ExplorerState.results ||
+               _state == ExplorerState.queryConfig))
+            _buildOverlayButton(
+              icon: Icons.center_focus_strong,
+              onPressed: () {
+                final center = _areaCenter;
+                if (center != null) {
+                  _mapController.move(center, _mapController.camera.zoom);
+                }
+              },
+            ),
+          const SizedBox(height: 4),
+          // Save area
+          if (_drawPoint1 != null &&
+              _drawPoint2 != null &&
+              (_state == ExplorerState.queryConfig ||
+               _state == ExplorerState.results))
+            _buildOverlayButton(
+              icon: Icons.save_outlined,
+              onPressed: _showSaveAreaDialog,
+            ),
+          const SizedBox(height: 4),
+          // Share
+          if (_state == ExplorerState.results &&
+              _response != null &&
+              _response!.data.isNotEmpty)
+            _buildOverlayButton(
+              icon: Icons.share,
+              onPressed: _showShareFormatPicker,
+            ),
+          const SizedBox(height: 4),
+          // Clear
           if (_state != ExplorerState.idle &&
               _state != ExplorerState.modeSelect)
-            Container(
-              decoration: BoxDecoration(
-                color: Colors.black.withValues(alpha: 0.5),
-                shape: BoxShape.circle,
-              ),
-              child: IconButton(
-                icon: const Icon(Icons.clear, color: Colors.white, size: 20),
-                padding: EdgeInsets.zero,
-                constraints:
-                    const BoxConstraints(minWidth: 36, minHeight: 36),
-                onPressed: _clearDrawing,
-              ),
+            _buildOverlayButton(
+              icon: Icons.clear,
+              color: Colors.red,
+              onPressed: _clearDrawing,
             ),
         ],
       ),
@@ -1060,6 +2176,27 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
           borderRadius: BorderRadius.circular(6),
         ),
         child: Text(text, style: const TextStyle(color: Colors.white, fontSize: 12)),
+      ),
+    );
+  }
+
+  Widget _buildDraggingOverlay() {
+    final text = _draggingHandleIndex != null
+        ? 'Resizing area\u2026 release to re-query'
+        : 'Dragging area\u2026 release to re-query';
+    return Positioned(
+      top: 8,
+      left: 8,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: Colors.deepPurple.withValues(alpha: 0.8),
+          borderRadius: BorderRadius.circular(6),
+        ),
+        child: Text(
+          text,
+          style: const TextStyle(color: Colors.white, fontSize: 12),
+        ),
       ),
     );
   }
@@ -1105,6 +2242,7 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
     final range = _response?.range;
     final areaType = _bboxParam != null ? 'Bbox' : 'Radius';
     final pathCount = _resultSeries.length;
+    final contextLabel = _contextDisplayName(_context);
 
     return Container(
       width: double.infinity,
@@ -1116,7 +2254,7 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
           children: [
             // Query info
             Text(
-              '$areaType | '
+              '$contextLabel | $areaType | '
               '${range != null ? _fmtDate(range.from) : '?'} - '
               '${range != null ? _fmtDate(range.to) : '?'} | '
               '$pathCount path${pathCount != 1 ? 's' : ''}',
@@ -1151,79 +2289,496 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
   }
 
   // ---------------------------------------------------------------------------
-  // Results: Bottom detail table
+  // Legend
   // ---------------------------------------------------------------------------
 
-  Widget _buildDetailTable() {
-    if (_resultPoints.isEmpty) return const SizedBox.shrink();
+  Widget _buildLegend() {
+    return Positioned(
+      bottom: 8,
+      left: 8,
+      right: 56, // Leave room for overlay controls on the right
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+        decoration: BoxDecoration(
+          color: Colors.black.withValues(alpha: 0.6),
+          borderRadius: BorderRadius.circular(6),
+        ),
+        child: SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: List.generate(_resultSeries.length, (i) {
+              final s = _resultSeries[i];
+              final isActive = i == _activeLegendIndex;
+              final isVisible = _visibleLegendIndices.contains(i);
+              final metadata =
+                  widget.signalKService.metadataStore.get(s.path);
+              final shortName = s.path.split('.').last;
+              final color = isVisible
+                  ? _legendColor(i)
+                  : Colors.grey;
+              final category = metadata?.category;
 
+              return Padding(
+                padding: const EdgeInsets.only(right: 4),
+                child: GestureDetector(
+                  onTap: () {
+                    setState(() {
+                      if (isVisible && !isActive) {
+                        // Make this the active legend
+                        _activeLegendIndex = i;
+                      } else if (isVisible && isActive) {
+                        // Toggle off
+                        _visibleLegendIndices.remove(i);
+                        if (_activeLegendIndex == i &&
+                            _visibleLegendIndices.isNotEmpty) {
+                          _activeLegendIndex =
+                              _visibleLegendIndices.first;
+                        }
+                      } else {
+                        // Toggle on and make active
+                        _visibleLegendIndices.add(i);
+                        _activeLegendIndex = i;
+                      }
+                    });
+                  },
+                  child: Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: isActive
+                          ? Colors.white.withValues(alpha: 0.2)
+                          : Colors.transparent,
+                      borderRadius: BorderRadius.circular(4),
+                      border: isActive
+                          ? Border.all(color: Colors.white54, width: 1)
+                          : null,
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        SizedBox(
+                          width: 14,
+                          height: 14,
+                          child: _markerForCategory(
+                              category, null, color, false, 14),
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          shortName,
+                          style: TextStyle(
+                            color: isVisible ? Colors.white : Colors.grey,
+                            fontSize: 10,
+                            fontWeight:
+                                isActive ? FontWeight.bold : FontWeight.normal,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              );
+            }),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Color _legendColor(int index) {
+    const colors = [
+      Colors.blue,
+      Colors.orange,
+      Colors.green,
+      Colors.purple,
+      Colors.cyan,
+    ];
+    return colors[index % colors.length];
+  }
+
+  // ---------------------------------------------------------------------------
+  // Category-aware marker icons
+  // ---------------------------------------------------------------------------
+
+  Widget _markerForCategory(
+      String? category, double? rawSiValue, Color color, bool isSelected,
+      double size) {
+    final borderColor = isSelected ? Colors.white : Colors.black54;
+    final borderWidth = isSelected ? 3.0 : 1.0;
+
+    switch (category) {
+      case 'angle':
+      case 'direction':
+        // Chevron rotated by the raw SI value (radians)
+        return Transform.rotate(
+          angle: rawSiValue ?? 0,
+          child: Icon(Icons.navigation, color: color, size: size),
+        );
+      case 'speed':
+        return Icon(Icons.speed, color: color, size: size);
+      case 'distance':
+      case 'length':
+        return Icon(Icons.straighten, color: color, size: size);
+      case 'depth':
+        return Icon(Icons.vertical_align_bottom, color: color, size: size);
+      case 'temperature':
+        return Icon(Icons.thermostat, color: color, size: size);
+      case 'pressure':
+        return Icon(Icons.compress, color: color, size: size);
+      default:
+        // Filled circle (original behavior)
+        return Container(
+          decoration: BoxDecoration(
+            color: color,
+            shape: BoxShape.circle,
+            border: Border.all(color: borderColor, width: borderWidth),
+          ),
+        );
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Results: Bottom tabbed panel
+  // ---------------------------------------------------------------------------
+
+  Widget _buildBottomPanel() {
     return Container(
       color: Theme.of(context).colorScheme.surface,
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: SingleChildScrollView(
-          child: DataTable(
-            columnSpacing: 16,
-            dataRowMinHeight: 24,
-            dataRowMaxHeight: 28,
-            headingRowHeight: 30,
-            columns: [
-              const DataColumn(
-                  label: Text('Time', style: TextStyle(fontSize: 11))),
-              const DataColumn(
-                  label: Text('Position', style: TextStyle(fontSize: 11))),
-              ..._resultSeries.map((s) {
-                final metadata =
-                    widget.signalKService.metadataStore.get(s.path);
-                final symbol = metadata?.symbol;
-                final short = s.path.split('.').last;
-                final header = symbol != null ? '$short ($symbol)' : short;
-                return DataColumn(
-                    label: Text(header, style: const TextStyle(fontSize: 11)));
-              }),
+      child: Column(
+        children: [
+          TabBar(
+            controller: _tabController,
+            labelStyle: const TextStyle(fontSize: 11),
+            tabs: const [
+              Tab(text: 'All Points'),
+              Tab(text: 'Detail'),
             ],
-            rows: _resultPoints.map((pt) {
-              final isSelected = pt.index == _selectedRowIndex;
-              return DataRow(
-                selected: isSelected,
-                color: isSelected
-                    ? WidgetStateProperty.all(Theme.of(context)
-                        .colorScheme
-                        .primary
-                        .withValues(alpha: 0.15))
-                    : null,
-                onSelectChanged: (_) {
-                  setState(() => _selectedRowIndex = pt.index);
-                  // Pan map to selected point
-                  try {
-                    _mapController.move(
-                        pt.position, _mapController.camera.zoom);
-                  } catch (_) {}
-                },
-                cells: [
-                  DataCell(Text(_fmtTimestamp(pt.timestamp),
-                      style: const TextStyle(fontSize: 10))),
-                  DataCell(Text(
-                      '${pt.position.latitude.toStringAsFixed(4)}, '
-                      '${pt.position.longitude.toStringAsFixed(4)}',
-                      style: const TextStyle(fontSize: 10))),
-                  ..._resultSeries.map((s) {
-                    final rawVal = pt.values[s.path];
-                    if (rawVal == null) {
-                      return const DataCell(
-                          Text('--', style: TextStyle(fontSize: 10)));
-                    }
-                    final metadata =
-                        widget.signalKService.metadataStore.get(s.path);
-                    final display =
-                        metadata?.format(rawVal, decimals: 2) ??
-                            rawVal.toStringAsFixed(2);
-                    return DataCell(
-                        Text(display, style: const TextStyle(fontSize: 10)));
-                  }),
+          ),
+          Expanded(
+            child: TabBarView(
+              controller: _tabController,
+              children: [
+                _buildAllPointsTab(),
+                _buildDetailTab(),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAllPointsTab() {
+    if (_resultPoints.isEmpty) {
+      return const Center(
+          child: Text('No data points', style: TextStyle(fontSize: 11)));
+    }
+
+    return ListView.builder(
+      itemCount: _resultPoints.length,
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      itemBuilder: (ctx, i) {
+        final pt = _resultPoints[i];
+        final isSelected = pt.index == _selectedRowIndex;
+
+        return InkWell(
+          onTap: () {
+            setState(() => _selectedRowIndex = pt.index);
+            try {
+              _mapController.move(pt.position, _mapController.camera.zoom);
+            } catch (_) {}
+          },
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            color: isSelected
+                ? Theme.of(context)
+                    .colorScheme
+                    .primary
+                    .withValues(alpha: 0.15)
+                : null,
+            child: Row(
+              children: [
+                // Timestamp
+                SizedBox(
+                  width: 80,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        _fmtDate(pt.timestamp),
+                        style: const TextStyle(
+                            fontSize: 9, color: Colors.grey),
+                      ),
+                      Text(
+                        _fmtAmPm(pt.timestamp),
+                        style: const TextStyle(
+                            fontSize: 10, fontWeight: FontWeight.w500),
+                      ),
+                    ],
+                  ),
+                ),
+                // Position
+                SizedBox(
+                  width: 90,
+                  child: Text(
+                    _fmtDDM(pt.position.latitude, pt.position.longitude),
+                    style: const TextStyle(fontSize: 9),
+                  ),
+                ),
+                // Values
+                Expanded(
+                  child: Row(
+                    children: _resultSeries.map((s) {
+                      final rawVal = pt.values[s.path];
+                      final metadata =
+                          widget.signalKService.metadataStore.get(s.path);
+                      final category = metadata?.category;
+                      final display = rawVal != null
+                          ? (metadata?.format(rawVal, decimals: 1) ??
+                              rawVal.toStringAsFixed(1))
+                          : '--';
+                      return Expanded(
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            SizedBox(
+                              width: 10,
+                              height: 10,
+                              child: _markerForCategory(
+                                  category, rawVal, Colors.grey, false, 10),
+                            ),
+                            const SizedBox(width: 2),
+                            Flexible(
+                              child: Text(
+                                display,
+                                style: const TextStyle(fontSize: 10),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildDetailTab() {
+    if (_selectedRowIndex < 0) {
+      return const Center(
+        child: Text(
+          'Tap a point on the map or list',
+          style: TextStyle(fontSize: 11, color: Colors.grey),
+        ),
+      );
+    }
+
+    final pt = _resultPoints.firstWhere(
+      (p) => p.index == _selectedRowIndex,
+      orElse: () => _resultPoints.first,
+    );
+
+    // Build sparkline cards explicitly
+    final sparklineCards = <Widget>[];
+    for (var idx = 0; idx < _resultSeries.length; idx++) {
+      final s = _resultSeries[idx];
+      final markerIndex = s.points.indexWhere(
+          (p) => p.timestamp == pt.timestamp);
+      final seriesColor = _legendColor(idx);
+      final metadata =
+          widget.signalKService.metadataStore.get(s.path);
+      final rawVal = pt.values[s.path];
+      final display = rawVal != null
+          ? (metadata?.format(rawVal, decimals: 1) ??
+              rawVal.toStringAsFixed(1))
+          : null;
+      sparklineCards.add(
+        GestureDetector(
+          onDoubleTap: () => _showExpandedSparkline(s, seriesColor, metadata),
+          child: Container(
+          key: ValueKey('sparkline_$idx'),
+          margin: const EdgeInsets.only(bottom: 6),
+          decoration: BoxDecoration(
+            color: seriesColor.withValues(alpha: 0.08),
+            border: Border.all(color: seriesColor.withValues(alpha: 0.3)),
+            borderRadius: BorderRadius.circular(4),
+          ),
+          padding: const EdgeInsets.all(4),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Text(s.path.split('.').last,
+                      style: TextStyle(fontSize: 9, color: seriesColor)),
+                  const Spacer(),
+                  Text(
+                    '${s.minValue?.toStringAsFixed(1) ?? '--'} – ${s.maxValue?.toStringAsFixed(1) ?? '--'}'
+                    ' ${metadata?.symbol ?? ''}',
+                    style: TextStyle(fontSize: 8, color: seriesColor.withValues(alpha: 0.6)),
+                  ),
                 ],
-              );
-            }).toList(),
+              ),
+              const SizedBox(height: 2),
+              SizedBox(
+                height: 50,
+                width: double.infinity,
+                child: CustomPaint(
+                  painter: _SparklinePainter(
+                    values: s.points.map((p) => p.value).toList(),
+                    markerIndex: markerIndex >= 0 ? markerIndex : null,
+                    markerLabel: display,
+                    lineColor: seriesColor,
+                  ),
+                ),
+              ),
+              if (s.points.length >= 2)
+                Padding(
+                  padding: const EdgeInsets.only(top: 2),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        _fmtCompact(s.points.first.timestamp),
+                        style: TextStyle(fontSize: 7, color: seriesColor.withValues(alpha: 0.5)),
+                      ),
+                      Text(
+                        _fmtCompact(s.points.last.timestamp),
+                        style: TextStyle(fontSize: 7, color: seriesColor.withValues(alpha: 0.5)),
+                      ),
+                    ],
+                  ),
+                ),
+            ],
+          ),
+        ),
+        ),
+      );
+    }
+
+    return ListView(
+      padding: const EdgeInsets.all(8),
+      children: [
+        // Date
+        Text(
+          _fmtDate(pt.timestamp),
+          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+        ),
+        // AM/PM time
+        Text(
+          _fmtAmPm(pt.timestamp),
+          style: const TextStyle(fontSize: 11),
+        ),
+        const SizedBox(height: 2),
+        // Position in DDM
+        Text(
+          _fmtDDM(pt.position.latitude, pt.position.longitude),
+          style: const TextStyle(fontSize: 11),
+        ),
+        const Divider(height: 8),
+        // Sparkline cards
+        ...sparklineCards,
+      ],
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Expanded sparkline modal
+  // ---------------------------------------------------------------------------
+
+  void _showExpandedSparkline(
+    hist.ChartDataSeries series,
+    Color seriesColor,
+    PathMetadata? metadata,
+  ) {
+    final values = series.points.map((p) => p.value).toList();
+    final minLabel = metadata?.format(series.minValue?.toDouble() ?? 0, decimals: 1)
+        ?? series.minValue?.toStringAsFixed(1) ?? '--';
+    final maxLabel = metadata?.format(series.maxValue?.toDouble() ?? 0, decimals: 1)
+        ?? series.maxValue?.toStringAsFixed(1) ?? '--';
+
+    showDialog(
+      context: context,
+      builder: (ctx) => Dialog(
+        insetPadding: const EdgeInsets.all(16),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Header
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      series.label ?? series.path.split('.').last,
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.bold,
+                        color: seriesColor,
+                      ),
+                    ),
+                  ),
+                  Text(
+                    '$minLabel – $maxLabel',
+                    style: TextStyle(fontSize: 11, color: seriesColor.withValues(alpha: 0.6)),
+                  ),
+                  const SizedBox(width: 8),
+                  GestureDetector(
+                    onTap: () => Navigator.pop(ctx),
+                    child: const Icon(Icons.close, size: 20),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Text(
+                series.path,
+                style: TextStyle(fontSize: 10, color: Colors.grey[600]),
+              ),
+              const SizedBox(height: 12),
+              // Chart
+              SizedBox(
+                height: 200,
+                width: double.infinity,
+                child: CustomPaint(
+                  painter: _SparklinePainter(
+                    values: values,
+                    lineColor: seriesColor,
+                  ),
+                ),
+              ),
+              // Date range
+              if (series.points.length >= 2)
+                Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        _fmtCompact(series.points.first.timestamp),
+                        style: TextStyle(fontSize: 9, color: seriesColor.withValues(alpha: 0.5)),
+                      ),
+                      Text(
+                        '${series.points.length} points',
+                        style: TextStyle(fontSize: 9, color: Colors.grey[500]),
+                      ),
+                      Text(
+                        _fmtCompact(series.points.last.timestamp),
+                        style: TextStyle(fontSize: 9, color: seriesColor.withValues(alpha: 0.5)),
+                      ),
+                    ],
+                  ),
+                ),
+            ],
           ),
         ),
       ),
@@ -1231,14 +2786,450 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
   }
 
   // ---------------------------------------------------------------------------
+  // Export & Share
+  // ---------------------------------------------------------------------------
+
+  void _showShareFormatPicker() {
+    showModalBottomSheet<String>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.table_chart),
+              title: const Text('CSV'),
+              subtitle: const Text('Comma-separated values'),
+              onTap: () => Navigator.pop(ctx, 'csv'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.map),
+              title: const Text('GeoJSON'),
+              subtitle: const Text('Geographic features for GIS tools'),
+              onTap: () => Navigator.pop(ctx, 'geojson'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.place),
+              title: const Text('KML'),
+              subtitle: const Text('Google Earth / Google Maps'),
+              onTap: () => Navigator.pop(ctx, 'kml'),
+            ),
+          ],
+        ),
+      ),
+    ).then((format) {
+      if (format == 'csv') {
+        _shareAsCsv();
+      } else if (format == 'geojson') {
+        _shareAsGeoJson();
+      } else if (format == 'kml') {
+        _shareAsKml();
+      }
+    });
+  }
+
+  /// Build column-index lookup for export iteration.
+  Map<String, int> _buildExportColIndices() {
+    final colIndices = <String, int>{};
+    for (final s in _resultSeries) {
+      final idx = _response!.values.indexWhere((v) {
+        if (v.path != s.path) return false;
+        if (s.smoothing == null) return v.smoothing == null;
+        return v.smoothing == s.smoothing;
+      });
+      if (idx != -1) colIndices[s.path] = idx;
+    }
+    return colIndices;
+  }
+
+  /// Build metadata comment lines for export headers.
+  List<String> _buildExportMetadataLines() {
+    final lines = <String>[];
+    lines.add('# context: $_context');
+    if (_bboxParam != null) {
+      lines.add('# area: bbox $_bboxParam');
+    } else if (_radiusParam != null) {
+      lines.add('# area: radius $_radiusParam');
+    }
+    lines.add('# aggregation: $_aggregation');
+    if (_smoothing != 'none') {
+      final param = _smoothing == 'sma'
+          ? '$_smoothing($_smaWindow)'
+          : '$_smoothing($_emaAlpha)';
+      lines.add('# smoothing: $param');
+    }
+    if (_response != null) {
+      lines.add('# from: ${_response!.range.from.toUtc().toIso8601String()}');
+      lines.add('# to: ${_response!.range.to.toUtc().toIso8601String()}');
+    }
+    return lines;
+  }
+
+  Future<void> _shareAsCsv() async {
+    if (_response == null || _response!.data.isEmpty) return;
+
+    try {
+      final colIndices = _buildExportColIndices();
+      final posIdx = _response!.values
+          .indexWhere((v) => v.path == 'navigation.position');
+
+      final pathHeaders = _resultSeries.map((s) {
+        final metadata = widget.signalKService.metadataStore.get(s.path);
+        final symbol = metadata?.symbol;
+        return symbol != null ? '${s.path} ($symbol)' : s.path;
+      }).toList();
+
+      final metaLines = _buildExportMetadataLines();
+      final header = ['timestamp', 'latitude', 'longitude', ...pathHeaders]
+          .join(',');
+
+      final rows = _response!.data.map((row) {
+        // Position
+        String lat = '';
+        String lon = '';
+        if (posIdx != -1 && posIdx < row.values.length) {
+          final latLng = _parsePosition(row.values[posIdx]);
+          if (latLng != null) {
+            lat = latLng.latitude.toStringAsFixed(6);
+            lon = latLng.longitude.toStringAsFixed(6);
+          }
+        }
+
+        // Path values
+        final vals = _resultSeries.map((s) {
+          final idx = colIndices[s.path];
+          if (idx == null || idx >= row.values.length) return '';
+          final raw = row.values[idx];
+          if (raw is! num) return '';
+          final metadata = widget.signalKService.metadataStore.get(s.path);
+          return (metadata?.convert(raw.toDouble()) ?? raw).toStringAsFixed(4);
+        }).toList();
+
+        return [
+          row.timestamp.toUtc().toIso8601String(),
+          lat,
+          lon,
+          ...vals,
+        ].join(',');
+      }).toList();
+
+      final csv = [...metaLines, header, ...rows].join('\n');
+
+      final directory = await getTemporaryDirectory();
+      final file = File('${directory.path}/explorer_data.csv');
+      await file.writeAsString(csv);
+
+      await SharePlus.instance.share(
+        ShareParams(
+          files: [XFile(file.path)],
+          subject: 'Historical Data Export',
+        ),
+      );
+    } catch (e) {
+      _showSnack('Failed to share: $e');
+    }
+  }
+
+  Future<void> _shareAsGeoJson() async {
+    if (_response == null || _response!.data.isEmpty) return;
+
+    try {
+      final colIndices = _buildExportColIndices();
+      final posIdx = _response!.values
+          .indexWhere((v) => v.path == 'navigation.position');
+
+      final features = <Map<String, dynamic>>[];
+
+      // Search area feature
+      if (_drawPoint1 != null) {
+        if (_bboxParam != null && _drawPoint2 != null) {
+          final p1 = _drawPoint1!;
+          final p2 = _drawPoint2!;
+          features.add({
+            'type': 'Feature',
+            'geometry': {
+              'type': 'Polygon',
+              'coordinates': [
+                [
+                  [p1.longitude, p1.latitude],
+                  [p2.longitude, p1.latitude],
+                  [p2.longitude, p2.latitude],
+                  [p1.longitude, p2.latitude],
+                  [p1.longitude, p1.latitude],
+                ]
+              ],
+            },
+            'properties': {
+              'role': 'searchArea',
+              'areaType': 'bbox',
+            },
+          });
+        } else if (_radiusParam != null) {
+          final parts = _radiusParam!.split(',');
+          final radiusM =
+              parts.length >= 3 ? double.tryParse(parts[2]) : null;
+          features.add({
+            'type': 'Feature',
+            'geometry': {
+              'type': 'Point',
+              'coordinates': [
+                _drawPoint1!.longitude,
+                _drawPoint1!.latitude,
+              ],
+            },
+            'properties': {
+              'role': 'searchArea',
+              'areaType': 'radius',
+              if (radiusM != null) 'radiusMeters': radiusM,
+            },
+          });
+        }
+      }
+
+      // Data features from full response
+      for (final row in _response!.data) {
+        final properties = <String, dynamic>{
+          'timestamp': row.timestamp.toUtc().toIso8601String(),
+        };
+
+        for (final s in _resultSeries) {
+          final idx = colIndices[s.path];
+          if (idx == null || idx >= row.values.length) continue;
+          final raw = row.values[idx];
+          if (raw is! num) continue;
+          final metadata = widget.signalKService.metadataStore.get(s.path);
+          final displayVal =
+              metadata?.convert(raw.toDouble()) ?? raw.toDouble();
+          final symbol = metadata?.symbol;
+          properties[s.path] = displayVal;
+          if (symbol != null) {
+            properties['${s.path}_unit'] = symbol;
+          }
+        }
+
+        // Position (may be null → null geometry, valid per GeoJSON spec)
+        Map<String, dynamic>? geometry;
+        if (posIdx != -1 && posIdx < row.values.length) {
+          final latLng = _parsePosition(row.values[posIdx]);
+          if (latLng != null) {
+            geometry = {
+              'type': 'Point',
+              'coordinates': [latLng.longitude, latLng.latitude],
+            };
+          }
+        }
+
+        features.add({
+          'type': 'Feature',
+          'geometry': geometry,
+          'properties': properties,
+        });
+      }
+
+      // Top-level metadata
+      final metaProps = <String, dynamic>{
+        'context': _context,
+        if (_bboxParam != null) 'areaType': 'bbox',
+        if (_bboxParam != null) 'bbox': _bboxParam,
+        if (_radiusParam != null) 'areaType': 'radius',
+        if (_radiusParam != null) 'radius': _radiusParam,
+        'aggregation': _aggregation,
+        if (_smoothing != 'none') 'smoothing': _smoothing,
+        'from': _response!.range.from.toUtc().toIso8601String(),
+        'to': _response!.range.to.toUtc().toIso8601String(),
+      };
+
+      final geojson = {
+        'type': 'FeatureCollection',
+        'properties': metaProps,
+        'features': features,
+      };
+
+      final jsonStr = const JsonEncoder.withIndent('  ').convert(geojson);
+
+      final directory = await getTemporaryDirectory();
+      final file = File('${directory.path}/explorer_data.geojson');
+      await file.writeAsString(jsonStr);
+
+      await SharePlus.instance.share(
+        ShareParams(
+          files: [XFile(file.path)],
+          subject: 'Historical Data Export',
+        ),
+      );
+    } catch (e) {
+      _showSnack('Failed to share: $e');
+    }
+  }
+
+  Future<void> _shareAsKml() async {
+    if (_response == null || _response!.data.isEmpty) return;
+
+    try {
+      final colIndices = _buildExportColIndices();
+      final posIdx = _response!.values
+          .indexWhere((v) => v.path == 'navigation.position');
+
+      final buf = StringBuffer();
+      buf.writeln('<?xml version="1.0" encoding="UTF-8"?>');
+      buf.writeln('<kml xmlns="http://www.opengis.net/kml/2.2">');
+      buf.writeln('<Document>');
+      buf.writeln('  <name>Historical Data Export</name>');
+
+      // Document-level metadata
+      final metaParts = <String>['Context: $_context'];
+      if (_bboxParam != null) metaParts.add('Area: bbox $_bboxParam');
+      if (_radiusParam != null) metaParts.add('Area: radius $_radiusParam');
+      metaParts.add('Aggregation: $_aggregation');
+      if (_smoothing != 'none') {
+        final param = _smoothing == 'sma'
+            ? '$_smoothing($_smaWindow)'
+            : '$_smoothing($_emaAlpha)';
+        metaParts.add('Smoothing: $param');
+      }
+      if (_response != null) {
+        metaParts.add(
+            'From: ${_response!.range.from.toUtc().toIso8601String()}');
+        metaParts.add('To: ${_response!.range.to.toUtc().toIso8601String()}');
+      }
+      buf.writeln(
+          '  <description>${_xmlEscape(metaParts.join('\n'))}</description>');
+
+      // Search area style
+      buf.writeln('  <Style id="searchArea">');
+      buf.writeln('    <PolyStyle>');
+      buf.writeln('      <color>4000ff00</color>');
+      buf.writeln('    </PolyStyle>');
+      buf.writeln('    <LineStyle>');
+      buf.writeln('      <color>ff00ff00</color>');
+      buf.writeln('      <width>2</width>');
+      buf.writeln('    </LineStyle>');
+      buf.writeln('  </Style>');
+
+      // Search area placemark
+      if (_drawPoint1 != null) {
+        if (_bboxParam != null && _drawPoint2 != null) {
+          final p1 = _drawPoint1!;
+          final p2 = _drawPoint2!;
+          buf.writeln('  <Placemark>');
+          buf.writeln('    <name>Search Area</name>');
+          buf.writeln('    <styleUrl>#searchArea</styleUrl>');
+          buf.writeln('    <Polygon>');
+          buf.writeln('      <outerBoundaryIs><LinearRing><coordinates>');
+          buf.writeln(
+              '        ${p1.longitude},${p1.latitude} ${p2.longitude},${p1.latitude} ${p2.longitude},${p2.latitude} ${p1.longitude},${p2.latitude} ${p1.longitude},${p1.latitude}');
+          buf.writeln('      </coordinates></LinearRing></outerBoundaryIs>');
+          buf.writeln('    </Polygon>');
+          buf.writeln('  </Placemark>');
+        } else if (_radiusParam != null) {
+          final parts = _radiusParam!.split(',');
+          final radiusM =
+              parts.length >= 3 ? parts[2] : 'unknown';
+          buf.writeln('  <Placemark>');
+          buf.writeln('    <name>Search Area Center</name>');
+          buf.writeln(
+              '    <description>Radius: ${_xmlEscape(radiusM)} meters</description>');
+          buf.writeln(
+              '    <Point><coordinates>${_drawPoint1!.longitude},${_drawPoint1!.latitude}</coordinates></Point>');
+          buf.writeln('  </Placemark>');
+        }
+      }
+
+      // Data placemarks from full response
+      for (final row in _response!.data) {
+        // Position required for KML placemarks
+        LatLng? latLng;
+        if (posIdx != -1 && posIdx < row.values.length) {
+          latLng = _parsePosition(row.values[posIdx]);
+        }
+        if (latLng == null) continue; // KML requires coordinates
+
+        final ts = row.timestamp.toUtc().toIso8601String();
+
+        buf.writeln('  <Placemark>');
+        buf.writeln('    <name>$ts</name>');
+        buf.writeln('    <TimeStamp><when>$ts</when></TimeStamp>');
+        buf.writeln(
+            '    <Point><coordinates>${latLng.longitude},${latLng.latitude}</coordinates></Point>');
+
+        // ExtendedData with all values
+        buf.writeln('    <ExtendedData>');
+        for (final s in _resultSeries) {
+          final idx = colIndices[s.path];
+          if (idx == null || idx >= row.values.length) continue;
+          final raw = row.values[idx];
+          if (raw is! num) continue;
+          final metadata = widget.signalKService.metadataStore.get(s.path);
+          final display = metadata?.format(raw.toDouble(), decimals: 2) ??
+              raw.toStringAsFixed(2);
+          buf.writeln(
+              '      <Data name="${_xmlEscape(s.path)}"><value>${_xmlEscape(display)}</value></Data>');
+        }
+        buf.writeln('    </ExtendedData>');
+        buf.writeln('  </Placemark>');
+      }
+
+      buf.writeln('</Document>');
+      buf.writeln('</kml>');
+
+      final directory = await getTemporaryDirectory();
+      final file = File('${directory.path}/explorer_data.kml');
+      await file.writeAsString(buf.toString());
+
+      await SharePlus.instance.share(
+        ShareParams(
+          files: [XFile(file.path)],
+          subject: 'Historical Data Export',
+        ),
+      );
+    } catch (e) {
+      _showSnack('Failed to share: $e');
+    }
+  }
+
+  String _xmlEscape(String input) {
+    return input
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&apos;');
+  }
+
+  // ---------------------------------------------------------------------------
   // Helpers
   // ---------------------------------------------------------------------------
+
+  String _fmtCompact(DateTime d) {
+    final mon = d.month.toString().padLeft(2, '0');
+    final day = d.day.toString().padLeft(2, '0');
+    final hour = d.hour;
+    final displayHour = hour == 0 ? 12 : (hour > 12 ? hour - 12 : hour);
+    final ampm = hour < 12 ? 'AM' : 'PM';
+    return '$mon/$day $displayHour:${d.minute.toString().padLeft(2, '0')} $ampm';
+  }
 
   String _fmtDate(DateTime d) =>
       '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
 
-  String _fmtTimestamp(DateTime d) =>
-      '${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}:${d.second.toString().padLeft(2, '0')}';
+  String _fmtAmPm(DateTime d) {
+    final hour = d.hour;
+    final displayHour = hour == 0 ? 12 : (hour > 12 ? hour - 12 : hour);
+    final ampm = hour < 12 ? 'AM' : 'PM';
+    return '$displayHour:${d.minute.toString().padLeft(2, '0')} $ampm';
+  }
+
+  /// Format lat/lon in Degrees Decimal Minutes (DDM) format.
+  String _fmtDDM(double lat, double lon) {
+    String toDDM(double value, String pos, String neg) {
+      final dir = value >= 0 ? pos : neg;
+      final abs = value.abs();
+      final deg = abs.truncate();
+      final min = (abs - deg) * 60;
+      return '$deg°${min.toStringAsFixed(3)}\'$dir';
+    }
+    return '${toDDM(lat, 'N', 'S')} ${toDDM(lon, 'E', 'W')}';
+  }
 
   void _showSnack(String msg) {
     if (!mounted) return;
@@ -1263,4 +3254,100 @@ class _ResultPoint {
     required this.timestamp,
     required this.values,
   });
+}
+
+// ---------------------------------------------------------------------------
+// Sparkline widget with marker for Detail tab
+// ---------------------------------------------------------------------------
+
+class _SparklinePainter extends CustomPainter {
+  final List<double> values;
+  final int? markerIndex;
+  final String? markerLabel;
+  final Color lineColor;
+
+  _SparklinePainter({
+    required this.values,
+    this.markerIndex,
+    this.markerLabel,
+    required this.lineColor,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (values.length < 2 || size.width <= 0 || size.height <= 0) return;
+
+    // Filter out NaN/Infinity for min/max calculation
+    final finiteValues = values.where((v) => v.isFinite).toList();
+    if (finiteValues.length < 2) return;
+
+    final minVal = finiteValues.reduce(math.min);
+    final maxVal = finiteValues.reduce(math.max);
+    final range = maxVal - minVal;
+    final topPad = 12.0; // space for marker label
+    final drawHeight = size.height - topPad;
+
+    double normalize(double v) {
+      if (!v.isFinite) return topPad + drawHeight / 2;
+      if (range == 0) return drawHeight / 2 + topPad;
+      return topPad + drawHeight - ((v - minVal) / range) * drawHeight;
+    }
+
+    final stepX = size.width / (values.length - 1);
+
+    // Draw line
+    final linePaint = Paint()
+      ..color = lineColor.withValues(alpha: 0.6)
+      ..strokeWidth = 1.5
+      ..style = PaintingStyle.stroke
+      ..strokeJoin = StrokeJoin.round;
+
+    final linePath = ui.Path();
+    linePath.moveTo(0, normalize(values[0]));
+    for (var i = 1; i < values.length; i++) {
+      linePath.lineTo(i * stepX, normalize(values[i]));
+    }
+    canvas.drawPath(linePath, linePaint);
+
+    // Draw marker
+    if (markerIndex != null && markerIndex! >= 0 && markerIndex! < values.length) {
+      final mx = markerIndex! * stepX;
+      final my = normalize(values[markerIndex!]);
+
+      // Vertical line
+      final vLinePaint = Paint()
+        ..color = lineColor.withValues(alpha: 0.3)
+        ..strokeWidth = 1.0;
+      canvas.drawLine(Offset(mx, topPad), Offset(mx, size.height), vLinePaint);
+
+      // Dot
+      final dotPaint = Paint()
+        ..color = lineColor
+        ..style = PaintingStyle.fill;
+      canvas.drawCircle(Offset(mx, my), 3.5, dotPaint);
+
+      // Label
+      if (markerLabel != null) {
+        final tp = TextPainter(
+          text: TextSpan(
+            text: markerLabel!,
+            style: TextStyle(fontSize: 9, color: lineColor, fontWeight: FontWeight.w600),
+          ),
+          textDirection: TextDirection.ltr,
+        )..layout();
+        // Position label above dot, clamped to canvas bounds
+        var labelX = mx - tp.width / 2;
+        if (labelX < 0) labelX = 0;
+        if (labelX + tp.width > size.width) labelX = size.width - tp.width;
+        tp.paint(canvas, Offset(labelX, 0));
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(_SparklinePainter old) =>
+      old.markerIndex != markerIndex ||
+      old.markerLabel != markerLabel ||
+      old.lineColor != lineColor ||
+      old.values.length != values.length;
 }

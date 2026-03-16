@@ -354,6 +354,9 @@ class SignalKService extends ChangeNotifier implements DataService {
     // Server data will replace this when it arrives
     _conversionManager.loadFromLocalCache();
     _loadDisplayUnitsFromCache(); // Load displayUnits for instant unit conversions
+    // Wire up category fallback for MetadataStore so paths without
+    // direct metadata can resolve via category (e.g. tempest temperature)
+    _metadataStore.categoryLookup = findCategoryForPath;
     _conversionsDataView = null; // Invalidate cache view
     notifyListeners();
 
@@ -1596,6 +1599,42 @@ class SignalKService extends ChangeNotifier implements DataService {
     return getConversionForCategory(category)?.symbol;
   }
 
+  /// Fetch metadata for a specific path from the REST API and populate MetadataStore.
+  /// Uses the vessel URN so it works for own vessel and AIS targets.
+  /// Optional [vesselId] overrides the default vessel context (e.g. for AIS targets).
+  Future<PathMetadata?> fetchPathMeta(String path, {String? vesselId}) async {
+    // Already have it — skip the fetch
+    final existing = _metadataStore.get(path);
+    if (existing?.formula != null) return existing;
+
+    final restPath = vesselId ?? _vesselRestPath;
+    final urlPath = path.replaceAll('.', '/');
+    final protocol = _useSecureConnection ? 'https' : 'http';
+    try {
+      final response = await http.get(
+        Uri.parse('$protocol://$_serverUrl/signalk/v1/api/vessels/$restPath/$urlPath/meta'),
+        headers: _getHeaders(),
+      );
+      if (response.statusCode == 200) {
+        final meta = jsonDecode(response.body) as Map<String, dynamic>;
+        final displayUnits = meta['displayUnits'] as Map<String, dynamic>?;
+        if (displayUnits != null) {
+          final category = findCategoryForPath(path);
+          _metadataStore.updateFromMeta(path, displayUnits, category: category);
+          // Also update legacy cache
+          _displayUnitsCache[path] = displayUnits;
+          _saveDisplayUnitsToCache();
+          return _metadataStore.get(path);
+        }
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('fetchPathMeta($path) error: $e');
+      }
+    }
+    return null;
+  }
+
   /// Get the unit definitions map (siUnit → conversions)
   Map<String, dynamic>? get unitDefinitions => _conversionManager.unitDefinitions;
 
@@ -2355,6 +2394,8 @@ class _ConversionManager {
           unitDefinitions: _unitDefinitions!,
           categoryToBaseUnit: _categoryToBaseUnit,
         );
+        // Wire up category fallback so get() resolves paths without direct metadata
+        getMetadataStore().categoryLookup = findCategoryForPath;
       }
 
       // Save to local cache

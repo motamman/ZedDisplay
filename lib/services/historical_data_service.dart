@@ -273,10 +273,21 @@ class HistoricalDataService {
     }
   }
 
-  /// Get available contexts from the history API
-  Future<List<String>> getAvailableContexts() async {
+  /// Get available contexts from the history API.
+  ///
+  /// The server only scans parquet files when time params are provided.
+  /// Without them it returns only `vessels.self`.
+  Future<List<String>> getAvailableContexts({
+    DateTime? from,
+    DateTime? to,
+  }) async {
     final protocol = useSecureConnection ? 'https' : 'http';
-    final uri = Uri.parse('$protocol://$serverUrl/signalk/v1/history/contexts');
+    final params = <String, String>{};
+    if (from != null) params['from'] = from.toUtc().toIso8601String();
+    if (to != null) params['to'] = to.toUtc().toIso8601String();
+    final uri = Uri.parse(
+      '$protocol://$serverUrl/signalk/v1/history/contexts',
+    ).replace(queryParameters: params.isEmpty ? null : params);
 
     if (kDebugMode) {
       print('Fetching available contexts from: $uri');
@@ -306,6 +317,58 @@ class HistoricalDataService {
     } catch (e) {
       if (kDebugMode) {
         print('Error fetching available contexts: $e');
+      }
+      rethrow;
+    }
+  }
+
+  /// Get contexts with spatial filtering — only vessels that had positions
+  /// within the given area during the time range.
+  Future<List<String>> getSpatialContexts({
+    required DateTime from,
+    required DateTime to,
+    String? bbox,
+    String? radius,
+  }) async {
+    final protocol = useSecureConnection ? 'https' : 'http';
+    final params = <String, String>{
+      'from': from.toUtc().toIso8601String(),
+      'to': to.toUtc().toIso8601String(),
+    };
+    if (bbox != null) params['bbox'] = bbox;
+    if (radius != null) params['radius'] = radius;
+    final uri = Uri.parse(
+      '$protocol://$serverUrl/api/history/contexts/spatial',
+    ).replace(queryParameters: params);
+
+    if (kDebugMode) {
+      print('Fetching spatial contexts from: $uri');
+    }
+
+    try {
+      final headers = <String, String>{};
+      if (authToken != null) {
+        headers['Authorization'] = 'Bearer ${authToken!.token}';
+      }
+
+      final response = await http.get(uri, headers: headers).timeout(
+        const Duration(seconds: 30),
+      );
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        if (data is List) {
+          return data.map((e) => e.toString()).toList();
+        }
+        return [];
+      } else {
+        throw Exception(
+          'Failed to fetch spatial contexts: ${response.statusCode}',
+        );
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error fetching spatial contexts: $e');
       }
       rethrow;
     }

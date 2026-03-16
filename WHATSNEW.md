@@ -1,4 +1,54 @@
-# What's New in v0.5.62
+# What's New in v0.5.63
+
+## Release Notes (Google Play - max 500 chars)
+
+v0.5.63 Historical Data Explorer & Metadata Fixes
+
+NEW: Historical Data Explorer — query signalk-parquet data by area (bbox/radius) and time range. Draw search areas on the map, view results as color-coded markers with value-proportional sizing, sparklines, and exportable tables.
+
+IMPROVED: Widget state cached across page swipes. Metadata auto-fetched from server for paths missing conversions. Exponential backoff reconnection.
+
+## Release Notes (App Store / TestFlight - max 4000 chars)
+
+### Historical Data Explorer (NEW)
+- **Spatial Queries** - Draw a bounding box or radius on the interactive map to define your search area
+- **Drag-to-Resize** - Adjust area corners or radius edge after drawing; handles appear on the selection
+- **Multi-Path Queries** - Select multiple SignalK paths with aggregation (average, min, max) and optional SMA/EMA smoothing
+- **Map Visualization** - Result points plotted as color-coded markers with value-proportional sizing (smallest=lowest value, largest=highest)
+- **Smart Filtering** - Points with no data for the active legend path are hidden from the map
+- **Legend Switching** - Tap legend series to change the active path; markers resize and recolor instantly
+- **Sparkline Detail** - Per-point detail view shows sparkline charts for each queried path with date range and min/max values
+- **Expanded View** - Double-tap any sparkline to open a full-size chart modal with point count
+- **Map Controls** - Zoom in/out, zoom-to-fit area (bbox and radius), homeport, recenter buttons
+- **Save Areas** - Name and save search areas for quick reuse; reload from a saved area list
+- **Export** - Share results as CSV or JSON
+- **Tabbed Views** - Map, Detail, and Table tabs with swipe navigation
+- **Persistent State** - Query results and map position cached across page swipes, screen lock, and reconnects
+- **Requires** - signalk-parquet plugin with spatial query support on your SignalK server
+
+### On-Demand Metadata (NEW)
+- **Auto-Fetch** - Paths missing unit metadata (e.g., `environment.outside.tempest.observations.airTemperature`) are automatically fetched from the server's REST API
+- **Vessel URN** - Uses `/signalk/v1/api/vessels/{vesselURN}/{path}/meta` so it works for own vessel and AIS targets
+- **Category Fallback** - MetadataStore now falls back to category-level conversions (temperature, speed, etc.) when no path-specific metadata exists
+- **Cached** - Fetched metadata persisted locally for instant display on restart
+
+### Widget Caching (IMPROVED)
+- **KeepAlivePage** - Dashboard tools preserve their state when swiping between pages
+- **No Rebuild** - Tools no longer tear down and rebuild when navigating away and back
+- **Less Network** - Reduces redundant SignalK requests from widget reconstruction
+
+### Reconnection (IMPROVED)
+- **Exponential Backoff** - Reconnect attempts use increasing delays instead of fixed intervals
+- **Background Probing** - Lightweight server checks detect availability without full reconnect cycle
+- **Status Display** - Connection overlay shows reconnection attempt count and next retry time
+
+### Config Screen Flags (IMPROVED)
+- **Per-Tool Flags** - New schema flags (`disableDataSources`, `disableUnitSelection`, `disableVisibilityToggles`, `disableTtl`) let tool builders hide irrelevant config sections
+- **Cleaner Config** - Tools that don't need unit selection or TTL settings no longer show those options
+
+---
+
+# Previous: v0.5.62
 
 ## Release Notes (Google Play - max 500 chars)
 
