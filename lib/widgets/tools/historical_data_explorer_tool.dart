@@ -70,6 +70,57 @@ enum ExplorerState {
 // Widget
 // ---------------------------------------------------------------------------
 
+/// Static cache to preserve query results across widget disposal (screen lock, reconnect).
+class _ExplorerStateCache {
+  static final Map<String, _CachedState> _cache = {};
+
+  static void save(String key, _CachedState state) => _cache[key] = state;
+  static _CachedState? get(String key) => _cache[key];
+  static void remove(String key) => _cache.remove(key);
+}
+
+class _CachedState {
+  final ExplorerState state;
+  final hist.HistoricalDataResponse? response;
+  final List<hist.ChartDataSeries> resultSeries;
+  final List<_ResultPoint> resultPoints;
+  final int selectedRowIndex;
+  final int activeLegendIndex;
+  final Set<int> visibleLegendIndices;
+  final Set<String> selectedPaths;
+  final String? bboxParam;
+  final String? radiusParam;
+  final LatLng? drawPoint1;
+  final LatLng? drawPoint2;
+  final String context;
+  final DateTime fromDate;
+  final DateTime toDate;
+  final String aggregation;
+  final String smoothing;
+  final LatLng? mapCenter;
+
+  _CachedState({
+    required this.state,
+    this.response,
+    required this.resultSeries,
+    required this.resultPoints,
+    required this.selectedRowIndex,
+    required this.activeLegendIndex,
+    required this.visibleLegendIndices,
+    required this.selectedPaths,
+    this.bboxParam,
+    this.radiusParam,
+    this.drawPoint1,
+    this.drawPoint2,
+    required this.context,
+    required this.fromDate,
+    required this.toDate,
+    required this.aggregation,
+    required this.smoothing,
+    this.mapCenter,
+  });
+}
+
 class HistoricalDataExplorerTool extends StatefulWidget {
   final ToolConfig config;
   final SignalKService signalKService;
@@ -1339,7 +1390,7 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
 
                       // -- Path selection --
                       Text(
-                        'Paths (${localSelected.length}/5)',
+                        'Paths (${localSelected.length}/3)',
                         style: const TextStyle(fontWeight: FontWeight.bold),
                       ),
                       const SizedBox(height: 4),
@@ -1373,7 +1424,7 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
                                         onChanged: (v) {
                                           setDialogState(() {
                                             if (v == true &&
-                                                localSelected.length < 5) {
+                                                localSelected.length < 3) {
                                               localSelected.add(p);
                                             } else {
                                               localSelected.remove(p);
@@ -1537,41 +1588,37 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
       ],
     );
 
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final isWide = constraints.maxWidth >= 600;
+    final isWide = MediaQuery.of(context).size.width >= 600;
 
-        if (hasResults && isWide) {
-          // Landscape: summary bar on top, then map left | panel right
-          return Column(
-            children: [
-              if (_state == ExplorerState.results) _buildSummaryBar(),
-              Expanded(
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Expanded(flex: 3, child: mapStack),
-                    const SizedBox(width: 4),
-                    Expanded(flex: 2, child: _buildBottomPanel()),
-                  ],
-                ),
-              ),
-            ],
-          );
-        }
+    if (hasResults && isWide) {
+      // Landscape: summary bar on top, then map left | panel right
+      return Column(
+        children: [
+          if (_state == ExplorerState.results) _buildSummaryBar(),
+          Expanded(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Expanded(flex: 3, child: mapStack),
+                const SizedBox(width: 4),
+                Expanded(flex: 2, child: _buildBottomPanel()),
+              ],
+            ),
+          ),
+        ],
+      );
+    }
 
-        // Portrait / no results: stacked layout
-        return Column(
-          children: [
-            if (_state == ExplorerState.results) _buildSummaryBar(),
-            if (hasResults) ...[
-              Expanded(flex: 2, child: mapStack),
-              Expanded(flex: 1, child: _buildBottomPanel()),
-            ] else
-              Expanded(child: mapStack),
-          ],
-        );
-      },
+    // Portrait / no results: stacked layout
+    return Column(
+      children: [
+        if (_state == ExplorerState.results) _buildSummaryBar(),
+        if (hasResults) ...[
+          Expanded(child: mapStack),
+          Expanded(child: _buildBottomPanel()),
+        ] else
+          Expanded(child: mapStack),
+      ],
     );
   }
 
@@ -2364,103 +2411,87 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
       orElse: () => _resultPoints.first,
     );
 
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(8),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Date
-          Text(
-            _fmtDate(pt.timestamp),
-            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+    // Build sparkline cards explicitly
+    final sparklineCards = <Widget>[];
+    for (var idx = 0; idx < _resultSeries.length; idx++) {
+      final s = _resultSeries[idx];
+      final markerIndex = s.points.indexWhere(
+          (p) => p.timestamp == pt.timestamp);
+      final seriesColor = _legendColor(idx);
+      final metadata =
+          widget.signalKService.metadataStore.get(s.path);
+      final rawVal = pt.values[s.path];
+      final display = rawVal != null
+          ? (metadata?.format(rawVal, decimals: 1) ??
+              rawVal.toStringAsFixed(1))
+          : null;
+      sparklineCards.add(
+        Container(
+          key: ValueKey('sparkline_$idx'),
+          margin: const EdgeInsets.only(bottom: 6),
+          decoration: BoxDecoration(
+            color: seriesColor.withValues(alpha: 0.08),
+            border: Border.all(color: seriesColor.withValues(alpha: 0.3)),
+            borderRadius: BorderRadius.circular(4),
           ),
-          // AM/PM time
-          Text(
-            _fmtAmPm(pt.timestamp),
-            style: const TextStyle(fontSize: 11),
-          ),
-          const SizedBox(height: 2),
-          // Position in DDM
-          Text(
-            _fmtDDM(pt.position.latitude, pt.position.longitude),
-            style: const TextStyle(fontSize: 11),
-          ),
-          const Divider(height: 8),
-          // Sparklines per series
-          ..._resultSeries.asMap().entries.map((entry) {
-            final idx = entry.key;
-            final s = entry.value;
-            final markerIndex = s.points.indexWhere(
-                (p) => p.timestamp == pt.timestamp);
-            final seriesColor = _sparklineSeriesColor(idx);
-            final metadata =
-                widget.signalKService.metadataStore.get(s.path);
-            final rawVal = pt.values[s.path];
-            final display = rawVal != null
-                ? (metadata?.format(rawVal, decimals: 1) ??
-                    rawVal.toStringAsFixed(1))
-                : null;
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 6),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+          padding: const EdgeInsets.all(4),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
                 children: [
                   Text(s.path.split('.').last,
                       style: TextStyle(fontSize: 9, color: seriesColor)),
-                  const SizedBox(height: 2),
-                  _SparklineWithMarker(
+                  const Spacer(),
+                  Text(
+                    '${s.minValue?.toStringAsFixed(1) ?? '--'} – ${s.maxValue?.toStringAsFixed(1) ?? '--'}'
+                    ' ${metadata?.symbol ?? ''}',
+                    style: TextStyle(fontSize: 8, color: seriesColor.withValues(alpha: 0.6)),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 2),
+              SizedBox(
+                height: 50,
+                width: double.infinity,
+                child: CustomPaint(
+                  painter: _SparklinePainter(
                     values: s.points.map((p) => p.value).toList(),
                     markerIndex: markerIndex >= 0 ? markerIndex : null,
                     markerLabel: display,
                     lineColor: seriesColor,
-                    height: 50,
                   ),
-                ],
+                ),
               ),
-            );
-          }),
-          const Divider(height: 8),
-          // Per-path values
-          ..._resultSeries.map((s) {
-            final rawVal = pt.values[s.path];
-            final metadata =
-                widget.signalKService.metadataStore.get(s.path);
-            final category = metadata?.category;
-            final display = rawVal != null
-                ? (metadata?.format(rawVal, decimals: 2) ??
-                    rawVal.toStringAsFixed(2))
-                : '--';
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 4),
-              child: Row(
-                children: [
-                  SizedBox(
-                    width: 14,
-                    height: 14,
-                    child: _markerForCategory(
-                        category, rawVal, Colors.grey, false, 14),
-                  ),
-                  const SizedBox(width: 6),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(s.path,
-                            style: const TextStyle(
-                                fontSize: 10, color: Colors.grey)),
-                        Text(
-                          display,
-                          style: const TextStyle(fontSize: 11),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            );
-          }),
-        ],
-      ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return ListView(
+      padding: const EdgeInsets.all(8),
+      children: [
+        // Date
+        Text(
+          _fmtDate(pt.timestamp),
+          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+        ),
+        // AM/PM time
+        Text(
+          _fmtAmPm(pt.timestamp),
+          style: const TextStyle(fontSize: 11),
+        ),
+        const SizedBox(height: 2),
+        // Position in DDM
+        Text(
+          _fmtDDM(pt.position.latitude, pt.position.longitude),
+          style: const TextStyle(fontSize: 11),
+        ),
+        const Divider(height: 8),
+        // Sparkline cards
+        ...sparklineCards,
+      ],
     );
   }
 
@@ -2901,18 +2932,6 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
     return '${toDDM(lat, 'N', 'S')} ${toDDM(lon, 'E', 'W')}';
   }
 
-  static const _sparklineColors = [
-    Colors.blue,
-    Colors.orange,
-    Colors.green,
-    Colors.red,
-    Colors.purple,
-    Colors.teal,
-  ];
-
-  Color _sparklineSeriesColor(int index) =>
-      _sparklineColors[index % _sparklineColors.length];
-
   void _showSnack(String msg) {
     if (!mounted) return;
     ScaffoldMessenger.of(context)
@@ -2942,46 +2961,6 @@ class _ResultPoint {
 // Sparkline widget with marker for Detail tab
 // ---------------------------------------------------------------------------
 
-class _SparklineWithMarker extends StatelessWidget {
-  final List<double> values;
-  final int? markerIndex;
-  final String? markerLabel;
-  final Color lineColor;
-  final double height;
-
-  const _SparklineWithMarker({
-    required this.values,
-    this.markerIndex,
-    this.markerLabel,
-    required this.lineColor,
-    this.height = 50,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    if (values.length < 2) {
-      return SizedBox(
-        height: height,
-        child: const Center(
-          child: Text('Insufficient data', style: TextStyle(fontSize: 9)),
-        ),
-      );
-    }
-    return SizedBox(
-      height: height,
-      width: double.infinity,
-      child: CustomPaint(
-        painter: _SparklinePainter(
-          values: values,
-          markerIndex: markerIndex,
-          markerLabel: markerLabel,
-          lineColor: lineColor,
-        ),
-      ),
-    );
-  }
-}
-
 class _SparklinePainter extends CustomPainter {
   final List<double> values;
   final int? markerIndex;
@@ -2997,15 +2976,20 @@ class _SparklinePainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    if (values.length < 2) return;
+    if (values.length < 2 || size.width <= 0 || size.height <= 0) return;
 
-    final minVal = values.reduce(math.min);
-    final maxVal = values.reduce(math.max);
+    // Filter out NaN/Infinity for min/max calculation
+    final finiteValues = values.where((v) => v.isFinite).toList();
+    if (finiteValues.length < 2) return;
+
+    final minVal = finiteValues.reduce(math.min);
+    final maxVal = finiteValues.reduce(math.max);
     final range = maxVal - minVal;
     final topPad = 12.0; // space for marker label
     final drawHeight = size.height - topPad;
 
     double normalize(double v) {
+      if (!v.isFinite) return topPad + drawHeight / 2;
       if (range == 0) return drawHeight / 2 + topPad;
       return topPad + drawHeight - ((v - minVal) / range) * drawHeight;
     }
