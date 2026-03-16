@@ -15,6 +15,7 @@ import '../../models/tool_config.dart';
 import '../../models/tool_definition.dart';
 import '../../models/historical_data.dart' as hist;
 import '../../services/ais_favorites_service.dart';
+import '../../models/path_metadata.dart';
 import '../../services/signalk_service.dart';
 import '../../services/storage_service.dart';
 import '../../services/historical_data_service.dart';
@@ -811,6 +812,13 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
         from: _fromDate,
         to: _toDate,
       );
+
+      // Ensure metadata exists for all selected paths (fetch from server if missing)
+      await Future.wait(_selectedPaths.map((path) async {
+        if (widget.signalKService.metadataStore.get(path) == null) {
+          await widget.signalKService.fetchPathMeta(path);
+        }
+      }));
 
       // Build chart series for each user-selected path
       final series = <hist.ChartDataSeries>[];
@@ -1779,10 +1787,17 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
           ),
         // Result data point markers (color-coded by active legend series)
         if (_state == ExplorerState.results && _resultPoints.isNotEmpty)
-          MarkerLayer(
+          Builder(builder: (context) {
+            final valueRange = _activeValueRange();
+            return MarkerLayer(
             markers: _resultPoints.where((pt) {
               // Only show markers for visible legend indices
               if (_visibleLegendIndices.isEmpty) return false;
+              // Hide points with no data for the active path
+              final activePath = _activeLegendIndex < _resultSeries.length
+                  ? _resultSeries[_activeLegendIndex].path
+                  : _resultSeries.isNotEmpty ? _resultSeries.first.path : null;
+              if (activePath != null && pt.values[activePath] == null) return false;
               return true;
             }).map((pt) {
               final isSelected = pt.index == _selectedRowIndex;
@@ -1799,7 +1814,22 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
               final rawSiValue = activePath != null
                   ? pt.values[activePath]
                   : null;
-              final size = isSelected ? 30.0 : 22.0;
+
+              const double minSize = 12.0;
+              const double maxSize = 28.0;
+              const double selectedBoost = 8.0;
+              double baseSize = minSize;
+              if (valueRange != null && rawSiValue != null) {
+                final (lo, hi) = valueRange;
+                final span = hi - lo;
+                if (span > 0) {
+                  final t = ((rawSiValue - lo) / span).clamp(0.0, 1.0);
+                  baseSize = minSize + t * (maxSize - minSize);
+                } else {
+                  baseSize = (minSize + maxSize) / 2;
+                }
+              }
+              final size = isSelected ? baseSize + selectedBoost : baseSize;
 
               Widget markerChild;
               if (isAngle) {
@@ -1850,7 +1880,8 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
                 ),
               );
             }).toList(),
-          ),
+          );
+          }),
         // Markers (vessel + drawing points)
         MarkerLayer(
           markers: [
@@ -1931,6 +1962,63 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
   }
 
   // ---------------------------------------------------------------------------
+  // Map helpers
+  // ---------------------------------------------------------------------------
+
+  void _zoomToArea() {
+    if (_drawPoint1 == null || _drawPoint2 == null) return;
+
+    LatLngBounds bounds;
+    if (_radiusParam != null) {
+      // Radius mode: _drawPoint1 is center, _drawPoint2 is edge point.
+      // Compute bounding box from center ± radius.
+      final center = _drawPoint1!;
+      final radiusM = const Distance()
+          .as(LengthUnit.Meter, center, _drawPoint2!);
+      // Approximate degree offsets for the radius
+      final dLat = radiusM / 111320.0;
+      final dLng = radiusM /
+          (111320.0 * math.cos(center.latitude * math.pi / 180.0));
+      bounds = LatLngBounds(
+        LatLng(center.latitude - dLat, center.longitude - dLng),
+        LatLng(center.latitude + dLat, center.longitude + dLng),
+      );
+    } else {
+      // Bbox mode: two opposite corners
+      bounds = LatLngBounds(
+        LatLng(
+          math.min(_drawPoint1!.latitude, _drawPoint2!.latitude),
+          math.min(_drawPoint1!.longitude, _drawPoint2!.longitude),
+        ),
+        LatLng(
+          math.max(_drawPoint1!.latitude, _drawPoint2!.latitude),
+          math.max(_drawPoint1!.longitude, _drawPoint2!.longitude),
+        ),
+      );
+    }
+    _mapController.fitCamera(
+      CameraFit.bounds(bounds: bounds, padding: const EdgeInsets.all(40)),
+    );
+  }
+
+  /// Returns (min, max) for the active legend path across all result points.
+  (double, double)? _activeValueRange() {
+    if (_resultSeries.isEmpty || _resultPoints.isEmpty) return null;
+    final series = _activeLegendIndex < _resultSeries.length
+        ? _resultSeries[_activeLegendIndex]
+        : _resultSeries.first;
+    double? lo, hi;
+    for (final pt in _resultPoints) {
+      final v = pt.values[series.path];
+      if (v == null || v.isNaN) continue;
+      lo = lo == null ? v : math.min(lo, v);
+      hi = hi == null ? v : math.max(hi, v);
+    }
+    if (lo == null || hi == null) return null;
+    return (lo, hi);
+  }
+
+  // ---------------------------------------------------------------------------
   // Overlays
   // ---------------------------------------------------------------------------
 
@@ -1963,6 +2051,32 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
+          // Zoom in
+          _buildOverlayButton(
+            icon: Icons.add,
+            onPressed: () => _mapController.move(
+              _mapController.camera.center,
+              _mapController.camera.zoom + 1,
+            ),
+          ),
+          const SizedBox(height: 4),
+          // Zoom out
+          _buildOverlayButton(
+            icon: Icons.remove,
+            onPressed: () => _mapController.move(
+              _mapController.camera.center,
+              _mapController.camera.zoom - 1,
+            ),
+          ),
+          const SizedBox(height: 4),
+          // Zoom to area
+          if (_drawPoint1 != null && _drawPoint2 != null)
+            _buildOverlayButton(
+              icon: Icons.fit_screen,
+              onPressed: _zoomToArea,
+            ),
+          if (_drawPoint1 != null && _drawPoint2 != null)
+            const SizedBox(height: 4),
           // Info button
           Material(
             color: Colors.white.withValues(alpha: 0.9),
@@ -2486,7 +2600,9 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
               rawVal.toStringAsFixed(1))
           : null;
       sparklineCards.add(
-        Container(
+        GestureDetector(
+          onDoubleTap: () => _showExpandedSparkline(s, seriesColor, metadata),
+          child: Container(
           key: ValueKey('sparkline_$idx'),
           margin: const EdgeInsets.only(bottom: 6),
           decoration: BoxDecoration(
@@ -2523,8 +2639,26 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
                   ),
                 ),
               ),
+              if (s.points.length >= 2)
+                Padding(
+                  padding: const EdgeInsets.only(top: 2),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        _fmtCompact(s.points.first.timestamp),
+                        style: TextStyle(fontSize: 7, color: seriesColor.withValues(alpha: 0.5)),
+                      ),
+                      Text(
+                        _fmtCompact(s.points.last.timestamp),
+                        style: TextStyle(fontSize: 7, color: seriesColor.withValues(alpha: 0.5)),
+                      ),
+                    ],
+                  ),
+                ),
             ],
           ),
+        ),
         ),
       );
     }
@@ -2552,6 +2686,102 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
         // Sparkline cards
         ...sparklineCards,
       ],
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Expanded sparkline modal
+  // ---------------------------------------------------------------------------
+
+  void _showExpandedSparkline(
+    hist.ChartDataSeries series,
+    Color seriesColor,
+    PathMetadata? metadata,
+  ) {
+    final values = series.points.map((p) => p.value).toList();
+    final minLabel = metadata?.format(series.minValue?.toDouble() ?? 0, decimals: 1)
+        ?? series.minValue?.toStringAsFixed(1) ?? '--';
+    final maxLabel = metadata?.format(series.maxValue?.toDouble() ?? 0, decimals: 1)
+        ?? series.maxValue?.toStringAsFixed(1) ?? '--';
+
+    showDialog(
+      context: context,
+      builder: (ctx) => Dialog(
+        insetPadding: const EdgeInsets.all(16),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Header
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      series.label ?? series.path.split('.').last,
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.bold,
+                        color: seriesColor,
+                      ),
+                    ),
+                  ),
+                  Text(
+                    '$minLabel – $maxLabel',
+                    style: TextStyle(fontSize: 11, color: seriesColor.withValues(alpha: 0.6)),
+                  ),
+                  const SizedBox(width: 8),
+                  GestureDetector(
+                    onTap: () => Navigator.pop(ctx),
+                    child: const Icon(Icons.close, size: 20),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Text(
+                series.path,
+                style: TextStyle(fontSize: 10, color: Colors.grey[600]),
+              ),
+              const SizedBox(height: 12),
+              // Chart
+              SizedBox(
+                height: 200,
+                width: double.infinity,
+                child: CustomPaint(
+                  painter: _SparklinePainter(
+                    values: values,
+                    lineColor: seriesColor,
+                  ),
+                ),
+              ),
+              // Date range
+              if (series.points.length >= 2)
+                Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        _fmtCompact(series.points.first.timestamp),
+                        style: TextStyle(fontSize: 9, color: seriesColor.withValues(alpha: 0.5)),
+                      ),
+                      Text(
+                        '${series.points.length} points',
+                        style: TextStyle(fontSize: 9, color: Colors.grey[500]),
+                      ),
+                      Text(
+                        _fmtCompact(series.points.last.timestamp),
+                        style: TextStyle(fontSize: 9, color: seriesColor.withValues(alpha: 0.5)),
+                      ),
+                    ],
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
@@ -2969,6 +3199,15 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
   // ---------------------------------------------------------------------------
   // Helpers
   // ---------------------------------------------------------------------------
+
+  String _fmtCompact(DateTime d) {
+    final mon = d.month.toString().padLeft(2, '0');
+    final day = d.day.toString().padLeft(2, '0');
+    final hour = d.hour;
+    final displayHour = hour == 0 ? 12 : (hour > 12 ? hour - 12 : hour);
+    final ampm = hour < 12 ? 'AM' : 'PM';
+    return '$mon/$day $displayHour:${d.minute.toString().padLeft(2, '0')} $ampm';
+  }
 
   String _fmtDate(DateTime d) =>
       '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
