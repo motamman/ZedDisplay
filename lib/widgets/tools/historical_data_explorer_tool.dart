@@ -260,12 +260,16 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
       _availablePaths = allPaths.where((p) {
         if (p == 'navigation.position') return false;
         if (p == 'navigation.attitude') return false;
-        // Boolean / notification / state paths don't aggregate
+        // Boolean / notification / state / command paths don't aggregate
+        if (p.startsWith('commands.')) return false;
         if (p.contains('.notification')) return false;
         if (p.endsWith('.state')) return false;
-        // Also check live cache — if value is not a num, skip
+        // Check live cache — if value is not numeric, skip
         final dp = widget.signalKService.getValue(p);
         if (dp != null && dp.value is! num) return false;
+        // Check metadata — skip boolean/enum categories
+        final meta = widget.signalKService.metadataStore.get(p);
+        if (meta != null && meta.category == 'boolean') return false;
         return true;
       }).toList();
     } catch (e) {
@@ -1533,20 +1537,41 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
       ],
     );
 
-    return Column(
-      children: [
-        // Top summary bar (results only)
-        if (_state == ExplorerState.results) _buildSummaryBar(),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isWide = constraints.maxWidth >= 600;
 
-        if (hasResults) ...[
-          // Map capped at 2/3
-          Expanded(flex: 2, child: mapStack),
-          // Bottom panel gets remaining 1/3
-          Expanded(flex: 1, child: _buildBottomPanel()),
-        ] else
-          // No results — map gets all space
-          Expanded(child: mapStack),
-      ],
+        if (hasResults && isWide) {
+          // Landscape: summary bar on top, then map left | panel right
+          return Column(
+            children: [
+              if (_state == ExplorerState.results) _buildSummaryBar(),
+              Expanded(
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Expanded(flex: 3, child: mapStack),
+                    const SizedBox(width: 4),
+                    Expanded(flex: 2, child: _buildBottomPanel()),
+                  ],
+                ),
+              ),
+            ],
+          );
+        }
+
+        // Portrait / no results: stacked layout
+        return Column(
+          children: [
+            if (_state == ExplorerState.results) _buildSummaryBar(),
+            if (hasResults) ...[
+              Expanded(flex: 2, child: mapStack),
+              Expanded(flex: 1, child: _buildBottomPanel()),
+            ] else
+              Expanded(child: mapStack),
+          ],
+        );
+      },
     );
   }
 
@@ -1658,17 +1683,53 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
                   _activeLegendIndex < _resultSeries.length
                       ? _resultSeries[_activeLegendIndex]
                       : _resultSeries.isNotEmpty ? _resultSeries.first : null;
-              final activeValue = activeSeries != null
-                  ? pt.values[activeSeries.path]
-                  : null;
-              final color = activeSeries != null
-                  ? _pointColor(activeValue, activeSeries)
-                  : Colors.blue;
+              final color = _legendColor(_activeLegendIndex);
               final activePath = activeSeries?.path;
               final category = activePath != null
                   ? widget.signalKService.metadataStore.get(activePath)?.category
                   : null;
-              final size = isSelected ? 22.0 : 16.0;
+              final isAngle = category == 'angle' || category == 'direction';
+              final rawSiValue = activePath != null
+                  ? pt.values[activePath]
+                  : null;
+              final size = isSelected ? 30.0 : 22.0;
+
+              Widget markerChild;
+              if (isAngle) {
+                markerChild = Transform.rotate(
+                  angle: rawSiValue ?? 0,
+                  child: Icon(
+                    Icons.navigation,
+                    color: color,
+                    size: size,
+                    shadows: [
+                      Shadow(
+                        color: isSelected ? Colors.white : Colors.black54,
+                        blurRadius: isSelected ? 4.0 : 2.0,
+                      ),
+                    ],
+                  ),
+                );
+              } else {
+                markerChild = Container(
+                  decoration: BoxDecoration(
+                    color: color,
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color: isSelected ? Colors.white : Colors.black54,
+                      width: isSelected ? 3.0 : 1.5,
+                    ),
+                    boxShadow: isSelected
+                        ? [BoxShadow(
+                            color: color.withValues(alpha: 0.5),
+                            blurRadius: 6,
+                            spreadRadius: 1,
+                          )]
+                        : null,
+                  ),
+                );
+              }
+
               return Marker(
                 point: pt.position,
                 width: size,
@@ -1678,8 +1739,7 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
                     setState(() => _selectedRowIndex = pt.index);
                     _tabController.animateTo(1); // Switch to Detail tab
                   },
-                  child: _markerForCategory(
-                    category, activeValue, color, isSelected, size),
+                  child: markerChild,
                 ),
               );
             }).toList(),
