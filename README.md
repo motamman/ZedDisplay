@@ -12,7 +12,7 @@ A customizable SignalK marine dashboard and crew comms application to display re
 
 ### Optional
 - **signalk-derived-data**: Provides computed values like true wind, VMG, and other derived navigational data
-- **signalk-parquet**: Allows some tools to display historic data for selected paths
+- **signalk-parquet**: Required for Historical Chart and Historical Data Explorer tools (time-series and spatial queries on recorded data)
 - **signalk-rpi-monitor**: Required for RPi Monitor tool (CPU, GPU temperature, memory, storage monitoring)
 - **signalk-rpi-uptime**: Required for system uptime display in RPi Monitor tool
 - **signalk-weatherflow-api**: Required for WeatherFlow Forecast tool (weather data from Tempest stations)
@@ -79,6 +79,18 @@ A customizable SignalK marine dashboard and crew comms application to display re
 
 <img src="screenshots/screen_combo_charts.jpg" alt="Real-Time Chart" width="400">
  <img src="screenshots/realtime_historic_chat.png" alt="Historical Chart" width="400">
+
+- **Historical Data Explorer**: Spatial/temporal query tool for signalk-parquet historical data
+  - Draw bbox or radius search areas on an interactive map with drag-to-resize
+  - Query multiple SignalK paths with aggregation (average, min, max) and smoothing (SMA/EMA)
+  - Color-coded result markers on the map with value-proportional sizing
+  - Per-point detail view with sparkline charts for each queried path
+  - Double-tap any sparkline to view an expanded chart modal
+  - Save and reload search areas; share results as CSV or JSON
+  - Zoom controls, zoom-to-fit area, and homeport button
+  - Map/detail/table tab views with swipe navigation
+  - State cached across screen switches and reconnects
+  - Requires signalk-parquet plugin with spatial query support
 
 - **Radial Bar Chart**: Circular chart displaying up to 4 values as concentric rings
 

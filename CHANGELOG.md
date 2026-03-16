@@ -5,6 +5,40 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.63+46] - 2026-03-16
+
+### Added
+- **Historical Data Explorer**: New spatial/temporal query tool for signalk-parquet historical data
+  - Interactive map with bbox and radius area selection via draw-to-select or drag-to-resize handles
+  - Query multiple SignalK paths with configurable aggregation (average, min, max) and smoothing (SMA/EMA)
+  - Color-coded result markers on the map with value-proportional sizing (12–28px scaled to data range)
+  - Markers filtered by active legend — points with no data for the selected path are hidden
+  - Per-point detail view with sparkline charts for each queried path, showing date range and min/max
+  - Double-tap any sparkline to open an expanded chart modal with full date range and point count
+  - Save/reload named search areas; share results as CSV or JSON
+  - Map/Detail/Table tab views with swipe navigation
+  - Zoom in/out buttons, zoom-to-fit area (handles both bbox and radius geometry), homeport and recenter buttons
+  - State cached across screen switches, reconnects, and page swipes via `KeepAlivePage`
+  - Requires signalk-parquet plugin with spatial query support (bbox, radius parameters)
+- **On-Demand Path Metadata Fetch**: `fetchPathMeta()` retrieves metadata from `/signalk/v1/api/vessels/{vesselURN}/{path}/meta` when MetadataStore has no entry for a path
+  - Works for own vessel and AIS targets via optional vesselId parameter
+  - Results cached in MetadataStore and persisted to local storage
+  - Historical Data Explorer automatically fetches metadata before building series
+- **MetadataStore Category Fallback**: `get()` now falls back to category-level metadata (e.g., temperature, speed) when no path-specific entry exists
+  - Resolves missing conversions for paths like `environment.outside.tempest.observations.airTemperature`
+  - Category lookup wired at startup (cache restore) and after REST preset load
+- **Widget Caching**: `KeepAlivePage` wrapper in Dashboard Manager preserves tool widget state across page swipes
+  - Tools no longer rebuild when swiping between dashboard pages
+  - Reduces unnecessary network requests and improves perceived performance
+
+### Changed
+- **Tool Config Screen Flags**: New schema flags to disable data source editing, unit selection, visibility toggles, and TTL settings per tool
+  - `disableDataSources`, `disableUnitSelection`, `disableVisibilityToggles`, `disableTtl` flags
+  - ConfigSchema Flags Guide added to developer documentation
+- **Reconnection Logic**: Exponential backoff for reconnection attempts with background probing
+  - Reconnect status displayed in connection overlay
+  - Background probe detects server availability without full reconnect cycle
+
 ## [0.5.62+45] - 2026-03-14
 
 ### Added
