@@ -1302,6 +1302,17 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen>
               _showAppBarTemporarily();
               _revealSelectorDots();
             }
+
+            // Normalize virtualPage back to canonical range to prevent
+            // duplicate page Elements from accumulating on wrap-around.
+            final int canonical = _virtualPageOffset * screenCount + actualIndex;
+            if (virtualPage != canonical) {
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (mounted && _pageController.hasClients) {
+                  _pageController.jumpToPage(canonical);
+                }
+              });
+            }
           },
           itemBuilder: (context, virtualPage) {
             // Convert virtual page to actual screen index (wrap-around)

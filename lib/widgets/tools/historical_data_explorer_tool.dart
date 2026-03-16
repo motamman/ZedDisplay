@@ -871,6 +871,7 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
           _activeLegendIndex = 0;
           _visibleLegendIndices = {0};
         });
+        _saveToCache();
       }
     } catch (e) {
       if (mounted) {
