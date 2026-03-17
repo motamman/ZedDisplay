@@ -52,6 +52,46 @@ class _HistoricalLineChartState extends State<HistoricalLineChart> {
   // 3-state visibility: 0 = all visible, 1 = raw hidden (MA only), 2 = all hidden
   final Map<int, int> _seriesVisibility = {};
 
+  /// Build a label showing the full data time range, e.g. "Mar 15 2:00 PM – Mar 15 4:00 PM"
+  String _dataRangeLabel() {
+    DateTime? earliest;
+    DateTime? latest;
+    for (final s in widget.series) {
+      for (final p in s.points) {
+        if (earliest == null || p.timestamp.isBefore(earliest)) {
+          earliest = p.timestamp;
+        }
+        if (latest == null || p.timestamp.isAfter(latest)) {
+          latest = p.timestamp;
+        }
+      }
+    }
+    if (earliest == null || latest == null) return '';
+    final sameDay = earliest.year == latest.year &&
+        earliest.month == latest.month &&
+        earliest.day == latest.day;
+    if (sameDay) {
+      final dayFmt = DateFormat('MMM d');
+      final timeFmt = DateFormat('h:mm a');
+      return '${dayFmt.format(earliest)} ${timeFmt.format(earliest)} – ${timeFmt.format(latest)}';
+    }
+    final fmt = DateFormat('MMM d h:mm a');
+    return '${fmt.format(earliest)} – ${fmt.format(latest)}';
+  }
+
+  /// Map duration to initial zoom factor so longer windows start zoomed in
+  double _initialZoomFactor() {
+    switch (widget.duration) {
+      case '2h':  return 0.5;
+      case '6h':  return 0.333;
+      case '12h': return 0.25;
+      case '1d':  return 0.25;
+      case '2d':  return 0.25;
+      case '1w':  return 0.143;
+      default:    return 1.0;
+    }
+  }
+
   /// Check if a parent index has a paired smoothed series
   bool _hasSmoothedSeries(int parentIndex) {
     if (parentIndex < 0 || parentIndex >= widget.series.length) return false;
@@ -74,6 +114,7 @@ class _HistoricalLineChartState extends State<HistoricalLineChart> {
       case '1d':
         return DateFormat('h a');          // 10 AM
       case '2d':
+      case '1w':
         return DateFormat('E h a');        // Mon 10 AM
       default:
         return DateFormat('h:mm a');
@@ -108,7 +149,13 @@ class _HistoricalLineChartState extends State<HistoricalLineChart> {
                     fontWeight: FontWeight.bold,
                   ),
             ),
-            const SizedBox(height: 16),
+            Text(
+              _dataRangeLabel(),
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+            ),
+            const SizedBox(height: 12),
             Expanded(
               child: _buildChart(context),
             ),
@@ -184,12 +231,16 @@ class _HistoricalLineChartState extends State<HistoricalLineChart> {
       onLegendItemRender: (LegendRenderArgs args) {
         final index = args.seriesIndex ?? 0;
         final state = _seriesVisibility[index] ?? 0;
+        // Explicitly set color for every state — Syncfusion caches previous values
         if (state == 1) {
           // MA only: reduce opacity to indicate partial visibility
           args.color = args.color?.withValues(alpha: 0.4);
         } else if (state == 2) {
           // All hidden: grey out
           args.color = Colors.grey.withValues(alpha: 0.3);
+        } else {
+          // All visible: restore full series color
+          args.color = colors[index % colors.length];
         }
       },
 
@@ -211,9 +262,11 @@ class _HistoricalLineChartState extends State<HistoricalLineChart> {
         zoomMode: ZoomMode.x,
       ),
 
-      // Primary X axis (DateTime)
+      // Primary X axis (DateTime) — longer durations start zoomed in on recent data
       primaryXAxis: DateTimeAxis(
         dateFormat: _getDateFormat(),
+        initialZoomFactor: _initialZoomFactor(),
+        initialZoomPosition: 1.0,
         majorGridLines: MajorGridLines(
           width: widget.showGrid ? 1 : 0,
           color: Colors.grey.withValues(alpha: 0.2),
@@ -340,8 +393,13 @@ class _HistoricalLineChartState extends State<HistoricalLineChart> {
     final range = maxValue - minValue;
     final padding = range > 0 ? range * 0.15 : 10.0;
 
+    // Don't let padding drag the axis below zero when all data is non-negative
+    final paddedMin = minValue >= 0
+        ? (minValue - padding).clamp(0.0, double.infinity)
+        : minValue - padding;
+
     return (
-      min: minValue - padding,
+      min: paddedMin,
       max: maxValue + padding,
     );
   }
@@ -450,7 +508,7 @@ class _HistoricalLineChartState extends State<HistoricalLineChart> {
             end: Alignment.bottomCenter,
             colors: [
               color.withValues(alpha: 0.4),
-              color.withValues(alpha: 0.05),
+              color.withValues(alpha: 0.15),
             ],
           ),
           borderColor: color,

@@ -182,6 +182,7 @@ class ChartConfigurator extends ToolConfigurator {
                         DropdownMenuItem(value: '12h', child: Text('12 hours')),
                         DropdownMenuItem(value: '1d', child: Text('1 day')),
                         DropdownMenuItem(value: '2d', child: Text('2 days')),
+                        DropdownMenuItem(value: '1w', child: Text('1 week')),
                       ],
                 onChanged: (value) {
                   if (value != null) {
