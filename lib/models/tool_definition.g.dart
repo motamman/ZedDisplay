@@ -38,8 +38,8 @@ ToolDefinition _$ToolDefinitionFromJson(Map<String, dynamic> json) =>
       configSchema: ConfigSchema.fromJson(
         json['configSchema'] as Map<String, dynamic>,
       ),
-      defaultWidth: (json['defaultWidth'] as num?)?.toInt() ?? 2,
-      defaultHeight: (json['defaultHeight'] as num?)?.toInt() ?? 2,
+      defaultWidth: (json['defaultWidth'] as num?)?.toInt() ?? 20,
+      defaultHeight: (json['defaultHeight'] as num?)?.toInt() ?? 20,
     );
 
 Map<String, dynamic> _$ToolDefinitionToJson(ToolDefinition instance) =>

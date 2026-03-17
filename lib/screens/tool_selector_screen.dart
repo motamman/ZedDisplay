@@ -4,6 +4,7 @@ library;
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../config/ui_constants.dart';
 import '../models/tool.dart';
 import '../models/tool_config.dart';
 import '../models/tool_definition.dart' as def;
@@ -291,8 +292,8 @@ class _ToolSelectorScreenState extends State<ToolSelectorScreen> {
       style: StyleConfig(),
     );
 
-    // All tools default to full grid 8x8 - user can resize on dashboard
-    const defaultSize = 8;
+    // All tools default to full screen - user can resize on dashboard
+    final defaultSize = UIConstants.gridCols;
 
     final tool = toolService.createTool(
       toolTypeId: definition.id,

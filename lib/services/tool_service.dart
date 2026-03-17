@@ -60,8 +60,8 @@ class ToolService extends ChangeNotifier {
     required String name,
     required String description,
     required String author,
-    int defaultWidth = 2,
-    int defaultHeight = 2,
+    int defaultWidth = 20,
+    int defaultHeight = 20,
     ToolCategory category = ToolCategory.other,
     List<String> tags = const [],
   }) {

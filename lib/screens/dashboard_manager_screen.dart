@@ -277,8 +277,8 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen>
     if (result is Map<String, dynamic> && mounted) {
       try {
         final tool = result['tool'] as Tool;
-        final width = result['width'] as int? ?? 2;
-        final height = result['height'] as int? ?? 2;
+        final width = result['width'] as int? ?? UIConstants.gridCols;
+        final height = result['height'] as int? ?? UIConstants.gridRows;
 
         // Get screen dimensions for grid calculations
         final screenSize = MediaQuery.of(context).size;
@@ -1502,13 +1502,13 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen>
                   ),
                 ),
               ),
-              // Thin swipe-up zone at very bottom edge (no tap interception)
+              // Tap gutter to reveal dots / open screen selector
               GestureDetector(
                 behavior: HitTestBehavior.translucent,
-                onVerticalDragEnd: (details) {
-                  // Swipe up (negative velocity) reveals dots
-                  if (details.primaryVelocity != null &&
-                      details.primaryVelocity! < -100) {
+                onTap: () {
+                  if (_showScreenSelectorDots) {
+                    _showScreenSelector(context);
+                  } else {
                     _revealSelectorDots();
                   }
                 },

@@ -180,8 +180,8 @@ class ToolDefinition {
     required this.description,
     required this.category,
     required this.configSchema,
-    this.defaultWidth = 2,
-    this.defaultHeight = 2,
+    this.defaultWidth = 20,
+    this.defaultHeight = 20,
   });
 
   factory ToolDefinition.fromJson(Map<String, dynamic> json) =>
