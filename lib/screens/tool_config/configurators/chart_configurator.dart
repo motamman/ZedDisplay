@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import '../../../models/ais_favorite.dart';
 import '../../../models/tool_config.dart';
 import '../../../models/tool.dart';
+import '../../../services/ais_favorites_service.dart';
+import '../../../services/historical_data_service.dart';
 import '../../../services/signalk_service.dart';
 import '../base_tool_configurator.dart';
 
@@ -30,6 +34,12 @@ class ChartConfigurator extends ToolConfigurator {
   String chartSmoothingType = 'sma'; // 'sma' or 'ema'
   int chartMovingAverageWindow = 5; // SMA window or EMA alpha*100
   String chartTitle = '';
+  String chartContext = 'vessels.self'; // historical only
+
+  // Vessel context picker state (not persisted in config)
+  bool _lookupOtherVessels = false;
+  List<String> _availableContexts = ['vessels.self'];
+  bool _contextsLoading = false;
 
   @override
   void reset() {
@@ -44,6 +54,8 @@ class ChartConfigurator extends ToolConfigurator {
     chartSmoothingType = 'sma';
     chartMovingAverageWindow = 5;
     chartTitle = '';
+    chartContext = 'vessels.self';
+    _lookupOtherVessels = false;
   }
 
   @override
@@ -66,6 +78,8 @@ class ChartConfigurator extends ToolConfigurator {
       chartSmoothingType = style.customProperties!['smoothingType'] as String? ?? 'sma';
       chartMovingAverageWindow = style.customProperties!['movingAverageWindow'] as int? ?? 5;
       chartTitle = style.customProperties!['title'] as String? ?? '';
+      chartContext = style.customProperties!['context'] as String? ?? 'vessels.self';
+      _lookupOtherVessels = chartContext != 'vessels.self';
     }
   }
 
@@ -116,6 +130,9 @@ class ChartConfigurator extends ToolConfigurator {
       customProperties['resolution'] = chartResolution;
       customProperties['autoRefresh'] = chartAutoRefresh;
       customProperties['refreshInterval'] = chartRefreshInterval;
+      if (chartContext != 'vessels.self') {
+        customProperties['context'] = chartContext;
+      }
     }
 
     return ToolConfig(
@@ -212,6 +229,10 @@ class ChartConfigurator extends ToolConfigurator {
                     setState(() => chartResolution = value);
                   },
                 ),
+                const SizedBox(height: 16),
+
+                // Vessel Context selector
+                _buildVesselContextUI(context, signalKService, setState),
                 const SizedBox(height: 16),
               ],
 
@@ -384,5 +405,169 @@ class ChartConfigurator extends ToolConfigurator {
         );
       },
     );
+  }
+
+  /// Build the vessel context picker UI (historical only).
+  Widget _buildVesselContextUI(
+    BuildContext context,
+    SignalKService signalKService,
+    void Function(void Function()) setState,
+  ) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        CheckboxListTile(
+          dense: true,
+          contentPadding: EdgeInsets.zero,
+          title: Text(
+            _lookupOtherVessels
+                ? 'Vessel: ${_contextDisplayName(chartContext, signalKService)}'
+                : 'Look up other vessels',
+            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+          ),
+          value: _lookupOtherVessels,
+          onChanged: (v) {
+            final checked = v ?? false;
+            setState(() => _lookupOtherVessels = checked);
+            if (checked) {
+              _fetchAvailableContexts(signalKService, setState);
+            } else {
+              setState(() => chartContext = 'vessels.self');
+            }
+          },
+        ),
+        if (_lookupOtherVessels) ...[
+          if (_contextsLoading)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 8),
+              child: Row(
+                children: [
+                  SizedBox(
+                    width: 16, height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                  SizedBox(width: 8),
+                  Text('Loading vessels…', style: TextStyle(fontSize: 12)),
+                ],
+              ),
+            )
+          else
+            _buildContextList(context, signalKService, setState),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildContextList(
+    BuildContext context,
+    SignalKService signalKService,
+    void Function(void Function()) setState,
+  ) {
+    final favService = context.read<AISFavoritesService>();
+    final favs = favService.favorites;
+    final favMMSIs = favs.map((f) => f.mmsi).toSet();
+
+    final nonSelf = _availableContexts
+        .where((c) => c != 'vessels.self')
+        .toList();
+
+    // Sort: favorites first, then the rest
+    final favContexts = nonSelf.where((c) {
+      final m = _extractMMSI(c);
+      return m != null && favMMSIs.contains(m);
+    }).toList();
+    final otherContexts = nonSelf
+        .where((c) => !favContexts.contains(c))
+        .toList();
+    final allContexts = [...favContexts, ...otherContexts];
+
+    if (allContexts.isEmpty) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 8),
+        child: Text('No other vessels found', style: TextStyle(fontSize: 12)),
+      );
+    }
+
+    return SizedBox(
+      height: 120,
+      child: RadioGroup<String>(
+        groupValue: chartContext,
+        onChanged: (v) {
+          if (v != null) setState(() => chartContext = v);
+        },
+        child: ListView.builder(
+          itemCount: allContexts.length,
+          itemBuilder: (_, i) {
+            final c = allContexts[i];
+            return RadioListTile<String>(
+              dense: true,
+              value: c,
+              title: Text(
+                _contextDisplayName(c, signalKService, favs),
+                style: const TextStyle(fontSize: 12),
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  Future<void> _fetchAvailableContexts(
+    SignalKService signalKService,
+    void Function(void Function()) setState,
+  ) async {
+    if (_contextsLoading || !signalKService.isConnected) return;
+    setState(() => _contextsLoading = true);
+    try {
+      final service = HistoricalDataService(
+        serverUrl: signalKService.serverUrl,
+        useSecureConnection: signalKService.useSecureConnection,
+        authToken: signalKService.authToken,
+      );
+      final contexts = await service.getAvailableContexts();
+      // Ensure vessels.self is always present
+      if (!contexts.contains('vessels.self')) {
+        contexts.insert(0, 'vessels.self');
+      }
+      // Remove own vessel's full URN (duplicates vessels.self)
+      final ownContext = signalKService.vesselContext;
+      if (ownContext != null) {
+        contexts.remove(ownContext);
+      }
+      _availableContexts = contexts;
+    } catch (_) {
+      // Silently fail — keep existing list
+    } finally {
+      setState(() => _contextsLoading = false);
+    }
+  }
+
+  static String? _extractMMSI(String ctx) {
+    return RegExp(r'mmsi:(\d+)').firstMatch(ctx)?.group(1);
+  }
+
+  static String _contextDisplayName(
+    String ctx,
+    SignalKService signalKService, [
+    List<AISFavorite>? favorites,
+  ]) {
+    if (ctx == 'vessels.self') {
+      final nameData = signalKService.getValue('name');
+      final name = nameData?.value is String ? nameData!.value as String : null;
+      return name != null ? 'Self ($name)' : 'Self';
+    }
+    final mmsi = _extractMMSI(ctx);
+    if (mmsi != null) {
+      if (favorites != null) {
+        final fav = favorites.cast<AISFavorite?>().firstWhere(
+            (f) => f!.mmsi == mmsi,
+            orElse: () => null);
+        if (fav != null) return '${fav.name} ($mmsi)';
+      }
+      return 'MMSI $mmsi';
+    }
+    final lastDot = ctx.lastIndexOf('.');
+    return lastDot >= 0 ? ctx.substring(lastDot + 1) : ctx;
   }
 }
