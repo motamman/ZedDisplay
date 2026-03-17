@@ -767,7 +767,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                           // Special display for webview
                           final isWebView = _selectedToolTypeId == 'webview';
                           final isSlotEmpty = inSlotMode && ds.path.isEmpty;
-                          final slotIsRequired = inSlotMode && index < slots!.length && slots[index].required;
+                          final slotIsRequired = inSlotMode && index < slots.length && slots[index].required;
 
                           return Card(
                             child: ListTile(

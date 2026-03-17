@@ -78,7 +78,6 @@ class _ExplorerStateCache {
 
   static void save(String key, _CachedState state) => _cache[key] = state;
   static _CachedState? get(String key) => _cache[key];
-  static void remove(String key) => _cache.remove(key);
 }
 
 class _CachedState {
@@ -1273,22 +1272,6 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
     return null;
   }
 
-  /// Color for a data point based on its value relative to the series range.
-  Color _pointColor(double? value, hist.ChartDataSeries series) {
-    if (value == null || series.minValue == null || series.maxValue == null) {
-      return Colors.blue;
-    }
-    final range = series.maxValue! - series.minValue!;
-    if (range == 0) return Colors.blue;
-    final t = ((value - series.minValue!) / range).clamp(0.0, 1.0);
-    // Green (low) → Yellow (mid) → Red (high)
-    return Color.lerp(
-      Color.lerp(Colors.green, Colors.yellow, t * 2)!,
-      Color.lerp(Colors.yellow, Colors.red, (t - 0.5).clamp(0.0, 1.0) * 2)!,
-      t,
-    )!;
-  }
-
   void _clearDrawing() {
     setState(() {
       _state = ExplorerState.idle;
@@ -1724,7 +1707,7 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
           expand: false,
           builder: (_, scrollController) {
             return StatefulBuilder(
-              builder: (__, setSheetState) {
+              builder: (_, setSheetState) {
                 final filtered = _availablePaths.where((p) {
                   if (searchQuery.isEmpty) return true;
                   return p.toLowerCase().contains(searchQuery.toLowerCase());
@@ -3345,6 +3328,7 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
             'properties': {
               'role': 'searchArea',
               'areaType': 'radius',
+              // ignore: use_null_aware_elements
               if (radiusM != null) 'radiusMeters': radiusM,
             },
           });

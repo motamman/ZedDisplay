@@ -12,7 +12,6 @@ class _RealtimeChartCache {
 
   static void save(String key, _CachedChartState state) => _cache[key] = state;
   static _CachedChartState? get(String key) => _cache[key];
-  static void remove(String key) => _cache.remove(key);
 }
 
 class _CachedChartState {
