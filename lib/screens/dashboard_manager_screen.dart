@@ -9,6 +9,7 @@ import '../services/signalk_service.dart';
 import '../services/storage_service.dart';
 import '../services/tool_registry.dart';
 import '../services/tool_service.dart';
+import '../models/dashboard_layout.dart';
 import '../models/dashboard_screen.dart';
 import '../models/tool.dart';
 import '../models/tool_config.dart';
@@ -78,6 +79,7 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen>
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final dashboardService = Provider.of<DashboardService>(context, listen: false);
       _initializePageController(dashboardService);
+      _applyOrientationLock(dashboardService.currentLayout);
     });
   }
 
@@ -133,6 +135,9 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen>
     final layout = dashboardService.currentLayout;
     if (layout == null || !_pageController.hasClients) return;
 
+    // Re-apply orientation lock when layout changes (e.g. dashboard switch)
+    _applyOrientationLock(layout);
+
     final targetIndex = layout.activeScreenIndex;
     final screenCount = layout.screens.length;
     if (screenCount == 0) return;
@@ -175,6 +180,9 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen>
 
     _appBarHideTimer?.cancel();
     _selectorHideTimer?.cancel();
+
+    // Reset orientation to unrestricted so other screens aren't locked
+    SystemChrome.setPreferredOrientations(DeviceOrientation.values);
 
     // Cleanup PageController
     if (_pageControllerInitialized) {
@@ -703,6 +711,14 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen>
                         icon: const Icon(Icons.devices, size: 18),
                         label: const Text('Device'),
                       ),
+                      TextButton.icon(
+                        onPressed: () {
+                          Navigator.pop(sheetContext);
+                          _showOrientationLockDialog();
+                        },
+                        icon: const Icon(Icons.screen_rotation, size: 18),
+                        label: const Text('Orientation'),
+                      ),
                     ],
                   ),
                 ),
@@ -812,6 +828,7 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen>
     );
 
     if (result is Map<String, dynamic> && mounted) {
+      _toolWidgetCache.remove(placementToolId);
       final updatedTool = result['tool'] as Tool;
       final newWidth = result['width'] as int? ?? 1;
       final newHeight = result['height'] as int? ?? 1;
@@ -964,6 +981,106 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen>
                   // Also sync to saved setup if it exists
                   if (setupService.setupExists(currentLayout.id)) {
                     await setupService.updateSetupIntendedUse(currentLayout.id, newValue);
+                  }
+                }
+
+                if (context.mounted) {
+                  navigator.pop();
+                }
+              },
+              child: const Text('Save'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Apply orientation lock based on the layout's allowedOrientations setting
+  void _applyOrientationLock(DashboardLayout? layout) {
+    final allowed = layout?.allowedOrientations ?? 'both';
+    switch (allowed) {
+      case 'portraitOnly':
+        SystemChrome.setPreferredOrientations([
+          DeviceOrientation.portraitUp,
+          DeviceOrientation.portraitDown,
+        ]);
+      case 'landscapeOnly':
+        SystemChrome.setPreferredOrientations([
+          DeviceOrientation.landscapeLeft,
+          DeviceOrientation.landscapeRight,
+        ]);
+      default:
+        SystemChrome.setPreferredOrientations(DeviceOrientation.values);
+    }
+  }
+
+  void _showOrientationLockDialog() {
+    final dashboardService = Provider.of<DashboardService>(context, listen: false);
+    final currentOrientation = dashboardService.currentLayout?.allowedOrientations ?? 'both';
+
+    String selectedValue = currentOrientation;
+
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setState) => AlertDialog(
+          title: const Text('Orientation Lock'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                'Lock this dashboard to a specific orientation.',
+                style: TextStyle(fontSize: 12, color: Colors.grey),
+              ),
+              const SizedBox(height: 16),
+              RadioGroup<String>(
+                groupValue: selectedValue,
+                onChanged: (value) {
+                  setState(() => selectedValue = value!);
+                },
+                child: const Column(
+                  children: [
+                    RadioListTile<String>(
+                      title: Text('Both'),
+                      subtitle: Text('Free rotation'),
+                      value: 'both',
+                    ),
+                    RadioListTile<String>(
+                      title: Text('Portrait Only'),
+                      value: 'portraitOnly',
+                    ),
+                    RadioListTile<String>(
+                      title: Text('Landscape Only'),
+                      value: 'landscapeOnly',
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                final setupService = Provider.of<SetupService>(context, listen: false);
+                final navigator = Navigator.of(context);
+
+                final currentLayout = dashboardService.currentLayout;
+                if (currentLayout != null) {
+                  final updatedLayout = currentLayout.copyWith(
+                    allowedOrientations: selectedValue,
+                  );
+                  await dashboardService.updateLayout(updatedLayout);
+                  _applyOrientationLock(updatedLayout);
+
+                  // Also sync to saved setup if it exists
+                  if (setupService.setupExists(currentLayout.id)) {
+                    await setupService.updateSetupAllowedOrientations(
+                        currentLayout.id, selectedValue);
                   }
                 }
 
@@ -1282,72 +1399,66 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen>
       return const Center(child: CircularProgressIndicator());
     }
 
-    return Stack(
+    return Column(
       children: [
-        // PageView for smooth slide transitions with live drag preview
-        PageView.builder(
-          controller: _pageController,
-          physics: disableSwipe
-              ? const NeverScrollableScrollPhysics()
-              : const BouncingScrollPhysics(),
-          onPageChanged: (virtualPage) {
-            // Convert virtual page to actual index (wrap-around)
-            final int actualIndex = virtualPage % screenCount;
+        // PageView gets all space above the dots area
+        Expanded(
+          child: PageView.builder(
+            controller: _pageController,
+            physics: disableSwipe
+                ? const NeverScrollableScrollPhysics()
+                : const BouncingScrollPhysics(),
+            onPageChanged: (virtualPage) {
+              // Convert virtual page to actual index (wrap-around)
+              final int actualIndex = virtualPage % screenCount;
 
-            // Only update service if index actually changed
-            if (actualIndex != layout.activeScreenIndex) {
-              // Mark as swipe to prevent listener feedback loop
-              _isSwipeInProgress = true;
-              dashboardService.setActiveScreen(actualIndex);
-              _showAppBarTemporarily();
-              _revealSelectorDots();
-            }
+              // Only update service if index actually changed
+              if (actualIndex != layout.activeScreenIndex) {
+                // Mark as swipe to prevent listener feedback loop
+                _isSwipeInProgress = true;
+                dashboardService.setActiveScreen(actualIndex);
+                _showAppBarTemporarily();
+                _revealSelectorDots();
+              }
 
-            // Normalize virtualPage back to canonical range to prevent
-            // duplicate page Elements from accumulating on wrap-around.
-            final int canonical = _virtualPageOffset * screenCount + actualIndex;
-            if (virtualPage != canonical) {
-              WidgetsBinding.instance.addPostFrameCallback((_) {
-                if (mounted && _pageController.hasClients) {
-                  _pageController.jumpToPage(canonical);
-                }
-              });
-            }
-          },
-          itemBuilder: (context, virtualPage) {
-            // Convert virtual page to actual screen index (wrap-around)
-            final int actualIndex = virtualPage % screenCount;
-            final screen = layout.screens[actualIndex];
-            return _KeepAlivePage(
-              key: ValueKey('screen_$actualIndex'),
-              child: _buildScreenContent(screen, signalKService),
-            );
-          },
-          // No itemCount = infinite scrolling for wrap-around
+              // Normalize virtualPage back to canonical range to prevent
+              // duplicate page Elements from accumulating on wrap-around.
+              final int canonical = _virtualPageOffset * screenCount + actualIndex;
+              if (virtualPage != canonical) {
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  if (mounted && _pageController.hasClients) {
+                    _pageController.jumpToPage(canonical);
+                  }
+                });
+              }
+            },
+            itemBuilder: (context, virtualPage) {
+              // Convert virtual page to actual screen index (wrap-around)
+              final int actualIndex = virtualPage % screenCount;
+              final screen = layout.screens[actualIndex];
+              return _KeepAlivePage(
+                key: ValueKey('screen_$actualIndex'),
+                child: _buildScreenContent(screen, signalKService),
+              );
+            },
+            // No itemCount = infinite scrolling for wrap-around
+          ),
         ),
-
-        // Screen indicator dots at bottom
-        // Auto-hides after 4 seconds, tap bottom zone to reveal
-        Positioned(
-            bottom: 0,
-            left: 0,
-            right: 0,
-            child: GestureDetector(
-              behavior: HitTestBehavior.translucent,
-              onTap: () {
-                if (!_showScreenSelectorDots) {
-                  _revealSelectorDots();
-                }
-              },
-              child: Container(
-                height: _selectorHeight, // Tap zone height for revealing hidden dots
-                alignment: Alignment.topCenter,
-                padding: const EdgeInsets.only(top: 10),
-                child: AnimatedOpacity(
-                  opacity: _showScreenSelectorDots ? 1.0 : 0.0,
-                  duration: const Duration(milliseconds: 300),
-                  child: IgnorePointer(
-                    ignoring: !_showScreenSelectorDots,
+        // Exclusive dots area — reserved space below PageView
+        SizedBox(
+          height: _selectorHeight,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              // Visible dots (when shown)
+              AnimatedOpacity(
+                opacity: _showScreenSelectorDots ? 1.0 : 0.0,
+                duration: const Duration(milliseconds: 300),
+                child: IgnorePointer(
+                  ignoring: !_showScreenSelectorDots,
+                  child: Padding(
+                    padding: const EdgeInsets.only(bottom: 4),
                     child: Material(
                       color: Colors.transparent,
                       child: InkWell(
@@ -1357,17 +1468,21 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen>
                         },
                         borderRadius: BorderRadius.circular(16),
                         child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 16, vertical: 8),
                           decoration: BoxDecoration(
                             color: Colors.white.withValues(alpha: 0.3),
                             borderRadius: BorderRadius.circular(16),
                           ),
                           child: Row(
                             mainAxisSize: MainAxisSize.min,
-                            children: List.generate(layout.screens.length, (index) {
-                              final isActive = index == layout.activeScreenIndex;
+                            children: List.generate(
+                                layout.screens.length, (index) {
+                              final isActive =
+                                  index == layout.activeScreenIndex;
                               return Padding(
-                                padding: const EdgeInsets.symmetric(horizontal: 4),
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 4),
                                 child: Container(
                                   width: 8,
                                   height: 8,
@@ -1387,8 +1502,21 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen>
                   ),
                 ),
               ),
-            ),
+              // Thin swipe-up zone at very bottom edge (no tap interception)
+              GestureDetector(
+                behavior: HitTestBehavior.translucent,
+                onVerticalDragEnd: (details) {
+                  // Swipe up (negative velocity) reveals dots
+                  if (details.primaryVelocity != null &&
+                      details.primaryVelocity! < -100) {
+                    _revealSelectorDots();
+                  }
+                },
+                child: const SizedBox(height: 16, width: double.infinity),
+              ),
+            ],
           ),
+        ),
       ],
     );
   }

@@ -9,6 +9,7 @@ class DashboardLayout {
   final String id;              // Unique layout ID
   final String name;            // Display name (e.g., "Default", "Sailing", "Motorsailing")
   final String? intendedUse;    // Optional: "Phone", "Tablet", "Desktop", or custom string
+  final String allowedOrientations; // 'both', 'portraitOnly', 'landscapeOnly'
   final List<DashboardScreen> screens;
   final int activeScreenIndex;  // Currently active screen (0-based)
 
@@ -16,6 +17,7 @@ class DashboardLayout {
     required this.id,
     required this.name,
     this.intendedUse,
+    this.allowedOrientations = 'both',
     required this.screens,
     this.activeScreenIndex = 0,
   });
@@ -31,6 +33,7 @@ class DashboardLayout {
     String? name,
     String? intendedUse,
     bool clearIntendedUse = false,
+    String? allowedOrientations,
     List<DashboardScreen>? screens,
     int? activeScreenIndex,
   }) {
@@ -38,6 +41,7 @@ class DashboardLayout {
       id: id ?? this.id,
       name: name ?? this.name,
       intendedUse: clearIntendedUse ? null : (intendedUse ?? this.intendedUse),
+      allowedOrientations: allowedOrientations ?? this.allowedOrientations,
       screens: screens ?? this.screens,
       activeScreenIndex: activeScreenIndex ?? this.activeScreenIndex,
     );

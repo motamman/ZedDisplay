@@ -55,9 +55,12 @@ class HistoricalDataService {
     // Paths can include full expression syntax: path:aggregation:smoothing:param
     final pathsParam = paths.join(',');
 
+    // Convert durations the server doesn't understand
+    final apiDuration = duration == '1w' ? '7d' : duration;
+
     final queryParams = {
       'context': context,
-      'duration': duration,
+      'duration': apiDuration,
       'paths': pathsParam,
     };
 

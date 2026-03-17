@@ -140,10 +140,13 @@ class _HistoricalChartToolState extends State<HistoricalChartTool> with Automati
         return ds.path;
       }).toList();
 
+      final chartContext = widget.config.style.customProperties?['context'] as String? ?? 'vessels.self';
+
       final response = await _historicalService!.fetchHistoricalData(
         paths: paths,
         duration: duration,
         resolution: resolution,
+        context: chartContext,
       );
 
       if (kDebugMode) {

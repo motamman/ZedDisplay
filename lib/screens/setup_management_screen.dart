@@ -1151,6 +1151,7 @@ class _SetupManagementScreenState extends State<SetupManagementScreen> {
     String? selectedIntendedUse = isCustom ? 'Custom' : setup.intendedUse;
     final customIntendedUseController =
         TextEditingController(text: isCustom ? setup.intendedUse : '');
+    String selectedOrientation = setup.allowedOrientations;
 
     final result = await showDialog<bool>(
       context: context,
@@ -1226,6 +1227,39 @@ class _SetupManagementScreenState extends State<SetupManagementScreen> {
                     ],
                   ),
                 ),
+                const SizedBox(height: 16),
+                const Text('Orientation',
+                    style: TextStyle(fontWeight: FontWeight.bold)),
+                const SizedBox(height: 8),
+                RadioGroup<String>(
+                  groupValue: selectedOrientation,
+                  onChanged: (value) {
+                    setState(() => selectedOrientation = value!);
+                  },
+                  child: const Column(
+                    children: [
+                      RadioListTile<String>(
+                        title: Text('Both'),
+                        subtitle: Text('Free rotation'),
+                        value: 'both',
+                        dense: true,
+                        contentPadding: EdgeInsets.zero,
+                      ),
+                      RadioListTile<String>(
+                        title: Text('Portrait Only'),
+                        value: 'portraitOnly',
+                        dense: true,
+                        contentPadding: EdgeInsets.zero,
+                      ),
+                      RadioListTile<String>(
+                        title: Text('Landscape Only'),
+                        value: 'landscapeOnly',
+                        dense: true,
+                        contentPadding: EdgeInsets.zero,
+                      ),
+                    ],
+                  ),
+                ),
               ],
             ),
           ),
@@ -1266,6 +1300,8 @@ class _SetupManagementScreenState extends State<SetupManagementScreen> {
         }
         await setupService.updateSetupIntendedUse(
             setup.id, finalIntendedUse);
+        await setupService.updateSetupAllowedOrientations(
+            setup.id, selectedOrientation);
 
         if (!mounted) return;
         final dashboardService =
@@ -1275,6 +1311,7 @@ class _SetupManagementScreenState extends State<SetupManagementScreen> {
           final updatedLayout = currentLayout.copyWith(
             intendedUse: finalIntendedUse,
             clearIntendedUse: finalIntendedUse == null,
+            allowedOrientations: selectedOrientation,
           );
           await dashboardService.updateLayout(updatedLayout);
         }

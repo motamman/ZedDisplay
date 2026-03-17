@@ -57,6 +57,7 @@ SavedSetup _$SavedSetupFromJson(Map<String, dynamic> json) => SavedSetup(
   name: json['name'] as String,
   description: json['description'] as String? ?? '',
   intendedUse: json['intendedUse'] as String?,
+  allowedOrientations: json['allowedOrientations'] as String? ?? 'both',
   createdAt: DateTime.parse(json['createdAt'] as String),
   lastUsedAt: json['lastUsedAt'] == null
       ? null
@@ -72,6 +73,7 @@ Map<String, dynamic> _$SavedSetupToJson(SavedSetup instance) =>
       'name': instance.name,
       'description': instance.description,
       'intendedUse': instance.intendedUse,
+      'allowedOrientations': instance.allowedOrientations,
       'createdAt': instance.createdAt.toIso8601String(),
       'lastUsedAt': instance.lastUsedAt?.toIso8601String(),
       'isActive': instance.isActive,

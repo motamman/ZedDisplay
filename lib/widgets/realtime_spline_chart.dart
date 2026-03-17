@@ -6,6 +6,33 @@ import '../models/zone_data.dart';
 import '../models/tool_config.dart';
 import '../utils/chart_axis_utils.dart';
 
+/// Static cache to preserve chart data across widget disposal (screen lock, swipe, reconnect).
+class _RealtimeChartCache {
+  static final Map<String, _CachedChartState> _cache = {};
+
+  static void save(String key, _CachedChartState state) => _cache[key] = state;
+  static _CachedChartState? get(String key) => _cache[key];
+  static void remove(String key) => _cache.remove(key);
+}
+
+class _CachedChartState {
+  final List<List<_ChartData>> seriesData;
+  final Set<int> hiddenSeries;
+  final double cachedMinY;
+  final double cachedMaxY;
+  final double cachedSecondaryMinY;
+  final double cachedSecondaryMaxY;
+
+  _CachedChartState({
+    required this.seriesData,
+    required this.hiddenSeries,
+    required this.cachedMinY,
+    required this.cachedMaxY,
+    required this.cachedSecondaryMinY,
+    required this.cachedSecondaryMaxY,
+  });
+}
+
 /// A real-time spline chart that displays live data from up to 3 SignalK paths
 class RealtimeSplineChart extends StatefulWidget {
   final List<DataSource> dataSources;
@@ -45,7 +72,6 @@ class RealtimeSplineChart extends StatefulWidget {
 
 class _RealtimeSplineChartState extends State<RealtimeSplineChart> with AutomaticKeepAliveClientMixin, WidgetsBindingObserver {
   late List<List<_ChartData>> _seriesData;
-  late List<List<_ChartData>> _movingAverageData;
   Timer? _updateTimer;
   double _cachedMinY = 0;
   double _cachedMaxY = 100;
@@ -62,25 +88,40 @@ class _RealtimeSplineChartState extends State<RealtimeSplineChart> with Automati
   @override
   bool get wantKeepAlive => true; // Keep accumulated data points alive
 
+  String get _cacheKey => widget.dataSources.map((ds) => ds.path).join('|');
+
   @override
   void initState() {
     super.initState();
-    _seriesData = List.generate(widget.dataSources.length, (_) => []);
-    _movingAverageData = List.generate(widget.dataSources.length, (_) => []);
-    _hiddenSeries = {};
+
+    // Restore from static cache if available (survives swipe/screen lock)
+    final cached = _RealtimeChartCache.get(_cacheKey);
+    if (cached != null && cached.seriesData.length == widget.dataSources.length) {
+      _seriesData = cached.seriesData;
+      _hiddenSeries = Set.from(cached.hiddenSeries);
+      _cachedMinY = cached.cachedMinY;
+      _cachedMaxY = cached.cachedMaxY;
+      _cachedSecondaryMinY = cached.cachedSecondaryMinY;
+      _cachedSecondaryMaxY = cached.cachedSecondaryMaxY;
+    } else {
+      _seriesData = List.generate(widget.dataSources.length, (_) => []);
+      _hiddenSeries = {};
+    }
 
     // Determine axis units for dual Y-axis support
     _determineAxisUnits();
 
-    // Initialize range with defaults
-    final initialRange = _calculateYAxisRange(isSecondary: false);
-    _cachedMinY = initialRange.min;
-    _cachedMaxY = initialRange.max;
+    // Initialize range with defaults if no cached data
+    if (cached == null) {
+      final initialRange = _calculateYAxisRange(isSecondary: false);
+      _cachedMinY = initialRange.min;
+      _cachedMaxY = initialRange.max;
 
-    if (_secondaryAxisBaseUnit != null) {
-      final secondaryRange = _calculateYAxisRange(isSecondary: true);
-      _cachedSecondaryMinY = secondaryRange.min;
-      _cachedSecondaryMaxY = secondaryRange.max;
+      if (_secondaryAxisBaseUnit != null) {
+        final secondaryRange = _calculateYAxisRange(isSecondary: true);
+        _cachedSecondaryMinY = secondaryRange.min;
+        _cachedSecondaryMaxY = secondaryRange.max;
+      }
     }
 
     _startRealTimeUpdates();
@@ -99,6 +140,15 @@ class _RealtimeSplineChartState extends State<RealtimeSplineChart> with Automati
 
   @override
   void dispose() {
+    // Save state to static cache before disposal
+    _RealtimeChartCache.save(_cacheKey, _CachedChartState(
+      seriesData: _seriesData,
+      hiddenSeries: _hiddenSeries,
+      cachedMinY: _cachedMinY,
+      cachedMaxY: _cachedMaxY,
+      cachedSecondaryMinY: _cachedSecondaryMinY,
+      cachedSecondaryMaxY: _cachedSecondaryMaxY,
+    ));
     WidgetsBinding.instance.removeObserver(this);
     _updateTimer?.cancel();
     super.dispose();
@@ -113,12 +163,10 @@ class _RealtimeSplineChartState extends State<RealtimeSplineChart> with Automati
       // Resize series data arrays
       while (_seriesData.length < widget.dataSources.length) {
         _seriesData.add([]);
-        _movingAverageData.add([]);
       }
       // If dataSources were removed, trim the arrays
       if (_seriesData.length > widget.dataSources.length) {
         _seriesData = _seriesData.sublist(0, widget.dataSources.length);
-        _movingAverageData = _movingAverageData.sublist(0, widget.dataSources.length);
       }
       // Re-determine axis units with new data sources
       _determineAxisUnits();
@@ -182,31 +230,6 @@ class _RealtimeSplineChartState extends State<RealtimeSplineChart> with Automati
 
           // Replace the list entirely to trigger chart update
           _seriesData[i] = newData;
-
-          // Calculate moving average if enabled
-          if (widget.showMovingAverage && newData.length >= widget.movingAverageWindow) {
-            // Calculate only the NEW moving average point using the last N points
-            double sum = 0;
-            for (int j = 0; j < widget.movingAverageWindow; j++) {
-              sum += newData[newData.length - 1 - j].value;
-            }
-            final avg = sum / widget.movingAverageWindow;
-
-            // Append to existing moving average
-            final currentMA = List<_ChartData>.from(_movingAverageData[i]);
-            currentMA.add(_ChartData(timeValue, avg));
-
-            // Trim old MA points to match the time window of the main data
-            // Remove from the front if needed
-            if (newData.isNotEmpty && currentMA.isNotEmpty) {
-              final oldestMainTime = newData.first.time;
-              while (currentMA.isNotEmpty && currentMA.first.time < oldestMainTime) {
-                currentMA.removeAt(0);
-              }
-            }
-
-            _movingAverageData[i] = currentMA;
-          }
         }
       }
 
@@ -220,6 +243,16 @@ class _RealtimeSplineChartState extends State<RealtimeSplineChart> with Automati
         _cachedSecondaryMinY = secondaryRange.min;
         _cachedSecondaryMaxY = secondaryRange.max;
       }
+
+      // Save to static cache on each update to guard against unexpected disposal
+      _RealtimeChartCache.save(_cacheKey, _CachedChartState(
+        seriesData: _seriesData,
+        hiddenSeries: _hiddenSeries,
+        cachedMinY: _cachedMinY,
+        cachedMaxY: _cachedMaxY,
+        cachedSecondaryMinY: _cachedSecondaryMinY,
+        cachedSecondaryMaxY: _cachedSecondaryMaxY,
+      ));
     });
   }
 
@@ -332,6 +365,12 @@ class _RealtimeSplineChartState extends State<RealtimeSplineChart> with Automati
             const SizedBox(height: 16),
             Expanded(
               child: SfCartesianChart(
+                zoomPanBehavior: ZoomPanBehavior(
+                  enablePinching: true,
+                  enablePanning: true,
+                  enableDoubleTapZooming: true,
+                  zoomMode: ZoomMode.x,
+                ),
                 // Legend - compact to maximize chart height, wrap if needed
                 legend: Legend(
                   isVisible: widget.showLegend,
@@ -460,44 +499,18 @@ class _RealtimeSplineChartState extends State<RealtimeSplineChart> with Automati
                         markerSettings: const MarkerSettings(
                           isVisible: false,
                         ),
+                        trendlines: widget.showMovingAverage ? <Trendline>[
+                          Trendline(
+                            type: TrendlineType.movingAverage,
+                            period: widget.movingAverageWindow,
+                            color: colors[index].withValues(alpha: 0.6),
+                            width: 2,
+                            dashArray: const <double>[5, 5],
+                          ),
+                        ] : null,
                       );
                     },
                   ),
-                  // Moving average series (if enabled)
-                  if (widget.showMovingAverage)
-                    ...List.generate(
-                      widget.dataSources.length,
-                      (index) {
-                        final ds = widget.dataSources[index];
-                        final unitKey = ChartAxisUtils.getUnitKey(
-                          ds.path,
-                          widget.signalKService.metadataStore,
-                          storedBaseUnit: ds.baseUnit,
-                        );
-                        final axisName = ChartAxisUtils.getAxisName(
-                          unitKey,
-                          _primaryAxisBaseUnit,
-                          _secondaryAxisBaseUnit,
-                        );
-
-                        return SplineSeries<_ChartData, int>(
-                          name: '${_getSeriesLabelWithUnit(ds, index, isMovingAverage: true)} (MA${widget.movingAverageWindow})',
-                          dataSource: _hiddenSeries.contains(index) ? [] : _movingAverageData[index],
-                          xValueMapper: (_ChartData data, _) => data.time,
-                          yValueMapper: (_ChartData data, _) => data.value,
-                          yAxisName: axisName,  // Assign to correct axis
-                          color: colors[index].withValues(alpha: 0.6),
-                          width: 2,
-                          dashArray: const <double>[5, 5], // Dashed line
-                          splineType: SplineType.natural,
-                          animationDuration: 0,
-                          isVisibleInLegend: false,  // Don't show MA in legend
-                          markerSettings: const MarkerSettings(
-                            isVisible: false,
-                          ),
-                        );
-                      },
-                    ),
                 ],
               ),
             ),
@@ -539,12 +552,11 @@ class _RealtimeSplineChartState extends State<RealtimeSplineChart> with Automati
 
   /// Get series label with user's preferred display unit symbol.
   /// Example: "Speed (kn)" or "Water Temp (F)"
-  String _getSeriesLabelWithUnit(DataSource dataSource, int index, {bool isMovingAverage = false}) {
+  String _getSeriesLabelWithUnit(DataSource dataSource, int index) {
     final baseLabel = _getSeriesLabel(dataSource);
     final symbol = widget.signalKService.metadataStore.get(dataSource.path)?.symbol;
 
-    // Get the appropriate data source (main or moving average)
-    final data = isMovingAverage ? _movingAverageData[index] : _seriesData[index];
+    final data = _seriesData[index];
 
     // Build label with optional unit symbol and current value
     String label = baseLabel;

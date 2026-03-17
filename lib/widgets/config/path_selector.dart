@@ -72,6 +72,9 @@ class _PathSelectorDialogState extends State<PathSelectorDialog> {
           // Skip source-specific paths (contain :: or @)
           if (path.contains('::') || path.contains('@')) continue;
 
+          // Skip AIS vessel paths (stored with context prefix in cache)
+          if (path.startsWith('vessels.')) continue;
+
           // Only include paths with numeric values
           if (value is num) {
             numericPaths.add(path);
