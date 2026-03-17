@@ -208,6 +208,7 @@ class _HistoricalLineChartState extends State<HistoricalLineChart> {
         enablePinching: true,
         enablePanning: true,
         enableDoubleTapZooming: true,
+        zoomMode: ZoomMode.x,
       ),
 
       // Primary X axis (DateTime)

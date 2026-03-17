@@ -6,6 +6,35 @@ import '../models/zone_data.dart';
 import '../models/tool_config.dart';
 import '../utils/chart_axis_utils.dart';
 
+/// Static cache to preserve chart data across widget disposal (screen lock, swipe, reconnect).
+class _RealtimeChartCache {
+  static final Map<String, _CachedChartState> _cache = {};
+
+  static void save(String key, _CachedChartState state) => _cache[key] = state;
+  static _CachedChartState? get(String key) => _cache[key];
+  static void remove(String key) => _cache.remove(key);
+}
+
+class _CachedChartState {
+  final List<List<_ChartData>> seriesData;
+  final List<List<_ChartData>> movingAverageData;
+  final Set<int> hiddenSeries;
+  final double cachedMinY;
+  final double cachedMaxY;
+  final double cachedSecondaryMinY;
+  final double cachedSecondaryMaxY;
+
+  _CachedChartState({
+    required this.seriesData,
+    required this.movingAverageData,
+    required this.hiddenSeries,
+    required this.cachedMinY,
+    required this.cachedMaxY,
+    required this.cachedSecondaryMinY,
+    required this.cachedSecondaryMaxY,
+  });
+}
+
 /// A real-time spline chart that displays live data from up to 3 SignalK paths
 class RealtimeSplineChart extends StatefulWidget {
   final List<DataSource> dataSources;
@@ -62,25 +91,42 @@ class _RealtimeSplineChartState extends State<RealtimeSplineChart> with Automati
   @override
   bool get wantKeepAlive => true; // Keep accumulated data points alive
 
+  String get _cacheKey => widget.dataSources.map((ds) => ds.path).join('|');
+
   @override
   void initState() {
     super.initState();
-    _seriesData = List.generate(widget.dataSources.length, (_) => []);
-    _movingAverageData = List.generate(widget.dataSources.length, (_) => []);
-    _hiddenSeries = {};
+
+    // Restore from static cache if available (survives swipe/screen lock)
+    final cached = _RealtimeChartCache.get(_cacheKey);
+    if (cached != null && cached.seriesData.length == widget.dataSources.length) {
+      _seriesData = cached.seriesData;
+      _movingAverageData = cached.movingAverageData;
+      _hiddenSeries = Set.from(cached.hiddenSeries);
+      _cachedMinY = cached.cachedMinY;
+      _cachedMaxY = cached.cachedMaxY;
+      _cachedSecondaryMinY = cached.cachedSecondaryMinY;
+      _cachedSecondaryMaxY = cached.cachedSecondaryMaxY;
+    } else {
+      _seriesData = List.generate(widget.dataSources.length, (_) => []);
+      _movingAverageData = List.generate(widget.dataSources.length, (_) => []);
+      _hiddenSeries = {};
+    }
 
     // Determine axis units for dual Y-axis support
     _determineAxisUnits();
 
-    // Initialize range with defaults
-    final initialRange = _calculateYAxisRange(isSecondary: false);
-    _cachedMinY = initialRange.min;
-    _cachedMaxY = initialRange.max;
+    // Initialize range with defaults if no cached data
+    if (cached == null) {
+      final initialRange = _calculateYAxisRange(isSecondary: false);
+      _cachedMinY = initialRange.min;
+      _cachedMaxY = initialRange.max;
 
-    if (_secondaryAxisBaseUnit != null) {
-      final secondaryRange = _calculateYAxisRange(isSecondary: true);
-      _cachedSecondaryMinY = secondaryRange.min;
-      _cachedSecondaryMaxY = secondaryRange.max;
+      if (_secondaryAxisBaseUnit != null) {
+        final secondaryRange = _calculateYAxisRange(isSecondary: true);
+        _cachedSecondaryMinY = secondaryRange.min;
+        _cachedSecondaryMaxY = secondaryRange.max;
+      }
     }
 
     _startRealTimeUpdates();
@@ -99,6 +145,16 @@ class _RealtimeSplineChartState extends State<RealtimeSplineChart> with Automati
 
   @override
   void dispose() {
+    // Save state to static cache before disposal
+    _RealtimeChartCache.save(_cacheKey, _CachedChartState(
+      seriesData: _seriesData,
+      movingAverageData: _movingAverageData,
+      hiddenSeries: _hiddenSeries,
+      cachedMinY: _cachedMinY,
+      cachedMaxY: _cachedMaxY,
+      cachedSecondaryMinY: _cachedSecondaryMinY,
+      cachedSecondaryMaxY: _cachedSecondaryMaxY,
+    ));
     WidgetsBinding.instance.removeObserver(this);
     _updateTimer?.cancel();
     super.dispose();
@@ -220,6 +276,17 @@ class _RealtimeSplineChartState extends State<RealtimeSplineChart> with Automati
         _cachedSecondaryMinY = secondaryRange.min;
         _cachedSecondaryMaxY = secondaryRange.max;
       }
+
+      // Save to static cache on each update to guard against unexpected disposal
+      _RealtimeChartCache.save(_cacheKey, _CachedChartState(
+        seriesData: _seriesData,
+        movingAverageData: _movingAverageData,
+        hiddenSeries: _hiddenSeries,
+        cachedMinY: _cachedMinY,
+        cachedMaxY: _cachedMaxY,
+        cachedSecondaryMinY: _cachedSecondaryMinY,
+        cachedSecondaryMaxY: _cachedSecondaryMaxY,
+      ));
     });
   }
 
@@ -332,6 +399,12 @@ class _RealtimeSplineChartState extends State<RealtimeSplineChart> with Automati
             const SizedBox(height: 16),
             Expanded(
               child: SfCartesianChart(
+                zoomPanBehavior: ZoomPanBehavior(
+                  enablePinching: true,
+                  enablePanning: true,
+                  enableDoubleTapZooming: true,
+                  zoomMode: ZoomMode.x,
+                ),
                 // Legend - compact to maximize chart height, wrap if needed
                 legend: Legend(
                   isVisible: widget.showLegend,
