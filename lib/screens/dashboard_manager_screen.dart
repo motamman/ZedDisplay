@@ -9,6 +9,7 @@ import '../services/signalk_service.dart';
 import '../services/storage_service.dart';
 import '../services/tool_registry.dart';
 import '../services/tool_service.dart';
+import '../models/dashboard_layout.dart';
 import '../models/dashboard_screen.dart';
 import '../models/tool.dart';
 import '../models/tool_config.dart';
@@ -78,6 +79,7 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen>
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final dashboardService = Provider.of<DashboardService>(context, listen: false);
       _initializePageController(dashboardService);
+      _applyOrientationLock(dashboardService.currentLayout);
     });
   }
 
@@ -133,6 +135,9 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen>
     final layout = dashboardService.currentLayout;
     if (layout == null || !_pageController.hasClients) return;
 
+    // Re-apply orientation lock when layout changes (e.g. dashboard switch)
+    _applyOrientationLock(layout);
+
     final targetIndex = layout.activeScreenIndex;
     final screenCount = layout.screens.length;
     if (screenCount == 0) return;
@@ -175,6 +180,9 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen>
 
     _appBarHideTimer?.cancel();
     _selectorHideTimer?.cancel();
+
+    // Reset orientation to unrestricted so other screens aren't locked
+    SystemChrome.setPreferredOrientations(DeviceOrientation.values);
 
     // Cleanup PageController
     if (_pageControllerInitialized) {
@@ -703,6 +711,14 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen>
                         icon: const Icon(Icons.devices, size: 18),
                         label: const Text('Device'),
                       ),
+                      TextButton.icon(
+                        onPressed: () {
+                          Navigator.pop(sheetContext);
+                          _showOrientationLockDialog();
+                        },
+                        icon: const Icon(Icons.screen_rotation, size: 18),
+                        label: const Text('Orientation'),
+                      ),
                     ],
                   ),
                 ),
@@ -964,6 +980,106 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen>
                   // Also sync to saved setup if it exists
                   if (setupService.setupExists(currentLayout.id)) {
                     await setupService.updateSetupIntendedUse(currentLayout.id, newValue);
+                  }
+                }
+
+                if (context.mounted) {
+                  navigator.pop();
+                }
+              },
+              child: const Text('Save'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Apply orientation lock based on the layout's allowedOrientations setting
+  void _applyOrientationLock(DashboardLayout? layout) {
+    final allowed = layout?.allowedOrientations ?? 'both';
+    switch (allowed) {
+      case 'portraitOnly':
+        SystemChrome.setPreferredOrientations([
+          DeviceOrientation.portraitUp,
+          DeviceOrientation.portraitDown,
+        ]);
+      case 'landscapeOnly':
+        SystemChrome.setPreferredOrientations([
+          DeviceOrientation.landscapeLeft,
+          DeviceOrientation.landscapeRight,
+        ]);
+      default:
+        SystemChrome.setPreferredOrientations(DeviceOrientation.values);
+    }
+  }
+
+  void _showOrientationLockDialog() {
+    final dashboardService = Provider.of<DashboardService>(context, listen: false);
+    final currentOrientation = dashboardService.currentLayout?.allowedOrientations ?? 'both';
+
+    String selectedValue = currentOrientation;
+
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setState) => AlertDialog(
+          title: const Text('Orientation Lock'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                'Lock this dashboard to a specific orientation.',
+                style: TextStyle(fontSize: 12, color: Colors.grey),
+              ),
+              const SizedBox(height: 16),
+              RadioGroup<String>(
+                groupValue: selectedValue,
+                onChanged: (value) {
+                  setState(() => selectedValue = value!);
+                },
+                child: const Column(
+                  children: [
+                    RadioListTile<String>(
+                      title: Text('Both'),
+                      subtitle: Text('Free rotation'),
+                      value: 'both',
+                    ),
+                    RadioListTile<String>(
+                      title: Text('Portrait Only'),
+                      value: 'portraitOnly',
+                    ),
+                    RadioListTile<String>(
+                      title: Text('Landscape Only'),
+                      value: 'landscapeOnly',
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                final setupService = Provider.of<SetupService>(context, listen: false);
+                final navigator = Navigator.of(context);
+
+                final currentLayout = dashboardService.currentLayout;
+                if (currentLayout != null) {
+                  final updatedLayout = currentLayout.copyWith(
+                    allowedOrientations: selectedValue,
+                  );
+                  await dashboardService.updateLayout(updatedLayout);
+                  _applyOrientationLock(updatedLayout);
+
+                  // Also sync to saved setup if it exists
+                  if (setupService.setupExists(currentLayout.id)) {
+                    await setupService.updateSetupAllowedOrientations(
+                        currentLayout.id, selectedValue);
                   }
                 }
 

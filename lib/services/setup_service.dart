@@ -612,6 +612,42 @@ class SetupService extends ChangeNotifier {
     }
   }
 
+  /// Update a saved setup's allowed orientations
+  Future<void> updateSetupAllowedOrientations(
+    String setupId,
+    String value,
+  ) async {
+    try {
+      final setup = await _storageService.loadSetup(setupId);
+      if (setup == null) {
+        throw Exception('Setup not found: $setupId');
+      }
+
+      final updatedLayout = setup.layout.copyWith(
+        allowedOrientations: value,
+      );
+      final updatedMetadata = setup.metadata.copyWith(
+        updatedAt: DateTime.now(),
+      );
+      final updatedSetup = setup.copyWith(
+        layout: updatedLayout,
+        metadata: updatedMetadata,
+      );
+
+      await _storageService.saveSetup(updatedSetup);
+      notifyListeners();
+
+      if (kDebugMode) {
+        print('Setup allowed orientations updated to: $value');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error updating setup allowed orientations: $e');
+      }
+      rethrow;
+    }
+  }
+
   /// Check if a setup with given ID exists
   bool setupExists(String setupId) {
     return _storageService.setupExists(setupId);
