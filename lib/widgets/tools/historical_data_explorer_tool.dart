@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:ui' as ui;
 import 'dart:io';
@@ -193,6 +194,15 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
   List<_ResultPoint> _resultPoints = [];
   int _selectedRowIndex = -1;
 
+  // Playback
+  Timer? _playbackTimer;
+  bool _isPlaying = false;
+  int _playbackDirection = 1;    // 1=forward, -1=reverse
+  double _playbackSpeed = 1.0;   // 1x, 2x, 5x, 10x
+  int _playbackListIndex = 0;    // index into _resultPoints list
+  static const int _baseIntervalMs = 500;
+  static const List<double> _speedOptions = [1.0, 2.0, 5.0, 10.0];
+
   // Legend
   int _activeLegendIndex = 0;
   Set<int> _visibleLegendIndices = {0};
@@ -232,6 +242,7 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
 
   @override
   void dispose() {
+    _playbackTimer?.cancel();
     _saveToCache();
     _tabController.dispose();
     widget.signalKService.removeListener(_onSignalKChanged);
@@ -460,6 +471,86 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
     // Fallback: last segment
     final lastDot = ctx.lastIndexOf('.');
     return lastDot >= 0 ? ctx.substring(lastDot + 1) : ctx;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Playback
+  // ---------------------------------------------------------------------------
+
+  void _selectPointByIndex(int pointIndex, {bool panMap = true}) {
+    final listIdx = _resultPoints.indexWhere((p) => p.index == pointIndex);
+    if (listIdx >= 0) _playbackListIndex = listIdx;
+    setState(() => _selectedRowIndex = pointIndex);
+    if (panMap) {
+      final pt = _resultPoints.firstWhere(
+        (p) => p.index == pointIndex,
+        orElse: () => _resultPoints.first,
+      );
+      try {
+        _mapController.move(pt.position, _mapController.camera.zoom);
+      } catch (_) {}
+    }
+  }
+
+  void _startPlayback({int direction = 1}) {
+    if (_resultPoints.isEmpty) return;
+    // Sync list index from current selection
+    if (_selectedRowIndex >= 0) {
+      final idx = _resultPoints.indexWhere((p) => p.index == _selectedRowIndex);
+      if (idx >= 0) _playbackListIndex = idx;
+    } else {
+      _playbackListIndex = direction == 1 ? 0 : _resultPoints.length - 1;
+    }
+    _playbackDirection = direction;
+    _playbackTimer?.cancel();
+    final intervalMs = (_baseIntervalMs / _playbackSpeed).round();
+    _playbackTimer = Timer.periodic(
+      Duration(milliseconds: intervalMs),
+      _onPlaybackTick,
+    );
+    setState(() => _isPlaying = true);
+  }
+
+  void _stopPlayback() {
+    _playbackTimer?.cancel();
+    _playbackTimer = null;
+    setState(() => _isPlaying = false);
+  }
+
+  void _onPlaybackTick(Timer timer) {
+    if (!mounted) { timer.cancel(); return; }
+    final nextIdx = _playbackListIndex + _playbackDirection;
+    if (nextIdx < 0 || nextIdx >= _resultPoints.length) {
+      _stopPlayback();
+      return;
+    }
+    _playbackListIndex = nextIdx;
+    _selectPointByIndex(_resultPoints[nextIdx].index, panMap: false);
+  }
+
+  void _jumpPlayback(int delta) {
+    if (_resultPoints.isEmpty) return;
+    // Sync from current selection if needed
+    if (_selectedRowIndex >= 0) {
+      final idx = _resultPoints.indexWhere((p) => p.index == _selectedRowIndex);
+      if (idx >= 0) _playbackListIndex = idx;
+    }
+    final nextIdx = (_playbackListIndex + delta).clamp(0, _resultPoints.length - 1);
+    _playbackListIndex = nextIdx;
+    _selectPointByIndex(_resultPoints[nextIdx].index, panMap: false);
+  }
+
+  void _setPlaybackSpeed(double speed) {
+    _playbackSpeed = speed;
+    if (_isPlaying) {
+      _playbackTimer?.cancel();
+      final intervalMs = (_baseIntervalMs / _playbackSpeed).round();
+      _playbackTimer = Timer.periodic(
+        Duration(milliseconds: intervalMs),
+        _onPlaybackTick,
+      );
+    }
+    setState(() {});
   }
 
   // ---------------------------------------------------------------------------
@@ -1924,8 +2015,11 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
         if (_state == ExplorerState.results && _resultPoints.isNotEmpty)
           Builder(builder: (context) {
             final valueRange = _activeValueRange();
+            // Sort so selected point is last (renders on top)
+            final sortedPoints = List<_ResultPoint>.from(_resultPoints)
+              ..sort((a, b) => a.index == _selectedRowIndex ? 1 : b.index == _selectedRowIndex ? -1 : 0);
             return MarkerLayer(
-            markers: _resultPoints.where((pt) {
+            markers: sortedPoints.where((pt) {
               // Only show markers for visible legend indices
               if (_visibleLegendIndices.isEmpty) return false;
               // Hide points with no data for the active path
@@ -1952,7 +2046,6 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
 
               const double minSize = 12.0;
               const double maxSize = 28.0;
-              const double selectedBoost = 8.0;
               double baseSize = minSize;
               if (valueRange != null && rawSiValue != null) {
                 final (lo, hi) = valueRange;
@@ -1964,7 +2057,8 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
                   baseSize = (minSize + maxSize) / 2;
                 }
               }
-              final size = isSelected ? baseSize + selectedBoost : baseSize;
+              final size = baseSize;
+              final markerColor = isSelected ? Colors.yellow : color;
 
               Widget markerChild;
               if (isAngle) {
@@ -1972,11 +2066,11 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
                   angle: rawSiValue ?? 0,
                   child: Icon(
                     Icons.navigation,
-                    color: color,
+                    color: markerColor,
                     size: size,
                     shadows: [
                       Shadow(
-                        color: isSelected ? Colors.white : Colors.black54,
+                        color: isSelected ? Colors.black : Colors.black54,
                         blurRadius: isSelected ? 4.0 : 2.0,
                       ),
                     ],
@@ -1985,17 +2079,17 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
               } else {
                 markerChild = Container(
                   decoration: BoxDecoration(
-                    color: color,
+                    color: markerColor,
                     shape: BoxShape.circle,
                     border: Border.all(
-                      color: isSelected ? Colors.white : Colors.black54,
+                      color: isSelected ? Colors.black : Colors.black54,
                       width: isSelected ? 3.0 : 1.5,
                     ),
                     boxShadow: isSelected
                         ? [BoxShadow(
-                            color: color.withValues(alpha: 0.5),
+                            color: Colors.yellow.withValues(alpha: 0.5),
                             blurRadius: 6,
-                            spreadRadius: 1,
+                            spreadRadius: 2,
                           )]
                         : null,
                   ),
@@ -2008,7 +2102,7 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
                 height: size,
                 child: GestureDetector(
                   onTap: () {
-                    setState(() => _selectedRowIndex = pt.index);
+                    _selectPointByIndex(pt.index, panMap: false);
                     _tabController.animateTo(1); // Switch to Detail tab
                   },
                   child: markerChild,
@@ -2618,10 +2712,7 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
 
         return InkWell(
           onTap: () {
-            setState(() => _selectedRowIndex = pt.index);
-            try {
-              _mapController.move(pt.position, _mapController.camera.zoom);
-            } catch (_) {}
+            _selectPointByIndex(pt.index);
           },
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -2798,29 +2889,168 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
       );
     }
 
-    return ListView(
-      padding: const EdgeInsets.all(8),
+    return Column(
       children: [
-        // Date
-        Text(
-          _fmtDate(pt.timestamp),
-          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+        Expanded(
+          child: ListView(
+            padding: const EdgeInsets.all(8),
+            children: [
+              // Date
+              Text(
+                _fmtDate(pt.timestamp),
+                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+              ),
+              // AM/PM time
+              Text(
+                _fmtAmPm(pt.timestamp),
+                style: const TextStyle(fontSize: 11),
+              ),
+              const SizedBox(height: 2),
+              // Position in DDM
+              Text(
+                _fmtDDM(pt.position.latitude, pt.position.longitude),
+                style: const TextStyle(fontSize: 11),
+              ),
+              const Divider(height: 8),
+              // Sparkline cards
+              ...sparklineCards,
+            ],
+          ),
         ),
-        // AM/PM time
-        Text(
-          _fmtAmPm(pt.timestamp),
-          style: const TextStyle(fontSize: 11),
-        ),
-        const SizedBox(height: 2),
-        // Position in DDM
-        Text(
-          _fmtDDM(pt.position.latitude, pt.position.longitude),
-          style: const TextStyle(fontSize: 11),
-        ),
-        const Divider(height: 8),
-        // Sparkline cards
-        ...sparklineCards,
+        if (_resultPoints.length > 1) _buildPlaybackControls(),
       ],
+    );
+  }
+
+  Widget _buildPlaybackControls() {
+    final theme = Theme.of(context);
+    return Container(
+      decoration: BoxDecoration(
+        border: Border(top: BorderSide(color: theme.dividerColor)),
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Slider
+          SizedBox(
+            height: 24,
+            child: Slider(
+              value: _playbackListIndex.toDouble().clamp(0, (_resultPoints.length - 1).toDouble()),
+              min: 0,
+              max: (_resultPoints.length - 1).toDouble(),
+              onChanged: (v) {
+                final idx = v.round();
+                _playbackListIndex = idx;
+                _selectPointByIndex(_resultPoints[idx].index);
+              },
+            ),
+          ),
+          // Transport buttons
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              // Jump -10
+              IconButton(
+                icon: const Icon(Icons.skip_previous),
+                iconSize: 18,
+                visualDensity: VisualDensity.compact,
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(),
+                tooltip: 'Jump back 10',
+                onPressed: () => _jumpPlayback(-10),
+              ),
+              const SizedBox(width: 4),
+              // Reverse
+              IconButton(
+                icon: const Icon(Icons.fast_rewind),
+                iconSize: 18,
+                visualDensity: VisualDensity.compact,
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(),
+                tooltip: 'Reverse',
+                onPressed: () {
+                  if (_isPlaying && _playbackDirection == -1) {
+                    _stopPlayback();
+                  } else {
+                    _startPlayback(direction: -1);
+                  }
+                },
+              ),
+              const SizedBox(width: 4),
+              // Play/Pause
+              IconButton(
+                icon: Icon(_isPlaying ? Icons.pause : Icons.play_arrow),
+                iconSize: 22,
+                visualDensity: VisualDensity.compact,
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(),
+                tooltip: _isPlaying ? 'Pause' : 'Play',
+                onPressed: () {
+                  if (_isPlaying) {
+                    _stopPlayback();
+                  } else {
+                    _startPlayback(direction: _playbackDirection);
+                  }
+                },
+              ),
+              const SizedBox(width: 4),
+              // Forward
+              IconButton(
+                icon: const Icon(Icons.fast_forward),
+                iconSize: 18,
+                visualDensity: VisualDensity.compact,
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(),
+                tooltip: 'Forward',
+                onPressed: () {
+                  if (_isPlaying && _playbackDirection == 1) {
+                    _stopPlayback();
+                  } else {
+                    _startPlayback(direction: 1);
+                  }
+                },
+              ),
+              const SizedBox(width: 4),
+              // Jump +10
+              IconButton(
+                icon: const Icon(Icons.skip_next),
+                iconSize: 18,
+                visualDensity: VisualDensity.compact,
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(),
+                tooltip: 'Jump forward 10',
+                onPressed: () => _jumpPlayback(10),
+              ),
+              const SizedBox(width: 8),
+              // Speed popup
+              PopupMenuButton<double>(
+                initialValue: _playbackSpeed,
+                onSelected: _setPlaybackSpeed,
+                tooltip: 'Playback speed',
+                padding: EdgeInsets.zero,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    border: Border.all(color: theme.dividerColor),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text(
+                    '${_playbackSpeed == _playbackSpeed.roundToDouble() ? _playbackSpeed.toInt() : _playbackSpeed}x',
+                    style: const TextStyle(fontSize: 11),
+                  ),
+                ),
+                itemBuilder: (_) => _speedOptions
+                    .map((s) => PopupMenuItem(
+                          value: s,
+                          child: Text('${s == s.roundToDouble() ? s.toInt() : s}x'),
+                        ))
+                    .toList(),
+              ),
+            ],
+          ),
+        ],
+      ),
     );
   }
 
