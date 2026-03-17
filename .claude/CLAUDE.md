@@ -5,7 +5,7 @@ ZedDisplay +SignalK is a Flutter marine dashboard app that connects to SignalK s
 
 **At start up:**
 Ask if the user wants to clean up the build warnings and non blocking errors. 
-
+Ask about any existing todos
 
 ## Required Reading
 
