@@ -1226,7 +1226,6 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
     var localSmoothing = _smoothing;
     var localSmaWindow = _smaWindow;
     var localEmaAlpha = _emaAlpha;
-    var pathFilter = '';
     var contextFilter = '';
     var lookupOtherVessels = _context != 'vessels.self';
 
@@ -1248,12 +1247,6 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
               }
             }
             dialogSetState = setDialogState;
-            final filteredPaths = pathFilter.isEmpty
-                ? _availablePaths
-                : _availablePaths
-                    .where((p) =>
-                        p.toLowerCase().contains(pathFilter.toLowerCase()))
-                    .toList();
 
             // Re-fetch contexts when dates change
             void onDatesChanged() {
@@ -1462,47 +1455,44 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
                         style: const TextStyle(fontWeight: FontWeight.bold),
                       ),
                       const SizedBox(height: 4),
-                      TextField(
-                        decoration: const InputDecoration(
-                          hintText: 'Filter paths...',
-                          isDense: true,
-                          prefixIcon: Icon(Icons.search, size: 18),
-                        ),
-                        onChanged: (v) => setDialogState(() => pathFilter = v),
+                      // Selected path chips
+                      Wrap(
+                        spacing: 6,
+                        runSpacing: 4,
+                        children: localSelected.map((p) => Tooltip(
+                          message: p,
+                          child: Chip(
+                            label: Text(p.split('.').last,
+                                style: const TextStyle(fontSize: 11)),
+                            deleteIcon: const Icon(Icons.close, size: 14),
+                            onDeleted: () =>
+                                setDialogState(() => localSelected.remove(p)),
+                            materialTapTargetSize:
+                                MaterialTapTargetSize.shrinkWrap,
+                            visualDensity: VisualDensity.compact,
+                          ),
+                        )).toList(),
                       ),
                       const SizedBox(height: 4),
-                      SizedBox(
-                        height: 160,
-                        child: _pathsLoading
-                            ? const Center(
-                                child: CircularProgressIndicator(strokeWidth: 2))
-                            : filteredPaths.isEmpty
-                                ? const Center(child: Text('No paths found'))
-                                : ListView.builder(
-                                    itemCount: filteredPaths.length,
-                                    itemBuilder: (_, i) {
-                                      final p = filteredPaths[i];
-                                      final checked = localSelected.contains(p);
-                                      return CheckboxListTile(
-                                        dense: true,
-                                        value: checked,
-                                        title: Text(p,
-                                            style:
-                                                const TextStyle(fontSize: 12)),
-                                        onChanged: (v) {
-                                          setDialogState(() {
-                                            if (v == true &&
-                                                localSelected.length < 3) {
-                                              localSelected.add(p);
-                                            } else {
-                                              localSelected.remove(p);
-                                            }
-                                          });
-                                        },
-                                      );
-                                    },
-                                  ),
-                      ),
+                      if (localSelected.length < 3)
+                        OutlinedButton.icon(
+                          icon: const Icon(Icons.add, size: 16),
+                          label: Text(
+                            _pathsLoading ? 'Loading paths...' : 'Add Path',
+                            style: const TextStyle(fontSize: 12),
+                          ),
+                          onPressed: _pathsLoading
+                              ? null
+                              : () async {
+                                  final result =
+                                      await _showHistoricalPathPicker(
+                                          ctx, localSelected);
+                                  if (result != null) {
+                                    setDialogState(
+                                        () => localSelected.add(result));
+                                  }
+                                },
+                        ),
                       const SizedBox(height: 12),
 
                       // -- Aggregation --
@@ -1615,6 +1605,151 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
                   child: const Text('Query'),
                 ),
               ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Historical path picker (full-screen bottom sheet)
+  // ---------------------------------------------------------------------------
+
+  Future<String?> _showHistoricalPathPicker(
+      BuildContext ctx, Set<String> alreadySelected) {
+    return showModalBottomSheet<String>(
+      context: ctx,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (sheetCtx) {
+        var searchQuery = '';
+        return DraggableScrollableSheet(
+          initialChildSize: 0.85,
+          minChildSize: 0.5,
+          maxChildSize: 0.95,
+          expand: false,
+          builder: (_, scrollController) {
+            return StatefulBuilder(
+              builder: (__, setSheetState) {
+                final filtered = _availablePaths.where((p) {
+                  if (searchQuery.isEmpty) return true;
+                  return p.toLowerCase().contains(searchQuery.toLowerCase());
+                }).toList();
+
+                return Padding(
+                  padding: EdgeInsets.only(
+                    bottom: MediaQuery.of(sheetCtx).viewInsets.bottom,
+                  ),
+                  child: Column(
+                  children: [
+                    // Drag handle
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8, bottom: 4),
+                      child: Container(
+                        width: 32,
+                        height: 4,
+                        decoration: BoxDecoration(
+                          color: Theme.of(sheetCtx)
+                              .colorScheme
+                              .onSurfaceVariant
+                              .withValues(alpha: 0.4),
+                          borderRadius: BorderRadius.circular(2),
+                        ),
+                      ),
+                    ),
+                    // Title
+                    Padding(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 16, vertical: 8),
+                      child: Row(
+                        children: [
+                          const Expanded(
+                            child: Text('Select Path',
+                                style: TextStyle(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.bold)),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.close),
+                            onPressed: () => Navigator.pop(sheetCtx),
+                          ),
+                        ],
+                      ),
+                    ),
+                    // Search field
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      child: TextField(
+                        autofocus: true,
+                        decoration: const InputDecoration(
+                          hintText: 'Filter paths...',
+                          prefixIcon: Icon(Icons.search, size: 20),
+                          isDense: true,
+                          border: OutlineInputBorder(),
+                        ),
+                        onChanged: (v) =>
+                            setSheetState(() => searchQuery = v),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    // Path count
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      child: Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          '${filtered.length} paths',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Theme.of(sheetCtx)
+                                .colorScheme
+                                .onSurfaceVariant,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    // Path list
+                    Expanded(
+                      child: ListView.builder(
+                        controller: scrollController,
+                        itemCount: filtered.length,
+                        itemBuilder: (_, i) {
+                          final path = filtered[i];
+                          final isSelected = alreadySelected.contains(path);
+                          return ListTile(
+                            dense: true,
+                            title: Text(path,
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  color: isSelected
+                                      ? Theme.of(sheetCtx)
+                                          .colorScheme
+                                          .onSurface
+                                          .withValues(alpha: 0.4)
+                                      : null,
+                                )),
+                            trailing: isSelected
+                                ? Icon(Icons.check,
+                                    size: 18,
+                                    color: Theme.of(sheetCtx)
+                                        .colorScheme
+                                        .primary)
+                                : null,
+                            onTap: isSelected
+                                ? null
+                                : () => Navigator.pop(sheetCtx, path),
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                  ),
+                );
+              },
             );
           },
         );
