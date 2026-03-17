@@ -36,7 +36,7 @@ class ChartConfigurator extends ToolConfigurator {
   String chartTitle = '';
   String chartContext = 'vessels.self'; // historical only
 
-  // Vessel context picker state (not persisted in config)
+  // Vessel context picker state (transient, not persisted)
   bool _lookupOtherVessels = false;
   List<String> _availableContexts = ['vessels.self'];
   bool _contextsLoading = false;
@@ -84,8 +84,6 @@ class ChartConfigurator extends ToolConfigurator {
   }
 
   /// Convert duration string to maxDataPoints for realtime chart.
-  /// For short durations: 2 points/sec (500ms updates)
-  /// For longer durations: reduced density to keep points manageable
   int _durationToMaxDataPoints(String duration) {
     switch (duration) {
       case '1m':
@@ -123,10 +121,8 @@ class ChartConfigurator extends ToolConfigurator {
     };
 
     if (isRealtime) {
-      // Convert duration to maxDataPoints for realtime
       customProperties['maxDataPoints'] = _durationToMaxDataPoints(chartDuration);
     } else {
-      // Historical-only properties
       customProperties['resolution'] = chartResolution;
       customProperties['autoRefresh'] = chartAutoRefresh;
       customProperties['refreshInterval'] = chartRefreshInterval;
@@ -169,7 +165,7 @@ class ChartConfigurator extends ToolConfigurator {
               ),
               const SizedBox(height: 16),
 
-              // Time Duration - different options for realtime vs historical
+              // Time Duration
               DropdownButtonFormField<String>(
                 decoration: InputDecoration(
                   labelText: isRealtime ? 'Window Duration' : 'Time Duration',
@@ -179,7 +175,6 @@ class ChartConfigurator extends ToolConfigurator {
                 initialValue: chartDuration,
                 items: isRealtime
                     ? const [
-                        // Realtime: minutes and hours
                         DropdownMenuItem(value: '1m', child: Text('1 minute')),
                         DropdownMenuItem(value: '5m', child: Text('5 minutes')),
                         DropdownMenuItem(value: '15m', child: Text('15 minutes')),
@@ -190,7 +185,6 @@ class ChartConfigurator extends ToolConfigurator {
                         DropdownMenuItem(value: '12h', child: Text('12 hours')),
                       ]
                     : const [
-                        // Historical: original options
                         DropdownMenuItem(value: '15m', child: Text('15 minutes')),
                         DropdownMenuItem(value: '30m', child: Text('30 minutes')),
                         DropdownMenuItem(value: '1h', child: Text('1 hour')),
@@ -326,7 +320,6 @@ class ChartConfigurator extends ToolConfigurator {
 
               // Moving Average options (conditional)
               if (chartShowMovingAverage) ...[
-                // Smoothing Type selector
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 16),
                   child: DropdownButtonFormField<String>(
@@ -343,7 +336,6 @@ class ChartConfigurator extends ToolConfigurator {
                       if (value != null) {
                         setState(() {
                           chartSmoothingType = value;
-                          // Reset window to appropriate default for type
                           chartMovingAverageWindow = value == 'ema' ? 20 : 5;
                         });
                       }
@@ -351,7 +343,6 @@ class ChartConfigurator extends ToolConfigurator {
                   ),
                 ),
                 const SizedBox(height: 16),
-                // Window/Alpha parameter
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 16),
                   child: DropdownButtonFormField<int>(
@@ -365,14 +356,12 @@ class ChartConfigurator extends ToolConfigurator {
                     initialValue: chartMovingAverageWindow,
                     items: chartSmoothingType == 'ema'
                         ? const [
-                            // EMA alpha values (stored as int, converted to 0.0-1.0 in tool)
                             DropdownMenuItem(value: 10, child: Text('0.1 (Very smooth)')),
                             DropdownMenuItem(value: 20, child: Text('0.2 (Smooth)')),
                             DropdownMenuItem(value: 30, child: Text('0.3 (Balanced)')),
                             DropdownMenuItem(value: 50, child: Text('0.5 (Responsive)')),
                           ]
                         : const [
-                            // SMA window sizes
                             DropdownMenuItem(value: 3, child: Text('3 points')),
                             DropdownMenuItem(value: 5, child: Text('5 points')),
                             DropdownMenuItem(value: 10, child: Text('10 points')),
@@ -407,7 +396,10 @@ class ChartConfigurator extends ToolConfigurator {
     );
   }
 
-  /// Build the vessel context picker UI (historical only).
+  // ---------------------------------------------------------------------------
+  // Vessel context picker (historical only)
+  // ---------------------------------------------------------------------------
+
   Widget _buildVesselContextUI(
     BuildContext context,
     SignalKService signalKService,
@@ -463,9 +455,15 @@ class ChartConfigurator extends ToolConfigurator {
     SignalKService signalKService,
     void Function(void Function()) setState,
   ) {
-    final favService = context.read<AISFavoritesService>();
-    final favs = favService.favorites;
-    final favMMSIs = favs.map((f) => f.mmsi).toSet();
+    List<AISFavorite> favs = [];
+    Set<String> favMMSIs = {};
+    try {
+      final favService = context.read<AISFavoritesService>();
+      favs = favService.favorites;
+      favMMSIs = favs.map((f) => f.mmsi).toSet();
+    } catch (_) {
+      // AISFavoritesService not available
+    }
 
     final nonSelf = _availableContexts
         .where((c) => c != 'vessels.self')
@@ -525,7 +523,13 @@ class ChartConfigurator extends ToolConfigurator {
         useSecureConnection: signalKService.useSecureConnection,
         authToken: signalKService.authToken,
       );
-      final contexts = await service.getAvailableContexts();
+      // Server requires time params to scan parquet files for other vessels.
+      // Use a wide window so we find all vessels with recent data.
+      final now = DateTime.now();
+      final contexts = await service.getAvailableContexts(
+        from: now.subtract(const Duration(days: 7)),
+        to: now,
+      );
       // Ensure vessels.self is always present
       if (!contexts.contains('vessels.self')) {
         contexts.insert(0, 'vessels.self');
