@@ -828,6 +828,7 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen>
     );
 
     if (result is Map<String, dynamic> && mounted) {
+      _toolWidgetCache.remove(placementToolId);
       final updatedTool = result['tool'] as Tool;
       final newWidth = result['width'] as int? ?? 1;
       final newHeight = result['height'] as int? ?? 1;
