@@ -86,6 +86,7 @@ A customizable SignalK marine dashboard and crew comms application to display re
   - Color-coded result markers on the map with value-proportional sizing
   - Per-point detail view with sparkline charts for each queried path
   - Double-tap any sparkline to view an expanded chart modal
+  - **Timeline Playback**: Play/pause through results with forward/reverse, jump ±10, speed control (1x–10x), and scrub slider
   - Save and reload search areas; share results as CSV or JSON
   - Zoom controls, zoom-to-fit area, and homeport button
   - Map/detail/table tab views with swipe navigation
@@ -685,7 +686,7 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 ### General Features
 - [ ] Offline mode with cached data
-- [ ] Chart playback for historical data
+- [x] Chart playback for historical data (completed — timeline playback in Historical Data Explorer)
 - [x] Enhanced alerts and notification rules (notification dedup, stable OS IDs, temporal throttling)
 - [ ] Weather integration (GRIB files, forecasts)
 - [x] AIS target display (completed in v0.2.0+3)

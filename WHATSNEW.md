@@ -1,4 +1,44 @@
-# What's New in v0.5.63
+# What's New in v0.5.70
+
+## Release Notes (Google Play - max 500 chars)
+
+v0.5.70 Timeline Playback & Chart Improvements
+
+NEW: Historical Data Explorer timeline playback — play/pause through query results with speed controls (1x–10x), jump buttons, and scrub slider. Sparklines, map, and summary update in sync.
+
+NEW: 1-week chart duration. Vessel context selection for historical queries. Pinch-to-zoom on live charts.
+
+IMPROVED: Swipe-up screen selector, per-screen orientation lock, stale widget cache fix.
+
+## Release Notes (App Store / TestFlight - max 4000 chars)
+
+### Historical Data Explorer — Timeline Playback (NEW)
+- **Transport Bar** - Compact playback controls appear at the bottom of the Detail tab when results have multiple points
+- **Play/Pause** - Automatically advances through result points, updating sparkline markers, map position, and point summary
+- **Forward & Reverse** - Play forward or rewind through the timeline
+- **Jump ±10** - Skip forward or back 10 points at a time
+- **Speed Control** - Popup menu to select 1x, 2x, 5x, or 10x playback speed
+- **Scrub Slider** - Drag to jump to any position in the result set
+- **Auto-Stop** - Playback stops automatically at the first or last point
+- **Synced Selection** - Tapping a map marker or list row during playback continues from the new position
+- **Hidden When Not Needed** - Transport bar only appears when results contain more than one point
+
+### Chart Configurator (NEW)
+- **1-Week Duration** - New time range option for historical charts with enhanced data range labels
+- **Vessel Context** - Select own vessel or AIS targets when configuring historical data queries
+
+### Real-Time Spline Chart (IMPROVED)
+- **Pinch-to-Zoom** - Zoom into live chart data with cached rendering for smooth interaction
+- **Simplified Rendering** - Moving average overlay removed for cleaner chart display
+
+### Dashboard Manager (IMPROVED)
+- **Swipe-Up Screen Selector** - Screen selector dots now revealed by swiping up instead of always visible
+- **Per-Screen Orientations** - Dashboard layouts store allowed orientations per screen
+- **Widget Cache Fix** - Tool widgets properly removed from cache on update, preventing stale state
+
+---
+
+# Previous: v0.5.63
 
 ## Release Notes (Google Play - max 500 chars)
 

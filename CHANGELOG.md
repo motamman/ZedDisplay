@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.70+47] - 2026-03-17
+
+### Added
+- **Historical Data Explorer — Timeline Playback**: Transport bar on the Detail tab plays through query results automatically
+  - Play/pause, forward/reverse, and jump ±10 point buttons
+  - Adjustable speed (1x, 2x, 5x, 10x) via popup menu
+  - Slider scrubs to any position in the result set
+  - Sparkline markers, map position, and summary update in sync
+  - Auto-stops at boundaries; hidden for single-point results
+- **Chart Configurator — 1-Week Duration**: Added 1-week option to chart time range selector with enhanced data range labels
+- **Chart Configurator — Vessel Context**: Select vessel context (own vessel or AIS targets) for historical data queries
+- **Real-Time Spline Chart — Zooming**: Pinch-to-zoom on live spline charts with cached data for smooth interaction
+
+### Changed
+- **Dashboard Manager — Swipe-Up Screen Selector**: Refactored screen layout to reveal screen selector dots via swipe-up gesture instead of always-visible dots
+- **Dashboard Layouts — Allowed Orientations**: Dashboard layouts and setups now store allowed orientations per screen with update support
+- **Historical Line Chart**: Improved initial zoom factor for better default view
+- **Dashboard Manager**: Tool widgets removed from cache on update to prevent stale state
+
+### Removed
+- **Real-Time Spline Chart**: Removed moving average data handling (simplified chart rendering)
+
 ## [0.5.63+46] - 2026-03-16
 
 ### Added
