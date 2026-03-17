@@ -3,6 +3,10 @@
 ## Project Overview
 ZedDisplay +SignalK is a Flutter marine dashboard app that connects to SignalK servers for boat instrumentation data. Sister app: ZedDisplay-OpenMeteo (more mature, reference for patterns).
 
+**At start up:**
+Ask if the user wants to clean up the build warnings and non blocking errors. 
+
+
 ## Required Reading
 
 **BEFORE working with unit conversions or metadata:**
