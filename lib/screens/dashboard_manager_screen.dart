@@ -1282,125 +1282,124 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen>
       return const Center(child: CircularProgressIndicator());
     }
 
-    return Stack(
+    return Column(
       children: [
-        // PageView for smooth slide transitions with live drag preview
-        PageView.builder(
-          controller: _pageController,
-          physics: disableSwipe
-              ? const NeverScrollableScrollPhysics()
-              : const BouncingScrollPhysics(),
-          onPageChanged: (virtualPage) {
-            // Convert virtual page to actual index (wrap-around)
-            final int actualIndex = virtualPage % screenCount;
+        // PageView gets all space above the dots area
+        Expanded(
+          child: PageView.builder(
+            controller: _pageController,
+            physics: disableSwipe
+                ? const NeverScrollableScrollPhysics()
+                : const BouncingScrollPhysics(),
+            onPageChanged: (virtualPage) {
+              // Convert virtual page to actual index (wrap-around)
+              final int actualIndex = virtualPage % screenCount;
 
-            // Only update service if index actually changed
-            if (actualIndex != layout.activeScreenIndex) {
-              // Mark as swipe to prevent listener feedback loop
-              _isSwipeInProgress = true;
-              dashboardService.setActiveScreen(actualIndex);
-              _showAppBarTemporarily();
-              _revealSelectorDots();
-            }
+              // Only update service if index actually changed
+              if (actualIndex != layout.activeScreenIndex) {
+                // Mark as swipe to prevent listener feedback loop
+                _isSwipeInProgress = true;
+                dashboardService.setActiveScreen(actualIndex);
+                _showAppBarTemporarily();
+                _revealSelectorDots();
+              }
 
-            // Normalize virtualPage back to canonical range to prevent
-            // duplicate page Elements from accumulating on wrap-around.
-            final int canonical = _virtualPageOffset * screenCount + actualIndex;
-            if (virtualPage != canonical) {
-              WidgetsBinding.instance.addPostFrameCallback((_) {
-                if (mounted && _pageController.hasClients) {
-                  _pageController.jumpToPage(canonical);
-                }
-              });
-            }
-          },
-          itemBuilder: (context, virtualPage) {
-            // Convert virtual page to actual screen index (wrap-around)
-            final int actualIndex = virtualPage % screenCount;
-            final screen = layout.screens[actualIndex];
-            return _KeepAlivePage(
-              key: ValueKey('screen_$actualIndex'),
-              child: _buildScreenContent(screen, signalKService),
-            );
-          },
-          // No itemCount = infinite scrolling for wrap-around
+              // Normalize virtualPage back to canonical range to prevent
+              // duplicate page Elements from accumulating on wrap-around.
+              final int canonical = _virtualPageOffset * screenCount + actualIndex;
+              if (virtualPage != canonical) {
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  if (mounted && _pageController.hasClients) {
+                    _pageController.jumpToPage(canonical);
+                  }
+                });
+              }
+            },
+            itemBuilder: (context, virtualPage) {
+              // Convert virtual page to actual screen index (wrap-around)
+              final int actualIndex = virtualPage % screenCount;
+              final screen = layout.screens[actualIndex];
+              return _KeepAlivePage(
+                key: ValueKey('screen_$actualIndex'),
+                child: _buildScreenContent(screen, signalKService),
+              );
+            },
+            // No itemCount = infinite scrolling for wrap-around
+          ),
         ),
-
-        // Screen indicator dots at bottom
-        // Auto-hides after 4 seconds, swipe up from bottom edge to reveal
-        Positioned(
-            bottom: 0,
-            left: 0,
-            right: 0,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                // Visible dots (when shown)
-                AnimatedOpacity(
-                  opacity: _showScreenSelectorDots ? 1.0 : 0.0,
-                  duration: const Duration(milliseconds: 300),
-                  child: IgnorePointer(
-                    ignoring: !_showScreenSelectorDots,
-                    child: Padding(
-                      padding: const EdgeInsets.only(bottom: 4),
-                      child: Material(
-                        color: Colors.transparent,
-                        child: InkWell(
-                          onTap: () {
-                            _revealSelectorDots(); // Reset timer on interaction
-                            _showScreenSelector(context);
-                          },
-                          borderRadius: BorderRadius.circular(16),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 16, vertical: 8),
-                            decoration: BoxDecoration(
-                              color: Colors.white.withValues(alpha: 0.3),
-                              borderRadius: BorderRadius.circular(16),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: List.generate(
-                                  layout.screens.length, (index) {
-                                final isActive =
-                                    index == layout.activeScreenIndex;
-                                return Padding(
-                                  padding: const EdgeInsets.symmetric(
-                                      horizontal: 4),
-                                  child: Container(
-                                    width: 8,
-                                    height: 8,
-                                    decoration: BoxDecoration(
-                                      shape: BoxShape.circle,
-                                      color: isActive
-                                          ? Colors.grey.shade800
-                                          : Colors.grey.shade400,
-                                    ),
+        // Exclusive dots area — reserved space below PageView
+        SizedBox(
+          height: _selectorHeight,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              // Visible dots (when shown)
+              AnimatedOpacity(
+                opacity: _showScreenSelectorDots ? 1.0 : 0.0,
+                duration: const Duration(milliseconds: 300),
+                child: IgnorePointer(
+                  ignoring: !_showScreenSelectorDots,
+                  child: Padding(
+                    padding: const EdgeInsets.only(bottom: 4),
+                    child: Material(
+                      color: Colors.transparent,
+                      child: InkWell(
+                        onTap: () {
+                          _revealSelectorDots(); // Reset timer on interaction
+                          _showScreenSelector(context);
+                        },
+                        borderRadius: BorderRadius.circular(16),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 16, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: 0.3),
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: List.generate(
+                                layout.screens.length, (index) {
+                              final isActive =
+                                  index == layout.activeScreenIndex;
+                              return Padding(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 4),
+                                child: Container(
+                                  width: 8,
+                                  height: 8,
+                                  decoration: BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    color: isActive
+                                        ? Colors.grey.shade800
+                                        : Colors.grey.shade400,
                                   ),
-                                );
-                              }),
-                            ),
+                                ),
+                              );
+                            }),
                           ),
                         ),
                       ),
                     ),
                   ),
                 ),
-                // Thin swipe-up zone at very bottom edge (no tap interception)
-                GestureDetector(
-                  behavior: HitTestBehavior.translucent,
-                  onVerticalDragEnd: (details) {
-                    // Swipe up (negative velocity) reveals dots
-                    if (details.primaryVelocity != null &&
-                        details.primaryVelocity! < -100) {
-                      _revealSelectorDots();
-                    }
-                  },
-                  child: const SizedBox(height: 16, width: double.infinity),
-                ),
-              ],
-            ),
+              ),
+              // Thin swipe-up zone at very bottom edge (no tap interception)
+              GestureDetector(
+                behavior: HitTestBehavior.translucent,
+                onVerticalDragEnd: (details) {
+                  // Swipe up (negative velocity) reveals dots
+                  if (details.primaryVelocity != null &&
+                      details.primaryVelocity! < -100) {
+                    _revealSelectorDots();
+                  }
+                },
+                child: const SizedBox(height: 16, width: double.infinity),
+              ),
+            ],
           ),
+        ),
       ],
     );
   }
