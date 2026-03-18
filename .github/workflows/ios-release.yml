@@ -13,7 +13,7 @@ jobs:
   build-ios:
     runs-on: macos-15
     # Skip if this is an Android-only tag
-    if: ${{ !endsWith(github.ref, '-android') }}
+    if: ${{ !endsWith(github.ref, '-android') && !endsWith(github.ref, '-linux') && !endsWith(github.ref, '-windows') && !endsWith(github.ref, '-macos') }}
 
     steps:
       - name: Checkout code

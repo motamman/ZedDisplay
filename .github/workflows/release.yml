@@ -13,7 +13,7 @@ jobs:
   build-and-release:
     runs-on: ubuntu-latest
     # Skip if this is an iOS-only tag
-    if: ${{ !endsWith(github.ref, '-ios') }}
+    if: ${{ !endsWith(github.ref, '-ios') && !endsWith(github.ref, '-linux') && !endsWith(github.ref, '-windows') && !endsWith(github.ref, '-macos') }}
 
     steps:
       - name: Checkout code

@@ -1,0 +1,58 @@
+name: macOS Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'        # All platforms
+      - 'v*.*.*-macos'  # macOS only
+
+permissions:
+  contents: write
+
+jobs:
+  build-macos:
+    runs-on: macos-15
+    # Skip if this is a platform-specific tag for another platform
+    if: ${{ !endsWith(github.ref, '-ios') && !endsWith(github.ref, '-android') && !endsWith(github.ref, '-linux') && !endsWith(github.ref, '-windows') }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: false
+
+      - name: Verify Flutter version
+        run: |
+          flutter --version
+          flutter doctor -v
+
+      - name: Clean and get dependencies
+        run: |
+          flutter clean
+          flutter pub get
+
+      - name: Build macOS release
+        run: flutter build macos --release
+
+      - name: Get version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+
+      - name: Package macOS build
+        run: |
+          cd build/macos/Build/Products/Release
+          zip -r "$GITHUB_WORKSPACE/zed-display-macos-${{ steps.version.outputs.VERSION }}.zip" *.app
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Release ${{ steps.version.outputs.VERSION }}
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          files: |
+            zed-display-macos-${{ steps.version.outputs.VERSION }}.zip
