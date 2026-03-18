@@ -5,6 +5,42 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.80+53] - 2026-03-18
+
+### Added
+- **AIS Vessel Data Resolution**: Tool widgets can now display data from AIS vessels, not just self
+  - `DataSource.resolve()` method transparently handles vessel context — tools call one method for both self and AIS data
+  - `DataSource.isFresh()` method for TTL checks with vessel-aware resolution
+  - Flat cache lookup with automatic fallback to AIS vessel registry (REST data available before WS deltas arrive)
+  - Supported tools: Radial Gauge, Linear Gauge, Compass Gauge, Text Display, Position Display, Real-Time Chart
+- **Edit Dialog — AIS Vessel Context**: Editing a data source now shows vessel context and allows changing vessel selection
+  - Vessel name/MMSI displayed below path when an AIS vessel is selected
+  - Path selector opens with current vessel pre-selected via `initialVesselContext`
+  - Source selector passes vessel context for correct REST lookups
+- **PathSelectorDialog — `initialVesselContext`**: Pre-selects the vessel in the context picker when editing an existing AIS data source
+- **SourceSelectorDialog — `vesselContext`**: Passes vessel ID to `getSourcesForPath()` for correct REST endpoint
+- **`getSourcesForPath()` — `vesselId` parameter**: REST source lookup uses the specified vessel instead of always using self
+
+### Changed
+- **Tool Data Resolution**: All AIS-aware tools now use `DataSource.resolve()` instead of direct `signalKService.getValue(path)` calls
+  - `base_tool.dart`: `getDataPoint()` uses `dataSource.resolve()`
+  - `radial_gauge_tool.dart`: `_getRawValue()` takes `DataSource` instead of `String path`
+  - `linear_gauge_tool.dart`: `_getRawValue()` takes `DataSource`, TTL uses `dataSource.isFresh()`
+  - `compass_gauge_tool.dart`: `_getRawValue()` takes `DataSource`, multi-needle loop updated
+  - `text_display_tool.dart`: Data point lookup uses `dataSource.resolve()`
+  - `position_display_tool.dart`: Uses `_primaryDataSource` getter with `resolve()` fallback to default path
+  - `realtime_spline_chart.dart`: Timer-driven data sampling uses `dataSource.resolve()`
+- **Non-AIS tools unchanged**: Windsteer, autopilot, charts, weather, etc. continue calling `getValue(path)` directly
+
+### Infrastructure (0.5.72–0.5.75)
+- **CI/CD — Linux Builds**: GitHub Actions workflow for Linux x64 and arm64 (RPi5) with install script
+- **CI/CD — macOS Builds**: Workflow with Xcode setup, entitlements (location, microphone), TestFlight upload, and install script
+- **CI/CD — Windows Builds**: GitHub Actions workflow for Windows x64 releases
+- **CI/CD — Platform Tag Filters**: All release workflows support platform-specific tags (e.g., `v*-linux`)
+- **macOS Entitlements**: Location and microphone access for macOS builds
+- **Custom Scroll Behavior**: MaterialApp configured for enhanced touch and pointer support
+- **GitHub Actions**: Updated to latest action versions across all workflows
+
 ## [0.5.71+48] - 2026-03-17
 
 ### Added

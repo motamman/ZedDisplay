@@ -48,6 +48,7 @@ A customizable SignalK marine dashboard and crew comms application to display re
 - **Text Display**: Large numeric value display with label and unit
   - Smart lat/long formatting (auto-detects and formats as degrees/minutes/seconds)
   - Object value support (displays Map properties as key-value pairs)
+- **AIS Vessel Data**: All display tools (gauges, compass, text, position, real-time chart) can show data from any AIS vessel — select the vessel when configuring data sources
 
 - **WeatherFlow Forecast**: Weather forecast from WeatherFlow Tempest station
   - Current conditions (temperature, humidity, pressure, wind)
@@ -76,6 +77,7 @@ A customizable SignalK marine dashboard and crew comms application to display re
 - **Real-Time Chart**: Live spline chart showing real-time data for up to 3 paths
   - Optional moving average overlay
   - Dual Y-axis support for mixed unit types
+  - AIS vessel data support — chart data from other vessels
 
 <img src="screenshots/screen_combo_charts.jpg" alt="Real-Time Chart" width="400">
  <img src="screenshots/realtime_historic_chat.png" alt="Historical Chart" width="400">
@@ -602,6 +604,7 @@ SignalKService (WebSocket handler)
 DashboardService (Data distribution & subscription sync)
     ↓
 Tool Components (Display layer)
+    ├── DataSource.resolve() (AIS-aware data resolution)
     └── Tool Configurators (Strategy pattern)
 ```
 

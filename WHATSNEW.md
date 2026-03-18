@@ -1,4 +1,38 @@
-# What's New in v0.5.70
+# What's New in v0.5.80
+
+## Release Notes (Google Play - max 500 chars)
+
+v0.5.80 AIS Vessel Data on Widgets
+
+NEW: Display AIS vessel data on gauges, compasses, text displays, position, and real-time charts. Select any AIS vessel as the data source — widgets resolve data transparently from cache or registry.
+
+NEW: Edit dialog shows vessel context and pre-selects vessel when changing paths.
+
+IMPROVED: CI/CD workflows for Linux, macOS, and Windows. macOS entitlements for location and microphone.
+
+## Release Notes (App Store / TestFlight - max 4000 chars)
+
+### AIS Vessel Data on Widgets (NEW)
+- **Any Widget, Any Vessel** - Radial gauges, linear gauges, compass, text display, position display, and real-time charts can now show data from AIS vessels instead of just your own boat
+- **DataSource.resolve()** - Single method handles vessel context transparently — tools don't need to know whether they're showing self or AIS data
+- **Registry Fallback** - When WebSocket deltas haven't arrived yet, widgets fall back to REST data from the AIS vessel registry so values appear immediately after configuration
+- **Edit with Context** - Editing a data source shows the vessel name/MMSI and opens the path selector with the current vessel pre-selected
+- **Source Selector** - Source lookup uses the correct vessel's REST endpoint for AIS paths
+- **Non-AIS Tools Unaffected** - Windsteer, autopilot, anchor alarm, weather, and other self-vessel-only tools work exactly as before
+
+### CI/CD & Platform Support (NEW)
+- **Linux Builds** - GitHub Actions for x64 and arm64 (RPi5) with install script
+- **macOS Builds** - Xcode setup, entitlements (location, microphone), TestFlight upload, install script
+- **Windows Builds** - GitHub Actions for x64 releases
+- **Platform Tags** - All workflows support platform-specific release tags (e.g., `v*-linux`)
+
+### Under the Hood (IMPROVED)
+- **Custom Scroll Behavior** - Enhanced touch and pointer support across all platforms
+- **GitHub Actions** - Updated to latest action versions
+
+---
+
+# Previous: v0.5.70
 
 ## Release Notes (Google Play - max 500 chars)
 
