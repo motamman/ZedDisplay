@@ -258,6 +258,12 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
       debugPrint('   primary=$primaryAxisBaseUnit, secondary=$secondaryAxisBaseUnit');
     }
 
+    // Tool types that support AIS vessel context
+    const aisContextTools = {
+      'radial_gauge', 'linear_gauge', 'compass', 'text_display', 'position_display',
+    };
+    final allowAIS = aisContextTools.contains(_selectedToolTypeId);
+
     // Step 1: Select path
     await showDialog(
       context: context,
@@ -269,6 +275,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
         secondaryAxisBaseUnit: secondaryAxisBaseUnit,
         showBaseUnitInLabel: isChartTool,
         requiredCategory: isCompassTool ? 'angle' : null,
+        allowAISContext: allowAIS,
         onSelect: (path) {
           selectedPath = path;
         },
