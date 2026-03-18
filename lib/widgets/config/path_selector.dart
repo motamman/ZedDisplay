@@ -47,6 +47,7 @@ class _PathSelectorDialogState extends State<PathSelectorDialog> {
   // AIS context state
   String? _selectedContext;        // null = self, else vesselId URN
   String _contextSearchQuery = ''; // filter vessels by name/MMSI
+  bool _contextPickerExpanded = false;
 
   final Map<String, List<String>> _categorizedPaths = {};
   final List<String> _categories = [
@@ -634,6 +635,11 @@ class _PathSelectorDialogState extends State<PathSelectorDialog> {
     final vesselList = _buildVesselList();
 
     return ExpansionTile(
+      key: ValueKey('context_picker_$_contextPickerExpanded'),
+      initiallyExpanded: _contextPickerExpanded,
+      onExpansionChanged: (expanded) {
+        _contextPickerExpanded = expanded;
+      },
       tilePadding: const EdgeInsets.symmetric(horizontal: 16),
       leading: Icon(
         _selectedContext != null ? Icons.directions_boat : Icons.home,
@@ -648,24 +654,25 @@ class _PathSelectorDialogState extends State<PathSelectorDialog> {
         style: TextStyle(fontSize: 11, color: Colors.grey[600]),
       ),
       children: [
-        // Search field for filtering vessels
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-          child: TextField(
-            decoration: const InputDecoration(
-              hintText: 'Filter by name or MMSI...',
-              isDense: true,
-              prefixIcon: Icon(Icons.search, size: 18),
-              border: OutlineInputBorder(),
+        // Search field for filtering vessels (only if many vessels)
+        if (vesselList.length > 5)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+            child: TextField(
+              decoration: const InputDecoration(
+                hintText: 'Filter by name or MMSI...',
+                isDense: true,
+                prefixIcon: Icon(Icons.search, size: 18),
+                border: OutlineInputBorder(),
+              ),
+              onChanged: (query) {
+                setState(() => _contextSearchQuery = query);
+              },
             ),
-            onChanged: (query) {
-              setState(() => _contextSearchQuery = query);
-            },
           ),
-        ),
         // Scrollable vessel list
         ConstrainedBox(
-          constraints: const BoxConstraints(maxHeight: 200),
+          constraints: const BoxConstraints(maxHeight: 150),
           child: vesselList.length <= 1
               ? const Center(
                   child: Text('No AIS vessels in range',
@@ -677,6 +684,7 @@ class _PathSelectorDialogState extends State<PathSelectorDialog> {
                       _selectedContext = value;
                       _selectedCategory = null;
                       _searchQuery = '';
+                      _contextPickerExpanded = false;
                     });
                     _loadPaths();
                   },

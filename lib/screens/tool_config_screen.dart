@@ -264,13 +264,17 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
     };
     final allowAIS = aisContextTools.contains(_selectedToolTypeId);
 
+    // Gauges need numeric-only filtering too
+    final isGaugeTool = _selectedToolTypeId == 'radial_gauge' ||
+                        _selectedToolTypeId == 'linear_gauge';
+
     // Step 1: Select path
     await showDialog(
       context: context,
       builder: (context) => PathSelectorDialog(
         signalKService: signalKService,
         useHistoricalPaths: _selectedToolTypeId == 'historical_chart',
-        numericOnly: isChartTool || isCompassTool,
+        numericOnly: isChartTool || isCompassTool || isGaugeTool,
         primaryAxisBaseUnit: primaryAxisBaseUnit,
         secondaryAxisBaseUnit: secondaryAxisBaseUnit,
         showBaseUnitInLabel: isChartTool,
