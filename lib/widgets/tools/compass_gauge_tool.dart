@@ -214,7 +214,7 @@ class CompassGaugeBuilder extends ToolBuilder {
           'compassStyle', // 'classic', 'minimal', 'marine'
         ],
         allowsUnitSelection: false,
-        allowsTTL: false,
+        allowsTTL: true,
       ),
     );
   }

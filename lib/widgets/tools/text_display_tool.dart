@@ -262,7 +262,7 @@ class TextDisplayBuilder extends ToolBuilder {
           'showValue',
           'showUnit',
         ],
-        allowsTTL: false,
+        allowsTTL: true,
       ),
     );
   }

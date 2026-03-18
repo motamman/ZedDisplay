@@ -218,7 +218,7 @@ class RealtimeChartBuilder extends ToolBuilder {
         ],
         allowsUnitSelection: false,
         allowsVisibilityToggles: false,
-        allowsTTL: false,
+        allowsTTL: true,
       ),
     );
   }

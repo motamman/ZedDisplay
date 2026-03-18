@@ -443,7 +443,7 @@ class PositionDisplayToolBuilder extends ToolBuilder {
         styleOptions: const [],
         allowsUnitSelection: false,
         allowsVisibilityToggles: false,
-        allowsTTL: false,
+        allowsTTL: true,
       ),
     );
   }

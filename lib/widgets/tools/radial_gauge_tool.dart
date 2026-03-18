@@ -191,7 +191,7 @@ class RadialGaugeBuilder extends ToolBuilder {
           'showUnit',
           'gaugeStyle', // 'arc', 'full', 'half', 'threequarter'
         ],
-        allowsTTL: false,
+        allowsTTL: true,
       ),
     );
   }
