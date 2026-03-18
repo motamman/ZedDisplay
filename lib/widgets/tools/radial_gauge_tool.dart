@@ -81,18 +81,23 @@ class _RadialGaugeToolState extends State<RadialGaugeTool> with ZonesMixin, Auto
 
     // Use MetadataStore for conversions
     final rawValue = _getRawValue(dataSource);
-    final value = _getConverted(dataSource.path, rawValue) ?? 0.0;
-
-    // Get style configuration
     final style = widget.config.style;
+
+    // Check if data is fresh (within TTL threshold)
+    final isDataFresh = dataSource.isFresh(
+      widget.signalKService,
+      ttlSeconds: style.ttlSeconds,
+    );
+
     final minValue = style.minValue ?? 0.0;
     final maxValue = style.maxValue ?? 100.0;
+    final value = isDataFresh ? (_getConverted(dataSource.path, rawValue) ?? 0.0) : minValue;
 
     // Get label from data source or style
     final label = dataSource.label ?? dataSource.path.toReadableLabel();
 
-    // Get formatted value using MetadataStore
-    final formattedValue = _formatValue(dataSource.path, rawValue);
+    // Get formatted value using MetadataStore, or "--" if stale
+    final formattedValue = isDataFresh ? _formatValue(dataSource.path, rawValue) : '--';
 
     // Get unit symbol from MetadataStore (prefer style override, fallback to metadata symbol)
     final metadata = widget.signalKService.metadataStore.get(dataSource.path);

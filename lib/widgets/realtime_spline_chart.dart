@@ -47,6 +47,7 @@ class RealtimeSplineChart extends StatefulWidget {
   final bool showMovingAverage;
   final int movingAverageWindow;
   final bool showValue;
+  final int? ttlSeconds;
 
   const RealtimeSplineChart({
     super.key,
@@ -63,6 +64,7 @@ class RealtimeSplineChart extends StatefulWidget {
     this.showMovingAverage = false,
     this.movingAverageWindow = 5,
     this.showValue = true,
+    this.ttlSeconds,
   });
 
   @override
@@ -208,6 +210,10 @@ class _RealtimeSplineChartState extends State<RealtimeSplineChart> with Automati
 
       for (int i = 0; i < widget.dataSources.length; i++) {
         final dataSource = widget.dataSources[i];
+        // Skip stale data sources
+        if (!dataSource.isFresh(widget.signalKService, ttlSeconds: widget.ttlSeconds)) {
+          continue;
+        }
         // Use MetadataStore (single source of truth) for conversions
         final dataPoint = dataSource.resolve(widget.signalKService);
         double? value;

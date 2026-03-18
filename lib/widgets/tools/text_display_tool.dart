@@ -39,16 +39,22 @@ class TextDisplayTool extends StatelessWidget {
     // Use default font size (scales based on widget size)
     const fontSize = 48.0;
 
+    // Check if data is fresh (within TTL threshold)
+    final isDataFresh = dataSource.isFresh(
+      signalKService,
+      ttlSeconds: config.style.ttlSeconds,
+    );
+
     // Get the data point to check if it's an object
     final dataPoint = dataSource.resolve(signalKService);
 
-    // Check if the value is an object (Map)
-    if (dataPoint?.value is Map) {
+    // Check if the value is an object (Map) and data is fresh
+    if (isDataFresh && dataPoint?.value is Map) {
       return _buildObjectDisplay(context, dataPoint!.value as Map, label, textColor, fontSize);
     }
 
     // Get raw SI value and convert using MetadataStore
-    final rawValue = (dataPoint?.value as num?)?.toDouble();
+    final rawValue = isDataFresh ? (dataPoint?.value as num?)?.toDouble() : null;
     final metadata = signalKService.metadataStore.get(dataSource.path);
 
     // Format the display value
@@ -66,7 +72,7 @@ class TextDisplayTool extends StatelessWidget {
         displayValue = rawValue.toStringAsFixed(1);
       }
     } else {
-      // No data available
+      // No data available or stale
       displayValue = '--';
 
       // Get unit symbol from MetadataStore or style override

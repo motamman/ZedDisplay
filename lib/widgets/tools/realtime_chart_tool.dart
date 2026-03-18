@@ -151,6 +151,7 @@ class _RealtimeChartToolState extends State<RealtimeChartTool> with AutomaticKee
           showMovingAverage: showMovingAverage,
           movingAverageWindow: movingAverageWindow,
           showValue: widget.config.style.showValue ?? true,
+          ttlSeconds: widget.config.style.ttlSeconds,
         ),
         // Info button in top-right corner
         Positioned(

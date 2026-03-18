@@ -65,6 +65,12 @@ class _PositionDisplayToolState extends State<PositionDisplayTool> {
 
   (double?, double?) _getPosition() {
     final ds = _primaryDataSource;
+
+    // Check if data is fresh (within TTL threshold)
+    if (ds != null && !ds.isFresh(widget.signalKService, ttlSeconds: widget.config.style.ttlSeconds)) {
+      return (null, null);
+    }
+
     final posData = ds != null
         ? ds.resolve(widget.signalKService)
         : widget.signalKService.getValue(_defaultPath);

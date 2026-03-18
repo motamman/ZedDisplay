@@ -82,7 +82,14 @@ class _CompassGaugeToolState extends State<CompassGaugeTool> {
 
     // Use MetadataStore for conversions
     final rawValue = _getRawValue(dataSource);
-    var heading = _getConverted(dataSource.path, rawValue) ?? 0.0;
+
+    // Check if data is fresh (within TTL threshold)
+    final isDataFresh = dataSource.isFresh(
+      widget.signalKService,
+      ttlSeconds: widget.config.style.ttlSeconds,
+    );
+
+    var heading = isDataFresh ? (_getConverted(dataSource.path, rawValue) ?? 0.0) : 0.0;
 
     // Apply showLabel uniformly to ALL paths
     final showLabel = widget.config.style.showLabel == true;
@@ -92,8 +99,8 @@ class _CompassGaugeToolState extends State<CompassGaugeTool> {
         ? (dataSource.label ?? dataSource.path.toReadableLabel())
         : '';
 
-    // Get formatted value using MetadataStore
-    final formattedValue = _formatValue(dataSource.path, rawValue);
+    // Get formatted value using MetadataStore, or "--" if stale
+    final formattedValue = isDataFresh ? _formatValue(dataSource.path, rawValue) : '--';
 
     // Parse color from hex string
     final primaryColor = widget.config.style.primaryColor?.toColor(
