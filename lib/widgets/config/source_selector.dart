@@ -6,6 +6,7 @@ class SourceSelectorDialog extends StatefulWidget {
   final SignalKService signalKService;
   final String path;
   final String? currentSource;
+  final String? vesselContext;
   final Function(String? source) onSelect;
 
   const SourceSelectorDialog({
@@ -13,6 +14,7 @@ class SourceSelectorDialog extends StatefulWidget {
     required this.signalKService,
     required this.path,
     this.currentSource,
+    this.vesselContext,
     required this.onSelect,
   });
 
@@ -38,7 +40,7 @@ class _SourceSelectorDialogState extends State<SourceSelectorDialog> {
     });
 
     try {
-      final sources = await widget.signalKService.getSourcesForPath(widget.path);
+      final sources = await widget.signalKService.getSourcesForPath(widget.path, vesselId: widget.vesselContext);
       setState(() {
         _sources = sources;
         _loading = false;

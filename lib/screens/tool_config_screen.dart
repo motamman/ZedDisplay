@@ -4,6 +4,7 @@ import 'package:flutter_colorpicker/flutter_colorpicker.dart';
 import '../models/tool_config.dart';
 import '../models/tool_definition.dart' show SlotDefinition, ToolDefinition;
 import '../models/tool.dart';
+import '../services/ais_favorites_service.dart';
 import '../services/signalk_service.dart';
 import '../services/tool_registry.dart';
 import '../services/tool_service.dart';
@@ -258,17 +259,35 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
       debugPrint('   primary=$primaryAxisBaseUnit, secondary=$secondaryAxisBaseUnit');
     }
 
-    // Step 1: Select path
+    // Tool types that support AIS vessel context
+    const aisContextTools = {
+      'radial_gauge', 'linear_gauge', 'compass', 'text_display', 'position_display', 'realtime_chart',
+    };
+    final allowAIS = aisContextTools.contains(_selectedToolTypeId);
+
+    // Gauges need numeric-only filtering too
+    final isGaugeTool = _selectedToolTypeId == 'radial_gauge' ||
+                        _selectedToolTypeId == 'linear_gauge';
+
+    // Step 1: Select path (with optional AIS vessel context)
+    String? selectedVesselContext;
     await showDialog(
       context: context,
       builder: (context) => PathSelectorDialog(
         signalKService: signalKService,
         useHistoricalPaths: _selectedToolTypeId == 'historical_chart',
-        numericOnly: isChartTool || isCompassTool,
+        numericOnly: isChartTool || isCompassTool || isGaugeTool,
         primaryAxisBaseUnit: primaryAxisBaseUnit,
         secondaryAxisBaseUnit: secondaryAxisBaseUnit,
         showBaseUnitInLabel: isChartTool,
         requiredCategory: isCompassTool ? 'angle' : null,
+        allowAISContext: allowAIS,
+        onSelectWithContext: allowAIS
+            ? (path, vesselContext) {
+                selectedPath = path;
+                selectedVesselContext = vesselContext;
+              }
+            : null,
         onSelect: (path) {
           selectedPath = path;
         },
@@ -298,6 +317,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
           source: config['source'] as String?,
           label: config['label'] as String?,
           baseUnit: baseUnit,
+          vesselContext: selectedVesselContext,
         ));
       });
     }
@@ -309,11 +329,38 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
     });
   }
 
+  /// Build a display label for a vessel context URN (e.g., "⭐ WILLIAM F FALLON JR (367073820)").
+  String _vesselContextLabel(String vesselContext) {
+    final signalKService = Provider.of<SignalKService>(context, listen: false);
+    final vessel = signalKService.aisVesselRegistry.vessels[vesselContext];
+    final mmsi = RegExp(r'(\d{9})').firstMatch(vesselContext)?.group(1);
+
+    // Check favorites
+    try {
+      final favService = context.read<AISFavoritesService>();
+      if (mmsi != null && favService.isFavorite(mmsi)) {
+        final fav = favService.favorites.firstWhere((f) => f.mmsi == mmsi);
+        return '⭐ ${fav.name} ($mmsi)';
+      }
+    } catch (_) {}
+
+    if (vessel?.name != null) {
+      return mmsi != null ? '${vessel!.name} ($mmsi)' : vessel!.name!;
+    }
+    return mmsi != null ? 'MMSI $mmsi' : vesselContext;
+  }
+
   // NOTE: _loadSignalKWebApps() method removed - WebViewConfigurator handles this now
 
   void _editDataSource(int index) async {
     final dataSource = _dataSources[index];
     final signalKService = Provider.of<SignalKService>(context, listen: false);
+
+    // Tool types that support AIS vessel context
+    const aisContextTools = {
+      'radial_gauge', 'linear_gauge', 'compass', 'text_display', 'position_display', 'realtime_chart',
+    };
+    final allowAIS = aisContextTools.contains(_selectedToolTypeId);
 
     await showDialog(
       context: context,
@@ -321,12 +368,16 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
         dataSource: dataSource,
         signalKService: signalKService,
         slotMode: _isSlotMode,
-        onSave: (newPath, newSource, newLabel) {
+        allowAISContext: allowAIS,
+        onSave: (newPath, newSource, newLabel, newVesselContext) {
           setState(() {
             _dataSources[index] = DataSource(
               path: newPath ?? dataSource.path,
               source: newSource,
               label: newLabel?.trim().isEmpty == true ? null : newLabel,
+              baseUnit: dataSource.baseUnit,
+              color: dataSource.color,
+              vesselContext: newVesselContext,
             );
           });
         },
@@ -792,6 +843,15 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Text(isWebView ? (ds.label ?? 'No URL') : (isSlotEmpty ? 'Tap edit to assign a path' : ds.path)),
+                                  if (ds.vesselContext != null)
+                                    Text(
+                                      _vesselContextLabel(ds.vesselContext!),
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w500,
+                                        color: Theme.of(context).colorScheme.tertiary,
+                                      ),
+                                    ),
                                   if (!inSlotMode && roleLabel != null)
                                     Text(
                                       roleLabel,
@@ -1226,14 +1286,16 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
 class _EditDataSourceDialog extends StatefulWidget {
   final DataSource dataSource;
   final SignalKService signalKService;
-  final Function(String?, String?, String?) onSave; // (newPath, newSource, newLabel)
+  final Function(String?, String?, String?, String?) onSave; // (newPath, newSource, newLabel, newVesselContext)
   final bool slotMode;
+  final bool allowAISContext;
 
   const _EditDataSourceDialog({
     required this.dataSource,
     required this.signalKService,
     required this.onSave,
     this.slotMode = false,
+    this.allowAISContext = false,
   });
 
   @override
@@ -1244,6 +1306,7 @@ class _EditDataSourceDialogState extends State<_EditDataSourceDialog> {
   late String _newPath;
   late String? _newSource;
   late String? _newLabel;
+  late String? _newVesselContext;
 
   @override
   void initState() {
@@ -1251,6 +1314,7 @@ class _EditDataSourceDialogState extends State<_EditDataSourceDialog> {
     _newPath = widget.dataSource.path;
     _newSource = widget.dataSource.source;
     _newLabel = widget.dataSource.label;
+    _newVesselContext = widget.dataSource.vesselContext;
   }
 
   Future<void> _selectPath() async {
@@ -1258,6 +1322,16 @@ class _EditDataSourceDialogState extends State<_EditDataSourceDialog> {
       context: context,
       builder: (context) => PathSelectorDialog(
         signalKService: widget.signalKService,
+        allowAISContext: widget.allowAISContext,
+        initialVesselContext: widget.allowAISContext ? _newVesselContext : null,
+        onSelectWithContext: widget.allowAISContext
+            ? (path, vesselContext) {
+                setState(() {
+                  _newPath = path;
+                  _newVesselContext = vesselContext;
+                });
+              }
+            : null,
         onSelect: (path) {
           setState(() {
             _newPath = path;
@@ -1274,6 +1348,7 @@ class _EditDataSourceDialogState extends State<_EditDataSourceDialog> {
         signalKService: widget.signalKService,
         path: _newPath,
         currentSource: _newSource,
+        vesselContext: _newVesselContext,
         onSelect: (source) {
           setState(() {
             _newSource = source;
@@ -1281,6 +1356,27 @@ class _EditDataSourceDialogState extends State<_EditDataSourceDialog> {
         },
       ),
     );
+  }
+
+  /// Build a display label for a vessel context URN.
+  String _vesselContextLabel(String vesselContext) {
+    final vessel = widget.signalKService.aisVesselRegistry.vessels[vesselContext];
+    final mmsi = RegExp(r'(\d{9})').firstMatch(vesselContext)?.group(1);
+
+    // Check favorites
+    AISFavoritesService? favService;
+    try {
+      favService = context.read<AISFavoritesService>();
+    } catch (_) {}
+    if (mmsi != null && favService != null && favService.isFavorite(mmsi)) {
+      final fav = favService.favorites.firstWhere((f) => f.mmsi == mmsi);
+      return '${fav.name} ($mmsi)';
+    }
+
+    if (vessel?.name != null) {
+      return mmsi != null ? '${vessel!.name} ($mmsi)' : vessel!.name!;
+    }
+    return mmsi != null ? 'MMSI $mmsi' : vesselContext;
   }
 
   @override
@@ -1299,6 +1395,27 @@ class _EditDataSourceDialogState extends State<_EditDataSourceDialog> {
             trailing: const Icon(Icons.edit),
             onTap: _selectPath,
           ),
+          // Vessel context indicator
+          if (_newVesselContext != null)
+            Padding(
+              padding: const EdgeInsets.only(left: 16, bottom: 4),
+              child: Row(
+                children: [
+                  Icon(Icons.directions_boat, size: 14, color: Colors.blue[400]),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      _vesselContextLabel(_newVesselContext!),
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.blue[400],
+                        fontStyle: FontStyle.italic,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
           const Divider(),
           // Source selection
           ListTile(
@@ -1329,7 +1446,7 @@ class _EditDataSourceDialogState extends State<_EditDataSourceDialog> {
         ),
         TextButton(
           onPressed: () {
-            widget.onSave(_newPath, _newSource, _newLabel);
+            widget.onSave(_newPath, _newSource, _newLabel, _newVesselContext);
             Navigator.of(context).pop();
           },
           child: const Text('Save'),

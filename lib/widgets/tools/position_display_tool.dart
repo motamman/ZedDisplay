@@ -29,13 +29,11 @@ class _PositionDisplayToolState extends State<PositionDisplayTool> {
   // Default path
   static const _defaultPath = 'navigation.position';
 
-  String get _positionPath {
-    if (widget.config.dataSources.isNotEmpty &&
-        widget.config.dataSources[0].path.isNotEmpty) {
-      return widget.config.dataSources[0].path;
-    }
-    return _defaultPath;
-  }
+  DataSource? get _primaryDataSource =>
+      widget.config.dataSources.isNotEmpty &&
+      widget.config.dataSources[0].path.isNotEmpty
+          ? widget.config.dataSources[0]
+          : null;
 
   String get _format {
     return widget.config.style.customProperties?['format'] as String? ?? 'ddm';
@@ -66,7 +64,10 @@ class _PositionDisplayToolState extends State<PositionDisplayTool> {
   }
 
   (double?, double?) _getPosition() {
-    final posData = widget.signalKService.getValue(_positionPath);
+    final ds = _primaryDataSource;
+    final posData = ds != null
+        ? ds.resolve(widget.signalKService)
+        : widget.signalKService.getValue(_defaultPath);
     if (posData?.value is Map) {
       final posMap = posData!.value as Map;
       final lat = posMap['latitude'];

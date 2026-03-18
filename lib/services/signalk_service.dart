@@ -1705,15 +1705,16 @@ class SignalKService extends ChangeNotifier implements DataService {
 
   /// Get available sources for a specific path
   /// Returns a map of source labels and their metadata
-  Future<Map<String, dynamic>?> getSourcesForPath(String path) async {
+  Future<Map<String, dynamic>?> getSourcesForPath(String path, {String? vesselId}) async {
     final protocol = _useSecureConnection ? 'https' : 'http';
+    final restPath = vesselId ?? _vesselRestPath;
 
     // Convert path to API format (e.g., navigation.speedOverGround -> navigation/speedOverGround)
     final apiPath = path.replaceAll('.', '/');
 
     try {
       final response = await http.get(
-        Uri.parse('$protocol://$_serverUrl/signalk/v1/api/vessels/$_vesselRestPath/$apiPath'),
+        Uri.parse('$protocol://$_serverUrl/signalk/v1/api/vessels/$restPath/$apiPath'),
         headers: _getHeaders(),
       ).timeout(const Duration(seconds: 20)); // Increased from 5s for busy servers
 

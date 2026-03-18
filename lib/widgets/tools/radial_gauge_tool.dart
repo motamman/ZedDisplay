@@ -43,8 +43,8 @@ class _RadialGaugeToolState extends State<RadialGaugeTool> with ZonesMixin, Auto
   }
 
   /// Helper to get raw SI value from a data point
-  double? _getRawValue(String path) {
-    final dataPoint = widget.signalKService.getValue(path);
+  double? _getRawValue(DataSource ds) {
+    final dataPoint = ds.resolve(widget.signalKService);
     if (dataPoint?.original is num) {
       return (dataPoint!.original as num).toDouble();
     }
@@ -80,7 +80,7 @@ class _RadialGaugeToolState extends State<RadialGaugeTool> with ZonesMixin, Auto
     final dataSource = widget.config.dataSources.first;
 
     // Use MetadataStore for conversions
-    final rawValue = _getRawValue(dataSource.path);
+    final rawValue = _getRawValue(dataSource);
     final value = _getConverted(dataSource.path, rawValue) ?? 0.0;
 
     // Get style configuration

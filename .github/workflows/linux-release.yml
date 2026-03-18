@@ -1,0 +1,80 @@
+name: Linux Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'        # All platforms
+      - 'v*.*.*-linux'  # Linux only
+
+permissions:
+  contents: write
+
+jobs:
+  build-linux:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    # Skip if this is an iOS-only or Android-only tag
+    if: ${{ !endsWith(github.ref, '-ios') && !endsWith(github.ref, '-android') && !endsWith(github.ref, '-windows') && !endsWith(github.ref, '-macos') }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libstdc++-12-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev gstreamer1.0-plugins-good
+
+      - name: Setup Flutter (x64)
+        if: matrix.arch == 'x64'
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: false
+
+      - name: Setup Flutter (arm64 — clone from source)
+        if: matrix.arch == 'arm64'
+        run: |
+          git clone https://github.com/flutter/flutter.git -b stable --depth 1 "$HOME/flutter"
+          echo "$HOME/flutter/bin" >> $GITHUB_PATH
+
+      - name: Verify Flutter version
+        run: |
+          flutter --version
+          flutter doctor -v
+
+      - name: Clean and get dependencies
+        run: |
+          flutter clean
+          flutter pub get
+
+      - name: Build Linux release
+        run: flutter build linux --release
+
+      - name: Get version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+
+      - name: Package Linux build
+        run: |
+          BUNDLE_DIR=$(find build/linux -path "*/release/bundle" -type d | head -1)
+          cp linux/install.sh "$BUNDLE_DIR/"
+          cd "$BUNDLE_DIR"
+          tar czf "$GITHUB_WORKSPACE/zed-display-linux-${{ matrix.arch }}-${{ steps.version.outputs.VERSION }}.tar.gz" .
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Release ${{ steps.version.outputs.VERSION }}
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          files: |
+            zed-display-linux-${{ matrix.arch }}-${{ steps.version.outputs.VERSION }}.tar.gz

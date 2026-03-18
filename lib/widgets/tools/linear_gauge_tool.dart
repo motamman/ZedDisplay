@@ -52,8 +52,8 @@ class _LinearGaugeToolState extends State<LinearGaugeTool> with ZonesMixin, Auto
   }
 
   /// Helper to get raw SI value from a data point
-  double? _getRawValue(String path) {
-    final dataPoint = widget.signalKService.getValue(path);
+  double? _getRawValue(DataSource ds) {
+    final dataPoint = ds.resolve(widget.signalKService);
     if (dataPoint?.original is num) {
       return (dataPoint!.original as num).toDouble();
     }
@@ -98,7 +98,7 @@ class _LinearGaugeToolState extends State<LinearGaugeTool> with ZonesMixin, Auto
     final style = widget.config.style;
 
     // Use MetadataStore for conversions
-    final rawSIValue = _getRawValue(dataSource.path);
+    final rawSIValue = _getRawValue(dataSource);
     final convertedValue = _getConverted(dataSource.path, rawSIValue);
 
     // Get style configuration
@@ -106,9 +106,8 @@ class _LinearGaugeToolState extends State<LinearGaugeTool> with ZonesMixin, Auto
     final maxValue = style.maxValue ?? 100.0;
 
     // Check if data is fresh (within TTL threshold)
-    final isDataFresh = widget.signalKService.isDataFresh(
-      dataSource.path,
-      source: dataSource.source,
+    final isDataFresh = dataSource.isFresh(
+      widget.signalKService,
       ttlSeconds: style.ttlSeconds,
     );
 

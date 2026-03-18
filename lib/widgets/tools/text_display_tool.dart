@@ -40,7 +40,7 @@ class TextDisplayTool extends StatelessWidget {
     const fontSize = 48.0;
 
     // Get the data point to check if it's an object
-    final dataPoint = signalKService.getValue(dataSource.path);
+    final dataPoint = dataSource.resolve(signalKService);
 
     // Check if the value is an object (Map)
     if (dataPoint?.value is Map) {

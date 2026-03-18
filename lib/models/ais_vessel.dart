@@ -58,4 +58,21 @@ class AISVessel {
 
   int get ageMinutes => DateTime.now().difference(lastSeen).inMinutes;
   bool get hasPosition => latitude != null && longitude != null;
+
+  /// Maps SignalK path names to current values (only non-null fields).
+  Map<String, dynamic> get availablePathValues {
+    final map = <String, dynamic>{};
+    if (latitude != null && longitude != null) {
+      map['navigation.position'] = {'latitude': latitude, 'longitude': longitude};
+    }
+    if (cogRad != null) map['navigation.courseOverGroundTrue'] = cogRad;
+    if (sogMs != null) map['navigation.speedOverGround'] = sogMs;
+    if (headingTrueRad != null) map['navigation.headingTrue'] = headingTrueRad;
+    if (name != null) map['name'] = name;
+    if (aisShipType != null) map['design.aisShipType'] = aisShipType;
+    if (navState != null) map['navigation.state'] = navState;
+    if (aisClass != null) map['sensors.ais.class'] = aisClass;
+    if (aisStatus != null) map['sensors.ais.status'] = aisStatus;
+    return map;
+  }
 }
