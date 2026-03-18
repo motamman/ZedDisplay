@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.71+48] - 2026-03-17
+
+### Added
+- **CI/CD — Linux Builds**: GitHub Actions workflow for Linux x64 and arm64 (RPi5) releases
+- **CI/CD — Windows Builds**: GitHub Actions workflow for Windows x64 releases
+- **CI/CD — macOS Builds**: GitHub Actions workflow for macOS releases
+
+### Changed
+- **CI/CD — Platform Tag Filters**: All release workflows now support platform-specific tags (e.g., `v*-linux`, `v*-windows`, `v*-macos`) and skip unrelated builds
+
+### Fixed
+- **Build Warnings**: Cleaned up all `flutter analyze` warnings — removed unused methods, redundant null assertions, and minor style issues
+
 ## [0.5.70+47] - 2026-03-17
 
 ### Added
