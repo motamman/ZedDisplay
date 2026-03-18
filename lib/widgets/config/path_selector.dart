@@ -62,7 +62,23 @@ class _PathSelectorDialogState extends State<PathSelectorDialog> {
   @override
   void initState() {
     super.initState();
+    if (widget.allowAISContext) {
+      widget.signalKService.aisVesselRegistry.addListener(_onRegistryChanged);
+      widget.signalKService.fetchAllAISVessels();
+    }
     _loadPaths();
+  }
+
+  @override
+  void dispose() {
+    if (widget.allowAISContext) {
+      widget.signalKService.aisVesselRegistry.removeListener(_onRegistryChanged);
+    }
+    super.dispose();
+  }
+
+  void _onRegistryChanged() {
+    if (mounted) setState(() {});
   }
 
   Future<void> _loadPaths() async {
