@@ -38,6 +38,10 @@ class AISPolarChart extends StatefulWidget {
   final ValueChanged<Map<String, dynamic>>? onCpaConfigChanged;
   final double maxRangeNm; // Max display range in nautical miles (filters garbage AIS data)
   final String vesselLookupService; // External lookup service key
+  final bool initialShowMapView;
+  final bool initialHideStale;
+  final ValueChanged<bool>? onViewModeChanged;
+  final ValueChanged<bool>? onHideStaleChanged;
 
   const AISPolarChart({
     super.key,
@@ -56,6 +60,10 @@ class AISPolarChart extends StatefulWidget {
     this.onCpaConfigChanged,
     this.maxRangeNm = 100.0,
     this.vesselLookupService = 'vesselfinder',
+    this.initialShowMapView = false,
+    this.initialHideStale = false,
+    this.onViewModeChanged,
+    this.onHideStaleChanged,
   });
 
   @override
@@ -99,11 +107,11 @@ class _AISPolarChartState extends State<AISPolarChart>
   bool _hasSubscribed = false;
   bool _hasLoadedAIS = false;
   bool _lastSeenConnected = false;
-  bool _showMapView = false; // Toggle between polar chart and map view
+  late bool _showMapView; // Toggle between polar chart and map view
   bool _mapAutoFollow = true; // Auto-follow own vessel on map
   bool _fullScreenRadar = false; // Full-screen radar/map mode
   bool _showVesselListOverlay = false; // Vessel list overlay in fullscreen
-  bool _hideStale = false; // Hide stale vessels from display
+  late bool _hideStale; // Hide stale vessels from display
   bool _showProjections = true; // Show projected course lines (declutter toggle)
   List<_VesselPoint> _displayVessels = []; // Cached filtered vessel list
   int _vesselListTabIndex = 0; // 0=Nearby, 1=Favorites
@@ -138,6 +146,10 @@ class _AISPolarChartState extends State<AISPolarChart>
   @override
   void initState() {
     super.initState();
+    // Restore persisted display state
+    _showMapView = widget.initialShowMapView;
+    _hideStale = widget.initialHideStale;
+
     // Listen for CPA alert state changes (icon color updates)
     widget.cpaAlertService?.addListener(_onCpaChanged);
 
@@ -1334,7 +1346,10 @@ class _AISPolarChartState extends State<AISPolarChart>
         // Map/Polar toggle
         _buildOverlayButton(
           icon: _showMapView ? Icons.radar : Icons.map,
-          onPressed: () => setState(() => _showMapView = !_showMapView),
+          onPressed: () {
+            setState(() => _showMapView = !_showMapView);
+            widget.onViewModeChanged?.call(_showMapView);
+          },
         ),
         // Auto-range toggle (polar view only)
         if (!_showMapView) ...[
@@ -1371,10 +1386,13 @@ class _AISPolarChartState extends State<AISPolarChart>
         // Hide stale vessels toggle
         _buildOverlayButton(
           icon: _hideStale ? Icons.visibility_off : Icons.visibility,
-          onPressed: () => setState(() {
-            _hideStale = !_hideStale;
-            _updateDisplayVessels();
-          }),
+          onPressed: () {
+            setState(() {
+              _hideStale = !_hideStale;
+              _updateDisplayVessels();
+            });
+            widget.onHideStaleChanged?.call(_hideStale);
+          },
           color: _hideStale ? Colors.orange : null,
         ),
         // CPA alert settings

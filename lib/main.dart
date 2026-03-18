@@ -32,6 +32,7 @@ import 'widgets/crew/intercom_panel.dart';
 import 'services/anchor_alarm_service.dart';
 import 'services/alert_coordinator.dart';
 import 'services/ais_favorites_service.dart';
+import 'services/cpa_alert_service.dart';
 import 'services/find_home_target_service.dart';
 import 'services/dashboard_store_service.dart';
 import 'models/alert_event.dart' as alert_models;
@@ -183,6 +184,15 @@ void main() async {
   aisFavoritesService.loadFromStorage(storageService);
   aisFavoritesService.startMonitoring(signalKService, alertCoordinator);
 
+  // Initialize CPA alert service (global singleton — survives widget rebuilds)
+  final cpaAlertService = CpaAlertService(
+    signalKService: signalKService,
+    notificationService: notificationService,
+    messagingService: messagingService,
+    storageService: storageService,
+    alertCoordinator: alertCoordinator,
+  );
+
   // Initialize scale service (for menu items)
   await ScaleService.instance.initialize();
 
@@ -202,6 +212,7 @@ void main() async {
     intercomService: intercomService,
     alertCoordinator: alertCoordinator,
     aisFavoritesService: aisFavoritesService,
+    cpaAlertService: cpaAlertService,
     findHomeTargetService: findHomeTargetService,
     dashboardStoreService: dashboardStoreService,
   ));
@@ -223,6 +234,7 @@ class ZedDisplayApp extends StatefulWidget {
   final IntercomService intercomService;
   final AlertCoordinator alertCoordinator;
   final AISFavoritesService aisFavoritesService;
+  final CpaAlertService cpaAlertService;
   final FindHomeTargetService findHomeTargetService;
   final DashboardStoreService dashboardStoreService;
 
@@ -243,6 +255,7 @@ class ZedDisplayApp extends StatefulWidget {
     required this.intercomService,
     required this.alertCoordinator,
     required this.aisFavoritesService,
+    required this.cpaAlertService,
     required this.findHomeTargetService,
     required this.dashboardStoreService,
   });
@@ -497,6 +510,7 @@ class _ZedDisplayAppState extends State<ZedDisplayApp> with WidgetsBindingObserv
         ChangeNotifierProvider.value(value: widget.intercomService),
         ChangeNotifierProvider.value(value: widget.alertCoordinator),
         ChangeNotifierProvider.value(value: widget.aisFavoritesService),
+        ChangeNotifierProvider.value(value: widget.cpaAlertService),
         ChangeNotifierProvider.value(value: widget.findHomeTargetService),
         ChangeNotifierProvider.value(value: widget.dashboardStoreService),
       ],
