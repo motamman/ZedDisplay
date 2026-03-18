@@ -44,8 +44,9 @@ jobs:
 
       - name: Package macOS build
         run: |
+          cp macos/install.sh build/macos/Build/Products/Release/
           cd build/macos/Build/Products/Release
-          zip -r "$GITHUB_WORKSPACE/zed-display-macos-${{ steps.version.outputs.VERSION }}.zip" *.app
+          zip -r "$GITHUB_WORKSPACE/zed-display-macos-${{ steps.version.outputs.VERSION }}.zip" *.app install.sh
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
