@@ -31,11 +31,18 @@ jobs:
           sudo apt-get update -y
           sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libstdc++-12-dev
 
-      - name: Setup Flutter
+      - name: Setup Flutter (x64)
+        if: matrix.arch == 'x64'
         uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
           cache: false
+
+      - name: Setup Flutter (arm64 — clone from source)
+        if: matrix.arch == 'arm64'
+        run: |
+          git clone https://github.com/flutter/flutter.git -b stable --depth 1 "$HOME/flutter"
+          echo "$HOME/flutter/bin" >> $GITHUB_PATH
 
       - name: Verify Flutter version
         run: |
