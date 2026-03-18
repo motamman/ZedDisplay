@@ -239,9 +239,21 @@ class HistoricalDataService {
   }
 
   /// Get available paths from the history API
-  Future<List<String>> getAvailablePaths() async {
+  ///
+  /// Optional parameters narrow the result to paths that actually have data
+  /// for the given [context] and/or time range ([from]..[to]).
+  Future<List<String>> getAvailablePaths({
+    String? context,
+    DateTime? from,
+    DateTime? to,
+  }) async {
     final protocol = useSecureConnection ? 'https' : 'http';
-    final uri = Uri.parse('$protocol://$serverUrl/signalk/v1/history/paths');
+    final queryParams = <String, String>{};
+    if (context != null) queryParams['context'] = context;
+    if (from != null) queryParams['from'] = from.toUtc().toIso8601String();
+    if (to != null) queryParams['to'] = to.toUtc().toIso8601String();
+    final uri = Uri.parse('$protocol://$serverUrl/signalk/v1/history/paths')
+        .replace(queryParameters: queryParams.isEmpty ? null : queryParams);
 
     if (kDebugMode) {
       print('Fetching available paths from: $uri');
