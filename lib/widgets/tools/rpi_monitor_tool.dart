@@ -7,7 +7,7 @@ import '../tool_info_button.dart';
 
 /// Tool for monitoring Raspberry Pi system metrics
 /// Requires signalk-rpi-monitor and signalk-rpi-uptime plugins
-class RpiMonitorTool extends StatelessWidget {
+class RpiMonitorTool extends StatefulWidget {
   final ToolConfig config;
   final SignalKService signalKService;
 
@@ -16,6 +16,39 @@ class RpiMonitorTool extends StatelessWidget {
     required this.config,
     required this.signalKService,
   });
+
+  @override
+  State<RpiMonitorTool> createState() => _RpiMonitorToolState();
+}
+
+class _RpiMonitorToolState extends State<RpiMonitorTool> {
+  static const _ownerId = 'rpi_monitor';
+  static const _paths = [
+    'environment.rpi.cpu.utilisation',
+    'environment.rpi.cpu.core.1.utilisation',
+    'environment.rpi.cpu.core.2.utilisation',
+    'environment.rpi.cpu.core.3.utilisation',
+    'environment.rpi.cpu.core.4.utilisation',
+    'environment.rpi.cpu.temperature',
+    'environment.rpi.gpu.temperature',
+    'environment.rpi.uptime',
+    'environment.rpi.memory.utilisation',
+    'environment.rpi.storage.utilisation',
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    widget.signalKService.subscribeToPaths(_paths, ownerId: _ownerId);
+  }
+
+  @override
+  void dispose() {
+    widget.signalKService.unsubscribeFromPaths(_paths, ownerId: _ownerId);
+    super.dispose();
+  }
+
+  SignalKService get signalKService => widget.signalKService;
 
   /// Helper to get raw SI value from a data point
   double? _getRawValue(String path) {
