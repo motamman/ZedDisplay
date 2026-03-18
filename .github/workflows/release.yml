@@ -17,7 +17,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Extract release notes from WHATSNEW.md
         run: |
@@ -34,7 +34,7 @@ jobs:
           echo "--- Character count: $(wc -c < distribution/whatsnew/whatsnew-en-US) ---"
 
       - name: Setup Java 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: 'temurin'
           java-version: '17'
