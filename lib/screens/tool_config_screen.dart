@@ -4,6 +4,7 @@ import 'package:flutter_colorpicker/flutter_colorpicker.dart';
 import '../models/tool_config.dart';
 import '../models/tool_definition.dart' show SlotDefinition, ToolDefinition;
 import '../models/tool.dart';
+import '../services/ais_favorites_service.dart';
 import '../services/signalk_service.dart';
 import '../services/tool_registry.dart';
 import '../services/tool_service.dart';
@@ -268,7 +269,8 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
     final isGaugeTool = _selectedToolTypeId == 'radial_gauge' ||
                         _selectedToolTypeId == 'linear_gauge';
 
-    // Step 1: Select path
+    // Step 1: Select path (with optional AIS vessel context)
+    String? selectedVesselContext;
     await showDialog(
       context: context,
       builder: (context) => PathSelectorDialog(
@@ -280,6 +282,12 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
         showBaseUnitInLabel: isChartTool,
         requiredCategory: isCompassTool ? 'angle' : null,
         allowAISContext: allowAIS,
+        onSelectWithContext: allowAIS
+            ? (path, vesselContext) {
+                selectedPath = path;
+                selectedVesselContext = vesselContext;
+              }
+            : null,
         onSelect: (path) {
           selectedPath = path;
         },
@@ -309,6 +317,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
           source: config['source'] as String?,
           label: config['label'] as String?,
           baseUnit: baseUnit,
+          vesselContext: selectedVesselContext,
         ));
       });
     }
@@ -318,6 +327,27 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
     setState(() {
       _dataSources.removeAt(index);
     });
+  }
+
+  /// Build a display label for a vessel context URN (e.g., "⭐ WILLIAM F FALLON JR (367073820)").
+  String _vesselContextLabel(String vesselContext) {
+    final signalKService = Provider.of<SignalKService>(context, listen: false);
+    final vessel = signalKService.aisVesselRegistry.vessels[vesselContext];
+    final mmsi = RegExp(r'(\d{9})').firstMatch(vesselContext)?.group(1);
+
+    // Check favorites
+    try {
+      final favService = context.read<AISFavoritesService>();
+      if (mmsi != null && favService.isFavorite(mmsi)) {
+        final fav = favService.favorites.firstWhere((f) => f.mmsi == mmsi);
+        return '⭐ ${fav.name} ($mmsi)';
+      }
+    } catch (_) {}
+
+    if (vessel?.name != null) {
+      return mmsi != null ? '${vessel!.name} ($mmsi)' : vessel!.name!;
+    }
+    return mmsi != null ? 'MMSI $mmsi' : vesselContext;
   }
 
   // NOTE: _loadSignalKWebApps() method removed - WebViewConfigurator handles this now
@@ -803,6 +833,15 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Text(isWebView ? (ds.label ?? 'No URL') : (isSlotEmpty ? 'Tap edit to assign a path' : ds.path)),
+                                  if (ds.vesselContext != null)
+                                    Text(
+                                      _vesselContextLabel(ds.vesselContext!),
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w500,
+                                        color: Theme.of(context).colorScheme.tertiary,
+                                      ),
+                                    ),
                                   if (!inSlotMode && roleLabel != null)
                                     Text(
                                       roleLabel,

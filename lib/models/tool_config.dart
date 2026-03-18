@@ -10,6 +10,7 @@ class DataSource {
   final String? label;          // Display label override
   final String? color;          // For multi-path tools (hex color string)
   final String? baseUnit;       // SI base unit for axis grouping (e.g., "m/s", "K", "rad")
+  final String? vesselContext;  // AIS vessel ID URN (null = self vessel)
 
   DataSource({
     required this.path,
@@ -17,6 +18,7 @@ class DataSource {
     this.label,
     this.color,
     this.baseUnit,
+    this.vesselContext,
   });
 
   factory DataSource.fromJson(Map<String, dynamic> json) =>
