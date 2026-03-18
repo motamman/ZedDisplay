@@ -46,7 +46,7 @@ abstract class BaseTool extends StatelessWidget {
 
   /// Gets the data point for a data source
   SignalKDataPoint? getDataPoint(DataSource dataSource) =>
-      signalKService.getValue(dataSource.path, source: dataSource.source);
+      dataSource.resolve(signalKService);
 
   /// Gets the primary data point (from first data source)
   SignalKDataPoint? get primaryDataPoint => primaryDataSource != null

@@ -27,8 +27,8 @@ class _CompassGaugeToolState extends State<CompassGaugeTool> {
   int _activeIndex = 0;
 
   /// Helper to get raw SI value from a data point
-  double? _getRawValue(String path) {
-    final dataPoint = widget.signalKService.getValue(path);
+  double? _getRawValue(DataSource ds) {
+    final dataPoint = ds.resolve(widget.signalKService);
     if (dataPoint?.original is num) {
       return (dataPoint!.original as num).toDouble();
     }
@@ -81,7 +81,7 @@ class _CompassGaugeToolState extends State<CompassGaugeTool> {
     final dataSource = widget.config.dataSources.first;
 
     // Use MetadataStore for conversions
-    final rawValue = _getRawValue(dataSource.path);
+    final rawValue = _getRawValue(dataSource);
     var heading = _getConverted(dataSource.path, rawValue) ?? 0.0;
 
     // Apply showLabel uniformly to ALL paths
@@ -114,7 +114,7 @@ class _CompassGaugeToolState extends State<CompassGaugeTool> {
 
     for (int i = 1; i < widget.config.dataSources.length && i < 4; i++) {
       final source = widget.config.dataSources[i];
-      final raw = _getRawValue(source.path);
+      final raw = _getRawValue(source);
       final value = _getConverted(source.path, raw);
       if (value != null) {
         additionalHeadings.add(value < 0 ? value + 360 : value);

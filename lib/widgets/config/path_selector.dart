@@ -16,6 +16,7 @@ class PathSelectorDialog extends StatefulWidget {
   final bool showBaseUnitInLabel;        // Show base unit in path labels
   final String? requiredCategory;        // Filter to paths in this unit category (e.g., 'angle')
   final bool allowAISContext;            // Show vessel context picker
+  final String? initialVesselContext;    // Pre-select vessel context in picker
   final void Function(String path, String? vesselContext)? onSelectWithContext;
 
   const PathSelectorDialog({
@@ -29,6 +30,7 @@ class PathSelectorDialog extends StatefulWidget {
     this.showBaseUnitInLabel = false,
     this.requiredCategory,
     this.allowAISContext = false,
+    this.initialVesselContext,
     this.onSelectWithContext,
   });
 
@@ -45,7 +47,7 @@ class _PathSelectorDialogState extends State<PathSelectorDialog> {
   String? _selectedCategory;
 
   // AIS context state
-  String? _selectedContext;        // null = self, else vesselId URN
+  late String? _selectedContext;   // null = self, else vesselId URN
   String _contextSearchQuery = ''; // filter vessels by name/MMSI
   bool _contextPickerExpanded = false;
 
@@ -63,6 +65,7 @@ class _PathSelectorDialogState extends State<PathSelectorDialog> {
   @override
   void initState() {
     super.initState();
+    _selectedContext = widget.initialVesselContext;
     if (widget.allowAISContext) {
       widget.signalKService.aisVesselRegistry.addListener(_onRegistryChanged);
       widget.signalKService.fetchAllAISVessels();

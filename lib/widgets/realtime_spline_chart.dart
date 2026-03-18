@@ -209,7 +209,7 @@ class _RealtimeSplineChartState extends State<RealtimeSplineChart> with Automati
       for (int i = 0; i < widget.dataSources.length; i++) {
         final dataSource = widget.dataSources[i];
         // Use MetadataStore (single source of truth) for conversions
-        final dataPoint = widget.signalKService.getValue(dataSource.path);
+        final dataPoint = dataSource.resolve(widget.signalKService);
         double? value;
         if (dataPoint?.value is num) {
           final rawValue = (dataPoint!.value as num).toDouble();

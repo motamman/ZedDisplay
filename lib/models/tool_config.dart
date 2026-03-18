@@ -1,4 +1,6 @@
 import 'package:json_annotation/json_annotation.dart';
+import '../services/signalk_service.dart';
+import 'signalk_data.dart';
 
 part 'tool_config.g.dart';
 
@@ -25,6 +27,40 @@ class DataSource {
       _$DataSourceFromJson(json);
 
   Map<String, dynamic> toJson() => _$DataSourceToJson(this);
+
+  /// Resolve this data source to a SignalKDataPoint.
+  /// Handles vessel context transparently — AIS paths are looked up
+  /// via their full cache key (vessels.{vesselId}.{path}).
+  SignalKDataPoint? resolve(SignalKService service) {
+    if (vesselContext != null) {
+      // AIS vessel: try flat cache first (WS deltas land here)
+      final lookupPath = 'vessels.$vesselContext.$path';
+      final cached = service.getValue(lookupPath, source: source);
+      if (cached != null) return cached;
+
+      // Fallback: AIS registry (REST data lives here before WS deltas arrive)
+      final vessel = service.aisVesselRegistry.vessels[vesselContext];
+      final regValue = vessel?.availablePathValues[path];
+      if (regValue != null) {
+        return SignalKDataPoint(
+          path: path,
+          value: regValue,
+          timestamp: vessel!.lastSeen,
+          fromGET: true,
+        );
+      }
+      return null;
+    }
+    return service.getValue(path, source: source);
+  }
+
+  /// Check if this data source's data is fresh within the given TTL.
+  bool isFresh(SignalKService service, {int? ttlSeconds}) {
+    if (ttlSeconds == null) return true;
+    final dataPoint = resolve(service);
+    if (dataPoint == null) return false;
+    return DateTime.now().difference(dataPoint.timestamp).inSeconds <= ttlSeconds;
+  }
 }
 
 /// Style configuration for a tool
