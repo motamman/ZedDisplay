@@ -106,6 +106,14 @@ class _HistoricalChartToolState extends State<HistoricalChartTool> with Automati
   }
 
   Future<void> _loadData() async {
+    // Re-initialize service if connection was restored
+    if (_historicalService == null && widget.signalKService.isConnected) {
+      _historicalService = HistoricalDataService(
+        serverUrl: widget.signalKService.serverUrl,
+        useSecureConnection: widget.signalKService.useSecureConnection,
+        authToken: widget.signalKService.authToken,
+      );
+    }
     if (_historicalService == null || widget.config.dataSources.isEmpty) {
       return;
     }
@@ -245,15 +253,16 @@ class _HistoricalChartToolState extends State<HistoricalChartTool> with Automati
   Widget build(BuildContext context) {
     super.build(context); // Required for AutomaticKeepAliveClientMixin
 
-    if (!widget.signalKService.isConnected) {
-      return const Center(
-        child: Text('Not connected to SignalK server'),
-      );
-    }
-
     if (widget.config.dataSources.isEmpty) {
       return const Center(
         child: Text('No data sources configured'),
+      );
+    }
+
+    // If disconnected and we have no cached chart data, show disconnected message
+    if (!widget.signalKService.isConnected && _chartSeries.isEmpty) {
+      return const Center(
+        child: Text('Not connected to SignalK server'),
       );
     }
 
@@ -382,7 +391,7 @@ class _HistoricalChartToolState extends State<HistoricalChartTool> with Automati
               // Manual refresh button
               IconButton(
                 icon: const Icon(Icons.refresh, size: 20),
-                onPressed: _loadData,
+                onPressed: widget.signalKService.isConnected ? _loadData : null,
                 style: IconButton.styleFrom(
                   backgroundColor: Colors.black.withValues(alpha: 0.5),
                   foregroundColor: Colors.white,
