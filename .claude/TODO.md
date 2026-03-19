@@ -5,7 +5,7 @@
 - [x] Clean up build warnings and alerts
 - [x] Clean up path filters to usable paths
 - [ ] Move info box button from live widget to setup
-- [ ] Cleanup no-connection messages inside widgets to one default style (single source of truth)
+- [x] Cleanup no-connection messages inside widgets to one default style (single source of truth)
 - [x] Put TTL settings back into widget configs and make sure widgets respect the setting
 - [ ] In the map explorer, make the first point the default for the detail tab
 - [ ] Update the README with updated and missing pictures

@@ -99,10 +99,10 @@ class ToolRegistry {
       listenable: service,
       child: toolWidget,
       builder: (context, child) {
-        if (service.connectionState == SignalKConnectionState.connected) {
-          return child!;
-        }
-        return Opacity(opacity: 0.6, child: child);
+        return Opacity(
+          opacity: service.connectionState == SignalKConnectionState.connected ? 1.0 : 0.6,
+          child: child,
+        );
       },
     );
   }
