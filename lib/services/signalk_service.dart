@@ -403,6 +403,20 @@ class SignalKService extends ChangeNotifier implements DataService {
         cancelOnError: false,
       );
 
+      // Set vessel context BEFORE notifyListeners — listeners trigger subscriptions
+      // and cached deltas arrive immediately, so _vesselContext must be set for
+      // _isSelfContext to correctly route own-vessel data to flat cache
+      try {
+        final vesselId = await getVesselSelfId();
+        _vesselContext = vesselId != null ? 'vessels.$vesselId' : 'vessels.self';
+        _selfMMSI = vesselId != null ? RegExp(r'(\d{9})').firstMatch(vesselId)?.group(1) : null;
+        _aisManager.registry.setSelfVesselId(vesselId);
+      } catch (e) {
+        if (kDebugMode) {
+          print('Vessel identity fetch error: $e');
+        }
+      }
+
       _isConnected = true;
       _wasConnected = true;
       _errorMessage = null;
@@ -422,7 +436,7 @@ class SignalKService extends ChangeNotifier implements DataService {
       await _conversionManager.fetchConversions();
       _conversionsDataView = null;
 
-      // Subscribe to paths immediately
+      // Vessel context already set above — _sendSubscription handles auth guard only
       await _sendSubscription();
 
       // Subscribe to RTC paths if callback is registered
@@ -530,25 +544,13 @@ class SignalKService extends ChangeNotifier implements DataService {
   /// Initialize subscriptions after connection
   /// Call this with all paths from deployed templates
   Future<void> _sendSubscription() async {
-    try {
-      // Always get vessel context for self-vessel filtering (used by AIS)
-      final vesselId = await getVesselSelfId();
-      _vesselContext = vesselId != null ? 'vessels.$vesselId' : 'vessels.self';
-      _selfMMSI = vesselId != null ? RegExp(r'(\d{9})').firstMatch(vesselId)?.group(1) : null;
-      _aisManager.registry.setSelfVesselId(vesselId);
-
-      // Don't subscribe yet - wait for setActiveTemplatePaths() to be called
-      // Auth guard: no auth = no subscriptions (prevents wildcard flooding)
-      if (_authToken == null) {
-        if (kDebugMode) {
-          print('Auth guard: no auth token, skipping subscription');
-        }
-        return;
-      }
-    } catch (e) {
+    // Vessel context is now set earlier in connect() before notifyListeners.
+    // Auth guard: no auth = no subscriptions (prevents wildcard flooding)
+    if (_authToken == null) {
       if (kDebugMode) {
-        print('Subscription setup error: $e');
+        print('Auth guard: no auth token, skipping subscription');
       }
+      return;
     }
   }
 
@@ -707,9 +709,6 @@ class SignalKService extends ChangeNotifier implements DataService {
 
             // Route AIS vessel deltas to registry, own vessel to flat cache
             if (update.context.startsWith('vessels.') && !_isSelfContext(update.context)) {
-              if (kDebugMode && value.path.contains('tempest')) {
-                print('DEBUG ROUTING: path=${value.path} context=${update.context} vesselContext=$_vesselContext selfMMSI=$_selfMMSI isSelf=${_isSelfContext(update.context)} → AIS registry');
-              }
               // AIS vessel — route to registry (not flat cache)
               final vesselId = update.context.substring('vessels.'.length);
               _aisManager.registry.updateVessel(
@@ -724,9 +723,6 @@ class SignalKService extends ChangeNotifier implements DataService {
 
             // Own vessel — store in flat cache (single entry per path)
             // Source is stored on the dataPoint itself, not as separate cache key
-            if (kDebugMode && value.path.contains('tempest')) {
-              print('DEBUG ROUTING: path=${value.path} context=${update.context} vesselContext=$_vesselContext → flat cache');
-            }
             _dataCache.internalDataMap[value.path] = dataPoint;
           }
         }
