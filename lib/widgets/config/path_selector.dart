@@ -430,20 +430,42 @@ class _PathSelectorDialogState extends State<PathSelectorDialog> {
                       _loadPaths();
                     }
                   },
-                  child: ListView.builder(
-                    itemCount: _historicalContexts.where((c) => c != 'vessels.self').length,
-                    itemBuilder: (_, i) {
-                      final c = _historicalContexts.where((c) => c != 'vessels.self').toList()[i];
-                      return RadioListTile<String>(
-                        dense: true,
-                        value: c,
-                        title: Text(
-                          _historicalContextDisplayName(c),
-                          style: const TextStyle(fontSize: 12),
-                        ),
-                      );
-                    },
-                  ),
+                  child: Builder(builder: (_) {
+                    final filtered = _historicalContexts.where((c) => c != 'vessels.self').toList();
+
+                    AISFavoritesService? favService;
+                    try {
+                      favService = context.read<AISFavoritesService>();
+                    } catch (_) {}
+                    final favMMSIs = favService?.favorites.map((f) => f.mmsi).toSet() ?? {};
+
+                    final favorited = <String>[];
+                    final others = <String>[];
+                    for (final c in filtered) {
+                      final mmsi = _extractMMSI(c.replaceFirst('vessels.', ''));
+                      if (mmsi != null && favMMSIs.contains(mmsi)) {
+                        favorited.add(c);
+                      } else {
+                        others.add(c);
+                      }
+                    }
+                    final sorted = [...favorited, ...others];
+
+                    return ListView.builder(
+                      itemCount: sorted.length,
+                      itemBuilder: (_, i) {
+                        final c = sorted[i];
+                        return RadioListTile<String>(
+                          dense: true,
+                          value: c,
+                          title: Text(
+                            _historicalContextDisplayName(c),
+                            style: const TextStyle(fontSize: 12),
+                          ),
+                        );
+                      },
+                    );
+                  }),
                 ),
               ),
           ],
@@ -606,16 +628,18 @@ class _PathSelectorDialogState extends State<PathSelectorDialog> {
                     color: Theme.of(context).colorScheme.onPrimaryContainer,
                   ),
                   const SizedBox(width: 12),
-                  Text(
-                    widget.useHistoricalPaths
-                        ? 'Select Historical Data Path'
-                        : 'Select Data Path',
-                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                          color:
-                              Theme.of(context).colorScheme.onPrimaryContainer,
-                        ),
+                  Expanded(
+                    child: Text(
+                      widget.useHistoricalPaths
+                          ? 'Select Historical Data Path'
+                          : 'Select Data Path',
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                            color:
+                                Theme.of(context).colorScheme.onPrimaryContainer,
+                          ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ),
-                  const Spacer(),
                   IconButton(
                     icon: const Icon(Icons.close),
                     onPressed: () => Navigator.of(context).pop(),
