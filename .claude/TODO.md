@@ -14,6 +14,9 @@
 - [ ] Add Apple certificate signing and notarization to macOS release workflow
 - [ ] Audit all widgets exposing PathSelectorDialog to verify they actually use the selected paths
 - [ ] Fix the macOS install to TestFlight
+- [ ] Clean up and create a standard suite of dashboards for each form factor:
+  - Small phone, large phone, small tablet, tablet
+  - Each with: Navigation, System Controls, Weather & Conditions, Analysis & Data
 
 ## Widget Inventory — AIS Context Status
 

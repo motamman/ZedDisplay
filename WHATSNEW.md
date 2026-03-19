@@ -1,4 +1,4 @@
-# What's New in v0.5.85
+# What's New in v0.5.86
 
 ## Release Notes (Google Play - max 500 chars)
 
