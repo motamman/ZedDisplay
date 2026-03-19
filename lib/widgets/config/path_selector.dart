@@ -18,6 +18,7 @@ class PathSelectorDialog extends StatefulWidget {
   final bool allowAISContext;            // Show vessel context picker
   final String? initialVesselContext;    // Pre-select vessel context in picker
   final void Function(String path, String? vesselContext)? onSelectWithContext;
+  final String? historicalContext;       // Vessel context for historical path filtering
 
   const PathSelectorDialog({
     super.key,
@@ -32,6 +33,7 @@ class PathSelectorDialog extends StatefulWidget {
     this.allowAISContext = false,
     this.initialVesselContext,
     this.onSelectWithContext,
+    this.historicalContext,
   });
 
   @override
@@ -51,6 +53,12 @@ class _PathSelectorDialogState extends State<PathSelectorDialog> {
   String _contextSearchQuery = ''; // filter vessels by name/MMSI
   bool _contextPickerExpanded = false;
 
+  // Historical context state (for useHistoricalPaths vessel picker)
+  String _historicalContext = 'vessels.self';
+  bool _historicalLookupOther = false;
+  List<String> _historicalContexts = ['vessels.self'];
+  bool _historicalContextsLoading = false;
+
   final Map<String, List<String>> _categorizedPaths = {};
   final List<String> _categories = [
     'navigation',
@@ -69,6 +77,14 @@ class _PathSelectorDialogState extends State<PathSelectorDialog> {
     if (widget.allowAISContext) {
       widget.signalKService.aisVesselRegistry.addListener(_onRegistryChanged);
       widget.signalKService.fetchAllAISVessels();
+    }
+    // Initialize historical context from widget parameter
+    if (widget.useHistoricalPaths && widget.historicalContext != null) {
+      _historicalContext = widget.historicalContext!;
+      _historicalLookupOther = _historicalContext != 'vessels.self';
+      if (_historicalLookupOther) {
+        _fetchHistoricalContexts();
+      }
     }
     _loadPaths();
   }
@@ -133,9 +149,32 @@ class _PathSelectorDialogState extends State<PathSelectorDialog> {
         } else {
           paths = [];
         }
+
+        // Fetch history badges for AIS vessel (historical charts only)
+        if (widget.useHistoricalPaths) {
+          try {
+            final now = DateTime.now();
+            final historicalService = HistoricalDataService(
+              serverUrl: widget.signalKService.serverUrl,
+              useSecureConnection: widget.signalKService.useSecureConnection,
+              authToken: widget.signalKService.authToken,
+            );
+            final historyPaths = await historicalService.getAvailablePaths(
+              context: 'vessels.$_selectedContext',
+              from: now.subtract(const Duration(days: 7)),
+              to: now,
+            );
+            _pathsWithHistory = historyPaths.toSet();
+            // Add history-only paths not in live data
+            for (final hp in historyPaths) {
+              if (!paths.contains(hp)) paths.add(hp);
+            }
+          } catch (e) {
+            debugPrint('Error loading history paths for AIS vessel: $e');
+          }
+        }
       } else if (widget.useHistoricalPaths || widget.numericOnly) {
-        // For historical chart or numericOnly: show only numeric paths from live data
-        // but mark which ones have historical data available
+        // Self vessel: numeric paths from live data + history badges
         final numericPaths = <String>[];
         for (final entry in widget.signalKService.latestData.entries) {
           final path = entry.key;
@@ -154,14 +193,19 @@ class _PathSelectorDialogState extends State<PathSelectorDialog> {
         }
         paths = numericPaths;
 
-        // Fetch paths that have historical data (for badge indicator) - only for historical mode
+        // Fetch history paths for badge indicator
         if (widget.useHistoricalPaths) {
           try {
+            final now = DateTime.now();
             final historicalService = HistoricalDataService(
               serverUrl: widget.signalKService.serverUrl,
               useSecureConnection: widget.signalKService.useSecureConnection,
+              authToken: widget.signalKService.authToken,
             );
-            final historyPaths = await historicalService.getAvailablePaths();
+            final historyPaths = await historicalService.getAvailablePaths(
+              from: now.subtract(const Duration(days: 7)),
+              to: now,
+            );
             _pathsWithHistory = historyPaths.toSet();
           } catch (e) {
             debugPrint('Error loading history paths: $e');
@@ -241,6 +285,159 @@ class _PathSelectorDialogState extends State<PathSelectorDialog> {
     _categorizedPaths['other'] = _allPaths
         .where((path) => !_categories.any((cat) => path.startsWith('$cat.')))
         .toList();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Historical vessel context picker
+  // ---------------------------------------------------------------------------
+
+  Future<void> _fetchHistoricalContexts() async {
+    if (_historicalContextsLoading || !widget.signalKService.isConnected) return;
+    setState(() => _historicalContextsLoading = true);
+    try {
+      final service = HistoricalDataService(
+        serverUrl: widget.signalKService.serverUrl,
+        useSecureConnection: widget.signalKService.useSecureConnection,
+        authToken: widget.signalKService.authToken,
+      );
+      final now = DateTime.now();
+      final contexts = await service.getAvailableContexts(
+        from: now.subtract(const Duration(days: 7)),
+        to: now,
+      );
+      if (!contexts.contains('vessels.self')) {
+        contexts.insert(0, 'vessels.self');
+      }
+      // Remove own vessel's full URN (duplicates vessels.self)
+      final ownContext = widget.signalKService.vesselContext;
+      if (ownContext != null) {
+        contexts.remove(ownContext);
+      }
+      _historicalContexts = contexts;
+    } catch (_) {
+      // Keep existing list
+    } finally {
+      if (mounted) setState(() => _historicalContextsLoading = false);
+    }
+  }
+
+  String _historicalContextDisplayName(String ctx) {
+    if (ctx == 'vessels.self') {
+      final nameData = widget.signalKService.getValue('name');
+      final name = nameData?.value is String ? nameData!.value as String : null;
+      return name != null ? 'Self ($name)' : 'Self';
+    }
+    final mmsiMatch = RegExp(r'mmsi:(\d+)').firstMatch(ctx);
+    final mmsi = mmsiMatch?.group(1);
+
+    // Check AIS favorites
+    AISFavoritesService? favService;
+    try {
+      favService = context.read<AISFavoritesService>();
+    } catch (_) {}
+    if (mmsi != null && favService != null && favService.isFavorite(mmsi)) {
+      final fav = favService.favorites.firstWhere((f) => f.mmsi == mmsi);
+      return '${fav.name} ($mmsi)';
+    }
+
+    // Check AIS registry for name
+    if (mmsi != null) {
+      final vessels = widget.signalKService.aisVesselRegistry.vessels;
+      for (final entry in vessels.entries) {
+        if (entry.key.contains(mmsi) && entry.value.name != null) {
+          return '${entry.value.name} ($mmsi)';
+        }
+      }
+      return 'MMSI $mmsi';
+    }
+    final lastDot = ctx.lastIndexOf('.');
+    return lastDot >= 0 ? ctx.substring(lastDot + 1) : ctx;
+  }
+
+  Widget _buildHistoricalContextPicker() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        CheckboxListTile(
+          dense: true,
+          contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+          title: Text(
+            _historicalLookupOther
+                ? 'Vessel: ${_historicalContextDisplayName(_historicalContext)}'
+                : 'Look up other vessels',
+            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+          ),
+          value: _historicalLookupOther,
+          onChanged: (v) {
+            final checked = v ?? false;
+            setState(() => _historicalLookupOther = checked);
+            if (checked) {
+              _fetchHistoricalContexts();
+            } else {
+              setState(() {
+                _historicalContext = 'vessels.self';
+                _selectedContext = null;
+              });
+              _loadPaths();
+            }
+          },
+        ),
+        if (_historicalLookupOther) ...[
+          if (_historicalContextsLoading)
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: Row(
+                children: [
+                  SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
+                  SizedBox(width: 8),
+                  Text('Loading vessels…', style: TextStyle(fontSize: 12)),
+                ],
+              ),
+            )
+          else ...[
+            if (_historicalContexts.where((c) => c != 'vessels.self').isEmpty)
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                child: Text('No other vessels found in history', style: TextStyle(fontSize: 12)),
+              )
+            else
+              SizedBox(
+                height: 120,
+                child: RadioGroup<String>(
+                  groupValue: _historicalContext,
+                  onChanged: (v) {
+                    if (v != null) {
+                      setState(() {
+                        _historicalContext = v;
+                        // Set AIS context so Branch A loads live + history paths
+                        _selectedContext = v.startsWith('vessels.')
+                            ? v.substring('vessels.'.length)
+                            : v;
+                      });
+                      _loadPaths();
+                    }
+                  },
+                  child: ListView.builder(
+                    itemCount: _historicalContexts.where((c) => c != 'vessels.self').length,
+                    itemBuilder: (_, i) {
+                      final c = _historicalContexts.where((c) => c != 'vessels.self').toList()[i];
+                      return RadioListTile<String>(
+                        dense: true,
+                        value: c,
+                        title: Text(
+                          _historicalContextDisplayName(c),
+                          style: const TextStyle(fontSize: 12),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ),
+          ],
+          const Divider(height: 1),
+        ],
+      ],
+    );
   }
 
   void _filterPaths(String query) {
@@ -401,6 +598,10 @@ class _PathSelectorDialogState extends State<PathSelectorDialog> {
             // Vessel context picker (only when allowAISContext is true)
             if (widget.allowAISContext)
               _buildContextPicker(context),
+
+            // Historical vessel context picker (for vessels in parquet history, may not be in live AIS range)
+            if (widget.useHistoricalPaths)
+              _buildHistoricalContextPicker(),
 
             // Helper text for filtered paths
             if (widget.useHistoricalPaths || widget.numericOnly)
