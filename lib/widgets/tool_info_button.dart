@@ -23,6 +23,38 @@ class ToolInfoButton extends StatefulWidget {
 
   @override
   State<ToolInfoButton> createState() => _ToolInfoButtonState();
+
+  /// Show the tool info dialog directly (for use outside the widget)
+  static Future<void> showInfoDialog(BuildContext context, String toolId, SignalKService signalKService) async {
+    await ToolInfoService.instance.load();
+    final toolInfo = ToolInfoService.instance.getToolInfo(toolId);
+    if (toolInfo == null) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('No info available for $toolId')),
+        );
+      }
+      return;
+    }
+
+    Map<String, PluginStatus> pluginStatus = {};
+    if (toolInfo.requiredPlugins.isNotEmpty) {
+      pluginStatus = await ToolInfoService.instance.checkPluginStatus(
+        toolInfo.requiredPlugins,
+        signalKService,
+      );
+    }
+
+    if (!context.mounted) return;
+
+    showDialog(
+      context: context,
+      builder: (context) => _ToolInfoDialog(
+        toolInfo: toolInfo,
+        pluginStatus: pluginStatus,
+      ),
+    );
+  }
 }
 
 class _ToolInfoButtonState extends State<ToolInfoButton> {

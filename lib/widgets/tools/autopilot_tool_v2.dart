@@ -15,7 +15,7 @@ import '../../config/ui_constants.dart';
 import '../autopilot_widget_v2.dart';
 import '../route_info_panel.dart';
 import '../countdown_confirmation_overlay.dart';
-import '../tool_info_button.dart';
+
 
 /// Autopilot V2 control tool - reimagined design with center circle controls
 ///
@@ -764,22 +764,6 @@ class _AutopilotToolV2State extends State<AutopilotToolV2> with AutomaticKeepAli
               ),
             ),
           ),
-        Positioned(
-          top: 8,
-          right: 8,
-          child: Container(
-            decoration: BoxDecoration(
-              color: Colors.black.withValues(alpha: 0.3),
-              shape: BoxShape.circle,
-            ),
-            child: ToolInfoButton(
-              toolId: 'autopilot_v2',
-              signalKService: widget.signalKService,
-              iconSize: 20,
-              iconColor: Colors.white,
-            ),
-          ),
-        ),
       ],
     );
   }

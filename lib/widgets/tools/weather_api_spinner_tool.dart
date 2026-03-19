@@ -8,7 +8,7 @@ import '../../utils/color_extensions.dart';
 import '../../utils/conversion_utils.dart';
 import '../forecast_spinner.dart';
 import '../weatherflow_forecast.dart';
-import '../tool_info_button.dart';
+
 
 /// Generic Weather API Spinner tool
 /// Uses SignalK Weather API (/signalk/v2/api/weather/forecasts/point)
@@ -289,20 +289,6 @@ class _WeatherApiSpinnerToolState extends State<WeatherApiSpinnerTool>
                     : _RefreshButton(
                         onRefresh: () => weatherService.fetchForecasts(force: true),
                       ),
-              ),
-              const SizedBox(width: 4),
-              // Info button
-              Container(
-                decoration: BoxDecoration(
-                  color: Colors.black.withValues(alpha: 0.5),
-                  shape: BoxShape.circle,
-                ),
-                child: ToolInfoButton(
-                  toolId: 'weather_api_spinner',
-                  signalKService: widget.signalKService,
-                  iconSize: 20,
-                  iconColor: Colors.white,
-                ),
               ),
             ],
           ),

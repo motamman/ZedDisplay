@@ -10,7 +10,7 @@ import '../../models/tool_definition.dart';
 import '../../models/tool_config.dart';
 import '../../services/signalk_service.dart';
 import '../../services/tool_registry.dart';
-import '../tool_info_button.dart';
+
 import 'plugin_config_tool.dart';
 
 /// Tool for managing and monitoring the SignalK server
@@ -601,22 +601,6 @@ class _ServerManagerToolState extends State<ServerManagerTool> {
                 ),
               );
             },
-          ),
-        ),
-        Positioned(
-          top: 8,
-          right: 8,
-          child: Container(
-            decoration: BoxDecoration(
-              color: Colors.black.withValues(alpha: 0.3),
-              shape: BoxShape.circle,
-            ),
-            child: ToolInfoButton(
-              toolId: 'server_manager',
-              signalKService: widget.signalKService,
-              iconSize: 20,
-              iconColor: Colors.white,
-            ),
           ),
         ),
       ],

@@ -8,7 +8,7 @@ import '../../services/signalk_service.dart';
 import '../../services/intercom_service.dart';
 import '../../services/crew_service.dart';
 import '../../services/tool_registry.dart';
-import '../tool_info_button.dart';
+
 
 /// Dashboard tool for voice intercom
 class IntercomTool extends StatelessWidget {
@@ -23,54 +23,34 @@ class IntercomTool extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Stack(
-      children: [
-        Consumer2<IntercomService, CrewService>(
-          builder: (context, intercomService, crewService, child) {
-            if (!crewService.hasProfile) {
-              return _buildNoProfileView(context);
-            }
+    return Consumer2<IntercomService, CrewService>(
+      builder: (context, intercomService, crewService, child) {
+        if (!crewService.hasProfile) {
+          return _buildNoProfileView(context);
+        }
 
-            if (!intercomService.hasMicPermission) {
-              return _buildPermissionView(context, intercomService);
-            }
+        if (!intercomService.hasMicPermission) {
+          return _buildPermissionView(context, intercomService);
+        }
 
-            return ClipRect(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  // Header with channel selector
-                  _buildHeader(context, intercomService),
+        return ClipRect(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Header with channel selector
+              _buildHeader(context, intercomService),
 
-                  // Main PTT area
-                  Flexible(
-                    child: _buildPTTArea(context, intercomService, crewService),
-                  ),
-
-                  // Mode toggle and controls
-                  _buildControls(context, intercomService),
-                ],
+              // Main PTT area
+              Flexible(
+                child: _buildPTTArea(context, intercomService, crewService),
               ),
-            );
-          },
-        ),
-        Positioned(
-          top: 8,
-          right: 8,
-          child: Container(
-            decoration: BoxDecoration(
-              color: Colors.black.withValues(alpha: 0.5),
-              shape: BoxShape.circle,
-            ),
-            child: ToolInfoButton(
-              toolId: 'intercom',
-              signalKService: signalKService,
-              iconSize: 20,
-              iconColor: Colors.white,
-            ),
+
+              // Mode toggle and controls
+              _buildControls(context, intercomService),
+            ],
           ),
-        ),
-      ],
+        );
+      },
     );
   }
 

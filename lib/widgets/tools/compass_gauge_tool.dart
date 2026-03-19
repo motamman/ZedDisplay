@@ -4,9 +4,9 @@ import '../../models/tool_config.dart';
 import '../../services/signalk_service.dart';
 import '../../services/tool_registry.dart';
 import '../compass_gauge.dart';
-import '../tool_info_button.dart';
 import '../../utils/string_extensions.dart';
 import '../../utils/color_extensions.dart';
+import '../common/widget_empty_states.dart';
 
 /// Config-driven compass gauge tool
 class CompassGaugeTool extends StatefulWidget {
@@ -75,14 +75,21 @@ class _CompassGaugeToolState extends State<CompassGaugeTool> {
   Widget build(BuildContext context) {
     // Get data from data sources (up to 4)
     if (widget.config.dataSources.isEmpty) {
-      return const Center(child: Text('No data source configured'));
+      return const WidgetEmptyState();
     }
 
     final dataSource = widget.config.dataSources.first;
 
     // Use MetadataStore for conversions
     final rawValue = _getRawValue(dataSource);
-    var heading = _getConverted(dataSource.path, rawValue) ?? 0.0;
+
+    // Check if data is fresh (within TTL threshold)
+    final isDataFresh = dataSource.isFresh(
+      widget.signalKService,
+      ttlSeconds: widget.config.style.ttlSeconds,
+    );
+
+    var heading = isDataFresh ? (_getConverted(dataSource.path, rawValue) ?? 0.0) : 0.0;
 
     // Apply showLabel uniformly to ALL paths
     final showLabel = widget.config.style.showLabel == true;
@@ -92,8 +99,8 @@ class _CompassGaugeToolState extends State<CompassGaugeTool> {
         ? (dataSource.label ?? dataSource.path.toReadableLabel())
         : '';
 
-    // Get formatted value using MetadataStore
-    final formattedValue = _formatValue(dataSource.path, rawValue);
+    // Get formatted value using MetadataStore, or "--" if stale
+    final formattedValue = isDataFresh ? _formatValue(dataSource.path, rawValue) : '--';
 
     // Parse color from hex string
     final primaryColor = widget.config.style.primaryColor?.toColor(
@@ -139,45 +146,23 @@ class _CompassGaugeToolState extends State<CompassGaugeTool> {
       });
     }
 
-    return Stack(
-      fit: StackFit.expand,
-      alignment: Alignment.center,
-      children: [
-        Center(child: CompassGauge(
-          heading: heading,
-          label: label,
-          formattedValue: formattedValue,
-          primaryColor: primaryColor,
-          showTickLabels: showTickLabels,
-          compassStyle: compassStyle,
-          showValue: widget.config.style.showValue ?? true,
-          additionalHeadings: additionalHeadings.isNotEmpty ? additionalHeadings : null,
-          additionalLabels: additionalLabels.isNotEmpty ? additionalLabels : null,
-          additionalColors: additionalHeadings.isNotEmpty ? additionalColors : null,
-          additionalFormattedValues: additionalFormattedValues.isNotEmpty ? additionalFormattedValues : null,
-          activeIndex: clampedActiveIndex,
-          onActiveIndexChanged: additionalHeadings.isNotEmpty
-              ? (index) => setState(() => _activeIndex = index)
-              : null,
-        )),
-        Positioned(
-          top: 8,
-          right: 8,
-          child: Container(
-            decoration: BoxDecoration(
-              color: Colors.black.withValues(alpha: 0.5),
-              shape: BoxShape.circle,
-            ),
-            child: ToolInfoButton(
-              toolId: 'compass_gauge',
-              signalKService: widget.signalKService,
-              iconSize: 20,
-              iconColor: Colors.white,
-            ),
-          ),
-        ),
-      ],
-    );
+    return Center(child: CompassGauge(
+      heading: heading,
+      label: label,
+      formattedValue: formattedValue,
+      primaryColor: primaryColor,
+      showTickLabels: showTickLabels,
+      compassStyle: compassStyle,
+      showValue: widget.config.style.showValue ?? true,
+      additionalHeadings: additionalHeadings.isNotEmpty ? additionalHeadings : null,
+      additionalLabels: additionalLabels.isNotEmpty ? additionalLabels : null,
+      additionalColors: additionalHeadings.isNotEmpty ? additionalColors : null,
+      additionalFormattedValues: additionalFormattedValues.isNotEmpty ? additionalFormattedValues : null,
+      activeIndex: clampedActiveIndex,
+      onActiveIndexChanged: additionalHeadings.isNotEmpty
+          ? (index) => setState(() => _activeIndex = index)
+          : null,
+    ));
   }
 
   CompassStyle _parseCompassStyle(String styleStr) {
@@ -214,7 +199,7 @@ class CompassGaugeBuilder extends ToolBuilder {
           'compassStyle', // 'classic', 'minimal', 'marine'
         ],
         allowsUnitSelection: false,
-        allowsTTL: false,
+        allowsTTL: true,
       ),
     );
   }

@@ -196,6 +196,15 @@ class _HistoricalLineChartState extends State<HistoricalLineChart> {
         ? _calculateAxisRange(isSecondary: true)
         : null;
 
+    // Map series index → color ordinal (0th raw, 1st raw, etc.)
+    final colorOrdinal = <int, int>{};
+    int ordinal = 0;
+    for (int i = 0; i < widget.series.length; i++) {
+      if (!widget.series[i].isSmoothed) {
+        colorOrdinal[i] = ordinal++;
+      }
+    }
+
     return SfCartesianChart(
       // Legend configuration - compact to maximize chart height, wrap if needed
       legend: Legend(
@@ -240,7 +249,7 @@ class _HistoricalLineChartState extends State<HistoricalLineChart> {
           args.color = Colors.grey.withValues(alpha: 0.3);
         } else {
           // All visible: restore full series color
-          args.color = colors[index % colors.length];
+          args.color = colors[(colorOrdinal[index] ?? index) % colors.length];
         }
       },
 
@@ -327,7 +336,7 @@ class _HistoricalLineChartState extends State<HistoricalLineChart> {
           // Find the parent index: if smoothed, find parent series index
           int parentIndex = index;
           if (s.isSmoothed) {
-            for (int i = 0; i < widget.series.length; i++) {
+            for (int i = index - 1; i >= 0; i--) {
               if (widget.series[i].path == s.path && !widget.series[i].isSmoothed) {
                 parentIndex = i;
                 break;
@@ -344,7 +353,7 @@ class _HistoricalLineChartState extends State<HistoricalLineChart> {
             // Raw series: hidden in state 1 (MA only) and state 2 (all hidden)
             isHidden = state >= 1;
           }
-          return _buildSeries(s, colors[parentIndex % colors.length], isHidden: isHidden);
+          return _buildSeries(s, colors[(colorOrdinal[parentIndex] ?? parentIndex) % colors.length], isHidden: isHidden);
         },
       ),
     );

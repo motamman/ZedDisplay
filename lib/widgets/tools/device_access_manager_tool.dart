@@ -6,7 +6,7 @@ import '../../models/tool_definition.dart';
 import '../../models/tool_config.dart';
 import '../../services/signalk_service.dart';
 import '../../services/tool_registry.dart';
-import '../tool_info_button.dart';
+
 
 /// Model for a device access request
 class DeviceAccessRequest {
@@ -435,19 +435,10 @@ class _DeviceAccessManagerToolState extends State<DeviceAccessManagerTool> {
                           ),
                         ],
                       ),
-                      Row(
-                        children: [
-                          IconButton(
-                            icon: const Icon(Icons.refresh, size: 18),
-                            onPressed: _loadData,
-                            tooltip: 'Refresh',
-                          ),
-                          ToolInfoButton(
-                            toolId: 'device_access_manager',
-                            signalKService: widget.signalKService,
-                            iconSize: 18,
-                          ),
-                        ],
+                      IconButton(
+                        icon: const Icon(Icons.refresh, size: 18),
+                        onPressed: _loadData,
+                        tooltip: 'Refresh',
                       ),
                     ],
                   ),

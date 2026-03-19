@@ -1,4 +1,46 @@
-# What's New in v0.5.80
+# What's New in v0.5.86
+
+## Release Notes (Google Play - max 500 chars)
+
+v0.5.85 Historical Chart Contexts, TTL & Widget Polish
+
+NEW: Historical charts support vessel context — query data for AIS vessels, not just own boat. CPA alerts integrated with AIS polar chart.
+
+NEW: TTL freshness checks across all gauge and display tools. Stale data is visually flagged.
+
+IMPROVED: Unified widget empty states. Info button moved from widget overlay to edit toolbar. Map explorer auto-selects first point.
+
+FIXED: RPi Monitor now receives data.
+
+## Release Notes (App Store / TestFlight - max 4000 chars)
+
+### Historical Chart — Vessel Context (NEW)
+- **AIS History** - Historical charts can now query data for specific vessel contexts, not just own vessel
+- **Grouped Queries** - Data sources grouped by vessel context for efficient API calls
+- **Path Selector** - Favorited historical contexts prioritized in the path picker with improved layout
+
+### CPA Alert Integration (NEW)
+- **AIS Polar Chart** - CPA alert service now integrated directly with the AIS polar chart tool
+- **Display State** - Alert visibility managed through display state for cleaner interaction
+
+### TTL Data Freshness (NEW)
+- **All Gauges & Displays** - TTL (time-to-live) checks now supported across all gauge and display tools
+- **Visual Staleness** - Tools visually indicate when data is stale instead of silently showing outdated values
+- **Per-Tool Config** - TTL settings available in each widget's configuration
+
+### Widget Polish (IMPROVED)
+- **Unified Empty States** - All 42 tools now use a single `WidgetEmptyState` component for "no data source" and "no connection" messages — consistent styling across the entire app
+- **Info Button Relocated** - Tool info button removed from all 42 widget overlays (was obscuring content) and moved to a blue info icon in the edit mode toolbar, next to the gear button
+- **Map Explorer Default** - Detail tab auto-selects the first data point after query results load, so sparklines and point data appear immediately
+
+### Bug Fixes (FIXED)
+- **RPi Monitor** - Fixed tool never receiving WebSocket data — was missing subscription to `environment.rpi.*` paths
+- **Historical Chart** - Improved connection state handling and clearer UI messages when disconnected
+- **Chart Legends** - Fixed series index mapping and color assignment for multi-series historical charts
+
+---
+
+# Previous: v0.5.80
 
 ## Release Notes (Google Play - max 500 chars)
 

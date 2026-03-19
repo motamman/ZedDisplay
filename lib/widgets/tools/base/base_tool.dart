@@ -7,6 +7,7 @@ import '../../../models/signalk_data.dart';
 import '../../../services/signalk_service.dart';
 import '../../../utils/string_extensions.dart';
 import '../../../utils/color_extensions.dart';
+import '../../common/widget_empty_states.dart';
 
 /// Abstract base class for tool widgets
 ///
@@ -92,9 +93,7 @@ abstract class BaseTool extends StatelessWidget {
 
   /// Builds the empty state widget when no data sources are configured
   Widget buildEmptyState(BuildContext context) {
-    return const Center(
-      child: Text('No data source configured'),
-    );
+    return const WidgetEmptyState();
   }
 
   /// Builds the actual tool widget

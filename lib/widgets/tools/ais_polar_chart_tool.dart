@@ -8,15 +8,10 @@ import '../../services/signalk_service.dart';
 import '../../services/cpa_alert_service.dart';
 import '../../services/dashboard_service.dart';
 import '../../services/notification_navigation_service.dart';
-import '../../services/notification_service.dart';
-import '../../services/messaging_service.dart';
-import '../../services/storage_service.dart';
-import '../../services/alert_coordinator.dart';
 import '../../services/tool_registry.dart';
 import '../../services/tool_service.dart';
 import '../../utils/color_extensions.dart';
 import '../ais_polar_chart.dart';
-import '../tool_info_button.dart';
 
 /// Config-driven AIS polar chart tool
 ///
@@ -59,31 +54,8 @@ class _AISPolarChartToolState extends State<AISPolarChartTool> {
     final props = widget.config.style.customProperties ?? {};
     final enabled = props['cpaAlertsEnabled'] as bool? ?? true;
 
-    // Get messaging service from Provider (nullable, like anchor alarm)
-    MessagingService? messagingService;
-    try {
-      messagingService = Provider.of<MessagingService>(context, listen: false);
-    } catch (_) {}
-
-    // Get storage service for notification filter settings
-    StorageService? storageService;
-    try {
-      storageService = Provider.of<StorageService>(context, listen: false);
-    } catch (_) {}
-
-    // Get alert coordinator from provider if available (reserved for future use)
-    try {
-      Provider.of<AlertCoordinator>(context, listen: false);
-    } catch (_) {}
-
-    // Always create the service so the modal can enable/disable it
-    _cpaAlertService = CpaAlertService(
-      signalKService: widget.signalKService,
-      notificationService: NotificationService(),
-      messagingService: messagingService,
-      storageService: storageService,
-      // alertCoordinator: alertCoordinator, // TEMP: bypass to test freeze
-    );
+    // Fetch global CpaAlertService from Provider (created in main.dart)
+    _cpaAlertService = Provider.of<CpaAlertService>(context, listen: false);
 
     _cpaAlertService!.onAlertTriggered = _onCpaAlertTriggered;
     _cpaAlertService!.onAlertDismissed = _onCpaAlertDismissed;
@@ -200,6 +172,10 @@ class _AISPolarChartToolState extends State<AISPolarChartTool> {
     );
   }
 
+  void _onDisplayStateChanged(String key, dynamic value) {
+    _onCpaConfigChanged({key: value});
+  }
+
   void _onCpaConfigChanged(Map<String, dynamic> updatedCpaProps) {
     final toolId = widget.config.style.customProperties?['_toolId'] as String?;
     if (toolId == null) return;
@@ -235,7 +211,10 @@ class _AISPolarChartToolState extends State<AISPolarChartTool> {
 
   @override
   void dispose() {
-    _cpaAlertService?.dispose();
+    // Don't dispose — service is global, outlives this widget.
+    // Just clear callbacks so the dead widget isn't called.
+    _cpaAlertService?.onAlertTriggered = null;
+    _cpaAlertService?.onAlertDismissed = null;
     super.dispose();
   }
 
@@ -269,43 +248,31 @@ class _AISPolarChartToolState extends State<AISPolarChartTool> {
     // Generate title
     final title = widget.config.style.customProperties?['title'] as String? ?? 'AIS Vessels';
 
-    return Stack(
-      children: [
-        AISPolarChart(
-          key: ValueKey('ais_chart_$positionPath'),
-          signalKService: widget.signalKService,
-          positionPath: positionPath,
-          cogPath: cogPath,
-          sogPath: sogPath,
-          title: title,
-          vesselColor: vesselColor,
-          showLabels: showLabels,
-          showGrid: showGrid,
-          pruneMinutes: pruneMinutes,
-          colorByShipType: colorByShipType,
-          showProjectedPositions: showProjectedPositions,
-          maxRangeNm: maxRangeNm,
-          vesselLookupService: vesselLookupService,
-          cpaAlertService: _cpaAlertService,
-          onCpaConfigChanged: _onCpaConfigChanged,
-        ),
-        Positioned(
-          top: 8,
-          right: 8,
-          child: Container(
-            decoration: BoxDecoration(
-              color: Colors.black.withValues(alpha: 0.3),
-              shape: BoxShape.circle,
-            ),
-            child: ToolInfoButton(
-              toolId: 'ais_polar_chart',
-              signalKService: widget.signalKService,
-              iconSize: 20,
-              iconColor: Colors.white,
-            ),
-          ),
-        ),
-      ],
+    // Load persisted display state from customProperties
+    final initialShowMapView = widget.config.style.customProperties?['showMapView'] as bool? ?? false;
+    final initialHideStale = widget.config.style.customProperties?['hideStale'] as bool? ?? false;
+
+    return AISPolarChart(
+      key: ValueKey('ais_chart_$positionPath'),
+      signalKService: widget.signalKService,
+      positionPath: positionPath,
+      cogPath: cogPath,
+      sogPath: sogPath,
+      title: title,
+      vesselColor: vesselColor,
+      showLabels: showLabels,
+      showGrid: showGrid,
+      pruneMinutes: pruneMinutes,
+      colorByShipType: colorByShipType,
+      showProjectedPositions: showProjectedPositions,
+      maxRangeNm: maxRangeNm,
+      vesselLookupService: vesselLookupService,
+      cpaAlertService: _cpaAlertService,
+      onCpaConfigChanged: _onCpaConfigChanged,
+      initialShowMapView: initialShowMapView,
+      initialHideStale: initialHideStale,
+      onViewModeChanged: (v) => _onDisplayStateChanged('showMapView', v),
+      onHideStaleChanged: (v) => _onDisplayStateChanged('hideStale', v),
     );
   }
 }

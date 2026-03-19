@@ -15,6 +15,7 @@ import '../widgets/config/source_selector.dart';
 import '../utils/chart_axis_utils.dart';
 import 'tool_config/base_tool_configurator.dart';
 import 'tool_config/tool_configurator_factory.dart';
+import 'tool_config/configurators/chart_configurator.dart';
 import 'tool_config/configurators/tanks_configurator.dart';
 
 /// Screen for configuring a tool
@@ -261,7 +262,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
 
     // Tool types that support AIS vessel context
     const aisContextTools = {
-      'radial_gauge', 'linear_gauge', 'compass', 'text_display', 'position_display', 'realtime_chart',
+      'radial_gauge', 'linear_gauge', 'compass', 'text_display', 'position_display', 'realtime_chart', 'historical_chart',
     };
     final allowAIS = aisContextTools.contains(_selectedToolTypeId);
 
@@ -276,13 +277,16 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
       builder: (context) => PathSelectorDialog(
         signalKService: signalKService,
         useHistoricalPaths: _selectedToolTypeId == 'historical_chart',
+        historicalContext: _selectedToolTypeId == 'historical_chart'
+            ? (_configurator as ChartConfigurator?)?.chartContext
+            : null,
         numericOnly: isChartTool || isCompassTool || isGaugeTool,
         primaryAxisBaseUnit: primaryAxisBaseUnit,
         secondaryAxisBaseUnit: secondaryAxisBaseUnit,
         showBaseUnitInLabel: isChartTool,
         requiredCategory: isCompassTool ? 'angle' : null,
         allowAISContext: allowAIS,
-        onSelectWithContext: allowAIS
+        onSelectWithContext: (allowAIS || _selectedToolTypeId == 'historical_chart')
             ? (path, vesselContext) {
                 selectedPath = path;
                 selectedVesselContext = vesselContext;
@@ -358,9 +362,15 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
 
     // Tool types that support AIS vessel context
     const aisContextTools = {
-      'radial_gauge', 'linear_gauge', 'compass', 'text_display', 'position_display', 'realtime_chart',
+      'radial_gauge', 'linear_gauge', 'compass', 'text_display', 'position_display', 'realtime_chart', 'historical_chart',
     };
     final allowAIS = aisContextTools.contains(_selectedToolTypeId);
+
+    final isChartToolEdit = _selectedToolTypeId == 'realtime_chart' ||
+                            _selectedToolTypeId == 'historical_chart';
+    final isCompassToolEdit = _selectedToolTypeId == 'compass';
+    final isGaugeToolEdit = _selectedToolTypeId == 'radial_gauge' ||
+                            _selectedToolTypeId == 'linear_gauge';
 
     await showDialog(
       context: context,
@@ -369,6 +379,10 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
         signalKService: signalKService,
         slotMode: _isSlotMode,
         allowAISContext: allowAIS,
+        useHistoricalPaths: _selectedToolTypeId == 'historical_chart',
+        numericOnly: isChartToolEdit || isCompassToolEdit || isGaugeToolEdit,
+        showBaseUnitInLabel: isChartToolEdit,
+        requiredCategory: isCompassToolEdit ? 'angle' : null,
         onSave: (newPath, newSource, newLabel, newVesselContext) {
           setState(() {
             _dataSources[index] = DataSource(
@@ -1289,6 +1303,10 @@ class _EditDataSourceDialog extends StatefulWidget {
   final Function(String?, String?, String?, String?) onSave; // (newPath, newSource, newLabel, newVesselContext)
   final bool slotMode;
   final bool allowAISContext;
+  final bool useHistoricalPaths;
+  final bool numericOnly;
+  final bool showBaseUnitInLabel;
+  final String? requiredCategory;
 
   const _EditDataSourceDialog({
     required this.dataSource,
@@ -1296,6 +1314,10 @@ class _EditDataSourceDialog extends StatefulWidget {
     required this.onSave,
     this.slotMode = false,
     this.allowAISContext = false,
+    this.useHistoricalPaths = false,
+    this.numericOnly = false,
+    this.showBaseUnitInLabel = false,
+    this.requiredCategory,
   });
 
   @override
@@ -1323,8 +1345,12 @@ class _EditDataSourceDialogState extends State<_EditDataSourceDialog> {
       builder: (context) => PathSelectorDialog(
         signalKService: widget.signalKService,
         allowAISContext: widget.allowAISContext,
+        useHistoricalPaths: widget.useHistoricalPaths,
+        numericOnly: widget.numericOnly,
+        showBaseUnitInLabel: widget.showBaseUnitInLabel,
+        requiredCategory: widget.requiredCategory,
         initialVesselContext: widget.allowAISContext ? _newVesselContext : null,
-        onSelectWithContext: widget.allowAISContext
+        onSelectWithContext: (widget.allowAISContext || widget.useHistoricalPaths)
             ? (path, vesselContext) {
                 setState(() {
                   _newPath = path;

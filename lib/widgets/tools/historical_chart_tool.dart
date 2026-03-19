@@ -11,7 +11,7 @@ import '../../services/tool_registry.dart';
 import '../../utils/color_extensions.dart';
 import '../../utils/chart_axis_utils.dart';
 import '../historical_line_chart.dart';
-import '../tool_info_button.dart';
+import '../common/widget_empty_states.dart';
 
 /// Config-driven historical chart tool
 class HistoricalChartTool extends StatefulWidget {
@@ -106,6 +106,14 @@ class _HistoricalChartToolState extends State<HistoricalChartTool> with Automati
   }
 
   Future<void> _loadData() async {
+    // Re-initialize service if connection was restored
+    if (_historicalService == null && widget.signalKService.isConnected) {
+      _historicalService = HistoricalDataService(
+        serverUrl: widget.signalKService.serverUrl,
+        useSecureConnection: widget.signalKService.useSecureConnection,
+        authToken: widget.signalKService.authToken,
+      );
+    }
     if (_historicalService == null || widget.config.dataSources.isEmpty) {
       return;
     }
@@ -127,86 +135,98 @@ class _HistoricalChartToolState extends State<HistoricalChartTool> with Automati
       final smoothingType = widget.config.style.customProperties?['smoothingType'] as String? ?? 'sma';
       final smoothingWindow = widget.config.style.customProperties?['movingAverageWindow'] as int? ?? 5;
 
-      // Build path expressions with optional smoothing
-      // Syntax: path:aggregation:smoothing:param
-      final paths = widget.config.dataSources.map((ds) {
-        if (showMovingAverage) {
-          // Add smoothing to path expression
-          final param = smoothingType == 'ema'
-              ? (smoothingWindow / 100).toString()  // EMA uses alpha (0.0-1.0)
-              : smoothingWindow.toString();         // SMA uses window size
-          return '${ds.path}:average:$smoothingType:$param';
-        }
-        return ds.path;
-      }).toList();
-
-      final chartContext = widget.config.style.customProperties?['context'] as String? ?? 'vessels.self';
-
-      final response = await _historicalService!.fetchHistoricalData(
-        paths: paths,
-        duration: duration,
-        resolution: resolution,
-        context: chartContext,
-      );
-
-      if (kDebugMode) {
-        print('📊 Historical response: ${response.values.length} values, ${response.data.length} data rows');
-        for (var i = 0; i < response.values.length; i++) {
-          final v = response.values[i];
-          print('  Value $i: ${v.path} (${v.method}${v.smoothing != null ? ', ${v.smoothing}:${v.window}' : ''})');
-        }
+      // Group data sources by vessel context so each context gets its own API call
+      final defaultContext = widget.config.style.customProperties?['context'] as String? ?? 'vessels.self';
+      final byContext = <String, List<DataSource>>{};
+      for (final ds in widget.config.dataSources) {
+        final ctx = ds.vesselContext != null
+            ? 'vessels.${ds.vesselContext}'
+            : defaultContext;
+        (byContext[ctx] ??= []).add(ds);
       }
 
       final series = <ChartDataSeries>[];
-      for (final dataSource in widget.config.dataSources) {
-        // Get raw series
-        final rawSeries = ChartDataSeries.fromHistoricalData(
-          response,
-          dataSource.path,
-          signalKService: widget.signalKService,
-        );
-        if (rawSeries != null && rawSeries.points.isNotEmpty) {
-          final seriesWithLabel = ChartDataSeries(
-            path: rawSeries.path,
-            method: rawSeries.method,
-            points: rawSeries.points,
-            minValue: rawSeries.minValue,
-            maxValue: rawSeries.maxValue,
-            label: dataSource.label,
-          );
-          series.add(seriesWithLabel);
 
-          if (kDebugMode) {
-            print('✅ Found ${rawSeries.points.length} raw points for: ${dataSource.path}');
+      for (final entry in byContext.entries) {
+        final ctx = entry.key;
+        final sources = entry.value;
+
+        // Build path expressions with optional smoothing
+        final paths = sources.map((ds) {
+          if (showMovingAverage) {
+            final param = smoothingType == 'ema'
+                ? (smoothingWindow / 100).toString()
+                : smoothingWindow.toString();
+            return '${ds.path}:average:$smoothingType:$param';
+          }
+          return ds.path;
+        }).toList();
+
+        final response = await _historicalService!.fetchHistoricalData(
+          paths: paths,
+          duration: duration,
+          resolution: resolution,
+          context: ctx,
+        );
+
+        if (kDebugMode) {
+          print('📊 Historical response for $ctx: ${response.values.length} values, ${response.data.length} data rows');
+          for (var i = 0; i < response.values.length; i++) {
+            final v = response.values[i];
+            print('  Value $i: ${v.path} (${v.method}${v.smoothing != null ? ', ${v.smoothing}:${v.window}' : ''})');
           }
         }
 
-        // Get smoothed series if enabled
-        if (showMovingAverage) {
-          final smoothedSeries = ChartDataSeries.fromHistoricalData(
+        for (final dataSource in sources) {
+          // Get raw series
+          final rawSeries = ChartDataSeries.fromHistoricalData(
             response,
             dataSource.path,
-            smoothing: smoothingType,
             signalKService: widget.signalKService,
           );
-          if (smoothedSeries != null && smoothedSeries.points.isNotEmpty) {
-            final label = dataSource.label != null
-                ? '${dataSource.label} (${smoothingType.toUpperCase()})'
-                : null;
+          if (rawSeries != null && rawSeries.points.isNotEmpty) {
             final seriesWithLabel = ChartDataSeries(
-              path: smoothedSeries.path,
-              method: smoothedSeries.method,
-              smoothing: smoothedSeries.smoothing,
-              window: smoothedSeries.window,
-              points: smoothedSeries.points,
-              minValue: smoothedSeries.minValue,
-              maxValue: smoothedSeries.maxValue,
-              label: label,
+              path: rawSeries.path,
+              method: rawSeries.method,
+              points: rawSeries.points,
+              minValue: rawSeries.minValue,
+              maxValue: rawSeries.maxValue,
+              label: dataSource.label,
             );
             series.add(seriesWithLabel);
 
             if (kDebugMode) {
-              print('✅ Found ${smoothedSeries.points.length} smoothed points for: ${dataSource.path}');
+              print('✅ Found ${rawSeries.points.length} raw points for: ${dataSource.path}');
+            }
+          }
+
+          // Get smoothed series if enabled
+          if (showMovingAverage) {
+            final smoothedSeries = ChartDataSeries.fromHistoricalData(
+              response,
+              dataSource.path,
+              smoothing: smoothingType,
+              signalKService: widget.signalKService,
+            );
+            if (smoothedSeries != null && smoothedSeries.points.isNotEmpty) {
+              final label = dataSource.label != null
+                  ? '${dataSource.label} (${smoothingType.toUpperCase()})'
+                  : null;
+              final seriesWithLabel = ChartDataSeries(
+                path: smoothedSeries.path,
+                method: smoothedSeries.method,
+                smoothing: smoothedSeries.smoothing,
+                window: smoothedSeries.window,
+                points: smoothedSeries.points,
+                minValue: smoothedSeries.minValue,
+                maxValue: smoothedSeries.maxValue,
+                label: label,
+              );
+              series.add(seriesWithLabel);
+
+              if (kDebugMode) {
+                print('✅ Found ${smoothedSeries.points.length} smoothed points for: ${dataSource.path}');
+              }
             }
           }
         }
@@ -233,16 +253,8 @@ class _HistoricalChartToolState extends State<HistoricalChartTool> with Automati
   Widget build(BuildContext context) {
     super.build(context); // Required for AutomaticKeepAliveClientMixin
 
-    if (!widget.signalKService.isConnected) {
-      return const Center(
-        child: Text('Not connected to SignalK server'),
-      );
-    }
-
     if (widget.config.dataSources.isEmpty) {
-      return const Center(
-        child: Text('No data sources configured'),
-      );
+      return const WidgetEmptyState(message: 'No data sources configured');
     }
 
     if (_isLoading) {
@@ -370,27 +382,13 @@ class _HistoricalChartToolState extends State<HistoricalChartTool> with Automati
               // Manual refresh button
               IconButton(
                 icon: const Icon(Icons.refresh, size: 20),
-                onPressed: _loadData,
+                onPressed: widget.signalKService.isConnected ? _loadData : null,
                 style: IconButton.styleFrom(
                   backgroundColor: Colors.black.withValues(alpha: 0.5),
                   foregroundColor: Colors.white,
                   padding: const EdgeInsets.all(4),
                 ),
                 tooltip: 'Refresh chart',
-              ),
-              const SizedBox(width: 4),
-              // Info button
-              Container(
-                decoration: BoxDecoration(
-                  color: Colors.black.withValues(alpha: 0.5),
-                  shape: BoxShape.circle,
-                ),
-                child: ToolInfoButton(
-                  toolId: 'historical_chart',
-                  signalKService: widget.signalKService,
-                  iconSize: 20,
-                  iconColor: Colors.white,
-                ),
               ),
             ],
           ),

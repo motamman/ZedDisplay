@@ -323,6 +323,7 @@ class ChartConfigurator extends ToolConfigurator {
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 16),
                   child: DropdownButtonFormField<String>(
+                    isExpanded: true,
                     decoration: const InputDecoration(
                       labelText: 'Smoothing Type',
                       border: OutlineInputBorder(),

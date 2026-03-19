@@ -6,7 +6,7 @@ import '../../services/tool_registry.dart';
 import '../../utils/string_extensions.dart';
 import '../../utils/color_extensions.dart';
 import '../../config/ui_constants.dart';
-import '../tool_info_button.dart';
+import '../common/widget_empty_states.dart';
 
 /// Config-driven text display for large numeric values
 class TextDisplayTool extends StatelessWidget {
@@ -23,7 +23,7 @@ class TextDisplayTool extends StatelessWidget {
   Widget build(BuildContext context) {
     // Get data from first data source
     if (config.dataSources.isEmpty) {
-      return const Center(child: Text('No data source configured'));
+      return const WidgetEmptyState();
     }
 
     final dataSource = config.dataSources.first;
@@ -39,16 +39,22 @@ class TextDisplayTool extends StatelessWidget {
     // Use default font size (scales based on widget size)
     const fontSize = 48.0;
 
+    // Check if data is fresh (within TTL threshold)
+    final isDataFresh = dataSource.isFresh(
+      signalKService,
+      ttlSeconds: config.style.ttlSeconds,
+    );
+
     // Get the data point to check if it's an object
     final dataPoint = dataSource.resolve(signalKService);
 
-    // Check if the value is an object (Map)
-    if (dataPoint?.value is Map) {
+    // Check if the value is an object (Map) and data is fresh
+    if (isDataFresh && dataPoint?.value is Map) {
       return _buildObjectDisplay(context, dataPoint!.value as Map, label, textColor, fontSize);
     }
 
     // Get raw SI value and convert using MetadataStore
-    final rawValue = (dataPoint?.value as num?)?.toDouble();
+    final rawValue = isDataFresh ? (dataPoint?.value as num?)?.toDouble() : null;
     final metadata = signalKService.metadataStore.get(dataSource.path);
 
     // Format the display value
@@ -66,73 +72,53 @@ class TextDisplayTool extends StatelessWidget {
         displayValue = rawValue.toStringAsFixed(1);
       }
     } else {
-      // No data available
+      // No data available or stale
       displayValue = '--';
 
       // Get unit symbol from MetadataStore or style override
       displayUnit = config.style.unit ?? metadata?.symbol ?? '';
     }
 
-    return Stack(
-      children: [
-        Container(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              if (config.style.showLabel == true && label.isNotEmpty)
-                Text(
-                  label,
-                  style: TextStyle(
-                    fontSize: fontSize * 0.35,
-                    fontWeight: FontWeight.w300,
-                    color: UIConstants.withSubtleOpacity(textColor),
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-              if (config.style.showLabel == true && label.isNotEmpty)
-                const SizedBox(height: fontSize * 0.15),
-              if (config.style.showValue == true)
-                Text(
-                  displayValue,
-                  style: TextStyle(
-                    fontSize: fontSize,
-                    fontWeight: FontWeight.bold,
-                    color: textColor,
-                  ),
-                ),
-              if (config.style.showUnit == true && displayUnit.isNotEmpty)
-                const SizedBox(height: fontSize * 0.1),
-              if (config.style.showUnit == true && displayUnit.isNotEmpty)
-                Text(
-                  displayUnit,
-                  style: TextStyle(
-                    fontSize: fontSize * 0.35,
-                    fontWeight: FontWeight.w300,
-                    color: UIConstants.withSubtleOpacity(textColor),
-                  ),
-                ),
-            ],
-          ),
-        ),
-        Positioned(
-          top: 8,
-          right: 8,
-          child: Container(
-            decoration: BoxDecoration(
-              color: Colors.black.withValues(alpha: 0.5),
-              shape: BoxShape.circle,
+    return Container(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          if (config.style.showLabel == true && label.isNotEmpty)
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: fontSize * 0.35,
+                fontWeight: FontWeight.w300,
+                color: UIConstants.withSubtleOpacity(textColor),
+              ),
+              textAlign: TextAlign.center,
             ),
-            child: ToolInfoButton(
-              toolId: 'text_display',
-              signalKService: signalKService,
-              iconSize: 20,
-              iconColor: Colors.white,
+          if (config.style.showLabel == true && label.isNotEmpty)
+            const SizedBox(height: fontSize * 0.15),
+          if (config.style.showValue == true)
+            Text(
+              displayValue,
+              style: TextStyle(
+                fontSize: fontSize,
+                fontWeight: FontWeight.bold,
+                color: textColor,
+              ),
             ),
-          ),
-        ),
-      ],
+          if (config.style.showUnit == true && displayUnit.isNotEmpty)
+            const SizedBox(height: fontSize * 0.1),
+          if (config.style.showUnit == true && displayUnit.isNotEmpty)
+            Text(
+              displayUnit,
+              style: TextStyle(
+                fontSize: fontSize * 0.35,
+                fontWeight: FontWeight.w300,
+                color: UIConstants.withSubtleOpacity(textColor),
+              ),
+            ),
+        ],
+      ),
     );
   }
 
@@ -262,7 +248,7 @@ class TextDisplayBuilder extends ToolBuilder {
           'showValue',
           'showUnit',
         ],
-        allowsTTL: false,
+        allowsTTL: true,
       ),
     );
   }

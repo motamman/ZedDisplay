@@ -13,6 +13,7 @@ import '../services/find_home_target_service.dart';
 import '../services/dashboard_service.dart';
 import '../models/ais_favorite.dart';  // For manual add dialog
 import '../models/cpa_alert_state.dart';
+import 'common/widget_empty_states.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import '../utils/cpa_utils.dart';
 
@@ -38,6 +39,10 @@ class AISPolarChart extends StatefulWidget {
   final ValueChanged<Map<String, dynamic>>? onCpaConfigChanged;
   final double maxRangeNm; // Max display range in nautical miles (filters garbage AIS data)
   final String vesselLookupService; // External lookup service key
+  final bool initialShowMapView;
+  final bool initialHideStale;
+  final ValueChanged<bool>? onViewModeChanged;
+  final ValueChanged<bool>? onHideStaleChanged;
 
   const AISPolarChart({
     super.key,
@@ -56,6 +61,10 @@ class AISPolarChart extends StatefulWidget {
     this.onCpaConfigChanged,
     this.maxRangeNm = 100.0,
     this.vesselLookupService = 'vesselfinder',
+    this.initialShowMapView = false,
+    this.initialHideStale = false,
+    this.onViewModeChanged,
+    this.onHideStaleChanged,
   });
 
   @override
@@ -99,11 +108,11 @@ class _AISPolarChartState extends State<AISPolarChart>
   bool _hasSubscribed = false;
   bool _hasLoadedAIS = false;
   bool _lastSeenConnected = false;
-  bool _showMapView = false; // Toggle between polar chart and map view
+  late bool _showMapView; // Toggle between polar chart and map view
   bool _mapAutoFollow = true; // Auto-follow own vessel on map
   bool _fullScreenRadar = false; // Full-screen radar/map mode
   bool _showVesselListOverlay = false; // Vessel list overlay in fullscreen
-  bool _hideStale = false; // Hide stale vessels from display
+  late bool _hideStale; // Hide stale vessels from display
   bool _showProjections = true; // Show projected course lines (declutter toggle)
   List<_VesselPoint> _displayVessels = []; // Cached filtered vessel list
   int _vesselListTabIndex = 0; // 0=Nearby, 1=Favorites
@@ -138,6 +147,10 @@ class _AISPolarChartState extends State<AISPolarChart>
   @override
   void initState() {
     super.initState();
+    // Restore persisted display state
+    _showMapView = widget.initialShowMapView;
+    _hideStale = widget.initialHideStale;
+
     // Listen for CPA alert state changes (icon color updates)
     widget.cpaAlertService?.addListener(_onCpaChanged);
 
@@ -1088,18 +1101,7 @@ class _AISPolarChartState extends State<AISPolarChart>
     super.build(context);
 
     if (!widget.signalKService.isConnected) {
-      return Card(
-        child: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(Icons.cloud_off, size: 48, color: Colors.grey[400]),
-              const SizedBox(height: 16),
-              const Text('Not connected to SignalK server'),
-            ],
-          ),
-        ),
-      );
+      return const WidgetDisconnectedState();
     }
 
     if (_ownLat == null || _ownLon == null) {
@@ -1334,7 +1336,10 @@ class _AISPolarChartState extends State<AISPolarChart>
         // Map/Polar toggle
         _buildOverlayButton(
           icon: _showMapView ? Icons.radar : Icons.map,
-          onPressed: () => setState(() => _showMapView = !_showMapView),
+          onPressed: () {
+            setState(() => _showMapView = !_showMapView);
+            widget.onViewModeChanged?.call(_showMapView);
+          },
         ),
         // Auto-range toggle (polar view only)
         if (!_showMapView) ...[
@@ -1371,10 +1376,13 @@ class _AISPolarChartState extends State<AISPolarChart>
         // Hide stale vessels toggle
         _buildOverlayButton(
           icon: _hideStale ? Icons.visibility_off : Icons.visibility,
-          onPressed: () => setState(() {
-            _hideStale = !_hideStale;
-            _updateDisplayVessels();
-          }),
+          onPressed: () {
+            setState(() {
+              _hideStale = !_hideStale;
+              _updateDisplayVessels();
+            });
+            widget.onHideStaleChanged?.call(_hideStale);
+          },
           color: _hideStale ? Colors.orange : null,
         ),
         // CPA alert settings

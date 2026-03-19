@@ -4,7 +4,7 @@ import '../../models/tool_config.dart';
 import '../../models/tool_definition.dart';
 import '../../services/signalk_service.dart';
 import '../../services/tool_registry.dart';
-import '../tool_info_button.dart';
+
 
 /// Configuration for a power source (e.g., Shore, Solar, Alternator, Generator)
 class PowerSourceConfig {
@@ -369,22 +369,6 @@ class _VictronFlowToolState extends State<VictronFlowTool> with SingleTickerProv
               ),
             );
           },
-        ),
-        Positioned(
-          top: 2,
-          right: 2,
-          child: Container(
-            decoration: BoxDecoration(
-              color: Colors.black.withValues(alpha: 0.3),
-              shape: BoxShape.circle,
-            ),
-            child: ToolInfoButton(
-              toolId: 'victron_flow',
-              signalKService: widget.signalKService,
-              iconSize: 18,
-              iconColor: Colors.white,
-            ),
-          ),
         ),
       ],
     );

@@ -7,7 +7,7 @@ import '../../utils/string_extensions.dart';
 import '../../utils/color_extensions.dart';
 import '../../utils/data_extensions.dart';
 import '../../config/ui_constants.dart';
-import '../tool_info_button.dart';
+import '../common/widget_empty_states.dart';
 
 /// Config-driven switch tool for toggling boolean SignalK paths
 /// Supports multiple switches in a single tool
@@ -36,7 +36,7 @@ class _SwitchToolState extends State<SwitchTool> with AutomaticKeepAliveClientMi
     super.build(context);
 
     if (widget.config.dataSources.isEmpty) {
-      return const Center(child: Text('No data source configured'));
+      return const WidgetEmptyState();
     }
 
     final style = widget.config.style;
@@ -51,79 +51,52 @@ class _SwitchToolState extends State<SwitchTool> with AutomaticKeepAliveClientMi
       fallback: Colors.grey
     ) ?? Colors.grey;
 
-    final Positioned toolInfoButton = Positioned(
-      top: 8,
-      right: 8,
-      child: Container(
-        decoration: BoxDecoration(
-          color: Colors.black.withValues(alpha: 0.5),
-          shape: BoxShape.circle,
-        ),
-        child: ToolInfoButton(
-          toolId: 'switch_tool',
-          signalKService: widget.signalKService,
-          iconSize: 20,
-          iconColor: Colors.white,
-        ),
-      ),
-    );
-
     // Single switch - use original layout
     if (dataSources.length == 1) {
-      return Stack(
-        children: [
-          _buildSingleSwitch(dataSources.first, style, activeColor, inactiveColor),
-          toolInfoButton,
-        ],
-      );
+      return _buildSingleSwitch(dataSources.first, style, activeColor, inactiveColor);
     }
 
     // Multiple switches - use grid layout
-    return Stack(
-      children: [
-        Padding(
-          padding: const EdgeInsets.all(8.0),
-          child: LayoutBuilder(
-            builder: (context, constraints) {
-              // Determine grid columns based on available width
-              final crossAxisCount = constraints.maxWidth > 400 ? 3 : (constraints.maxWidth > 200 ? 2 : 1);
+    return Padding(
+      padding: const EdgeInsets.all(8.0),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          // Determine grid columns based on available width
+          final crossAxisCount = constraints.maxWidth > 400 ? 3 : (constraints.maxWidth > 200 ? 2 : 1);
 
-              // Adjust aspect ratio based on what's shown
-              final showLabel = style.showLabel == true;
-              final showValue = style.showValue == true;
-              double aspectRatio;
-              if (showLabel && showValue) {
-                aspectRatio = 1.0;  // Taller for both
-              } else if (showLabel || showValue) {
-                aspectRatio = 1.3;  // Medium
-              } else {
-                aspectRatio = 1.8;  // Wider/shorter for icon only
-              }
+          // Adjust aspect ratio based on what's shown
+          final showLabel = style.showLabel == true;
+          final showValue = style.showValue == true;
+          double aspectRatio;
+          if (showLabel && showValue) {
+            aspectRatio = 1.0;  // Taller for both
+          } else if (showLabel || showValue) {
+            aspectRatio = 1.3;  // Medium
+          } else {
+            aspectRatio = 1.8;  // Wider/shorter for icon only
+          }
 
-              return GridView.builder(
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: crossAxisCount,
-                  childAspectRatio: aspectRatio,
-                  crossAxisSpacing: 8,
-                  mainAxisSpacing: 8,
-                ),
-                itemCount: dataSources.length,
-                itemBuilder: (context, index) {
-                  return _buildSwitchCard(
-                    dataSources[index],
-                    style,
-                    activeColor,
-                    inactiveColor,
-                  );
-                },
+          return GridView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: crossAxisCount,
+              childAspectRatio: aspectRatio,
+              crossAxisSpacing: 8,
+              mainAxisSpacing: 8,
+            ),
+            itemCount: dataSources.length,
+            itemBuilder: (context, index) {
+              return _buildSwitchCard(
+                dataSources[index],
+                style,
+                activeColor,
+                inactiveColor,
               );
             },
-          ),
-        ),
-        toolInfoButton,
-      ],
+          );
+        },
+      ),
     );
   }
 

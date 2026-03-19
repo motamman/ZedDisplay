@@ -10,7 +10,7 @@ import '../../services/crew_service.dart';
 import '../../services/tool_registry.dart';
 import '../crew/file_picker_widget.dart';
 import '../crew/file_viewer.dart';
-import '../tool_info_button.dart';
+
 
 /// Dashboard tool for file sharing
 class FileShareTool extends StatelessWidget {
@@ -25,54 +25,34 @@ class FileShareTool extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Stack(
-      children: [
-        Consumer2<FileShareService, CrewService>(
-          builder: (context, fileShareService, crewService, child) {
-            if (!crewService.hasProfile) {
-              return _buildNoProfileView();
-            }
+    return Consumer2<FileShareService, CrewService>(
+      builder: (context, fileShareService, crewService, child) {
+        if (!crewService.hasProfile) {
+          return _buildNoProfileView();
+        }
 
-            final files = fileShareService.files;
+        final files = fileShareService.files;
 
-            return ClipRect(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  // Header with share button
-                  _buildHeader(context, files.length),
+        return ClipRect(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Header with share button
+              _buildHeader(context, files.length),
 
-                  // Files list
-                  Flexible(
-                    child: files.isEmpty
-                        ? _buildEmptyView()
-                        : _buildFilesList(context, files),
-                  ),
-
-                  // Share button
-                  _buildShareButton(context),
-                ],
+              // Files list
+              Flexible(
+                child: files.isEmpty
+                    ? _buildEmptyView()
+                    : _buildFilesList(context, files),
               ),
-            );
-          },
-        ),
-        Positioned(
-          top: 8,
-          right: 8,
-          child: Container(
-            decoration: BoxDecoration(
-              color: Colors.black.withValues(alpha: 0.5),
-              shape: BoxShape.circle,
-            ),
-            child: ToolInfoButton(
-              toolId: 'file_share',
-              signalKService: signalKService,
-              iconSize: 20,
-              iconColor: Colors.white,
-            ),
+
+              // Share button
+              _buildShareButton(context),
+            ],
           ),
-        ),
-      ],
+        );
+      },
     );
   }
 

@@ -7,7 +7,7 @@ import '../../utils/string_extensions.dart';
 import '../../utils/color_extensions.dart';
 import 'mixins/control_tool_mixin.dart';
 import 'common/control_tool_layout.dart';
-import '../tool_info_button.dart';
+import '../common/widget_empty_states.dart';
 
 /// Config-driven dropdown tool for sending numeric values to SignalK paths
 class DropdownTool extends StatefulWidget {
@@ -36,7 +36,7 @@ class _DropdownToolState extends State<DropdownTool> with ControlToolMixin, Auto
 
     // Get data from first data source
     if (widget.config.dataSources.isEmpty) {
-      return const Center(child: Text('No data source configured'));
+      return const WidgetEmptyState();
     }
 
     final dataSource = widget.config.dataSources.first;
@@ -99,119 +99,99 @@ class _DropdownToolState extends State<DropdownTool> with ControlToolMixin, Auto
     final metadata = widget.signalKService.metadataStore.get(dataSource.path);
     final unit = style.unit ?? metadata?.symbol ?? '';
 
-    return Stack(
-      children: [
-        ControlToolLayout(
-          label: label,
-          showLabel: style.showLabel == true,
-          valueWidget: style.showValue == true
-              ? Text(
-                  '${closestValue.toStringAsFixed(decimalPlaces)}${style.showUnit == true ? " $unit" : ""}',
-                  style: TextStyle(
-                    fontSize: 32,
-                    fontWeight: FontWeight.bold,
-                    color: primaryColor,
+    return ControlToolLayout(
+      label: label,
+      showLabel: style.showLabel == true,
+      valueWidget: style.showValue == true
+          ? Text(
+              '${closestValue.toStringAsFixed(decimalPlaces)}${style.showUnit == true ? " $unit" : ""}',
+              style: TextStyle(
+                fontSize: 32,
+                fontWeight: FontWeight.bold,
+                color: primaryColor,
+              ),
+            )
+          : null,
+      additionalWidgets: const [
+        SizedBox(height: 8),
+      ],
+      controlWidget: Column(
+        children: [
+          // Dropdown button
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+            decoration: BoxDecoration(
+              border: Border.all(color: primaryColor, width: 2),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: DropdownButton<double>(
+              value: closestValue,
+              isExpanded: true,
+              underline: const SizedBox(),
+              icon: Icon(Icons.arrow_drop_down, color: primaryColor),
+              dropdownColor: Theme.of(context).cardColor,
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: primaryColor,
+              ),
+              items: dropdownValues.map((double value) {
+                return DropdownMenuItem<double>(
+                  value: value,
+                  child: Center(
+                    child: Text(
+                      '${value.toStringAsFixed(decimalPlaces)}${unit.isNotEmpty ? " $unit" : ""}',
+                    ),
                   ),
-                )
-              : null,
-          additionalWidgets: const [
-            SizedBox(height: 8),
-          ],
-          controlWidget: Column(
-            children: [
-              // Dropdown button
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                decoration: BoxDecoration(
-                  border: Border.all(color: primaryColor, width: 2),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: DropdownButton<double>(
-                  value: closestValue,
-                  isExpanded: true,
-                  underline: const SizedBox(),
-                  icon: Icon(Icons.arrow_drop_down, color: primaryColor),
-                  dropdownColor: Theme.of(context).cardColor,
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                    color: primaryColor,
-                  ),
-                  items: dropdownValues.map((double value) {
-                    return DropdownMenuItem<double>(
-                      value: value,
-                      child: Center(
-                        child: Text(
-                          '${value.toStringAsFixed(decimalPlaces)}${unit.isNotEmpty ? " $unit" : ""}',
-                        ),
-                      ),
-                    );
-                  }).toList(),
-                  onChanged: isSending ? null : (value) {
-                    if (value != null) {
+                );
+              }).toList(),
+              onChanged: isSending ? null : (value) {
+                if (value != null) {
+                  setState(() {
+                    _currentSelectedValue = value;
+                  });
+                  final decimalPlaces = widget.config.style.customProperties?['decimalPlaces'] as int? ?? 1;
+                  sendNumericValue(
+                    value: value,
+                    path: dataSource.path,
+                    signalKService: widget.signalKService,
+                    decimalPlaces: decimalPlaces,
+                    onComplete: () {
                       setState(() {
-                        _currentSelectedValue = value;
+                        _currentSelectedValue = null;
                       });
-                      final decimalPlaces = widget.config.style.customProperties?['decimalPlaces'] as int? ?? 1;
-                      sendNumericValue(
-                        value: value,
-                        path: dataSource.path,
-                        signalKService: widget.signalKService,
-                        decimalPlaces: decimalPlaces,
-                        onComplete: () {
-                          setState(() {
-                            _currentSelectedValue = null;
-                          });
-                        },
-                      );
-                    }
-                  },
+                    },
+                  );
+                }
+              },
+            ),
+          ),
+          const SizedBox(height: 8),
+          // Min/Max labels
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                'Min: ${minValue.toStringAsFixed(decimalPlaces)}',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: Colors.grey[600],
                 ),
               ),
-              const SizedBox(height: 8),
-              // Min/Max labels
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    'Min: ${minValue.toStringAsFixed(decimalPlaces)}',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Colors.grey[600],
-                    ),
-                  ),
-                  Text(
-                    'Max: ${maxValue.toStringAsFixed(decimalPlaces)}',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Colors.grey[600],
-                    ),
-                  ),
-                ],
+              Text(
+                'Max: ${maxValue.toStringAsFixed(decimalPlaces)}',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: Colors.grey[600],
+                ),
               ),
-              const SizedBox(height: 4),
             ],
           ),
-          path: dataSource.path,
-          isSending: isSending,
-        ),
-        Positioned(
-          top: 8,
-          right: 8,
-          child: Container(
-            decoration: BoxDecoration(
-              color: Colors.black.withValues(alpha: 0.5),
-              shape: BoxShape.circle,
-            ),
-            child: ToolInfoButton(
-              toolId: 'dropdown_tool',
-              signalKService: widget.signalKService,
-              iconSize: 20,
-              iconColor: Colors.white,
-            ),
-          ),
-        ),
-      ],
+          const SizedBox(height: 4),
+        ],
+      ),
+      path: dataSource.path,
+      isSending: isSending,
     );
   }
 

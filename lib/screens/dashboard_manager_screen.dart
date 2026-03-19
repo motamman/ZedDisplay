@@ -21,6 +21,7 @@ import 'settings_screen.dart';
 import '../config/ui_constants.dart';
 import 'crew/crew_screen.dart';
 import '../widgets/crew/incoming_call_overlay.dart';
+import '../widgets/tool_info_button.dart';
 
 /// Resize zone for corner resizing
 enum _ResizeZone {
@@ -797,6 +798,10 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen>
       final dashboardService = Provider.of<DashboardService>(context, listen: false);
       await dashboardService.removeScreen(screenId);
     }
+  }
+
+  Future<void> _showToolInfo(BuildContext context, String toolTypeId, SignalKService signalKService) async {
+    await ToolInfoButton.showInfoDialog(context, toolTypeId, signalKService);
   }
 
   Future<void> _editTool(Tool tool, String placementToolId) async {
@@ -1745,7 +1750,7 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen>
                         ),
                       ),
 
-                      // Top toolbar row with delete and settings buttons
+                      // Top toolbar row with delete, info, and settings buttons
                       Positioned(
                         top: 8,
                         left: 56,
@@ -1765,17 +1770,36 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen>
                               ),
                               tooltip: 'Remove',
                             ),
-                            // Settings/Edit button
-                            IconButton(
-                              icon: const Icon(Icons.settings, size: 20),
-                              onPressed: () => _editTool(tool, placement.toolId),
-                              style: IconButton.styleFrom(
-                                backgroundColor: Colors.green.withValues(alpha: 0.85),
-                                foregroundColor: Colors.white,
-                                padding: const EdgeInsets.all(8),
-                                minimumSize: const Size(36, 36),
-                              ),
-                              tooltip: 'Configure',
+                            // Info + Settings grouped on the right
+                            Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                // Info button
+                                IconButton(
+                                  icon: const Icon(Icons.info_outline, size: 20),
+                                  onPressed: () => _showToolInfo(context, tool.toolTypeId, signalKService),
+                                  style: IconButton.styleFrom(
+                                    backgroundColor: Colors.blue.withValues(alpha: 0.85),
+                                    foregroundColor: Colors.white,
+                                    padding: const EdgeInsets.all(8),
+                                    minimumSize: const Size(36, 36),
+                                  ),
+                                  tooltip: 'Tool info',
+                                ),
+                                const SizedBox(width: 8),
+                                // Settings/Edit button
+                                IconButton(
+                                  icon: const Icon(Icons.settings, size: 20),
+                                  onPressed: () => _editTool(tool, placement.toolId),
+                                  style: IconButton.styleFrom(
+                                    backgroundColor: Colors.green.withValues(alpha: 0.85),
+                                    foregroundColor: Colors.white,
+                                    padding: const EdgeInsets.all(8),
+                                    minimumSize: const Size(36, 36),
+                                  ),
+                                  tooltip: 'Configure',
+                                ),
+                              ],
                             ),
                           ],
                         ),

@@ -8,7 +8,7 @@ import '../../models/tool_config.dart';
 import '../../services/signalk_service.dart';
 import '../../services/intercom_service.dart';
 import '../../services/tool_registry.dart';
-import '../tool_info_button.dart';
+
 
 /// Permission levels for SignalK users
 enum SignalKPermission {
@@ -800,11 +800,6 @@ class _UserManagementToolState extends State<UserManagementTool> {
                             icon: const Icon(Icons.refresh, size: 18),
                             onPressed: _loadUsers,
                             tooltip: 'Refresh',
-                          ),
-                          ToolInfoButton(
-                            toolId: 'user_management',
-                            signalKService: widget.signalKService,
-                            iconSize: 18,
                           ),
                         ],
                       ),

@@ -23,7 +23,7 @@ import '../../utils/angle_utils.dart';
 import '../../widgets/countdown_confirmation_overlay.dart';
 import '../../utils/cpa_utils.dart';
 import '../../utils/dodge_utils.dart';
-import '../tool_info_button.dart';
+
 
 /// Find Home Tool - ILS-style approach display for navigating back to an
 /// anchored vessel at night.
@@ -1065,33 +1065,31 @@ class _FindHomeToolState extends State<FindHomeTool> {
       unitSymbol = distMeta.symbol ?? 'm';
     }
 
-    return Stack(
+    return Column(
       children: [
-        Column(
-          children: [
-            _buildHeader(
-              bearing: displayBearing,
-              deviation: displayDeviation,
-              distance: displayDistance,
-              cogDeg: displayCogDeg,
-              sogMs: displaySogMs,
-              vesselSogMs: displayVesselSogMs,
-              isWrongWay: displayIsWrongWay,
-              isDark: isDark,
-              inDodge: inDodge,
-            ),
-            Expanded(
-              child: ClipRect(
-                child: CustomPaint(
-                  painter: _RunwayPainter(
-                    deviation: displayDeviation,
-                    maxDeviation: _maxDeviation,
-                    distanceMeters: displayDistance,
-                    metersPerUnit: metersPerUnit,
-                    unitSymbol: unitSymbol,
-                    isDark: isDark,
-                    active: _active,
-                    hapticThreshold: _hapticDeviationThreshold,
+        _buildHeader(
+          bearing: displayBearing,
+          deviation: displayDeviation,
+          distance: displayDistance,
+          cogDeg: displayCogDeg,
+          sogMs: displaySogMs,
+          vesselSogMs: displayVesselSogMs,
+          isWrongWay: displayIsWrongWay,
+          isDark: isDark,
+          inDodge: inDodge,
+        ),
+        Expanded(
+          child: ClipRect(
+            child: CustomPaint(
+              painter: _RunwayPainter(
+                deviation: displayDeviation,
+                maxDeviation: _maxDeviation,
+                distanceMeters: displayDistance,
+                metersPerUnit: metersPerUnit,
+                unitSymbol: unitSymbol,
+                isDark: isDark,
+                active: _active,
+                hapticThreshold: _hapticDeviationThreshold,
                     isWrongWay: displayIsWrongWay,
                     isAisMode: _aisVesselId != null,
                     isStaleTarget: _aisTargetStale,
@@ -1115,143 +1113,101 @@ class _FindHomeToolState extends State<FindHomeTool> {
               isDark: isDark,
               inDodge: inDodge,
             ),
-          ],
-        ),
-        _buildInfoButton(),
       ],
-    );
-  }
-
-  Widget _buildInfoButton() {
-    return Positioned(
-      top: 8,
-      right: 8,
-      child: Container(
-        decoration: BoxDecoration(
-          color: Colors.black.withValues(alpha: 0.5),
-          shape: BoxShape.circle,
-        ),
-        child: ToolInfoButton(
-          toolId: 'find_home',
-          signalKService: widget.signalKService,
-          iconSize: 20,
-          iconColor: Colors.white,
-        ),
-      ),
     );
   }
 
   Widget _buildNoTarget(bool isDark) {
-    return Stack(
-      children: [
-        Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Icon(Icons.anchor, size: 32, color: Colors.grey),
-              const SizedBox(height: 8),
-              const Text(
-                'No home position',
-                style: TextStyle(color: Colors.grey),
-              ),
-              const SizedBox(height: 12),
-              ElevatedButton.icon(
-                onPressed: _showSetHomeDialog,
-                icon: const Icon(Icons.home, size: 18),
-                label: const Text('Set Home'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.blue,
-                  foregroundColor: Colors.white,
-                ),
-              ),
-            ],
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const Icon(Icons.anchor, size: 32, color: Colors.grey),
+          const SizedBox(height: 8),
+          const Text(
+            'No home position',
+            style: TextStyle(color: Colors.grey),
           ),
-        ),
-        _buildInfoButton(),
-      ],
+          const SizedBox(height: 12),
+          ElevatedButton.icon(
+            onPressed: _showSetHomeDialog,
+            icon: const Icon(Icons.home, size: 18),
+            label: const Text('Set Home'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.blue,
+              foregroundColor: Colors.white,
+            ),
+          ),
+        ],
+      ),
     );
   }
 
   Widget _buildGpsError(bool isDark) {
-    return Stack(
-      children: [
-        Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Icon(Icons.location_disabled,
-                  size: 32, color: Colors.orange),
-              const SizedBox(height: 8),
-              Text(
-                _gpsError ?? 'GPS unavailable',
-                style: const TextStyle(color: Colors.orange),
-              ),
-              const SizedBox(height: 4),
-              const Text(
-                'Enable location services',
-                style: TextStyle(color: Colors.grey, fontSize: 12),
-              ),
-            ],
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const Icon(Icons.location_disabled,
+              size: 32, color: Colors.orange),
+          const SizedBox(height: 8),
+          Text(
+            _gpsError ?? 'GPS unavailable',
+            style: const TextStyle(color: Colors.orange),
           ),
-        ),
-        _buildInfoButton(),
-      ],
+          const SizedBox(height: 4),
+          const Text(
+            'Enable location services',
+            style: TextStyle(color: Colors.grey, fontSize: 12),
+          ),
+        ],
+      ),
     );
   }
 
   Widget _buildAcquiringGps(bool isDark) {
-    return Stack(
-      children: [
-        Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Icon(Icons.location_searching, size: 32, color: Colors.grey),
-              const SizedBox(height: 8),
-              const Text(
-                'Acquiring device GPS...',
-                style: TextStyle(color: Colors.grey),
-              ),
-              if (_aisVesselName != null) ...[
-                const SizedBox(height: 4),
-                Text(
-                  'Target: $_aisVesselName',
-                  style: const TextStyle(color: Colors.cyan, fontSize: 12),
-                ),
-              ],
-            ],
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const Icon(Icons.location_searching, size: 32, color: Colors.grey),
+          const SizedBox(height: 8),
+          const Text(
+            'Acquiring device GPS...',
+            style: TextStyle(color: Colors.grey),
           ),
-        ),
-        _buildInfoButton(),
-      ],
+          if (_aisVesselName != null) ...[
+            const SizedBox(height: 4),
+            Text(
+              'Target: $_aisVesselName',
+              style: const TextStyle(color: Colors.cyan, fontSize: 12),
+            ),
+          ],
+        ],
+      ),
     );
   }
 
   Widget _buildWaitingForSignalK(bool isDark) {
-    return Stack(
-      children: [
-        Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Icon(Icons.sailing, size: 32, color: Colors.grey),
-              const SizedBox(height: 8),
-              const Text(
-                'Waiting for vessel position...',
-                style: TextStyle(color: Colors.grey),
-              ),
-              if (_aisVesselName != null) ...[
-                const SizedBox(height: 4),
-                Text(
-                  'Target: $_aisVesselName',
-                  style: const TextStyle(color: Colors.cyan, fontSize: 12),
-                ),
-              ],
-            ],
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const Icon(Icons.sailing, size: 32, color: Colors.grey),
+          const SizedBox(height: 8),
+          const Text(
+            'Waiting for vessel position...',
+            style: TextStyle(color: Colors.grey),
           ),
-        ),
-        _buildInfoButton(),
-      ],
+          if (_aisVesselName != null) ...[
+            const SizedBox(height: 4),
+            Text(
+              'Target: $_aisVesselName',
+              style: const TextStyle(color: Colors.cyan, fontSize: 12),
+            ),
+          ],
+        ],
+      ),
     );
   }
 

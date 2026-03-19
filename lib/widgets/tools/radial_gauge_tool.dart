@@ -7,7 +7,7 @@ import '../../utils/string_extensions.dart';
 import '../../utils/color_extensions.dart';
 import 'mixins/zones_mixin.dart';
 import '../radial_gauge.dart';
-import '../tool_info_button.dart';
+import '../common/widget_empty_states.dart';
 
 /// Config-driven radial gauge tool
 class RadialGaugeTool extends StatefulWidget {
@@ -74,25 +74,30 @@ class _RadialGaugeToolState extends State<RadialGaugeTool> with ZonesMixin, Auto
 
     // Get data from first data source
     if (widget.config.dataSources.isEmpty) {
-      return const Center(child: Text('No data source configured'));
+      return const WidgetEmptyState();
     }
 
     final dataSource = widget.config.dataSources.first;
 
     // Use MetadataStore for conversions
     final rawValue = _getRawValue(dataSource);
-    final value = _getConverted(dataSource.path, rawValue) ?? 0.0;
-
-    // Get style configuration
     final style = widget.config.style;
+
+    // Check if data is fresh (within TTL threshold)
+    final isDataFresh = dataSource.isFresh(
+      widget.signalKService,
+      ttlSeconds: style.ttlSeconds,
+    );
+
     final minValue = style.minValue ?? 0.0;
     final maxValue = style.maxValue ?? 100.0;
+    final value = isDataFresh ? (_getConverted(dataSource.path, rawValue) ?? 0.0) : minValue;
 
     // Get label from data source or style
     final label = dataSource.label ?? dataSource.path.toReadableLabel();
 
-    // Get formatted value using MetadataStore
-    final formattedValue = _formatValue(dataSource.path, rawValue);
+    // Get formatted value using MetadataStore, or "--" if stale
+    final formattedValue = isDataFresh ? _formatValue(dataSource.path, rawValue) : '--';
 
     // Get unit symbol from MetadataStore (prefer style override, fallback to metadata symbol)
     final metadata = widget.signalKService.metadataStore.get(dataSource.path);
@@ -111,44 +116,22 @@ class _RadialGaugeToolState extends State<RadialGaugeTool> with ZonesMixin, Auto
     final pointerOnly = style.customProperties?['pointerOnly'] as bool? ?? false;
     final showZones = style.customProperties?['showZones'] as bool? ?? true;
 
-    return Stack(
-      fit: StackFit.expand,
-      alignment: Alignment.center,
-      children: [
-        Center(child: RadialGauge(
-          value: value,
-          minValue: minValue,
-          maxValue: maxValue,
-          label: style.showLabel == true ? label : '',
-          unit: style.showUnit == true ? unit : '',
-          formattedValue: formattedValue,
-          primaryColor: primaryColor,
-          divisions: divisions,
-          showTickLabels: showTickLabels,
-          gaugeStyle: gaugeStyle,
-          pointerOnly: pointerOnly,
-          showValue: style.showValue ?? true,
-          zones: zones,
-          showZones: showZones,
-        )),
-        Positioned(
-          top: 8,
-          right: 8,
-          child: Container(
-            decoration: BoxDecoration(
-              color: Colors.black.withValues(alpha: 0.5),
-              shape: BoxShape.circle,
-            ),
-            child: ToolInfoButton(
-              toolId: 'radial_gauge',
-              signalKService: widget.signalKService,
-              iconSize: 20,
-              iconColor: Colors.white,
-            ),
-          ),
-        ),
-      ],
-    );
+    return Center(child: RadialGauge(
+      value: value,
+      minValue: minValue,
+      maxValue: maxValue,
+      label: style.showLabel == true ? label : '',
+      unit: style.showUnit == true ? unit : '',
+      formattedValue: formattedValue,
+      primaryColor: primaryColor,
+      divisions: divisions,
+      showTickLabels: showTickLabels,
+      gaugeStyle: gaugeStyle,
+      pointerOnly: pointerOnly,
+      showValue: style.showValue ?? true,
+      zones: zones,
+      showZones: showZones,
+    ));
   }
 
   RadialGaugeStyle _parseGaugeStyle(String styleStr) {
@@ -191,7 +174,7 @@ class RadialGaugeBuilder extends ToolBuilder {
           'showUnit',
           'gaugeStyle', // 'arc', 'full', 'half', 'threequarter'
         ],
-        allowsTTL: false,
+        allowsTTL: true,
       ),
     );
   }

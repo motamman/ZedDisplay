@@ -17,6 +17,7 @@ import 'package:zed_display/services/intercom_service.dart';
 import 'package:zed_display/services/alert_coordinator.dart';
 import 'package:zed_display/services/notification_navigation_service.dart';
 import 'package:zed_display/services/ais_favorites_service.dart';
+import 'package:zed_display/services/cpa_alert_service.dart';
 import 'package:zed_display/services/find_home_target_service.dart';
 import 'package:zed_display/services/dashboard_store_service.dart';
 
@@ -37,6 +38,7 @@ void main() {
   late AlertCoordinator alertCoordinator;
   late NotificationNavigationService notificationNavigationService;
   late AISFavoritesService aisFavoritesService;
+  late CpaAlertService cpaAlertService;
   late FindHomeTargetService findHomeTargetService;
   late DashboardStoreService dashboardStoreService;
 
@@ -104,6 +106,15 @@ void main() {
     aisFavoritesService = AISFavoritesService();
     aisFavoritesService.loadFromStorage(storageService);
 
+    // Initialize CPA alert service
+    cpaAlertService = CpaAlertService(
+      signalKService: signalKService,
+      notificationService: notificationService,
+      messagingService: messagingService,
+      storageService: storageService,
+      alertCoordinator: alertCoordinator,
+    );
+
     // Initialize Find Home target service
     findHomeTargetService = FindHomeTargetService();
 
@@ -142,6 +153,7 @@ void main() {
       alertCoordinator: alertCoordinator,
       notificationNavigationService: notificationNavigationService,
       aisFavoritesService: aisFavoritesService,
+      cpaAlertService: cpaAlertService,
       findHomeTargetService: findHomeTargetService,
       dashboardStoreService: dashboardStoreService,
     ));
@@ -167,6 +179,7 @@ void main() {
       alertCoordinator: alertCoordinator,
       notificationNavigationService: notificationNavigationService,
       aisFavoritesService: aisFavoritesService,
+      cpaAlertService: cpaAlertService,
       findHomeTargetService: findHomeTargetService,
       dashboardStoreService: dashboardStoreService,
     ));

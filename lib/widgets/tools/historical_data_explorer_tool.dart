@@ -21,7 +21,6 @@ import '../../services/signalk_service.dart';
 import '../../services/storage_service.dart';
 import '../../services/historical_data_service.dart';
 import '../../services/tool_registry.dart';
-import '../tool_info_button.dart';
 
 // ---------------------------------------------------------------------------
 // Builder
@@ -371,11 +370,19 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
     return _drawPoint1;
   }
 
-  Future<void> _fetchAvailablePaths() async {
+  Future<void> _fetchAvailablePaths({
+    String? context,
+    DateTime? from,
+    DateTime? to,
+  }) async {
     if (_historyService == null || _pathsLoading) return;
     setState(() => _pathsLoading = true);
     try {
-      final allPaths = await _historyService!.getAvailablePaths();
+      final allPaths = await _historyService!.getAvailablePaths(
+        context: context,
+        from: from,
+        to: to,
+      );
       // Keep only numeric-valued paths. Filter out position (added
       // automatically), notifications, boolean states, and object paths.
       _availablePaths = allPaths.where((p) {
@@ -965,7 +972,7 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
           _resultSeries = series;
           _resultPoints = points;
           _state = ExplorerState.results;
-          _selectedRowIndex = -1;
+          _selectedRowIndex = points.isNotEmpty ? points.first.index : -1;
           _activeLegendIndex = 0;
           _visibleLegendIndices = {0};
         });
@@ -1332,6 +1339,16 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
               }
               _fetchAvailableContexts(localFrom, localTo,
                   dialogSetState: setDialogState);
+              // Re-fetch paths for the (now reset) context + new date range
+              _fetchAvailablePaths(
+                context: localContext,
+                from: localFrom,
+                to: localTo,
+              ).then((_) {
+                localSelected.removeWhere(
+                    (p) => !_availablePaths.contains(p));
+                setDialogState(() {});
+              });
             }
 
             return AlertDialog(
@@ -1419,6 +1436,9 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
                                   dialogSetState: setDialogState);
                             } else {
                               localContext = 'vessels.self';
+                              // Restore full path list for self
+                              _fetchAvailablePaths().then(
+                                  (_) => setDialogState(() {}));
                             }
                           });
                         },
@@ -1500,6 +1520,16 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
                                 onChanged: (v) {
                                   if (v != null) {
                                     setDialogState(() => localContext = v);
+                                    // Re-fetch paths for the new context + date range
+                                    _fetchAvailablePaths(
+                                      context: v,
+                                      from: localFrom,
+                                      to: localTo,
+                                    ).then((_) {
+                                      localSelected.removeWhere(
+                                          (p) => !_availablePaths.contains(p));
+                                      setDialogState(() {});
+                                    });
                                   }
                                 },
                                 child: ListView.builder(
@@ -2289,25 +2319,6 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
             ),
           if (_drawPoint1 != null && _drawPoint2 != null)
             const SizedBox(height: 4),
-          // Info button
-          Material(
-            color: Colors.white.withValues(alpha: 0.9),
-            borderRadius: BorderRadius.circular(6),
-            elevation: 2,
-            child: SizedBox(
-              width: 32,
-              height: 32,
-              child: Center(
-                child: ToolInfoButton(
-                  toolId: 'historical_data_explorer',
-                  signalKService: widget.signalKService,
-                  iconSize: 18,
-                  iconColor: Colors.black87,
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(height: 4),
           // Homeport toggle
           if (_homeportPosition != null)
             _buildOverlayButton(

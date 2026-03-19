@@ -6,7 +6,7 @@ import '../../services/tool_registry.dart';
 import '../radial_bar_chart.dart';
 import '../../utils/string_extensions.dart';
 import '../../utils/color_extensions.dart';
-import '../tool_info_button.dart';
+import '../common/widget_empty_states.dart';
 
 /// Config-driven radial bar chart tool
 /// Displays up to 4 SignalK paths as concentric circular rings
@@ -24,34 +24,12 @@ class RadialBarChartTool extends StatelessWidget {
   Widget build(BuildContext context) {
     // Check connection
     if (!signalKService.isConnected) {
-      return const Card(
-        child: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(Icons.cloud_off, size: 48, color: Colors.grey),
-              SizedBox(height: 16),
-              Text('Not connected to SignalK server'),
-            ],
-          ),
-        ),
-      );
+      return const WidgetDisconnectedState();
     }
 
     // Check data sources
     if (config.dataSources.isEmpty) {
-      return const Card(
-        child: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(Icons.donut_large, size: 48, color: Colors.grey),
-              SizedBox(height: 16),
-              Text('No data sources configured'),
-            ],
-          ),
-        ),
-      );
+      return const WidgetEmptyState(message: 'No data sources configured');
     }
 
     // Build radial bar data from data sources using MetadataStore
@@ -92,39 +70,19 @@ class RadialBarChartTool extends StatelessWidget {
     final innerRadius = config.style.customProperties?['innerRadius'] as double? ?? 0.4;
     final gap = config.style.customProperties?['gap'] as double? ?? 0.08;
 
-    return Stack(
-      children: [
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.all(8.0),
-            child: RadialBarChart(
-              data: radialBars,
-              title: title.isNotEmpty ? title : null,
-              showLegend: showLegend,
-              showLabels: showLabels,
-              primaryColor: primaryColor,
-              innerRadius: innerRadius,
-              gap: gap,
-            ),
-          ),
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(8.0),
+        child: RadialBarChart(
+          data: radialBars,
+          title: title.isNotEmpty ? title : null,
+          showLegend: showLegend,
+          showLabels: showLabels,
+          primaryColor: primaryColor,
+          innerRadius: innerRadius,
+          gap: gap,
         ),
-        Positioned(
-          top: 8,
-          right: 8,
-          child: Container(
-            decoration: BoxDecoration(
-              color: Colors.black.withValues(alpha: 0.5),
-              shape: BoxShape.circle,
-            ),
-            child: ToolInfoButton(
-              toolId: 'radial_bar_chart',
-              signalKService: signalKService,
-              iconSize: 20,
-              iconColor: Colors.white,
-            ),
-          ),
-        ),
-      ],
+      ),
     );
   }
 }

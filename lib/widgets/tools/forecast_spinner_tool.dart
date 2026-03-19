@@ -7,7 +7,7 @@ import '../../utils/color_extensions.dart';
 import '../../utils/conversion_utils.dart';
 import '../forecast_spinner.dart';
 import '../weatherflow_forecast.dart';
-import '../tool_info_button.dart';
+
 
 /// Config-driven Forecast Spinner tool
 class ForecastSpinnerTool extends StatelessWidget {
@@ -60,33 +60,13 @@ class ForecastSpinnerTool extends StatelessWidget {
     // Get sun/moon times
     final sunMoonTimes = _getSunMoonTimes();
 
-    return Stack(
-      children: [
-        ForecastSpinner(
-          hourlyForecasts: hourlyForecasts,
-          sunMoonTimes: sunMoonTimes,
-          tempUnit: tempUnit,
-          windUnit: windUnit,
-          pressureUnit: pressureUnit,
-          primaryColor: primaryColor,
-        ),
-        Positioned(
-          top: 8,
-          right: 8,
-          child: Container(
-            decoration: BoxDecoration(
-              color: Colors.black.withValues(alpha: 0.5),
-              shape: BoxShape.circle,
-            ),
-            child: ToolInfoButton(
-              toolId: 'forecast_spinner',
-              signalKService: signalKService,
-              iconSize: 20,
-              iconColor: Colors.white,
-            ),
-          ),
-        ),
-      ],
+    return ForecastSpinner(
+      hourlyForecasts: hourlyForecasts,
+      sunMoonTimes: sunMoonTimes,
+      tempUnit: tempUnit,
+      windUnit: windUnit,
+      pressureUnit: pressureUnit,
+      primaryColor: primaryColor,
     );
   }
 
