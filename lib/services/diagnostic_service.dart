@@ -47,6 +47,14 @@ class DiagnosticService {
   int _wsMetaCount = 0;
   int _wsNotificationCount = 0;
 
+  // Public getters for Device Monitor widget
+  int get wsDeltaCount => _wsDeltaCount;
+  int get wsMetaCount => _wsMetaCount;
+  int get wsNotificationCount => _wsNotificationCount;
+  Map<String, int> get restCallCounts => Map.unmodifiable(_restCallCounts);
+  int get snapshotCount => _snapshots.length;
+  DateTime? get startTime => _startTime;
+
   DiagnosticService._({
     required SignalKService signalKService,
     required String deviceId,
