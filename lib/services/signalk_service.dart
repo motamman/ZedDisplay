@@ -707,6 +707,9 @@ class SignalKService extends ChangeNotifier implements DataService {
 
             // Route AIS vessel deltas to registry, own vessel to flat cache
             if (update.context.startsWith('vessels.') && !_isSelfContext(update.context)) {
+              if (kDebugMode && value.path.contains('tempest')) {
+                print('DEBUG ROUTING: path=${value.path} context=${update.context} vesselContext=$_vesselContext selfMMSI=$_selfMMSI isSelf=${_isSelfContext(update.context)} → AIS registry');
+              }
               // AIS vessel — route to registry (not flat cache)
               final vesselId = update.context.substring('vessels.'.length);
               _aisManager.registry.updateVessel(
@@ -721,6 +724,9 @@ class SignalKService extends ChangeNotifier implements DataService {
 
             // Own vessel — store in flat cache (single entry per path)
             // Source is stored on the dataPoint itself, not as separate cache key
+            if (kDebugMode && value.path.contains('tempest')) {
+              print('DEBUG ROUTING: path=${value.path} context=${update.context} vesselContext=$_vesselContext → flat cache');
+            }
             _dataCache.internalDataMap[value.path] = dataPoint;
           }
         }
