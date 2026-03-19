@@ -19,6 +19,7 @@
 - [ ] Clean up and create a standard suite of dashboards for each form factor:
   - Small phone, large phone, small tablet, tablet
   - Each with: Navigation, System Controls, Weather & Conditions, Analysis & Data
+- [ ] Simplify the date picker in Map Explorer to a single calendar; add a "days back" option
 
 ## Widget Inventory — AIS Context Status
 
