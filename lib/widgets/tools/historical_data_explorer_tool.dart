@@ -972,7 +972,7 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
           _resultSeries = series;
           _resultPoints = points;
           _state = ExplorerState.results;
-          _selectedRowIndex = -1;
+          _selectedRowIndex = points.isNotEmpty ? points.first.index : -1;
           _activeLegendIndex = 0;
           _visibleLegendIndices = {0};
         });
