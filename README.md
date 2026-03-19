@@ -70,6 +70,7 @@ A customizable SignalK marine dashboard and crew comms application to display re
 
 **Chart Tools**
 - **Historical Chart**: Line chart showing historical data for up to 3 paths
+  - Vessel context support — query data for own vessel or AIS targets
   - Smoothing support: SMA (Simple Moving Average) or EMA (Exponential Moving Average)
   - Dual Y-axis when charting different unit types (e.g., speed + temperature)
   - Duration-adaptive X-axis labels

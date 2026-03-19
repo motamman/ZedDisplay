@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.85+54] - 2026-03-19
+
+### Added
+- **Historical Chart — Vessel Context**: Historical charts can now query data for specific vessel contexts (own vessel or AIS targets), with data sources grouped by context for streamlined API calls
+- **Historical Chart — Context in Path Selector**: Path selector dialog prioritizes favorited historical contexts and shows improved layout for context selection
+- **CPA Alert Integration**: CPA alert service now integrated with AIS polar chart tool, with display state management for alert visibility
+- **TTL Data Freshness**: All gauge and display tools now support TTL (time-to-live) checks — stale data is visually indicated instead of silently showing outdated values
+- **Edit Mode — Tool Info Button**: Blue info button added to the edit mode overlay toolbar (next to gear icon) for quick access to tool documentation without leaving the dashboard
+
+### Changed
+- **Widget Empty States**: All 42 tool widgets now use a unified `WidgetEmptyState` component for "no data source configured" and "no connection" messages, replacing inconsistent per-widget message styles
+- **Tool Info Button Relocated**: Info button removed from all 42 tool widget overlays (was obscuring content) and moved to the edit mode toolbar
+- **Historical Data Explorer — Default Selection**: Detail tab now auto-selects the first data point after a query completes, instead of showing "Tap a point on the map or list"
+- **Historical Chart — Series Visibility**: Refactored series visibility handling in historical and real-time charts for more reliable state management and rendering
+- **Historical Chart — Legend Colors**: Improved legend series index mapping and color assignment for multi-series charts
+- **Path Selector Dialog**: Available paths endpoint now supports optional context and date range filters for more relevant path listings
+
+### Fixed
+- **RPi Monitor**: Fixed tool never receiving WebSocket data — was missing subscription to `environment.rpi.*` paths due to `subscribe=none` configuration
+- **Historical Chart — Connection Handling**: Improved connection state handling and UI messages when server is disconnected
+
 ## [0.5.80+53] - 2026-03-18
 
 ### Added

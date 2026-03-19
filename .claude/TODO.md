@@ -13,6 +13,7 @@
 - [ ] Redo the device widget to be a meaningful device monitor
 - [ ] Add Apple certificate signing and notarization to macOS release workflow
 - [ ] Audit all widgets exposing PathSelectorDialog to verify they actually use the selected paths
+- [ ] Fix the macOS install to TestFlight
 
 ## Widget Inventory — AIS Context Status
 
