@@ -34,7 +34,7 @@ A customizable SignalK marine dashboard and crew comms application to display re
 - Multiple dashboard screens with custom layouts
 - Drag-and-drop tool placement
 - Grid-based responsive layout
-- **5 Themed Starter Dashboards**: Sailing, Weather Station, Passage, Boat Systems, and Controls — covering all 39 widget types
+- **5 Themed Starter Dashboards**: Sailing, Weather Station, Passage, Boat Systems, and Controls — covering all 42 widget types
 
 ### Tool Library
 
@@ -43,7 +43,7 @@ A customizable SignalK marine dashboard and crew comms application to display re
 - **Linear Gauge**: Horizontal or vertical bar gauge for numeric values
 - **Compass Gauge**: Circular compass display for heading/bearing values (supports up to 4 needles)
   - Compare multiple headings on one display (heading, COG, autopilot target, etc.)
-  - Multiple styles: classic, arc, minimal, marine
+  - Multiple styles: classic, minimal, marine
   - Custom labels that stay horizontal for easy reading
 - **Text Display**: Large numeric value display with label and unit
   - Smart lat/long formatting (auto-detects and formats as degrees/minutes/seconds)
@@ -67,6 +67,16 @@ A customizable SignalK marine dashboard and crew comms application to display re
   - Automatic unit conversions
 
   <img src="screenshots/weather_api_spinner.png" alt="Weather API Spinner" width="400">
+
+- **Forecast Spinner**: Circular dial to explore WeatherFlow/Tempest hourly forecast by spinning
+  - Rotary hour-by-hour navigation through forecast data
+  - Temperature, wind, and precipitation display
+  - Requires signalk-weatherflow-api plugin
+
+- **Weather Alerts**: NWS (National Weather Service) weather alert display
+  - Severity-based color coding and alerting
+  - Active alerts with descriptions and affected areas
+  - Automatic filtering of expired alerts
 
 **Chart Tools**
 - **Historical Chart**: Line chart showing historical data for up to 3 paths
@@ -132,13 +142,8 @@ A customizable SignalK marine dashboard and crew comms application to display re
 
   <img src="screenshots/wind_compass.png" alt="Wind Compass" width="320">
 
-- **Windsteer Gauge**: Comprehensive wind analysis gauge (mirrors B&G/Kip implementation)
-  - Apparent and true wind display with sectors (min/mid/max historic)
-  - Laylines and current/drift vectors
-  - Waypoint bearing overlay
-  - Multiple configurable data overlays
-
 - **Autopilot**: Full autopilot control with compass display, mode selection, and tacking
+- **Autopilot Simple**: Text-based autopilot control without compass visualization — compact heading display with mode selection, tacking, and heading adjustment
 - **Autopilot V2**: Redesigned circular autopilot with nested controls
   - Banana-shaped heading adjustment buttons (+1, -1, +10, -10) arced around inner circle
   - Mode selector (Compass, Wind, Route) with engage/standby toggle
@@ -223,7 +228,7 @@ A customizable SignalK marine dashboard and crew comms application to display re
 - **Switch**: Toggle switch for boolean SignalK paths with PUT support
 - **Slider**: Slider control for sending numeric values to SignalK paths with PUT support
 - **Knob**: Rotary knob control for sending numeric values to SignalK paths with PUT support
-- **Checkbox**: Checkbox for boolean SignalK paths with PUT support with PUT support
+- **Checkbox**: Checkbox for boolean SignalK paths with PUT support
 - **Dropdown**: Dropdown selector for sending numeric values to SignalK paths with PUT support
 - **Tanks**: Display up to 5 tank levels with visual fill indicators
   - Color-coded by tank type (diesel, freshWater, blackWater, wasteWater, liveWell, lubrication, ballast, gas) with icons
@@ -244,7 +249,7 @@ A customizable SignalK marine dashboard and crew comms application to display re
   - Alarms persist via SignalK resources API (sync across all devices)
   - Multi-device dismiss: "Dismiss Here" (local) or "Dismiss All" (synced)
   - 12h/24h time format toggle with AM/PM selector
-  - Snooze support (1, 5, 9, 15, 30 minutes)
+  - Snooze support (9 minutes)
   - Long-press clock face to manage alarms
 
   <img src="screenshots/clock.png" alt="Clock/Alarm" width="280">
@@ -258,7 +263,7 @@ A customizable SignalK marine dashboard and crew comms application to display re
   - Plugin management (view all plugins, enable/disable with tap)
   - Webapp browser with icons - tap to open in-app with auth pass-through
   - Server restart functionality
-  - Auto-updates every 5 seconds
+  - Real-time updates via WebSocket
 
   <img src="screenshots/server_status.png" alt="Server Status" width="350">
 
@@ -336,7 +341,7 @@ SignalK acts as the message broker and data store:
 **File Sharing**
 - Share files directly between crew devices over local network
 - Supported formats: images (PNG, JPG, GIF), documents (PDF), navigation files (GPX, KML), audio, and ZedDisplay dashboards (.zedjson)
-- **Small files** (< 100KB): Embedded directly in SignalK for instant delivery
+- **Small files** (< 500KB): Embedded directly in SignalK for instant delivery
 - **Large files**: Sender's device runs a temporary HTTP server; receivers download directly from sender
 - No cloud upload—files transfer peer-to-peer on your boat's WiFi
 - Preview images and documents before downloading

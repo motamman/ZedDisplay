@@ -13,6 +13,7 @@
 - [ ] Redo the device widget to be a meaningful device monitor
 - [ ] Add Apple certificate signing and notarization to macOS release workflow
 - [ ] Audit all widgets exposing PathSelectorDialog to verify they actually use the selected paths
+- [ ] Investigate Windsteer Gauge — code exists (windsteer_tool.dart, windsteer_demo_tool.dart) but not registered in tool_registry; decide whether to register or remove
 - [ ] Fix the macOS install to TestFlight
 - [ ] Clean up and create a standard suite of dashboards for each form factor:
   - Small phone, large phone, small tablet, tablet
