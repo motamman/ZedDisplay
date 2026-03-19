@@ -6,7 +6,6 @@ import '../../services/tool_registry.dart';
 import '../../utils/string_extensions.dart';
 import '../../utils/color_extensions.dart';
 import '../../config/ui_constants.dart';
-import '../tool_info_button.dart';
 import '../common/widget_empty_states.dart';
 
 /// Config-driven text display for large numeric values
@@ -80,66 +79,46 @@ class TextDisplayTool extends StatelessWidget {
       displayUnit = config.style.unit ?? metadata?.symbol ?? '';
     }
 
-    return Stack(
-      children: [
-        Container(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              if (config.style.showLabel == true && label.isNotEmpty)
-                Text(
-                  label,
-                  style: TextStyle(
-                    fontSize: fontSize * 0.35,
-                    fontWeight: FontWeight.w300,
-                    color: UIConstants.withSubtleOpacity(textColor),
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-              if (config.style.showLabel == true && label.isNotEmpty)
-                const SizedBox(height: fontSize * 0.15),
-              if (config.style.showValue == true)
-                Text(
-                  displayValue,
-                  style: TextStyle(
-                    fontSize: fontSize,
-                    fontWeight: FontWeight.bold,
-                    color: textColor,
-                  ),
-                ),
-              if (config.style.showUnit == true && displayUnit.isNotEmpty)
-                const SizedBox(height: fontSize * 0.1),
-              if (config.style.showUnit == true && displayUnit.isNotEmpty)
-                Text(
-                  displayUnit,
-                  style: TextStyle(
-                    fontSize: fontSize * 0.35,
-                    fontWeight: FontWeight.w300,
-                    color: UIConstants.withSubtleOpacity(textColor),
-                  ),
-                ),
-            ],
-          ),
-        ),
-        Positioned(
-          top: 8,
-          right: 8,
-          child: Container(
-            decoration: BoxDecoration(
-              color: Colors.black.withValues(alpha: 0.5),
-              shape: BoxShape.circle,
+    return Container(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          if (config.style.showLabel == true && label.isNotEmpty)
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: fontSize * 0.35,
+                fontWeight: FontWeight.w300,
+                color: UIConstants.withSubtleOpacity(textColor),
+              ),
+              textAlign: TextAlign.center,
             ),
-            child: ToolInfoButton(
-              toolId: 'text_display',
-              signalKService: signalKService,
-              iconSize: 20,
-              iconColor: Colors.white,
+          if (config.style.showLabel == true && label.isNotEmpty)
+            const SizedBox(height: fontSize * 0.15),
+          if (config.style.showValue == true)
+            Text(
+              displayValue,
+              style: TextStyle(
+                fontSize: fontSize,
+                fontWeight: FontWeight.bold,
+                color: textColor,
+              ),
             ),
-          ),
-        ),
-      ],
+          if (config.style.showUnit == true && displayUnit.isNotEmpty)
+            const SizedBox(height: fontSize * 0.1),
+          if (config.style.showUnit == true && displayUnit.isNotEmpty)
+            Text(
+              displayUnit,
+              style: TextStyle(
+                fontSize: fontSize * 0.35,
+                fontWeight: FontWeight.w300,
+                color: UIConstants.withSubtleOpacity(textColor),
+              ),
+            ),
+        ],
+      ),
     );
   }
 

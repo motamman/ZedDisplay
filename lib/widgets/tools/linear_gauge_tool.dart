@@ -8,7 +8,6 @@ import '../../services/tool_registry.dart';
 import '../../utils/string_extensions.dart';
 import '../../utils/color_extensions.dart';
 import 'mixins/zones_mixin.dart';
-import '../tool_info_button.dart';
 import '../common/widget_empty_states.dart';
 
 /// Available linear gauge styles
@@ -144,61 +143,41 @@ class _LinearGaugeToolState extends State<LinearGaugeTool> with ZonesMixin, Auto
     final pointerOnly = style.customProperties?['pointerOnly'] as bool? ?? false;
     final showZones = style.customProperties?['showZones'] as bool? ?? true;
 
-    return Stack(
-      children: [
-        Padding(
-          padding: const EdgeInsets.all(16),
-          child: !isVertical
-              ? _buildHorizontalGauge(
-                  context,
-                  value,
-                  minValue,
-                  maxValue,
-                  label,
-                  formattedValue,
-                  primaryColor,
-                  style,
-                  gaugeStyle,
-                  showTickLabels,
-                  divisions,
-                  pointerOnly,
-                  zones,
-                  showZones,
-                )
-              : _buildVerticalGauge(
-                  context,
-                  value,
-                  minValue,
-                  maxValue,
-                  label,
-                  formattedValue,
-                  primaryColor,
-                  style,
-                  gaugeStyle,
-                  showTickLabels,
-                  divisions,
-                  pointerOnly,
-                  zones,
-                  showZones,
-                ),
-        ),
-        Positioned(
-          top: 8,
-          right: 8,
-          child: Container(
-            decoration: BoxDecoration(
-              color: Colors.black.withValues(alpha: 0.5),
-              shape: BoxShape.circle,
+    return Padding(
+      padding: const EdgeInsets.all(16),
+      child: !isVertical
+          ? _buildHorizontalGauge(
+              context,
+              value,
+              minValue,
+              maxValue,
+              label,
+              formattedValue,
+              primaryColor,
+              style,
+              gaugeStyle,
+              showTickLabels,
+              divisions,
+              pointerOnly,
+              zones,
+              showZones,
+            )
+          : _buildVerticalGauge(
+              context,
+              value,
+              minValue,
+              maxValue,
+              label,
+              formattedValue,
+              primaryColor,
+              style,
+              gaugeStyle,
+              showTickLabels,
+              divisions,
+              pointerOnly,
+              zones,
+              showZones,
             ),
-            child: ToolInfoButton(
-              toolId: 'linear_gauge',
-              signalKService: widget.signalKService,
-              iconSize: 20,
-              iconColor: Colors.white,
-            ),
-          ),
-        ),
-      ],
     );
   }
 

@@ -12,7 +12,6 @@ import '../../services/tool_registry.dart';
 import '../../services/tool_service.dart';
 import '../../utils/color_extensions.dart';
 import '../ais_polar_chart.dart';
-import '../tool_info_button.dart';
 
 /// Config-driven AIS polar chart tool
 ///
@@ -253,47 +252,27 @@ class _AISPolarChartToolState extends State<AISPolarChartTool> {
     final initialShowMapView = widget.config.style.customProperties?['showMapView'] as bool? ?? false;
     final initialHideStale = widget.config.style.customProperties?['hideStale'] as bool? ?? false;
 
-    return Stack(
-      children: [
-        AISPolarChart(
-          key: ValueKey('ais_chart_$positionPath'),
-          signalKService: widget.signalKService,
-          positionPath: positionPath,
-          cogPath: cogPath,
-          sogPath: sogPath,
-          title: title,
-          vesselColor: vesselColor,
-          showLabels: showLabels,
-          showGrid: showGrid,
-          pruneMinutes: pruneMinutes,
-          colorByShipType: colorByShipType,
-          showProjectedPositions: showProjectedPositions,
-          maxRangeNm: maxRangeNm,
-          vesselLookupService: vesselLookupService,
-          cpaAlertService: _cpaAlertService,
-          onCpaConfigChanged: _onCpaConfigChanged,
-          initialShowMapView: initialShowMapView,
-          initialHideStale: initialHideStale,
-          onViewModeChanged: (v) => _onDisplayStateChanged('showMapView', v),
-          onHideStaleChanged: (v) => _onDisplayStateChanged('hideStale', v),
-        ),
-        Positioned(
-          top: 8,
-          right: 8,
-          child: Container(
-            decoration: BoxDecoration(
-              color: Colors.black.withValues(alpha: 0.3),
-              shape: BoxShape.circle,
-            ),
-            child: ToolInfoButton(
-              toolId: 'ais_polar_chart',
-              signalKService: widget.signalKService,
-              iconSize: 20,
-              iconColor: Colors.white,
-            ),
-          ),
-        ),
-      ],
+    return AISPolarChart(
+      key: ValueKey('ais_chart_$positionPath'),
+      signalKService: widget.signalKService,
+      positionPath: positionPath,
+      cogPath: cogPath,
+      sogPath: sogPath,
+      title: title,
+      vesselColor: vesselColor,
+      showLabels: showLabels,
+      showGrid: showGrid,
+      pruneMinutes: pruneMinutes,
+      colorByShipType: colorByShipType,
+      showProjectedPositions: showProjectedPositions,
+      maxRangeNm: maxRangeNm,
+      vesselLookupService: vesselLookupService,
+      cpaAlertService: _cpaAlertService,
+      onCpaConfigChanged: _onCpaConfigChanged,
+      initialShowMapView: initialShowMapView,
+      initialHideStale: initialHideStale,
+      onViewModeChanged: (v) => _onDisplayStateChanged('showMapView', v),
+      onHideStaleChanged: (v) => _onDisplayStateChanged('hideStale', v),
     );
   }
 }

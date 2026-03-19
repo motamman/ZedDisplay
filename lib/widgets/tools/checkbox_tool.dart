@@ -8,7 +8,6 @@ import '../../utils/color_extensions.dart';
 import '../../utils/data_extensions.dart';
 import '../../config/ui_constants.dart';
 import 'common/control_tool_layout.dart';
-import '../tool_info_button.dart';
 import '../common/widget_empty_states.dart';
 
 /// Config-driven checkbox tool for toggling boolean SignalK paths
@@ -62,55 +61,35 @@ class _CheckboxToolState extends State<CheckboxTool> with AutomaticKeepAliveClie
       fallback: Colors.grey
     ) ?? Colors.grey;
 
-    return Stack(
-      children: [
-        ControlToolLayout(
-          label: label,
-          showLabel: style.showLabel == true,
-          valueWidget: Text(
-            currentValue ? 'ON' : 'OFF',
-            style: TextStyle(
-              fontSize: 24,
-              fontWeight: FontWeight.bold,
-              color: currentValue ? activeColor : inactiveColor,
-            ),
-          ),
-          additionalWidgets: const [
-            SizedBox(height: 8),
-          ],
-          controlWidget: Transform.scale(
-            scale: UIConstants.checkboxScale,
-            child: Checkbox(
-              value: currentValue,
-              activeColor: activeColor,
-              checkColor: Colors.white,
-              side: BorderSide(
-                color: currentValue ? activeColor : inactiveColor,
-                width: 2,
-              ),
-              onChanged: _isSending ? null : (value) => _toggleCheckbox(value ?? false, dataSource.path),
-            ),
-          ),
-          path: dataSource.path,
-          isSending: _isSending,
+    return ControlToolLayout(
+      label: label,
+      showLabel: style.showLabel == true,
+      valueWidget: Text(
+        currentValue ? 'ON' : 'OFF',
+        style: TextStyle(
+          fontSize: 24,
+          fontWeight: FontWeight.bold,
+          color: currentValue ? activeColor : inactiveColor,
         ),
-        Positioned(
-          top: 8,
-          right: 8,
-          child: Container(
-            decoration: BoxDecoration(
-              color: Colors.black.withValues(alpha: 0.5),
-              shape: BoxShape.circle,
-            ),
-            child: ToolInfoButton(
-              toolId: 'checkbox_tool',
-              signalKService: widget.signalKService,
-              iconSize: 20,
-              iconColor: Colors.white,
-            ),
-          ),
-        ),
+      ),
+      additionalWidgets: const [
+        SizedBox(height: 8),
       ],
+      controlWidget: Transform.scale(
+        scale: UIConstants.checkboxScale,
+        child: Checkbox(
+          value: currentValue,
+          activeColor: activeColor,
+          checkColor: Colors.white,
+          side: BorderSide(
+            color: currentValue ? activeColor : inactiveColor,
+            width: 2,
+          ),
+          onChanged: _isSending ? null : (value) => _toggleCheckbox(value ?? false, dataSource.path),
+        ),
+      ),
+      path: dataSource.path,
+      isSending: _isSending,
     );
   }
 

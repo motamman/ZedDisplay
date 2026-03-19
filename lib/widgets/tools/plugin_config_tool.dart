@@ -4,7 +4,7 @@ import 'package:http/http.dart' as http;
 import 'package:webview_flutter/webview_flutter.dart';
 import '../../plugin_configurators/plugin_configurator_registry.dart';
 import '../../services/signalk_service.dart';
-import '../tool_info_button.dart';
+
 
 /// Host widget for plugin configuration.
 ///
@@ -130,48 +130,28 @@ class _PluginConfigToolState extends State<PluginConfigTool> {
 
   @override
   Widget build(BuildContext context) {
-    return Stack(
-      children: [
-        Scaffold(
-          appBar: AppBar(
-            title: Text(widget.pluginName),
-            actions: [
-              // Show indicator if using native configurator
-              if (PluginConfiguratorRegistry.hasConfigurator(widget.pluginId))
-                const Tooltip(
-                  message: 'Native configurator',
-                  child: Padding(
-                    padding: EdgeInsets.all(8),
-                    child: Icon(Icons.bolt, color: Colors.amber),
-                  ),
-                ),
-              // Refresh button
-              IconButton(
-                icon: const Icon(Icons.refresh),
-                onPressed: _loadConfig,
-                tooltip: 'Reload configuration',
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(widget.pluginName),
+        actions: [
+          // Show indicator if using native configurator
+          if (PluginConfiguratorRegistry.hasConfigurator(widget.pluginId))
+            const Tooltip(
+              message: 'Native configurator',
+              child: Padding(
+                padding: EdgeInsets.all(8),
+                child: Icon(Icons.bolt, color: Colors.amber),
               ),
-            ],
-          ),
-          body: _buildBody(),
-        ),
-        Positioned(
-          top: 8,
-          right: 8,
-          child: Container(
-            decoration: BoxDecoration(
-              color: Colors.black.withValues(alpha: 0.5),
-              shape: BoxShape.circle,
             ),
-            child: ToolInfoButton(
-              toolId: 'plugin_config',
-              signalKService: widget.signalKService,
-              iconSize: 20,
-              iconColor: Colors.white,
-            ),
+          // Refresh button
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: _loadConfig,
+            tooltip: 'Reload configuration',
           ),
-        ),
-      ],
+        ],
+      ),
+      body: _buildBody(),
     );
   }
 

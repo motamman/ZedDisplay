@@ -4,7 +4,6 @@ import '../../models/tool_config.dart';
 import '../../services/signalk_service.dart';
 import '../../services/tool_registry.dart';
 import '../compass_gauge.dart';
-import '../tool_info_button.dart';
 import '../../utils/string_extensions.dart';
 import '../../utils/color_extensions.dart';
 import '../common/widget_empty_states.dart';
@@ -147,45 +146,23 @@ class _CompassGaugeToolState extends State<CompassGaugeTool> {
       });
     }
 
-    return Stack(
-      fit: StackFit.expand,
-      alignment: Alignment.center,
-      children: [
-        Center(child: CompassGauge(
-          heading: heading,
-          label: label,
-          formattedValue: formattedValue,
-          primaryColor: primaryColor,
-          showTickLabels: showTickLabels,
-          compassStyle: compassStyle,
-          showValue: widget.config.style.showValue ?? true,
-          additionalHeadings: additionalHeadings.isNotEmpty ? additionalHeadings : null,
-          additionalLabels: additionalLabels.isNotEmpty ? additionalLabels : null,
-          additionalColors: additionalHeadings.isNotEmpty ? additionalColors : null,
-          additionalFormattedValues: additionalFormattedValues.isNotEmpty ? additionalFormattedValues : null,
-          activeIndex: clampedActiveIndex,
-          onActiveIndexChanged: additionalHeadings.isNotEmpty
-              ? (index) => setState(() => _activeIndex = index)
-              : null,
-        )),
-        Positioned(
-          top: 8,
-          right: 8,
-          child: Container(
-            decoration: BoxDecoration(
-              color: Colors.black.withValues(alpha: 0.5),
-              shape: BoxShape.circle,
-            ),
-            child: ToolInfoButton(
-              toolId: 'compass_gauge',
-              signalKService: widget.signalKService,
-              iconSize: 20,
-              iconColor: Colors.white,
-            ),
-          ),
-        ),
-      ],
-    );
+    return Center(child: CompassGauge(
+      heading: heading,
+      label: label,
+      formattedValue: formattedValue,
+      primaryColor: primaryColor,
+      showTickLabels: showTickLabels,
+      compassStyle: compassStyle,
+      showValue: widget.config.style.showValue ?? true,
+      additionalHeadings: additionalHeadings.isNotEmpty ? additionalHeadings : null,
+      additionalLabels: additionalLabels.isNotEmpty ? additionalLabels : null,
+      additionalColors: additionalHeadings.isNotEmpty ? additionalColors : null,
+      additionalFormattedValues: additionalFormattedValues.isNotEmpty ? additionalFormattedValues : null,
+      activeIndex: clampedActiveIndex,
+      onActiveIndexChanged: additionalHeadings.isNotEmpty
+          ? (index) => setState(() => _activeIndex = index)
+          : null,
+    ));
   }
 
   CompassStyle _parseCompassStyle(String styleStr) {

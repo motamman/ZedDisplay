@@ -7,7 +7,6 @@ import '../../utils/string_extensions.dart';
 import '../../utils/color_extensions.dart';
 import 'mixins/zones_mixin.dart';
 import '../radial_gauge.dart';
-import '../tool_info_button.dart';
 import '../common/widget_empty_states.dart';
 
 /// Config-driven radial gauge tool
@@ -117,44 +116,22 @@ class _RadialGaugeToolState extends State<RadialGaugeTool> with ZonesMixin, Auto
     final pointerOnly = style.customProperties?['pointerOnly'] as bool? ?? false;
     final showZones = style.customProperties?['showZones'] as bool? ?? true;
 
-    return Stack(
-      fit: StackFit.expand,
-      alignment: Alignment.center,
-      children: [
-        Center(child: RadialGauge(
-          value: value,
-          minValue: minValue,
-          maxValue: maxValue,
-          label: style.showLabel == true ? label : '',
-          unit: style.showUnit == true ? unit : '',
-          formattedValue: formattedValue,
-          primaryColor: primaryColor,
-          divisions: divisions,
-          showTickLabels: showTickLabels,
-          gaugeStyle: gaugeStyle,
-          pointerOnly: pointerOnly,
-          showValue: style.showValue ?? true,
-          zones: zones,
-          showZones: showZones,
-        )),
-        Positioned(
-          top: 8,
-          right: 8,
-          child: Container(
-            decoration: BoxDecoration(
-              color: Colors.black.withValues(alpha: 0.5),
-              shape: BoxShape.circle,
-            ),
-            child: ToolInfoButton(
-              toolId: 'radial_gauge',
-              signalKService: widget.signalKService,
-              iconSize: 20,
-              iconColor: Colors.white,
-            ),
-          ),
-        ),
-      ],
-    );
+    return Center(child: RadialGauge(
+      value: value,
+      minValue: minValue,
+      maxValue: maxValue,
+      label: style.showLabel == true ? label : '',
+      unit: style.showUnit == true ? unit : '',
+      formattedValue: formattedValue,
+      primaryColor: primaryColor,
+      divisions: divisions,
+      showTickLabels: showTickLabels,
+      gaugeStyle: gaugeStyle,
+      pointerOnly: pointerOnly,
+      showValue: style.showValue ?? true,
+      zones: zones,
+      showZones: showZones,
+    ));
   }
 
   RadialGaugeStyle _parseGaugeStyle(String styleStr) {

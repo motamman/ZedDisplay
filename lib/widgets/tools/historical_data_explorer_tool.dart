@@ -21,7 +21,6 @@ import '../../services/signalk_service.dart';
 import '../../services/storage_service.dart';
 import '../../services/historical_data_service.dart';
 import '../../services/tool_registry.dart';
-import '../tool_info_button.dart';
 
 // ---------------------------------------------------------------------------
 // Builder
@@ -2320,25 +2319,6 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
             ),
           if (_drawPoint1 != null && _drawPoint2 != null)
             const SizedBox(height: 4),
-          // Info button
-          Material(
-            color: Colors.white.withValues(alpha: 0.9),
-            borderRadius: BorderRadius.circular(6),
-            elevation: 2,
-            child: SizedBox(
-              width: 32,
-              height: 32,
-              child: Center(
-                child: ToolInfoButton(
-                  toolId: 'historical_data_explorer',
-                  signalKService: widget.signalKService,
-                  iconSize: 18,
-                  iconColor: Colors.black87,
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(height: 4),
           // Homeport toggle
           if (_homeportPosition != null)
             _buildOverlayButton(

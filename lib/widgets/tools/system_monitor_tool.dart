@@ -12,7 +12,7 @@ import '../../models/tool_config.dart';
 import '../../services/signalk_service.dart';
 import '../../services/tool_registry.dart';
 import '../../main.dart' as main;
-import '../tool_info_button.dart';
+
 
 /// System monitor tool that tracks app and device performance
 class SystemMonitorTool extends StatefulWidget {
@@ -324,26 +324,24 @@ class _SystemMonitorToolState extends State<SystemMonitorTool> with AutomaticKee
 
     final theme = Theme.of(context);
 
-    return Stack(
-      children: [
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
               children: [
-                Row(
-                  children: [
-                    Icon(Icons.monitor_heart, color: theme.colorScheme.primary),
-                    const SizedBox(width: 8),
-                    Text(
-                      'Device Monitor',
-                      style: theme.textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ],
+                Icon(Icons.monitor_heart, color: theme.colorScheme.primary),
+                const SizedBox(width: 8),
+                Text(
+                  'Device Monitor',
+                  style: theme.textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
+              ],
+            ),
             const SizedBox(height: 16),
             Expanded(
               child: ListView(
@@ -478,24 +476,6 @@ class _SystemMonitorToolState extends State<SystemMonitorTool> with AutomaticKee
           ],
         ),
       ),
-        ),
-        Positioned(
-          top: 8,
-          right: 8,
-          child: Container(
-            decoration: BoxDecoration(
-              color: Colors.black.withValues(alpha: 0.5),
-              shape: BoxShape.circle,
-            ),
-            child: ToolInfoButton(
-              toolId: 'system_monitor',
-              signalKService: widget.signalKService,
-              iconSize: 20,
-              iconColor: Colors.white,
-            ),
-          ),
-        ),
-      ],
     );
   }
 

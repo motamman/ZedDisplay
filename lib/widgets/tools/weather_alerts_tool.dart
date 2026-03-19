@@ -6,7 +6,7 @@ import '../../models/tool_config.dart';
 import '../../services/signalk_service.dart';
 import '../../services/tool_registry.dart';
 import '../../utils/nws_alert_utils.dart';
-import '../tool_info_button.dart';
+
 
 /// NWS Alert severity levels
 enum AlertSeverity {
@@ -359,27 +359,7 @@ class _WeatherAlertsToolState extends State<WeatherAlertsTool>
       );
     }
 
-    return Stack(
-      children: [
-        content,
-        Positioned(
-          top: 8,
-          right: 8,
-          child: Container(
-            decoration: BoxDecoration(
-              color: Colors.black.withValues(alpha: 0.5),
-              shape: BoxShape.circle,
-            ),
-            child: ToolInfoButton(
-              toolId: 'weather_alerts',
-              signalKService: widget.signalKService,
-              iconSize: 20,
-              iconColor: Colors.white,
-            ),
-          ),
-        ),
-      ],
-    );
+    return content;
   }
 
   Widget _buildNoAlerts(bool isDark) {

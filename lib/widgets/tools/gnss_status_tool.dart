@@ -5,7 +5,7 @@ import '../../services/signalk_service.dart';
 import '../../services/tool_registry.dart';
 import '../../utils/color_extensions.dart';
 import '../gnss_status.dart';
-import '../tool_info_button.dart';
+
 
 /// Config-driven GNSS status tool showing satellite info and fix quality
 class GnssStatusTool extends StatelessWidget {
@@ -153,41 +153,21 @@ class GnssStatusTool extends StatelessWidget {
       }
     }
 
-    return Stack(
-      children: [
-        GnssStatus(
-          satellites: satellites,
-          satellitesInView: satellitesInView,
-          fixType: fixType,
-          hdop: hdop,
-          vdop: vdop,
-          pdop: pdop,
-          horizontalAccuracy: horizontalAccuracy,
-          verticalAccuracy: verticalAccuracy,
-          latitude: latitude,
-          longitude: longitude,
-          dataTimestamp: dataTimestamp,
-          showSkyView: showSkyView,
-          showAccuracyCircle: showAccuracyCircle,
-          primaryColor: primaryColor,
-        ),
-        Positioned(
-          top: 8,
-          right: 8,
-          child: Container(
-            decoration: BoxDecoration(
-              color: Colors.black.withValues(alpha: 0.3),
-              shape: BoxShape.circle,
-            ),
-            child: ToolInfoButton(
-              toolId: 'gnss_status',
-              signalKService: signalKService,
-              iconSize: 20,
-              iconColor: Colors.white,
-            ),
-          ),
-        ),
-      ],
+    return GnssStatus(
+      satellites: satellites,
+      satellitesInView: satellitesInView,
+      fixType: fixType,
+      hdop: hdop,
+      vdop: vdop,
+      pdop: pdop,
+      horizontalAccuracy: horizontalAccuracy,
+      verticalAccuracy: verticalAccuracy,
+      latitude: latitude,
+      longitude: longitude,
+      dataTimestamp: dataTimestamp,
+      showSkyView: showSkyView,
+      showAccuracyCircle: showAccuracyCircle,
+      primaryColor: primaryColor,
     );
   }
 

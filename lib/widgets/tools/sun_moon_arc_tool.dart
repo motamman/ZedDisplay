@@ -7,7 +7,7 @@ import '../../services/tool_registry.dart';
 import '../../utils/sun_calc.dart';
 import '../weatherflow_forecast.dart';
 import '../sun_moon_arc.dart';
-import '../tool_info_button.dart';
+
 
 /// Dashboard tool that computes and displays sun/moon arc from boat position
 class SunMoonArcTool extends StatefulWidget {
@@ -264,23 +264,6 @@ class _SunMoonArcToolState extends State<SunMoonArcTool> {
                   ),
                 ),
               ),
-            // Tool info button
-            Positioned(
-              top: 4,
-              right: 4,
-              child: Container(
-                decoration: BoxDecoration(
-                  color: Colors.black.withValues(alpha: 0.3),
-                  shape: BoxShape.circle,
-                ),
-                child: ToolInfoButton(
-                  toolId: 'sun_moon_arc',
-                  signalKService: widget.signalKService,
-                  iconSize: 14,
-                  iconColor: Colors.white70,
-                ),
-              ),
-            ),
           ],
         );
       },

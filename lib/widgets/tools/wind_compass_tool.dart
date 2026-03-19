@@ -4,7 +4,7 @@ import '../../models/tool_config.dart';
 import '../../services/signalk_service.dart';
 import '../../services/tool_registry.dart';
 import '../wind_compass.dart';
-import '../tool_info_button.dart';
+
 
 /// Config-driven wind compass tool showing heading and wind direction
 class WindCompassTool extends StatelessWidget {
@@ -199,59 +199,37 @@ class WindCompassTool extends StatelessWidget {
       return const Center(child: Text('No heading source configured'));
     }
 
-    return Stack(
-      fit: StackFit.expand,
-      alignment: Alignment.center,
-      children: [
-        Center(child: WindCompass(
-          headingTrueRadians: headingTrueRadians,
-          headingMagneticRadians: headingMagneticRadians,
-          headingTrueDegrees: headingTrueDegrees,
-          headingMagneticDegrees: headingMagneticDegrees,
-          windDirectionTrueRadians: windDirectionTrueRadians,
-          windDirectionApparentRadians: windDirectionApparentRadians,
-          windDirectionTrueDegrees: windDirectionTrueDegrees,
-          windDirectionApparentDegrees: windDirectionApparentDegrees,
-          windDirectionTrueFormatted: windDirectionTrueFormatted,
-          windDirectionApparentFormatted: windDirectionApparentFormatted,
-          windAngleApparent: windAngleApparent,
-          windAngleApparentFormatted: windAngleApparentFormatted,
-          windSpeedTrue: windSpeedTrue,
-          windSpeedTrueFormatted: windSpeedTrueFormatted,
-          windSpeedApparent: windSpeedApparent,
-          windSpeedApparentFormatted: windSpeedApparentFormatted,
-          speedOverGround: speedOverGround,
-          sogFormatted: sogFormatted,
-          cogDegrees: cogDegrees,
-          cogFormatted: cogFormatted,
-          waypointBearing: waypointBearing,
-          waypointBearingFormatted: waypointBearingFormatted,
-          waypointDistance: waypointDistance,
-          waypointDistanceFormatted: waypointDistanceFormatted,
-          targetAWA: targetAWA,
-          targetTolerance: targetTolerance,
-          showAWANumbers: showAWANumbers,
-          enableVMG: enableVMG,
-          isSailingVessel: isSailingVessel,
-        )),
-        Positioned(
-          top: 8,
-          right: 8,
-          child: Container(
-            decoration: BoxDecoration(
-              color: Colors.black.withValues(alpha: 0.5),
-              shape: BoxShape.circle,
-            ),
-            child: ToolInfoButton(
-              toolId: 'wind_compass',
-              signalKService: signalKService,
-              iconSize: 20,
-              iconColor: Colors.white,
-            ),
-          ),
-        ),
-      ],
-    );
+    return Center(child: WindCompass(
+      headingTrueRadians: headingTrueRadians,
+      headingMagneticRadians: headingMagneticRadians,
+      headingTrueDegrees: headingTrueDegrees,
+      headingMagneticDegrees: headingMagneticDegrees,
+      windDirectionTrueRadians: windDirectionTrueRadians,
+      windDirectionApparentRadians: windDirectionApparentRadians,
+      windDirectionTrueDegrees: windDirectionTrueDegrees,
+      windDirectionApparentDegrees: windDirectionApparentDegrees,
+      windDirectionTrueFormatted: windDirectionTrueFormatted,
+      windDirectionApparentFormatted: windDirectionApparentFormatted,
+      windAngleApparent: windAngleApparent,
+      windAngleApparentFormatted: windAngleApparentFormatted,
+      windSpeedTrue: windSpeedTrue,
+      windSpeedTrueFormatted: windSpeedTrueFormatted,
+      windSpeedApparent: windSpeedApparent,
+      windSpeedApparentFormatted: windSpeedApparentFormatted,
+      speedOverGround: speedOverGround,
+      sogFormatted: sogFormatted,
+      cogDegrees: cogDegrees,
+      cogFormatted: cogFormatted,
+      waypointBearing: waypointBearing,
+      waypointBearingFormatted: waypointBearingFormatted,
+      waypointDistance: waypointDistance,
+      waypointDistanceFormatted: waypointDistanceFormatted,
+      targetAWA: targetAWA,
+      targetTolerance: targetTolerance,
+      showAWANumbers: showAWANumbers,
+      enableVMG: enableVMG,
+      isSailingVessel: isSailingVessel,
+    ));
   }
 }
 

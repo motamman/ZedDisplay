@@ -17,6 +17,7 @@ import 'tool_config/base_tool_configurator.dart';
 import 'tool_config/tool_configurator_factory.dart';
 import 'tool_config/configurators/chart_configurator.dart';
 import 'tool_config/configurators/tanks_configurator.dart';
+import '../widgets/tool_info_button.dart';
 
 /// Screen for configuring a tool
 class ToolConfigScreen extends StatefulWidget {
@@ -724,6 +725,11 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
       appBar: AppBar(
         title: Text(widget.existingTool == null ? 'Add Tool' : 'Edit Tool'),
         actions: [
+          if (_selectedToolTypeId != null)
+            ToolInfoButton(
+              toolId: _selectedToolTypeId!,
+              signalKService: Provider.of<SignalKService>(context, listen: false),
+            ),
           TextButton.icon(
             onPressed: _selectedToolTypeId != null && (_dataSources.isNotEmpty || !(registry.getDefinition(_selectedToolTypeId!)?.configSchema.allowsDataSources ?? true))
                 ? _saveTool

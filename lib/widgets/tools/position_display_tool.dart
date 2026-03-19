@@ -3,7 +3,7 @@ import '../../models/tool_config.dart';
 import '../../models/tool_definition.dart';
 import '../../services/signalk_service.dart';
 import '../../services/tool_registry.dart';
-import '../tool_info_button.dart';
+
 
 /// Position Display Tool - Shows latitude and longitude
 ///
@@ -148,38 +148,18 @@ class _PositionDisplayToolState extends State<PositionDisplayTool> {
     }
 
     if (lat == null || lon == null) {
-      return Stack(
-        children: [
-          const Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(Icons.location_off, size: 32, color: Colors.grey),
-                SizedBox(height: 8),
-                Text(
-                  'No position data',
-                  style: TextStyle(color: Colors.grey),
-                ),
-              ],
+      return const Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.location_off, size: 32, color: Colors.grey),
+            SizedBox(height: 8),
+            Text(
+              'No position data',
+              style: TextStyle(color: Colors.grey),
             ),
-          ),
-          Positioned(
-            top: 8,
-            right: 8,
-            child: Container(
-              decoration: BoxDecoration(
-                color: Colors.black.withValues(alpha: 0.5),
-                shape: BoxShape.circle,
-              ),
-              child: ToolInfoButton(
-                toolId: 'position_display',
-                signalKService: widget.signalKService,
-                iconSize: 20,
-                iconColor: Colors.white,
-              ),
-            ),
-          ),
-        ],
+          ],
+        ),
       );
     }
 
@@ -187,153 +167,113 @@ class _PositionDisplayToolState extends State<PositionDisplayTool> {
     final lonText = _formatLongitude(lon);
 
     if (_compactMode) {
-      return Stack(
-        children: [
-          Padding(
-            padding: const EdgeInsets.all(8),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                FittedBox(
-                  fit: BoxFit.scaleDown,
-                  child: Text(
-                    latText,
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                      fontFamily: 'monospace',
-                      color: textColor,
-                    ),
-                  ),
+      return Padding(
+        padding: const EdgeInsets.all(8),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(
+                latText,
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  fontFamily: 'monospace',
+                  color: textColor,
                 ),
-                const SizedBox(height: 4),
-                FittedBox(
-                  fit: BoxFit.scaleDown,
-                  child: Text(
-                    lonText,
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                      fontFamily: 'monospace',
-                      color: textColor,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Positioned(
-            top: 8,
-            right: 8,
-            child: Container(
-              decoration: BoxDecoration(
-                color: Colors.black.withValues(alpha: 0.5),
-                shape: BoxShape.circle,
-              ),
-              child: ToolInfoButton(
-                toolId: 'position_display',
-                signalKService: widget.signalKService,
-                iconSize: 20,
-                iconColor: Colors.white,
               ),
             ),
-          ),
-        ],
+            const SizedBox(height: 4),
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(
+                lonText,
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  fontFamily: 'monospace',
+                  color: textColor,
+                ),
+              ),
+            ),
+          ],
+        ),
       );
     }
 
-    return Stack(
-      children: [
-        LayoutBuilder(
-          builder: (context, constraints) {
-            final isWide = constraints.maxWidth > 300;
-            final fontSize = constraints.maxHeight > 100 ? 20.0 : 16.0;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isWide = constraints.maxWidth > 300;
+        final fontSize = constraints.maxHeight > 100 ? 20.0 : 16.0;
 
-            if (isWide) {
-              // Horizontal layout
-              return Padding(
-                padding: const EdgeInsets.all(12),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                  children: [
-                    _buildCoordinate(
-                      label: 'LAT',
-                      value: latText,
-                      icon: Icons.north,
-                      color: primaryColor,
-                      textColor: textColor,
-                      labelColor: labelColor,
-                      fontSize: fontSize,
-                    ),
-                    Container(
-                      width: 1,
-                      height: 40,
-                      color: labelColor.withValues(alpha: 0.3),
-                    ),
-                    _buildCoordinate(
-                      label: 'LON',
-                      value: lonText,
-                      icon: Icons.east,
-                      color: primaryColor,
-                      textColor: textColor,
-                      labelColor: labelColor,
-                      fontSize: fontSize,
-                    ),
-                  ],
+        if (isWide) {
+          // Horizontal layout
+          return Padding(
+            padding: const EdgeInsets.all(12),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                _buildCoordinate(
+                  label: 'LAT',
+                  value: latText,
+                  icon: Icons.north,
+                  color: primaryColor,
+                  textColor: textColor,
+                  labelColor: labelColor,
+                  fontSize: fontSize,
                 ),
-              );
-            } else {
-              // Vertical layout
-              return Padding(
-                padding: const EdgeInsets.all(12),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    _buildCoordinate(
-                      label: 'LAT',
-                      value: latText,
-                      icon: Icons.north,
-                      color: primaryColor,
-                      textColor: textColor,
-                      labelColor: labelColor,
-                      fontSize: fontSize,
-                      horizontal: true,
-                    ),
-                    const SizedBox(height: 8),
-                    _buildCoordinate(
-                      label: 'LON',
-                      value: lonText,
-                      icon: Icons.east,
-                      color: primaryColor,
-                      textColor: textColor,
-                      labelColor: labelColor,
-                      fontSize: fontSize,
-                      horizontal: true,
-                    ),
-                  ],
+                Container(
+                  width: 1,
+                  height: 40,
+                  color: labelColor.withValues(alpha: 0.3),
                 ),
-              );
-            }
-          },
-        ),
-        Positioned(
-          top: 8,
-          right: 8,
-          child: Container(
-            decoration: BoxDecoration(
-              color: Colors.black.withValues(alpha: 0.5),
-              shape: BoxShape.circle,
+                _buildCoordinate(
+                  label: 'LON',
+                  value: lonText,
+                  icon: Icons.east,
+                  color: primaryColor,
+                  textColor: textColor,
+                  labelColor: labelColor,
+                  fontSize: fontSize,
+                ),
+              ],
             ),
-            child: ToolInfoButton(
-              toolId: 'position_display',
-              signalKService: widget.signalKService,
-              iconSize: 20,
-              iconColor: Colors.white,
+          );
+        } else {
+          // Vertical layout
+          return Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                _buildCoordinate(
+                  label: 'LAT',
+                  value: latText,
+                  icon: Icons.north,
+                  color: primaryColor,
+                  textColor: textColor,
+                  labelColor: labelColor,
+                  fontSize: fontSize,
+                  horizontal: true,
+                ),
+                const SizedBox(height: 8),
+                _buildCoordinate(
+                  label: 'LON',
+                  value: lonText,
+                  icon: Icons.east,
+                  color: primaryColor,
+                  textColor: textColor,
+                  labelColor: labelColor,
+                  fontSize: fontSize,
+                  horizontal: true,
+                ),
+              ],
             ),
-          ),
-        ),
-      ],
+          );
+        }
+      },
     );
   }
 
