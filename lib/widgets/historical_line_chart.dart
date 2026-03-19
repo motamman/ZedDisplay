@@ -196,14 +196,12 @@ class _HistoricalLineChartState extends State<HistoricalLineChart> {
         ? _calculateAxisRange(isSecondary: true)
         : null;
 
-    // Map legend item index → actual series index (only raw/non-smoothed series appear in legend)
-    // Also build reverse map: series index → color ordinal (0th raw, 1st raw, etc.)
-    final rawSeriesIndices = <int>[];
+    // Map series index → color ordinal (0th raw, 1st raw, etc.)
     final colorOrdinal = <int, int>{};
+    int ordinal = 0;
     for (int i = 0; i < widget.series.length; i++) {
       if (!widget.series[i].isSmoothed) {
-        colorOrdinal[i] = rawSeriesIndices.length;
-        rawSeriesIndices.add(i);
+        colorOrdinal[i] = ordinal++;
       }
     }
 
@@ -222,10 +220,7 @@ class _HistoricalLineChartState extends State<HistoricalLineChart> {
       // 3-state cycle for series with smoothed sibling: 0→1→2→0
       // Binary toggle for series without smoothed sibling: 0→2→0
       onLegendTapped: (LegendTapArgs args) {
-        final legendIndex = args.seriesIndex ?? 0;
-        final index = legendIndex < rawSeriesIndices.length
-            ? rawSeriesIndices[legendIndex]
-            : legendIndex;
+        final index = args.seriesIndex ?? 0;
         Future.microtask(() {
           if (mounted) {
             setState(() {
@@ -243,10 +238,7 @@ class _HistoricalLineChartState extends State<HistoricalLineChart> {
       },
       // Adjust legend icon appearance based on visibility state
       onLegendItemRender: (LegendRenderArgs args) {
-        final legendIndex = args.seriesIndex ?? 0;
-        final index = legendIndex < rawSeriesIndices.length
-            ? rawSeriesIndices[legendIndex]
-            : legendIndex;
+        final index = args.seriesIndex ?? 0;
         final state = _seriesVisibility[index] ?? 0;
         // Explicitly set color for every state — Syncfusion caches previous values
         if (state == 1) {

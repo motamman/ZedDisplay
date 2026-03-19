@@ -16,7 +16,7 @@ class _RealtimeChartCache {
 
 class _CachedChartState {
   final List<List<_ChartData>> seriesData;
-  final Set<int> hiddenSeries;
+  final Map<int, int> seriesVisibility;
   final double cachedMinY;
   final double cachedMaxY;
   final double cachedSecondaryMinY;
@@ -24,7 +24,7 @@ class _CachedChartState {
 
   _CachedChartState({
     required this.seriesData,
-    required this.hiddenSeries,
+    required this.seriesVisibility,
     required this.cachedMinY,
     required this.cachedMaxY,
     required this.cachedSecondaryMinY,
@@ -83,8 +83,8 @@ class _RealtimeSplineChartState extends State<RealtimeSplineChart> with Automati
   double _cachedSecondaryMinY = 0;
   double _cachedSecondaryMaxY = 100;
 
-  // Track which series are hidden (by index)
-  late Set<int> _hiddenSeries;
+  // 3-state visibility: 0 = all visible, 1 = raw hidden (MA only), 2 = all hidden
+  Map<int, int> _seriesVisibility = {};
 
   @override
   bool get wantKeepAlive => true; // Keep accumulated data points alive
@@ -99,14 +99,14 @@ class _RealtimeSplineChartState extends State<RealtimeSplineChart> with Automati
     final cached = _RealtimeChartCache.get(_cacheKey);
     if (cached != null && cached.seriesData.length == widget.dataSources.length) {
       _seriesData = cached.seriesData;
-      _hiddenSeries = Set.from(cached.hiddenSeries);
+      _seriesVisibility = Map.from(cached.seriesVisibility);
       _cachedMinY = cached.cachedMinY;
       _cachedMaxY = cached.cachedMaxY;
       _cachedSecondaryMinY = cached.cachedSecondaryMinY;
       _cachedSecondaryMaxY = cached.cachedSecondaryMaxY;
     } else {
       _seriesData = List.generate(widget.dataSources.length, (_) => []);
-      _hiddenSeries = {};
+      _seriesVisibility = {};
     }
 
     // Determine axis units for dual Y-axis support
@@ -144,7 +144,7 @@ class _RealtimeSplineChartState extends State<RealtimeSplineChart> with Automati
     // Save state to static cache before disposal
     _RealtimeChartCache.save(_cacheKey, _CachedChartState(
       seriesData: _seriesData,
-      hiddenSeries: _hiddenSeries,
+      seriesVisibility: _seriesVisibility,
       cachedMinY: _cachedMinY,
       cachedMaxY: _cachedMaxY,
       cachedSecondaryMinY: _cachedSecondaryMinY,
@@ -252,7 +252,7 @@ class _RealtimeSplineChartState extends State<RealtimeSplineChart> with Automati
       // Save to static cache on each update to guard against unexpected disposal
       _RealtimeChartCache.save(_cacheKey, _CachedChartState(
         seriesData: _seriesData,
-        hiddenSeries: _hiddenSeries,
+        seriesVisibility: _seriesVisibility,
         cachedMinY: _cachedMinY,
         cachedMaxY: _cachedMaxY,
         cachedSecondaryMinY: _cachedSecondaryMinY,
@@ -387,20 +387,30 @@ class _RealtimeSplineChartState extends State<RealtimeSplineChart> with Automati
                   textStyle: const TextStyle(fontSize: 11),
                 ),
                 onLegendTapped: (LegendTapArgs args) {
-                  // Track which series are hidden so MA follows
                   final index = args.seriesIndex ?? 0;
-                  // Toggle after a short delay to let chart update first
                   Future.microtask(() {
                     if (mounted) {
                       setState(() {
-                        if (_hiddenSeries.contains(index)) {
-                          _hiddenSeries.remove(index);
+                        final current = _seriesVisibility[index] ?? 0;
+                        if (widget.showMovingAverage) {
+                          // 3-state: all visible → MA only → all hidden → all visible
+                          _seriesVisibility[index] = (current + 1) % 3;
                         } else {
-                          _hiddenSeries.add(index);
+                          // Binary: all visible → all hidden → all visible
+                          _seriesVisibility[index] = current == 0 ? 2 : 0;
                         }
                       });
                     }
                   });
+                },
+                onLegendItemRender: (LegendRenderArgs args) {
+                  final index = args.seriesIndex ?? 0;
+                  final state = _seriesVisibility[index] ?? 0;
+                  if (state == 1) {
+                    args.color = args.color?.withValues(alpha: 0.4);
+                  } else if (state == 2) {
+                    args.color = Colors.grey.withValues(alpha: 0.3);
+                  }
                 },
                 tooltipBehavior: TooltipBehavior(
                   enable: true,
@@ -491,13 +501,17 @@ class _RealtimeSplineChartState extends State<RealtimeSplineChart> with Automati
                         _secondaryAxisBaseUnit,
                       );
 
+                      final state = _seriesVisibility[index] ?? 0;
+                      final isHidden = state >= 1;  // Raw line hidden in states 1 and 2
+                      final maHidden = state == 2;  // MA hidden only in state 2
+
                       return SplineSeries<_ChartData, int>(
                         name: _getSeriesLabelWithUnit(ds, index),
-                        dataSource: _hiddenSeries.contains(index) ? [] : _seriesData[index],
+                        dataSource: _seriesData[index],  // Always provide data (trendline needs it)
                         xValueMapper: (_ChartData data, _) => data.time,
                         yValueMapper: (_ChartData data, _) => data.value,
                         yAxisName: axisName,  // Assign to correct axis
-                        color: _hiddenSeries.contains(index) ? colors[index].withValues(alpha: 0.3) : colors[index],
+                        color: isHidden ? Colors.transparent : colors[index],
                         width: 2,
                         splineType: SplineType.natural,
                         animationDuration: 0, // No animation for real-time updates
@@ -508,7 +522,7 @@ class _RealtimeSplineChartState extends State<RealtimeSplineChart> with Automati
                           Trendline(
                             type: TrendlineType.movingAverage,
                             period: widget.movingAverageWindow,
-                            color: colors[index].withValues(alpha: 0.6),
+                            color: maHidden ? Colors.transparent : colors[index].withValues(alpha: 0.6),
                             width: 2,
                             dashArray: const <double>[5, 5],
                           ),
