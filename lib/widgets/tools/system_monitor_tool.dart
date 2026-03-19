@@ -779,14 +779,25 @@ class _SystemMonitorToolState extends State<SystemMonitorTool> with AutomaticKee
         dateFormat: intl.DateFormat('mm:ss'),
       ),
       primaryYAxis: NumericAxis(
+        name: 'systemAxis',
         labelFormat: '{value} MB',
         majorGridLines: MajorGridLines(
           width: 1,
           color: Colors.grey.withValues(alpha: 0.2),
         ),
         axisLine: const AxisLine(width: 0),
-        labelStyle: const TextStyle(fontSize: 10),
+        labelStyle: const TextStyle(fontSize: 10, color: Colors.orange),
       ),
+      axes: const <ChartAxis>[
+        NumericAxis(
+          name: 'appAxis',
+          opposedPosition: true,
+          labelFormat: '{value} MB',
+          majorGridLines: MajorGridLines(width: 0),
+          axisLine: AxisLine(width: 0),
+          labelStyle: TextStyle(fontSize: 10, color: Colors.green),
+        ),
+      ],
       legend: const Legend(
         isVisible: true,
         position: LegendPosition.bottom,
@@ -803,6 +814,7 @@ class _SystemMonitorToolState extends State<SystemMonitorTool> with AutomaticKee
             dataSource: _memoryHistory,
             xValueMapper: (_MemoryDataPoint data, _) => data.timestamp,
             yValueMapper: (_MemoryDataPoint data, _) => data.usedMemoryMB,
+            yAxisName: 'systemAxis',
             color: Colors.orange.withValues(alpha: 0.3),
             borderColor: Colors.orange,
             borderWidth: 2,
@@ -812,6 +824,7 @@ class _SystemMonitorToolState extends State<SystemMonitorTool> with AutomaticKee
           dataSource: _memoryHistory,
           xValueMapper: (_MemoryDataPoint data, _) => data.timestamp,
           yValueMapper: (_MemoryDataPoint data, _) => data.appMemoryMB,
+          yAxisName: 'appAxis',
           color: Colors.green.withValues(alpha: 0.5),
           borderColor: Colors.green,
           borderWidth: 2,
