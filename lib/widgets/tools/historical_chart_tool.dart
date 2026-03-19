@@ -127,86 +127,98 @@ class _HistoricalChartToolState extends State<HistoricalChartTool> with Automati
       final smoothingType = widget.config.style.customProperties?['smoothingType'] as String? ?? 'sma';
       final smoothingWindow = widget.config.style.customProperties?['movingAverageWindow'] as int? ?? 5;
 
-      // Build path expressions with optional smoothing
-      // Syntax: path:aggregation:smoothing:param
-      final paths = widget.config.dataSources.map((ds) {
-        if (showMovingAverage) {
-          // Add smoothing to path expression
-          final param = smoothingType == 'ema'
-              ? (smoothingWindow / 100).toString()  // EMA uses alpha (0.0-1.0)
-              : smoothingWindow.toString();         // SMA uses window size
-          return '${ds.path}:average:$smoothingType:$param';
-        }
-        return ds.path;
-      }).toList();
-
-      final chartContext = widget.config.style.customProperties?['context'] as String? ?? 'vessels.self';
-
-      final response = await _historicalService!.fetchHistoricalData(
-        paths: paths,
-        duration: duration,
-        resolution: resolution,
-        context: chartContext,
-      );
-
-      if (kDebugMode) {
-        print('📊 Historical response: ${response.values.length} values, ${response.data.length} data rows');
-        for (var i = 0; i < response.values.length; i++) {
-          final v = response.values[i];
-          print('  Value $i: ${v.path} (${v.method}${v.smoothing != null ? ', ${v.smoothing}:${v.window}' : ''})');
-        }
+      // Group data sources by vessel context so each context gets its own API call
+      final defaultContext = widget.config.style.customProperties?['context'] as String? ?? 'vessels.self';
+      final byContext = <String, List<DataSource>>{};
+      for (final ds in widget.config.dataSources) {
+        final ctx = ds.vesselContext != null
+            ? 'vessels.${ds.vesselContext}'
+            : defaultContext;
+        (byContext[ctx] ??= []).add(ds);
       }
 
       final series = <ChartDataSeries>[];
-      for (final dataSource in widget.config.dataSources) {
-        // Get raw series
-        final rawSeries = ChartDataSeries.fromHistoricalData(
-          response,
-          dataSource.path,
-          signalKService: widget.signalKService,
-        );
-        if (rawSeries != null && rawSeries.points.isNotEmpty) {
-          final seriesWithLabel = ChartDataSeries(
-            path: rawSeries.path,
-            method: rawSeries.method,
-            points: rawSeries.points,
-            minValue: rawSeries.minValue,
-            maxValue: rawSeries.maxValue,
-            label: dataSource.label,
-          );
-          series.add(seriesWithLabel);
 
-          if (kDebugMode) {
-            print('✅ Found ${rawSeries.points.length} raw points for: ${dataSource.path}');
+      for (final entry in byContext.entries) {
+        final ctx = entry.key;
+        final sources = entry.value;
+
+        // Build path expressions with optional smoothing
+        final paths = sources.map((ds) {
+          if (showMovingAverage) {
+            final param = smoothingType == 'ema'
+                ? (smoothingWindow / 100).toString()
+                : smoothingWindow.toString();
+            return '${ds.path}:average:$smoothingType:$param';
+          }
+          return ds.path;
+        }).toList();
+
+        final response = await _historicalService!.fetchHistoricalData(
+          paths: paths,
+          duration: duration,
+          resolution: resolution,
+          context: ctx,
+        );
+
+        if (kDebugMode) {
+          print('📊 Historical response for $ctx: ${response.values.length} values, ${response.data.length} data rows');
+          for (var i = 0; i < response.values.length; i++) {
+            final v = response.values[i];
+            print('  Value $i: ${v.path} (${v.method}${v.smoothing != null ? ', ${v.smoothing}:${v.window}' : ''})');
           }
         }
 
-        // Get smoothed series if enabled
-        if (showMovingAverage) {
-          final smoothedSeries = ChartDataSeries.fromHistoricalData(
+        for (final dataSource in sources) {
+          // Get raw series
+          final rawSeries = ChartDataSeries.fromHistoricalData(
             response,
             dataSource.path,
-            smoothing: smoothingType,
             signalKService: widget.signalKService,
           );
-          if (smoothedSeries != null && smoothedSeries.points.isNotEmpty) {
-            final label = dataSource.label != null
-                ? '${dataSource.label} (${smoothingType.toUpperCase()})'
-                : null;
+          if (rawSeries != null && rawSeries.points.isNotEmpty) {
             final seriesWithLabel = ChartDataSeries(
-              path: smoothedSeries.path,
-              method: smoothedSeries.method,
-              smoothing: smoothedSeries.smoothing,
-              window: smoothedSeries.window,
-              points: smoothedSeries.points,
-              minValue: smoothedSeries.minValue,
-              maxValue: smoothedSeries.maxValue,
-              label: label,
+              path: rawSeries.path,
+              method: rawSeries.method,
+              points: rawSeries.points,
+              minValue: rawSeries.minValue,
+              maxValue: rawSeries.maxValue,
+              label: dataSource.label,
             );
             series.add(seriesWithLabel);
 
             if (kDebugMode) {
-              print('✅ Found ${smoothedSeries.points.length} smoothed points for: ${dataSource.path}');
+              print('✅ Found ${rawSeries.points.length} raw points for: ${dataSource.path}');
+            }
+          }
+
+          // Get smoothed series if enabled
+          if (showMovingAverage) {
+            final smoothedSeries = ChartDataSeries.fromHistoricalData(
+              response,
+              dataSource.path,
+              smoothing: smoothingType,
+              signalKService: widget.signalKService,
+            );
+            if (smoothedSeries != null && smoothedSeries.points.isNotEmpty) {
+              final label = dataSource.label != null
+                  ? '${dataSource.label} (${smoothingType.toUpperCase()})'
+                  : null;
+              final seriesWithLabel = ChartDataSeries(
+                path: smoothedSeries.path,
+                method: smoothedSeries.method,
+                smoothing: smoothedSeries.smoothing,
+                window: smoothedSeries.window,
+                points: smoothedSeries.points,
+                minValue: smoothedSeries.minValue,
+                maxValue: smoothedSeries.maxValue,
+                label: label,
+              );
+              series.add(seriesWithLabel);
+
+              if (kDebugMode) {
+                print('✅ Found ${smoothedSeries.points.length} smoothed points for: ${dataSource.path}');
+              }
             }
           }
         }

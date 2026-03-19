@@ -290,13 +290,6 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
             ? (path, vesselContext) {
                 selectedPath = path;
                 selectedVesselContext = vesselContext;
-                // Sync historical context back to ChartConfigurator
-                // vesselContext is AIS format (no prefix) — ChartConfigurator stores full context
-                if (_selectedToolTypeId == 'historical_chart' &&
-                    _configurator is ChartConfigurator) {
-                  (_configurator as ChartConfigurator).chartContext =
-                      vesselContext != null ? 'vessels.$vesselContext' : 'vessels.self';
-                }
               }
             : null,
         onSelect: (path) {
