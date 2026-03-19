@@ -8,6 +8,7 @@ import '../../utils/color_extensions.dart';
 import 'mixins/zones_mixin.dart';
 import '../radial_gauge.dart';
 import '../tool_info_button.dart';
+import '../common/widget_empty_states.dart';
 
 /// Config-driven radial gauge tool
 class RadialGaugeTool extends StatefulWidget {
@@ -74,7 +75,7 @@ class _RadialGaugeToolState extends State<RadialGaugeTool> with ZonesMixin, Auto
 
     // Get data from first data source
     if (widget.config.dataSources.isEmpty) {
-      return const Center(child: Text('No data source configured'));
+      return const WidgetEmptyState();
     }
 
     final dataSource = widget.config.dataSources.first;

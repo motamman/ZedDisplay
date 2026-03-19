@@ -9,6 +9,7 @@ import '../../services/tool_registry.dart';
 import '../../utils/color_extensions.dart';
 import '../realtime_spline_chart.dart';
 import '../tool_info_button.dart';
+import '../common/widget_empty_states.dart';
 
 /// Config-driven real-time chart tool
 class RealtimeChartTool extends StatefulWidget {
@@ -114,7 +115,7 @@ class _RealtimeChartToolState extends State<RealtimeChartTool> with AutomaticKee
     super.build(context);
 
     if (widget.config.dataSources.isEmpty) {
-      return const Center(child: Text('No data sources configured'));
+      return const WidgetEmptyState(message: 'No data sources configured');
     }
 
     // Get configuration from custom properties

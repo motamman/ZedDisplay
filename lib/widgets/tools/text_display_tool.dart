@@ -7,6 +7,7 @@ import '../../utils/string_extensions.dart';
 import '../../utils/color_extensions.dart';
 import '../../config/ui_constants.dart';
 import '../tool_info_button.dart';
+import '../common/widget_empty_states.dart';
 
 /// Config-driven text display for large numeric values
 class TextDisplayTool extends StatelessWidget {
@@ -23,7 +24,7 @@ class TextDisplayTool extends StatelessWidget {
   Widget build(BuildContext context) {
     // Get data from first data source
     if (config.dataSources.isEmpty) {
-      return const Center(child: Text('No data source configured'));
+      return const WidgetEmptyState();
     }
 
     final dataSource = config.dataSources.first;

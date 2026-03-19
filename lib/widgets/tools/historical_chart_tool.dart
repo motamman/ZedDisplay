@@ -12,6 +12,7 @@ import '../../utils/color_extensions.dart';
 import '../../utils/chart_axis_utils.dart';
 import '../historical_line_chart.dart';
 import '../tool_info_button.dart';
+import '../common/widget_empty_states.dart';
 
 /// Config-driven historical chart tool
 class HistoricalChartTool extends StatefulWidget {
@@ -254,16 +255,7 @@ class _HistoricalChartToolState extends State<HistoricalChartTool> with Automati
     super.build(context); // Required for AutomaticKeepAliveClientMixin
 
     if (widget.config.dataSources.isEmpty) {
-      return const Center(
-        child: Text('No data sources configured'),
-      );
-    }
-
-    // If disconnected and we have no cached chart data, show disconnected message
-    if (!widget.signalKService.isConnected && _chartSeries.isEmpty) {
-      return const Center(
-        child: Text('Not connected to SignalK server'),
-      );
+      return const WidgetEmptyState(message: 'No data sources configured');
     }
 
     if (_isLoading) {

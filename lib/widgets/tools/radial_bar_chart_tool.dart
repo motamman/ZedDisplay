@@ -7,6 +7,7 @@ import '../radial_bar_chart.dart';
 import '../../utils/string_extensions.dart';
 import '../../utils/color_extensions.dart';
 import '../tool_info_button.dart';
+import '../common/widget_empty_states.dart';
 
 /// Config-driven radial bar chart tool
 /// Displays up to 4 SignalK paths as concentric circular rings
@@ -24,34 +25,12 @@ class RadialBarChartTool extends StatelessWidget {
   Widget build(BuildContext context) {
     // Check connection
     if (!signalKService.isConnected) {
-      return const Card(
-        child: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(Icons.cloud_off, size: 48, color: Colors.grey),
-              SizedBox(height: 16),
-              Text('Not connected to SignalK server'),
-            ],
-          ),
-        ),
-      );
+      return const WidgetDisconnectedState();
     }
 
     // Check data sources
     if (config.dataSources.isEmpty) {
-      return const Card(
-        child: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(Icons.donut_large, size: 48, color: Colors.grey),
-              SizedBox(height: 16),
-              Text('No data sources configured'),
-            ],
-          ),
-        ),
-      );
+      return const WidgetEmptyState(message: 'No data sources configured');
     }
 
     // Build radial bar data from data sources using MetadataStore

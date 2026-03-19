@@ -7,6 +7,7 @@ import '../compass_gauge.dart';
 import '../tool_info_button.dart';
 import '../../utils/string_extensions.dart';
 import '../../utils/color_extensions.dart';
+import '../common/widget_empty_states.dart';
 
 /// Config-driven compass gauge tool
 class CompassGaugeTool extends StatefulWidget {
@@ -75,7 +76,7 @@ class _CompassGaugeToolState extends State<CompassGaugeTool> {
   Widget build(BuildContext context) {
     // Get data from data sources (up to 4)
     if (widget.config.dataSources.isEmpty) {
-      return const Center(child: Text('No data source configured'));
+      return const WidgetEmptyState();
     }
 
     final dataSource = widget.config.dataSources.first;

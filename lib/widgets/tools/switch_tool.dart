@@ -8,6 +8,7 @@ import '../../utils/color_extensions.dart';
 import '../../utils/data_extensions.dart';
 import '../../config/ui_constants.dart';
 import '../tool_info_button.dart';
+import '../common/widget_empty_states.dart';
 
 /// Config-driven switch tool for toggling boolean SignalK paths
 /// Supports multiple switches in a single tool
@@ -36,7 +37,7 @@ class _SwitchToolState extends State<SwitchTool> with AutomaticKeepAliveClientMi
     super.build(context);
 
     if (widget.config.dataSources.isEmpty) {
-      return const Center(child: Text('No data source configured'));
+      return const WidgetEmptyState();
     }
 
     final style = widget.config.style;

@@ -9,6 +9,7 @@ import '../../utils/data_extensions.dart';
 import '../../config/ui_constants.dart';
 import 'common/control_tool_layout.dart';
 import '../tool_info_button.dart';
+import '../common/widget_empty_states.dart';
 
 /// Config-driven checkbox tool for toggling boolean SignalK paths
 class CheckboxTool extends StatefulWidget {
@@ -37,7 +38,7 @@ class _CheckboxToolState extends State<CheckboxTool> with AutomaticKeepAliveClie
 
     // Get data from first data source
     if (widget.config.dataSources.isEmpty) {
-      return const Center(child: Text('No data source configured'));
+      return const WidgetEmptyState();
     }
 
     final dataSource = widget.config.dataSources.first;

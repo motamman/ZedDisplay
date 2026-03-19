@@ -10,6 +10,7 @@ import '../../utils/color_extensions.dart';
 import 'mixins/control_tool_mixin.dart';
 import 'common/control_tool_layout.dart';
 import '../tool_info_button.dart';
+import '../common/widget_empty_states.dart';
 
 /// Config-driven knob (rotary control) tool for sending numeric values to SignalK paths
 class KnobTool extends StatefulWidget {
@@ -38,7 +39,7 @@ class _KnobToolState extends State<KnobTool> with ControlToolMixin, AutomaticKee
 
     // Get data from first data source
     if (widget.config.dataSources.isEmpty) {
-      return const Center(child: Text('No data source configured'));
+      return const WidgetEmptyState();
     }
 
     final dataSource = widget.config.dataSources.first;

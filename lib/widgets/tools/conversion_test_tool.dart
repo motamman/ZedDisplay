@@ -3,6 +3,7 @@ import '../../models/tool_definition.dart';
 import '../../models/tool_config.dart';
 import '../../services/signalk_service.dart';
 import '../../services/tool_registry.dart';
+import '../common/widget_empty_states.dart';
 
 /// Simple test tool to display conversion data from SignalK
 /// Uses STANDARD SignalK WebSocket: ws://[server]/signalk/v1/stream
@@ -38,21 +39,11 @@ class _ConversionTestToolState extends State<ConversionTestTool> {
   @override
   Widget build(BuildContext context) {
     if (!widget.signalKService.isConnected) {
-      return const Center(
-        child: Text(
-          'Not connected',
-          style: TextStyle(fontSize: 12),
-        ),
-      );
+      return const WidgetDisconnectedState();
     }
 
     if (widget.config.dataSources.isEmpty) {
-      return const Center(
-        child: Text(
-          'No paths configured',
-          style: TextStyle(fontSize: 12),
-        ),
-      );
+      return const WidgetEmptyState(message: 'No paths configured');
     }
 
     return ListView.builder(

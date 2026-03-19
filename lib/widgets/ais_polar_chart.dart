@@ -13,6 +13,7 @@ import '../services/find_home_target_service.dart';
 import '../services/dashboard_service.dart';
 import '../models/ais_favorite.dart';  // For manual add dialog
 import '../models/cpa_alert_state.dart';
+import 'common/widget_empty_states.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import '../utils/cpa_utils.dart';
 
@@ -1100,18 +1101,7 @@ class _AISPolarChartState extends State<AISPolarChart>
     super.build(context);
 
     if (!widget.signalKService.isConnected) {
-      return Card(
-        child: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(Icons.cloud_off, size: 48, color: Colors.grey[400]),
-              const SizedBox(height: 16),
-              const Text('Not connected to SignalK server'),
-            ],
-          ),
-        ),
-      );
+      return const WidgetDisconnectedState();
     }
 
     if (_ownLat == null || _ownLon == null) {

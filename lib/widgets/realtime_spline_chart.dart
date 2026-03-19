@@ -5,6 +5,7 @@ import '../services/signalk_service.dart';
 import '../models/zone_data.dart';
 import '../models/tool_config.dart';
 import '../utils/chart_axis_utils.dart';
+import 'common/widget_empty_states.dart';
 
 /// Static cache to preserve chart data across widget disposal (screen lock, swipe, reconnect).
 class _RealtimeChartCache {
@@ -265,34 +266,13 @@ class _RealtimeSplineChartState extends State<RealtimeSplineChart> with Automati
   Widget build(BuildContext context) {
     super.build(context); // Required for AutomaticKeepAliveClientMixin
 
-    if (!widget.signalKService.isConnected) {
-      return Card(
-        child: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(Icons.cloud_off, size: 48, color: Colors.grey[400]),
-              const SizedBox(height: 16),
-              const Text('Not connected to SignalK server'),
-            ],
-          ),
-        ),
-      );
+    // Only show disconnected state when there's no cached data to display
+    if (!widget.signalKService.isConnected && _seriesData.every((s) => s.isEmpty)) {
+      return const WidgetDisconnectedState();
     }
 
     if (widget.dataSources.isEmpty) {
-      return Card(
-        child: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(Icons.show_chart, size: 48, color: Colors.grey[400]),
-              const SizedBox(height: 16),
-              const Text('No data paths configured'),
-            ],
-          ),
-        ),
-      );
+      return const WidgetEmptyState(message: 'No data paths configured');
     }
 
     final colors = _getSeriesColors();

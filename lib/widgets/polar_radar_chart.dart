@@ -3,6 +3,7 @@ import 'package:fl_chart/fl_chart.dart';
 import 'dart:async';
 import 'dart:math' as math;
 import '../services/signalk_service.dart';
+import 'common/widget_empty_states.dart';
 
 /// A polar radar chart that displays velocity and angle data from SignalK
 ///
@@ -123,18 +124,7 @@ class _PolarRadarChartState extends State<PolarRadarChart>
     super.build(context);
 
     if (!widget.signalKService.isConnected) {
-      return Card(
-        child: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(Icons.cloud_off, size: 48, color: Colors.grey[400]),
-              const SizedBox(height: 16),
-              const Text('Not connected to SignalK server'),
-            ],
-          ),
-        ),
-      );
+      return const WidgetDisconnectedState();
     }
 
     final isDark = Theme.of(context).brightness == Brightness.dark;
