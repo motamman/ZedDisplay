@@ -412,10 +412,15 @@ class _ZedDisplayAppState extends State<ZedDisplayApp> with WidgetsBindingObserv
     super.dispose();
   }
 
+  bool _wakelockEnabled = false;
+
   void _onConnectionChanged() {
     if (widget.signalKService.isConnected) {
       // Enable wakelock when connected to keep screen on and connection alive
-      WakelockPlus.enable();
+      if (!_wakelockEnabled) {
+        _wakelockEnabled = true;
+        WakelockPlus.enable();
+      }
 
       // Start foreground service if notifications are enabled
       final notificationsEnabled = widget.storageService.getNotificationsEnabled();
@@ -424,7 +429,10 @@ class _ZedDisplayAppState extends State<ZedDisplayApp> with WidgetsBindingObserv
       }
     } else {
       // Disable wakelock when disconnected to save battery
-      WakelockPlus.disable();
+      if (_wakelockEnabled) {
+        _wakelockEnabled = false;
+        WakelockPlus.disable();
+      }
 
       // Stop foreground service when disconnected
       widget.foregroundService.stop();
