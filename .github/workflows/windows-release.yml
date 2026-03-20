@@ -1,6 +1,7 @@
 name: Windows Build and Release
 
 on:
+  workflow_dispatch:
   push:
     tags:
       - 'v*.*.*'          # All platforms
