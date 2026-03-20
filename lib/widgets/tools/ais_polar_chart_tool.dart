@@ -52,7 +52,7 @@ class _AISPolarChartToolState extends State<AISPolarChartTool> {
 
   void _configureCpaAlerts() {
     final props = widget.config.style.customProperties ?? {};
-    final enabled = props['cpaAlertsEnabled'] as bool? ?? true;
+    const enabled = false; // Always start disabled — user opts in per session
 
     // Fetch global CpaAlertService from Provider (created in main.dart)
     _cpaAlertService = Provider.of<CpaAlertService>(context, listen: false);
@@ -332,7 +332,7 @@ class AISPolarChartBuilder extends ToolBuilder {
           'colorByShipType': true,
           'showProjectedPositions': true,
           'maxRangeNm': 100.0,
-          'cpaAlertsEnabled': true,
+          // cpaAlertsEnabled intentionally omitted — session-only toggle, always starts off
           'cpaWarnNm': 1.0,
           'cpaAlarmNm': 0.5,
           'cpaTcpaMinutes': 30.0,
