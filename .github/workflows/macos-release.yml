@@ -182,13 +182,23 @@ jobs:
           echo "EOF" >> $GITHUB_OUTPUT
 
       - name: Upload to TestFlight
-        uses: apple-actions/upload-testflight-build@v3
-        with:
-          app-path: ${{ steps.find_pkg.outputs.PKG_PATH || steps.find_pkg.outputs.APP_PATH }}
-          app-type: osx
-          issuer-id: ${{ secrets.APPSTORE_ISSUER_ID }}
-          api-key-id: ${{ secrets.APPSTORE_API_KEY_ID }}
-          api-private-key: ${{ secrets.APPSTORE_API_PRIVATE_KEY }}
+        env:
+          APP_PATH: ${{ steps.find_pkg.outputs.PKG_PATH || steps.find_pkg.outputs.APP_PATH }}
+          APPSTORE_ISSUER_ID: ${{ secrets.APPSTORE_ISSUER_ID }}
+          APPSTORE_API_KEY_ID: ${{ secrets.APPSTORE_API_KEY_ID }}
+          APPSTORE_API_PRIVATE_KEY: ${{ secrets.APPSTORE_API_PRIVATE_KEY }}
+        run: |
+          # Write API key to file
+          mkdir -p ~/private_keys
+          echo "$APPSTORE_API_PRIVATE_KEY" > ~/private_keys/AuthKey_${APPSTORE_API_KEY_ID}.p8
+
+          xcrun altool --upload-app \
+            --file "$APP_PATH" \
+            --type osx \
+            --apiKey "$APPSTORE_API_KEY_ID" \
+            --apiIssuer "$APPSTORE_ISSUER_ID"
+
+          echo "Upload to TestFlight succeeded"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
