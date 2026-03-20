@@ -302,6 +302,7 @@ class CrewService extends ChangeNotifier {
         _signalKService.sendDelta(
           '${_crewPath(_localProfile!.id)}.status',
           _statusToJsonString(status),
+          source: 'zeddisplay',
         );
 
         // Persist full profile to Resources API
@@ -573,6 +574,7 @@ class CrewService extends ChangeNotifier {
     _signalKService.sendDelta(
       '${_crewPath(_localProfile!.id)}.lastSeen',
       now.toIso8601String(),
+      source: 'zeddisplay',
     );
 
     notifyListeners();
@@ -620,10 +622,27 @@ class CrewService extends ChangeNotifier {
         final resourceId = entry.key;
         final resourceData = entry.value as Map<String, dynamic>;
 
-        // Skip own resource — we trust local profile
+        // For own resource — only sync status from server (another device may have changed it)
         if (resourceId == _localProfile?.id ||
             (_isUserLogin && _username != null && resourceId == _username) ||
             (_localProfile != null && resourceId == Uri.decodeComponent(_localProfile!.id))) {
+          try {
+            final descriptionJson = resourceData['description'] as String?;
+            if (descriptionJson != null) {
+              final crewData = jsonDecode(descriptionJson) as Map<String, dynamic>;
+              final serverStatus = _parseCrewStatus(crewData['status'] as String? ?? '');
+              if (serverStatus != null && _localProfile != null && _localProfile!.status != serverStatus) {
+                _localProfile = _localProfile!.copyWith(status: serverStatus);
+                _crewMembers[_localProfile!.id] = _localProfile!;
+                await _saveLocalProfile();
+                changed = true;
+              }
+            }
+          } catch (e) {
+            if (kDebugMode) {
+              print('Error syncing own crew status from server: $e');
+            }
+          }
           continue;
         }
 
@@ -678,6 +697,7 @@ class CrewService extends ChangeNotifier {
         _signalKService.sendDelta(
           '${_crewPath(member.id)}.status',
           _statusToJsonString(member.status),
+          source: 'zeddisplay',
         );
       }
       // Also seed own lastSeen
@@ -685,6 +705,7 @@ class CrewService extends ChangeNotifier {
         _signalKService.sendDelta(
           '${_crewPath(_localProfile!.id)}.lastSeen',
           DateTime.now().toIso8601String(),
+          source: 'zeddisplay',
         );
       }
     } catch (e) {
@@ -700,13 +721,11 @@ class CrewService extends ChangeNotifier {
     final now = DateTime.now();
 
     // Check known crew members for status/lastSeen updates
-    // Skip own crew ID — we are the authority for our own status
     for (final crewId in _trackedCrewIds) {
-      if (crewId == _localProfile?.id) continue;
-
       final prefix = _crewPath(crewId);
 
-      // Check status delta
+      // Check status delta — process for ALL crew IDs including own
+      // (another device logged in as the same user may have changed our status)
       final statusPoint = _signalKService.getValue('$prefix.status');
       if (statusPoint != null) {
         final statusStr = statusPoint.value as String?;
@@ -716,11 +735,18 @@ class CrewService extends ChangeNotifier {
           if (existing != null && newStatus != null && existing.status != newStatus) {
             _crewMembers[crewId] = existing.copyWith(status: newStatus);
             changed = true;
+            // If this is OUR crew ID, another device changed our status — sync it
+            if (crewId == _localProfile?.id) {
+              _localProfile = _crewMembers[crewId];
+              _saveLocalProfile(); // fire-and-forget — persist for restart
+            }
           }
         }
       }
 
-      // Check lastSeen delta (heartbeat)
+      // Check lastSeen delta (heartbeat) — skip own (we are authority for our heartbeat)
+      if (crewId == _localProfile?.id) continue;
+
       final lastSeenPoint = _signalKService.getValue('$prefix.lastSeen');
       if (lastSeenPoint != null) {
         final lastSeenStr = lastSeenPoint.value as String?;

@@ -207,7 +207,7 @@ class MessagingService extends ChangeNotifier {
     // Sync to SignalK
     if (_signalKService.isConnected && _resourcesApiAvailable) {
       // Broadcast via WS delta first (instant delivery to other clients)
-      _signalKService.sendDelta('$_messagePathPrefix${message.id}', message.toJson());
+      _signalKService.sendDelta('$_messagePathPrefix${message.id}', message.toJson(), source: 'zeddisplay');
 
       // Persist to Resources API
       final resourceData = _buildMessageResource(message);
