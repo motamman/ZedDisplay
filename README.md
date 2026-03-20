@@ -338,6 +338,7 @@ SignalK acts as the message broker and data store:
 - Create crew profiles with name and role (Captain, First Mate, Crew, Guest)
 - Real-time online/offline status via heartbeat system (30-second intervals)
 - Status indicators (On Watch, Off Watch, Standby, Resting, Away)
+- Cross-device status sync—change status on one device and it updates on all others within ~30 seconds
 - Automatic presence detection—see who's online across all connected devices
 
 **Text Messaging**

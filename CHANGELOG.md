@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.91+64] - 2026-03-20
+
+### Fixed
+- **Crew Status — Cross-Device Sync**: Crew status changes (e.g., "On Watch") now propagate between devices logged into the same account. Previously, polling skipped the user's own resource, so remote status changes were never read. Heartbeat timer offset by 15 seconds from poll to prevent stale local data overwriting newer server state.
+
 ## [0.5.90+63] - 2026-03-20
 
 ### Added

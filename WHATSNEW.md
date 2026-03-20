@@ -1,4 +1,24 @@
-# What's New in v0.5.90
+# What's New in v0.5.91
+
+## Release Notes (Google Play - max 500 chars)
+
+v0.5.91 Crew Status Cross-Device Sync
+
+FIXED: Crew status changes now sync across devices. Changing status to "On Watch" on one device is reflected on all other devices logged into the same account within ~30 seconds.
+
+Previously, each device skipped its own server resource during polling and the heartbeat overwrote remote changes with stale local data.
+
+## Release Notes (App Store / TestFlight - max 4000 chars)
+
+### Crew Status — Cross-Device Sync (FIXED)
+- **Status Propagation** - Changing crew status on one device now syncs to all other devices on the same account within ~30 seconds
+- **Root Cause** - Polling skipped the user's own resource on the server, so status changes from other devices were never read; heartbeat then overwrote the server with stale local data
+- **Server Sync** - Own profile is now compared by `updatedAt` timestamp during polling; newer server state is adopted locally
+- **Timer Offset** - Heartbeat fires 15 seconds after poll, ensuring the local profile is fresh before being PUT to the server
+
+---
+
+# Previous: v0.5.90
 
 ## Release Notes (Google Play - max 500 chars)
 
