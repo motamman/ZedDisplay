@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
@@ -26,9 +25,8 @@ class MessagingService extends ChangeNotifier {
   // Resources API configuration - uses custom resource type for isolation
   static const String _messageResourceType = 'zeddisplay-messages';
 
-  // Polling timer
-  Timer? _pollTimer;
-  static const Duration _pollInterval = Duration(seconds: 15);
+  // WS delta path prefix for real-time message delivery
+  static const String _messagePathPrefix = 'crew.messages.';
 
   // Track if Resources API is available
   bool _resourcesApiAvailable = true;
@@ -57,7 +55,7 @@ class MessagingService extends ChangeNotifier {
     // Listen to SignalK connection changes for disconnection handling
     _signalKService.addListener(_onSignalKChanged);
 
-    // If already connected, start polling
+    // If already connected, hydrate and subscribe
     if (_signalKService.isConnected) {
       await _onConnected();
     }
@@ -66,7 +64,7 @@ class MessagingService extends ChangeNotifier {
 
   @override
   void dispose() {
-    _pollTimer?.cancel();
+    _signalKService.unsubscribeFromPaths(['crew.messages.*'], ownerId: 'messaging');
     _signalKService.unregisterConnectionCallback(_onConnected);
     _signalKService.removeListener(_onSignalKChanged);
     super.dispose();
@@ -104,23 +102,31 @@ class MessagingService extends ChangeNotifier {
     await _storageService.saveSetting(_messagesStorageKey, jsonEncode(messageList));
   }
 
-  /// Handle SignalK connection changes (only for disconnection)
+  /// Handle SignalK connection changes and process WS deltas
   /// Connection is handled via registerConnectionCallback for sequential execution
   void _onSignalKChanged() {
     final isConnected = _signalKService.isConnected;
-    if (isConnected == _wasConnected) return;
-    _wasConnected = isConnected;
+    if (isConnected != _wasConnected) {
+      _wasConnected = isConnected;
 
-    // Only handle disconnection here - connection is handled via callback
-    if (!isConnected) {
-      _onDisconnected();
+      // Only handle disconnection here - connection is handled via callback
+      if (!isConnected) {
+        _onDisconnected();
+      }
+    }
+
+    // Process message WS deltas while connected
+    if (isConnected) {
+      _processMessageDeltas();
     }
   }
 
   Future<void> _onConnected() async {
     await _ensureResourceType();
-    _startPolling();
     await _fetchMessages();
+
+    // Subscribe to message paths for real-time delivery
+    await _signalKService.subscribeToPaths(['crew.messages.*'], ownerId: 'messaging');
   }
 
   /// Ensure the custom resource type exists on the server
@@ -132,15 +138,7 @@ class MessagingService extends ChangeNotifier {
   }
 
   void _onDisconnected() {
-    _pollTimer?.cancel();
-    _pollTimer = null;
-  }
-
-  void _startPolling() {
-    _pollTimer?.cancel();
-    _pollTimer = Timer.periodic(_pollInterval, (_) {
-      _fetchMessages();
-    });
+    _signalKService.unsubscribeFromPaths(['crew.messages.*'], ownerId: 'messaging');
   }
 
   /// Send a text message
@@ -208,6 +206,10 @@ class MessagingService extends ChangeNotifier {
 
     // Sync to SignalK
     if (_signalKService.isConnected && _resourcesApiAvailable) {
+      // Broadcast via WS delta first (instant delivery to other clients)
+      _signalKService.sendDelta('$_messagePathPrefix${message.id}', message.toJson());
+
+      // Persist to Resources API
       final resourceData = _buildMessageResource(message);
       final success = await _signalKService.putResource(
         _messageResourceType,
@@ -215,11 +217,8 @@ class MessagingService extends ChangeNotifier {
         resourceData,
       );
 
-      if (!success) {
-        if (kDebugMode) {
-          print('Failed to sync message to SignalK');
-        }
-        // Keep in local cache anyway
+      if (!success && kDebugMode) {
+        print('Failed to sync message to SignalK');
       }
     }
 
@@ -319,6 +318,60 @@ class MessagingService extends ChangeNotifier {
       if (kDebugMode) {
         print('Error fetching messages: $e');
       }
+    }
+  }
+
+  /// Process message deltas received via WebSocket
+  void _processMessageDeltas() {
+    final latestData = _signalKService.latestData;
+    final myId = _crewService.localProfile?.id;
+    bool changed = false;
+
+    for (final entry in latestData.entries) {
+      if (!entry.key.startsWith(_messagePathPrefix)) continue;
+
+      // Extract message ID from path: crew.messages.<id>
+      final messageId = entry.key.substring(_messagePathPrefix.length);
+
+      // Skip messages we already have (also handles self-skip via optimistic update)
+      if (_messages.any((m) => m.id == messageId)) continue;
+
+      // Parse the message from the delta value
+      try {
+        final value = entry.value.value;
+        if (value is! Map) continue;
+        final msgData = Map<String, dynamic>.from(value);
+        final message = CrewMessage.fromJson(msgData);
+
+        // Filter: broadcast, direct to us, or from us
+        if (message.toId == 'all' || message.toId == myId || message.fromId == myId) {
+          _messages.add(message);
+          changed = true;
+
+          // Count as unread and show notification if not from us
+          if (message.fromId != myId && !message.read) {
+            _unreadCount++;
+            final isAlert = message.type == MessageType.alert;
+            final showNotification = isAlert
+                ? _storageService.getCrewAlertNotificationsEnabled()
+                : _storageService.getCrewNotificationsEnabled();
+            if (showNotification) {
+              _notificationService.showCrewMessageNotification(message);
+            }
+          }
+        }
+      } catch (e) {
+        if (kDebugMode) {
+          print('Error parsing message delta $messageId: $e');
+        }
+      }
+    }
+
+    if (changed) {
+      _messages.sort((a, b) => a.timestamp.compareTo(b.timestamp));
+      _pruneOldMessages();
+      _saveCachedMessages();
+      notifyListeners();
     }
   }
 

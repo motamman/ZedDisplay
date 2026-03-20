@@ -35,6 +35,19 @@ class CpaAlertService extends ChangeNotifier {
   DateTime? _lastEvaluation;
   static const _evaluationThrottle = Duration(milliseconds: 500);
 
+  /// Coalesced notifyListeners — schedules a single microtask to avoid
+  /// calling notifyListeners() during build/layout phases.
+  bool _notifyScheduled = false;
+
+  void _safeNotify() {
+    if (_notifyScheduled) return;
+    _notifyScheduled = true;
+    Future.microtask(() {
+      _notifyScheduled = false;
+      notifyListeners();
+    });
+  }
+
   // Reuse alarm sounds from anchor alarm service
   static const Map<String, String> alarmSounds = {
     'bell': 'sounds/alarm_bell.mp3',
@@ -49,7 +62,7 @@ class CpaAlertService extends ChangeNotifier {
   void clearHighlightRequest() => _highlightRequestedVesselId = null;
   void requestHighlight(String vesselId) {
     _highlightRequestedVesselId = vesselId;
-    notifyListeners();
+    _safeNotify();
   }
 
   /// Callback for in-app snackbar display (set by the owning widget).
@@ -85,7 +98,7 @@ class CpaAlertService extends ChangeNotifier {
       _stopMonitoring();
     }
 
-    notifyListeners();
+    _safeNotify();
   }
 
   /// Callback from notification tap — stops sound and requests vessel highlight.
@@ -94,7 +107,7 @@ class CpaAlertService extends ChangeNotifier {
     if (vesselId != null) {
       _highlightRequestedVesselId = vesselId;
       onAlertDismissed?.call(vesselId);
-      notifyListeners();
+      _safeNotify();
     }
   }
 
@@ -110,7 +123,7 @@ class CpaAlertService extends ChangeNotifier {
     _dismissedUntil[vesselId] =
         DateTime.now().add(Duration(seconds: _config.cooldownSeconds));
     if (!hasActiveAlarm) _alertCoordinator?.acknowledgeAlarm(AlertSubsystem.cpa);
-    notifyListeners();
+    _safeNotify();
   }
 
   /// Dismiss all alerts and cancel all CPA notifications.
@@ -122,7 +135,7 @@ class CpaAlertService extends ChangeNotifier {
     }
     _vesselAlerts.clear();
     _alertCoordinator?.acknowledgeAlarm(AlertSubsystem.cpa);
-    notifyListeners();
+    _safeNotify();
   }
 
   void _startMonitoring() {
@@ -137,7 +150,7 @@ class CpaAlertService extends ChangeNotifier {
       _notificationService.cancelAlarmNotification(id);
     }
     _vesselAlerts.clear();
-    notifyListeners();
+    _safeNotify();
   }
 
   void _onAISUpdate() {
