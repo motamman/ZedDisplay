@@ -294,6 +294,7 @@ class CrewService extends ChangeNotifier {
   Future<void> setStatus(CrewStatus status) async {
     if (_localProfile != null) {
       _localProfile = _localProfile!.copyWith(status: status);
+      _crewMembers[_localProfile!.id] = _localProfile!;
       await _saveLocalProfile();
       notifyListeners();
 
@@ -549,6 +550,9 @@ class CrewService extends ChangeNotifier {
   Future<void> _sendHeartbeat() async {
     if (_localProfile == null || !_signalKService.isConnected) return;
 
+    // Fetch latest crew data before posting to avoid overwriting remote changes
+    await _fetchCrewMembers();
+
     final now = DateTime.now();
 
     // Update local presence
@@ -619,6 +623,7 @@ class CrewService extends ChangeNotifier {
       // Only adopt server state if it's newer than our local copy
       if (serverMember.updatedAt.isAfter(_localProfile!.updatedAt)) {
         _localProfile = serverMember;
+        _crewMembers[_localProfile!.id] = _localProfile!;
         _saveLocalProfile();
         notifyListeners();
         if (kDebugMode) {
