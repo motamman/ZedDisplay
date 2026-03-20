@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
 import 'package:uuid/uuid.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -604,6 +605,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   subtitle: const Text('ZedDisplay@zennora.sv'),
                   trailing: const Icon(Icons.open_in_new, size: 16),
                   onTap: () => _launchUrl('mailto:ZedDisplay@zennora.sv'),
+                ),
+                FutureBuilder<PackageInfo>(
+                  future: PackageInfo.fromPlatform(),
+                  builder: (context, snapshot) {
+                    final version = snapshot.hasData
+                        ? '${snapshot.data!.version}+${snapshot.data!.buildNumber}'
+                        : '...';
+                    return ListTile(
+                      leading: const Icon(Icons.tag, color: Colors.grey),
+                      title: const Text('Version'),
+                      subtitle: Text(version),
+                    );
+                  },
                 ),
               ],
             ),
