@@ -5,6 +5,38 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.90+63] - 2026-03-20
+
+### Added
+- **Windsteer Gauge — Registered**: Windsteer and Windsteer Demo tools now registered in the tool registry and available for placement on dashboards
+- **System Monitor — SignalK Connection Health**: Tracks connection state with uptime counter; shows DiagnosticService metrics (cache sizes, subscription counts, WS message rates)
+- **System Monitor — App Memory Y-Axis**: Dual Y-axis on the memory chart — left axis for system memory, right axis for app memory with improved label styling
+- **AIS Favorites — Server Sync**: Favorites now sync across devices via SignalK Resources API (`zeddisplay-favorites` resource type)
+  - `lastModifiedAt` field on AISFavorite for conflict resolution (last-write-wins)
+  - Background polling (60s) pulls remote changes; mutations push immediately
+  - Works alongside existing local persistence — offline edits sync on reconnect
+- **Version Display**: Settings screen shows app version and build number via `package_info_plus`
+- **Historical Data Explorer — Days-Back Mode**: New "lookback" time mode with quick presets (1d, 3d, 7d, 14d, 30d) as an alternative to the date range picker
+- **Saved Search Areas — Explicit Draw Points**: `SavedSearchArea` model now stores explicit draw points for more precise area recreation
+
+### Changed
+- **SignalK Service — Earlier Vessel Context**: Vessel identity (`_vesselContext`, `_selfMMSI`) is now resolved before `notifyListeners()` during connect, so listeners that trigger subscriptions or process cached deltas see correct vessel routing from the start
+- **Historical Line Chart — Local Time**: Date range labels and chart X-axis data points now display in local time instead of UTC
+- **Text Display — String Value Support**: Text display tool now correctly renders string values (e.g., vessel name, state text) as-is, instead of attempting numeric conversion; layout wrapped in `SingleChildScrollView` to prevent overflow
+- **Dashboard Manager — Screen Selector**: Simplified screen selector dots with tap-to-reveal/tap-to-open behavior replacing the previous multi-layer animated opacity approach; screen management actions row now horizontally scrollable on narrow screens
+- **DiagnosticService — Public Getters**: Added public getters for improved data access by System Monitor tool
+
+### Infrastructure
+- **macOS TestFlight Pipeline**: Complete overhaul of macOS release workflow for App Store Connect
+  - Installer certificate (`.p12`) imported alongside app signing certificate
+  - Apple WWDR intermediate CA imported for full certificate trust chain
+  - Provisioning profile saved with UUID filename (required by Xcode)
+  - TestFlight upload via `xcrun altool` replacing `apple-actions/upload-testflight-build`
+  - Diagnostic steps for signing identities, profile details, and archive bundle ID
+  - Bundle identifiers aligned across project and workflow
+  - `LSApplicationCategoryType` added to macOS Info.plist
+- **CI/CD — Manual Triggers**: All release workflows (Android, iOS, Linux, macOS, Windows) now support `workflow_dispatch` for manual execution from GitHub Actions UI
+
 ## [0.5.86+55] - 2026-03-19
 
 ### Added
