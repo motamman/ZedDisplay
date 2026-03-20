@@ -251,6 +251,12 @@ class SignalKService extends ChangeNotifier implements DataService {
   /// Path subscription registry for diagnostic access.
   PathSubscriptionRegistry get subscriptionRegistry => _subscriptionRegistry;
 
+  /// Evict a path from the data cache so stale deltas can't resurrect deleted data.
+  void removeCachedValue(String path) {
+    _dataCache.internalDataMap.remove(path);
+    _latestDataView = null;
+  }
+
   // Cache size getters for diagnostics instrumentation
   int get displayUnitsCacheCount => _displayUnitsCache.length;
   int get availablePathsCount => _availablePaths.length;
@@ -262,6 +268,9 @@ class SignalKService extends ChangeNotifier implements DataService {
   String get serverUrl => _serverUrl;
   @override
   bool get useSecureConnection => _useSecureConnection;
+
+  /// Full HTTP base URL including protocol — single source of truth for REST calls.
+  String get httpBaseUrl => '${_useSecureConnection ? 'https' : 'http'}://$_serverUrl';
   bool get notificationsEnabled => _notificationManager.notificationsEnabled;
   Stream<SignalKNotification> get notificationStream => _notificationManager.notificationStream;
 

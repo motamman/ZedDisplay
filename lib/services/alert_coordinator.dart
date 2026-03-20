@@ -86,7 +86,15 @@ class AlertCoordinator extends ChangeNotifier {
     if (event.wantsCrewBroadcast && _messagingService != null) {
       final shouldSend = _getCrewBroadcastAllowed(event);
       if (shouldSend) {
-        _messagingService.sendAlert(event.crewMessage ?? event.body);
+        // Use stable alert ID so repeated alerts overwrite the same server
+        // resource instead of accumulating (e.g. alert-cpa-<vesselId>).
+        final stableId = event.alarmId != null
+            ? 'alert-${event.subsystem.name}-${event.alarmId}'
+            : 'alert-${event.subsystem.name}';
+        _messagingService.sendAlert(
+          event.crewMessage ?? event.body,
+          alertId: stableId,
+        );
       }
     }
   }

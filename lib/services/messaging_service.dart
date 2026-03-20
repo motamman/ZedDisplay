@@ -38,6 +38,14 @@ class MessagingService extends ChangeNotifier {
   // Message retention (30 days)
   static const Duration _messageRetention = Duration(days: 30);
 
+  // Alert messages sunset after 60 minutes
+  static const Duration _alertRetention = Duration(minutes: 60);
+
+  // Tombstone set — tracks IDs of deleted messages to prevent resurrection
+  // from stale WS deltas or server re-fetch.
+  final Map<String, DateTime> _deletedIds = {};
+  static const String _deletedIdsStorageKey = 'crew_deleted_message_ids';
+
   // Track connection state
   bool _wasConnected = false;
 
@@ -46,8 +54,9 @@ class MessagingService extends ChangeNotifier {
 
   /// Initialize the messaging service
   Future<void> initialize() async {
-    // Load cached messages from storage
+    // Load cached messages and tombstones from storage
     await _loadCachedMessages();
+    _loadDeletedIds();
 
     // Register connection callback for sequential execution (prevents HTTP overload)
     _signalKService.registerConnectionCallback(_onConnected);
@@ -100,6 +109,37 @@ class MessagingService extends ChangeNotifier {
   Future<void> _saveCachedMessages() async {
     final messageList = _messages.map((m) => m.toJson()).toList();
     await _storageService.saveSetting(_messagesStorageKey, jsonEncode(messageList));
+  }
+
+  /// Load tombstone IDs from local storage
+  void _loadDeletedIds() {
+    final json = _storageService.getSetting(_deletedIdsStorageKey);
+    if (json != null) {
+      try {
+        final Map<String, dynamic> map = jsonDecode(json);
+        _deletedIds.clear();
+        for (final entry in map.entries) {
+          _deletedIds[entry.key] = DateTime.parse(entry.value as String);
+        }
+        _pruneDeletedIds();
+      } catch (e) {
+        if (kDebugMode) {
+          print('Error loading deleted IDs: $e');
+        }
+      }
+    }
+  }
+
+  /// Save tombstone IDs to local storage
+  Future<void> _saveDeletedIds() async {
+    final map = _deletedIds.map((k, v) => MapEntry(k, v.toIso8601String()));
+    await _storageService.saveSetting(_deletedIdsStorageKey, jsonEncode(map));
+  }
+
+  /// Prune tombstones older than message retention period
+  void _pruneDeletedIds() {
+    final cutoff = DateTime.now().subtract(_messageRetention);
+    _deletedIds.removeWhere((_, timestamp) => timestamp.isBefore(cutoff));
   }
 
   /// Handle SignalK connection changes and process WS deltas
@@ -180,13 +220,17 @@ class MessagingService extends ChangeNotifier {
     return _sendMessage(message);
   }
 
-  /// Send an alert broadcast
-  Future<bool> sendAlert(String alert) async {
+  /// Send an alert broadcast.
+  ///
+  /// If [alertId] is provided, the message uses that stable ID so repeated
+  /// alerts for the same source overwrite the same server resource instead
+  /// of accumulating.
+  Future<bool> sendAlert(String alert, {String? alertId}) async {
     final profile = _crewService.localProfile;
     if (profile == null) return false;
 
     final message = CrewMessage(
-      id: const Uuid().v4(),
+      id: alertId ?? const Uuid().v4(),
       fromId: profile.id,
       fromName: profile.name,
       toId: 'all',
@@ -194,13 +238,23 @@ class MessagingService extends ChangeNotifier {
       content: alert,
     );
 
+    // Clear tombstone for this ID so the stable alert can be re-sent
+    if (alertId != null) {
+      _deletedIds.remove(alertId);
+    }
+
     return _sendMessage(message);
   }
 
   /// Internal method to send a message
   Future<bool> _sendMessage(CrewMessage message) async {
-    // Add to local cache immediately (optimistic update)
-    _messages.add(message);
+    // Update-in-place if this ID already exists (stable alert IDs)
+    final existingIndex = _messages.indexWhere((m) => m.id == message.id);
+    if (existingIndex >= 0) {
+      _messages[existingIndex] = message;
+    } else {
+      _messages.add(message);
+    }
     _messages.sort((a, b) => a.timestamp.compareTo(b.timestamp));
     notifyListeners();
 
@@ -271,8 +325,11 @@ class MessagingService extends ChangeNotifier {
         final resourceId = entry.key;
         final resourceData = entry.value as Map<String, dynamic>;
 
-        // Skip messages we already have
-        if (_messages.any((m) => m.id == resourceId)) continue;
+        // Skip tombstoned messages (user deleted them)
+        if (_deletedIds.containsKey(resourceId)) continue;
+
+        // Check if we already have this message
+        final existingIndex = _messages.indexWhere((m) => m.id == resourceId);
 
         try {
           final descriptionJson = resourceData['description'] as String?;
@@ -283,19 +340,27 @@ class MessagingService extends ChangeNotifier {
 
           // Check if this message is for us (broadcast or direct to us)
           if (message.toId == 'all' || message.toId == myId || message.fromId == myId) {
-            _messages.add(message);
-            changed = true;
+            if (existingIndex >= 0) {
+              // Update in place for stable alert IDs
+              if (message.type == MessageType.alert) {
+                _messages[existingIndex] = message;
+                changed = true;
+              }
+            } else {
+              _messages.add(message);
+              changed = true;
 
-            // Count as unread and show notification if not from us
-            if (message.fromId != myId && !message.read) {
-              _unreadCount++;
-              // Show system notification if crew notifications are enabled
-              final isAlert = message.type == MessageType.alert;
-              final showNotification = isAlert
-                  ? _storageService.getCrewAlertNotificationsEnabled()
-                  : _storageService.getCrewNotificationsEnabled();
-              if (showNotification) {
-                _notificationService.showCrewMessageNotification(message);
+              // Count as unread and show notification if not from us
+              if (message.fromId != myId && !message.read) {
+                _unreadCount++;
+                // Show system notification if crew notifications are enabled
+                final isAlert = message.type == MessageType.alert;
+                final showNotification = isAlert
+                    ? _storageService.getCrewAlertNotificationsEnabled()
+                    : _storageService.getCrewNotificationsEnabled();
+                if (showNotification) {
+                  _notificationService.showCrewMessageNotification(message);
+                }
               }
             }
           }
@@ -333,8 +398,11 @@ class MessagingService extends ChangeNotifier {
       // Extract message ID from path: crew.messages.<id>
       final messageId = entry.key.substring(_messagePathPrefix.length);
 
-      // Skip messages we already have (also handles self-skip via optimistic update)
-      if (_messages.any((m) => m.id == messageId)) continue;
+      // Skip tombstoned messages (user deleted them)
+      if (_deletedIds.containsKey(messageId)) continue;
+
+      // Check if we already have this message
+      final existingIndex = _messages.indexWhere((m) => m.id == messageId);
 
       // Parse the message from the delta value
       try {
@@ -345,18 +413,26 @@ class MessagingService extends ChangeNotifier {
 
         // Filter: broadcast, direct to us, or from us
         if (message.toId == 'all' || message.toId == myId || message.fromId == myId) {
-          _messages.add(message);
-          changed = true;
+          if (existingIndex >= 0) {
+            // Update in place for stable alert IDs
+            if (message.type == MessageType.alert) {
+              _messages[existingIndex] = message;
+              changed = true;
+            }
+          } else {
+            _messages.add(message);
+            changed = true;
 
-          // Count as unread and show notification if not from us
-          if (message.fromId != myId && !message.read) {
-            _unreadCount++;
-            final isAlert = message.type == MessageType.alert;
-            final showNotification = isAlert
-                ? _storageService.getCrewAlertNotificationsEnabled()
-                : _storageService.getCrewNotificationsEnabled();
-            if (showNotification) {
-              _notificationService.showCrewMessageNotification(message);
+            // Count as unread and show notification if not from us
+            if (message.fromId != myId && !message.read) {
+              _unreadCount++;
+              final isAlert = message.type == MessageType.alert;
+              final showNotification = isAlert
+                  ? _storageService.getCrewAlertNotificationsEnabled()
+                  : _storageService.getCrewNotificationsEnabled();
+              if (showNotification) {
+                _notificationService.showCrewMessageNotification(message);
+              }
             }
           }
         }
@@ -375,17 +451,31 @@ class MessagingService extends ChangeNotifier {
     }
   }
 
-  // Alert messages sunset after 48 hours
-  static const Duration _alertRetention = Duration(hours: 48);
-
-  /// Remove messages older than retention period
+  /// Remove messages older than retention period and clean up server.
   void _pruneOldMessages() {
     final now = DateTime.now();
     final generalCutoff = now.subtract(_messageRetention);
     final alertCutoff = now.subtract(_alertRetention);
-    _messages.removeWhere((m) =>
+
+    final toPrune = _messages.where((m) =>
         m.timestamp.isBefore(generalCutoff) ||
-        (m.type == MessageType.alert && m.timestamp.isBefore(alertCutoff)));
+        (m.type == MessageType.alert && m.timestamp.isBefore(alertCutoff))
+    ).toList();
+
+    if (toPrune.isEmpty) return;
+
+    _messages.removeWhere((m) => toPrune.any((p) => p.id == m.id));
+
+    // Delete pruned messages from server and add tombstones
+    for (final msg in toPrune) {
+      _deletedIds[msg.id] = now;
+      _signalKService.removeCachedValue('$_messagePathPrefix${msg.id}');
+      if (_signalKService.isConnected && _resourcesApiAvailable) {
+        _signalKService.deleteResource(_messageResourceType, msg.id);
+      }
+    }
+    _pruneDeletedIds();
+    _saveDeletedIds();
   }
 
   /// Update unread count
@@ -426,9 +516,17 @@ class MessagingService extends ChangeNotifier {
 
   /// Delete a single message locally and from server.
   Future<void> deleteMessage(String messageId) async {
+    // Tombstone first — prevents resurrection from WS deltas or server re-fetch
+    _deletedIds[messageId] = DateTime.now();
+
     _messages.removeWhere((m) => m.id == messageId);
     _updateUnreadCount();
     await _saveCachedMessages();
+    await _saveDeletedIds();
+
+    // Evict stale delta from cache so _processMessageDeltas can't resurrect it
+    _signalKService.removeCachedValue('$_messagePathPrefix$messageId');
+
     notifyListeners();
 
     // Remove from SignalK Resources API
