@@ -43,9 +43,8 @@ class CrewService extends ChangeNotifier {
   // Resources API type for crew data - uses custom resource type for isolation
   static const String _crewResourceType = 'zeddisplay-crew';
 
-  // Polling timer for fetching crew updates
-  Timer? _pollTimer;
-  static const Duration _pollInterval = Duration(seconds: 30);
+  // Set of crew IDs we're tracking via WS
+  final Set<String> _trackedCrewIds = {};
 
   // Track if Resources API is available
   bool _resourcesApiAvailable = true;
@@ -125,7 +124,7 @@ class CrewService extends ChangeNotifier {
   @override
   void dispose() {
     _heartbeatTimer?.cancel();
-    _pollTimer?.cancel();
+    _signalKService.unsubscribeFromPaths(['crew.*'], ownerId: 'crew');
     _signalKService.unregisterConnectionCallback(_onConnected);
     _signalKService.removeListener(_onSignalKChanged);
     super.dispose();
@@ -299,6 +298,13 @@ class CrewService extends ChangeNotifier {
       notifyListeners();
 
       if (_signalKService.isConnected) {
+        // Broadcast status via WS delta first (seeds cache before announcePresence round-trip)
+        _signalKService.sendDelta(
+          '${_crewPath(_localProfile!.id)}.status',
+          _statusToJsonString(status),
+        );
+
+        // Persist full profile to Resources API
         await _announcePresence();
       }
     }
@@ -324,12 +330,18 @@ class CrewService extends ChangeNotifier {
     }
 
     // Handle connection state changes
-    if (isConnected == _wasConnected) return;
-    _wasConnected = isConnected;
+    if (isConnected != _wasConnected) {
+      _wasConnected = isConnected;
 
-    // Only handle disconnection here - connection is handled via callback
-    if (!isConnected) {
-      _onDisconnected();
+      // Only handle disconnection here - connection is handled via callback
+      if (!isConnected) {
+        _onDisconnected();
+      }
+    }
+
+    // Process crew WS deltas while connected
+    if (isConnected) {
+      _processCrewDeltas();
     }
   }
 
@@ -366,22 +378,24 @@ class CrewService extends ChangeNotifier {
     // Validate profile against server FIRST - server is source of truth
     final validated = await _validateProfileWithServer();
 
+    // Fetch existing crew members (one-time hydration from Resources API)
+    await _fetchCrewMembers();
+
+    // Subscribe to crew paths for real-time updates via WS
+    await _signalKService.subscribeToPaths(['crew.*'], ownerId: 'crew');
+
+    // Populate tracked IDs from initial fetch
+    _trackedCrewIds.clear();
+    _trackedCrewIds.addAll(_crewMembers.keys);
+    if (_localProfile != null) _trackedCrewIds.add(_localProfile!.id);
+
     if (validated && _localProfile != null) {
       // Start heartbeat timer
       _startHeartbeat();
 
-      // Start polling for crew updates
-      _startPolling();
-
       // Announce our presence only after server validation
       await _announcePresence();
-    } else {
-      // No valid profile - still start polling to see other crew
-      _startPolling();
     }
-
-    // Fetch existing crew members
-    await _fetchCrewMembers();
   }
 
   /// Validate local profile against server
@@ -481,11 +495,12 @@ class CrewService extends ChangeNotifier {
 
   /// Handle disconnection from SignalK
   void _onDisconnected() {
-    // Stop heartbeat and polling
+    // Stop heartbeat
     _heartbeatTimer?.cancel();
     _heartbeatTimer = null;
-    _pollTimer?.cancel();
-    _pollTimer = null;
+
+    // Unsubscribe from crew paths
+    _signalKService.unsubscribeFromPaths(['crew.*'], ownerId: 'crew');
 
     // Mark all crew as offline
     for (final crewId in _presence.keys) {
@@ -510,13 +525,8 @@ class CrewService extends ChangeNotifier {
     });
   }
 
-  /// Start polling for crew updates
-  void _startPolling() {
-    _pollTimer?.cancel();
-    _pollTimer = Timer.periodic(_pollInterval, (_) {
-      _fetchCrewMembers();
-    });
-  }
+  /// Build SignalK path prefix for a crew member
+  String _crewPath(String crewId) => 'crew.$crewId';
 
   /// Build a notes resource from crew member data
   Map<String, dynamic> _buildCrewNoteResource(CrewMember member, DateTime lastSeen) {
@@ -546,12 +556,9 @@ class CrewService extends ChangeNotifier {
     };
   }
 
-  /// Send heartbeat to SignalK via Resources API
-  Future<void> _sendHeartbeat() async {
+  /// Send heartbeat via WS delta (broadcasts lastSeen to all subscribed clients)
+  void _sendHeartbeat() {
     if (_localProfile == null || !_signalKService.isConnected) return;
-
-    // Fetch latest crew data before posting to avoid overwriting remote changes
-    await _fetchCrewMembers();
 
     final now = DateTime.now();
 
@@ -562,20 +569,11 @@ class CrewService extends ChangeNotifier {
       lastSeen: now,
     );
 
-    // Sync to SignalK Resources API if available
-    if (_resourcesApiAvailable) {
-      final resourceData = _buildCrewNoteResource(_localProfile!, now);
-
-      final success = await _signalKService.putResource(
-        _crewResourceType,
-        _localProfile!.id,
-        resourceData,
-      );
-
-      if (!success && kDebugMode) {
-        print('Failed to sync crew heartbeat to Resources API');
-      }
-    }
+    // PUT crew.<id>.lastSeen — broadcasts to all subscribed clients via WS
+    _signalKService.sendDelta(
+      '${_crewPath(_localProfile!.id)}.lastSeen',
+      now.toIso8601String(),
+    );
 
     notifyListeners();
   }
@@ -607,36 +605,6 @@ class CrewService extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Sync own profile from server data if server version is newer.
-  /// This handles cross-device sync: if Device A changes status,
-  /// Device B picks it up on next poll.
-  void _syncOwnProfileFromServer(Map<String, dynamic> resourceData) {
-    if (_localProfile == null) return;
-
-    try {
-      final descriptionJson = resourceData['description'] as String?;
-      if (descriptionJson == null) return;
-
-      final crewData = jsonDecode(descriptionJson) as Map<String, dynamic>;
-      final serverMember = CrewMember.fromJson(crewData);
-
-      // Only adopt server state if it's newer than our local copy
-      if (serverMember.updatedAt.isAfter(_localProfile!.updatedAt)) {
-        _localProfile = serverMember;
-        _crewMembers[_localProfile!.id] = _localProfile!;
-        _saveLocalProfile();
-        notifyListeners();
-        if (kDebugMode) {
-          print('CrewService: Synced own profile from server (server updatedAt: ${serverMember.updatedAt})');
-        }
-      }
-    } catch (e) {
-      if (kDebugMode) {
-        print('CrewService: Error syncing own profile from server: $e');
-      }
-    }
-  }
-
   /// Fetch crew members from Resources API
   Future<void> _fetchCrewMembers() async {
     if (!_signalKService.isConnected || !_resourcesApiAvailable) return;
@@ -652,11 +620,10 @@ class CrewService extends ChangeNotifier {
         final resourceId = entry.key;
         final resourceData = entry.value as Map<String, dynamic>;
 
-        // When we find our own resource, sync if server is newer (cross-device sync)
+        // Skip own resource — we trust local profile
         if (resourceId == _localProfile?.id ||
             (_isUserLogin && _username != null && resourceId == _username) ||
             (_localProfile != null && resourceId == Uri.decodeComponent(_localProfile!.id))) {
-          _syncOwnProfileFromServer(resourceData);
           continue;
         }
 
@@ -705,10 +672,138 @@ class CrewService extends ChangeNotifier {
       if (changed) {
         notifyListeners();
       }
+
+      // Seed crew paths on server for WS subscription
+      for (final member in _crewMembers.values) {
+        _signalKService.sendDelta(
+          '${_crewPath(member.id)}.status',
+          _statusToJsonString(member.status),
+        );
+      }
+      // Also seed own lastSeen
+      if (_localProfile != null) {
+        _signalKService.sendDelta(
+          '${_crewPath(_localProfile!.id)}.lastSeen',
+          DateTime.now().toIso8601String(),
+        );
+      }
     } catch (e) {
       if (kDebugMode) {
         print('Error fetching crew members: $e');
       }
+    }
+  }
+
+  /// Process crew WS deltas for real-time status and presence updates
+  void _processCrewDeltas() {
+    bool changed = false;
+    final now = DateTime.now();
+
+    // Check known crew members for status/lastSeen updates
+    // Skip own crew ID — we are the authority for our own status
+    for (final crewId in _trackedCrewIds) {
+      if (crewId == _localProfile?.id) continue;
+
+      final prefix = _crewPath(crewId);
+
+      // Check status delta
+      final statusPoint = _signalKService.getValue('$prefix.status');
+      if (statusPoint != null) {
+        final statusStr = statusPoint.value as String?;
+        if (statusStr != null) {
+          final newStatus = _parseCrewStatus(statusStr);
+          final existing = _crewMembers[crewId];
+          if (existing != null && newStatus != null && existing.status != newStatus) {
+            _crewMembers[crewId] = existing.copyWith(status: newStatus);
+            changed = true;
+          }
+        }
+      }
+
+      // Check lastSeen delta (heartbeat)
+      final lastSeenPoint = _signalKService.getValue('$prefix.lastSeen');
+      if (lastSeenPoint != null) {
+        final lastSeenStr = lastSeenPoint.value as String?;
+        final lastSeen = lastSeenStr != null ? DateTime.tryParse(lastSeenStr) : null;
+        if (lastSeen != null) {
+          final isOnline = now.difference(lastSeen) < _presenceTimeout;
+          final currentPresence = _presence[crewId];
+          if (currentPresence == null || currentPresence.lastSeen != lastSeen) {
+            _presence[crewId] = CrewPresence(
+              crewId: crewId,
+              online: isOnline,
+              lastSeen: lastSeen,
+            );
+            changed = true;
+          }
+        }
+      }
+    }
+
+    // Detect new crew members (unknown paths in data cache)
+    _detectNewCrewMembers();
+
+    if (changed) {
+      notifyListeners();
+    }
+  }
+
+  /// Detect new crew members from unknown delta paths in data cache
+  void _detectNewCrewMembers() {
+    final latestData = _signalKService.latestData;
+    final newIds = <String>{};
+
+    for (final path in latestData.keys) {
+      if (path.startsWith('crew.')) {
+        // Extract crew ID: crew.<id>.status or crew.<id>.lastSeen
+        final parts = path.split('.');
+        if (parts.length >= 2) {
+          final crewId = parts[1];
+          if (!_trackedCrewIds.contains(crewId)) {
+            newIds.add(crewId);
+          }
+        }
+      }
+    }
+
+    if (newIds.isNotEmpty) {
+      _trackedCrewIds.addAll(newIds);
+      // Fetch full profiles from Resources API for unknown members
+      _fetchCrewMembers();
+    }
+  }
+
+  /// Parse a JSON status string to CrewStatus enum
+  CrewStatus? _parseCrewStatus(String statusStr) {
+    switch (statusStr) {
+      case 'on_watch':
+        return CrewStatus.onWatch;
+      case 'off_watch':
+        return CrewStatus.offWatch;
+      case 'standby':
+        return CrewStatus.standby;
+      case 'resting':
+        return CrewStatus.resting;
+      case 'away':
+        return CrewStatus.away;
+      default:
+        return null;
+    }
+  }
+
+  /// Convert CrewStatus to its JSON string value
+  String _statusToJsonString(CrewStatus status) {
+    switch (status) {
+      case CrewStatus.onWatch:
+        return 'on_watch';
+      case CrewStatus.offWatch:
+        return 'off_watch';
+      case CrewStatus.standby:
+        return 'standby';
+      case CrewStatus.resting:
+        return 'resting';
+      case CrewStatus.away:
+        return 'away';
     }
   }
 
@@ -877,8 +972,6 @@ class CrewService extends ChangeNotifier {
     // Stop timers
     _heartbeatTimer?.cancel();
     _heartbeatTimer = null;
-    _pollTimer?.cancel();
-    _pollTimer = null;
 
     // Clear all crew-related storage keys
     final allSettings = _storageService.getAllSettings();

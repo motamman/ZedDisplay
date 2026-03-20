@@ -1026,6 +1026,24 @@ class SignalKService extends ChangeNotifier implements DataService {
     _channel?.sink.add(jsonEncode(notification));
   }
 
+  /// Send a delta update via WebSocket (broadcasts to all subscribed clients)
+  void sendDelta(String path, dynamic value, {String? source}) {
+    if (_channel == null) return;
+    final subscriptionContext = _vesselContext ?? 'vessels.self';
+    final delta = {
+      'context': subscriptionContext,
+      'updates': [
+        {
+          '\$source': source ?? 'zeddisplay.$_deviceId',
+          'values': [
+            {'path': path, 'value': value}
+          ]
+        }
+      ]
+    };
+    _channel?.sink.add(jsonEncode(delta));
+  }
+
   // ===== Resources API (v2) =====
   // SignalK Resources API for storing custom data (routes, waypoints, notes, etc.)
   // Uses v2 API: /signalk/v2/api/resources/
