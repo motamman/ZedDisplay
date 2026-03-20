@@ -1,6 +1,7 @@
 name: macOS Build and Release
 
 on:
+  workflow_dispatch:
   push:
     tags:
       - 'v*.*.*'        # All platforms
@@ -49,6 +50,8 @@ jobs:
         env:
           MACOS_CERTIFICATE_BASE64: ${{ secrets.MACOS_CERTIFICATE_BASE64 }}
           MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          MACOS_INSTALLER_CERTIFICATE_BASE64: ${{ secrets.MACOS_INSTALLER_CERTIFICATE_BASE64 }}
+          MACOS_INSTALLER_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_INSTALLER_CERTIFICATE_PASSWORD }}
           MACOS_PROVISIONING_PROFILE_BASE64: ${{ secrets.MACOS_PROVISIONING_PROFILE_BASE64 }}
           KEYCHAIN_PASSWORD: ${{ secrets.MACOS_KEYCHAIN_PASSWORD }}
         run: |
@@ -57,26 +60,79 @@ jobs:
           PP_PATH=$RUNNER_TEMP/build_pp.provisionprofile
           KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
 
-          # Decode from base64
-          echo -n "$MACOS_CERTIFICATE_BASE64" | base64 --decode -o $CERTIFICATE_PATH
-          echo -n "$MACOS_PROVISIONING_PROFILE_BASE64" | base64 --decode -o $PP_PATH
+          # Decode all from base64
+          printf '%s' "$MACOS_CERTIFICATE_BASE64" | base64 --decode -o $CERTIFICATE_PATH
+          INSTALLER_CERT_PATH=$RUNNER_TEMP/installer_certificate.p12
+          printf '%s' "$MACOS_INSTALLER_CERTIFICATE_BASE64" | base64 --decode -o $INSTALLER_CERT_PATH
+          printf '%s' "$MACOS_PROVISIONING_PROFILE_BASE64" | base64 --decode -o $PP_PATH
+
+          # Verify decoded files
+          echo "App cert size: $(wc -c < $CERTIFICATE_PATH) bytes"
+          echo "Installer cert size: $(wc -c < $INSTALLER_CERT_PATH) bytes"
+          echo "Provisioning profile size: $(wc -c < $PP_PATH) bytes"
 
           # Create temporary keychain
           security create-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
           security set-keychain-settings -lut 21600 $KEYCHAIN_PATH
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
 
-          # Import certificate to keychain
-          security import $CERTIFICATE_PATH -P "$MACOS_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
-          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
-          security list-keychain -d user -s $KEYCHAIN_PATH
+          # Import Apple intermediate CA (required for cert trust chain)
+          curl -sL https://www.apple.com/certificateauthority/AppleWWDRCAG3.cer -o $RUNNER_TEMP/AppleWWDRCAG3.cer
+          security import $RUNNER_TEMP/AppleWWDRCAG3.cer -k $KEYCHAIN_PATH -T /usr/bin/codesign
 
-          # Install provisioning profile
+          # Import app signing certificate to keychain
+          security import $CERTIFICATE_PATH -P "$MACOS_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
+
+          # Import installer certificate to keychain
+          security import $INSTALLER_CERT_PATH -P "$MACOS_INSTALLER_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
+
+          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+          security list-keychain -d user -s $KEYCHAIN_PATH login.keychain-db
+
+          # Diagnostic: verify signing identities
+          echo "=== Code signing identities ==="
+          security find-identity -v -p codesigning $KEYCHAIN_PATH
+          echo "=== All identities ==="
+          security find-identity -v $KEYCHAIN_PATH
+
+          # Install provisioning profile (must be saved with UUID as filename)
           mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
-          cp $PP_PATH ~/Library/MobileDevice/Provisioning\ Profiles/
+          PP_UUID=$(/usr/libexec/PlistBuddy -c "Print UUID" /dev/stdin <<< $(/usr/bin/security cms -D -i $PP_PATH))
+          echo "Provisioning profile UUID: $PP_UUID"
+          cp $PP_PATH ~/Library/MobileDevice/Provisioning\ Profiles/$PP_UUID.provisionprofile
 
       - name: Build macOS release
         run: flutter build macos --release
+
+      - name: Debug signing setup
+        run: |
+          echo "=== Installed provisioning profiles ==="
+          ls -la ~/Library/MobileDevice/Provisioning\ Profiles/
+
+          echo "=== Profile details ==="
+          PP_FILE=$(ls ~/Library/MobileDevice/Provisioning\ Profiles/*.provisionprofile 2>/dev/null | head -1)
+          if [ -n "$PP_FILE" ]; then
+            security cms -D -i "$PP_FILE" > /tmp/profile.plist
+            echo "Profile Name: $(/usr/libexec/PlistBuddy -c "Print Name" /tmp/profile.plist)"
+            echo "Profile UUID: $(/usr/libexec/PlistBuddy -c "Print UUID" /tmp/profile.plist)"
+            echo "Profile App ID: $(/usr/libexec/PlistBuddy -c "Print Entitlements:application-identifier" /tmp/profile.plist)"
+            echo "Profile Team: $(/usr/libexec/PlistBuddy -c "Print TeamIdentifier:0" /tmp/profile.plist)"
+            echo "Profile type (aps-environment): $(/usr/libexec/PlistBuddy -c "Print Entitlements:com.apple.application-identifier" /tmp/profile.plist 2>/dev/null || echo 'N/A')"
+            echo "Profile Platform: $(/usr/libexec/PlistBuddy -c "Print Platform:0" /tmp/profile.plist 2>/dev/null || echo 'N/A')"
+
+            echo "=== Cert SHA-1 in profile ==="
+            CERT_COUNT=$(/usr/libexec/PlistBuddy -c "Print DeveloperCertificates" /tmp/profile.plist | grep -c "^[[:space:]]")
+            echo "Number of certs in profile: $CERT_COUNT"
+            /usr/libexec/PlistBuddy -c "Print DeveloperCertificates:0" /tmp/profile.plist | base64 -d | openssl x509 -inform DER -noout -fingerprint -sha1 -subject 2>/dev/null || echo "Could not extract cert 0"
+          fi
+
+          echo "=== Keychain cert fingerprints ==="
+          KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
+          security find-identity -v -p codesigning $KEYCHAIN_PATH
+          security find-identity -v $KEYCHAIN_PATH
+
+          echo "=== Archive bundle ID ==="
+          /usr/libexec/PlistBuddy -c "Print ApplicationProperties:CFBundleIdentifier" $RUNNER_TEMP/ZedDisplay.xcarchive/Info.plist 2>/dev/null || echo "Archive not built yet"
 
       - name: Archive and export
         run: |
@@ -86,6 +142,9 @@ jobs:
             -configuration Release \
             -archivePath $RUNNER_TEMP/ZedDisplay.xcarchive \
             archive
+
+          echo "=== Archive bundle ID ==="
+          /usr/libexec/PlistBuddy -c "Print ApplicationProperties:CFBundleIdentifier" $RUNNER_TEMP/ZedDisplay.xcarchive/Info.plist 2>/dev/null || echo "Could not read"
 
           xcodebuild -exportArchive \
             -archivePath $RUNNER_TEMP/ZedDisplay.xcarchive \
@@ -123,12 +182,23 @@ jobs:
           echo "EOF" >> $GITHUB_OUTPUT
 
       - name: Upload to TestFlight
-        uses: apple-actions/upload-testflight-build@v3
-        with:
-          app-path: ${{ steps.find_pkg.outputs.PKG_PATH || steps.find_pkg.outputs.APP_PATH }}
-          issuer-id: ${{ secrets.APPSTORE_ISSUER_ID }}
-          api-key-id: ${{ secrets.APPSTORE_API_KEY_ID }}
-          api-private-key: ${{ secrets.APPSTORE_API_PRIVATE_KEY }}
+        env:
+          APP_PATH: ${{ steps.find_pkg.outputs.PKG_PATH || steps.find_pkg.outputs.APP_PATH }}
+          APPSTORE_ISSUER_ID: ${{ secrets.APPSTORE_ISSUER_ID }}
+          APPSTORE_API_KEY_ID: ${{ secrets.APPSTORE_API_KEY_ID }}
+          APPSTORE_API_PRIVATE_KEY: ${{ secrets.APPSTORE_API_PRIVATE_KEY }}
+        run: |
+          # Write API key to file
+          mkdir -p ~/private_keys
+          echo "$APPSTORE_API_PRIVATE_KEY" > ~/private_keys/AuthKey_${APPSTORE_API_KEY_ID}.p8
+
+          xcrun altool --upload-app \
+            --file "$APP_PATH" \
+            --type osx \
+            --apiKey "$APPSTORE_API_KEY_ID" \
+            --apiIssuer "$APPSTORE_ISSUER_ID"
+
+          echo "Upload to TestFlight succeeded"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2

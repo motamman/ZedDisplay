@@ -105,6 +105,10 @@ class SavedSearchArea {
       if (description != null) 'description': description,
       'createdAt': createdAt.toIso8601String(),
       'areaType': type,
+      'point1Lat': point1Lat,
+      'point1Lng': point1Lng,
+      'point2Lat': point2Lat,
+      'point2Lng': point2Lng,
     };
 
     Map<String, dynamic> geometry;
@@ -180,7 +184,19 @@ class SavedSearchArea {
     double p1Lat, p1Lng, p2Lat, p2Lng;
     double? radius;
 
-    if (areaType == 'bbox') {
+    // Prefer explicit draw points stored in properties (new format)
+    final hasExplicitPoints = properties.containsKey('point1Lat');
+
+    if (hasExplicitPoints) {
+      p1Lat = (properties['point1Lat'] as num).toDouble();
+      p1Lng = (properties['point1Lng'] as num).toDouble();
+      p2Lat = (properties['point2Lat'] as num).toDouble();
+      p2Lng = (properties['point2Lng'] as num).toDouble();
+      if (areaType == 'radius') {
+        radius = (properties['radius'] as num?)?.toDouble();
+      }
+    } else if (areaType == 'bbox') {
+      // Legacy: reconstruct from polygon geometry
       final coords = geometry['coordinates'] as List?;
       if (coords != null && coords.isNotEmpty) {
         final ring = coords[0] as List;
@@ -193,7 +209,7 @@ class SavedSearchArea {
         p1Lat = p1Lng = p2Lat = p2Lng = 0;
       }
     } else {
-      // radius — Point geometry
+      // Legacy: reconstruct from point geometry + radius offset
       final coords = geometry['coordinates'] as List?;
       p1Lng = (coords?[0] as num?)?.toDouble() ?? 0;
       p1Lat = (coords?[1] as num?)?.toDouble() ?? 0;

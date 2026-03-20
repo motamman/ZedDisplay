@@ -10,11 +10,26 @@ import 'package:intl/intl.dart' as intl;
 import '../../models/tool_definition.dart';
 import '../../models/tool_config.dart';
 import '../../services/signalk_service.dart';
+import '../../services/diagnostic_service.dart';
 import '../../services/tool_registry.dart';
 import '../../main.dart' as main;
 
+/// Data point for memory history chart
+class _MemoryDataPoint {
+  final DateTime timestamp;
+  final int totalMemoryMB;
+  final int usedMemoryMB;
+  final int appMemoryMB;
 
-/// System monitor tool that tracks app and device performance
+  _MemoryDataPoint({
+    required this.timestamp,
+    required this.totalMemoryMB,
+    required this.usedMemoryMB,
+    required this.appMemoryMB,
+  });
+}
+
+/// System monitor tool that tracks app, device, and SignalK connection health
 class SystemMonitorTool extends StatefulWidget {
   final ToolConfig config;
   final SignalKService signalKService;
@@ -38,8 +53,6 @@ class _SystemMonitorToolState extends State<SystemMonitorTool> with AutomaticKee
   // System metrics
   int _batteryLevel = 0;
   BatteryState _batteryState = BatteryState.unknown;
-  String _deviceModel = 'Unknown';
-  String _osVersion = 'Unknown';
   int _totalMemoryMB = 0;
   int _freeMemoryMB = 0;
 
@@ -52,8 +65,12 @@ class _SystemMonitorToolState extends State<SystemMonitorTool> with AutomaticKee
 
   // Memory history tracking
   final List<_MemoryDataPoint> _memoryHistory = [];
-  int _chartDurationMinutes = 2; // Default 2 minutes
-  int get _maxHistoryPoints => (_chartDurationMinutes * 60) ~/ 2; // Points at 2s intervals
+  int _chartDurationMinutes = 2;
+  int get _maxHistoryPoints => (_chartDurationMinutes * 60) ~/ 5; // Points at 5s intervals
+
+  // SignalK connection tracking
+  DateTime? _connectedSince;
+  SignalKConnectionState _lastConnectionState = SignalKConnectionState.disconnected;
 
   @override
   bool get wantKeepAlive => true;
@@ -65,21 +82,37 @@ class _SystemMonitorToolState extends State<SystemMonitorTool> with AutomaticKee
     _loadChartDuration();
     _checkLastExit();
     _markAppRunning();
+    widget.signalKService.addListener(_onSignalKChanged);
+    _trackConnectionState();
     _startMonitoring();
   }
 
   @override
   void dispose() {
     _updateTimer?.cancel();
+    widget.signalKService.removeListener(_onSignalKChanged);
     _markAppExitedCleanly();
     super.dispose();
   }
 
+  void _onSignalKChanged() {
+    _trackConnectionState();
+    if (mounted) setState(() {});
+  }
+
+  void _trackConnectionState() {
+    final state = widget.signalKService.connectionState;
+    if (state == SignalKConnectionState.connected && _lastConnectionState != SignalKConnectionState.connected) {
+      _connectedSince = DateTime.now();
+    } else if (state != SignalKConnectionState.connected) {
+      _connectedSince = null;
+    }
+    _lastConnectionState = state;
+  }
+
   void _startMonitoring() {
     _updateMetrics();
-
-    // Update every 2 seconds
-    _updateTimer = Timer.periodic(const Duration(seconds: 2), (_) {
+    _updateTimer = Timer.periodic(const Duration(seconds: 5), (_) {
       if (mounted) {
         _updateMetrics();
       }
@@ -88,26 +121,15 @@ class _SystemMonitorToolState extends State<SystemMonitorTool> with AutomaticKee
 
   Future<void> _loadDeviceInfo() async {
     try {
-      if (Platform.isAndroid) {
-        final androidInfo = await _deviceInfo.androidInfo;
-        setState(() {
-          _deviceModel = '${androidInfo.manufacturer} ${androidInfo.model}';
-          _osVersion = 'Android ${androidInfo.version.release}';
-          // Note: totalMemory not available in device_info_plus, will get from /proc/meminfo
-        });
-      } else if (Platform.isIOS) {
+      if (Platform.isIOS) {
         final iosInfo = await _deviceInfo.iosInfo;
         setState(() {
-          _deviceModel = iosInfo.modelName;
-          _osVersion = 'iOS ${iosInfo.systemVersion}';
-          _totalMemoryMB = iosInfo.physicalRamSize; // already in MB
+          _totalMemoryMB = iosInfo.physicalRamSize;
         });
       } else if (Platform.isMacOS) {
         final macInfo = await _deviceInfo.macOsInfo;
         setState(() {
-          _deviceModel = macInfo.modelName;
-          _osVersion = 'macOS ${macInfo.majorVersion}.${macInfo.minorVersion}.${macInfo.patchVersion}';
-          _totalMemoryMB = (macInfo.memorySize / (1024 * 1024)).round(); // bytes → MB
+          _totalMemoryMB = (macInfo.memorySize / (1024 * 1024)).round();
         });
       }
     } catch (e) {
@@ -121,21 +143,13 @@ class _SystemMonitorToolState extends State<SystemMonitorTool> with AutomaticKee
     try {
       final prefs = await SharedPreferences.getInstance();
       final wasRunning = prefs.getBool('system_monitor_app_running') ?? false;
-
-      if (wasRunning) {
-        // App didn't exit cleanly last time
+      if (mounted) {
         setState(() {
-          _lastExitStatus = 'Crashed or Force Killed';
-        });
-      } else {
-        setState(() {
-          _lastExitStatus = 'Clean Exit';
+          _lastExitStatus = wasRunning ? 'Crashed or Force Killed' : 'Clean Exit';
         });
       }
     } catch (e) {
-      if (kDebugMode) {
-        print('Error checking last exit: $e');
-      }
+      if (kDebugMode) print('Error checking last exit: $e');
     }
   }
 
@@ -149,9 +163,7 @@ class _SystemMonitorToolState extends State<SystemMonitorTool> with AutomaticKee
         });
       }
     } catch (e) {
-      if (kDebugMode) {
-        print('Error loading chart duration: $e');
-      }
+      if (kDebugMode) print('Error loading chart duration: $e');
     }
   }
 
@@ -160,9 +172,7 @@ class _SystemMonitorToolState extends State<SystemMonitorTool> with AutomaticKee
       final prefs = await SharedPreferences.getInstance();
       await prefs.setInt('system_monitor_chart_duration', minutes);
     } catch (e) {
-      if (kDebugMode) {
-        print('Error saving chart duration: $e');
-      }
+      if (kDebugMode) print('Error saving chart duration: $e');
     }
   }
 
@@ -171,9 +181,7 @@ class _SystemMonitorToolState extends State<SystemMonitorTool> with AutomaticKee
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool('system_monitor_app_running', true);
     } catch (e) {
-      if (kDebugMode) {
-        print('Error marking app running: $e');
-      }
+      if (kDebugMode) print('Error marking app running: $e');
     }
   }
 
@@ -182,9 +190,7 @@ class _SystemMonitorToolState extends State<SystemMonitorTool> with AutomaticKee
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool('system_monitor_app_running', false);
     } catch (e) {
-      if (kDebugMode) {
-        print('Error marking clean exit: $e');
-      }
+      if (kDebugMode) print('Error marking clean exit: $e');
     }
   }
 
@@ -193,7 +199,6 @@ class _SystemMonitorToolState extends State<SystemMonitorTool> with AutomaticKee
       try {
         final status = File('/proc/self/status');
         if (!status.existsSync()) return 0;
-
         final lines = status.readAsLinesSync();
         for (var line in lines) {
           if (line.startsWith('VmRSS:')) {
@@ -208,7 +213,6 @@ class _SystemMonitorToolState extends State<SystemMonitorTool> with AutomaticKee
       }
       return 0;
     }
-    // iOS/macOS: use ProcessInfo.currentRss
     try {
       final rss = ProcessInfo.currentRss;
       if (rss > 0) return (rss / (1024 * 1024)).round();
@@ -218,16 +222,12 @@ class _SystemMonitorToolState extends State<SystemMonitorTool> with AutomaticKee
 
   Future<void> _updateMetrics() async {
     try {
-      // Update battery
       final level = await _battery.batteryLevel;
       final state = await _battery.batteryState;
-
-      // Update uptime (using actual app start time from main.dart)
       final uptime = DateTime.now().difference(main.appStartTime);
 
-      // Get memory info
       int freeMem = 0;
-      int totalMem = _totalMemoryMB; // pre-loaded for iOS/macOS
+      int totalMem = _totalMemoryMB;
       if (Platform.isAndroid) {
         try {
           final memInfo = File('/proc/meminfo');
@@ -245,7 +245,6 @@ class _SystemMonitorToolState extends State<SystemMonitorTool> with AutomaticKee
                   freeMem = (int.parse(parts[1]) / 1024).round();
                 }
               }
-              // Stop once we have both
               if (totalMem > 0 && freeMem > 0) break;
             }
           }
@@ -255,13 +254,12 @@ class _SystemMonitorToolState extends State<SystemMonitorTool> with AutomaticKee
       } else if (Platform.isIOS) {
         try {
           final iosInfo = await _deviceInfo.iosInfo;
-          freeMem = iosInfo.availableRamSize; // MB
+          freeMem = iosInfo.availableRamSize;
         } catch (e) {
           // Ignore errors
         }
       }
 
-      // Get app memory usage
       final appMem = _getAppMemoryMB();
 
       if (mounted) {
@@ -269,25 +267,14 @@ class _SystemMonitorToolState extends State<SystemMonitorTool> with AutomaticKee
           _batteryLevel = level;
           _batteryState = state;
           _appUptime = uptime;
-          if (totalMem > 0) {
-            _totalMemoryMB = totalMem;
-          }
-          if (freeMem > 0) {
-            _freeMemoryMB = freeMem;
-          }
+          if (totalMem > 0) _totalMemoryMB = totalMem;
+          if (freeMem > 0) _freeMemoryMB = freeMem;
           if (appMem > 0) {
             _appMemoryMB = appMem;
-            // Track starting memory
-            if (_startMemoryMB == 0) {
-              _startMemoryMB = appMem;
-            }
-            // Track peak memory
-            if (appMem > _peakMemoryMB) {
-              _peakMemoryMB = appMem;
-            }
+            if (_startMemoryMB == 0) _startMemoryMB = appMem;
+            if (appMem > _peakMemoryMB) _peakMemoryMB = appMem;
           }
 
-          // Update peak using ProcessInfo.maxRss on iOS/macOS
           if (!Platform.isAndroid) {
             try {
               final maxRss = ProcessInfo.maxRss;
@@ -295,7 +282,6 @@ class _SystemMonitorToolState extends State<SystemMonitorTool> with AutomaticKee
             } catch (_) {}
           }
 
-          // Add to memory history
           if (appMem > 0) {
             _memoryHistory.add(_MemoryDataPoint(
               timestamp: DateTime.now(),
@@ -303,8 +289,6 @@ class _SystemMonitorToolState extends State<SystemMonitorTool> with AutomaticKee
               usedMemoryMB: freeMem > 0 ? totalMem - freeMem : 0,
               appMemoryMB: appMem,
             ));
-
-            // Keep only last N points
             if (_memoryHistory.length > _maxHistoryPoints) {
               _memoryHistory.removeAt(0);
             }
@@ -312,16 +296,13 @@ class _SystemMonitorToolState extends State<SystemMonitorTool> with AutomaticKee
         });
       }
     } catch (e) {
-      if (kDebugMode) {
-        print('Error updating metrics: $e');
-      }
+      if (kDebugMode) print('Error updating metrics: $e');
     }
   }
 
   @override
   Widget build(BuildContext context) {
     super.build(context);
-
     final theme = Theme.of(context);
 
     return Card(
@@ -344,133 +325,27 @@ class _SystemMonitorToolState extends State<SystemMonitorTool> with AutomaticKee
             ),
             const SizedBox(height: 16),
             Expanded(
-              child: ListView(
-                children: [
-                  _buildSection(
-                    'Device Info',
-                    [
-                      _buildMetric('Model', _deviceModel),
-                      _buildMetric('OS', _osVersion),
-                      if (_totalMemoryMB > 0)
-                        _buildMetric('Total Memory', '$_totalMemoryMB MB'),
-                    ],
-                  ),
-                  const Divider(),
-                  _buildSection(
-                    'Battery',
-                    [
-                      _buildMetric(
-                        'Level',
-                        '$_batteryLevel%',
-                        valueColor: _getBatteryColor(),
-                      ),
-                      _buildMetric('Status', _getBatteryStatus()),
-                    ],
-                  ),
-                  const Divider(),
-                  _buildSection(
-                    'Memory',
-                    [
-                      if (_totalMemoryMB > 0 && _freeMemoryMB > 0) ...[
-                        _buildMetric('Used', '${_totalMemoryMB - _freeMemoryMB} MB'),
-                        _buildMetric('Free', '$_freeMemoryMB MB'),
-                        _buildMetric(
-                          'Usage',
-                          '${(((_totalMemoryMB - _freeMemoryMB) / _totalMemoryMB) * 100).toStringAsFixed(1)}%',
-                        ),
-                      ] else if (_totalMemoryMB > 0) ...[
-                        _buildMetric('Total', '$_totalMemoryMB MB'),
-                      ] else
-                        _buildMetric('Info', 'Not available'),
-                    ],
-                  ),
-                  const Divider(),
-                  _buildSection(
-                    'App Memory',
-                    [
-                      if (_appMemoryMB > 0) ...[
-                        _buildMetric('Current', '$_appMemoryMB MB'),
-                        if (_startMemoryMB > 0)
-                          _buildMetric('At Start', '$_startMemoryMB MB'),
-                        if (_peakMemoryMB > 0)
-                          _buildMetric('Peak', '$_peakMemoryMB MB'),
-                        if (_startMemoryMB > 0)
-                          _buildMetric(
-                            'Growth',
-                            '${_appMemoryMB >= _startMemoryMB ? '+' : ''}${_appMemoryMB - _startMemoryMB} MB',
-                            valueColor: _appMemoryMB > _startMemoryMB * 2 ? Colors.orange : null,
-                          ),
-                      ] else
-                        _buildMetric('Info', 'Not available'),
-                    ],
-                  ),
-                  const Divider(),
-                  // Memory history chart
-                  if (_memoryHistory.length > 1)
-                    Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 8.0),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Text(
-                                'Memory History',
-                                style: theme.textTheme.titleMedium?.copyWith(
-                                  fontWeight: FontWeight.bold,
-                                  color: theme.colorScheme.primary,
-                                ),
-                              ),
-                              DropdownButton<int>(
-                                value: _chartDurationMinutes,
-                                items: const [
-                                  DropdownMenuItem(value: 1, child: Text('1 min')),
-                                  DropdownMenuItem(value: 2, child: Text('2 min')),
-                                  DropdownMenuItem(value: 5, child: Text('5 min')),
-                                  DropdownMenuItem(value: 10, child: Text('10 min')),
-                                ],
-                                onChanged: (value) {
-                                  if (value != null) {
-                                    setState(() {
-                                      _chartDurationMinutes = value;
-                                      // Trim history if new duration is shorter
-                                      if (_memoryHistory.length > _maxHistoryPoints) {
-                                        _memoryHistory.removeRange(0, _memoryHistory.length - _maxHistoryPoints);
-                                      }
-                                    });
-                                    _saveChartDuration(value);
-                                  }
-                                },
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 8),
-                          SizedBox(
-                            height: 200,
-                            child: _buildMemoryChart(),
-                          ),
-                        ],
-                      ),
-                    ),
-                  if (_memoryHistory.length > 1)
-                    const Divider(),
-                  _buildSection(
-                    'App Runtime',
-                    [
-                      _buildMetric('Uptime', _formatDuration(_appUptime)),
-                      _buildMetric(
-                        'Started',
-                        _formatTime(main.appStartTime),
-                      ),
-                      _buildMetric(
-                        'Last Exit',
-                        _lastExitStatus,
-                        valueColor: _lastExitStatus.contains('Crashed') ? Colors.red : Colors.green,
-                      ),
-                    ],
-                  ),
-                ],
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final isWide = constraints.maxWidth >= 600;
+                  final leftColumn = _buildLeftColumn(theme);
+                  final rightColumn = _buildRightColumn(theme);
+
+                  if (isWide) {
+                    return Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(child: ListView(children: leftColumn)),
+                        const SizedBox(width: 16),
+                        Expanded(child: ListView(children: rightColumn)),
+                      ],
+                    );
+                  } else {
+                    return ListView(
+                      children: [...leftColumn, ...rightColumn],
+                    );
+                  }
+                },
               ),
             ),
           ],
@@ -478,6 +353,284 @@ class _SystemMonitorToolState extends State<SystemMonitorTool> with AutomaticKee
       ),
     );
   }
+
+  List<Widget> _buildLeftColumn(ThemeData theme) {
+    return [
+      _buildConnectionSection(theme),
+      const Divider(),
+      _buildPipelineSection(theme),
+    ];
+  }
+
+  List<Widget> _buildRightColumn(ThemeData theme) {
+    return [
+      _buildBatterySection(theme),
+      const Divider(),
+      _buildDeviceMemorySection(theme),
+      const Divider(),
+      _buildAppMemorySection(theme),
+      const Divider(),
+      if (_memoryHistory.length > 1) ...[
+        _buildMemoryChartSection(theme),
+        const Divider(),
+      ],
+      _buildRuntimeSection(theme),
+    ];
+  }
+
+  // ── SignalK Connection Section ──
+
+  Widget _buildConnectionSection(ThemeData theme) {
+    final sk = widget.signalKService;
+    final state = sk.connectionState;
+    final reconnects = sk.reconnectAttempt;
+
+    Color stateColor;
+    String stateLabel;
+    switch (state) {
+      case SignalKConnectionState.connected:
+        stateColor = Colors.green;
+        stateLabel = 'Connected';
+        break;
+      case SignalKConnectionState.reconnecting:
+        stateColor = Colors.orange;
+        stateLabel = 'Reconnecting';
+        break;
+      case SignalKConnectionState.disconnected:
+        stateColor = Colors.red;
+        stateLabel = 'Disconnected';
+        break;
+    }
+
+    String? uptimeText;
+    if (_connectedSince != null) {
+      uptimeText = _formatDuration(DateTime.now().difference(_connectedSince!));
+    }
+
+    final serverUrl = sk.serverUrl;
+    final vessel = sk.vesselContext;
+
+    return _buildSection(
+      'SignalK Connection',
+      [
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 4.0),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text('Status', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
+              Chip(
+                label: Text(stateLabel, style: const TextStyle(fontSize: 12, color: Colors.white)),
+                backgroundColor: stateColor,
+                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                visualDensity: VisualDensity.compact,
+                padding: EdgeInsets.zero,
+                labelPadding: const EdgeInsets.symmetric(horizontal: 8),
+              ),
+            ],
+          ),
+        ),
+        _buildMetric('Server', serverUrl, maxWidth: 160),
+        if (vessel != null) _buildMetric('Vessel', vessel.replaceFirst('vessels.', ''), maxWidth: 160),
+        _buildMetric(
+          'Reconnects',
+          '$reconnects',
+          valueColor: reconnects > 0 ? Colors.orange : null,
+        ),
+        if (uptimeText != null) _buildMetric('Uptime', uptimeText),
+      ],
+    );
+  }
+
+  // ── Data Pipeline Section ──
+
+  Widget _buildPipelineSection(ThemeData theme) {
+    final sk = widget.signalKService;
+    final diag = DiagnosticService.instance;
+
+    final metrics = <Widget>[
+      _buildMetric('Active paths', '${sk.latestData.length}'),
+      _buildMetric('Subscribed', '${sk.subscriptionRegistry.allPaths.length}'),
+      _buildMetric('AIS vessels', '${sk.aisVesselRegistry.count}'),
+      _buildMetric('Available', '${sk.availablePathsCount}'),
+      _buildMetric(
+        'Notify total',
+        '${sk.notifyCount}',
+      ),
+      _buildMetric(
+        'Notify throttled',
+        '${sk.notifyThrottledCount}',
+      ),
+    ];
+
+    if (diag != null) {
+      metrics.add(_buildMetric('WS deltas (interval)', '${diag.wsDeltaCount}'));
+      metrics.add(_buildMetric('REST GETs', '${diag.restCallCounts['GET'] ?? 0}'));
+    }
+
+    return _buildSection('Data Pipeline', metrics);
+  }
+
+  // ── Battery Section ──
+
+  Widget _buildBatterySection(ThemeData theme) {
+    final color = _getBatteryColor();
+    final isCharging = _batteryState == BatteryState.charging;
+
+    return _buildSection(
+      'Battery',
+      [
+        _buildMetricWithProgress(
+          isCharging ? 'Level (charging)' : 'Level',
+          '$_batteryLevel%',
+          _batteryLevel / 100.0,
+          color,
+          icon: isCharging ? Icons.bolt : null,
+        ),
+        _buildMetric('Status', _getBatteryStatus()),
+      ],
+    );
+  }
+
+  // ── Device Memory Section ──
+
+  Widget _buildDeviceMemorySection(ThemeData theme) {
+    if (_totalMemoryMB <= 0) {
+      return _buildSection('Device Memory', [_buildMetric('Info', 'Not available')]);
+    }
+
+    final usedMB = _totalMemoryMB - _freeMemoryMB;
+    final usageRatio = _freeMemoryMB > 0 ? usedMB / _totalMemoryMB : 0.0;
+    final usagePercent = (usageRatio * 100).toStringAsFixed(1);
+
+    Color color;
+    if (usageRatio < 0.6) {
+      color = Colors.green;
+    } else if (usageRatio < 0.8) {
+      color = Colors.orange;
+    } else {
+      color = Colors.red;
+    }
+
+    return _buildSection(
+      'Device Memory',
+      [
+        if (_freeMemoryMB > 0) ...[
+          _buildMetricWithProgress('Usage', '$usagePercent%', usageRatio, color),
+          _buildMetric('Used', '$usedMB MB'),
+          _buildMetric('Free', '$_freeMemoryMB MB'),
+        ] else ...[
+          _buildMetric('Total', '$_totalMemoryMB MB'),
+        ],
+      ],
+    );
+  }
+
+  // ── App Memory Section ──
+
+  Widget _buildAppMemorySection(ThemeData theme) {
+    if (_appMemoryMB <= 0) {
+      return _buildSection('App Memory', [_buildMetric('Info', 'Not available')]);
+    }
+
+    final growthMB = _appMemoryMB - _startMemoryMB;
+    final growthPercent = _startMemoryMB > 0 ? (growthMB / _startMemoryMB * 100) : 0.0;
+
+    Color growthColor;
+    if (growthPercent < 20) {
+      growthColor = Colors.green;
+    } else if (growthPercent <= 100) {
+      growthColor = Colors.orange;
+    } else {
+      growthColor = Colors.red;
+    }
+
+    final progressRatio = _peakMemoryMB > 0 ? (_appMemoryMB / _peakMemoryMB).clamp(0.0, 1.0) : 0.0;
+
+    return _buildSection(
+      'App Memory',
+      [
+        _buildMetricWithProgress('Current', '$_appMemoryMB MB', progressRatio, growthColor),
+        if (_startMemoryMB > 0) _buildMetric('At Start', '$_startMemoryMB MB'),
+        if (_peakMemoryMB > 0) _buildMetric('Peak', '$_peakMemoryMB MB'),
+        if (_startMemoryMB > 0)
+          _buildMetric(
+            'Growth',
+            '${growthMB >= 0 ? '+' : ''}$growthMB MB (${growthPercent.toStringAsFixed(0)}%)',
+            valueColor: growthColor,
+          ),
+      ],
+    );
+  }
+
+  // ── Memory Chart Section ──
+
+  Widget _buildMemoryChartSection(ThemeData theme) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                'Memory History',
+                style: theme.textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.bold,
+                  color: theme.colorScheme.primary,
+                ),
+              ),
+              DropdownButton<int>(
+                value: _chartDurationMinutes,
+                items: const [
+                  DropdownMenuItem(value: 1, child: Text('1 min')),
+                  DropdownMenuItem(value: 2, child: Text('2 min')),
+                  DropdownMenuItem(value: 5, child: Text('5 min')),
+                  DropdownMenuItem(value: 10, child: Text('10 min')),
+                ],
+                onChanged: (value) {
+                  if (value != null) {
+                    setState(() {
+                      _chartDurationMinutes = value;
+                      if (_memoryHistory.length > _maxHistoryPoints) {
+                        _memoryHistory.removeRange(0, _memoryHistory.length - _maxHistoryPoints);
+                      }
+                    });
+                    _saveChartDuration(value);
+                  }
+                },
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          SizedBox(
+            height: 200,
+            child: _buildMemoryChart(),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── Runtime Section ──
+
+  Widget _buildRuntimeSection(ThemeData theme) {
+    return _buildSection(
+      'App Runtime',
+      [
+        _buildMetric('Uptime', _formatDuration(_appUptime)),
+        _buildMetric('Started', _formatTime(main.appStartTime)),
+        _buildMetric(
+          'Last Exit',
+          _lastExitStatus,
+          valueColor: _lastExitStatus.contains('Crashed') ? Colors.red : Colors.green,
+        ),
+      ],
+    );
+  }
+
+  // ── Shared Builders ──
 
   Widget _buildSection(String title, List<Widget> metrics) {
     return Column(
@@ -498,7 +651,24 @@ class _SystemMonitorToolState extends State<SystemMonitorTool> with AutomaticKee
     );
   }
 
-  Widget _buildMetric(String label, String value, {Color? valueColor}) {
+  Widget _buildMetric(String label, String value, {Color? valueColor, double? maxWidth}) {
+    Widget valueWidget = Text(
+      value,
+      style: TextStyle(
+        fontSize: 14,
+        fontWeight: FontWeight.bold,
+        color: valueColor,
+      ),
+      overflow: TextOverflow.ellipsis,
+    );
+
+    if (maxWidth != null) {
+      valueWidget = ConstrainedBox(
+        constraints: BoxConstraints(maxWidth: maxWidth),
+        child: valueWidget,
+      );
+    }
+
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4.0),
       child: Row(
@@ -506,17 +676,53 @@ class _SystemMonitorToolState extends State<SystemMonitorTool> with AutomaticKee
         children: [
           Text(
             label,
-            style: const TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w500,
-            ),
+            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
           ),
-          Text(
-            value,
-            style: TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.bold,
-              color: valueColor,
+          valueWidget,
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMetricWithProgress(
+    String label,
+    String value,
+    double progress,
+    Color color, {
+    IconData? icon,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(label, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
+                  if (icon != null) ...[
+                    const SizedBox(width: 4),
+                    Icon(icon, size: 16, color: color),
+                  ],
+                ],
+              ),
+              Text(
+                value,
+                style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: color),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(4),
+            child: LinearProgressIndicator(
+              value: progress.clamp(0.0, 1.0),
+              backgroundColor: color.withValues(alpha: 0.15),
+              valueColor: AlwaysStoppedAnimation<Color>(color),
+              minHeight: 6,
             ),
           ),
         ],
@@ -573,14 +779,25 @@ class _SystemMonitorToolState extends State<SystemMonitorTool> with AutomaticKee
         dateFormat: intl.DateFormat('mm:ss'),
       ),
       primaryYAxis: NumericAxis(
+        name: 'systemAxis',
         labelFormat: '{value} MB',
         majorGridLines: MajorGridLines(
           width: 1,
           color: Colors.grey.withValues(alpha: 0.2),
         ),
         axisLine: const AxisLine(width: 0),
-        labelStyle: const TextStyle(fontSize: 10),
+        labelStyle: const TextStyle(fontSize: 10, color: Colors.orange),
       ),
+      axes: const <ChartAxis>[
+        NumericAxis(
+          name: 'appAxis',
+          opposedPosition: true,
+          labelFormat: '{value} MB',
+          majorGridLines: MajorGridLines(width: 0),
+          axisLine: AxisLine(width: 0),
+          labelStyle: TextStyle(fontSize: 10, color: Colors.green),
+        ),
+      ],
       legend: const Legend(
         isVisible: true,
         position: LegendPosition.bottom,
@@ -597,6 +814,7 @@ class _SystemMonitorToolState extends State<SystemMonitorTool> with AutomaticKee
             dataSource: _memoryHistory,
             xValueMapper: (_MemoryDataPoint data, _) => data.timestamp,
             yValueMapper: (_MemoryDataPoint data, _) => data.usedMemoryMB,
+            yAxisName: 'systemAxis',
             color: Colors.orange.withValues(alpha: 0.3),
             borderColor: Colors.orange,
             borderWidth: 2,
@@ -606,6 +824,7 @@ class _SystemMonitorToolState extends State<SystemMonitorTool> with AutomaticKee
           dataSource: _memoryHistory,
           xValueMapper: (_MemoryDataPoint data, _) => data.timestamp,
           yValueMapper: (_MemoryDataPoint data, _) => data.appMemoryMB,
+          yAxisName: 'appAxis',
           color: Colors.green.withValues(alpha: 0.5),
           borderColor: Colors.green,
           borderWidth: 2,
@@ -613,21 +832,6 @@ class _SystemMonitorToolState extends State<SystemMonitorTool> with AutomaticKee
       ],
     );
   }
-}
-
-/// Data point for memory history chart
-class _MemoryDataPoint {
-  final DateTime timestamp;
-  final int totalMemoryMB;
-  final int usedMemoryMB;
-  final int appMemoryMB;
-
-  _MemoryDataPoint({
-    required this.timestamp,
-    required this.totalMemoryMB,
-    required this.usedMemoryMB,
-    required this.appMemoryMB,
-  });
 }
 
 /// Builder for system monitor tool

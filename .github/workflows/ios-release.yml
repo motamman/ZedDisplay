@@ -1,6 +1,7 @@
 name: iOS Build and Release
 
 on:
+  workflow_dispatch:
   push:
     tags:
       - 'v*.*.*'      # Both platforms

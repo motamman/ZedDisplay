@@ -668,7 +668,8 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen>
                 ),
                 const Divider(height: 1),
                 // Screen management actions
-                Padding(
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceEvenly,
@@ -1450,76 +1451,54 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen>
           ),
         ),
         // Exclusive dots area — reserved space below PageView
-        SizedBox(
-          height: _selectorHeight,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              // Visible dots (when shown)
-              AnimatedOpacity(
+        GestureDetector(
+          behavior: HitTestBehavior.translucent,
+          onTap: () {
+            if (_showScreenSelectorDots) {
+              _showScreenSelector(context);
+            } else {
+              _revealSelectorDots();
+            }
+          },
+          child: SizedBox(
+            height: _selectorHeight,
+            width: double.infinity,
+            child: Center(
+              child: AnimatedOpacity(
                 opacity: _showScreenSelectorDots ? 1.0 : 0.0,
                 duration: const Duration(milliseconds: 300),
-                child: IgnorePointer(
-                  ignoring: !_showScreenSelectorDots,
-                  child: Padding(
-                    padding: const EdgeInsets.only(bottom: 4),
-                    child: Material(
-                      color: Colors.transparent,
-                      child: InkWell(
-                        onTap: () {
-                          _revealSelectorDots(); // Reset timer on interaction
-                          _showScreenSelector(context);
-                        },
-                        borderRadius: BorderRadius.circular(16),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 16, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.3),
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: List.generate(
+                        layout.screens.length, (index) {
+                      final isActive =
+                          index == layout.activeScreenIndex;
+                      return Padding(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 4),
                         child: Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 16, vertical: 8),
+                          width: 8,
+                          height: 8,
                           decoration: BoxDecoration(
-                            color: Colors.white.withValues(alpha: 0.3),
-                            borderRadius: BorderRadius.circular(16),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: List.generate(
-                                layout.screens.length, (index) {
-                              final isActive =
-                                  index == layout.activeScreenIndex;
-                              return Padding(
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 4),
-                                child: Container(
-                                  width: 8,
-                                  height: 8,
-                                  decoration: BoxDecoration(
-                                    shape: BoxShape.circle,
-                                    color: isActive
-                                        ? Colors.grey.shade800
-                                        : Colors.grey.shade400,
-                                  ),
-                                ),
-                              );
-                            }),
+                            shape: BoxShape.circle,
+                            color: isActive
+                                ? Colors.grey.shade800
+                                : Colors.grey.shade400,
                           ),
                         ),
-                      ),
-                    ),
+                      );
+                    }),
                   ),
                 ),
               ),
-              // Tap gutter to reveal dots / open screen selector
-              GestureDetector(
-                behavior: HitTestBehavior.translucent,
-                onTap: () {
-                  if (_showScreenSelectorDots) {
-                    _showScreenSelector(context);
-                  } else {
-                    _revealSelectorDots();
-                  }
-                },
-                child: const SizedBox(height: 16, width: double.infinity),
-              ),
-            ],
+            ),
           ),
         ),
       ],

@@ -67,16 +67,18 @@ class _HistoricalLineChartState extends State<HistoricalLineChart> {
       }
     }
     if (earliest == null || latest == null) return '';
-    final sameDay = earliest.year == latest.year &&
-        earliest.month == latest.month &&
-        earliest.day == latest.day;
+    final localEarliest = earliest.toLocal();
+    final localLatest = latest.toLocal();
+    final sameDay = localEarliest.year == localLatest.year &&
+        localEarliest.month == localLatest.month &&
+        localEarliest.day == localLatest.day;
     if (sameDay) {
       final dayFmt = DateFormat('MMM d');
       final timeFmt = DateFormat('h:mm a');
-      return '${dayFmt.format(earliest)} ${timeFmt.format(earliest)} – ${timeFmt.format(latest)}';
+      return '${dayFmt.format(localEarliest)} ${timeFmt.format(localEarliest)} – ${timeFmt.format(localLatest)}';
     }
     final fmt = DateFormat('MMM d h:mm a');
-    return '${fmt.format(earliest)} – ${fmt.format(latest)}';
+    return '${fmt.format(localEarliest)} – ${fmt.format(localLatest)}';
   }
 
   /// Map duration to initial zoom factor so longer windows start zoomed in
@@ -424,7 +426,7 @@ class _HistoricalLineChartState extends State<HistoricalLineChart> {
     final dataPoints = isHidden
         ? <_ChartPoint>[]
         : seriesData.points
-            .map((point) => _ChartPoint(point.timestamp, point.value))
+            .map((point) => _ChartPoint(point.timestamp.toLocal(), point.value))
             .toList();
 
     // Determine axis assignment using the helper

@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
     <key>method</key>
-    <string>app-store</string>
+    <string>app-store-connect</string>
     <key>teamID</key>
     <string>YWV54LS8YM</string>
     <key>signingStyle</key>
@@ -13,6 +13,10 @@
         <key>sv.zennora.zeddisplaysignalk</key>
         <string>ZedDisplaySignalK macOS AppStore</string>
     </dict>
+    <key>signingCertificate</key>
+    <string>Apple Distribution</string>
+    <key>installerSigningCertificate</key>
+    <string>3rd Party Mac Developer Installer</string>
     <key>uploadSymbols</key>
     <true/>
 </dict>

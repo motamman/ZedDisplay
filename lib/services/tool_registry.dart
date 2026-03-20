@@ -44,6 +44,8 @@ import '../widgets/tools/user_management_tool.dart';
 import '../widgets/tools/find_home_tool.dart';
 import '../widgets/tools/sun_moon_arc_tool.dart';
 import '../widgets/tools/historical_data_explorer_tool.dart';
+import '../widgets/tools/windsteer_tool.dart';
+import '../widgets/tools/windsteer_demo_tool.dart';
 
 /// Abstract builder for tool widgets
 abstract class ToolBuilder {
@@ -181,6 +183,8 @@ class ToolRegistry {
     register('find_home', FindHomeToolBuilder());
     register('sun_moon_arc', SunMoonArcToolBuilder());
     register('historical_data_explorer', HistoricalDataExplorerBuilder());
+    register('windsteer', WindsteerToolBuilder());
+    register('windsteer_demo', WindsteerDemoToolBuilder());
     // register('webview', WebViewToolBuilder()); // Hidden for now - uncomment to enable
   }
 }

@@ -53,77 +53,87 @@ class TextDisplayTool extends StatelessWidget {
       return _buildObjectDisplay(context, dataPoint!.value as Map, label, textColor, fontSize);
     }
 
-    // Get raw SI value and convert using MetadataStore
-    final rawValue = isDataFresh ? (dataPoint?.value as num?)?.toDouble() : null;
     final metadata = signalKService.metadataStore.get(dataSource.path);
 
     // Format the display value
     String displayValue;
     String displayUnit = '';
 
-    if (rawValue != null) {
-      // Get formatted value with unit from MetadataStore
-      final formatted = metadata?.format(rawValue, decimals: 1);
-      if (formatted != null) {
-        displayValue = formatted;
-        // Unit is already in formatted string, so leave displayUnit empty
-      } else {
-        // No metadata - show raw value
-        displayValue = rawValue.toStringAsFixed(1);
-      }
+    if (isDataFresh && dataPoint?.value is String) {
+      // String value (e.g. vessel name, state) — display as-is
+      displayValue = dataPoint!.value as String;
     } else {
-      // No data available or stale
-      displayValue = '--';
+      // Numeric path — convert using MetadataStore
+      final rawValue = isDataFresh ? (dataPoint?.value as num?)?.toDouble() : null;
 
-      // Get unit symbol from MetadataStore or style override
-      displayUnit = config.style.unit ?? metadata?.symbol ?? '';
+      if (rawValue != null) {
+        // Get formatted value with unit from MetadataStore
+        final formatted = metadata?.format(rawValue, decimals: 1);
+        if (formatted != null) {
+          displayValue = formatted;
+          // Unit is already in formatted string, so leave displayUnit empty
+        } else {
+          // No metadata - show raw value
+          displayValue = rawValue.toStringAsFixed(1);
+        }
+      } else {
+        // No data available or stale
+        displayValue = '--';
+
+        // Get unit symbol from MetadataStore or style override
+        displayUnit = config.style.unit ?? metadata?.symbol ?? '';
+      }
     }
 
-    return Container(
+    return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          if (config.style.showLabel == true && label.isNotEmpty)
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: fontSize * 0.35,
-                fontWeight: FontWeight.w300,
-                color: UIConstants.withSubtleOpacity(textColor),
+      child: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            if (config.style.showLabel == true && label.isNotEmpty)
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: fontSize * 0.35,
+                  fontWeight: FontWeight.w300,
+                  color: UIConstants.withSubtleOpacity(textColor),
+                ),
+                textAlign: TextAlign.center,
               ),
-              textAlign: TextAlign.center,
-            ),
-          if (config.style.showLabel == true && label.isNotEmpty)
-            const SizedBox(height: fontSize * 0.15),
-          if (config.style.showValue == true)
-            Text(
-              displayValue,
-              style: TextStyle(
-                fontSize: fontSize,
-                fontWeight: FontWeight.bold,
-                color: textColor,
+            if (config.style.showLabel == true && label.isNotEmpty)
+              const SizedBox(height: fontSize * 0.15),
+            if (config.style.showValue == true)
+              Text(
+                displayValue,
+                softWrap: true,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: fontSize,
+                  fontWeight: FontWeight.bold,
+                  color: textColor,
+                ),
               ),
-            ),
-          if (config.style.showUnit == true && displayUnit.isNotEmpty)
-            const SizedBox(height: fontSize * 0.1),
-          if (config.style.showUnit == true && displayUnit.isNotEmpty)
-            Text(
-              displayUnit,
-              style: TextStyle(
-                fontSize: fontSize * 0.35,
-                fontWeight: FontWeight.w300,
-                color: UIConstants.withSubtleOpacity(textColor),
+            if (config.style.showUnit == true && displayUnit.isNotEmpty)
+              const SizedBox(height: fontSize * 0.1),
+            if (config.style.showUnit == true && displayUnit.isNotEmpty)
+              Text(
+                displayUnit,
+                style: TextStyle(
+                  fontSize: fontSize * 0.35,
+                  fontWeight: FontWeight.w300,
+                  color: UIConstants.withSubtleOpacity(textColor),
+                ),
               ),
-            ),
-        ],
+          ],
+        ),
       ),
     );
   }
 
   Widget _buildObjectDisplay(BuildContext context, Map objectValue, String label, Color textColor, double fontSize) {
-    return Container(
+    return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,

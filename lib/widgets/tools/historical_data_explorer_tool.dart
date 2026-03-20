@@ -93,6 +93,8 @@ class _CachedState {
   final LatLng? drawPoint1;
   final LatLng? drawPoint2;
   final String context;
+  final String timeMode;
+  final String lookback;
   final DateTime fromDate;
   final DateTime toDate;
   final String aggregation;
@@ -113,6 +115,8 @@ class _CachedState {
     this.drawPoint1,
     this.drawPoint2,
     required this.context,
+    required this.timeMode,
+    required this.lookback,
     required this.fromDate,
     required this.toDate,
     required this.aggregation,
@@ -177,7 +181,9 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
   bool _contextsLoading = false;
   String _context = 'vessels.self';
 
-  // Query config
+  // Query config — time mode
+  String _timeMode = 'lookback'; // 'lookback' or 'daterange'
+  String _lookback = '7d'; // 1d, 3d, 7d, 14d, 30d
   DateTime _fromDate = DateTime.now().subtract(const Duration(days: 7));
   DateTime _toDate = DateTime.now();
   final Set<String> _selectedPaths = {};
@@ -265,6 +271,8 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
       drawPoint1: _drawPoint1,
       drawPoint2: _drawPoint2,
       context: _context,
+      timeMode: _timeMode,
+      lookback: _lookback,
       fromDate: _fromDate,
       toDate: _toDate,
       aggregation: _aggregation,
@@ -289,6 +297,8 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
     _drawPoint1 = cached.drawPoint1;
     _drawPoint2 = cached.drawPoint2;
     _context = cached.context;
+    _timeMode = cached.timeMode;
+    _lookback = cached.lookback;
     _fromDate = cached.fromDate;
     _toDate = cached.toDate;
     _aggregation = cached.aggregation;
@@ -327,6 +337,15 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
       _fetchAvailablePaths();
     }
   }
+
+  Duration _lookbackDuration(String code) => switch (code) {
+    '1d'  => const Duration(days: 1),
+    '3d'  => const Duration(days: 3),
+    '7d'  => const Duration(days: 7),
+    '14d' => const Duration(days: 14),
+    '30d' => const Duration(days: 30),
+    _     => const Duration(days: 7),
+  };
 
   void _updateVesselPosition() {
     final posData = widget.signalKService.getValue('navigation.position');
@@ -878,7 +897,17 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
       _showSnack('Select at least one path');
       return;
     }
-    if (!_fromDate.isBefore(_toDate)) {
+    // Resolve dates based on time mode
+    DateTime queryFrom, queryTo;
+    if (_timeMode == 'lookback') {
+      queryTo = DateTime.now();
+      queryFrom = queryTo.subtract(_lookbackDuration(_lookback));
+    } else {
+      queryFrom = _fromDate;
+      queryTo = _toDate;
+    }
+
+    if (!queryFrom.isBefore(queryTo)) {
       _showSnack('Start date must be before end date');
       return;
     }
@@ -906,8 +935,8 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
 
       final response = await _fetchWithSpatialParams(
         paths: pathExpressions,
-        from: _fromDate,
-        to: _toDate,
+        from: queryFrom,
+        to: queryTo,
       );
 
       // Ensure metadata exists for all selected paths (fetch from server if missing)
@@ -1299,6 +1328,8 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
 
   void _showQueryConfigDialog() {
     // Local state for dialog
+    var localTimeMode = _timeMode;
+    var localLookback = _lookback;
     var localFrom = _fromDate;
     var localTo = _toDate;
     final localSelected = Set<String>.from(_selectedPaths);
@@ -1323,7 +1354,15 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
             if (dialogSetState == null) {
               dialogSetState = setDialogState;
               if (lookupOtherVessels) {
-                _fetchAvailableContexts(localFrom, localTo,
+                DateTime initFrom, initTo;
+                if (localTimeMode == 'lookback') {
+                  initTo = DateTime.now();
+                  initFrom = initTo.subtract(_lookbackDuration(localLookback));
+                } else {
+                  initFrom = localFrom;
+                  initTo = localTo;
+                }
+                _fetchAvailableContexts(initFrom, initTo,
                     dialogSetState: setDialogState);
               }
             }
@@ -1331,19 +1370,29 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
 
             // Re-fetch contexts when dates change
             void onDatesChanged() {
+              // Compute effective dates for fetch
+              DateTime fetchFrom, fetchTo;
+              if (localTimeMode == 'lookback') {
+                fetchTo = DateTime.now();
+                fetchFrom = fetchTo.subtract(_lookbackDuration(localLookback));
+              } else {
+                fetchFrom = localFrom;
+                fetchTo = localTo;
+              }
+
               if (!lookupOtherVessels) return;
               // Reset context if it was a vessel-specific one that may
               // not exist in the new date range
               if (localContext != 'vessels.self') {
                 localContext = 'vessels.self';
               }
-              _fetchAvailableContexts(localFrom, localTo,
+              _fetchAvailableContexts(fetchFrom, fetchTo,
                   dialogSetState: setDialogState);
               // Re-fetch paths for the (now reset) context + new date range
               _fetchAvailablePaths(
                 context: localContext,
-                from: localFrom,
-                to: localTo,
+                from: fetchFrom,
+                to: fetchTo,
               ).then((_) {
                 localSelected.removeWhere(
                     (p) => !_availablePaths.contains(p));
@@ -1360,60 +1409,78 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
                     crossAxisAlignment: CrossAxisAlignment.start,
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      // -- Date range --
-                      const Text('Date Range',
+                      // -- Time mode toggle --
+                      const Text('Time Range',
                           style: TextStyle(fontWeight: FontWeight.bold)),
                       const SizedBox(height: 4),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: OutlinedButton.icon(
-                              icon: const Icon(Icons.calendar_today, size: 16),
-                              label: Text(_fmtDate(localFrom),
-                                  style: const TextStyle(fontSize: 12)),
-                              onPressed: () async {
-                                final d = await showDatePicker(
-                                  context: ctx,
-                                  initialDate: localFrom,
-                                  firstDate: DateTime(2020),
-                                  lastDate: DateTime.now(),
-                                );
-                                if (d != null) {
-                                  setDialogState(() {
-                                    localFrom = d;
-                                    onDatesChanged();
-                                  });
-                                }
-                              },
-                            ),
-                          ),
-                          const Padding(
-                            padding: EdgeInsets.symmetric(horizontal: 8),
-                            child: Text('to'),
-                          ),
-                          Expanded(
-                            child: OutlinedButton.icon(
-                              icon: const Icon(Icons.calendar_today, size: 16),
-                              label: Text(_fmtDate(localTo),
-                                  style: const TextStyle(fontSize: 12)),
-                              onPressed: () async {
-                                final d = await showDatePicker(
-                                  context: ctx,
-                                  initialDate: localTo,
-                                  firstDate: DateTime(2020),
-                                  lastDate: DateTime.now(),
-                                );
-                                if (d != null) {
-                                  setDialogState(() {
-                                    localTo = d;
-                                    onDatesChanged();
-                                  });
-                                }
-                              },
-                            ),
-                          ),
-                        ],
+                      SizedBox(
+                        width: double.infinity,
+                        child: SegmentedButton<String>(
+                          segments: const [
+                            ButtonSegment(value: 'lookback', label: Text('Lookback')),
+                            ButtonSegment(value: 'daterange', label: Text('Date Range')),
+                          ],
+                          selected: {localTimeMode},
+                          onSelectionChanged: (v) {
+                            setDialogState(() {
+                              localTimeMode = v.first;
+                            });
+                          },
+                        ),
                       ),
+                      const SizedBox(height: 8),
+
+                      // -- Lookback dropdown --
+                      if (localTimeMode == 'lookback')
+                        DropdownButtonFormField<String>(
+                          value: localLookback,
+                          decoration: const InputDecoration(
+                            isDense: true,
+                            contentPadding: EdgeInsets.symmetric(
+                                horizontal: 12, vertical: 8),
+                          ),
+                          items: const [
+                            DropdownMenuItem(value: '1d',  child: Text('1 day')),
+                            DropdownMenuItem(value: '3d',  child: Text('3 days')),
+                            DropdownMenuItem(value: '7d',  child: Text('1 week')),
+                            DropdownMenuItem(value: '14d', child: Text('2 weeks')),
+                            DropdownMenuItem(value: '30d', child: Text('1 month')),
+                          ],
+                          onChanged: (v) {
+                            setDialogState(() {
+                              localLookback = v!;
+                              onDatesChanged();
+                            });
+                          },
+                        ),
+
+                      // -- Date range picker (single picker for both dates) --
+                      if (localTimeMode == 'daterange')
+                        OutlinedButton.icon(
+                          icon: const Icon(Icons.date_range, size: 16),
+                          label: Text(
+                            '${_fmtDate(localFrom)} – ${_fmtDate(localTo)}',
+                            style: const TextStyle(fontSize: 12),
+                          ),
+                          onPressed: () async {
+                            final range = await showDateRangePicker(
+                              context: ctx,
+                              initialDateRange: DateTimeRange(
+                                start: localFrom,
+                                end: localTo,
+                              ),
+                              firstDate: DateTime(2020),
+                              lastDate: DateTime.now(),
+                            );
+                            if (range != null) {
+                              setDialogState(() {
+                                localFrom = range.start;
+                                localTo = range.end;
+                                onDatesChanged();
+                              });
+                            }
+                          },
+                        ),
                       const SizedBox(height: 12),
 
                       // -- Context --
@@ -1432,7 +1499,15 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
                           setDialogState(() {
                             lookupOtherVessels = v ?? false;
                             if (lookupOtherVessels) {
-                              _fetchAvailableContexts(localFrom, localTo,
+                              DateTime cbFrom, cbTo;
+                              if (localTimeMode == 'lookback') {
+                                cbTo = DateTime.now();
+                                cbFrom = cbTo.subtract(_lookbackDuration(localLookback));
+                              } else {
+                                cbFrom = localFrom;
+                                cbTo = localTo;
+                              }
+                              _fetchAvailableContexts(cbFrom, cbTo,
                                   dialogSetState: setDialogState);
                             } else {
                               localContext = 'vessels.self';
@@ -1694,6 +1769,8 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
                           Navigator.pop(ctx);
                           setState(() {
                             _context = localContext;
+                            _timeMode = localTimeMode;
+                            _lookback = localLookback;
                             _fromDate = localFrom;
                             _toDate = localTo;
                             _selectedPaths
