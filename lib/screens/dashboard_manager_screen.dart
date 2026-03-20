@@ -64,7 +64,7 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen>
   Timer? _appBarHideTimer;
 
   // Cache built tool widgets so they persist across page rebuilds
-  final Map<String, Widget> _toolWidgetCache = {};
+
 
   @override
   void initState() {
@@ -834,7 +834,6 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen>
     );
 
     if (result is Map<String, dynamic> && mounted) {
-      _toolWidgetCache.remove(placementToolId);
       final updatedTool = result['tool'] as Tool;
       final newWidth = result['width'] as int? ?? 1;
       final newHeight = result['height'] as int? ?? 1;
@@ -1847,21 +1846,18 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen>
               // Normal mode - stagger tool mounting to avoid building
               // all heavy gauge widgets in the same frame.
               // Cache tool widgets so they persist across page rebuilds.
-              final cachedTool = _toolWidgetCache.putIfAbsent(
-                placement.toolId,
-                () => Padding(
+              final toolWidget = Padding(
                   padding: const EdgeInsets.all(8),
                   child: registry.buildTool(
                     tool.toolTypeId,
                     tool.config,
                     signalKService,
                   ),
-                ),
-              );
+                );
               widgetContent = _DeferredToolWidget(
                 key: ValueKey('deferred_${placement.toolId}'),
                 index: placementIndex,
-                child: cachedTool,
+                child: toolWidget,
               );
             }
 

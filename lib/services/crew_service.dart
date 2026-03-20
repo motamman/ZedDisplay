@@ -493,12 +493,19 @@ class CrewService extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Start the heartbeat timer
+  /// Start the heartbeat timer, offset 15s from poll start.
+  /// Poll fires at T=0,30,60..., heartbeat at T=15,45,75...
+  /// This ensures _localProfile is fresh from the last poll before we PUT.
   void _startHeartbeat() {
     _heartbeatTimer?.cancel();
-    _heartbeatTimer = Timer.periodic(_heartbeatInterval, (_) {
+    Future.delayed(const Duration(seconds: 15), () {
+      if (!_signalKService.isConnected || _localProfile == null) return;
       _sendHeartbeat();
       _pruneStalePresence();
+      _heartbeatTimer = Timer.periodic(_heartbeatInterval, (_) {
+        _sendHeartbeat();
+        _pruneStalePresence();
+      });
     });
   }
 
@@ -596,6 +603,35 @@ class CrewService extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Sync own profile from server data if server version is newer.
+  /// This handles cross-device sync: if Device A changes status,
+  /// Device B picks it up on next poll.
+  void _syncOwnProfileFromServer(Map<String, dynamic> resourceData) {
+    if (_localProfile == null) return;
+
+    try {
+      final descriptionJson = resourceData['description'] as String?;
+      if (descriptionJson == null) return;
+
+      final crewData = jsonDecode(descriptionJson) as Map<String, dynamic>;
+      final serverMember = CrewMember.fromJson(crewData);
+
+      // Only adopt server state if it's newer than our local copy
+      if (serverMember.updatedAt.isAfter(_localProfile!.updatedAt)) {
+        _localProfile = serverMember;
+        _saveLocalProfile();
+        notifyListeners();
+        if (kDebugMode) {
+          print('CrewService: Synced own profile from server (server updatedAt: ${serverMember.updatedAt})');
+        }
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('CrewService: Error syncing own profile from server: $e');
+      }
+    }
+  }
+
   /// Fetch crew members from Resources API
   Future<void> _fetchCrewMembers() async {
     if (!_signalKService.isConnected || !_resourcesApiAvailable) return;
@@ -611,11 +647,13 @@ class CrewService extends ChangeNotifier {
         final resourceId = entry.key;
         final resourceData = entry.value as Map<String, dynamic>;
 
-        // Skip our own profile (we already have it locally)
-        // Check exact match, or username match for legacy format
-        if (resourceId == _localProfile?.id) continue;
-        if (_isUserLogin && _username != null && resourceId == _username) continue;
-        if (_localProfile != null && resourceId == Uri.decodeComponent(_localProfile!.id)) continue;
+        // When we find our own resource, sync if server is newer (cross-device sync)
+        if (resourceId == _localProfile?.id ||
+            (_isUserLogin && _username != null && resourceId == _username) ||
+            (_localProfile != null && resourceId == Uri.decodeComponent(_localProfile!.id))) {
+          _syncOwnProfileFromServer(resourceData);
+          continue;
+        }
 
         try {
           // Parse crew data from description field (JSON string)

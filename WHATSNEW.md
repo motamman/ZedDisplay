@@ -1,10 +1,55 @@
-# What's New in v0.5.90
+# What's New in v0.5.92
+
+## Release Notes (Google Play - max 500 chars)
+
+v0.5.92 Wakelock Crash Fix & Dashboard Live Updates
+
+FIXED: Linux crash caused by excessive D-Bus calls from wakelock/foreground service firing on every data update instead of only on connect/disconnect. Reduces platform channel overhead on all devices.
+
+FIXED: Dashboard tools (wind compass, gauges, text displays) now update with live data. Previously cached widget instances prevented rebuilds.
+
+## Release Notes (App Store / TestFlight - max 4000 chars)
+
+### Wakelock D-Bus Crash — Linux (FIXED)
+- **Root Cause** - `_onConnectionChanged()` was registered as a listener on `signalKService`, which fires on every data update — not just connection changes. Each call triggered `WakelockPlus.enable()`/`.disable()` and `foregroundService.start()`/`.stop()` unconditionally
+- **Linux Crash** - On Linux, each wakelock call goes through D-Bus async IPC; hundreds of redundant calls per minute exhausted the pending replies limit (`org.freedesktop.DBus.Error.LimitsExceeded`)
+- **All Platforms** - Redundant platform channel calls also caused unnecessary overhead and potential UI jank on Android, iOS, macOS, and Windows
+- **Fix** - Added `_wasConnectedForServices` transition guard; wakelock and foreground service now only fire on actual connect/disconnect state changes
+
+### Dashboard Tools Not Updating (FIXED)
+- **Root Cause** - Tool widgets were cached via `_toolWidgetCache.putIfAbsent`, so `StatelessWidget.build()` was only called once per tool — subsequent SignalK data updates never reached the widgets
+- **Affected Tools** - All StatelessWidget tools: wind compass, text display, attitude indicator, tanks, GNSS status, radial/polar charts, windsteer, and others
+- **Fix** - Removed widget instance cache; tools now rebuild with fresh data on every SignalK update. `_DeferredToolWidget` and `_KeepAlivePage` already handle staggered mounting and page persistence
+
+---
+
+# Previous: v0.5.91
+
+## Release Notes (Google Play - max 500 chars)
+
+v0.5.91 Crew Status Cross-Device Sync
+
+FIXED: Crew status changes now sync across devices. Changing status to "On Watch" on one device is reflected on all other devices logged into the same account within ~30 seconds.
+
+Previously, each device skipped its own server resource during polling and the heartbeat overwrote remote changes with stale local data.
+
+## Release Notes (App Store / TestFlight - max 4000 chars)
+
+### Crew Status — Cross-Device Sync (FIXED)
+- **Status Propagation** - Changing crew status on one device now syncs to all other devices on the same account within ~30 seconds
+- **Root Cause** - Polling skipped the user's own resource on the server, so status changes from other devices were never read; heartbeat then overwrote the server with stale local data
+- **Server Sync** - Own profile is now compared by `updatedAt` timestamp during polling; newer server state is adopted locally
+- **Timer Offset** - Heartbeat fires 15 seconds after poll, ensuring the local profile is fresh before being PUT to the server
+
+---
+
+# Previous: v0.5.90
 
 ## Release Notes (Google Play - max 500 chars)
 
 v0.5.90 AIS Favorites Sync, System Monitor & macOS TestFlight
 
-NEW: AIS vessel favorites now sync across devices via SignalK server. Windsteer gauge registered and available.
+NEW: AIS vessel favorites now sync across devices via SignalK server.
 
 NEW: System Monitor tracks SignalK connection health, app memory on dual Y-axis. Version shown in Settings.
 
@@ -22,9 +67,6 @@ IMPROVED: Historical Data Explorer days-back mode. Charts use local time. Text d
 - **SignalK Uptime** - Tracks connection state with live uptime counter showing how long you've been connected
 - **Diagnostic Metrics** - Shows cache sizes, subscription counts, and WebSocket message rates from DiagnosticService
 - **Dual Y-Axis Memory** - App memory charted on secondary Y-axis alongside system memory, with improved label styling
-
-### Windsteer Gauge (NEW)
-- **Now Available** - Windsteer and Windsteer Demo tools registered in tool registry and available for dashboard placement
 
 ### Historical Data Explorer (IMPROVED)
 - **Days-Back Mode** - New "lookback" time selector with quick presets (1d, 3d, 7d, 14d, 30d) — simpler than picking exact dates for common queries

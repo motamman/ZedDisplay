@@ -1675,7 +1675,7 @@ class _AISPolarChartState extends State<AISPolarChart>
 
   void _persistCpaConfig(CpaAlertConfig config) {
     widget.onCpaConfigChanged?.call({
-      'cpaAlertsEnabled': config.enabled,
+      // 'cpaAlertsEnabled' intentionally NOT persisted — session-only toggle
       'cpaWarnNm': config.warnThresholdMeters / 1852.0,
       'cpaAlarmNm': config.alarmThresholdMeters / 1852.0,
       'cpaTcpaMinutes': config.tcpaThresholdSeconds / 60.0,

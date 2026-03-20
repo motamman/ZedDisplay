@@ -5,10 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.92+65] - 2026-03-20
+
+### Fixed
+- **Wakelock D-Bus Crash (Linux)**: `_onConnectionChanged()` fired on every `notifyListeners()` — not just connection state changes — causing hundreds of redundant `WakelockPlus.enable()`/`.disable()` and `foregroundService.start()`/`.stop()` calls per minute. On Linux, this exhausted the D-Bus pending replies limit and crashed the app. Added `_wasConnectedForServices` transition guard so wakelock and foreground service only fire on actual connect/disconnect transitions. Reduces unnecessary platform channel overhead on all platforms.
+- **Dashboard Tools Not Updating**: Tool widgets (wind compass, text display, gauges, etc.) were cached via `_toolWidgetCache.putIfAbsent`, so `StatelessWidget.build()` was only called once — subsequent SignalK data updates never reached the widgets. Removed the widget instance cache; `_DeferredToolWidget` and `_KeepAlivePage` already handle staggered mounting and page persistence.
+
+## [0.5.91+64] - 2026-03-20
+
+### Fixed
+- **Crew Status — Cross-Device Sync**: Crew status changes (e.g., "On Watch") now propagate between devices logged into the same account. Previously, polling skipped the user's own resource, so remote status changes were never read. Heartbeat timer offset by 15 seconds from poll to prevent stale local data overwriting newer server state.
+
 ## [0.5.90+63] - 2026-03-20
 
 ### Added
-- **Windsteer Gauge — Registered**: Windsteer and Windsteer Demo tools now registered in the tool registry and available for placement on dashboards
 - **System Monitor — SignalK Connection Health**: Tracks connection state with uptime counter; shows DiagnosticService metrics (cache sizes, subscription counts, WS message rates)
 - **System Monitor — App Memory Y-Axis**: Dual Y-axis on the memory chart — left axis for system memory, right axis for app memory with improved label styling
 - **AIS Favorites — Server Sync**: Favorites now sync across devices via SignalK Resources API (`zeddisplay-favorites` resource type)
@@ -25,6 +35,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Text Display — String Value Support**: Text display tool now correctly renders string values (e.g., vessel name, state text) as-is, instead of attempting numeric conversion; layout wrapped in `SingleChildScrollView` to prevent overflow
 - **Dashboard Manager — Screen Selector**: Simplified screen selector dots with tap-to-reveal/tap-to-open behavior replacing the previous multi-layer animated opacity approach; screen management actions row now horizontally scrollable on narrow screens
 - **DiagnosticService — Public Getters**: Added public getters for improved data access by System Monitor tool
+
+### Removed
+- **Windsteer Gauge — Unregistered**: Windsteer and Windsteer Demo tools removed from tool registry. Early prototype (Oct 2025) fully superseded by Wind Compass tool. Files kept with deprecation headers for reference.
 
 ### Infrastructure
 - **macOS TestFlight Pipeline**: Complete overhaul of macOS release workflow for App Store Connect

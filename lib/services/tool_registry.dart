@@ -44,8 +44,8 @@ import '../widgets/tools/user_management_tool.dart';
 import '../widgets/tools/find_home_tool.dart';
 import '../widgets/tools/sun_moon_arc_tool.dart';
 import '../widgets/tools/historical_data_explorer_tool.dart';
-import '../widgets/tools/windsteer_tool.dart';
-import '../widgets/tools/windsteer_demo_tool.dart';
+// windsteer_tool.dart and windsteer_demo_tool.dart are DEPRECATED — do not import or register.
+// Superseded by WindCompassTool (Oct 2025). See file headers for details.
 
 /// Abstract builder for tool widgets
 abstract class ToolBuilder {
@@ -183,8 +183,7 @@ class ToolRegistry {
     register('find_home', FindHomeToolBuilder());
     register('sun_moon_arc', SunMoonArcToolBuilder());
     register('historical_data_explorer', HistoricalDataExplorerBuilder());
-    register('windsteer', WindsteerToolBuilder());
-    register('windsteer_demo', WindsteerDemoToolBuilder());
+    // windsteer and windsteer_demo DEPRECATED — superseded by wind_compass. Do not re-register.
     // register('webview', WebViewToolBuilder()); // Hidden for now - uncomment to enable
   }
 }

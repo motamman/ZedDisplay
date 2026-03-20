@@ -1,6 +1,8 @@
 import 'dart:convert';
+import 'dart:io' show Platform;
 import 'package:flutter/foundation.dart';
 import 'package:hive_flutter/hive_flutter.dart';
+import 'package:path_provider/path_provider.dart';
 import '../models/dashboard_layout.dart';
 import '../models/dashboard_setup.dart';
 import '../models/auth_token.dart';
@@ -33,7 +35,15 @@ class StorageService extends ChangeNotifier {
     if (_initialized) return;
 
     try {
-      await Hive.initFlutter();
+      // Use getApplicationSupportDirectory on desktop for stable, app-specific
+      // storage. Hive.initFlutter() uses getApplicationDocumentsDirectory which
+      // resolves to unreliable paths on macOS/Linux (especially debug builds).
+      if (Platform.isMacOS || Platform.isLinux || Platform.isWindows) {
+        final dir = await getApplicationSupportDirectory();
+        Hive.init(dir.path);
+      } else {
+        await Hive.initFlutter();
+      }
 
       _dashboardsBox = await Hive.openBox<String>(_dashboardsBoxName);
       _templatesBox = await Hive.openBox<String>(_templatesBoxName);
