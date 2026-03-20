@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.92+65] - 2026-03-20
+
+### Fixed
+- **Wakelock D-Bus Crash (Linux)**: `_onConnectionChanged()` fired on every `notifyListeners()` — not just connection state changes — causing hundreds of redundant `WakelockPlus.enable()`/`.disable()` and `foregroundService.start()`/`.stop()` calls per minute. On Linux, this exhausted the D-Bus pending replies limit and crashed the app. Added `_wasConnectedForServices` transition guard so wakelock and foreground service only fire on actual connect/disconnect transitions. Reduces unnecessary platform channel overhead on all platforms.
+- **Dashboard Tools Not Updating**: Tool widgets (wind compass, text display, gauges, etc.) were cached via `_toolWidgetCache.putIfAbsent`, so `StatelessWidget.build()` was only called once — subsequent SignalK data updates never reached the widgets. Removed the widget instance cache; `_DeferredToolWidget` and `_KeepAlivePage` already handle staggered mounting and page persistence.
+
 ## [0.5.91+64] - 2026-03-20
 
 ### Fixed

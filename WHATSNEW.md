@@ -1,4 +1,29 @@
-# What's New in v0.5.91
+# What's New in v0.5.92
+
+## Release Notes (Google Play - max 500 chars)
+
+v0.5.92 Wakelock Crash Fix & Dashboard Live Updates
+
+FIXED: Linux crash caused by excessive D-Bus calls from wakelock/foreground service firing on every data update instead of only on connect/disconnect. Reduces platform channel overhead on all devices.
+
+FIXED: Dashboard tools (wind compass, gauges, text displays) now update with live data. Previously cached widget instances prevented rebuilds.
+
+## Release Notes (App Store / TestFlight - max 4000 chars)
+
+### Wakelock D-Bus Crash — Linux (FIXED)
+- **Root Cause** - `_onConnectionChanged()` was registered as a listener on `signalKService`, which fires on every data update — not just connection changes. Each call triggered `WakelockPlus.enable()`/`.disable()` and `foregroundService.start()`/`.stop()` unconditionally
+- **Linux Crash** - On Linux, each wakelock call goes through D-Bus async IPC; hundreds of redundant calls per minute exhausted the pending replies limit (`org.freedesktop.DBus.Error.LimitsExceeded`)
+- **All Platforms** - Redundant platform channel calls also caused unnecessary overhead and potential UI jank on Android, iOS, macOS, and Windows
+- **Fix** - Added `_wasConnectedForServices` transition guard; wakelock and foreground service now only fire on actual connect/disconnect state changes
+
+### Dashboard Tools Not Updating (FIXED)
+- **Root Cause** - Tool widgets were cached via `_toolWidgetCache.putIfAbsent`, so `StatelessWidget.build()` was only called once per tool — subsequent SignalK data updates never reached the widgets
+- **Affected Tools** - All StatelessWidget tools: wind compass, text display, attitude indicator, tanks, GNSS status, radial/polar charts, windsteer, and others
+- **Fix** - Removed widget instance cache; tools now rebuild with fresh data on every SignalK update. `_DeferredToolWidget` and `_KeepAlivePage` already handle staggered mounting and page persistence
+
+---
+
+# Previous: v0.5.91
 
 ## Release Notes (Google Play - max 500 chars)
 
