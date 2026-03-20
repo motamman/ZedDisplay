@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.93+66] - 2026-03-20
+
+### Changed
+- **Crew Messaging — Real-Time Delivery via WebSocket**: Replaced 15-second polling with WebSocket push for crew messages. Messages now arrive within ~1 second instead of 0–15s. Resources API still used for persistence and startup hydration; WS deltas handle instant delivery. Path namespace changed from `messages.*` to `crew.messages.*` for consistency with crew status paths.
+
+### Fixed
+- **CPA Alert Service — setState() During Build**: CPA alert evaluations triggered `notifyListeners()` during widget build phase, causing Flutter "setState() or markNeedsBuild() called during build" errors. Replaced direct `notifyListeners()` with coalesced `Future.microtask()` that defers notification to after the synchronous call stack completes.
+
 ## [0.5.92+65] - 2026-03-20
 
 ### Fixed

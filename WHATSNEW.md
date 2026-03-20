@@ -1,4 +1,30 @@
-# What's New in v0.5.92
+# What's New in v0.5.93
+
+## Release Notes (Google Play - max 500 chars)
+
+v0.5.93 Instant Crew Messages & CPA Crash Fix
+
+IMPROVED: Crew messages now deliver instantly via WebSocket push instead of 15-second polling. Send a message on one device, it appears on others within ~1 second.
+
+FIXED: CPA alert service crash caused by setState() firing during widget build. Alert evaluations now safely deferred.
+
+## Release Notes (App Store / TestFlight - max 4000 chars)
+
+### Crew Messaging — Real-Time Delivery (IMPROVED)
+- **Instant Messages** - Messages now deliver via WebSocket delta push instead of 15-second polling — arrival time drops from 0–15s to ~1s
+- **Dual-Write** - Send broadcasts WS delta first (instant delivery), then persists to Resources API (survives server restart)
+- **Startup Hydration** - Resources API fetched once on connect to catch messages missed while offline; no more repeated polling
+- **Namespace** - WS paths moved from `messages.*` to `crew.messages.*` for consistency with `crew.<id>.status` and `crew.<id>.lastSeen`
+- **Self-Skip** - Optimistic local add prevents duplicate processing of own messages from WS echo
+
+### CPA Alert Service — Build Phase Crash (FIXED)
+- **Root Cause** - AIS vessel registry updates triggered CPA evaluation synchronously during widget build, calling `notifyListeners()` mid-frame
+- **Symptom** - "setState() or markNeedsBuild() called during build" exception with stack overflow from recursive notification
+- **Fix** - All `notifyListeners()` calls in CPA service replaced with coalesced `Future.microtask()` that defers to after the synchronous call stack; multiple updates in one frame produce a single notification
+
+---
+
+# Previous: v0.5.92
 
 ## Release Notes (Google Play - max 500 chars)
 
