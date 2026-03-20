@@ -240,7 +240,9 @@ class AISFavoritesService extends ChangeNotifier {
     _isSyncing = true;
     try {
       final profileId = await _getProfileIdentifier();
+      debugPrint('AISFavoritesService._syncWithServer: profileId=$profileId');
       final resources = await sk.getResources(_resourceType);
+      debugPrint('AISFavoritesService._syncWithServer: got ${resources.length} resources, keys=${resources.keys.toList()}');
 
       // Find our resource (handle URL-encoded keys and server key stripping)
       // Server may strip prefix — e.g., PUT "user:maurice" stored as "maurice"
@@ -258,6 +260,7 @@ class AISFavoritesService extends ChangeNotifier {
           break;
         }
       }
+      debugPrint('AISFavoritesService._syncWithServer: found resourceData=${resourceData != null}');
 
       // Parse remote favorites from description JSON
       List<AISFavorite> remoteFavorites = [];
