@@ -104,6 +104,36 @@ jobs:
       - name: Build macOS release
         run: flutter build macos --release
 
+      - name: Debug signing setup
+        run: |
+          echo "=== Installed provisioning profiles ==="
+          ls -la ~/Library/MobileDevice/Provisioning\ Profiles/
+
+          echo "=== Profile details ==="
+          PP_FILE=$(ls ~/Library/MobileDevice/Provisioning\ Profiles/*.provisionprofile 2>/dev/null | head -1)
+          if [ -n "$PP_FILE" ]; then
+            security cms -D -i "$PP_FILE" > /tmp/profile.plist
+            echo "Profile Name: $(/usr/libexec/PlistBuddy -c "Print Name" /tmp/profile.plist)"
+            echo "Profile UUID: $(/usr/libexec/PlistBuddy -c "Print UUID" /tmp/profile.plist)"
+            echo "Profile App ID: $(/usr/libexec/PlistBuddy -c "Print Entitlements:application-identifier" /tmp/profile.plist)"
+            echo "Profile Team: $(/usr/libexec/PlistBuddy -c "Print TeamIdentifier:0" /tmp/profile.plist)"
+            echo "Profile type (aps-environment): $(/usr/libexec/PlistBuddy -c "Print Entitlements:com.apple.application-identifier" /tmp/profile.plist 2>/dev/null || echo 'N/A')"
+            echo "Profile Platform: $(/usr/libexec/PlistBuddy -c "Print Platform:0" /tmp/profile.plist 2>/dev/null || echo 'N/A')"
+
+            echo "=== Cert SHA-1 in profile ==="
+            CERT_COUNT=$(/usr/libexec/PlistBuddy -c "Print DeveloperCertificates" /tmp/profile.plist | grep -c "^[[:space:]]")
+            echo "Number of certs in profile: $CERT_COUNT"
+            /usr/libexec/PlistBuddy -c "Print DeveloperCertificates:0" /tmp/profile.plist | base64 -d | openssl x509 -inform DER -noout -fingerprint -sha1 -subject 2>/dev/null || echo "Could not extract cert 0"
+          fi
+
+          echo "=== Keychain cert fingerprints ==="
+          KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
+          security find-identity -v -p codesigning $KEYCHAIN_PATH
+          security find-identity -v $KEYCHAIN_PATH
+
+          echo "=== Archive bundle ID ==="
+          /usr/libexec/PlistBuddy -c "Print ApplicationProperties:CFBundleIdentifier" $RUNNER_TEMP/ZedDisplay.xcarchive/Info.plist 2>/dev/null || echo "Archive not built yet"
+
       - name: Archive and export
         run: |
           cd macos
@@ -112,6 +142,9 @@ jobs:
             -configuration Release \
             -archivePath $RUNNER_TEMP/ZedDisplay.xcarchive \
             archive
+
+          echo "=== Archive bundle ID ==="
+          /usr/libexec/PlistBuddy -c "Print ApplicationProperties:CFBundleIdentifier" $RUNNER_TEMP/ZedDisplay.xcarchive/Info.plist 2>/dev/null || echo "Could not read"
 
           xcodebuild -exportArchive \
             -archivePath $RUNNER_TEMP/ZedDisplay.xcarchive \
