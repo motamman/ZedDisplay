@@ -60,9 +60,16 @@ jobs:
           PP_PATH=$RUNNER_TEMP/build_pp.provisionprofile
           KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
 
-          # Decode from base64
-          echo -n "$MACOS_CERTIFICATE_BASE64" | base64 --decode -o $CERTIFICATE_PATH
-          echo -n "$MACOS_PROVISIONING_PROFILE_BASE64" | base64 --decode -o $PP_PATH
+          # Decode all from base64
+          printf '%s' "$MACOS_CERTIFICATE_BASE64" | base64 --decode -o $CERTIFICATE_PATH
+          INSTALLER_CERT_PATH=$RUNNER_TEMP/installer_certificate.p12
+          printf '%s' "$MACOS_INSTALLER_CERTIFICATE_BASE64" | base64 --decode -o $INSTALLER_CERT_PATH
+          printf '%s' "$MACOS_PROVISIONING_PROFILE_BASE64" | base64 --decode -o $PP_PATH
+
+          # Verify decoded files
+          echo "App cert size: $(wc -c < $CERTIFICATE_PATH) bytes"
+          echo "Installer cert size: $(wc -c < $INSTALLER_CERT_PATH) bytes"
+          echo "Provisioning profile size: $(wc -c < $PP_PATH) bytes"
 
           # Create temporary keychain
           security create-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
@@ -72,9 +79,7 @@ jobs:
           # Import app signing certificate to keychain
           security import $CERTIFICATE_PATH -P "$MACOS_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
 
-          # Decode and import installer certificate
-          INSTALLER_CERT_PATH=$RUNNER_TEMP/installer_certificate.p12
-          echo -n "$MACOS_INSTALLER_CERTIFICATE_BASE64" | base64 --decode -o $INSTALLER_CERT_PATH
+          # Import installer certificate to keychain
           security import $INSTALLER_CERT_PATH -P "$MACOS_INSTALLER_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
 
           security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
