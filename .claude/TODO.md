@@ -10,16 +10,19 @@
 - [x] In the map explorer, make the first point the default for the detail tab
 - [ ] Update the README with updated and missing pictures
 - [ ] Create a widget-by-widget instruction manual
-- [ ] Redo the device widget to be a meaningful device monitor
-- [ ] Add Apple certificate signing and notarization to macOS release workflow
+- [x] Redo the device widget to be a meaningful device monitor
+- [x] Add Apple certificate signing and notarization to macOS release workflow
 - [ ] Audit all widgets exposing PathSelectorDialog to verify they actually use the selected paths
 - [x] Investigate Windsteer Gauge — code exists (windsteer_tool.dart, windsteer_demo_tool.dart) but not registered in tool_registry; decide whether to register or remove
 - [x] Make vessel favorites sync across devices (follow the user, not the device)
-- [ ] Fix the macOS install to TestFlight
+- [x] Fix the macOS install to TestFlight
 - [ ] Clean up and create a standard suite of dashboards for each form factor:
   - Small phone, large phone, small tablet, tablet
   - Each with: Navigation, System Controls, Weather & Conditions, Analysis & Data
 - [x] Simplify the date picker in Map Explorer to a single calendar; add a "days back" option
+- [ ] Check why ais favorites are not syncing with devices
+- [ ] Remove light/dark toggle from menu
+- [ ] Add "What's New" markdown modal as a menu item
 
 ## Widget Inventory — AIS Context Status
 
