@@ -70,7 +70,7 @@ class DodgeAutopilotService {
   Future<bool> detectAutopilot() async {
     try {
       final detector = AutopilotApiDetector(
-        baseUrl: _signalKService.serverUrl,
+        baseUrl: _signalKService.httpBaseUrl,
         authToken: _signalKService.authToken?.token,
       );
 
@@ -81,7 +81,7 @@ class DodgeAutopilotService {
         if (instance != null) {
           _selectedInstanceId = instance.id;
           _v2Api = AutopilotV2Api(
-            baseUrl: _signalKService.serverUrl,
+            baseUrl: _signalKService.httpBaseUrl,
             authToken: _signalKService.authToken?.token,
           );
         }

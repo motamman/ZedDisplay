@@ -112,7 +112,7 @@ class _AutopilotToolState extends State<AutopilotTool> with AutomaticKeepAliveCl
   Future<void> _detectAndInitializeApi() async {
     try {
       final detector = AutopilotApiDetector(
-        baseUrl: widget.signalKService.serverUrl,
+        baseUrl: widget.signalKService.httpBaseUrl,
         authToken: widget.signalKService.authToken?.token,
       );
 
@@ -130,7 +130,7 @@ class _AutopilotToolState extends State<AutopilotTool> with AutomaticKeepAliveCl
 
           if (_selectedInstanceId != null) {
             _v2Api = AutopilotV2Api(
-              baseUrl: widget.signalKService.serverUrl,
+              baseUrl: widget.signalKService.httpBaseUrl,
               authToken: widget.signalKService.authToken?.token,
             );
 
