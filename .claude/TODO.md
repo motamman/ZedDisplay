@@ -21,9 +21,10 @@
   - Each with: Navigation, System Controls, Weather & Conditions, Analysis & Data
 - [x] Simplify the date picker in Map Explorer to a single calendar; add a "days back" option
 - [x] Check why ais favorites are not syncing with devices
-- [ ] Remove light/dark toggle from menu
-- [ ] Add "What's New" markdown modal as a menu item
+- [x] Remove light/dark toggle from menu
+- [x] Add "What's New" markdown modal as a menu item
 - [ ] Re-examine the entire messaging and notification system
+- [ ] Message deletion semantics: deleting a message locally also deletes from Resources API — should this propagate to other devices? Should there be a "delete for me" vs "delete for everyone" distinction? What about the WS delta cache?
 
 ## Widget Inventory — AIS Context Status
 
