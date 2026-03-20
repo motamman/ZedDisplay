@@ -150,6 +150,7 @@ jobs:
         uses: apple-actions/upload-testflight-build@v3
         with:
           app-path: ${{ steps.find_pkg.outputs.PKG_PATH || steps.find_pkg.outputs.APP_PATH }}
+          app-type: osx
           issuer-id: ${{ secrets.APPSTORE_ISSUER_ID }}
           api-key-id: ${{ secrets.APPSTORE_API_KEY_ID }}
           api-private-key: ${{ secrets.APPSTORE_API_PRIVATE_KEY }}
