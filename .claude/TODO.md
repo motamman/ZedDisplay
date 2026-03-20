@@ -20,9 +20,10 @@
   - Small phone, large phone, small tablet, tablet
   - Each with: Navigation, System Controls, Weather & Conditions, Analysis & Data
 - [x] Simplify the date picker in Map Explorer to a single calendar; add a "days back" option
-- [ ] Check why ais favorites are not syncing with devices
+- [x] Check why ais favorites are not syncing with devices
 - [ ] Remove light/dark toggle from menu
 - [ ] Add "What's New" markdown modal as a menu item
+- [ ] Re-examine the entire messaging and notification system
 
 ## Widget Inventory — AIS Context Status
 

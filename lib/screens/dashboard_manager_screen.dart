@@ -18,6 +18,7 @@ import 'tool_config_screen.dart';
 import 'tool_selector_screen.dart';
 // Removed: template_library_screen import (deprecated)
 import 'settings_screen.dart';
+import 'package:flutter_markdown/flutter_markdown.dart';
 import '../config/ui_constants.dart';
 import 'crew/crew_screen.dart';
 import '../widgets/crew/incoming_call_overlay.dart';
@@ -1182,9 +1183,8 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen>
       case 'editMode':
         setState(() => _isEditMode = !_isEditMode);
         break;
-      case 'theme':
-        final isDark = storageService.getThemeMode() == 'dark';
-        storageService.saveThemeMode(isDark ? 'light' : 'dark');
+      case 'whatsNew':
+        _showWhatsNew();
         break;
       case 'fullscreen':
         _toggleFullScreen();
@@ -1200,6 +1200,52 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen>
         );
         break;
     }
+  }
+
+  /// Show the "What's New" dialog with release notes
+  Future<void> _showWhatsNew() async {
+    final raw = await rootBundle.loadString('WHATSNEW.md');
+    // Only show the latest version (everything before the first "# Previous:" heading),
+    // and strip the truncated Google Play section
+    var content = raw.split(RegExp(r'\n# Previous:'))[0].trim();
+    content = content.replaceAll(
+      RegExp(r'## Release Notes \(Google Play[^\n]*\)\n(?:(?!## ).*\n)*'),
+      '',
+    );
+    content = content.replaceAll(
+      RegExp(r'## Release Notes \(App Store[^\n]*\)\n*'),
+      '',
+    );
+    if (!mounted) return;
+    final theme = Theme.of(context);
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text("What's New"),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: SingleChildScrollView(
+            child: MarkdownBody(
+              data: content,
+              styleSheet: MarkdownStyleSheet(
+                p: theme.textTheme.bodyMedium,
+                strong: theme.textTheme.bodyMedium?.copyWith(
+                  fontWeight: FontWeight.bold,
+                ),
+                listBullet: theme.textTheme.bodyMedium,
+              ),
+              shrinkWrap: true,
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
   }
 
   /// Build a menu item with icon and label (OpenMeteo pattern)
@@ -1329,7 +1375,6 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen>
           // Main menu dropdown (hamburger)
           Consumer<StorageService>(
             builder: (context, storageService, child) {
-              final isDark = storageService.getThemeMode() == 'dark';
               return PopupMenuButton<String>(
                 icon: const Icon(Icons.menu),
                 tooltip: 'Menu',
@@ -1341,10 +1386,10 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen>
                     _buildMenuItem(scaleService.getMenuItem('editMode'), 'editMode',
                         isActive: _isEditMode),
                     _buildMenuItem(
-                      scaleService.getMenuItem('theme'),
-                      'theme',
-                      customIcon: isDark ? Icons.light_mode : Icons.dark_mode,
-                      customLabel: isDark ? 'Light Mode' : 'Dark Mode',
+                      scaleService.getMenuItem('whatsNew'),
+                      'whatsNew',
+                      customIcon: Icons.new_releases_outlined,
+                      customLabel: "What's New",
                     ),
                     _buildMenuItem(scaleService.getMenuItem('fullscreen'), 'fullscreen',
                         isActive: _isFullScreen),
