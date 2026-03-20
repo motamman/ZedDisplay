@@ -1,7 +1,18 @@
+// =============================================================================
+// DEPRECATED — DO NOT USE OR RE-REGISTER
+//
+// This was the very first wind/heading display (Oct 2025, day 2 of the project).
+// All functionality has been superseded by WindCompassTool which provides:
+//   - Target AWA mode, laylines, VMG mode
+//   - Fixed slot configuration (10 named slots)
+//   - No-go zone visualization
+// Kept only for reference. Do NOT add back to tool_registry.
+// =============================================================================
+
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
-/// Comprehensive windsteer gauge widget mirroring Kip implementation
+/// DEPRECATED: Use WindCompassTool instead. See header comment.
 class WindsteerGauge extends StatelessWidget {
   // Required
   final double heading;

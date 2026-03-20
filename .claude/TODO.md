@@ -13,7 +13,7 @@
 - [x] Redo the device widget to be a meaningful device monitor
 - [x] Add Apple certificate signing and notarization to macOS release workflow
 - [ ] Audit all widgets exposing PathSelectorDialog to verify they actually use the selected paths
-- [x] Investigate Windsteer Gauge — code exists (windsteer_tool.dart, windsteer_demo_tool.dart) but not registered in tool_registry; decide whether to register or remove
+- [x] Investigate Windsteer Gauge — decided to remove (deprecated, superseded by Wind Compass). Files kept with deprecation headers.
 - [x] Make vessel favorites sync across devices (follow the user, not the device)
 - [x] Fix the macOS install to TestFlight
 - [ ] Clean up and create a standard suite of dashboards for each form factor:

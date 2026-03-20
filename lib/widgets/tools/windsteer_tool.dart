@@ -1,3 +1,10 @@
+// =============================================================================
+// DEPRECATED — DO NOT USE OR RE-REGISTER
+//
+// Early prototype wind display (Oct 2025). Superseded by WindCompassTool.
+// See windsteer_gauge.dart header for details. Do NOT add back to tool_registry.
+// =============================================================================
+
 import 'package:flutter/material.dart';
 import '../../models/tool_definition.dart';
 import '../../models/tool_config.dart';
@@ -6,7 +13,7 @@ import '../../services/tool_registry.dart';
 import '../../utils/color_extensions.dart';
 import '../windsteer_gauge.dart';
 
-/// Config-driven windsteer tool with comprehensive features
+/// DEPRECATED: Use WindCompassTool instead. See header comment.
 class WindsteerTool extends StatelessWidget {
   final ToolConfig config;
   final SignalKService signalKService;

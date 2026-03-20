@@ -8,7 +8,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.5.90+63] - 2026-03-20
 
 ### Added
-- **Windsteer Gauge — Registered**: Windsteer and Windsteer Demo tools now registered in the tool registry and available for placement on dashboards
 - **System Monitor — SignalK Connection Health**: Tracks connection state with uptime counter; shows DiagnosticService metrics (cache sizes, subscription counts, WS message rates)
 - **System Monitor — App Memory Y-Axis**: Dual Y-axis on the memory chart — left axis for system memory, right axis for app memory with improved label styling
 - **AIS Favorites — Server Sync**: Favorites now sync across devices via SignalK Resources API (`zeddisplay-favorites` resource type)
@@ -25,6 +24,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Text Display — String Value Support**: Text display tool now correctly renders string values (e.g., vessel name, state text) as-is, instead of attempting numeric conversion; layout wrapped in `SingleChildScrollView` to prevent overflow
 - **Dashboard Manager — Screen Selector**: Simplified screen selector dots with tap-to-reveal/tap-to-open behavior replacing the previous multi-layer animated opacity approach; screen management actions row now horizontally scrollable on narrow screens
 - **DiagnosticService — Public Getters**: Added public getters for improved data access by System Monitor tool
+
+### Removed
+- **Windsteer Gauge — Unregistered**: Windsteer and Windsteer Demo tools removed from tool registry. Early prototype (Oct 2025) fully superseded by Wind Compass tool. Files kept with deprecation headers for reference.
 
 ### Infrastructure
 - **macOS TestFlight Pipeline**: Complete overhaul of macOS release workflow for App Store Connect

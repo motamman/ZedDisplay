@@ -145,10 +145,6 @@ A customizable SignalK marine dashboard and crew comms application to display re
 
   <img src="screenshots/wind_compass.png" alt="Wind Compass" width="320">
 
-- **Windsteer Gauge**: B&G/Kip-style wind steering display for performance sailing
-  - Visual wind angle representation with target zones
-  - Demo mode available for testing without live data
-
 - **Autopilot**: Full autopilot control with compass display, mode selection, and tacking
 - **Autopilot Simple**: Text-based autopilot control without compass visualization — compact heading display with mode selection, tacking, and heading adjustment
 - **Autopilot V2**: Redesigned circular autopilot with nested controls

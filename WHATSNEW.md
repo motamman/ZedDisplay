@@ -4,7 +4,7 @@
 
 v0.5.90 AIS Favorites Sync, System Monitor & macOS TestFlight
 
-NEW: AIS vessel favorites now sync across devices via SignalK server. Windsteer gauge registered and available.
+NEW: AIS vessel favorites now sync across devices via SignalK server.
 
 NEW: System Monitor tracks SignalK connection health, app memory on dual Y-axis. Version shown in Settings.
 
@@ -22,9 +22,6 @@ IMPROVED: Historical Data Explorer days-back mode. Charts use local time. Text d
 - **SignalK Uptime** - Tracks connection state with live uptime counter showing how long you've been connected
 - **Diagnostic Metrics** - Shows cache sizes, subscription counts, and WebSocket message rates from DiagnosticService
 - **Dual Y-Axis Memory** - App memory charted on secondary Y-axis alongside system memory, with improved label styling
-
-### Windsteer Gauge (NEW)
-- **Now Available** - Windsteer and Windsteer Demo tools registered in tool registry and available for dashboard placement
 
 ### Historical Data Explorer (IMPROVED)
 - **Days-Back Mode** - New "lookback" time selector with quick presets (1d, 3d, 7d, 14d, 30d) — simpler than picking exact dates for common queries
