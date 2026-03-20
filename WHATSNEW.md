@@ -1,8 +1,56 @@
-# What's New in v0.5.86
+# What's New in v0.5.90
 
 ## Release Notes (Google Play - max 500 chars)
 
-v0.5.85 Historical Chart Contexts, TTL & Widget Polish
+v0.5.90 AIS Favorites Sync, System Monitor & macOS TestFlight
+
+NEW: AIS vessel favorites now sync across devices via SignalK server. Windsteer gauge registered and available.
+
+NEW: System Monitor tracks SignalK connection health, app memory on dual Y-axis. Version shown in Settings.
+
+IMPROVED: Historical Data Explorer days-back mode. Charts use local time. Text display handles strings. macOS TestFlight pipeline complete.
+
+## Release Notes (App Store / TestFlight - max 4000 chars)
+
+### AIS Favorites — Cross-Device Sync (NEW)
+- **Server-Side Storage** - Favorites now sync via SignalK Resources API (`zeddisplay-favorites`) so all your devices share the same list
+- **Conflict Resolution** - `lastModifiedAt` timestamp on each favorite; last-write-wins when edits happen on multiple devices
+- **Background Polling** - Remote changes pulled every 60 seconds; local mutations push immediately
+- **Offline Resilient** - Local persistence still works offline; syncs automatically on reconnect
+
+### System Monitor — Connection Health (NEW)
+- **SignalK Uptime** - Tracks connection state with live uptime counter showing how long you've been connected
+- **Diagnostic Metrics** - Shows cache sizes, subscription counts, and WebSocket message rates from DiagnosticService
+- **Dual Y-Axis Memory** - App memory charted on secondary Y-axis alongside system memory, with improved label styling
+
+### Windsteer Gauge (NEW)
+- **Now Available** - Windsteer and Windsteer Demo tools registered in tool registry and available for dashboard placement
+
+### Historical Data Explorer (IMPROVED)
+- **Days-Back Mode** - New "lookback" time selector with quick presets (1d, 3d, 7d, 14d, 30d) — simpler than picking exact dates for common queries
+- **Saved Draw Points** - Search areas now store explicit draw points for precise area recreation
+
+### Charts & Display (IMPROVED)
+- **Local Time** - Historical line chart date labels and data points now display in local time instead of UTC
+- **Text Display** - String values (vessel name, state text) now render correctly; layout handles overflow with scrolling
+
+### Settings (NEW)
+- **Version Display** - App version and build number shown in Settings via `package_info_plus`
+
+### SignalK Connection (IMPROVED)
+- **Earlier Vessel Context** - Vessel identity resolved before connection listeners fire, preventing race conditions where subscriptions or cached deltas arrived before vessel routing was ready
+
+### macOS TestFlight (INFRASTRUCTURE)
+- **Complete Pipeline** - macOS release workflow fully reworked for App Store Connect: installer certificate, Apple intermediate CA, provisioning profile with UUID, TestFlight upload via `xcrun altool`
+- **Manual Triggers** - All release workflows (Android, iOS, Linux, macOS, Windows) now support manual execution from GitHub Actions UI
+
+---
+
+# Previous: v0.5.86
+
+## Release Notes (Google Play - max 500 chars)
+
+v0.5.86 Historical Chart Contexts, TTL & Widget Polish
 
 NEW: Historical charts support vessel context — query data for AIS vessels, not just own boat. CPA alerts integrated with AIS polar chart.
 

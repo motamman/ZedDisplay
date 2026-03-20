@@ -100,6 +100,7 @@ A customizable SignalK marine dashboard and crew comms application to display re
   - Per-point detail view with sparkline charts for each queried path
   - Double-tap any sparkline to view an expanded chart modal
   - **Timeline Playback**: Play/pause through results with forward/reverse, jump ±10, speed control (1x–10x), and scrub slider
+  - **Days-Back Mode**: Quick presets (1d, 3d, 7d, 14d, 30d) as an alternative to date range picker
   - Save and reload search areas; share results as CSV or JSON
   - Zoom controls, zoom-to-fit area, and homeport button
   - Map/detail/table tab views with swipe navigation
@@ -117,6 +118,8 @@ A customizable SignalK marine dashboard and crew comms application to display re
   - CPA/TCPA calculations for collision avoidance
   - **CPA Alerts**: Configurable collision alerts with distance and time thresholds
   - **Vessel Favorites**: Mark vessels of interest with heart icon, get notified when they appear in AIS range
+    - Favorites sync across devices via SignalK Resources API — all your devices share the same list
+    - Conflict resolution via `lastModifiedAt` timestamps (last-write-wins)
     - Favorites tab with live distance/SOG for in-range vessels
     - Manual add by MMSI for vessels not currently visible
     - Detection works even when AIS chart is off-screen or app is backgrounded
@@ -141,6 +144,10 @@ A customizable SignalK marine dashboard and crew comms application to display re
   - Shows heading (true/magnetic), wind direction (true/apparent), SOG, and COG
 
   <img src="screenshots/wind_compass.png" alt="Wind Compass" width="320">
+
+- **Windsteer Gauge**: B&G/Kip-style wind steering display for performance sailing
+  - Visual wind angle representation with target zones
+  - Demo mode available for testing without live data
 
 - **Autopilot**: Full autopilot control with compass display, mode selection, and tacking
 - **Autopilot Simple**: Text-based autopilot control without compass visualization — compact heading display with mode selection, tacking, and heading adjustment
@@ -275,6 +282,14 @@ A customizable SignalK marine dashboard and crew comms application to display re
   - Requires signalk-rpi-monitor and signalk-rpi-uptime plugins
 
   <img src="screenshots/RPI_monitor.png" alt="RPi Monitor" width="350">
+
+- **System Monitor**: App and device performance monitoring
+  - SignalK connection health with live uptime counter
+  - Memory history chart with dual Y-axis (system memory + app memory)
+  - Battery level and charging state
+  - DiagnosticService metrics (cache sizes, subscription counts, WebSocket message rates)
+  - Configurable chart duration
+  - Clean exit / crash detection
 
 - **User Management**: SignalK user account administration
   - View and manage server users
