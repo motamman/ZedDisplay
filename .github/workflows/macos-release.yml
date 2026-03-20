@@ -95,9 +95,11 @@ jobs:
           echo "=== All identities ==="
           security find-identity -v $KEYCHAIN_PATH
 
-          # Install provisioning profile
+          # Install provisioning profile (must be saved with UUID as filename)
           mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
-          cp $PP_PATH ~/Library/MobileDevice/Provisioning\ Profiles/
+          PP_UUID=$(/usr/libexec/PlistBuddy -c "Print UUID" /dev/stdin <<< $(/usr/bin/security cms -D -i $PP_PATH))
+          echo "Provisioning profile UUID: $PP_UUID"
+          cp $PP_PATH ~/Library/MobileDevice/Provisioning\ Profiles/$PP_UUID.provisionprofile
 
       - name: Build macOS release
         run: flutter build macos --release
