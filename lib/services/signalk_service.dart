@@ -927,6 +927,10 @@ class SignalKService extends ChangeNotifier implements DataService {
     _connectionStateController.add(SignalKConnectionState.connected);
     notifyListeners();
 
+    // Clear stale data from previous session so ghost paths don't accumulate
+    _dataCache.internalDataMap.clear();
+    _latestDataView = null;
+
     // Re-send existing subscriptions to the new WebSocket
     await _updateSubscription();
 

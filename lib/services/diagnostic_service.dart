@@ -55,6 +55,10 @@ class DiagnosticService {
   int get snapshotCount => _snapshots.length;
   DateTime? get startTime => _startTime;
 
+  /// Optional callback to get active widget inventory for snapshots.
+  /// Returns list of tool type IDs (e.g., ['radial_gauge', 'ais_polar_chart']).
+  List<String> Function()? getActiveToolTypes;
+
   DiagnosticService._({
     required SignalKService signalKService,
     required String deviceId,
@@ -232,6 +236,8 @@ class DiagnosticService {
         'notificationTime': _signalKService.notificationTimeCount,
         'diagnosticSnapshots': _snapshots.length,
       },
+      if (getActiveToolTypes != null)
+        'activeTools': getActiveToolTypes!(),
     };
 
     _snapshots.add(snapshot);
