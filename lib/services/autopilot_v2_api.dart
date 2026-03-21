@@ -42,14 +42,12 @@ class AutopilotV2Api {
         final data = jsonDecode(response.body) as Map<String, dynamic>;
         final instances = <AutopilotInstance>[];
 
-        // Parse instances from response
-        if (data['autopilots'] != null) {
-          for (var entry in (data['autopilots'] as Map).entries) {
-            instances.add(AutopilotInstance.fromJson({
-              'id': entry.key,
-              ...entry.value as Map<String, dynamic>,
-            }));
-          }
+        // Server returns instances at top level: {"raySTNGConv": {...}, ...}
+        for (var entry in data.entries) {
+          instances.add(AutopilotInstance.fromJson({
+            'id': entry.key,
+            ...(entry.value as Map<String, dynamic>),
+          }));
         }
 
         return instances;
@@ -108,33 +106,58 @@ class AutopilotV2Api {
     await _executeCommand(url, 'POST');
   }
 
-  /// Set autopilot mode
+  /// Set autopilot state (standby, auto, wind, route)
+  ///
+  /// V2 API uses "state" not "mode" — states map to engage/disengage + mode.
   Future<void> setMode(String instanceId, String mode) async {
     final url = Uri.parse(
-        '$baseUrl/signalk/v2/api/vessels/self/autopilots/$instanceId/mode');
+        '$baseUrl/signalk/v2/api/vessels/self/autopilots/$instanceId/state');
 
     await _executeCommand(url, 'PUT', body: {'value': mode});
   }
 
-  /// Set absolute target heading (degrees)
-  Future<void> setTarget(String instanceId, double heading) async {
-    final url = Uri.parse(
-        '$baseUrl/signalk/v2/api/vessels/self/autopilots/$instanceId/target');
+  /// Set absolute target heading (degrees).
+  ///
+  /// Workaround: signalk-autopilot plugin has a bug where `apData.mode` is
+  /// never populated, so the V2 `setTarget` endpoint always throws 500.
+  /// We compute the delta from current target and use `adjustTarget` instead.
+  /// See devdocs/signalk-autopilot-setTarget-bug.md
+  Future<void> setTarget(String instanceId, double headingDeg) async {
+    // Get current target from autopilot info
+    final info = await getAutopilotInfo(instanceId);
+    final currentTargetRad = info.target;
 
-    await _executeCommand(url, 'PUT', body: {
-      'value': heading,
-      'units': 'deg',
-    });
+    if (currentTargetRad != null) {
+      // Convert current target from radians to degrees
+      final currentDeg = currentTargetRad * 180.0 / 3.141592653589793;
+      // Compute shortest delta
+      double delta = headingDeg - currentDeg;
+      // Normalize to -180..+180
+      while (delta > 180) delta -= 360;
+      while (delta < -180) delta += 360;
+
+      final deltaInt = delta.round();
+      if (deltaInt != 0) {
+        await adjustTarget(instanceId, deltaInt);
+      }
+    } else {
+      // No current target — fall back to direct API (may 500 due to plugin bug)
+      final url = Uri.parse(
+          '$baseUrl/signalk/v2/api/vessels/self/autopilots/$instanceId/target');
+      final headingRad = headingDeg * 3.141592653589793 / 180.0;
+      await _executeCommand(url, 'PUT', body: {'value': headingRad});
+    }
   }
 
-  /// Adjust target heading by relative amount (degrees)
+  /// Adjust target heading by relative amount (degrees, converted to radians)
   Future<void> adjustTarget(String instanceId, int degrees) async {
     final url = Uri.parse(
         '$baseUrl/signalk/v2/api/vessels/self/autopilots/$instanceId/target/adjust');
 
+    // Plugin does radiansToDegrees(value), so send radians
+    final radians = degrees * 3.141592653589793 / 180.0;
     await _executeCommand(url, 'PUT', body: {
-      'value': degrees,
-      'units': 'deg',
+      'value': radians,
     });
   }
 
