@@ -88,6 +88,7 @@ class _AutopilotWidgetV2State extends State<AutopilotWidgetV2> {
   // Target arrow dragging state
   bool _isDraggingTarget = false;
   double? _dragTargetHeading;
+  double _dragStartHeading = 0; // frozen heading at drag start
 
   @override
   void dispose() {
@@ -126,6 +127,7 @@ class _AutopilotWidgetV2State extends State<AutopilotWidgetV2> {
     setState(() {
       _isDraggingTarget = true;
       _dragTargetHeading = widget.targetHeading;
+      _dragStartHeading = widget.currentHeading;
       _controlsOpacity = 0.85;
     });
     _dimTimer?.cancel();
@@ -142,8 +144,9 @@ class _AutopilotWidgetV2State extends State<AutopilotWidgetV2> {
     var screenAngle = math.atan2(dx, -dy) * 180 / math.pi;
     if (screenAngle < 0) screenAngle += 360;
 
-    // Compass is rotated so currentHeading is at top — convert to compass heading
-    var heading = (screenAngle + widget.currentHeading) % 360;
+    // Use frozen heading from drag start so the selector doesn't jump
+    // as the boat turns mid-drag
+    var heading = (screenAngle + _dragStartHeading) % 360;
 
     setState(() {
       _dragTargetHeading = heading;
@@ -544,19 +547,25 @@ class _AutopilotWidgetV2State extends State<AutopilotWidgetV2> {
           : const Color(0xFF00E676).withValues(alpha: enabled ? 0.85 : 0.25); // Vibrant green
 
       return Positioned.fill(
-        child: GestureDetector(
-          onTap: enabled ? () {
-            widget.onAdjustHeading?.call(degrees);
-            _onHeadingAdjustmentSent();
-          } : null,
-          child: CustomPaint(
-            painter: _BananaButtonPainter(
-              startAngle: startAngle,
-              sweepAngle: sweepAngle,
-              color: buttonColor,
-              enabled: enabled,
-              isPort: isPort,
-              isLarge: degrees.abs() == 10,
+        child: ClipPath(
+          clipper: _BananaClipper(
+            startAngle: startAngle,
+            sweepAngle: sweepAngle,
+          ),
+          child: GestureDetector(
+            onTap: enabled ? () {
+              widget.onAdjustHeading?.call(degrees);
+              _onHeadingAdjustmentSent();
+            } : null,
+            child: CustomPaint(
+              painter: _BananaButtonPainter(
+                startAngle: startAngle,
+                sweepAngle: sweepAngle,
+                color: buttonColor,
+                enabled: enabled,
+                isPort: isPort,
+                isLarge: degrees.abs() == 10,
+              ),
             ),
           ),
         ),
@@ -656,16 +665,22 @@ class _AutopilotWidgetV2State extends State<AutopilotWidgetV2> {
         : const Color(0xFFE040FB).withValues(alpha: enabled ? 0.85 : 0.25); // Vibrant purple for gybe
 
     return Positioned.fill(
-      child: GestureDetector(
-        onTap: enabled ? onPressed : null,
-        child: CustomPaint(
-          painter: _TackGybeBananaPainter(
-            startAngle: startAngle,
-            sweepAngle: sweepAngle,
-            color: buttonColor,
-            enabled: enabled,
-            isPort: isPort,
-            label: label,
+      child: ClipPath(
+        clipper: _BananaClipper(
+          startAngle: startAngle,
+          sweepAngle: sweepAngle,
+        ),
+        child: GestureDetector(
+          onTap: enabled ? onPressed : null,
+          child: CustomPaint(
+            painter: _TackGybeBananaPainter(
+              startAngle: startAngle,
+              sweepAngle: sweepAngle,
+              color: buttonColor,
+              enabled: enabled,
+              isPort: isPort,
+              label: label,
+            ),
           ),
         ),
       ),
@@ -677,15 +692,21 @@ class _AutopilotWidgetV2State extends State<AutopilotWidgetV2> {
     final buttonColor = const Color(0xFF00B0FF).withValues(alpha: enabled ? 0.85 : 0.25); // Vibrant blue
 
     return Positioned.fill(
-      child: GestureDetector(
-        onTap: enabled ? () {
-          widget.onAdvanceWaypoint?.call();
-          _onHeadingAdjustmentSent();
-        } : null,
-        child: CustomPaint(
-          painter: _AdvanceWaypointBananaPainter(
-            color: buttonColor,
-            enabled: enabled,
+      child: ClipPath(
+        clipper: _BananaClipper(
+          startAngle: -115.0,
+          sweepAngle: 50.0,
+        ),
+        child: GestureDetector(
+          onTap: enabled ? () {
+            widget.onAdvanceWaypoint?.call();
+            _onHeadingAdjustmentSent();
+          } : null,
+          child: CustomPaint(
+            painter: _AdvanceWaypointBananaPainter(
+              color: buttonColor,
+              enabled: enabled,
+            ),
           ),
         ),
       ),
@@ -1150,6 +1171,47 @@ class _NoGoZoneVPainter extends CustomPainter {
     return oldDelegate.windDirection != windDirection ||
            oldDelegate.noGoAngle != noGoAngle;
   }
+}
+
+/// Clips hit area to the banana shape so each button only responds to its own region
+class _BananaClipper extends CustomClipper<Path> {
+  final double startAngle;
+  final double sweepAngle;
+
+  _BananaClipper({required this.startAngle, required this.sweepAngle});
+
+  @override
+  Path getClip(Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+    final outerRadius = math.min(size.width, size.height) / 2 * 0.82;
+    final innerRadius = outerRadius * 0.75;
+    final startRad = startAngle * math.pi / 180;
+    final sweepRad = sweepAngle * math.pi / 180;
+
+    final path = Path();
+    path.addArc(
+      Rect.fromCircle(center: center, radius: outerRadius),
+      startRad,
+      sweepRad,
+    );
+    final innerEndAngle = startRad + sweepRad;
+    path.lineTo(
+      center.dx + innerRadius * math.cos(innerEndAngle),
+      center.dy + innerRadius * math.sin(innerEndAngle),
+    );
+    path.arcTo(
+      Rect.fromCircle(center: center, radius: innerRadius),
+      innerEndAngle,
+      -sweepRad,
+      false,
+    );
+    path.close();
+    return path;
+  }
+
+  @override
+  bool shouldReclip(_BananaClipper oldClipper) =>
+      oldClipper.startAngle != startAngle || oldClipper.sweepAngle != sweepAngle;
 }
 
 /// Custom painter for banana-shaped buttons with arrows

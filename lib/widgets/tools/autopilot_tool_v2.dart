@@ -116,6 +116,7 @@ class _AutopilotToolV2State extends State<AutopilotToolV2> with AutomaticKeepAli
               baseUrl: widget.signalKService.httpBaseUrl,
               authToken: widget.signalKService.authToken?.token,
             );
+            _v2Api!.useKeystrokeStrategy = _selectedInstanceId == 'raySTNGConv';
             _initializeV2Api();
           }
         } else {
@@ -234,6 +235,9 @@ class _AutopilotToolV2State extends State<AutopilotToolV2> with AutomaticKeepAli
       if (dataSources.length > 3) {
         final converted = _getConverted(dataSources[3].path);
         if (converted != null) {
+          if ((converted - _targetHeading).abs() > 0.5) {
+            print('DEBUG _targetHeading updated: $_targetHeading -> $converted');
+          }
           _targetHeading = converted;
         }
       }
@@ -462,10 +466,10 @@ class _AutopilotToolV2State extends State<AutopilotToolV2> with AutomaticKeepAli
         );
       },
       v2Command: () async {
-        await _v2Api!.setTarget(_selectedInstanceId!, heading);
+        await _v2Api!.setTarget(_selectedInstanceId!, heading, currentHeadingDeg: _targetHeading);
       },
-      verifyPath: 'steering.autopilot.target.headingMagnetic',
-      verifyValue: heading,
+      verifyPath: null,
+      verifyValue: null,
     );
   }
 

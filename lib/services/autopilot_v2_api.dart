@@ -15,6 +15,11 @@ class AutopilotV2Api {
   final String? authToken;
   final http.Client _client;
 
+  /// When true, setTarget uses incremental keystroke commands (+1/-1/+10/-10)
+  /// instead of the direct /target endpoint. Required for raySTNGConv provider
+  /// which can only simulate button presses, not set absolute headings.
+  bool useKeystrokeStrategy = false;
+
   AutopilotV2Api({
     required this.baseUrl,
     this.authToken,
@@ -116,48 +121,61 @@ class AutopilotV2Api {
     await _executeCommand(url, 'PUT', body: {'value': mode});
   }
 
-  /// Set absolute target heading (degrees).
-  ///
-  /// Workaround: signalk-autopilot plugin has a bug where `apData.mode` is
-  /// never populated, so the V2 `setTarget` endpoint always throws 500.
-  /// We compute the delta from current target and use `adjustTarget` instead.
-  /// See devdocs/signalk-autopilot-setTarget-bug.md
-  Future<void> setTarget(String instanceId, double headingDeg) async {
-    // Get current target from autopilot info
-    final info = await getAutopilotInfo(instanceId);
-    final currentTargetRad = info.target;
-
-    if (currentTargetRad != null) {
-      // Convert current target from radians to degrees
-      final currentDeg = currentTargetRad * 180.0 / 3.141592653589793;
-      // Compute shortest delta
-      double delta = headingDeg - currentDeg;
-      // Normalize to -180..+180
-      while (delta > 180) delta -= 360;
-      while (delta < -180) delta += 360;
-
-      final deltaInt = delta.round();
-      if (deltaInt != 0) {
-        await adjustTarget(instanceId, deltaInt);
-      }
+  /// Set absolute target heading (degrees, converted to radians for server)
+  /// [currentHeadingDeg] is used as fallback when the server has no target
+  /// (needed for keystroke strategy where the converter doesn't report target back)
+  Future<void> setTarget(String instanceId, double headingDeg, {double? currentHeadingDeg}) async {
+    if (useKeystrokeStrategy) {
+      await _setTargetViaKeystrokes(instanceId, headingDeg, currentHeadingDeg: currentHeadingDeg);
     } else {
-      // No current target — fall back to direct API (may 500 due to plugin bug)
       final url = Uri.parse(
           '$baseUrl/signalk/v2/api/vessels/self/autopilots/$instanceId/target');
-      final headingRad = headingDeg * 3.141592653589793 / 180.0;
-      await _executeCommand(url, 'PUT', body: {'value': headingRad});
+      await _executeCommand(url, 'PUT', body: {'value': headingDeg, 'units': 'deg'});
     }
   }
 
-  /// Adjust target heading by relative amount (degrees, converted to radians)
+  /// Set heading by decomposing into +10/-10 and +1/-1 keystroke commands.
+  /// Used for providers like raySTNGConv that only support button simulation.
+  Future<void> _setTargetViaKeystrokes(String instanceId, double headingDeg, {double? currentHeadingDeg}) async {
+    // Use current compass heading as reference — the converter doesn't
+    // reliably report target back via the API
+    final referenceDeg = currentHeadingDeg ?? 0.0;
+    double delta = headingDeg - referenceDeg;
+    print('DEBUG keystroke: headingDeg=$headingDeg referenceDeg=$referenceDeg delta=$delta');
+    // Normalize to -180..+180
+    while (delta > 180) delta -= 360;
+    while (delta < -180) delta += 360;
+
+    final deltaInt = delta.round();
+    if (deltaInt == 0) return;
+
+    final sign = deltaInt > 0 ? 1 : -1;
+    final absDelta = deltaInt.abs();
+    final tens = absDelta ~/ 10;
+    final ones = absDelta % 10;
+
+    for (var i = 0; i < tens; i++) {
+      await adjustTarget(instanceId, sign * 10);
+      if (i < tens - 1 || ones > 0) {
+        await Future.delayed(const Duration(milliseconds: 100));
+      }
+    }
+    for (var i = 0; i < ones; i++) {
+      await adjustTarget(instanceId, sign * 1);
+      if (i < ones - 1) {
+        await Future.delayed(const Duration(milliseconds: 100));
+      }
+    }
+  }
+
+  /// Adjust target heading by relative amount in degrees
   Future<void> adjustTarget(String instanceId, int degrees) async {
     final url = Uri.parse(
         '$baseUrl/signalk/v2/api/vessels/self/autopilots/$instanceId/target/adjust');
 
-    // Plugin does radiansToDegrees(value), so send radians
-    final radians = degrees * 3.141592653589793 / 180.0;
     await _executeCommand(url, 'PUT', body: {
-      'value': radians,
+      'value': degrees,
+      'units': 'deg',
     });
   }
 

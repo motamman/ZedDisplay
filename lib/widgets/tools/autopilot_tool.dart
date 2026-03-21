@@ -133,7 +133,7 @@ class _AutopilotToolState extends State<AutopilotTool> with AutomaticKeepAliveCl
               baseUrl: widget.signalKService.httpBaseUrl,
               authToken: widget.signalKService.authToken?.token,
             );
-
+            _v2Api!.useKeystrokeStrategy = _selectedInstanceId == 'raySTNGConv';
             _initializeV2Api();
           }
         } else {
@@ -556,10 +556,10 @@ class _AutopilotToolState extends State<AutopilotTool> with AutomaticKeepAliveCl
         );
       },
       v2Command: () async {
-        await _v2Api!.setTarget(_selectedInstanceId!, heading);
+        await _v2Api!.setTarget(_selectedInstanceId!, heading, currentHeadingDeg: _targetHeading);
       },
-      verifyPath: 'steering.autopilot.target.headingMagnetic',
-      verifyValue: heading,
+      verifyPath: null,
+      verifyValue: null,
     );
   }
 
