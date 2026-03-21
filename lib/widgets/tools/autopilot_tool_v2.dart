@@ -235,9 +235,6 @@ class _AutopilotToolV2State extends State<AutopilotToolV2> with AutomaticKeepAli
       if (dataSources.length > 3) {
         final converted = _getConverted(dataSources[3].path);
         if (converted != null) {
-          if ((converted - _targetHeading).abs() > 0.5) {
-            print('DEBUG _targetHeading updated: $_targetHeading -> $converted');
-          }
           _targetHeading = converted;
         }
       }

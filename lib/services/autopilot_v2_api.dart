@@ -141,7 +141,6 @@ class AutopilotV2Api {
     // reliably report target back via the API
     final referenceDeg = currentHeadingDeg ?? 0.0;
     double delta = headingDeg - referenceDeg;
-    print('DEBUG keystroke: headingDeg=$headingDeg referenceDeg=$referenceDeg delta=$delta');
     // Normalize to -180..+180
     while (delta > 180) delta -= 360;
     while (delta < -180) delta += 360;
