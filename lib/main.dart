@@ -425,7 +425,6 @@ class _ZedDisplayAppState extends State<ZedDisplayApp> with WidgetsBindingObserv
 
   bool _wakelockEnabled = false;
   bool _wasConnectedForServices = false;
-
   void _onConnectionChanged() {
     final isConnected = widget.signalKService.isConnected;
     if (isConnected == _wasConnectedForServices) return;

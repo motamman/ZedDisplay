@@ -106,8 +106,14 @@ class SignalKService extends ChangeNotifier implements DataService {
 
   // Configuration
   String _serverUrl = 'localhost:3000';
+  String? _previousServerUrl;
   bool _useSecureConnection = false;
   AuthToken? _authToken;
+
+  /// Increments only when connecting to a DIFFERENT server URL.
+  /// Used to key the widget tree — forces full rebuild on server switch.
+  int _serverGeneration = 0;
+  int get serverGeneration => _serverGeneration;
 
   // Zones cache service
   ZonesCacheService? _zonesCache;
@@ -355,6 +361,10 @@ class SignalKService extends ChangeNotifier implements DataService {
       await Future.delayed(const Duration(milliseconds: 800));
     }
 
+    if (_previousServerUrl != null && _previousServerUrl != serverUrl) {
+      _serverGeneration++;
+    }
+    _previousServerUrl = serverUrl;
     _serverUrl = serverUrl;
     _useSecureConnection = secure;
     _authToken = authToken;

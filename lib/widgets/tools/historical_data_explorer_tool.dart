@@ -357,7 +357,12 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
       final lat = (pos['latitude'] as num?)?.toDouble();
       final lon = (pos['longitude'] as num?)?.toDouble();
       if (lat != null && lon != null) {
+        final wasNull = _vesselPosition == null;
         _vesselPosition = LatLng(lat, lon);
+        // Snap map to vessel on first position fix (e.g. after server switch)
+        if (wasNull && _state == ExplorerState.idle) {
+          try { _mapController.move(_vesselPosition!, _mapController.camera.zoom); } catch (_) {}
+        }
       }
     }
   }
@@ -378,7 +383,7 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
     if (_centeredOnHomeport && _homeportPosition != null) {
       return _homeportPosition!;
     }
-    return _vesselPosition ?? const LatLng(0, 0);
+    return _vesselPosition ?? _homeportPosition ?? const LatLng(0, 0);
   }
 
   LatLng? get _areaCenter {
