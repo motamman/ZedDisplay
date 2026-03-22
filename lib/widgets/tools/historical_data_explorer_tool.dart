@@ -871,10 +871,11 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
     if (_resultPoints.length < 2) return;
 
     final points = _resultPoints.map((p) => p.position).toList();
-    double tolerance = 50.0;
-    var simplified = simplifyTrack(points, tolerance);
+    double headingThreshold = 15.0;
+    var simplified = simplifyTrack(points, headingThreshold);
+    var distNM = metersToNM(trackDistanceMeters(simplified));
 
-    final result = await showDialog<({String name, String description, double tolerance})>(
+    final result = await showDialog<({String name, String description, double threshold})>(
       context: context,
       builder: (ctx) {
         final nameController = TextEditingController(
@@ -901,24 +902,25 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
                   ),
                   const SizedBox(height: 16),
                   Text(
-                    '${points.length} points reduced to ${simplified.length} waypoints',
+                    '${points.length} points \u2192 ${simplified.length} waypoints \u2022 ${distNM.toStringAsFixed(1)} NM',
                     style: const TextStyle(fontSize: 12),
                   ),
                   const SizedBox(height: 8),
                   Row(
                     children: [
-                      const Text('Detail:', style: TextStyle(fontSize: 12)),
+                      const Text('Turn detail:', style: TextStyle(fontSize: 12)),
                       Expanded(
                         child: Slider(
-                          value: tolerance,
-                          min: 5,
-                          max: 500,
-                          divisions: 99,
-                          label: '${tolerance.round()}m',
+                          value: headingThreshold,
+                          min: 2,
+                          max: 45,
+                          divisions: 43,
+                          label: '${headingThreshold.round()}\u00B0',
                           onChanged: (v) {
                             setDialogState(() {
-                              tolerance = v;
-                              simplified = simplifyTrack(points, tolerance);
+                              headingThreshold = v;
+                              simplified = simplifyTrack(points, headingThreshold);
+                              distNM = metersToNM(trackDistanceMeters(simplified));
                             });
                           },
                         ),
@@ -936,7 +938,7 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
                   onPressed: () {
                     final name = nameController.text.trim();
                     if (name.isEmpty) return;
-                    Navigator.pop(ctx, (name: name, description: descController.text.trim(), tolerance: tolerance));
+                    Navigator.pop(ctx, (name: name, description: descController.text.trim(), threshold: headingThreshold));
                   },
                   child: const Text('Save'),
                 ),
@@ -949,28 +951,25 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
 
     if (result == null) return;
 
-    final finalSimplified = simplifyTrack(points, result.tolerance);
+    final finalSimplified = simplifyTrack(points, result.threshold);
     final coordinates = finalSimplified
         .map((p) => [p.longitude, p.latitude])
         .toList();
-
-    // Calculate total distance
-    double totalDist = 0;
-    const dist = Distance();
-    for (var i = 1; i < finalSimplified.length; i++) {
-      totalDist += dist.as(LengthUnit.Meter, finalSimplified[i - 1], finalSimplified[i]);
-    }
+    final totalDistMeters = trackDistanceMeters(finalSimplified);
 
     final id = const Uuid().v4();
     final data = {
       'name': result.name,
       'description': result.description,
-      'distance': totalDist.round(),
+      'distance': totalDistMeters.round(),
       'feature': {
         'type': 'Feature',
         'geometry': {'type': 'LineString', 'coordinates': coordinates},
         'properties': {
-          'coordinatesMeta': coordinates.map((_) => {'name': ''}).toList(),
+          'coordinatesMeta': List.generate(
+            coordinates.length,
+            (i) => {'name': 'WPT ${i + 1}'},
+          ),
         },
         'id': '',
       },
@@ -979,7 +978,7 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
     final success = await widget.signalKService.putResource('routes', id, data);
     if (mounted) {
       _showSnack(success
-          ? 'Route saved: ${result.name} (${coordinates.length} waypoints)'
+          ? 'Route saved: ${result.name} (${coordinates.length} waypoints, ${metersToNM(totalDistMeters).toStringAsFixed(1)} NM)'
           : 'Failed to save route');
     }
   }
@@ -1651,7 +1650,7 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
                       // -- Lookback dropdown --
                       if (localTimeMode == 'lookback')
                         DropdownButtonFormField<String>(
-                          value: localLookback,
+                          initialValue: localLookback,
                           decoration: const InputDecoration(
                             isDense: true,
                             contentPadding: EdgeInsets.symmetric(
@@ -2384,7 +2383,7 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
                 );
               } else if (isAngle) {
                 markerChild = Transform.rotate(
-                  angle: rawSiValue ?? 0,
+                  angle: rawSiValue,
                   child: Icon(
                     Icons.navigation,
                     color: markerColor,
