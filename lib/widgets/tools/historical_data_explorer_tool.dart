@@ -21,6 +21,8 @@ import '../../services/signalk_service.dart';
 import '../../services/storage_service.dart';
 import '../../services/historical_data_service.dart';
 import '../../services/tool_registry.dart';
+import '../../utils/track_simplifier.dart';
+import 'package:uuid/uuid.dart';
 
 // ---------------------------------------------------------------------------
 // Builder
@@ -764,6 +766,216 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
         );
       },
     );
+  }
+
+  // --------------- Save as Waypoint / Track / Route ---------------
+
+  Future<String?> _showNameDialog(String title, String defaultName) async {
+    final controller = TextEditingController(text: defaultName);
+    return showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(title),
+        content: TextField(
+          controller: controller,
+          decoration: const InputDecoration(labelText: 'Name'),
+          autofocus: true,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () {
+              final name = controller.text.trim();
+              if (name.isEmpty) return;
+              Navigator.pop(ctx, name);
+            },
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _saveAsWaypoint(_ResultPoint point) async {
+    final name = await _showNameDialog(
+      'Save Waypoint',
+      'Wpt ${_fmtDate(point.timestamp)} ${_fmtAmPm(point.timestamp)}',
+    );
+    if (name == null) return;
+
+    final id = const Uuid().v4();
+    final data = {
+      'name': name,
+      'description': '',
+      'feature': {
+        'type': 'Feature',
+        'geometry': {
+          'type': 'Point',
+          'coordinates': [point.position.longitude, point.position.latitude],
+        },
+        'properties': {},
+      },
+    };
+
+    final success = await widget.signalKService.putResource('waypoints', id, data);
+    if (mounted) {
+      _showSnack(success ? 'Waypoint saved: $name' : 'Failed to save waypoint');
+    }
+  }
+
+  Future<void> _saveAsTrack() async {
+    if (_resultPoints.length < 2) return;
+
+    final dateRange = '${_fmtDate(_resultPoints.first.timestamp)} - ${_fmtDate(_resultPoints.last.timestamp)}';
+    final name = await _showNameDialog('Save Track', 'Track $dateRange');
+    if (name == null) return;
+
+    final coordinates = _resultPoints
+        .map((p) => [p.position.longitude, p.position.latitude])
+        .toList();
+
+    final id = const Uuid().v4();
+    final data = {
+      'feature': {
+        'type': 'Feature',
+        'geometry': {
+          'type': 'MultiLineString',
+          'coordinates': [coordinates],
+        },
+        'properties': {
+          'name': name,
+          'description': '',
+        },
+        'id': '',
+      },
+    };
+
+    final success = await widget.signalKService.putResource('tracks', id, data);
+    if (mounted) {
+      _showSnack(success
+          ? 'Track saved: $name (${coordinates.length} points)'
+          : 'Failed to save track');
+    }
+  }
+
+  Future<void> _saveAsRoute() async {
+    if (_resultPoints.length < 2) return;
+
+    final points = _resultPoints.map((p) => p.position).toList();
+    double tolerance = 50.0;
+    var simplified = simplifyTrack(points, tolerance);
+
+    final result = await showDialog<({String name, String description, double tolerance})>(
+      context: context,
+      builder: (ctx) {
+        final nameController = TextEditingController(
+          text: 'Route ${_fmtDate(_resultPoints.first.timestamp)}',
+        );
+        final descController = TextEditingController();
+        return StatefulBuilder(
+          builder: (ctx, setDialogState) {
+            return AlertDialog(
+              title: const Text('Save as Route'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: nameController,
+                    decoration: const InputDecoration(labelText: 'Name'),
+                    autofocus: true,
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: descController,
+                    decoration: const InputDecoration(labelText: 'Description'),
+                    maxLines: 2,
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    '${points.length} points reduced to ${simplified.length} waypoints',
+                    style: const TextStyle(fontSize: 12),
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      const Text('Detail:', style: TextStyle(fontSize: 12)),
+                      Expanded(
+                        child: Slider(
+                          value: tolerance,
+                          min: 5,
+                          max: 500,
+                          divisions: 99,
+                          label: '${tolerance.round()}m',
+                          onChanged: (v) {
+                            setDialogState(() {
+                              tolerance = v;
+                              simplified = simplifyTrack(points, tolerance);
+                            });
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('Cancel'),
+                ),
+                FilledButton(
+                  onPressed: () {
+                    final name = nameController.text.trim();
+                    if (name.isEmpty) return;
+                    Navigator.pop(ctx, (name: name, description: descController.text.trim(), tolerance: tolerance));
+                  },
+                  child: const Text('Save'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    if (result == null) return;
+
+    final finalSimplified = simplifyTrack(points, result.tolerance);
+    final coordinates = finalSimplified
+        .map((p) => [p.longitude, p.latitude])
+        .toList();
+
+    // Calculate total distance
+    double totalDist = 0;
+    const dist = Distance();
+    for (var i = 1; i < finalSimplified.length; i++) {
+      totalDist += dist.as(LengthUnit.Meter, finalSimplified[i - 1], finalSimplified[i]);
+    }
+
+    final id = const Uuid().v4();
+    final data = {
+      'name': result.name,
+      'description': result.description,
+      'distance': totalDist.round(),
+      'feature': {
+        'type': 'Feature',
+        'geometry': {'type': 'LineString', 'coordinates': coordinates},
+        'properties': {
+          'coordinatesMeta': coordinates.map((_) => {'name': ''}).toList(),
+        },
+        'id': '',
+      },
+    };
+
+    final success = await widget.signalKService.putResource('routes', id, data);
+    if (mounted) {
+      _showSnack(success
+          ? 'Route saved: ${result.name} (${coordinates.length} waypoints)'
+          : 'Failed to save route');
+    }
   }
 
   void _showSavedAreasSheet() {
@@ -2430,6 +2642,26 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
               onPressed: _showSaveAreaDialog,
             ),
           const SizedBox(height: 4),
+          // Save as Track
+          if (_state == ExplorerState.results &&
+              _resultPoints.length >= 2)
+            _buildOverlayButton(
+              icon: Icons.timeline,
+              onPressed: _saveAsTrack,
+            ),
+          if (_state == ExplorerState.results &&
+              _resultPoints.length >= 2)
+            const SizedBox(height: 4),
+          // Save as Route
+          if (_state == ExplorerState.results &&
+              _resultPoints.length >= 2)
+            _buildOverlayButton(
+              icon: Icons.route,
+              onPressed: _saveAsRoute,
+            ),
+          if (_state == ExplorerState.results &&
+              _resultPoints.length >= 2)
+            const SizedBox(height: 4),
           // Share
           if (_state == ExplorerState.results &&
               _response != null &&
@@ -2977,10 +3209,28 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
                 style: const TextStyle(fontSize: 11),
               ),
               const SizedBox(height: 2),
-              // Position in DDM
-              Text(
-                _fmtDDM(pt.position.latitude, pt.position.longitude),
-                style: const TextStyle(fontSize: 11),
+              // Position in DDM + Save as Waypoint
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      _fmtDDM(pt.position.latitude, pt.position.longitude),
+                      style: const TextStyle(fontSize: 11),
+                    ),
+                  ),
+                  SizedBox(
+                    height: 28,
+                    child: TextButton.icon(
+                      onPressed: () => _saveAsWaypoint(pt),
+                      icon: const Icon(Icons.add_location, size: 14),
+                      label: const Text('Waypoint', style: TextStyle(fontSize: 10)),
+                      style: TextButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                        visualDensity: VisualDensity.compact,
+                      ),
+                    ),
+                  ),
+                ],
               ),
               const Divider(height: 8),
               // Sparkline cards
