@@ -184,6 +184,6 @@ class ToolRegistry {
     register('sun_moon_arc', SunMoonArcToolBuilder());
     register('historical_data_explorer', HistoricalDataExplorerBuilder());
     // windsteer and windsteer_demo DEPRECATED — superseded by wind_compass. Do not re-register.
-    // register('webview', WebViewToolBuilder()); // Hidden for now - uncomment to enable
+    register('webview', WebViewToolBuilder());
   }
 }
