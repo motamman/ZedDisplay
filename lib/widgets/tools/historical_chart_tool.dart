@@ -106,8 +106,10 @@ class _HistoricalChartToolState extends State<HistoricalChartTool> with Automati
   }
 
   Future<void> _loadData() async {
-    // Re-initialize service if connection was restored
-    if (_historicalService == null && widget.signalKService.isConnected) {
+    // Re-initialize service if connection was restored or server changed
+    if (widget.signalKService.isConnected &&
+        (_historicalService == null ||
+         _historicalService!.serverUrl != widget.signalKService.serverUrl)) {
       _historicalService = HistoricalDataService(
         serverUrl: widget.signalKService.serverUrl,
         useSecureConnection: widget.signalKService.useSecureConnection,

@@ -243,6 +243,7 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
     if (oldWidget.signalKService != widget.signalKService) {
       oldWidget.signalKService.removeListener(_onSignalKChanged);
       widget.signalKService.addListener(_onSignalKChanged);
+      _initService();
     }
   }
 
@@ -2324,11 +2325,6 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
             markers: sortedPoints.where((pt) {
               // Only show markers for visible legend indices
               if (_visibleLegendIndices.isEmpty) return false;
-              // Hide points with no data for the active path
-              final activePath = _activeLegendIndex < _resultSeries.length
-                  ? _resultSeries[_activeLegendIndex].path
-                  : _resultSeries.isNotEmpty ? _resultSeries.first.path : null;
-              if (activePath != null && pt.values[activePath] == null) return false;
               return true;
             }).map((pt) {
               final isSelected = pt.index == _selectedRowIndex;
@@ -2346,10 +2342,12 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
                   ? pt.values[activePath]
                   : null;
 
+              final bool hasData = rawSiValue != null;
               const double minSize = 12.0;
               const double maxSize = 28.0;
+              const double defaultDotSize = 8.0;
               double baseSize = minSize;
-              if (valueRange != null && rawSiValue != null) {
+              if (hasData && valueRange != null) {
                 final (lo, hi) = valueRange;
                 final span = hi - lo;
                 if (span > 0) {
@@ -2359,11 +2357,27 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
                   baseSize = (minSize + maxSize) / 2;
                 }
               }
-              final size = baseSize;
-              final markerColor = isSelected ? Colors.yellow : color;
+              final size = hasData ? baseSize : defaultDotSize;
+              final markerColor = isSelected ? Colors.yellow : hasData ? color : Colors.grey;
 
               Widget markerChild;
-              if (isAngle) {
+              if (!hasData) {
+                // Default dot for points with no data in the active path
+                markerChild = Container(
+                  decoration: BoxDecoration(
+                    color: markerColor.withValues(alpha: 0.5),
+                    shape: BoxShape.circle,
+                    border: Border.all(color: Colors.black38, width: 1),
+                    boxShadow: isSelected
+                        ? [BoxShadow(
+                            color: Colors.yellow.withValues(alpha: 0.5),
+                            blurRadius: 6,
+                            spreadRadius: 2,
+                          )]
+                        : null,
+                  ),
+                );
+              } else if (isAngle) {
                 markerChild = Transform.rotate(
                   angle: rawSiValue ?? 0,
                   child: Icon(
