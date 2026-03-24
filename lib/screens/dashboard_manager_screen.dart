@@ -8,6 +8,7 @@ import '../services/setup_service.dart';
 import '../services/signalk_service.dart';
 import '../services/storage_service.dart';
 import '../services/tool_registry.dart';
+import 'splash_screen.dart';
 import '../services/tool_service.dart';
 import '../models/dashboard_layout.dart';
 import '../models/dashboard_screen.dart';
@@ -2264,12 +2265,7 @@ class _ServerPickerSheetState extends State<_ServerPickerSheet> {
                         onTap: () async {
                           Navigator.pop(context);
                           if (!isSelected) {
-                            // Connect to selected server
-                            await widget.signalKService.connect(
-                              connection.serverUrl,
-                              secure: connection.useSecure,
-                            );
-                            // Save as last connection so it's remembered on restart
+                            // Save as last connection so splash screen picks it up
                             await widget.storageService.saveLastConnection(
                               connection.serverUrl,
                               connection.useSecure,
@@ -2277,6 +2273,13 @@ class _ServerPickerSheetState extends State<_ServerPickerSheet> {
                             await widget.storageService.updateConnectionLastConnected(
                               connection.id,
                             );
+                            // Go through splash screen for clean startup with new server
+                            if (context.mounted) {
+                              Navigator.of(context).pushAndRemoveUntil(
+                                MaterialPageRoute(builder: (_) => const SplashScreen()),
+                                (route) => false,
+                              );
+                            }
                           }
                         },
                       );

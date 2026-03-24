@@ -21,6 +21,8 @@ import '../../services/signalk_service.dart';
 import '../../services/storage_service.dart';
 import '../../services/historical_data_service.dart';
 import '../../services/tool_registry.dart';
+import '../../utils/track_simplifier.dart';
+import 'package:uuid/uuid.dart';
 
 // ---------------------------------------------------------------------------
 // Builder
@@ -241,6 +243,7 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
     if (oldWidget.signalKService != widget.signalKService) {
       oldWidget.signalKService.removeListener(_onSignalKChanged);
       widget.signalKService.addListener(_onSignalKChanged);
+      _initService();
     }
   }
 
@@ -354,7 +357,12 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
       final lat = (pos['latitude'] as num?)?.toDouble();
       final lon = (pos['longitude'] as num?)?.toDouble();
       if (lat != null && lon != null) {
+        final wasNull = _vesselPosition == null;
         _vesselPosition = LatLng(lat, lon);
+        // Snap map to vessel on first position fix (e.g. after server switch)
+        if (wasNull && _state == ExplorerState.idle) {
+          try { _mapController.move(_vesselPosition!, _mapController.camera.zoom); } catch (_) {}
+        }
       }
     }
   }
@@ -375,7 +383,7 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
     if (_centeredOnHomeport && _homeportPosition != null) {
       return _homeportPosition!;
     }
-    return _vesselPosition ?? const LatLng(0, 0);
+    return _vesselPosition ?? _homeportPosition ?? const LatLng(0, 0);
   }
 
   LatLng? get _areaCenter {
@@ -602,22 +610,20 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
       try {
         final resources =
             await widget.signalKService.getResources(_searchAreaResourceType);
-        if (resources.isNotEmpty) {
-          final serverAreas = <SavedSearchArea>[];
-          for (final entry in resources.entries) {
-            try {
-              serverAreas.add(SavedSearchArea.fromResourceData(
-                entry.key,
-                entry.value as Map<String, dynamic>,
-              ));
-            } catch (_) {}
-          }
-          // Server is source of truth — merge with local-only items
-          final serverIds = serverAreas.map((a) => a.id).toSet();
-          final localOnly =
-              _savedAreas.where((a) => !serverIds.contains(a.id)).toList();
-          _savedAreas = [...serverAreas, ...localOnly];
+        final serverAreas = <SavedSearchArea>[];
+        for (final entry in resources.entries) {
+          try {
+            serverAreas.add(SavedSearchArea.fromResourceData(
+              entry.key,
+              entry.value as Map<String, dynamic>,
+            ));
+          } catch (_) {}
         }
+        // Server wins — keep only local areas whose ID isn't on the server
+        final serverIds = serverAreas.map((a) => a.id).toSet();
+        final unsynced =
+            _savedAreas.where((a) => !serverIds.contains(a.id)).toList();
+        _savedAreas = [...serverAreas, ...unsynced];
       } catch (e) {
         if (kDebugMode) print('Error loading saved areas from server: $e');
       }
@@ -766,6 +772,300 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
     );
   }
 
+  // --------------- Save as Waypoint / Track / Route ---------------
+
+  Future<String?> _showNameDialog(String title, String defaultName) async {
+    final controller = TextEditingController(text: defaultName);
+    return showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(title),
+        content: TextField(
+          controller: controller,
+          decoration: const InputDecoration(labelText: 'Name'),
+          autofocus: true,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () {
+              final name = controller.text.trim();
+              if (name.isEmpty) return;
+              Navigator.pop(ctx, name);
+            },
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _saveAsWaypoint(_ResultPoint point) async {
+    final name = await _showNameDialog(
+      'Save Waypoint',
+      'Wpt ${_fmtDate(point.timestamp)} ${_fmtAmPm(point.timestamp)}',
+    );
+    if (name == null) return;
+
+    final id = const Uuid().v4();
+    final data = {
+      'name': name,
+      'description': '',
+      'feature': {
+        'type': 'Feature',
+        'geometry': {
+          'type': 'Point',
+          'coordinates': [point.position.longitude, point.position.latitude],
+        },
+        'properties': {},
+      },
+    };
+
+    final success = await widget.signalKService.putResource('waypoints', id, data);
+    if (mounted) {
+      _showSnack(success ? 'Waypoint saved: $name' : 'Failed to save waypoint');
+    }
+  }
+
+  Future<void> _saveAsTrack() async {
+    if (_resultPoints.length < 2) return;
+
+    final dateRange = '${_fmtDate(_resultPoints.first.timestamp)} - ${_fmtDate(_resultPoints.last.timestamp)}';
+    final name = await _showNameDialog('Save Track', 'Track $dateRange');
+    if (name == null) return;
+
+    final coordinates = _resultPoints
+        .map((p) => [p.position.longitude, p.position.latitude])
+        .toList();
+
+    final id = const Uuid().v4();
+    final data = {
+      'feature': {
+        'type': 'Feature',
+        'geometry': {
+          'type': 'MultiLineString',
+          'coordinates': [coordinates],
+        },
+        'properties': {
+          'name': name,
+          'description': '',
+        },
+        'id': '',
+      },
+    };
+
+    final success = await widget.signalKService.putResource('tracks', id, data);
+    if (mounted) {
+      _showSnack(success
+          ? 'Track saved: $name (${coordinates.length} points)'
+          : 'Failed to save track');
+    }
+  }
+
+  Future<void> _saveAsRoute() async {
+    if (_resultPoints.length < 2 || _response == null) return;
+
+    final displayPoints = _resultPoints.map((p) => p.position).toList();
+    List<LatLng>? hiResPoints;
+    bool useHiRes = false;
+    bool hiResLoading = false;
+    double headingThreshold = 5.0;
+    var activePoints = displayPoints;
+    var simplified = simplifyTrack(activePoints, headingThreshold);
+    var distNM = metersToNM(trackDistanceMeters(simplified));
+
+    final result = await showDialog<({String name, String description, double threshold})>(
+      context: context,
+      builder: (ctx) {
+        final nameController = TextEditingController(
+          text: 'Route ${_fmtDate(_resultPoints.first.timestamp)}',
+        );
+        final descController = TextEditingController();
+        return StatefulBuilder(
+          builder: (ctx, setDialogState) {
+            Future<void> fetchHiRes() async {
+              if (hiResPoints != null) return; // already cached
+              setDialogState(() => hiResLoading = true);
+              try {
+                final range = _response!.range;
+                final response = await _historyService!.fetchHistoricalDataBatched(
+                  paths: ['navigation.position'],
+                  from: range.from,
+                  to: range.to,
+                  context: _context,
+                  bbox: _bboxParam,
+                  radius: _radiusParam,
+                  resolution: 5,
+                );
+                final posIdx = response.values.indexWhere((v) => v.path == 'navigation.position');
+                if (posIdx != -1) {
+                  final pts = <LatLng>[];
+                  for (final row in response.data) {
+                    final pos = row.values[posIdx];
+                    final latLng = _parsePosition(pos);
+                    if (latLng != null) pts.add(latLng);
+                  }
+                  hiResPoints = pts;
+                }
+              } catch (e) {
+                if (ctx.mounted) {
+                  ScaffoldMessenger.of(ctx).showSnackBar(
+                    SnackBar(content: Text('Hi-res fetch failed: $e')),
+                  );
+                }
+              }
+              if (ctx.mounted) {
+                setDialogState(() {
+                  hiResLoading = false;
+                  if (hiResPoints != null && hiResPoints!.length >= 2) {
+                    activePoints = hiResPoints!;
+                    simplified = simplifyTrack(activePoints, headingThreshold);
+                    distNM = metersToNM(trackDistanceMeters(simplified));
+                  }
+                });
+              }
+            }
+
+            return AlertDialog(
+              title: const Text('Save as Route'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: nameController,
+                    decoration: const InputDecoration(labelText: 'Name'),
+                    autofocus: true,
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: descController,
+                    decoration: const InputDecoration(labelText: 'Description'),
+                    maxLines: 2,
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Checkbox(
+                        value: useHiRes,
+                        onChanged: hiResLoading ? null : (v) {
+                          setDialogState(() {
+                            useHiRes = v ?? false;
+                            if (useHiRes) {
+                              if (hiResPoints != null && hiResPoints!.length >= 2) {
+                                activePoints = hiResPoints!;
+                              } else {
+                                fetchHiRes();
+                                return;
+                              }
+                            } else {
+                              activePoints = displayPoints;
+                            }
+                            simplified = simplifyTrack(activePoints, headingThreshold);
+                            distNM = metersToNM(trackDistanceMeters(simplified));
+                          });
+                        },
+                      ),
+                      Expanded(
+                        child: Text(
+                          hiResLoading
+                              ? 'Fetching high-resolution track...'
+                              : 'High-resolution track (5s intervals)',
+                          style: const TextStyle(fontSize: 12),
+                        ),
+                      ),
+                      if (hiResLoading)
+                        const SizedBox(
+                          width: 16, height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    '${activePoints.length} points \u2192 ${simplified.length} waypoints \u2022 ${distNM.toStringAsFixed(1)} NM',
+                    style: const TextStyle(fontSize: 12),
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      const Text('Turn detail:', style: TextStyle(fontSize: 12)),
+                      Expanded(
+                        child: Slider(
+                          value: headingThreshold,
+                          min: 1,
+                          max: 10,
+                          divisions: 9,
+                          label: '${headingThreshold.round()}\u00B0',
+                          onChanged: (v) {
+                            setDialogState(() {
+                              headingThreshold = v;
+                              simplified = simplifyTrack(activePoints, headingThreshold);
+                              distNM = metersToNM(trackDistanceMeters(simplified));
+                            });
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('Cancel'),
+                ),
+                FilledButton(
+                  onPressed: hiResLoading ? null : () {
+                    final name = nameController.text.trim();
+                    if (name.isEmpty) return;
+                    Navigator.pop(ctx, (name: name, description: descController.text.trim(), threshold: headingThreshold));
+                  },
+                  child: const Text('Save'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    if (result == null) return;
+
+    final finalSimplified = simplifyTrack(activePoints, result.threshold);
+    final coordinates = finalSimplified
+        .map((p) => [p.longitude, p.latitude])
+        .toList();
+    final totalDistMeters = trackDistanceMeters(finalSimplified);
+
+    final id = const Uuid().v4();
+    final data = {
+      'name': result.name,
+      'description': result.description,
+      'distance': totalDistMeters.round(),
+      'feature': {
+        'type': 'Feature',
+        'geometry': {'type': 'LineString', 'coordinates': coordinates},
+        'properties': {
+          'coordinatesMeta': List.generate(
+            coordinates.length,
+            (i) => {'name': 'WPT ${i + 1}'},
+          ),
+        },
+        'id': '',
+      },
+    };
+
+    final success = await widget.signalKService.putResource('routes', id, data);
+    if (mounted) {
+      _showSnack(success
+          ? 'Route saved: ${result.name} (${coordinates.length} waypoints, ${metersToNM(totalDistMeters).toStringAsFixed(1)} NM)'
+          : 'Failed to save route');
+    }
+  }
+
   void _showSavedAreasSheet() {
     showModalBottomSheet(
       context: context,
@@ -820,9 +1120,10 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
                                 child: const Icon(Icons.delete,
                                     color: Colors.white),
                               ),
-                              onDismissed: (_) {
-                                _deleteArea(area);
+                              confirmDismiss: (_) async {
+                                await _deleteArea(area);
                                 setSheetState(() {});
+                                return false; // already removed from list
                               },
                               child: ListTile(
                                 leading: Icon(
@@ -1433,7 +1734,7 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
                       // -- Lookback dropdown --
                       if (localTimeMode == 'lookback')
                         DropdownButtonFormField<String>(
-                          value: localLookback,
+                          initialValue: localLookback,
                           decoration: const InputDecoration(
                             isDense: true,
                             contentPadding: EdgeInsets.symmetric(
@@ -2112,11 +2413,6 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
             markers: sortedPoints.where((pt) {
               // Only show markers for visible legend indices
               if (_visibleLegendIndices.isEmpty) return false;
-              // Hide points with no data for the active path
-              final activePath = _activeLegendIndex < _resultSeries.length
-                  ? _resultSeries[_activeLegendIndex].path
-                  : _resultSeries.isNotEmpty ? _resultSeries.first.path : null;
-              if (activePath != null && pt.values[activePath] == null) return false;
               return true;
             }).map((pt) {
               final isSelected = pt.index == _selectedRowIndex;
@@ -2134,10 +2430,12 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
                   ? pt.values[activePath]
                   : null;
 
+              final bool hasData = rawSiValue != null;
               const double minSize = 12.0;
               const double maxSize = 28.0;
+              const double defaultDotSize = 8.0;
               double baseSize = minSize;
-              if (valueRange != null && rawSiValue != null) {
+              if (hasData && valueRange != null) {
                 final (lo, hi) = valueRange;
                 final span = hi - lo;
                 if (span > 0) {
@@ -2147,13 +2445,29 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
                   baseSize = (minSize + maxSize) / 2;
                 }
               }
-              final size = baseSize;
-              final markerColor = isSelected ? Colors.yellow : color;
+              final size = hasData ? baseSize : defaultDotSize;
+              final markerColor = isSelected ? Colors.yellow : hasData ? color : Colors.grey;
 
               Widget markerChild;
-              if (isAngle) {
+              if (!hasData) {
+                // Default dot for points with no data in the active path
+                markerChild = Container(
+                  decoration: BoxDecoration(
+                    color: markerColor.withValues(alpha: 0.5),
+                    shape: BoxShape.circle,
+                    border: Border.all(color: Colors.black38, width: 1),
+                    boxShadow: isSelected
+                        ? [BoxShadow(
+                            color: Colors.yellow.withValues(alpha: 0.5),
+                            blurRadius: 6,
+                            spreadRadius: 2,
+                          )]
+                        : null,
+                  ),
+                );
+              } else if (isAngle) {
                 markerChild = Transform.rotate(
-                  angle: rawSiValue ?? 0,
+                  angle: rawSiValue,
                   child: Icon(
                     Icons.navigation,
                     color: markerColor,
@@ -2430,6 +2744,26 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
               onPressed: _showSaveAreaDialog,
             ),
           const SizedBox(height: 4),
+          // Save as Track
+          if (_state == ExplorerState.results &&
+              _resultPoints.length >= 2)
+            _buildOverlayButton(
+              icon: Icons.timeline,
+              onPressed: _saveAsTrack,
+            ),
+          if (_state == ExplorerState.results &&
+              _resultPoints.length >= 2)
+            const SizedBox(height: 4),
+          // Save as Route
+          if (_state == ExplorerState.results &&
+              _resultPoints.length >= 2)
+            _buildOverlayButton(
+              icon: Icons.route,
+              onPressed: _saveAsRoute,
+            ),
+          if (_state == ExplorerState.results &&
+              _resultPoints.length >= 2)
+            const SizedBox(height: 4),
           // Share
           if (_state == ExplorerState.results &&
               _response != null &&
@@ -2977,10 +3311,28 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
                 style: const TextStyle(fontSize: 11),
               ),
               const SizedBox(height: 2),
-              // Position in DDM
-              Text(
-                _fmtDDM(pt.position.latitude, pt.position.longitude),
-                style: const TextStyle(fontSize: 11),
+              // Position in DDM + Save as Waypoint
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      _fmtDDM(pt.position.latitude, pt.position.longitude),
+                      style: const TextStyle(fontSize: 11),
+                    ),
+                  ),
+                  SizedBox(
+                    height: 28,
+                    child: TextButton.icon(
+                      onPressed: () => _saveAsWaypoint(pt),
+                      icon: const Icon(Icons.add_location, size: 14),
+                      label: const Text('Waypoint', style: TextStyle(fontSize: 10)),
+                      style: TextButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                        visualDensity: VisualDensity.compact,
+                      ),
+                    ),
+                  ),
+                ],
               ),
               const Divider(height: 8),
               // Sparkline cards

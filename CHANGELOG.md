@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.94+67] - 2026-03-22
+
+### Added
+- **Autopilot V2 API — Full SignalK V2 Support**: Autopilot widgets now use the SignalK V2 Autopilot API with automatic instance discovery. V2 detection with V1 fallback. Fixes 405 errors on autopilot state changes.
+- **Autopilot — raySTNGConv Keystroke Strategy**: For SeaTalk-STNG converter setups, absolute heading changes are decomposed into +1/-1/+10/-10 keystroke commands since the converter can't translate PGN 126208 heading commands.
+- **Autopilot — Banana Button Hit Areas**: Fixed overlapping tap areas on compass heading adjustment buttons. All four buttons (-10, -1, +1, +10) now respond correctly using ClipPath hit testing.
+- **Autopilot — Compass Drag Stability**: Target heading drag now freezes the reference heading at drag start, preventing the selector from jumping as the boat turns mid-drag.
+- **Historical Data Explorer — Save as Waypoint**: Tap any data point, save its position as a SignalK waypoint via the Resources API. Available in FreeboardSK and other clients.
+- **Historical Data Explorer — Save as Track**: Save query results as a SignalK track resource (MultiLineString GeoJSON). One button in the overlay toolbar.
+- **Historical Data Explorer — Save as Route**: Save query results as a navigable SignalK route with Ramer-Douglas-Peucker simplification. Adjustable detail slider shows point reduction preview before saving.
+- **Historical Data Explorer — Default Dot Markers**: Points with no data for the active legend path now show as small grey dots instead of being hidden.
+- **Diagnostic Service — Widget Inventory**: Diagnostic snapshots now include the active tool types on the current dashboard for correlating widget configurations with resource usage.
+- **Server Switch — Clean Startup**: Switching servers now navigates through the splash screen for a clean connection lifecycle, ensuring all widgets initialize with fresh data.
+
+### Changed
+- **Autopilot V2 API — `units: "deg"` for Heading Commands**: Heading values sent with `units: "deg"` field, matching Kip/FreeboardSK convention. Eliminates fragile radian round-trip conversions.
+- **Autopilot V2 API — `/state` not `/mode`**: Mode changes use the `/state` endpoint (auto, wind, route, standby) which is what the server actually supports.
+- **httpBaseUrl — Single Source of Truth**: Added `httpBaseUrl` getter to SignalKService. Autopilot, dodge service, and other REST callers use it instead of scattered protocol/URL construction.
+
+### Fixed
+- **Alert Message Accumulation**: CPA and anchor alerts now use stable deterministic IDs (`alert-cpa-{vesselId}`, `alert-anchor`, `alert-checkin`). Server PUT overwrites instead of creating new files.
+- **Deleted Message Resurrection**: Tombstone set (`_deletedIds`) prevents deleted messages from being re-added via WS delta cache or server re-fetch. Cache eviction via `removeCachedValue()`.
+- **Server-Side Message Cleanup**: `_pruneOldMessages()` now deletes expired messages from the SignalK server, not just locally. Alert messages pruned after 60 minutes.
+- **Autopilot V2 Discovery Parsing**: Fixed instance parsing — server returns instances at top level, not nested under `autopilots` key.
+- **Historical Data Service — Server Switch**: Service now detects server URL changes and reinitializes instead of querying the old server.
+
 ## [0.5.93+66] - 2026-03-20
 
 ### Changed

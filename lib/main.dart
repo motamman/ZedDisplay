@@ -135,6 +135,17 @@ void main() async {
   );
   await dashboardService.initialize();
 
+  // Wire diagnostic service to report active tool types per snapshot
+  diagnosticService.getActiveToolTypes = () {
+    final layout = dashboardService.currentLayout;
+    if (layout == null) return [];
+    final toolIds = layout.getAllToolIds();
+    return toolIds
+        .map((id) => toolService.getTool(id)?.toolTypeId)
+        .whereType<String>()
+        .toList();
+  };
+
   // Initialize auth service
   final authService = AuthService(storageService);
 
@@ -414,7 +425,6 @@ class _ZedDisplayAppState extends State<ZedDisplayApp> with WidgetsBindingObserv
 
   bool _wakelockEnabled = false;
   bool _wasConnectedForServices = false;
-
   void _onConnectionChanged() {
     final isConnected = widget.signalKService.isConnected;
     if (isConnected == _wasConnectedForServices) return;

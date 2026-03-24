@@ -381,7 +381,7 @@ class CpaAlertService extends ChangeNotifier {
         );
       }
       if (_config.sendCrewAlert && alert.level.isAlarming && showSystem) {
-        _messagingService?.sendAlert(message);
+        _messagingService?.sendAlert(message, alertId: 'alert-cpa-${alert.vesselId}');
       }
       if (showInApp) {
         onAlertTriggered?.call(alert, message);

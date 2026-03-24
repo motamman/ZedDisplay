@@ -656,8 +656,8 @@ class AnchorAlarmService extends ChangeNotifier {
       alarmSource: 'anchor_alarm',
     );
 
-    // Send crew alert
-    _messagingService?.sendAlert('ANCHOR ALARM: $message');
+    // Send crew alert (stable ID so repeated alarms overwrite one resource)
+    _messagingService?.sendAlert('ANCHOR ALARM: $message', alertId: 'alert-anchor');
   }
 
   Future<void> _playAlarmSound() async {
@@ -743,9 +743,10 @@ class AnchorAlarmService extends ChangeNotifier {
       alarmSource: 'anchor_alarm',
     );
 
-    // Send crew alert for check-in warning
+    // Send crew alert for check-in warning (stable ID so repeated check-ins overwrite one resource)
     _messagingService?.sendAlert(
       'ANCHOR WATCH: Check-in required — please confirm anchor watch.',
+      alertId: 'alert-checkin',
     );
 
     // Start grace period timer

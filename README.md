@@ -101,7 +101,10 @@ A customizable SignalK marine dashboard and crew comms application to display re
   - Double-tap any sparkline to view an expanded chart modal
   - **Timeline Playback**: Play/pause through results with forward/reverse, jump ±10, speed control (1x–10x), and scrub slider
   - **Days-Back Mode**: Quick presets (1d, 3d, 7d, 14d, 30d) as an alternative to date range picker
-  - Save and reload search areas; share results as CSV or JSON
+  - **Save as Waypoint**: Tap any data point, save as a SignalK waypoint
+  - **Save as Track**: Save query results as a SignalK track resource
+  - **Save as Route**: Convert recorded tracks to navigable routes with adjustable simplification
+  - Save and reload search areas; share results as CSV, GeoJSON, or KML
   - Zoom controls, zoom-to-fit area, and homeport button
   - Map/detail/table tab views with swipe navigation
   - State cached across screen switches and reconnects
@@ -148,12 +151,13 @@ A customizable SignalK marine dashboard and crew comms application to display re
 - **Autopilot**: Full autopilot control with compass display, mode selection, and tacking
 - **Autopilot Simple**: Text-based autopilot control without compass visualization — compact heading display with mode selection, tacking, and heading adjustment
 - **Autopilot V2**: Redesigned circular autopilot with nested controls
+  - SignalK V2 Autopilot API with automatic instance discovery and V1 fallback
+  - raySTNGConv keystroke strategy for Raymarine SmartPilot via SeaTalk-STNG converter
   - Banana-shaped heading adjustment buttons (+1, -1, +10, -10) arced around inner circle
   - Mode selector (Compass, Wind, Route) with engage/standby toggle
   - Tack/Gybe banana buttons in Wind mode positioned by turn direction
   - Advance Waypoint and Dodge buttons in Route mode
-  - Draggable target heading arrow with long-press activation
-  - Incremental command queue with acknowledgment tracking
+  - Draggable target heading arrow with compass drag stability
   - Rudder indicator when space permits
   - Responsive layout: wide screens show controls beside compass, narrow screens stack controls below
 
@@ -711,7 +715,7 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 - [x] Enhanced alerts and notification rules (notification dedup, stable OS IDs, temporal throttling)
 - [ ] Weather integration (GRIB files, forecasts)
 - [x] AIS target display (completed in v0.2.0+3)
-- [ ] Route planning and waypoint navigation
+- [x] Route/track/waypoint creation from historical data (completed - save to SignalK Resources API)
 - [ ] More chart types (bar charts, area charts)
 - [ ] AI integration
 - [x] AIS collision avoidance using `vessels.<uuid>.navigation.closestApproach` (CPA/TCPA) (completed - CPA alerts with configurable thresholds)

@@ -15,6 +15,11 @@ class AutopilotV2Api {
   final String? authToken;
   final http.Client _client;
 
+  /// When true, setTarget uses incremental keystroke commands (+1/-1/+10/-10)
+  /// instead of the direct /target endpoint. Required for raySTNGConv provider
+  /// which can only simulate button presses, not set absolute headings.
+  bool useKeystrokeStrategy = false;
+
   AutopilotV2Api({
     required this.baseUrl,
     this.authToken,
@@ -42,14 +47,12 @@ class AutopilotV2Api {
         final data = jsonDecode(response.body) as Map<String, dynamic>;
         final instances = <AutopilotInstance>[];
 
-        // Parse instances from response
-        if (data['autopilots'] != null) {
-          for (var entry in (data['autopilots'] as Map).entries) {
-            instances.add(AutopilotInstance.fromJson({
-              'id': entry.key,
-              ...entry.value as Map<String, dynamic>,
-            }));
-          }
+        // Server returns instances at top level: {"raySTNGConv": {...}, ...}
+        for (var entry in data.entries) {
+          instances.add(AutopilotInstance.fromJson({
+            'id': entry.key,
+            ...(entry.value as Map<String, dynamic>),
+          }));
         }
 
         return instances;
@@ -108,26 +111,63 @@ class AutopilotV2Api {
     await _executeCommand(url, 'POST');
   }
 
-  /// Set autopilot mode
+  /// Set autopilot state (standby, auto, wind, route)
+  ///
+  /// V2 API uses "state" not "mode" — states map to engage/disengage + mode.
   Future<void> setMode(String instanceId, String mode) async {
     final url = Uri.parse(
-        '$baseUrl/signalk/v2/api/vessels/self/autopilots/$instanceId/mode');
+        '$baseUrl/signalk/v2/api/vessels/self/autopilots/$instanceId/state');
 
     await _executeCommand(url, 'PUT', body: {'value': mode});
   }
 
-  /// Set absolute target heading (degrees)
-  Future<void> setTarget(String instanceId, double heading) async {
-    final url = Uri.parse(
-        '$baseUrl/signalk/v2/api/vessels/self/autopilots/$instanceId/target');
-
-    await _executeCommand(url, 'PUT', body: {
-      'value': heading,
-      'units': 'deg',
-    });
+  /// Set absolute target heading (degrees, converted to radians for server)
+  /// [currentHeadingDeg] is used as fallback when the server has no target
+  /// (needed for keystroke strategy where the converter doesn't report target back)
+  Future<void> setTarget(String instanceId, double headingDeg, {double? currentHeadingDeg}) async {
+    if (useKeystrokeStrategy) {
+      await _setTargetViaKeystrokes(instanceId, headingDeg, currentHeadingDeg: currentHeadingDeg);
+    } else {
+      final url = Uri.parse(
+          '$baseUrl/signalk/v2/api/vessels/self/autopilots/$instanceId/target');
+      await _executeCommand(url, 'PUT', body: {'value': headingDeg, 'units': 'deg'});
+    }
   }
 
-  /// Adjust target heading by relative amount (degrees)
+  /// Set heading by decomposing into +10/-10 and +1/-1 keystroke commands.
+  /// Used for providers like raySTNGConv that only support button simulation.
+  Future<void> _setTargetViaKeystrokes(String instanceId, double headingDeg, {double? currentHeadingDeg}) async {
+    // Use current compass heading as reference — the converter doesn't
+    // reliably report target back via the API
+    final referenceDeg = currentHeadingDeg ?? 0.0;
+    double delta = headingDeg - referenceDeg;
+    // Normalize to -180..+180
+    while (delta > 180) delta -= 360;
+    while (delta < -180) delta += 360;
+
+    final deltaInt = delta.round();
+    if (deltaInt == 0) return;
+
+    final sign = deltaInt > 0 ? 1 : -1;
+    final absDelta = deltaInt.abs();
+    final tens = absDelta ~/ 10;
+    final ones = absDelta % 10;
+
+    for (var i = 0; i < tens; i++) {
+      await adjustTarget(instanceId, sign * 10);
+      if (i < tens - 1 || ones > 0) {
+        await Future.delayed(const Duration(milliseconds: 100));
+      }
+    }
+    for (var i = 0; i < ones; i++) {
+      await adjustTarget(instanceId, sign * 1);
+      if (i < ones - 1) {
+        await Future.delayed(const Duration(milliseconds: 100));
+      }
+    }
+  }
+
+  /// Adjust target heading by relative amount in degrees
   Future<void> adjustTarget(String instanceId, int degrees) async {
     final url = Uri.parse(
         '$baseUrl/signalk/v2/api/vessels/self/autopilots/$instanceId/target/adjust');

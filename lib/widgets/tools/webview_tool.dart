@@ -85,8 +85,27 @@ class _WebViewToolState extends State<WebViewTool> with AutomaticKeepAliveClient
             }
           },
         ),
-      )
-      ..loadRequest(Uri.parse(_currentUrl!));
+      );
+
+    // Set auth cookie before loading page
+    _setAuthCookieAndLoad();
+  }
+
+  Future<void> _setAuthCookieAndLoad() async {
+    final token = widget.signalKService.authToken?.token;
+    if (token != null) {
+      final uri = Uri.parse(_currentUrl!);
+      final cookieManager = WebViewCookieManager();
+      await cookieManager.setCookie(
+        WebViewCookie(
+          name: 'JAUTHENTICATION',
+          value: token,
+          domain: uri.host,
+          path: '/',
+        ),
+      );
+    }
+    await _controller.loadRequest(Uri.parse(_currentUrl!));
   }
 
   void _reload() {

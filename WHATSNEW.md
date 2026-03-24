@@ -1,30 +1,40 @@
-# What's New in v0.5.93
+# What's New in v0.5.94
 
 ## Release Notes (Google Play - max 500 chars)
 
-v0.5.93 Instant Crew Messages & CPA Crash Fix
+v0.5.94 Autopilot V2 & Route Creation from History
 
-IMPROVED: Crew messages now deliver instantly via WebSocket push instead of 15-second polling. Send a message on one device, it appears on others within ~1 second.
+NEW: Full SignalK V2 autopilot API with automatic instance discovery. raySTNGConv keystroke strategy for Raymarine SmartPilot via converter.
 
-FIXED: CPA alert service crash caused by setState() firing during widget build. Alert evaluations now safely deferred.
+NEW: Save historical tracks as SignalK routes, tracks, or waypoints — sail a path again by converting recorded data into navigable routes.
+
+FIXED: Alert messages no longer accumulate infinitely. Deleted messages stay deleted.
 
 ## Release Notes (App Store / TestFlight - max 4000 chars)
 
-### Crew Messaging — Real-Time Delivery (IMPROVED)
-- **Instant Messages** - Messages now deliver via WebSocket delta push instead of 15-second polling — arrival time drops from 0–15s to ~1s
-- **Dual-Write** - Send broadcasts WS delta first (instant delivery), then persists to Resources API (survives server restart)
-- **Startup Hydration** - Resources API fetched once on connect to catch messages missed while offline; no more repeated polling
-- **Namespace** - WS paths moved from `messages.*` to `crew.messages.*` for consistency with `crew.<id>.status` and `crew.<id>.lastSeen`
-- **Self-Skip** - Optimistic local add prevents duplicate processing of own messages from WS echo
+### Autopilot V2 API (NEW)
+- **V2 Instance Discovery** - Automatically detects autopilot provider and API version. Falls back to V1 if V2 not available.
+- **raySTNGConv Keystroke Strategy** - SeaTalk-STNG converter setups decompose absolute heading changes into +1/-1/+10/-10 keystroke commands since the converter can't translate direct heading PGNs.
+- **Banana Button Fix** - All four compass heading adjustment buttons (-10, -1, +1, +10) now respond correctly. Previously, overlapping tap areas caused all taps to register as +10.
+- **Compass Drag Stability** - Target heading drag freezes the reference heading at drag start, preventing the selector from jumping as the boat turns.
 
-### CPA Alert Service — Build Phase Crash (FIXED)
-- **Root Cause** - AIS vessel registry updates triggered CPA evaluation synchronously during widget build, calling `notifyListeners()` mid-frame
-- **Symptom** - "setState() or markNeedsBuild() called during build" exception with stack overflow from recursive notification
-- **Fix** - All `notifyListeners()` calls in CPA service replaced with coalesced `Future.microtask()` that defers to after the synchronous call stack; multiple updates in one frame produce a single notification
+### Historical Data Explorer — Route Creation (NEW)
+- **Save as Waypoint** - Tap any data point, save its position as a SignalK waypoint. Appears in FreeboardSK and other clients.
+- **Save as Track** - Save query results as a SignalK track resource (GeoJSON MultiLineString).
+- **Save as Route** - Convert recorded tracks into navigable routes with adjustable Ramer-Douglas-Peucker simplification. Preview shows point reduction before saving.
+- **Default Dot Markers** - Points with no data for the active legend show as grey dots instead of being hidden.
+
+### Alert Message Fixes (FIXED)
+- **No More Accumulation** - CPA and anchor alerts use stable IDs. Server PUT overwrites instead of creating new files endlessly.
+- **Delete Sticks** - Tombstone set prevents deleted messages from resurrecting via WS delta cache or server re-fetch.
+- **Server Cleanup** - Expired alert messages (60 min) deleted from the server, not just locally.
+
+### Server Switch — Clean Startup (IMPROVED)
+- Switching servers now navigates through the splash screen for proper connection lifecycle. All widgets initialize with fresh data from the new server.
 
 ---
 
-# Previous: v0.5.92
+# Previous: v0.5.93
 
 ## Release Notes (Google Play - max 500 chars)
 

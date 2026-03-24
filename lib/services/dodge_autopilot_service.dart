@@ -70,7 +70,7 @@ class DodgeAutopilotService {
   Future<bool> detectAutopilot() async {
     try {
       final detector = AutopilotApiDetector(
-        baseUrl: _signalKService.serverUrl,
+        baseUrl: _signalKService.httpBaseUrl,
         authToken: _signalKService.authToken?.token,
       );
 
@@ -81,9 +81,10 @@ class DodgeAutopilotService {
         if (instance != null) {
           _selectedInstanceId = instance.id;
           _v2Api = AutopilotV2Api(
-            baseUrl: _signalKService.serverUrl,
+            baseUrl: _signalKService.httpBaseUrl,
             authToken: _signalKService.authToken?.token,
           );
+          _v2Api!.useKeystrokeStrategy = instance.id == 'raySTNGConv';
         }
       }
 
@@ -292,7 +293,10 @@ class DodgeAutopilotService {
           _v2Api != null &&
           _selectedInstanceId != null) {
         // V2: setTarget expects degrees
-        await _v2Api!.setTarget(_selectedInstanceId!, headingDeg);
+        final lastSentDeg = _lastSentHeadingRad != null
+            ? _lastSentHeadingRad! * 180.0 / math.pi
+            : null;
+        await _v2Api!.setTarget(_selectedInstanceId!, headingDeg, currentHeadingDeg: lastSentDeg);
       } else {
         // V1: PUT to steering.autopilot.target.headingMagnetic (radians)
         await _signalKService.sendPutRequest(

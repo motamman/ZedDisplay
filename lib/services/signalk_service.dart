@@ -106,8 +106,14 @@ class SignalKService extends ChangeNotifier implements DataService {
 
   // Configuration
   String _serverUrl = 'localhost:3000';
+  String? _previousServerUrl;
   bool _useSecureConnection = false;
   AuthToken? _authToken;
+
+  /// Increments only when connecting to a DIFFERENT server URL.
+  /// Used to key the widget tree — forces full rebuild on server switch.
+  int _serverGeneration = 0;
+  int get serverGeneration => _serverGeneration;
 
   // Zones cache service
   ZonesCacheService? _zonesCache;
@@ -251,6 +257,12 @@ class SignalKService extends ChangeNotifier implements DataService {
   /// Path subscription registry for diagnostic access.
   PathSubscriptionRegistry get subscriptionRegistry => _subscriptionRegistry;
 
+  /// Evict a path from the data cache so stale deltas can't resurrect deleted data.
+  void removeCachedValue(String path) {
+    _dataCache.internalDataMap.remove(path);
+    _latestDataView = null;
+  }
+
   // Cache size getters for diagnostics instrumentation
   int get displayUnitsCacheCount => _displayUnitsCache.length;
   int get availablePathsCount => _availablePaths.length;
@@ -262,6 +274,9 @@ class SignalKService extends ChangeNotifier implements DataService {
   String get serverUrl => _serverUrl;
   @override
   bool get useSecureConnection => _useSecureConnection;
+
+  /// Full HTTP base URL including protocol — single source of truth for REST calls.
+  String get httpBaseUrl => '${_useSecureConnection ? 'https' : 'http'}://$_serverUrl';
   bool get notificationsEnabled => _notificationManager.notificationsEnabled;
   Stream<SignalKNotification> get notificationStream => _notificationManager.notificationStream;
 
@@ -346,6 +361,10 @@ class SignalKService extends ChangeNotifier implements DataService {
       await Future.delayed(const Duration(milliseconds: 800));
     }
 
+    if (_previousServerUrl != null && _previousServerUrl != serverUrl) {
+      _serverGeneration++;
+    }
+    _previousServerUrl = serverUrl;
     _serverUrl = serverUrl;
     _useSecureConnection = secure;
     _authToken = authToken;
@@ -917,6 +936,10 @@ class SignalKService extends ChangeNotifier implements DataService {
     _connectionState = SignalKConnectionState.connected;
     _connectionStateController.add(SignalKConnectionState.connected);
     notifyListeners();
+
+    // Clear stale data from previous session so ghost paths don't accumulate
+    _dataCache.internalDataMap.clear();
+    _latestDataView = null;
 
     // Re-send existing subscriptions to the new WebSocket
     await _updateSubscription();
