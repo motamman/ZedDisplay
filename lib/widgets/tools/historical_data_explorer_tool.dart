@@ -610,22 +610,20 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
       try {
         final resources =
             await widget.signalKService.getResources(_searchAreaResourceType);
-        if (resources.isNotEmpty) {
-          final serverAreas = <SavedSearchArea>[];
-          for (final entry in resources.entries) {
-            try {
-              serverAreas.add(SavedSearchArea.fromResourceData(
-                entry.key,
-                entry.value as Map<String, dynamic>,
-              ));
-            } catch (_) {}
-          }
-          // Server is source of truth — merge with local-only items
-          final serverIds = serverAreas.map((a) => a.id).toSet();
-          final localOnly =
-              _savedAreas.where((a) => !serverIds.contains(a.id)).toList();
-          _savedAreas = [...serverAreas, ...localOnly];
+        final serverAreas = <SavedSearchArea>[];
+        for (final entry in resources.entries) {
+          try {
+            serverAreas.add(SavedSearchArea.fromResourceData(
+              entry.key,
+              entry.value as Map<String, dynamic>,
+            ));
+          } catch (_) {}
         }
+        // Server wins — keep only local areas whose ID isn't on the server
+        final serverIds = serverAreas.map((a) => a.id).toSet();
+        final unsynced =
+            _savedAreas.where((a) => !serverIds.contains(a.id)).toList();
+        _savedAreas = [...serverAreas, ...unsynced];
       } catch (e) {
         if (kDebugMode) print('Error loading saved areas from server: $e');
       }
@@ -868,11 +866,15 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
   }
 
   Future<void> _saveAsRoute() async {
-    if (_resultPoints.length < 2) return;
+    if (_resultPoints.length < 2 || _response == null) return;
 
-    final points = _resultPoints.map((p) => p.position).toList();
-    double headingThreshold = 15.0;
-    var simplified = simplifyTrack(points, headingThreshold);
+    final displayPoints = _resultPoints.map((p) => p.position).toList();
+    List<LatLng>? hiResPoints;
+    bool useHiRes = false;
+    bool hiResLoading = false;
+    double headingThreshold = 5.0;
+    var activePoints = displayPoints;
+    var simplified = simplifyTrack(activePoints, headingThreshold);
     var distNM = metersToNM(trackDistanceMeters(simplified));
 
     final result = await showDialog<({String name, String description, double threshold})>(
@@ -884,6 +886,49 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
         final descController = TextEditingController();
         return StatefulBuilder(
           builder: (ctx, setDialogState) {
+            Future<void> fetchHiRes() async {
+              if (hiResPoints != null) return; // already cached
+              setDialogState(() => hiResLoading = true);
+              try {
+                final range = _response!.range;
+                final response = await _historyService!.fetchHistoricalDataBatched(
+                  paths: ['navigation.position'],
+                  from: range.from,
+                  to: range.to,
+                  context: _context,
+                  bbox: _bboxParam,
+                  radius: _radiusParam,
+                  resolution: 5,
+                );
+                final posIdx = response.values.indexWhere((v) => v.path == 'navigation.position');
+                if (posIdx != -1) {
+                  final pts = <LatLng>[];
+                  for (final row in response.data) {
+                    final pos = row.values[posIdx];
+                    final latLng = _parsePosition(pos);
+                    if (latLng != null) pts.add(latLng);
+                  }
+                  hiResPoints = pts;
+                }
+              } catch (e) {
+                if (ctx.mounted) {
+                  ScaffoldMessenger.of(ctx).showSnackBar(
+                    SnackBar(content: Text('Hi-res fetch failed: $e')),
+                  );
+                }
+              }
+              if (ctx.mounted) {
+                setDialogState(() {
+                  hiResLoading = false;
+                  if (hiResPoints != null && hiResPoints!.length >= 2) {
+                    activePoints = hiResPoints!;
+                    simplified = simplifyTrack(activePoints, headingThreshold);
+                    distNM = metersToNM(trackDistanceMeters(simplified));
+                  }
+                });
+              }
+            }
+
             return AlertDialog(
               title: const Text('Save as Route'),
               content: Column(
@@ -900,9 +945,47 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
                     decoration: const InputDecoration(labelText: 'Description'),
                     maxLines: 2,
                   ),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Checkbox(
+                        value: useHiRes,
+                        onChanged: hiResLoading ? null : (v) {
+                          setDialogState(() {
+                            useHiRes = v ?? false;
+                            if (useHiRes) {
+                              if (hiResPoints != null && hiResPoints!.length >= 2) {
+                                activePoints = hiResPoints!;
+                              } else {
+                                fetchHiRes();
+                                return;
+                              }
+                            } else {
+                              activePoints = displayPoints;
+                            }
+                            simplified = simplifyTrack(activePoints, headingThreshold);
+                            distNM = metersToNM(trackDistanceMeters(simplified));
+                          });
+                        },
+                      ),
+                      Expanded(
+                        child: Text(
+                          hiResLoading
+                              ? 'Fetching high-resolution track...'
+                              : 'High-resolution track (5s intervals)',
+                          style: const TextStyle(fontSize: 12),
+                        ),
+                      ),
+                      if (hiResLoading)
+                        const SizedBox(
+                          width: 16, height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
                   Text(
-                    '${points.length} points \u2192 ${simplified.length} waypoints \u2022 ${distNM.toStringAsFixed(1)} NM',
+                    '${activePoints.length} points \u2192 ${simplified.length} waypoints \u2022 ${distNM.toStringAsFixed(1)} NM',
                     style: const TextStyle(fontSize: 12),
                   ),
                   const SizedBox(height: 8),
@@ -912,14 +995,14 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
                       Expanded(
                         child: Slider(
                           value: headingThreshold,
-                          min: 2,
-                          max: 45,
-                          divisions: 43,
+                          min: 1,
+                          max: 10,
+                          divisions: 9,
                           label: '${headingThreshold.round()}\u00B0',
                           onChanged: (v) {
                             setDialogState(() {
                               headingThreshold = v;
-                              simplified = simplifyTrack(points, headingThreshold);
+                              simplified = simplifyTrack(activePoints, headingThreshold);
                               distNM = metersToNM(trackDistanceMeters(simplified));
                             });
                           },
@@ -935,7 +1018,7 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
                   child: const Text('Cancel'),
                 ),
                 FilledButton(
-                  onPressed: () {
+                  onPressed: hiResLoading ? null : () {
                     final name = nameController.text.trim();
                     if (name.isEmpty) return;
                     Navigator.pop(ctx, (name: name, description: descController.text.trim(), threshold: headingThreshold));
@@ -951,7 +1034,7 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
 
     if (result == null) return;
 
-    final finalSimplified = simplifyTrack(points, result.threshold);
+    final finalSimplified = simplifyTrack(activePoints, result.threshold);
     final coordinates = finalSimplified
         .map((p) => [p.longitude, p.latitude])
         .toList();
@@ -1037,9 +1120,10 @@ class _HistoricalDataExplorerToolState extends State<HistoricalDataExplorerTool>
                                 child: const Icon(Icons.delete,
                                     color: Colors.white),
                               ),
-                              onDismissed: (_) {
-                                _deleteArea(area);
+                              confirmDismiss: (_) async {
+                                await _deleteArea(area);
                                 setSheetState(() {});
+                                return false; // already removed from list
                               },
                               child: ListTile(
                                 leading: Icon(

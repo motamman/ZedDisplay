@@ -33,6 +33,9 @@ List<LatLng> simplifyTrack(
     // Distance from last kept waypoint
     final legDist = dist.as(LengthUnit.Meter, points[lastKeptIndex], points[i]);
 
+    // Skip points too close to the last kept waypoint
+    if (legDist < 20.0) continue;
+
     if (delta >= headingThresholdDeg || legDist >= maxLegMeters) {
       result.add(points[i]);
       lastKeptIndex = i;
