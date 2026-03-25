@@ -563,8 +563,12 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen>
           final startupScreenId = storageService.startupScreenId;
 
           return SafeArea(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                maxHeight: MediaQuery.of(sheetContext).size.height * 0.6,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
               children: [
                 Padding(
                   padding: const EdgeInsets.all(16),
@@ -670,63 +674,86 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen>
                 ),
                 const Divider(height: 1),
                 // Screen management actions
-                SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                    children: [
-                      TextButton.icon(
-                        onPressed: () {
-                          Navigator.pop(sheetContext);
-                          _showAddScreenDialog();
-                        },
-                        icon: const Icon(Icons.add, size: 18),
-                        label: const Text('Add'),
+                Center(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 420),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 12),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          // Screen-specific actions
+                          TextButton.icon(
+                            style: TextButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 8)),
+                            onPressed: () {
+                              Navigator.pop(sheetContext);
+                              _showAddScreenDialog();
+                            },
+                            icon: const Icon(Icons.add, size: 18),
+                            label: const Text('Add'),
+                          ),
+                          TextButton.icon(
+                            style: TextButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 8)),
+                            onPressed: () {
+                              Navigator.pop(sheetContext);
+                              final activeScreen = dashboardService.currentLayout?.activeScreen;
+                              if (activeScreen != null) {
+                                _showRenameDialog(activeScreen.id, activeScreen.name);
+                              }
+                            },
+                            icon: const Icon(Icons.edit, size: 18),
+                            label: const Text('Rename'),
+                          ),
+                          // Separator — actions after apply to entire dashboard
+                          const SizedBox(
+                            height: 24,
+                            child: VerticalDivider(width: 12, thickness: 1),
+                          ),
+                          TextButton.icon(
+                            style: TextButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 8)),
+                            onPressed: () {
+                              Navigator.pop(sheetContext);
+                              _showIntendedUseDialog();
+                            },
+                            icon: const Icon(Icons.devices, size: 18),
+                            label: const Text('Device'),
+                          ),
+                          TextButton.icon(
+                            style: TextButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 8)),
+                            onPressed: () {
+                              Navigator.pop(sheetContext);
+                              _showOrientationLockDialog();
+                            },
+                            icon: const Icon(Icons.screen_rotation, size: 18),
+                            label: const Text('Orient'),
+                          ),
+                          // Delete at far right, isolated to prevent accidental taps
+                          if (layout.screens.length > 1) ...[
+                            const SizedBox(
+                              height: 24,
+                              child: VerticalDivider(width: 12, thickness: 1),
+                            ),
+                            IconButton(
+                              constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+                              padding: EdgeInsets.zero,
+                              onPressed: () {
+                                Navigator.pop(sheetContext);
+                                final activeScreen = dashboardService.currentLayout?.activeScreen;
+                                if (activeScreen != null) {
+                                  _confirmRemoveScreen(activeScreen.id, activeScreen.name);
+                                }
+                              },
+                              icon: const Icon(Icons.delete, size: 18, color: Colors.red),
+                              tooltip: 'Delete screen',
+                            ),
+                          ],
+                        ],
                       ),
-                      TextButton.icon(
-                        onPressed: () {
-                          Navigator.pop(sheetContext);
-                          final activeScreen = dashboardService.currentLayout?.activeScreen;
-                          if (activeScreen != null) {
-                            _showRenameDialog(activeScreen.id, activeScreen.name);
-                          }
-                        },
-                        icon: const Icon(Icons.edit, size: 18),
-                        label: const Text('Rename'),
-                      ),
-                      if (layout.screens.length > 1)
-                        TextButton.icon(
-                          onPressed: () {
-                            Navigator.pop(sheetContext);
-                            final activeScreen = dashboardService.currentLayout?.activeScreen;
-                            if (activeScreen != null) {
-                              _confirmRemoveScreen(activeScreen.id, activeScreen.name);
-                            }
-                          },
-                          icon: const Icon(Icons.delete, size: 18, color: Colors.red),
-                          label: const Text('Delete', style: TextStyle(color: Colors.red)),
-                        ),
-                      TextButton.icon(
-                        onPressed: () {
-                          Navigator.pop(sheetContext);
-                          _showIntendedUseDialog();
-                        },
-                        icon: const Icon(Icons.devices, size: 18),
-                        label: const Text('Device'),
-                      ),
-                      TextButton.icon(
-                        onPressed: () {
-                          Navigator.pop(sheetContext);
-                          _showOrientationLockDialog();
-                        },
-                        icon: const Icon(Icons.screen_rotation, size: 18),
-                        label: const Text('Orientation'),
-                      ),
-                    ],
+                    ),
                   ),
                 ),
               ],
+            ),
             ),
           );
         },
@@ -912,51 +939,53 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen>
       builder: (context) => StatefulBuilder(
         builder: (context, setState) => AlertDialog(
           title: const Text('Intended Use'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Text(
-                'Select the intended device type for this dashboard layout.',
-                style: TextStyle(fontSize: 12, color: Colors.grey),
-              ),
-              const SizedBox(height: 16),
-              RadioGroup<String?>(
-                groupValue: selectedValue,
-                onChanged: (value) {
-                  setState(() => selectedValue = value);
-                },
-                child: Column(
-                  children: [
-                    ...presets.map((preset) => RadioListTile<String?>(
-                      title: Text(preset),
-                      value: preset,
-                    )),
-                    const RadioListTile<String?>(
-                      title: Text('Custom'),
-                      value: 'Custom',
-                    ),
-                    const RadioListTile<String?>(
-                      title: Text('None'),
-                      subtitle: Text('Clear intended use'),
-                      value: null,
-                    ),
-                  ],
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text(
+                  'Select the intended device type for this dashboard layout.',
+                  style: TextStyle(fontSize: 12, color: Colors.grey),
                 ),
-              ),
-              if (selectedValue == 'Custom')
-                Padding(
-                  padding: const EdgeInsets.only(left: 16, right: 16, top: 8),
-                  child: TextField(
-                    controller: customController,
-                    decoration: const InputDecoration(
-                      labelText: 'Custom name',
-                      border: OutlineInputBorder(),
-                      isDense: true,
-                    ),
-                    autofocus: true,
+                const SizedBox(height: 16),
+                RadioGroup<String?>(
+                  groupValue: selectedValue,
+                  onChanged: (value) {
+                    setState(() => selectedValue = value);
+                  },
+                  child: Column(
+                    children: [
+                      ...presets.map((preset) => RadioListTile<String?>(
+                        title: Text(preset),
+                        value: preset,
+                      )),
+                      const RadioListTile<String?>(
+                        title: Text('Custom'),
+                        value: 'Custom',
+                      ),
+                      const RadioListTile<String?>(
+                        title: Text('None'),
+                        subtitle: Text('Clear intended use'),
+                        value: null,
+                      ),
+                    ],
                   ),
                 ),
-            ],
+                if (selectedValue == 'Custom')
+                  Padding(
+                    padding: const EdgeInsets.only(left: 16, right: 16, top: 8),
+                    child: TextField(
+                      controller: customController,
+                      decoration: const InputDecoration(
+                        labelText: 'Custom name',
+                        border: OutlineInputBorder(),
+                        isDense: true,
+                      ),
+                      autofocus: true,
+                    ),
+                  ),
+              ],
+            ),
           ),
           actions: [
             TextButton(
