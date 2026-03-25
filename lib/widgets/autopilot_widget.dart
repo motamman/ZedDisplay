@@ -845,8 +845,18 @@ class _AutopilotWidgetState extends State<AutopilotWidget> {
 
             const SizedBox(height: 10),
 
-            // Rudder indicator
-            _buildRudderIndicator(),
+            // Rudder indicator with XTE box
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Expanded(child: _buildRudderIndicator()),
+                if (widget.crossTrackError != null && widget.crossTrackError!.abs() < 18520)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: _buildXteBox(),
+                  ),
+              ],
+            ),
 
             const SizedBox(height: 12),
           ],
@@ -906,13 +916,6 @@ class _AutopilotWidgetState extends State<AutopilotWidget> {
                       bottom: 0,
                       child: controlsWidget,
                     ),
-                    // XTE display (above rudder, lower right)
-                    if (widget.crossTrackError != null && widget.crossTrackError!.abs() < 18520)
-                      Positioned(
-                        right: 16,
-                        bottom: 52,
-                        child: _buildXteBox(),
-                      ),
                   ],
                 );
               }
