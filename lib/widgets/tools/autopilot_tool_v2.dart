@@ -56,6 +56,7 @@ class _AutopilotToolV2State extends State<AutopilotToolV2> with AutomaticKeepAli
   double? _apparentWindAngle;
   double? _trueWindAngle;
   double? _crossTrackError;
+  String? _xteFormatted;
   bool _isSailingVessel = true;
 
   LatLon? _nextWaypoint;
@@ -264,13 +265,17 @@ class _AutopilotToolV2State extends State<AutopilotToolV2> with AutomaticKeepAli
         }
       }
 
+      // Cross track error — convert via MetadataStore
       if (dataSources.length > 7) {
         final xteData = widget.signalKService.getValue(
           dataSources[7].path,
           source: dataSources[7].source,
         );
         if (xteData?.value != null) {
-          _crossTrackError = (xteData!.value as num).toDouble();
+          final rawXte = (xteData!.value as num).toDouble();
+          _crossTrackError = rawXte;
+          final metadata = widget.signalKService.metadataStore.get(dataSources[7].path);
+          _xteFormatted = metadata?.format(rawXte.abs());
         }
       }
 
@@ -725,6 +730,7 @@ class _AutopilotToolV2State extends State<AutopilotToolV2> with AutomaticKeepAli
           apparentWindDirection: apparentWindDir,
           trueWindDirection: trueWindDir,
           crossTrackError: _crossTrackError,
+          xteFormatted: _xteFormatted,
           headingTrue: headingTrue,
           showWindIndicators: isWindMode,
           primaryColor: primaryColor,

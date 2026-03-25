@@ -18,7 +18,8 @@ class AutopilotWidget extends StatefulWidget {
   final double? apparentWindAngle; // Optional AWA for wind mode (relative angle)
   final double? apparentWindDirection; // Optional apparent wind direction (absolute, 0-360)
   final double? trueWindDirection; // Optional true wind direction (absolute, 0-360)
-  final double? crossTrackError; // Optional XTE for route mode
+  final double? crossTrackError; // Raw SI (meters, signed: +STBD/-PORT)
+  final String? xteFormatted; // MetadataStore-formatted (e.g. "0.12 nm")
   final bool headingTrue; // True vs Magnetic heading
   final bool showWindIndicators; // Whether to show wind needles
   final Color primaryColor;
@@ -65,6 +66,7 @@ class AutopilotWidget extends StatefulWidget {
     this.apparentWindDirection,
     this.trueWindDirection,
     this.crossTrackError,
+    this.xteFormatted,
     this.headingTrue = false,
     this.showWindIndicators = false,
     this.primaryColor = Colors.red,
@@ -531,60 +533,54 @@ class _AutopilotWidgetState extends State<AutopilotWidget> {
   }
 
   Widget _buildAutopilotOverlay(double primaryHeadingDegrees) {
-    return Stack(
-      children: [
-        // XTE display (right side below heading display) if available and reasonable
-        // Only show XTE if < 10nm (~18520m) to filter out bad data
-        if (widget.crossTrackError != null && widget.crossTrackError!.abs() < 18520)
-          Positioned(
-            right: 16,
-            bottom: 100,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-              decoration: BoxDecoration(
-                color: Colors.black.withValues(alpha: 0.8),
-                borderRadius: BorderRadius.circular(6),
-                border: Border.all(
-                  color: widget.crossTrackError! >= 0 ? Colors.green : Colors.red,
-                  width: 2,
-                ),
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  const Text(
-                    'XTE',
-                    style: TextStyle(
-                      fontSize: 10,
-                      color: Colors.white60,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    widget.crossTrackError!.abs() >= 1000
-                        ? (widget.crossTrackError!.abs() / 1000).toStringAsFixed(2)
-                        : widget.crossTrackError!.abs().toStringAsFixed(0),
-                    style: const TextStyle(
-                      fontSize: 16,
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  Text(
-                    '${widget.crossTrackError!.abs() >= 1000 ? 'km' : 'm'} ${widget.crossTrackError! >= 0 ? 'STBD' : 'PORT'}',
-                    style: TextStyle(
-                      fontSize: 10,
-                      color: widget.crossTrackError! >= 0 ? Colors.green : Colors.red,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ],
-              ),
+    return const SizedBox.shrink();
+  }
+
+  Widget _buildXteBox() {
+    if (widget.crossTrackError == null || widget.crossTrackError!.abs() >= 18520) {
+      return const SizedBox.shrink();
+    }
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.8),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(
+          color: widget.crossTrackError! >= 0 ? Colors.green : Colors.red,
+          width: 2,
+        ),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          const Text(
+            'XTE',
+            style: TextStyle(
+              fontSize: 10,
+              color: Colors.white60,
+              fontWeight: FontWeight.bold,
             ),
           ),
-      ],
+          const SizedBox(height: 2),
+          Text(
+            widget.xteFormatted ?? widget.crossTrackError!.abs().toStringAsFixed(1),
+            style: const TextStyle(
+              fontSize: 16,
+              color: Colors.white,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          Text(
+            widget.crossTrackError! >= 0 ? 'STBD' : 'PORT',
+            style: TextStyle(
+              fontSize: 10,
+              color: widget.crossTrackError! >= 0 ? Colors.green : Colors.red,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -910,6 +906,13 @@ class _AutopilotWidgetState extends State<AutopilotWidget> {
                       bottom: 0,
                       child: controlsWidget,
                     ),
+                    // XTE display (above rudder, lower right)
+                    if (widget.crossTrackError != null && widget.crossTrackError!.abs() < 18520)
+                      Positioned(
+                        right: 16,
+                        bottom: 52,
+                        child: _buildXteBox(),
+                      ),
                   ],
                 );
               }

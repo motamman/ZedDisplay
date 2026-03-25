@@ -65,6 +65,7 @@ class _AutopilotToolState extends State<AutopilotTool> with AutomaticKeepAliveCl
   double? _apparentWindAngle;
   double? _trueWindAngle;
   double? _crossTrackError;
+  String? _xteFormatted;
   bool _isSailingVessel = true; // Default to true to show wind options unless we know otherwise
 
   // Route navigation data
@@ -320,14 +321,17 @@ class _AutopilotToolState extends State<AutopilotTool> with AutomaticKeepAliveCl
         }
       }
 
-      // 7: Cross track error (optional)
+      // 7: Cross track error (optional) — convert via MetadataStore
       if (dataSources.length > 7) {
         final xteData = widget.signalKService.getValue(
           dataSources[7].path,
           source: dataSources[7].source,
         );
         if (xteData?.value != null) {
-          _crossTrackError = (xteData!.value as num).toDouble();
+          final rawXte = (xteData!.value as num).toDouble();
+          _crossTrackError = rawXte;
+          final metadata = widget.signalKService.metadataStore.get(dataSources[7].path);
+          _xteFormatted = metadata?.format(rawXte.abs());
         }
       }
 
@@ -844,6 +848,7 @@ class _AutopilotToolState extends State<AutopilotTool> with AutomaticKeepAliveCl
           apparentWindDirection: apparentWindDir,
           trueWindDirection: trueWindDir,
           crossTrackError: _crossTrackError,
+          xteFormatted: _xteFormatted,
           headingTrue: headingTrue,
           showWindIndicators: isWindMode,
           primaryColor: primaryColor,
