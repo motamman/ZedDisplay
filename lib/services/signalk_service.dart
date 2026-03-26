@@ -956,7 +956,7 @@ class SignalKService extends ChangeNotifier implements DataService {
   /// This is required when multiple sources exist for the same path.
   @override
   Future<void> sendPutRequest(String path, dynamic value, {String? source}) async {
-    final protocol = _useSecureConnection ? 'https' : 'http';
+
 
     // Convert dot notation to slash notation for URL
     // e.g., 'commands.captureMoored.auto' -> 'commands/captureMoored/auto'
@@ -972,7 +972,7 @@ class SignalKService extends ChangeNotifier implements DataService {
     try {
       final memBefore = _diagnosticRssKB();
       final response = await http.put(
-        Uri.parse('$protocol://$_serverUrl/signalk/v1/api/vessels/$_vesselRestPath/$urlPath'),
+        Uri.parse('$httpBaseUrl/signalk/v1/api/vessels/$_vesselRestPath/$urlPath'),
         headers: _getHeaders(),
         body: jsonEncode(body),
       );
@@ -1074,8 +1074,8 @@ class SignalKService extends ChangeNotifier implements DataService {
   /// Get all resources of a specific type
   /// Returns a Map of resource IDs to resource data
   Future<Map<String, dynamic>> getResources(String resourceType) async {
-    final protocol = _useSecureConnection ? 'https' : 'http';
-    final url = '$protocol://$_serverUrl/signalk/v2/api/resources/$resourceType';
+
+    final url = '$httpBaseUrl/signalk/v2/api/resources/$resourceType';
 
     try {
       final memBefore = _diagnosticRssKB();
@@ -1102,11 +1102,11 @@ class SignalKService extends ChangeNotifier implements DataService {
 
   /// Get a specific resource by type and ID
   Future<Map<String, dynamic>?> getResource(String resourceType, String id) async {
-    final protocol = _useSecureConnection ? 'https' : 'http';
+
 
     try {
       final response = await http.get(
-        Uri.parse('$protocol://$_serverUrl/signalk/v2/api/resources/$resourceType/$id'),
+        Uri.parse('$httpBaseUrl/signalk/v2/api/resources/$resourceType/$id'),
         headers: _getHeaders(),
       ).timeout(const Duration(seconds: 10));
 
@@ -1125,8 +1125,8 @@ class SignalKService extends ChangeNotifier implements DataService {
   /// Create or update a resource
   /// Returns true if successful
   Future<bool> putResource(String resourceType, String id, Map<String, dynamic> data) async {
-    final protocol = _useSecureConnection ? 'https' : 'http';
-    final url = '$protocol://$_serverUrl/signalk/v2/api/resources/$resourceType/$id';
+
+    final url = '$httpBaseUrl/signalk/v2/api/resources/$resourceType/$id';
 
     try {
       final memBefore = _diagnosticRssKB();
@@ -1149,12 +1149,12 @@ class SignalKService extends ChangeNotifier implements DataService {
   /// Delete a resource
   /// Returns true if successful
   Future<bool> deleteResource(String resourceType, String id) async {
-    final protocol = _useSecureConnection ? 'https' : 'http';
+
 
     try {
       final memBefore = _diagnosticRssKB();
       final response = await http.delete(
-        Uri.parse('$protocol://$_serverUrl/signalk/v2/api/resources/$resourceType/$id'),
+        Uri.parse('$httpBaseUrl/signalk/v2/api/resources/$resourceType/$id'),
         headers: _getHeaders(),
       ).timeout(const Duration(seconds: 10));
       _diagnosticService?.instrumentRestCall('DELETE', memBefore, _diagnosticRssKB());
@@ -1180,12 +1180,12 @@ class SignalKService extends ChangeNotifier implements DataService {
       return true;
     }
 
-    final protocol = _useSecureConnection ? 'https' : 'http';
+
 
     try {
       // First check if the resource type already exists by trying to GET it
       final checkResponse = await http.get(
-        Uri.parse('$protocol://$_serverUrl/signalk/v2/api/resources/$resourceType'),
+        Uri.parse('$httpBaseUrl/signalk/v2/api/resources/$resourceType'),
         headers: _getHeaders(),
       ).timeout(const Duration(seconds: 5));
 
@@ -1197,7 +1197,7 @@ class SignalKService extends ChangeNotifier implements DataService {
 
       // Resource type doesn't exist, try to create it via resources-provider plugin API
       final createResponse = await http.post(
-        Uri.parse('$protocol://$_serverUrl/plugins/resources-provider/_config/$resourceType'),
+        Uri.parse('$httpBaseUrl/plugins/resources-provider/_config/$resourceType'),
         headers: _getHeaders(),
         body: jsonEncode({
           'description': description ?? 'ZedDisplay $resourceType',
@@ -1217,8 +1217,8 @@ class SignalKService extends ChangeNotifier implements DataService {
   /// Make an authenticated POST request to a plugin API endpoint
   /// Returns the response body as a Map, or null on failure
   Future<http.Response> postPluginApi(String pluginPath, {Map<String, dynamic>? body}) async {
-    final protocol = _useSecureConnection ? 'https' : 'http';
-    final url = '$protocol://$_serverUrl$pluginPath';
+
+    final url = '$httpBaseUrl$pluginPath';
 
     final memBefore = _diagnosticRssKB();
     final response = await http.post(
@@ -1233,8 +1233,8 @@ class SignalKService extends ChangeNotifier implements DataService {
   /// Make an authenticated GET request to a plugin API endpoint
   /// Returns the response body as a Map, or null on failure
   Future<http.Response> getPluginApi(String pluginPath) async {
-    final protocol = _useSecureConnection ? 'https' : 'http';
-    final url = '$protocol://$_serverUrl$pluginPath';
+
+    final url = '$httpBaseUrl$pluginPath';
 
     final memBefore = _diagnosticRssKB();
     final response = await http.get(
@@ -1266,7 +1266,7 @@ class SignalKService extends ChangeNotifier implements DataService {
   /// Get value for specific path directly from REST API
   /// This is useful when WebSocket delta updates aren't working
   Future<dynamic> getRestValue(String path) async {
-    final protocol = _useSecureConnection ? 'https' : 'http';
+
 
     // Convert dot notation to slash notation for URL
     // e.g., 'steering.autopilot.state' -> 'steering/autopilot/state'
@@ -1274,7 +1274,7 @@ class SignalKService extends ChangeNotifier implements DataService {
 
     try {
       final response = await http.get(
-        Uri.parse('$protocol://$_serverUrl/signalk/v1/api/vessels/$_vesselRestPath/$urlPath'),
+        Uri.parse('$httpBaseUrl/signalk/v1/api/vessels/$_vesselRestPath/$urlPath'),
         headers: _getHeaders(),
       ).timeout(const Duration(seconds: 10)); // Increased from 3s for busy servers
 
@@ -1374,12 +1374,12 @@ class SignalKService extends ChangeNotifier implements DataService {
   /// Fetch vessel self ID from SignalK server using the /self endpoint
   /// Returns the vessel identifier (e.g., "urn:mrn:signalk:uuid:..." or "urn:mrn:imo:mmsi:...")
   Future<String?> getVesselSelfId() async {
-    final protocol = _useSecureConnection ? 'https' : 'http';
+
 
     try {
       // Use the proper SignalK /self endpoint which returns the self vessel reference
       final response = await http.get(
-        Uri.parse('$protocol://$_serverUrl/signalk/v1/api/self'),
+        Uri.parse('$httpBaseUrl/signalk/v1/api/self'),
         headers: _getHeaders(),
       ).timeout(const Duration(seconds: 5));
 
@@ -1403,11 +1403,11 @@ class SignalKService extends ChangeNotifier implements DataService {
   /// Fetch all available paths from SignalK server
   /// Returns a map of paths with their current values and metadata
   Future<Map<String, dynamic>?> getAvailablePaths() async {
-    final protocol = _useSecureConnection ? 'https' : 'http';
+
 
     try {
       final response = await http.get(
-        Uri.parse('$protocol://$_serverUrl/signalk/v1/api/vessels/$_vesselRestPath'),
+        Uri.parse('$httpBaseUrl/signalk/v1/api/vessels/$_vesselRestPath'),
         headers: _getHeaders(),
       ).timeout(const Duration(seconds: 30)); // Increased from 10s for busy servers
 
@@ -1428,11 +1428,11 @@ class SignalKService extends ChangeNotifier implements DataService {
   /// Fetch available paths from the lightweight /skServer/availablePaths endpoint.
   /// Returns a clean JSON array of path names (no values, no auth required).
   Future<void> _fetchAvailablePaths() async {
-    final protocol = _useSecureConnection ? 'https' : 'http';
+
 
     try {
       final response = await http.get(
-        Uri.parse('$protocol://$_serverUrl/skServer/availablePaths'),
+        Uri.parse('$httpBaseUrl/skServer/availablePaths'),
         headers: _getHeaders(),
       ).timeout(const Duration(seconds: 10));
 
@@ -1481,12 +1481,12 @@ class SignalKService extends ChangeNotifier implements DataService {
   /// GET /signalk/v1/unitpreferences/presets/:name - get preset details
   Future<void> fetchUserUnitPreferences() async {
     final connectionId = _authToken?.connectionId;
-    final protocol = _useSecureConnection ? 'https' : 'http';
+
 
     try {
       // Get the current unit preferences config (active preset name)
       final configResponse = await http.get(
-        Uri.parse('$protocol://$_serverUrl/signalk/v1/unitpreferences/config'),
+        Uri.parse('$httpBaseUrl/signalk/v1/unitpreferences/config'),
         headers: _getHeaders(),
       ).timeout(const Duration(seconds: 10));
 
@@ -1506,12 +1506,12 @@ class SignalKService extends ChangeNotifier implements DataService {
 
   /// Fetch a specific preset and cache it locally
   Future<void> _fetchAndCacheUserPreset(String? connectionId, String presetName) async {
-    final protocol = _useSecureConnection ? 'https' : 'http';
+
 
     try {
       // Fetch the preset details
       final presetResponse = await http.get(
-        Uri.parse('$protocol://$_serverUrl/signalk/v1/unitpreferences/presets/$presetName'),
+        Uri.parse('$httpBaseUrl/signalk/v1/unitpreferences/presets/$presetName'),
         headers: _getHeaders(),
       ).timeout(const Duration(seconds: 10));
 
@@ -1537,11 +1537,11 @@ class SignalKService extends ChangeNotifier implements DataService {
   /// This returns the fully-resolved preset with conversion formulas per category
   /// Used for REST API data that doesn't include meta.displayUnits
   Future<Map<String, dynamic>?> fetchActiveUnitPreferences() async {
-    final protocol = _useSecureConnection ? 'https' : 'http';
+
 
     try {
       final response = await http.get(
-        Uri.parse('$protocol://$_serverUrl/signalk/v1/unitpreferences/active'),
+        Uri.parse('$httpBaseUrl/signalk/v1/unitpreferences/active'),
         headers: _getHeaders(),
       ).timeout(const Duration(seconds: 10));
 
@@ -1652,10 +1652,10 @@ class SignalKService extends ChangeNotifier implements DataService {
 
     final restPath = vesselId ?? _vesselRestPath;
     final urlPath = path.replaceAll('.', '/');
-    final protocol = _useSecureConnection ? 'https' : 'http';
+
     try {
       final response = await http.get(
-        Uri.parse('$protocol://$_serverUrl/signalk/v1/api/vessels/$restPath/$urlPath/meta'),
+        Uri.parse('$httpBaseUrl/signalk/v1/api/vessels/$restPath/$urlPath/meta'),
         headers: _getHeaders(),
       );
       if (response.statusCode == 200) {
@@ -1749,7 +1749,7 @@ class SignalKService extends ChangeNotifier implements DataService {
   /// Get available sources for a specific path
   /// Returns a map of source labels and their metadata
   Future<Map<String, dynamic>?> getSourcesForPath(String path, {String? vesselId}) async {
-    final protocol = _useSecureConnection ? 'https' : 'http';
+
     final restPath = vesselId ?? _vesselRestPath;
 
     // Convert path to API format (e.g., navigation.speedOverGround -> navigation/speedOverGround)
@@ -1757,7 +1757,7 @@ class SignalKService extends ChangeNotifier implements DataService {
 
     try {
       final response = await http.get(
-        Uri.parse('$protocol://$_serverUrl/signalk/v1/api/vessels/$restPath/$apiPath'),
+        Uri.parse('$httpBaseUrl/signalk/v1/api/vessels/$restPath/$apiPath'),
         headers: _getHeaders(),
       ).timeout(const Duration(seconds: 20)); // Increased from 5s for busy servers
 
@@ -2287,6 +2287,8 @@ class _ConversionManager {
     required this.getMetadataStore,
   });
 
+  String get httpBaseUrl => '${useSecureConnection() ? 'https' : 'http'}://${getServerUrl()}';
+
   // Direct access to internal map (legacy)
   Map<String, PathConversionData> get internalDataMap => _conversionsData;
 
@@ -2334,27 +2336,25 @@ class _ConversionManager {
   /// GET /signalk/v1/unitpreferences/config
   /// GET /signalk/v1/unitpreferences/presets/{name}
   Future<void> fetchConversions() async {
-    final protocol = useSecureConnection() ? 'https' : 'http';
-    final serverUrl = getServerUrl();
     final headers = getHeaders();
 
     try {
       // Fetch all four endpoints in parallel
       final results = await Future.wait([
         http.get(
-          Uri.parse('$protocol://$serverUrl/signalk/v1/unitpreferences/definitions'),
+          Uri.parse('$httpBaseUrl/signalk/v1/unitpreferences/definitions'),
           headers: headers,
         ).timeout(const Duration(seconds: 10)),
         http.get(
-          Uri.parse('$protocol://$serverUrl/signalk/v1/unitpreferences/default-categories'),
+          Uri.parse('$httpBaseUrl/signalk/v1/unitpreferences/default-categories'),
           headers: headers,
         ).timeout(const Duration(seconds: 10)),
         http.get(
-          Uri.parse('$protocol://$serverUrl/signalk/v1/unitpreferences/config'),
+          Uri.parse('$httpBaseUrl/signalk/v1/unitpreferences/config'),
           headers: headers,
         ).timeout(const Duration(seconds: 10)),
         http.get(
-          Uri.parse('$protocol://$serverUrl/signalk/v1/unitpreferences/categories'),
+          Uri.parse('$httpBaseUrl/signalk/v1/unitpreferences/categories'),
           headers: headers,
         ).timeout(const Duration(seconds: 10)),
       ]);
@@ -2390,7 +2390,7 @@ class _ConversionManager {
       // Try user-specific preference first
       try {
         final userResponse = await http.get(
-          Uri.parse('$protocol://$serverUrl/signalk/v1/applicationData/user/unitpreferences/1.0.0'),
+          Uri.parse('$httpBaseUrl/signalk/v1/applicationData/user/unitpreferences/1.0.0'),
           headers: headers,
         ).timeout(const Duration(seconds: 10));
 
@@ -2416,7 +2416,7 @@ class _ConversionManager {
       if (_activePresetName != null && _activePresetName!.isNotEmpty) {
         try {
           final presetResponse = await http.get(
-            Uri.parse('$protocol://$serverUrl/signalk/v1/unitpreferences/presets/$_activePresetName'),
+            Uri.parse('$httpBaseUrl/signalk/v1/unitpreferences/presets/$_activePresetName'),
             headers: headers,
           ).timeout(const Duration(seconds: 10));
 
@@ -2583,8 +2583,6 @@ class _ConversionManager {
 
   /// Save user's unit preference for a category to the server
   Future<bool> setTargetUnitForCategory(String category, String targetUnit) async {
-    final protocol = useSecureConnection() ? 'https' : 'http';
-    final serverUrl = getServerUrl();
     final headers = getHeaders();
     headers['Content-Type'] = 'application/json';
 
@@ -2599,7 +2597,7 @@ class _ConversionManager {
       });
 
       final response = await http.put(
-        Uri.parse('$protocol://$serverUrl/signalk/v1/unitpreferences/active'),
+        Uri.parse('$httpBaseUrl/signalk/v1/unitpreferences/active'),
         headers: headers,
         body: body,
       ).timeout(const Duration(seconds: 10));
@@ -2968,6 +2966,8 @@ class _AISManager {
   // Cached self vessel ID for filtering
   String? _cachedSelfVesselId;
 
+  String get httpBaseUrl => '${useSecureConnection() ? 'https' : 'http'}://${getServerUrl()}';
+
   _AISManager({
     required this.getServerUrl,
     required this.useSecureConnection,
@@ -3028,8 +3028,8 @@ class _AISManager {
   /// Fetch AIS vessels from REST API and populate the registry.
   /// Stores raw SI values (no conversions).
   Future<void> fetchAndPopulateRegistry() async {
-    final protocol = useSecureConnection() ? 'https' : 'http';
-    final endpoint = '$protocol://${getServerUrl()}/signalk/v1/api/vessels';
+
+    final endpoint = '$httpBaseUrl/signalk/v1/api/vessels';
 
     try {
       final response = await http.get(
@@ -3043,7 +3043,7 @@ class _AISManager {
         // Fetch self vessel ID directly from /self endpoint
         try {
           final selfResponse = await http.get(
-            Uri.parse('$protocol://${getServerUrl()}/signalk/v1/api/self'),
+            Uri.parse('$httpBaseUrl/signalk/v1/api/self'),
             headers: getHeaders(),
           ).timeout(const Duration(seconds: 5));
 
