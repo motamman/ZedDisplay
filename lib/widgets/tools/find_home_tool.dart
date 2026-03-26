@@ -2338,19 +2338,20 @@ class _RunwayPainter extends CustomPainter {
       if (sunRelBearing.abs() <= skyFov) {
         final sunX = w / 2 + (sunRelBearing / skyFov) * (w / 2);
         final sunY = horizonY - (sunAltitudeDeg.clamp(0, 90) / 90) * (skyHeight - 20);
-        final sunTp = TextPainter(
-          text: TextSpan(
-            text: String.fromCharCode(Icons.wb_sunny.codePoint),
-            style: TextStyle(
-              fontSize: 24,
-              fontFamily: Icons.wb_sunny.fontFamily,
-              package: Icons.wb_sunny.fontPackage,
-              color: Colors.amber,
-            ),
-          ),
-          textDirection: TextDirection.ltr,
-        )..layout();
-        sunTp.paint(canvas, Offset(sunX - sunTp.width / 2, sunY - sunTp.height / 2));
+        final sunCenter = Offset(sunX, sunY);
+        const sunRadius = 14.0;
+        // Glow
+        canvas.drawCircle(
+          sunCenter,
+          sunRadius + 6,
+          Paint()..color = Colors.amber.withValues(alpha: 0.25),
+        );
+        // Disc
+        canvas.drawCircle(
+          sunCenter,
+          sunRadius,
+          Paint()..color = Colors.amber,
+        );
       }
     }
     // Moon
