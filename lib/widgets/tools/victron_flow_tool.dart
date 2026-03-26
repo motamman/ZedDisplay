@@ -174,12 +174,40 @@ class VictronFlowTool extends StatefulWidget {
 }
 
 class _VictronFlowToolState extends State<VictronFlowTool> with SingleTickerProviderStateMixin {
+  static const _ownerId = 'victron_flow';
+
   late AnimationController _animController;
   late List<PowerSourceConfig> _sources;
   late List<PowerLoadConfig> _loads;
   late BatteryConfig _batteryConfig;
   late String? _inverterStatePath;
   late Color _primaryColor;
+
+  /// Collect all SignalK paths from current config for subscription management.
+  List<String> _collectAllPaths() {
+    final paths = <String>[];
+    for (final s in _sources) {
+      if (s.currentPath != null) paths.add(s.currentPath!);
+      if (s.voltagePath != null) paths.add(s.voltagePath!);
+      if (s.powerPath != null) paths.add(s.powerPath!);
+      if (s.frequencyPath != null) paths.add(s.frequencyPath!);
+      if (s.statePath != null) paths.add(s.statePath!);
+    }
+    for (final l in _loads) {
+      if (l.currentPath != null) paths.add(l.currentPath!);
+      if (l.voltagePath != null) paths.add(l.voltagePath!);
+      if (l.powerPath != null) paths.add(l.powerPath!);
+      if (l.frequencyPath != null) paths.add(l.frequencyPath!);
+    }
+    if (_batteryConfig.socPath != null) paths.add(_batteryConfig.socPath!);
+    if (_batteryConfig.voltagePath != null) paths.add(_batteryConfig.voltagePath!);
+    if (_batteryConfig.currentPath != null) paths.add(_batteryConfig.currentPath!);
+    if (_batteryConfig.powerPath != null) paths.add(_batteryConfig.powerPath!);
+    if (_batteryConfig.timeRemainingPath != null) paths.add(_batteryConfig.timeRemainingPath!);
+    if (_batteryConfig.temperaturePath != null) paths.add(_batteryConfig.temperaturePath!);
+    if (_inverterStatePath != null) paths.add(_inverterStatePath!);
+    return paths;
+  }
 
   @override
   void initState() {
@@ -190,13 +218,18 @@ class _VictronFlowToolState extends State<VictronFlowTool> with SingleTickerProv
     )..repeat();
     widget.signalKService.addListener(_onDataUpdate);
     _parseConfig();
+    widget.signalKService.subscribeToPaths(_collectAllPaths(), ownerId: _ownerId);
   }
 
   @override
   void didUpdateWidget(VictronFlowTool oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.config != widget.config) {
+      final oldPaths = _collectAllPaths();
       _parseConfig();
+      final newPaths = _collectAllPaths();
+      widget.signalKService.unsubscribeFromPaths(oldPaths, ownerId: _ownerId);
+      widget.signalKService.subscribeToPaths(newPaths, ownerId: _ownerId);
     }
   }
 
@@ -306,6 +339,7 @@ class _VictronFlowToolState extends State<VictronFlowTool> with SingleTickerProv
   @override
   void dispose() {
     _animController.dispose();
+    widget.signalKService.unsubscribeFromPaths(_collectAllPaths(), ownerId: _ownerId);
     widget.signalKService.removeListener(_onDataUpdate);
     super.dispose();
   }
@@ -893,19 +927,22 @@ class _FlowLinesPainter extends CustomPainter {
       ..strokeWidth = 3
       ..style = PaintingStyle.stroke;
 
-    // Match layout: padding 12, gaps 70, flex 3:4:3
-    const padding = 12.0;
+    // Match layout: padding LTRB(12, 32, 12, 12), gaps 70, flex 3:4:3
+    const paddingLeft = 12.0;
+    const paddingTop = 32.0;
+    const paddingRight = 12.0;
+    const paddingBottom = 12.0;
     const gap = 70.0;
-    final contentWidth = size.width - padding * 2;
+    final contentWidth = size.width - paddingLeft - paddingRight;
     final colWidthUnit = (contentWidth - gap * 2) / 10;
 
-    final leftColRight = padding + colWidthUnit * 3;
+    final leftColRight = paddingLeft + colWidthUnit * 3;
     final centerColLeft = leftColRight + gap;
     final centerColRight = centerColLeft + colWidthUnit * 4;
     final rightColLeft = centerColRight + gap;
 
     // Calculate source row positions with proportional spacing
-    final contentHeight = size.height - padding * 2;
+    final contentHeight = size.height - paddingTop - paddingBottom;
 
     // Proportional spacing: 15% of height distributed among gaps, clamped 12-40
     final sourceGapCount = sourceCount > 1 ? sourceCount - 1 : 0;
@@ -922,7 +959,7 @@ class _FlowLinesPainter extends CustomPainter {
 
     List<double> sourceRowCenters = [];
     for (int i = 0; i < sourceCount; i++) {
-      sourceRowCenters.add(padding + sourceRowHeight * i + sourceSpacing * i + sourceRowHeight / 2);
+      sourceRowCenters.add(paddingTop + sourceRowHeight * i + sourceSpacing * i + sourceRowHeight / 2);
     }
 
     // Calculate load row positions
@@ -931,16 +968,16 @@ class _FlowLinesPainter extends CustomPainter {
 
     List<double> loadRowCenters = [];
     for (int i = 0; i < loadCount; i++) {
-      loadRowCenters.add(padding + loadRowHeight * i + loadSpacing * i + loadRowHeight / 2);
+      loadRowCenters.add(paddingTop + loadRowHeight * i + loadSpacing * i + loadRowHeight / 2);
     }
 
     // Center column: inverter (flex 2) and battery (flex 3) with 28px gap
     final inverterHeight = (contentHeight - 28) * 2 / 5;
     final batteryHeight = (contentHeight - 28) * 3 / 5;
-    final inverterBottom = padding + inverterHeight;
+    final inverterBottom = paddingTop + inverterHeight;
     final batteryTop = inverterBottom + 28;
     final batteryCenter = batteryTop + batteryHeight / 2;
-    final inverterCenter = padding + inverterHeight / 2;
+    final inverterCenter = paddingTop + inverterHeight / 2;
 
     final midX = leftColRight + gap / 2;
 
