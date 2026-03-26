@@ -107,7 +107,9 @@ class _FindHomeToolState extends State<FindHomeTool> {
 
   // Sun/moon sky display
   double _sunAltitudeDeg = -90;
+  double _sunAzimuthDeg = 0;
   double _moonAltitudeDeg = -90;
+  double _moonAzimuthDeg = 0;
   double _moonPhase = 0;
   double _moonFraction = 0;
   Timer? _skyTimer;
@@ -515,7 +517,9 @@ class _FindHomeToolState extends State<FindHomeTool> {
     final moonPos = MoonCalc.getPosition(now, lat, lng);
     final moonIllum = MoonCalc.getIllumination(now);
     _sunAltitudeDeg = sunPos.altitudeDegrees;
+    _sunAzimuthDeg = sunPos.azimuthDegrees;
     _moonAltitudeDeg = moonPos.altitudeDegrees;
+    _moonAzimuthDeg = moonPos.azimuthDegrees;
     _moonPhase = moonIllum.phase;
     _moonFraction = moonIllum.fraction;
   }
@@ -1130,9 +1134,13 @@ class _FindHomeToolState extends State<FindHomeTool> {
                     targetCogDeg: dodgeNav?.targetCogDeg,
                     isBowPass: _dodgeBowPass,
                     sunAltitudeDeg: _sunAltitudeDeg,
+                    sunAzimuthDeg: _sunAzimuthDeg,
                     moonAltitudeDeg: _moonAltitudeDeg,
+                    moonAzimuthDeg: _moonAzimuthDeg,
                     moonPhase: _moonPhase,
                     moonFraction: _moonFraction,
+                    vesselCogDeg: displayCogDeg,
+                    vesselLatitude: _devicePosition?.latitude ?? 0,
                   ),
                   size: Size.infinite,
                 ),
@@ -2168,9 +2176,13 @@ class _RunwayPainter extends CustomPainter {
   final double? targetCogDeg;
   final bool isBowPass;
   final double sunAltitudeDeg;
+  final double sunAzimuthDeg;
   final double moonAltitudeDeg;
+  final double moonAzimuthDeg;
   final double moonPhase;
   final double moonFraction;
+  final double vesselCogDeg;
+  final double vesselLatitude;
 
   _RunwayPainter({
     required this.deviation,
@@ -2189,9 +2201,13 @@ class _RunwayPainter extends CustomPainter {
     this.targetCogDeg,
     this.isBowPass = false,
     this.sunAltitudeDeg = -90,
+    this.sunAzimuthDeg = 0,
     this.moonAltitudeDeg = -90,
+    this.moonAzimuthDeg = 0,
     this.moonPhase = 0,
     this.moonFraction = 0,
+    this.vesselCogDeg = 0,
+    this.vesselLatitude = 0,
   });
 
   @override
@@ -2309,35 +2325,80 @@ class _RunwayPainter extends CustomPainter {
         ..strokeWidth = 1.0,
     );
 
-    // --- Sun/Moon in sky ---
+    // --- Sun/Moon in sky — positioned by azimuth relative to vessel heading ---
     final skyHeight = horizonY;
+    // Field of view: ±90° from heading maps to full sky width
+    const skyFov = 90.0;
+
     // Sun
     if (sunAltitudeDeg > 0) {
-      final sunY = horizonY - (sunAltitudeDeg.clamp(0, 90) / 90) * (skyHeight - 20);
-      final sunTp = TextPainter(
-        text: TextSpan(
-          text: String.fromCharCode(Icons.wb_sunny.codePoint),
-          style: TextStyle(
-            fontSize: 24,
-            fontFamily: Icons.wb_sunny.fontFamily,
-            package: Icons.wb_sunny.fontPackage,
-            color: Colors.amber,
+      // Relative bearing: how far left/right of heading is the sun
+      var sunRelBearing = (sunAzimuthDeg - vesselCogDeg) % 360;
+      if (sunRelBearing > 180) sunRelBearing -= 360; // -180 to +180
+      if (sunRelBearing.abs() <= skyFov) {
+        final sunX = w / 2 + (sunRelBearing / skyFov) * (w / 2);
+        final sunY = horizonY - (sunAltitudeDeg.clamp(0, 90) / 90) * (skyHeight - 20);
+        final sunTp = TextPainter(
+          text: TextSpan(
+            text: String.fromCharCode(Icons.wb_sunny.codePoint),
+            style: TextStyle(
+              fontSize: 24,
+              fontFamily: Icons.wb_sunny.fontFamily,
+              package: Icons.wb_sunny.fontPackage,
+              color: Colors.amber,
+            ),
           ),
-        ),
-        textDirection: TextDirection.ltr,
-      )..layout();
-      sunTp.paint(canvas, Offset(w * 0.25 - sunTp.width / 2, sunY - sunTp.height / 2));
+          textDirection: TextDirection.ltr,
+        )..layout();
+        sunTp.paint(canvas, Offset(sunX - sunTp.width / 2, sunY - sunTp.height / 2));
+      }
     }
     // Moon
     if (moonAltitudeDeg > 0) {
-      final moonY = horizonY - (moonAltitudeDeg.clamp(0, 90) / 90) * (skyHeight - 20);
-      final moonSize = 36.0;
-      final moonX = w * 0.75;
-      // Draw moon phase
-      canvas.save();
-      canvas.translate(moonX - moonSize / 2, moonY - moonSize / 2);
-      _paintMoonPhase(canvas, Size(moonSize, moonSize));
-      canvas.restore();
+      var moonRelBearing = (moonAzimuthDeg - vesselCogDeg) % 360;
+      if (moonRelBearing > 180) moonRelBearing -= 360;
+      if (moonRelBearing.abs() <= skyFov) {
+        final moonX = w / 2 + (moonRelBearing / skyFov) * (w / 2);
+        final moonY = horizonY - (moonAltitudeDeg.clamp(0, 90) / 90) * (skyHeight - 20);
+        final moonSize = 36.0;
+        canvas.save();
+        canvas.translate(moonX - moonSize / 2, moonY - moonSize / 2);
+        _paintMoonPhase(canvas, Size(moonSize, moonSize));
+        canvas.restore();
+      }
+    }
+
+    // Polaris — visible at night, northern hemisphere only
+    // Altitude ≈ vessel latitude, azimuth ≈ true north (0°)
+    if (sunAltitudeDeg < -6 && vesselLatitude > 5) {
+      final polarisAlt = vesselLatitude.clamp(0.0, 90.0);
+      var polarisRelBearing = (0.0 - vesselCogDeg) % 360;
+      if (polarisRelBearing > 180) polarisRelBearing -= 360;
+      if (polarisRelBearing.abs() <= skyFov) {
+        final px = w / 2 + (polarisRelBearing / skyFov) * (w / 2);
+        final py = horizonY - (polarisAlt / 90) * (skyHeight - 20);
+        // Star with 4-point rays and glow
+        final starCenter = Offset(px, py);
+        // Outer glow
+        canvas.drawCircle(starCenter, 8, Paint()
+          ..color = Colors.white.withValues(alpha: 0.12)
+          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8));
+        // Core
+        canvas.drawCircle(starCenter, 3, Paint()
+          ..color = Colors.white.withValues(alpha: 0.9));
+        // Rays
+        final rayPaint = Paint()
+          ..color = Colors.white.withValues(alpha: 0.7)
+          ..strokeWidth = 1.0
+          ..strokeCap = StrokeCap.round;
+        const rayLen = 10.0;
+        canvas.drawLine(Offset(px - rayLen, py), Offset(px + rayLen, py), rayPaint);
+        canvas.drawLine(Offset(px, py - rayLen), Offset(px, py + rayLen), rayPaint);
+        // Diagonal rays (shorter)
+        const diagLen = 6.0;
+        canvas.drawLine(Offset(px - diagLen, py - diagLen), Offset(px + diagLen, py + diagLen), rayPaint);
+        canvas.drawLine(Offset(px + diagLen, py - diagLen), Offset(px - diagLen, py + diagLen), rayPaint);
+      }
     }
 
     // Dim runway elements when wrong way
@@ -2876,9 +2937,13 @@ class _RunwayPainter extends CustomPainter {
         oldDelegate.targetCogDeg != targetCogDeg ||
         oldDelegate.isBowPass != isBowPass ||
         oldDelegate.sunAltitudeDeg != sunAltitudeDeg ||
+        oldDelegate.sunAzimuthDeg != sunAzimuthDeg ||
         oldDelegate.moonAltitudeDeg != moonAltitudeDeg ||
+        oldDelegate.moonAzimuthDeg != moonAzimuthDeg ||
         oldDelegate.moonPhase != moonPhase ||
-        oldDelegate.moonFraction != moonFraction;
+        oldDelegate.moonFraction != moonFraction ||
+        oldDelegate.vesselCogDeg != vesselCogDeg ||
+        oldDelegate.vesselLatitude != vesselLatitude;
   }
 }
 
