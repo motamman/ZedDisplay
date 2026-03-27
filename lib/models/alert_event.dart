@@ -58,6 +58,10 @@ class AlertEvent {
   // Subsystem-specific callback data (e.g., CpaVesselAlert for snackbar)
   final dynamic callbackData;
 
+  // Throttle: suppress duplicate alerts within this window (per subsystem+alarmId).
+  // Null uses coordinator default (30s).
+  final Duration? throttleDuration;
+
   const AlertEvent({
     required this.subsystem,
     required this.severity,
@@ -72,5 +76,9 @@ class AlertEvent {
     this.alarmSource,
     this.crewMessage,
     this.callbackData,
+    this.throttleDuration,
   });
+
+  /// Key used for dedup/throttle and active alert tracking.
+  String get alertKey => '${subsystem.name}:${alarmId ?? 'default'}';
 }

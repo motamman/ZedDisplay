@@ -609,24 +609,34 @@ class SignalKNotificationListener extends StatefulWidget {
 
 class _SignalKNotificationListenerState extends State<SignalKNotificationListener> {
   StreamSubscription<SignalKNotification>? _notificationSubscription;
+  StreamSubscription<alert_models.AlertEvent>? _snackbarSubscription;
 
-  bool _coordinatorWired = false;
+  // Track current snackbar severity — don't let lower severity replace higher
+  alert_models.AlertSeverity? _currentSnackbarSeverity;
+  Timer? _snackbarSeverityTimer;
 
   @override
   void initState() {
     super.initState();
     _setupNotificationListener();
+    _setupSnackbarListener();
+  }
+
+  void _setupSnackbarListener() {
+    try {
+      final coordinator = Provider.of<AlertCoordinator>(context, listen: false);
+      _snackbarSubscription = coordinator.snackbarEvents.listen(showAlertEventSnackbar);
+    } catch (_) {
+      // Coordinator not available yet — will be set up in didChangeDependencies
+    }
   }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    if (!_coordinatorWired) {
-      _coordinatorWired = true;
-      try {
-        final coordinator = Provider.of<AlertCoordinator>(context, listen: false);
-        coordinator.onShowSnackbar = showAlertEventSnackbar;
-      } catch (_) {}
+    // If stream wasn't available in initState (Provider not ready), subscribe now
+    if (_snackbarSubscription == null) {
+      _setupSnackbarListener();
     }
   }
 
@@ -677,13 +687,29 @@ class _SignalKNotificationListenerState extends State<SignalKNotificationListene
   void showAlertEventSnackbar(alert_models.AlertEvent event) {
     if (!mounted) return;
 
+    // Don't let a lower-severity snackbar replace a higher-severity one
+    if (_currentSnackbarSeverity != null &&
+        event.severity < _currentSnackbarSeverity!) {
+      return;
+    }
+
+    // Track current severity, clear after snackbar duration
+    _currentSnackbarSeverity = event.severity;
+    _snackbarSeverityTimer?.cancel();
+    final duration = event.severity >= alert_models.AlertSeverity.alarm
+        ? const Duration(seconds: 10)
+        : const Duration(seconds: 5);
+    _snackbarSeverityTimer = Timer(duration, () {
+      _currentSnackbarSeverity = null;
+    });
+
     // If the callbackData is a SignalKNotification, use the full snackbar
     if (event.callbackData is SignalKNotification) {
       _showSignalKSnackbar(event.callbackData as SignalKNotification);
       return;
     }
 
-    // AIS Favorites: snackbar with "VIEW" action to highlight vessel on chart
+    // AIS Favorites: snackbar with VIEW and DISMISS
     if (event.subsystem == alert_models.AlertSubsystem.aisFavorites &&
         event.callbackData is String) {
       final vesselId = event.callbackData as String;
@@ -699,19 +725,34 @@ class _SignalKNotificationListenerState extends State<SignalKNotificationListene
                   style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Colors.white),
                 ),
               ),
+              TextButton(
+                onPressed: () {
+                  final favService = Provider.of<AISFavoritesService>(context, listen: false);
+                  favService.requestHighlight(vesselId);
+                  // Resolve so it doesn't come back
+                  try {
+                    final coordinator = Provider.of<AlertCoordinator>(context, listen: false);
+                    coordinator.resolveAlert(event.subsystem, alarmId: event.alarmId);
+                  } catch (_) {}
+                  ScaffoldMessenger.of(context).hideCurrentSnackBar();
+                },
+                child: const Text('VIEW', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+              ),
+              TextButton(
+                onPressed: () {
+                  try {
+                    final coordinator = Provider.of<AlertCoordinator>(context, listen: false);
+                    coordinator.resolveAlert(event.subsystem, alarmId: event.alarmId);
+                  } catch (_) {}
+                  ScaffoldMessenger.of(context).hideCurrentSnackBar();
+                },
+                child: const Text('DISMISS', style: TextStyle(color: Colors.white70)),
+              ),
             ],
           ),
           backgroundColor: Colors.blue.shade700,
           duration: const Duration(seconds: 5),
           behavior: SnackBarBehavior.floating,
-          action: SnackBarAction(
-            label: 'VIEW',
-            textColor: Colors.white,
-            onPressed: () {
-              final favService = Provider.of<AISFavoritesService>(context, listen: false);
-              favService.requestHighlight(vesselId);
-            },
-          ),
         ),
       );
       return;
@@ -719,6 +760,7 @@ class _SignalKNotificationListenerState extends State<SignalKNotificationListene
 
     // Generic snackbar for other alert types
     final colors = _severityColors(event.severity);
+    final isAlarm = event.severity >= alert_models.AlertSeverity.alarm;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Row(
@@ -731,13 +773,38 @@ class _SignalKNotificationListenerState extends State<SignalKNotificationListene
                 style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Colors.white),
               ),
             ),
+            if (isAlarm) ...[
+              // ACK: stop the noise, alert stays active and re-shows
+              TextButton(
+                onPressed: () {
+                  try {
+                    final coordinator = Provider.of<AlertCoordinator>(context, listen: false);
+                    coordinator.acknowledgeAlarm(event.subsystem, alarmId: event.alarmId);
+                  } catch (_) {}
+                  ScaffoldMessenger.of(context).hideCurrentSnackBar();
+                },
+                child: const Text('ACK', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+              ),
+              // CANCEL: dismiss this alert entirely, stop tracking it
+              TextButton(
+                onPressed: () {
+                  try {
+                    final coordinator = Provider.of<AlertCoordinator>(context, listen: false);
+                    coordinator.resolveAlert(event.subsystem, alarmId: event.alarmId);
+                  } catch (_) {}
+                  _currentSnackbarSeverity = null;
+                  ScaffoldMessenger.of(context).hideCurrentSnackBar();
+                },
+                child: const Text('CANCEL', style: TextStyle(color: Colors.white70)),
+              ),
+            ],
           ],
         ),
         backgroundColor: colors.$1,
-        duration: event.severity >= alert_models.AlertSeverity.alarm
+        duration: isAlarm
             ? const Duration(seconds: 10) : const Duration(seconds: 5),
         behavior: SnackBarBehavior.floating,
-        action: SnackBarAction(
+        action: isAlarm ? null : SnackBarAction(
           label: 'DISMISS',
           textColor: Colors.white,
           onPressed: () => ScaffoldMessenger.of(context).hideCurrentSnackBar(),
@@ -863,6 +930,7 @@ class _SignalKNotificationListenerState extends State<SignalKNotificationListene
   @override
   void dispose() {
     _notificationSubscription?.cancel();
+    _snackbarSubscription?.cancel();
     super.dispose();
   }
 

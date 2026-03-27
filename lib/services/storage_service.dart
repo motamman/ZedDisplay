@@ -800,6 +800,36 @@ class StorageService extends ChangeNotifier {
     return getInAppNotificationFilter(level);
   }
 
+  // ===== Crew Broadcast Per-Subsystem Toggles =====
+
+  /// Whether a subsystem is allowed to broadcast alerts to crew.
+  /// Defaults: anchorAlarm and cpa enabled, others disabled.
+  bool getCrewBroadcastEnabled(String subsystem) {
+    if (!_initialized) {
+      return subsystem == 'anchorAlarm' || subsystem == 'cpa';
+    }
+    final defaultValue = (subsystem == 'anchorAlarm' || subsystem == 'cpa') ? 'true' : 'false';
+    return _settingsBox.get('crew_broadcast_$subsystem', defaultValue: defaultValue) == 'true';
+  }
+
+  Future<void> saveCrewBroadcastEnabled(String subsystem, bool enabled) async {
+    if (!_initialized) throw Exception('StorageService not initialized');
+    await _settingsBox.put('crew_broadcast_$subsystem', enabled ? 'true' : 'false');
+    notifyListeners();
+  }
+
+  // ===== Audio Mute =====
+
+  bool getAudioMuted() {
+    if (!_initialized) return false;
+    return _settingsBox.get('audio_muted', defaultValue: 'false') == 'true';
+  }
+
+  Future<void> saveAudioMuted(bool muted) async {
+    if (!_initialized) return;
+    await _settingsBox.put('audio_muted', muted ? 'true' : 'false');
+  }
+
   // ===== DisplayUnits Cache Management =====
 
   /// Save displayUnits cache for a server

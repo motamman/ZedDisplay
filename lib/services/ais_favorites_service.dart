@@ -130,7 +130,7 @@ class AISFavoritesService extends ChangeNotifier {
   void _submitDetectionAlert(AISFavorite fav, String? vesselId) {
     _alertCoordinator?.submitAlert(AlertEvent(
       subsystem: AlertSubsystem.aisFavorites,
-      severity: AlertSeverity.normal,
+      severity: AlertSeverity.alert,
       title: fav.name,
       body: 'in range',
       wantsInAppSnackbar: true,

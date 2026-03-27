@@ -122,7 +122,7 @@ class CpaAlertService extends ChangeNotifier {
     _notificationService.cancelAlarmNotification(vesselId);
     _dismissedUntil[vesselId] =
         DateTime.now().add(Duration(seconds: _config.cooldownSeconds));
-    if (!hasActiveAlarm) _alertCoordinator?.acknowledgeAlarm(AlertSubsystem.cpa);
+    if (!hasActiveAlarm) _alertCoordinator?.resolveAlert(AlertSubsystem.cpa);
     _safeNotify();
   }
 
@@ -134,7 +134,7 @@ class CpaAlertService extends ChangeNotifier {
       _dismissedUntil[id] = now.add(Duration(seconds: _config.cooldownSeconds));
     }
     _vesselAlerts.clear();
-    _alertCoordinator?.acknowledgeAlarm(AlertSubsystem.cpa);
+    _alertCoordinator?.resolveAlert(AlertSubsystem.cpa);
     _safeNotify();
   }
 
@@ -145,7 +145,7 @@ class CpaAlertService extends ChangeNotifier {
 
   void _stopMonitoring() {
     _signalKService.aisVesselRegistry.removeListener(_onAISUpdate);
-    _alertCoordinator?.acknowledgeAlarm(AlertSubsystem.cpa);
+    _alertCoordinator?.resolveAlert(AlertSubsystem.cpa);
     for (final id in _vesselAlerts.keys.toList()) {
       _notificationService.cancelAlarmNotification(id);
     }
@@ -273,9 +273,9 @@ class CpaAlertService extends ChangeNotifier {
       changed = true;
     }
 
-    // Stop alarm sound if no vessels at alarm level and audio is playing
+    // Resolve alert if no vessels at alarm level
     if (!hasActiveAlarm && (_alertCoordinator?.audioPlayer.activeSource == 'cpa')) {
-      _alertCoordinator?.acknowledgeAlarm(AlertSubsystem.cpa);
+      _alertCoordinator?.resolveAlert(AlertSubsystem.cpa);
       changed = true;
     }
 
@@ -343,7 +343,7 @@ class CpaAlertService extends ChangeNotifier {
     final tcpaDisplay = _formatTcpa(alert.tcpaSeconds);
 
     final title = alert.level.isAlarming ? 'CPA ALARM' : 'CPA Warning';
-    final message = '$title: $name - CPA $cpaDisplay in $tcpaDisplay';
+    final message = '$name - CPA $cpaDisplay in $tcpaDisplay';
 
     if (_alertCoordinator != null) {
       _alertCoordinator.submitAlert(AlertEvent(
@@ -352,7 +352,7 @@ class CpaAlertService extends ChangeNotifier {
         title: title,
         body: message,
         wantsSystemNotification: true,
-        wantsInAppSnackbar: false, // CPA uses its own snackbar via onAlertTriggered
+        wantsInAppSnackbar: true,
         wantsAudio: alert.level.isAlarming,
         wantsCrewBroadcast: _config.sendCrewAlert && alert.level.isAlarming,
         alarmSound: _config.alarmSound,
@@ -360,13 +360,8 @@ class CpaAlertService extends ChangeNotifier {
         alarmSource: 'ais_polar_chart',
         callbackData: alert,
       ));
-      // Fire in-app callback (CPA chart handles its own snackbar display)
-      // Respect in-app filter like the old code did
-      final showInApp = _storageService?.getInAppNotificationFilter(
-        alert.level.isAlarming ? 'alarm' : 'warn') ?? true;
-      if (showInApp) {
-        onAlertTriggered?.call(alert, message);
-      }
+      // Also fire widget callback for highlight/focus if registered
+      onAlertTriggered?.call(alert, message);
     } else {
       // Fallback without coordinator
       final filterLevel = alert.level.isAlarming ? 'alarm' : 'warn';

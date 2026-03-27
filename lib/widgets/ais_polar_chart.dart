@@ -1625,37 +1625,7 @@ class _AISPolarChartState extends State<AISPolarChart>
                       },
                       contentPadding: EdgeInsets.zero,
                     ),
-                    const SizedBox(height: 16),
-                    DropdownButtonFormField<int>(
-                      decoration: const InputDecoration(
-                        labelText: 'Alert Cooldown',
-                        border: OutlineInputBorder(),
-                        helperText: 'Suppress repeat alerts per vessel',
-                      ),
-                      initialValue: config.cooldownSeconds ~/ 60,
-                      items: const [
-                        DropdownMenuItem(value: 1, child: Text('1 minute')),
-                        DropdownMenuItem(value: 2, child: Text('2 minutes')),
-                        DropdownMenuItem(value: 5, child: Text('5 minutes')),
-                        DropdownMenuItem(value: 10, child: Text('10 minutes')),
-                        DropdownMenuItem(value: 15, child: Text('15 minutes')),
-                      ],
-                      onChanged: (value) {
-                        if (value == null) return;
-                        final newConfig = CpaAlertConfig(
-                          enabled: config.enabled,
-                          warnThresholdMeters: config.warnThresholdMeters,
-                          alarmThresholdMeters: config.alarmThresholdMeters,
-                          tcpaThresholdSeconds: config.tcpaThresholdSeconds,
-                          alarmSound: config.alarmSound,
-                          cooldownSeconds: value * 60,
-                          sendCrewAlert: config.sendCrewAlert,
-                        );
-                        service.applyConfig(newConfig);
-                        setSheetState(() {});
-                        _persistCpaConfig(newConfig);
-                      },
-                    ),
+                    // Alert cooldown removed — coordinator handles throttle centrally
                   ],
                   const SizedBox(height: 16),
                   Center(
@@ -1681,7 +1651,6 @@ class _AISPolarChartState extends State<AISPolarChart>
       'cpaTcpaMinutes': config.tcpaThresholdSeconds / 60.0,
       'cpaAlarmSound': config.alarmSound,
       'cpaSendCrewAlert': config.sendCrewAlert,
-      'cpaCooldownMinutes': config.cooldownSeconds ~/ 60,
     });
   }
 

@@ -10,7 +10,7 @@ class AlarmAudioPlayer {
   factory AlarmAudioPlayer() => _instance;
   AlarmAudioPlayer._();
 
-  /// Shared sound asset map (replaces 3 separate definitions).
+  /// Shared sound asset map.
   static const Map<String, String> alarmSounds = {
     'bell': 'sounds/alarm_bell.mp3',
     'foghorn': 'sounds/alarm_foghorn.mp3',
@@ -23,17 +23,25 @@ class AlarmAudioPlayer {
   AudioPlayer? _player;
   Timer? _repeatTimer;
   bool _playing = false;
+  bool _muted = false;
   String? _activeSource;
   AlertSeverity? _activeSeverity;
 
-  /// Which subsystem is currently playing audio.
   String? get activeSource => _activeSource;
-
-  /// Severity of the currently playing alarm.
   AlertSeverity? get activeSeverity => _activeSeverity;
-
-  /// Whether audio is currently playing.
   bool get isPlaying => _playing;
+  bool get isMuted => _muted;
+
+  /// Mute all audio. Current playback stops, future play() calls are no-ops.
+  void mute() {
+    _muted = true;
+    _stopInternal();
+  }
+
+  /// Unmute. Audio will play on next submitAlert with wantsAudio.
+  void unmute() {
+    _muted = false;
+  }
 
   /// Play alarm. Higher-or-equal severity preempts current. Lower is no-op.
   Future<void> play({
@@ -42,6 +50,8 @@ class AlarmAudioPlayer {
     required String source,
     Duration repeatInterval = const Duration(seconds: 5),
   }) async {
+    if (_muted) return;
+
     // If already playing, only preempt if new severity >= current
     if (_playing && _activeSeverity != null && severity < _activeSeverity!) {
       return;
@@ -52,7 +62,6 @@ class AlarmAudioPlayer {
 
     _activeSource = source;
     _activeSeverity = severity;
-
     try {
       _player = AudioPlayer();
       await _player!.setVolume(1.0);
@@ -60,11 +69,13 @@ class AlarmAudioPlayer {
       _playing = true;
 
       _repeatTimer = Timer.periodic(repeatInterval, (_) async {
-        if (!_playing) {
+        if (!_playing || _muted) {
           _repeatTimer?.cancel();
+          if (_muted) _stopInternal();
           return;
         }
         try {
+          // Create fresh player per repeat — seek+resume is unreliable on Android
           _player?.dispose();
           _player = AudioPlayer();
           await _player!.setVolume(1.0);
@@ -82,6 +93,7 @@ class AlarmAudioPlayer {
       _playing = false;
       _activeSource = null;
       _activeSeverity = null;
+
     }
   }
 
@@ -95,7 +107,7 @@ class AlarmAudioPlayer {
     _repeatTimer?.cancel();
     _repeatTimer = null;
     try {
-      _player?.stop();
+      await _player?.stop();
       _player?.dispose();
     } catch (e) {
       if (kDebugMode) {
