@@ -215,38 +215,46 @@ class CpaAlertService extends ChangeNotifier {
 
       if (cpaTcpa == null) continue;
 
-      final newLevel = _determineLevel(
+      final existing = _vesselAlerts[vessel.vesselId];
+      final previousLevel = existing?.level ?? CpaAlertLevel.normal;
+
+      final result = _determineLevel(
         vessel.vesselId,
         cpaTcpa.cpa,
         cpaTcpa.tcpa,
         now,
+        existing,
       );
 
-      final existing = _vesselAlerts[vessel.vesselId];
-      final previousLevel = existing?.level ?? CpaAlertLevel.normal;
+      // Clean up expired dismissals
+      if (result.dismissalExpired) {
+        _dismissedUntil.remove(vessel.vesselId);
+      }
 
-      if (newLevel == CpaAlertLevel.normal && existing == null) continue;
+      if (result.level == CpaAlertLevel.normal && existing == null) continue;
 
-      if (newLevel == CpaAlertLevel.normal) {
+      if (result.level == CpaAlertLevel.normal) {
         _vesselAlerts.remove(vessel.vesselId);
         _notificationService.cancelAlarmNotification(vessel.vesselId);
         changed = true;
       } else {
+        // Single writer — update alert with all state from evaluation
         final alert = CpaVesselAlert(
           vesselId: vessel.vesselId,
           vesselName: vessel.name,
-          level: newLevel,
+          level: result.level,
           cpaMeters: cpaTcpa.cpa,
           tcpaSeconds: cpaTcpa.tcpa,
           firstAlerted: existing?.firstAlerted ?? now,
           lastUpdated: now,
-          cooldownUntil: existing?.cooldownUntil,
+          cooldownUntil: result.cooldownUntil,
+          divergingSince: result.divergingSince,
         );
         _vesselAlerts[vessel.vesselId] = alert;
         changed = true;
 
-        // Dispatch alerts on escalation
-        if (newLevel.index > previousLevel.index) {
+        // Dispatch alerts on escalation only
+        if (result.level.index > previousLevel.index) {
           _triggerAlerts(alert);
         }
       }
@@ -282,84 +290,67 @@ class CpaAlertService extends ChangeNotifier {
     if (changed) notifyListeners();
   }
 
-  /// Determine alert level with hysteresis and cooldown.
-  CpaAlertLevel _determineLevel(
+  /// Result of level evaluation — pure data, no side effects.
+  /// The main loop uses this to update _vesselAlerts in one place.
+  ({CpaAlertLevel level, DateTime? divergingSince, DateTime? cooldownUntil, bool dismissalExpired}) _determineLevel(
     String vesselId,
     double cpaMeters,
     double tcpaSeconds,
     DateTime now,
+    CpaVesselAlert? existing,
   ) {
-    final existing = _vesselAlerts[vesselId];
-
     // Check manual dismissal cooldown
     final dismissedUntil = _dismissedUntil[vesselId];
-    if (dismissedUntil != null) {
-      if (now.isBefore(dismissedUntil)) return CpaAlertLevel.normal;
-      _dismissedUntil.remove(vesselId); // expired
+    if (dismissedUntil != null && now.isBefore(dismissedUntil)) {
+      return (level: CpaAlertLevel.normal, divergingSince: null, cooldownUntil: existing?.cooldownUntil, dismissalExpired: false);
     }
+    final dismissalExpired = dismissedUntil != null; // was set but now expired
 
-    // Check cooldown
-    if (existing?.cooldownUntil != null &&
-        now.isBefore(existing!.cooldownUntil!)) {
-      return CpaAlertLevel.normal;
+    // Check de-escalation cooldown
+    if (existing?.cooldownUntil != null && now.isBefore(existing!.cooldownUntil!)) {
+      return (level: CpaAlertLevel.normal, divergingSince: null, cooldownUntil: existing.cooldownUntil, dismissalExpired: dismissalExpired);
     }
 
     final approaching = tcpaSeconds > 0 && tcpaSeconds < _config.tcpaThresholdSeconds;
     final hysteresisThreshold = _config.warnThresholdMeters * 1.2;
 
-    // De-escalation: require sustained divergence (60s) before clearing.
-    // A single TCPA jitter won't drop the alert.
+    // De-escalation: require sustained divergence before clearing.
     if (existing != null && existing.level != CpaAlertLevel.normal) {
       final isDiverging = !approaching || cpaMeters > hysteresisThreshold;
 
       if (isDiverging) {
-        // Start tracking divergence if not already
         final divergingSince = existing.divergingSince ?? now;
         final divergingDuration = now.difference(divergingSince);
-
         final divergenceThreshold = Duration(seconds: _storageService?.getCpaDivergenceSeconds() ?? 60);
+
         if (divergingDuration >= divergenceThreshold) {
           // Sustained divergence — de-escalate
-          if (existing.level.isAlarming) {
-            _vesselAlerts[vesselId] = existing.copyWith(
-              level: CpaAlertLevel.normal,
-              lastUpdated: now,
-              cooldownUntil: now.add(Duration(seconds: _config.cooldownSeconds)),
-              clearDivergingSince: true,
-            );
-          }
-          return CpaAlertLevel.normal;
+          final cooldown = (existing.level.isAlarming || existing.level.isWarning)
+              ? now.add(Duration(seconds: _config.cooldownSeconds))
+              : null;
+          return (level: CpaAlertLevel.normal, divergingSince: null, cooldownUntil: cooldown, dismissalExpired: dismissalExpired);
         }
 
-        // Not long enough — keep current level, record diverging start
-        if (existing.divergingSince == null) {
-          _vesselAlerts[vesselId] = existing.copyWith(
-            divergingSince: now,
-            lastUpdated: now,
-          );
-        }
-        return existing.level;
+        // Not long enough — keep current level, track divergence start
+        return (level: existing.level, divergingSince: divergingSince, cooldownUntil: existing.cooldownUntil, dismissalExpired: dismissalExpired);
       } else {
-        // Vessel is approaching again — clear diverging tracker
-        if (existing.divergingSince != null) {
-          _vesselAlerts[vesselId] = existing.copyWith(
-            clearDivergingSince: true,
-            lastUpdated: now,
-          );
-        }
+        // Vessel approaching again — clear divergence, keep level
+        return (level: existing.level, divergingSince: null, cooldownUntil: existing.cooldownUntil, dismissalExpired: dismissalExpired);
       }
     }
 
-    if (!approaching) return CpaAlertLevel.normal;
+    if (!approaching) {
+      return (level: CpaAlertLevel.normal, divergingSince: null, cooldownUntil: existing?.cooldownUntil, dismissalExpired: dismissalExpired);
+    }
 
     // Escalation
     if (cpaMeters < _config.alarmThresholdMeters) {
-      return CpaAlertLevel.alarm;
+      return (level: CpaAlertLevel.alarm, divergingSince: null, cooldownUntil: null, dismissalExpired: dismissalExpired);
     } else if (cpaMeters < _config.warnThresholdMeters) {
-      return CpaAlertLevel.warning;
+      return (level: CpaAlertLevel.warning, divergingSince: null, cooldownUntil: null, dismissalExpired: dismissalExpired);
     }
 
-    return CpaAlertLevel.normal;
+    return (level: CpaAlertLevel.normal, divergingSince: null, cooldownUntil: null, dismissalExpired: dismissalExpired);
   }
 
   // ===== Alert Dispatch =====
