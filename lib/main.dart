@@ -33,6 +33,7 @@ import 'services/anchor_alarm_service.dart';
 import 'services/alert_coordinator.dart';
 import 'services/ais_favorites_service.dart';
 import 'services/cpa_alert_service.dart';
+import 'models/cpa_alert_state.dart';
 import 'services/find_home_target_service.dart';
 import 'services/dashboard_store_service.dart';
 import 'models/alert_event.dart' as alert_models;
@@ -773,6 +774,19 @@ class _SignalKNotificationListenerState extends State<SignalKNotificationListene
                 style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Colors.white),
               ),
             ),
+            // VIEW: navigate to vessel on AIS chart (CPA alerts only)
+            if (event.subsystem == alert_models.AlertSubsystem.cpa &&
+                event.callbackData is CpaVesselAlert)
+              TextButton(
+                onPressed: () {
+                  try {
+                    final cpaService = Provider.of<CpaAlertService>(context, listen: false);
+                    cpaService.requestHighlight((event.callbackData as CpaVesselAlert).vesselId);
+                  } catch (_) {}
+                  // Don't dismiss, ack, or hide — just navigate
+                },
+                child: const Text('VIEW', style: TextStyle(color: Colors.white70)),
+              ),
             if (isAlarm) ...[
               // ACK: stop the noise, alert stays active and re-shows
               TextButton(

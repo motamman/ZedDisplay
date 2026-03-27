@@ -72,6 +72,13 @@ class AISFavoritesService extends ChangeNotifier {
   void startMonitoring(SignalKService signalKService, AlertCoordinator alertCoordinator) {
     _signalKService = signalKService;
     _alertCoordinator = alertCoordinator;
+    // When user dismisses a favorites alert, clear from _inRangeNotified
+    // so the vessel can re-trigger on next encounter
+    alertCoordinator.registerResolveCallback(AlertSubsystem.aisFavorites, (alarmId) {
+      if (alarmId != null) {
+        _inRangeNotified.remove(alarmId);
+      }
+    });
     signalKService.aisVesselRegistry.addListener(_onAISUpdate);
 
     // Register for server sync
@@ -136,6 +143,7 @@ class AISFavoritesService extends ChangeNotifier {
       wantsInAppSnackbar: true,
       wantsSystemNotification: true,
       alarmSource: 'ais_favorites',
+      alarmId: fav.mmsi, // Per-vessel tracking in coordinator
       callbackData: vesselId, // URN for highlight-on-tap
     ));
   }

@@ -86,6 +86,14 @@ class CpaAlertService extends ChangeNotifier {
         _storageService = storageService,
         _alertCoordinator = alertCoordinator {
     _notificationService.registerAlarmCallback('ais_polar_chart', _onAlarmTapped);
+    // Register resolve callback so coordinator can tell us when the user dismisses an alert
+    _alertCoordinator?.registerResolveCallback(AlertSubsystem.cpa, (alarmId) {
+      if (alarmId != null) {
+        dismissAlert(alarmId);
+      } else {
+        dismissAllAlerts();
+      }
+    });
   }
 
   /// Apply config in memory and start/stop monitoring accordingly.
@@ -122,7 +130,7 @@ class CpaAlertService extends ChangeNotifier {
     _notificationService.cancelAlarmNotification(vesselId);
     _dismissedUntil[vesselId] =
         DateTime.now().add(Duration(seconds: _config.cooldownSeconds));
-    if (!hasActiveAlarm) _alertCoordinator?.resolveAlert(AlertSubsystem.cpa);
+    if (!hasActiveAlarm) _alertCoordinator?.resolveAlert(AlertSubsystem.cpa, internal: true);
     _safeNotify();
   }
 
@@ -134,7 +142,7 @@ class CpaAlertService extends ChangeNotifier {
       _dismissedUntil[id] = now.add(Duration(seconds: _config.cooldownSeconds));
     }
     _vesselAlerts.clear();
-    _alertCoordinator?.resolveAlert(AlertSubsystem.cpa);
+    _alertCoordinator?.resolveAlert(AlertSubsystem.cpa, internal: true);
     _safeNotify();
   }
 
@@ -145,7 +153,7 @@ class CpaAlertService extends ChangeNotifier {
 
   void _stopMonitoring() {
     _signalKService.aisVesselRegistry.removeListener(_onAISUpdate);
-    _alertCoordinator?.resolveAlert(AlertSubsystem.cpa);
+    _alertCoordinator?.resolveAlert(AlertSubsystem.cpa, internal: true);
     for (final id in _vesselAlerts.keys.toList()) {
       _notificationService.cancelAlarmNotification(id);
     }
@@ -236,6 +244,7 @@ class CpaAlertService extends ChangeNotifier {
       if (result.level == CpaAlertLevel.normal) {
         _vesselAlerts.remove(vessel.vesselId);
         _notificationService.cancelAlarmNotification(vessel.vesselId);
+        _alertCoordinator?.resolveAlert(AlertSubsystem.cpa, alarmId: vessel.vesselId, internal: true);
         changed = true;
       } else {
         // Single writer — update alert with all state from evaluation
@@ -283,7 +292,7 @@ class CpaAlertService extends ChangeNotifier {
 
     // Resolve alert if no vessels at alarm level
     if (!hasActiveAlarm && (_alertCoordinator?.audioPlayer.activeSource == 'cpa')) {
-      _alertCoordinator?.resolveAlert(AlertSubsystem.cpa);
+      _alertCoordinator?.resolveAlert(AlertSubsystem.cpa, internal: true);
       changed = true;
     }
 

@@ -51,6 +51,9 @@ class AlertCoordinator extends ChangeNotifier {
   // --- Crew broadcast tracking (only send once per alert key until acknowledged) ---
   final Set<String> _crewBroadcastSent = {};
 
+  // --- Resolve callbacks (subsystems register to hear when their alerts are resolved) ---
+  final Map<AlertSubsystem, void Function(String? alarmId)> _resolveCallbacks = {};
+
   // --- Audio mute ---
   bool _audioMuted = false;
   Timer? _autoUnmuteTimer;
@@ -189,9 +192,13 @@ class AlertCoordinator extends ChangeNotifier {
     }
   }
 
-  /// Resolve an alert: condition is over (e.g., vessel moved away).
-  /// Removes from active alerts and stops everything.
-  void resolveAlert(AlertSubsystem subsystem, {String? alarmId}) {
+  /// Resolve an alert: condition is over (e.g., vessel moved away) or user dismissed.
+  ///
+  /// When [internal] is false (default — user action or external trigger),
+  /// the subsystem's registered callback fires so it can do its own cleanup
+  /// (e.g., CPA sets dismissal cooldown). When [internal] is true (subsystem
+  /// initiated the resolve itself), the callback is skipped to prevent loops.
+  void resolveAlert(AlertSubsystem subsystem, {String? alarmId, bool internal = false}) {
     _audioPlayer.stop(source: subsystem.name);
     if (alarmId != null) {
       _notificationService.cancelAlarmNotification(alarmId);
@@ -202,16 +209,43 @@ class AlertCoordinator extends ChangeNotifier {
     _activeOverlays.remove(subsystem);
     _stopReshowIfEmpty();
     _safeNotify();
+
+    // Notify subsystem so it can do its own cleanup
+    if (!internal) {
+      _resolveCallbacks[subsystem]?.call(alarmId);
+    }
   }
 
   /// Clear all active alerts for a subsystem (e.g., on disconnect).
-  void clearSubsystem(AlertSubsystem subsystem) {
+  void clearSubsystem(AlertSubsystem subsystem, {bool internal = false}) {
     _audioPlayer.stop(source: subsystem.name);
+    final clearedKeys = _activeAlerts.keys
+        .where((key) => key.startsWith('${subsystem.name}:'))
+        .toList();
     _activeAlerts.removeWhere((key, _) => key.startsWith('${subsystem.name}:'));
     _crewBroadcastSent.removeWhere((key) => key.startsWith('${subsystem.name}:'));
     _activeOverlays.remove(subsystem);
     _stopReshowIfEmpty();
     _safeNotify();
+
+    if (!internal) {
+      for (final key in clearedKeys) {
+        final alarmId = key.contains(':') ? key.split(':').skip(1).join(':') : null;
+        _resolveCallbacks[subsystem]?.call(alarmId == 'default' ? null : alarmId);
+      }
+    }
+  }
+
+  // ===== Resolve callbacks =====
+
+  /// Register a callback that fires when an alert for this subsystem is resolved
+  /// externally (user dismiss, timeout, etc.). Not called on internal resolves.
+  void registerResolveCallback(AlertSubsystem subsystem, void Function(String? alarmId) callback) {
+    _resolveCallbacks[subsystem] = callback;
+  }
+
+  void unregisterResolveCallback(AlertSubsystem subsystem) {
+    _resolveCallbacks.remove(subsystem);
   }
 
   // ===== Audio mute =====
