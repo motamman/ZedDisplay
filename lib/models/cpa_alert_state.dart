@@ -18,6 +18,7 @@ class CpaVesselAlert {
   final DateTime firstAlerted;
   final DateTime lastUpdated;
   final DateTime? cooldownUntil;
+  final DateTime? divergingSince; // When vessel first showed as diverging
 
   const CpaVesselAlert({
     required this.vesselId,
@@ -28,6 +29,7 @@ class CpaVesselAlert {
     required this.firstAlerted,
     required this.lastUpdated,
     this.cooldownUntil,
+    this.divergingSince,
   });
 
   CpaVesselAlert copyWith({
@@ -36,7 +38,9 @@ class CpaVesselAlert {
     double? tcpaSeconds,
     DateTime? lastUpdated,
     DateTime? cooldownUntil,
+    DateTime? divergingSince,
     String? vesselName,
+    bool clearDivergingSince = false,
   }) {
     return CpaVesselAlert(
       vesselId: vesselId,
@@ -47,6 +51,7 @@ class CpaVesselAlert {
       firstAlerted: firstAlerted,
       lastUpdated: lastUpdated ?? this.lastUpdated,
       cooldownUntil: cooldownUntil,
+      divergingSince: clearDivergingSince ? null : (divergingSince ?? this.divergingSince),
     );
   }
 }
@@ -68,7 +73,7 @@ class CpaAlertConfig {
     this.tcpaThresholdSeconds = 1800.0, // 30 min
     this.alarmSound = 'foghorn',
     this.cooldownSeconds = 300, // 5 min
-    this.sendCrewAlert = true,
+    this.sendCrewAlert = false,
     this.maxRangeMeters = 185200.0, // 100 nm
   });
 

@@ -800,6 +800,19 @@ class StorageService extends ChangeNotifier {
     return getInAppNotificationFilter(level);
   }
 
+  // ===== CPA Settings =====
+
+  /// Seconds of sustained divergence before a CPA alert de-escalates. Default 60.
+  int getCpaDivergenceSeconds() {
+    if (!_initialized) return 60;
+    return int.tryParse(_settingsBox.get('cpa_divergence_seconds', defaultValue: '60') ?? '60') ?? 60;
+  }
+
+  Future<void> saveCpaDivergenceSeconds(int seconds) async {
+    if (!_initialized) return;
+    await _settingsBox.put('cpa_divergence_seconds', seconds.toString());
+  }
+
   // ===== Crew Broadcast Per-Subsystem Toggles =====
 
   /// Whether a subsystem is allowed to broadcast alerts to crew.
@@ -808,7 +821,7 @@ class StorageService extends ChangeNotifier {
     if (!_initialized) {
       return subsystem == 'anchorAlarm' || subsystem == 'cpa';
     }
-    final defaultValue = (subsystem == 'anchorAlarm' || subsystem == 'cpa') ? 'true' : 'false';
+    final defaultValue = subsystem == 'anchorAlarm' ? 'true' : 'false';
     return _settingsBox.get('crew_broadcast_$subsystem', defaultValue: defaultValue) == 'true';
   }
 

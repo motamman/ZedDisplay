@@ -807,7 +807,14 @@ class _SignalKNotificationListenerState extends State<SignalKNotificationListene
         action: isAlarm ? null : SnackBarAction(
           label: 'DISMISS',
           textColor: Colors.white,
-          onPressed: () => ScaffoldMessenger.of(context).hideCurrentSnackBar(),
+          onPressed: () {
+            try {
+              final coordinator = Provider.of<AlertCoordinator>(context, listen: false);
+              coordinator.resolveAlert(event.subsystem, alarmId: event.alarmId);
+            } catch (_) {}
+            _currentSnackbarSeverity = null;
+            ScaffoldMessenger.of(context).hideCurrentSnackBar();
+          },
         ),
       ),
     );

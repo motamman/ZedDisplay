@@ -307,19 +307,46 @@ class CpaAlertService extends ChangeNotifier {
     final approaching = tcpaSeconds > 0 && tcpaSeconds < _config.tcpaThresholdSeconds;
     final hysteresisThreshold = _config.warnThresholdMeters * 1.2;
 
-    // De-escalation: vessel diverging or moved outside hysteresis band
+    // De-escalation: require sustained divergence (60s) before clearing.
+    // A single TCPA jitter won't drop the alert.
     if (existing != null && existing.level != CpaAlertLevel.normal) {
-      if (!approaching || cpaMeters > hysteresisThreshold) {
-        // Set cooldown when de-escalating from alarm
-        if (existing.level.isAlarming) {
-          _vesselAlerts[vesselId] = existing.copyWith(
-            level: CpaAlertLevel.normal,
-            lastUpdated: now,
-            cooldownUntil: now.add(Duration(seconds: _config.cooldownSeconds)),
-          );
+      final isDiverging = !approaching || cpaMeters > hysteresisThreshold;
+
+      if (isDiverging) {
+        // Start tracking divergence if not already
+        final divergingSince = existing.divergingSince ?? now;
+        final divergingDuration = now.difference(divergingSince);
+
+        final divergenceThreshold = Duration(seconds: _storageService?.getCpaDivergenceSeconds() ?? 60);
+        if (divergingDuration >= divergenceThreshold) {
+          // Sustained divergence — de-escalate
+          if (existing.level.isAlarming) {
+            _vesselAlerts[vesselId] = existing.copyWith(
+              level: CpaAlertLevel.normal,
+              lastUpdated: now,
+              cooldownUntil: now.add(Duration(seconds: _config.cooldownSeconds)),
+              clearDivergingSince: true,
+            );
+          }
           return CpaAlertLevel.normal;
         }
-        return CpaAlertLevel.normal;
+
+        // Not long enough — keep current level, record diverging start
+        if (existing.divergingSince == null) {
+          _vesselAlerts[vesselId] = existing.copyWith(
+            divergingSince: now,
+            lastUpdated: now,
+          );
+        }
+        return existing.level;
+      } else {
+        // Vessel is approaching again — clear diverging tracker
+        if (existing.divergingSince != null) {
+          _vesselAlerts[vesselId] = existing.copyWith(
+            clearDivergingSince: true,
+            lastUpdated: now,
+          );
+        }
       }
     }
 
