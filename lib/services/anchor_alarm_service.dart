@@ -117,6 +117,16 @@ class AnchorAlarmService extends ChangeNotifier {
   // Alarm sound preference (passed to coordinator via AlertEvent)
   String _alarmSound = 'foghorn';
 
+  // Alarm acknowledged — user has seen and dismissed the alarm overlay.
+  // Reset when alarm genuinely clears (debounce expires) or anchor raised.
+  bool _alarmAcknowledged = false;
+  bool get alarmAcknowledged => _alarmAcknowledged;
+
+  // Debounce for alarm-clear transitions — survives SK notification cache cycling (~10s gaps).
+  // Duration configurable via widget config (default 15s).
+  Timer? _alarmClearDebounce;
+  Duration _alarmClearDelay = const Duration(seconds: 15);
+
   // Track connection state
   bool _wasConnected = false;
 
@@ -158,10 +168,8 @@ class AnchorAlarmService extends ChangeNotifier {
   /// Called by AlertCoordinator when the user dismisses an anchor alarm from the alert panel.
   void _onAlertResolved(String? alarmId) {
     if (alarmId == 'check_in') {
-      // User dismissed check-in alert from panel — treat as acknowledgement
       acknowledgeCheckIn();
     } else {
-      // User dismissed anchor alarm from panel — silence locally
       acknowledgeAlarm();
     }
   }
@@ -228,6 +236,7 @@ class AnchorAlarmService extends ChangeNotifier {
     _signalKService.removeListener(_onSignalKUpdate);
     _checkInTimer?.cancel();
     _checkInGraceTimer?.cancel();
+    _alarmClearDebounce?.cancel();
     super.dispose();
   }
 
@@ -236,6 +245,11 @@ class AnchorAlarmService extends ChangeNotifier {
     if (alarmSounds.containsKey(sound)) {
       _alarmSound = sound;
     }
+  }
+
+  /// Set alarm clear debounce delay (from widget config)
+  void setAlarmClearDelay(Duration delay) {
+    _alarmClearDelay = delay;
   }
 
   /// Configure SignalK paths
@@ -302,6 +316,11 @@ class AnchorAlarmService extends ChangeNotifier {
       if (response.statusCode >= 200 && response.statusCode < 300) {
         // Stop check-in timer
         _stopCheckInTimer();
+
+        // Cancel any pending alarm-clear debounce
+        _alarmClearDebounce?.cancel();
+        _alarmClearDebounce = null;
+        _alarmAcknowledged = false;
 
         // Clear all anchor alerts from coordinator (internal — we initiated it)
         _alertCoordinator?.clearSubsystem(AlertSubsystem.anchorAlarm, internal: true);
@@ -627,11 +646,23 @@ class AnchorAlarmService extends ChangeNotifier {
     String? message,
   ) {
     if (newState.isAlarming && !previousState.isAlarming) {
-      // Alarm triggered — submit to coordinator
-      _submitAlarmAlert(message ?? 'Anchor Alarm!');
+      // Alarm is back — cancel any pending clear
+      _alarmClearDebounce?.cancel();
+      _alarmClearDebounce = null;
+
+      // Only submit if not already acknowledged by user
+      if (!_alarmAcknowledged) {
+        _submitAlarmAlert(message ?? 'Anchor Alarm!');
+      }
     } else if (!newState.isAlarming && previousState.isAlarming) {
-      // Alarm cleared by server (vessel back in safe zone) — resolve internally
-      _alertCoordinator?.resolveAlert(AlertSubsystem.anchorAlarm, internal: true);
+      // Don't resolve immediately — debounce to survive SK notification cache cycling.
+      // If the alarm is genuinely over, the debounce fires and resolves.
+      _alarmClearDebounce?.cancel();
+      _alarmClearDebounce = Timer(_alarmClearDelay, () {
+        _alertCoordinator?.resolveAlert(AlertSubsystem.anchorAlarm, internal: true);
+        _alarmAcknowledged = false;
+        notifyListeners();
+      });
     }
   }
 
@@ -647,6 +678,7 @@ class AnchorAlarmService extends ChangeNotifier {
       alarmSound: _alarmSound,
       alarmSource: 'anchor_alarm',
       crewMessage: 'ANCHOR ALARM: $message',
+      throttleDuration: Duration.zero,
     ));
   }
 
@@ -738,9 +770,11 @@ class AnchorAlarmService extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Acknowledge and silence alarm — stops audio via coordinator.
+  /// Acknowledge and silence alarm — stops audio via coordinator, hides widget overlay.
   /// SignalK alarm state remains until vessel returns to safe zone.
   void acknowledgeAlarm() {
+    _alarmAcknowledged = true;
     _alertCoordinator?.acknowledgeAlarm(AlertSubsystem.anchorAlarm);
+    notifyListeners();
   }
 }

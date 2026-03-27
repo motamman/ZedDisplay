@@ -105,6 +105,10 @@ class _AnchorAlarmToolState extends State<AnchorAlarmTool>
       interval: Duration(minutes: intervalMinutes),
       gracePeriod: Duration(seconds: gracePeriodSeconds),
     ));
+
+    // Alarm clear debounce delay
+    final alarmClearDelaySeconds = customProps['alarmClearDelaySeconds'] as int? ?? 15;
+    _alarmService.setAlarmClearDelay(Duration(seconds: alarmClearDelaySeconds));
   }
 
   @override
@@ -151,7 +155,8 @@ class _AnchorAlarmToolState extends State<AnchorAlarmTool>
       setState(() {});
 
       // Update overlay state with coordinator only when it changes
-      final overlayActive = _alarmService.awaitingCheckIn || _alarmService.state.alarmState.isAlarming;
+      final overlayActive = _alarmService.awaitingCheckIn ||
+          (_alarmService.state.alarmState.isAlarming && !_alarmService.alarmAcknowledged);
       if (overlayActive != _lastOverlayActive) {
         _lastOverlayActive = overlayActive;
         _alertCoordinator?.setOverlayActive(AlertSubsystem.anchorAlarm, overlayActive);
@@ -445,7 +450,7 @@ class _AnchorAlarmToolState extends State<AnchorAlarmTool>
                     child: _buildCheckInOverlay(),
                   ),
                 // Alarm overlay
-                if (state.alarmState.isAlarming)
+                if (state.alarmState.isAlarming && !_alarmService.alarmAcknowledged)
                   Positioned.fill(
                     child: _buildAlarmOverlay(state),
                   ),
@@ -469,7 +474,7 @@ class _AnchorAlarmToolState extends State<AnchorAlarmTool>
                     child: _buildCheckInOverlay(),
                   ),
                 // Alarm overlay
-                if (state.alarmState.isAlarming)
+                if (state.alarmState.isAlarming && !_alarmService.alarmAcknowledged)
                   Positioned.fill(
                     child: _buildAlarmOverlay(state),
                   ),
@@ -1539,6 +1544,7 @@ class AnchorAlarmToolBuilder extends ToolBuilder {
           'checkInEnabled': false,
           'checkInIntervalMinutes': 30,
           'checkInGracePeriodSeconds': 60,
+          'alarmClearDelaySeconds': 15,
         },
       ),
     );
