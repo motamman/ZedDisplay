@@ -4,6 +4,7 @@
 /// Alarm states matching SignalK notification states
 enum AnchorAlarmState {
   normal,
+  alert,
   warn,
   alarm,
   emergency;
@@ -11,6 +12,8 @@ enum AnchorAlarmState {
   /// Parse from SignalK notification state string
   static AnchorAlarmState fromString(String? state) {
     switch (state?.toLowerCase()) {
+      case 'alert':
+        return AnchorAlarmState.alert;
       case 'warn':
         return AnchorAlarmState.warn;
       case 'alarm':
@@ -23,7 +26,7 @@ enum AnchorAlarmState {
   }
 
   /// Whether this state should trigger an alarm sound
-  bool get isAlarming => this == alarm || this == emergency;
+  bool get isAlarming => this == alert || this == alarm || this == emergency;
 
   /// Whether this state should show a warning indicator
   bool get isWarning => this == warn || isAlarming;

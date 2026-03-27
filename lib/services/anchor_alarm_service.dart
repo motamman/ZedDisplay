@@ -4,7 +4,6 @@ import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import '../models/alert_event.dart';
 import '../models/anchor_state.dart';
-import '../utils/conversion_utils.dart';
 import 'alarm_audio_player.dart';
 import 'alert_coordinator.dart';
 import 'signalk_service.dart';
@@ -127,11 +126,19 @@ class AnchorAlarmService extends ChangeNotifier {
   Timer? _alarmClearDebounce;
   Duration _alarmClearDelay = const Duration(seconds: 15);
 
+  // Re-show overlay after ack expires (matches coordinator's _ackReshowInterval)
+  Timer? _ackExpiryTimer;
+
   // Track connection state
   bool _wasConnected = false;
 
   // SignalK notification key for anchor alarm
   static const _anchorNotificationKey = 'navigation.anchor';
+
+  // Last-known alarm state from notification stream (survives cache expiry)
+  AnchorAlarmState _lastNotificationAlarmState = AnchorAlarmState.normal;
+  String? _lastNotificationMessage;
+  StreamSubscription<SignalKNotification>? _notificationSub;
 
   // GPS distance from bow (from vessel design data)
   double? _gpsFromBow;
@@ -178,12 +185,26 @@ class AnchorAlarmService extends ChangeNotifier {
   void initialize() {
     _signalKService.addListener(_onSignalKUpdate);
 
+    // Listen to notification stream for anchor alarm state (persistent, not TTL-cached)
+    _notificationSub = _signalKService.notificationStream.listen(_onNotification);
+
     // Subscribe to anchor paths via WebSocket
     _subscribeToAnchorPaths();
 
     if (_signalKService.isConnected) {
       _wasConnected = true;
       _refreshState();
+    }
+  }
+
+  /// Handle incoming notification from stream — track anchor alarm state persistently.
+  void _onNotification(SignalKNotification notification) {
+    if (notification.key == _anchorNotificationKey ||
+        notification.key.startsWith('$_anchorNotificationKey.')) {
+      _lastNotificationAlarmState = AnchorAlarmState.fromString(notification.state);
+      _lastNotificationMessage = notification.message;
+      // Trigger state update so alarm handling fires immediately
+      _updateStateFromSignalK();
     }
   }
 
@@ -231,12 +252,14 @@ class AnchorAlarmService extends ChangeNotifier {
   void dispose() {
     if (instance == this) instance = null;
     _disposed = true;
+    _notificationSub?.cancel();
     _alertCoordinator?.unregisterResolveCallback(AlertSubsystem.anchorAlarm);
     _unsubscribeFromAnchorPaths();
     _signalKService.removeListener(_onSignalKUpdate);
     _checkInTimer?.cancel();
     _checkInGraceTimer?.cancel();
     _alarmClearDebounce?.cancel();
+    _ackExpiryTimer?.cancel();
     super.dispose();
   }
 
@@ -317,10 +340,14 @@ class AnchorAlarmService extends ChangeNotifier {
         // Stop check-in timer
         _stopCheckInTimer();
 
-        // Cancel any pending alarm-clear debounce
+        // Cancel any pending timers
         _alarmClearDebounce?.cancel();
         _alarmClearDebounce = null;
+        _ackExpiryTimer?.cancel();
+        _ackExpiryTimer = null;
         _alarmAcknowledged = false;
+        _lastNotificationAlarmState = AnchorAlarmState.normal;
+        _lastNotificationMessage = null;
 
         // Clear all anchor alerts from coordinator (internal — we initiated it)
         _alertCoordinator?.clearSubsystem(AlertSubsystem.anchorAlarm, internal: true);
@@ -530,6 +557,16 @@ class AnchorAlarmService extends ChangeNotifier {
     await fetchTrackHistory();
   }
 
+  /// Extract raw SI value from a SignalK data point.
+  /// Prefers the 'original' field (units-preference format) over the direct value.
+  double? _getRawSI(String path) {
+    final dp = _signalKService.getValue(path);
+    if (dp == null) return null;
+    if (dp.original is num) return (dp.original as num).toDouble();
+    if (dp.value is num) return (dp.value as num).toDouble();
+    return null;
+  }
+
   void _updateStateFromSignalK() {
     // Get anchor position
     AnchorPosition? anchorPos;
@@ -559,28 +596,24 @@ class AnchorAlarmService extends ChangeNotifier {
       }
     }
 
-    // Get vessel heading - use raw SI value (radians)
+    // Get vessel heading — radians from SK, convert to degrees via MetadataStore
     double? vesselHeading;
-    var headingRaw = ConversionUtils.getRawValue(_signalKService, _paths.heading);
+    var headingRaw = _getRawSI(_paths.heading);
     // Fallback to magnetic if true heading not available
-    headingRaw ??= ConversionUtils.getRawValue(_signalKService, 'navigation.headingMagnetic');
+    headingRaw ??= _getRawSI('navigation.headingMagnetic');
     if (headingRaw != null) {
-      // Convert radians to degrees using user preferences
-      vesselHeading = ConversionUtils.convertWeatherValue(
-        _signalKService,
-        WeatherFieldType.angle,
-        headingRaw,
-      ) ?? headingRaw * 180 / math.pi;
+      final metadata = _signalKService.metadataStore.get(_paths.heading);
+      vesselHeading = metadata?.convert(headingRaw) ?? (headingRaw * 180 / math.pi);
     }
 
-    // Get GPS distance from bow (vessel design data) - use raw SI value
-    _gpsFromBow = ConversionUtils.getRawValue(_signalKService, _paths.gpsFromBow);
+    // Get GPS distance from bow (vessel design data) — raw SI meters
+    _gpsFromBow = _getRawSI(_paths.gpsFromBow);
 
-    // Get current depth from sensor - use raw SI value
-    _currentDepth = ConversionUtils.getRawValue(_signalKService, _paths.depth);
+    // Get current depth from sensor — raw SI meters
+    _currentDepth = _getRawSI(_paths.depth);
 
-    // Get fudge factor (margin) from plugin - use raw SI value
-    _fudgeFactor = ConversionUtils.getRawValue(_signalKService, _paths.fudgeFactor);
+    // Get fudge factor (margin) from plugin — raw SI meters
+    _fudgeFactor = _getRawSI(_paths.fudgeFactor);
 
     // Get vessel LOA from design.length.overall
     final lengthData = _signalKService.getValue(_paths.vesselLength);
@@ -591,26 +624,16 @@ class AnchorAlarmService extends ChangeNotifier {
       _vesselLOA = null;
     }
 
-    // Get other values - use raw SI values via ConversionUtils
-    final maxRadius = ConversionUtils.getRawValue(_signalKService, _paths.maxRadius);
-    final currentRadius = ConversionUtils.getRawValue(_signalKService, _paths.currentRadius);
-    final rodeLength = ConversionUtils.getRawValue(_signalKService, _paths.rodeLength);
-    final distanceFromBow = ConversionUtils.getRawValue(_signalKService, 'navigation.anchor.distanceFromBow');
-    final bearingTrue = ConversionUtils.getRawValue(_signalKService, _paths.bearing);
+    // Get other values — raw SI
+    final maxRadius = _getRawSI(_paths.maxRadius);
+    final currentRadius = _getRawSI(_paths.currentRadius);
+    final rodeLength = _getRawSI(_paths.rodeLength);
+    final distanceFromBow = _getRawSI('navigation.anchor.distanceFromBow');
+    final bearingTrue = _getRawSI(_paths.bearing);
 
-    // Get notification/alarm state
-    AnchorAlarmState alarmState = AnchorAlarmState.normal;
-    String? alarmMessage;
-
-    // Check for notification in recent notifications
-    final recentNotifications = _signalKService.getRecentNotifications();
-    final notification = recentNotifications.where(
-      (n) => n.key == _anchorNotificationKey || n.key.startsWith('$_anchorNotificationKey.'),
-    ).lastOrNull;
-    if (notification != null) {
-      alarmState = AnchorAlarmState.fromString(notification.state);
-      alarmMessage = notification.message;
-    }
+    // Alarm state tracked from notification stream (persistent, not TTL-cached)
+    final alarmState = _lastNotificationAlarmState;
+    final alarmMessage = _lastNotificationMessage;
 
     // Determine if active (anchor position exists)
     final isActive = anchorPos != null;
@@ -652,11 +675,15 @@ class AnchorAlarmService extends ChangeNotifier {
 
       // Only submit if not already acknowledged by user
       if (!_alarmAcknowledged) {
-        _submitAlarmAlert(message ?? 'Anchor Alarm!');
+        _submitAlarmAlert(newState, message ?? 'Anchor Alarm!');
       }
-    } else if (!newState.isAlarming && previousState.isAlarming) {
-      // Don't resolve immediately — debounce to survive SK notification cache cycling.
-      // If the alarm is genuinely over, the debounce fires and resolves.
+    } else if (newState == AnchorAlarmState.warn && previousState == AnchorAlarmState.normal) {
+      // Warning threshold crossed — submit warn-level alert (no audio)
+      _alarmClearDebounce?.cancel();
+      _alarmClearDebounce = null;
+      _submitWarnAlert(message ?? 'Approaching alarm radius');
+    } else if (!newState.isWarning && previousState.isWarning) {
+      // Back to normal — debounce to survive SK notification cache cycling.
       _alarmClearDebounce?.cancel();
       _alarmClearDebounce = Timer(_alarmClearDelay, () {
         _alertCoordinator?.resolveAlert(AlertSubsystem.anchorAlarm, internal: true);
@@ -666,10 +693,26 @@ class AnchorAlarmService extends ChangeNotifier {
     }
   }
 
-  void _submitAlarmAlert(String message) {
+  /// Map plugin alarm state to coordinator severity
+  AlertSeverity _alarmSeverity(AnchorAlarmState state) {
+    switch (state) {
+      case AnchorAlarmState.emergency:
+        return AlertSeverity.emergency;
+      case AnchorAlarmState.alarm:
+        return AlertSeverity.alarm;
+      case AnchorAlarmState.alert:
+        return AlertSeverity.alert;
+      case AnchorAlarmState.warn:
+        return AlertSeverity.warn;
+      case AnchorAlarmState.normal:
+        return AlertSeverity.normal;
+    }
+  }
+
+  void _submitAlarmAlert(AnchorAlarmState alarmState, String message) {
     _alertCoordinator?.submitAlert(AlertEvent(
       subsystem: AlertSubsystem.anchorAlarm,
-      severity: AlertSeverity.alarm,
+      severity: _alarmSeverity(alarmState),
       title: 'Anchor Alarm',
       body: message,
       wantsSystemNotification: true,
@@ -678,6 +721,20 @@ class AnchorAlarmService extends ChangeNotifier {
       alarmSound: _alarmSound,
       alarmSource: 'anchor_alarm',
       crewMessage: 'ANCHOR ALARM: $message',
+      throttleDuration: Duration.zero,
+    ));
+  }
+
+  void _submitWarnAlert(String message) {
+    _alertCoordinator?.submitAlert(AlertEvent(
+      subsystem: AlertSubsystem.anchorAlarm,
+      severity: AlertSeverity.warn,
+      title: 'Anchor Watch',
+      body: message,
+      wantsSystemNotification: true,
+      wantsAudio: false,
+      wantsCrewBroadcast: false,
+      alarmSource: 'anchor_alarm',
       throttleDuration: Duration.zero,
     ));
   }
@@ -772,9 +829,19 @@ class AnchorAlarmService extends ChangeNotifier {
 
   /// Acknowledge and silence alarm — stops audio via coordinator, hides widget overlay.
   /// SignalK alarm state remains until vessel returns to safe zone.
+  /// Overlay re-shows after 15s if alarm is still active (matches coordinator ack expiry).
   void acknowledgeAlarm() {
     _alarmAcknowledged = true;
     _alertCoordinator?.acknowledgeAlarm(AlertSubsystem.anchorAlarm);
     notifyListeners();
+
+    // Re-show overlay after ack expires if alarm is still active
+    _ackExpiryTimer?.cancel();
+    _ackExpiryTimer = Timer(const Duration(seconds: 15), () {
+      if (_lastNotificationAlarmState.isAlarming) {
+        _alarmAcknowledged = false;
+        notifyListeners();
+      }
+    });
   }
 }

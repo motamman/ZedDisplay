@@ -115,20 +115,26 @@ class AlertCoordinator extends ChangeNotifier {
     }
     _lastAlertTime[key] = now;
 
+    // --- Always track as active alert ---
+    // AlertPanel renders _activeAlerts directly. Safety-critical alerts
+    // must appear in the panel regardless of notification preferences.
+    _activeAlerts[key] = event;
+    _safeNotify();
+
+    // --- Audio fires regardless of master toggle (safety-critical) ---
+    if (event.wantsAudio && !_audioMuted) {
+      _playAudio(event);
+    }
+
     // --- Gate: master toggle + severity level filter ---
-    // One check controls all channels. If the level is filtered out,
-    // nothing fires — no audio, no snackbar, no notification, no broadcast.
+    // Controls system notifications and crew broadcast only.
+    // Does NOT gate _activeAlerts (panel) or audio.
     final level = event.severity.filterLevel;
     final masterOn = _storageService.getNotificationsEnabled();
     final inAppAllowed = _storageService.getInAppNotificationFilter(level);
     final systemAllowed = _storageService.getSystemNotificationFilter(level);
 
     if (!masterOn || (!inAppAllowed && !systemAllowed)) return;
-
-    // --- Track as active alert (only if it passed the gate) ---
-    // AlertPanel widget listens to notifyListeners and renders _activeAlerts directly.
-    _activeAlerts[key] = event;
-    _safeNotify();
 
     // System notification
     if (event.wantsSystemNotification && systemAllowed) {
@@ -138,11 +144,6 @@ class AlertCoordinator extends ChangeNotifier {
         alarmId: event.alarmId,
         alarmSource: event.alarmSource,
       );
-    }
-
-    // Audio — tied to same gate, plus mute check
-    if (event.wantsAudio && !_audioMuted) {
-      _playAudio(event);
     }
 
     // Crew broadcast — only once per alert key until acknowledged
