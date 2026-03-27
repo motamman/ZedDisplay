@@ -43,6 +43,7 @@ class AlertCoordinator extends ChangeNotifier {
             final ackUntil = _acknowledgedUntil[e.key];
             return ackUntil == null || now.isAfter(ackUntil);
           })
+          .where((e) => !_activeOverlays.contains(e.value.subsystem))
           .map((e) => e.value)
           .toList(),
     );
@@ -285,11 +286,10 @@ class AlertCoordinator extends ChangeNotifier {
   // ===== Overlay suppression =====
 
   void setOverlayActive(AlertSubsystem subsystem, bool active) {
-    if (active) {
-      _activeOverlays.add(subsystem);
-    } else {
-      _activeOverlays.remove(subsystem);
-    }
+    final changed = active
+        ? _activeOverlays.add(subsystem)
+        : _activeOverlays.remove(subsystem);
+    if (changed) _safeNotify();
   }
 
   // ===== ACK expiry timer =====

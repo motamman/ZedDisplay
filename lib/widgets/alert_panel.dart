@@ -2,9 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/alert_event.dart';
 import '../models/cpa_alert_state.dart';
+import '../models/notification_payload.dart';
 import '../services/alert_coordinator.dart';
 import '../services/cpa_alert_service.dart';
 import '../services/ais_favorites_service.dart';
+import '../services/notification_navigation_service.dart';
 
 /// Persistent alert panel that renders all active alerts as stacked rows.
 /// Lives in the MaterialApp.builder Stack — visible on every screen.
@@ -100,6 +102,18 @@ class _AlertRow extends StatelessWidget {
                 final favService = Provider.of<AISFavoritesService>(context, listen: false);
                 favService.requestHighlight(event.callbackData as String);
               } catch (_) {}
+            }),
+          // VIEW — SignalK notifications: navigate to relevant tool screen
+          if (event.subsystem == AlertSubsystem.signalk && event.callbackData is NotificationPayload)
+            Builder(builder: (context) {
+              try {
+                final navService = Provider.of<NotificationNavigationService>(context, listen: false);
+                final nav = navService.getNavigation(event.callbackData as NotificationPayload);
+                if (nav == null) return const SizedBox.shrink();
+                return _button('VIEW', () => nav.$1());
+              } catch (_) {
+                return const SizedBox.shrink();
+              }
             }),
           // ACK — alarm level: stop audio, row stays
           if (isAlarm)

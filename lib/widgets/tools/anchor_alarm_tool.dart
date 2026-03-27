@@ -127,6 +127,7 @@ class _AnchorAlarmToolState extends State<AnchorAlarmTool>
   @override
   void dispose() {
     _lockTimer?.cancel();
+    _alertCoordinator?.setOverlayActive(AlertSubsystem.anchorAlarm, false);
     _alarmService.removeListener(_onStateChanged);
     widget.signalKService.removeListener(_onSignalKChanged);
     _alarmService.dispose();
