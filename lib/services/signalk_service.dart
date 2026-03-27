@@ -184,12 +184,9 @@ class SignalKService extends ChangeNotifier implements DataService {
       getMetadataStore: () => _metadataStore,
     );
     _notificationManager = _NotificationManager(
-      getAuthToken: () => _authToken,
-      getNotificationEndpoint: () => _getNotificationEndpoint(),
       isWeatherAlertsOnDashboard: () => _isWeatherAlertsOnDashboard(),
       getLatestData: () => _dataCache.internalDataMap,
       getDiagnosticService: () => _diagnosticService,
-      getVesselContext: () => _vesselContext,
     );
     _aisManager = _AISManager(
       getServerUrl: () => _serverUrl,
@@ -527,16 +524,6 @@ class SignalKService extends ChangeNotifier implements DataService {
     // Standard SignalK stream with sendMeta=all — REST populates MetadataStore on connect,
     // but WS meta overrides keep us in sync with runtime changes (new paths, user pref changes)
     var endpoint = '$wsProtocol://$_serverUrl/signalk/v1/stream?subscribe=none&sendMeta=all';
-    if (_authToken != null) {
-      endpoint += '&token=${Uri.encodeComponent(_authToken!.token)}';
-    }
-    return endpoint;
-  }
-
-  /// Get notification WebSocket endpoint (always standard SignalK)
-  String _getNotificationEndpoint() {
-    final wsProtocol = _useSecureConnection ? 'wss' : 'ws';
-    var endpoint = '$wsProtocol://$_serverUrl/signalk/v1/stream?subscribe=none';
     if (_authToken != null) {
       endpoint += '&token=${Uri.encodeComponent(_authToken!.token)}';
     }
@@ -1948,10 +1935,6 @@ class SignalKService extends ChangeNotifier implements DataService {
       _metadataStore.clear();
       _aisManager.registry.clear();
 
-      // Disconnect notification channel if it's connected
-      // (still separate until notification routing is moved to main _handleMessage)
-      await _notificationManager.disconnectNotificationChannel();
-
       if (kDebugMode) {
         print('Disconnected and cleaned up WebSocket channels');
 
@@ -2661,10 +2644,6 @@ class _ConversionManager {
 /// Internal manager for notification system
 /// Handles notification WebSocket and notification processing
 class _NotificationManager {
-  // Notification WebSocket
-  WebSocketChannel? _notificationChannel;
-  StreamSubscription? _notificationSubscription;
-
   // Notification state
   bool _notificationsEnabled = false;
   final StreamController<SignalKNotification> _notificationController =
@@ -2679,20 +2658,14 @@ class _NotificationManager {
   final List<SignalKNotification> _recentNotifications = [];
 
   // Dependencies injected via function getters
-  final AuthToken? Function() getAuthToken;
-  final String Function() getNotificationEndpoint;
   final bool Function() isWeatherAlertsOnDashboard;
   final Map<String, SignalKDataPoint> Function() getLatestData;
   final DiagnosticService? Function() getDiagnosticService;
-  final String? Function() getVesselContext;
 
   _NotificationManager({
-    required this.getAuthToken,
-    required this.getNotificationEndpoint,
     required this.isWeatherAlertsOnDashboard,
     required this.getLatestData,
     required this.getDiagnosticService,
-    required this.getVesselContext,
   });
 
   // Getters
@@ -2706,23 +2679,7 @@ class _NotificationManager {
     return List.unmodifiable(_recentNotifications);
   }
 
-  /// Enable or disable notifications (WS connection now managed by SignalKService)
-  Future<void> setNotificationsEnabled(bool enabled) async {
-    if (_notificationsEnabled == enabled) {
-      return;
-    }
-
-    _notificationsEnabled = enabled;
-
-    if (enabled) {
-      await connectNotificationChannel();
-    } else {
-      await disconnectNotificationChannel();
-    }
-  }
-
-  /// Set the enabled flag without managing WS connections.
-  /// Used when notifications route through the main channel.
+  /// Set the enabled flag. Notifications route through the main WebSocket channel.
   void setNotificationsEnabledFlag(bool enabled) {
     _notificationsEnabled = enabled;
     if (!enabled) {
@@ -2732,110 +2689,7 @@ class _NotificationManager {
     }
   }
 
-  /// Connect to notification WebSocket
-  Future<void> connectNotificationChannel() async {
-    final authToken = getAuthToken();
-    if (authToken == null) {
-      return;
-    }
-
-    try {
-      final wsUrl = getNotificationEndpoint();
-
-      final headers = <String, String>{
-        'Authorization': 'Bearer ${authToken.token}',
-      };
-
-      final socket = await WebSocket.connect(wsUrl, headers: headers);
-      socket.pingInterval = const Duration(seconds: 30);
-      _notificationChannel = IOWebSocketChannel(socket);
-
-      _notificationSubscription = _notificationChannel!.stream.listen(
-        handleNotificationMessage,
-        onError: (error) {
-          if (kDebugMode) {
-            print('❌ Notification WebSocket error: $error');
-          }
-        },
-        onDone: () {},
-      );
-
-      await Future.delayed(const Duration(milliseconds: 100));
-      subscribeToNotifications();
-    } catch (e) {
-      if (kDebugMode) {
-        print('❌ Error connecting notification channel: $e');
-      }
-    }
-  }
-
-  /// Disconnect notification WebSocket
-  Future<void> disconnectNotificationChannel() async {
-    try {
-      await _notificationSubscription?.cancel();
-      _notificationSubscription = null;
-
-      await _notificationChannel?.sink.close();
-      _notificationChannel = null;
-
-      _lastNotificationState.clear();
-      _lastNotificationTime.clear();
-      _recentNotifications.clear();
-    } catch (e) {
-      if (kDebugMode) {
-        print('❌ Error disconnecting notification channel: $e');
-      }
-    }
-  }
-
-  /// Subscribe to notifications on the notification channel
-  void subscribeToNotifications() {
-    if (_notificationChannel == null) return;
-
-    final subscriptionContext = getVesselContext() ?? 'vessels.self';
-    final subscription = {
-      'context': subscriptionContext,
-      'subscribe': [
-        {
-          'path': 'notifications.*',
-          'format': 'delta',
-          'policy': 'instant',
-        }
-      ]
-    };
-
-    _notificationChannel?.sink.add(jsonEncode(subscription));
-  }
-
-  /// Handle messages from notification WebSocket
-  void handleNotificationMessage(dynamic message) {
-    try {
-      getDiagnosticService()?.instrumentWsMessage('notification');
-      final data = jsonDecode(message);
-
-      if (data is! Map<String, dynamic>) {
-        return;
-      }
-
-      if (data['updates'] != null) {
-        final update = SignalKUpdate.fromJson(data);
-
-        for (final updateValue in update.updates) {
-          for (final value in updateValue.values) {
-            if (value.path.startsWith('notifications.')) {
-              handleNotification(value.path, value.value, updateValue.timestamp);
-            }
-          }
-        }
-      }
-    } catch (e) {
-      if (kDebugMode) {
-        print('❌ Error parsing notification message: $e');
-      }
-    }
-  }
-
-  /// Handle incoming notification
+  /// Handle incoming notification (called from main WS _handleMessage)
   void handleNotification(String path, dynamic value, DateTime timestamp) {
     try {
       final key = path.replaceFirst('notifications.', '');
@@ -2915,7 +2769,6 @@ class _NotificationManager {
   }
 
   Future<void> dispose() async {
-    await disconnectNotificationChannel();
     await _notificationController.close();
   }
 }
