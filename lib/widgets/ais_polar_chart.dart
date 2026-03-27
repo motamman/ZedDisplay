@@ -8,6 +8,7 @@ import 'dart:math' as math;
 import 'package:provider/provider.dart';
 import '../services/signalk_service.dart';
 import '../services/cpa_alert_service.dart';
+import '../services/storage_service.dart';
 import '../services/ais_favorites_service.dart';
 import '../services/find_home_target_service.dart';
 import '../services/dashboard_service.dart';
@@ -1627,6 +1628,21 @@ class _AISPolarChartState extends State<AISPolarChart>
                     ),
                     // Alert cooldown removed — coordinator handles throttle centrally
                   ],
+                  const SizedBox(height: 16),
+                  const Divider(),
+                  Consumer<StorageService>(
+                    builder: (context, storage, _) {
+                      return SwitchListTile(
+                        title: const Text('Favorite vessel alerts'),
+                        subtitle: const Text('Alert when a favorited vessel comes in range'),
+                        value: storage.getFavoritesAlertsEnabled(),
+                        onChanged: (value) {
+                          storage.saveFavoritesAlertsEnabled(value);
+                        },
+                        contentPadding: EdgeInsets.zero,
+                      );
+                    },
+                  ),
                   const SizedBox(height: 16),
                   Center(
                     child: TextButton(

@@ -29,27 +29,37 @@ class AlertCoordinator extends ChangeNotifier {
   static const _defaultThrottle = Duration(seconds: 30);
   static const _defaultAutoUnmute = Duration(minutes: 5);
 
-  // --- Snackbar delivery via stream (replaces fragile callback) ---
-  final StreamController<AlertEvent> _snackbarController =
-      StreamController<AlertEvent>.broadcast();
-  Stream<AlertEvent> get snackbarEvents => _snackbarController.stream;
-
-  // --- App lifecycle ---
-  bool _appInForeground = true;
-
   // --- Overlay suppression ---
   final Set<AlertSubsystem> _activeOverlays = {};
 
   // --- Active alerts (what's currently firing) ---
   final Map<String, AlertEvent> _activeAlerts = {};
-  List<AlertEvent> get activeAlerts => List.unmodifiable(_activeAlerts.values.toList());
-  int get activeAlertCount => _activeAlerts.length;
+  /// Active alerts visible to the UI — excludes temporarily acknowledged ones.
+  List<AlertEvent> get activeAlerts {
+    final now = DateTime.now();
+    return List.unmodifiable(
+      _activeAlerts.entries
+          .where((e) {
+            final ackUntil = _acknowledgedUntil[e.key];
+            return ackUntil == null || now.isAfter(ackUntil);
+          })
+          .map((e) => e.value)
+          .toList(),
+    );
+  }
+
+  int get activeAlertCount => activeAlerts.length;
 
   // --- Throttle tracking ---
   final Map<String, DateTime> _lastAlertTime = {};
 
   // --- Crew broadcast tracking (only send once per alert key until acknowledged) ---
   final Set<String> _crewBroadcastSent = {};
+
+  // --- Acknowledged alerts: hidden from panel until expiry, then re-shown ---
+  final Map<String, DateTime> _acknowledgedUntil = {};
+  Timer? _ackExpiryTimer;
+  static const _ackReshowInterval = Duration(seconds: 15);
 
   // --- Resolve callbacks (subsystems register to hear when their alerts are resolved) ---
   final Map<AlertSubsystem, void Function(String? alarmId)> _resolveCallbacks = {};
@@ -59,9 +69,7 @@ class AlertCoordinator extends ChangeNotifier {
   Timer? _autoUnmuteTimer;
   bool get audioMuted => _audioMuted;
 
-  // --- Snackbar re-show for active unacknowledged alerts ---
-  Timer? _reshowTimer;
-  static const _reshowInterval = Duration(seconds: 15);
+
 
   AlertCoordinator({
     required StorageService storageService,
@@ -117,8 +125,8 @@ class AlertCoordinator extends ChangeNotifier {
     if (!masterOn || (!inAppAllowed && !systemAllowed)) return;
 
     // --- Track as active alert (only if it passed the gate) ---
+    // AlertPanel widget listens to notifyListeners and renders _activeAlerts directly.
     _activeAlerts[key] = event;
-    _startReshowTimer();
     _safeNotify();
 
     // System notification
@@ -129,12 +137,6 @@ class AlertCoordinator extends ChangeNotifier {
         alarmId: event.alarmId,
         alarmSource: event.alarmSource,
       );
-    }
-
-    // In-app snackbar (via stream)
-    if (event.wantsInAppSnackbar && inAppAllowed && _appInForeground &&
-        !_activeOverlays.contains(event.subsystem)) {
-      _snackbarController.add(event);
     }
 
     // Audio — tied to same gate, plus mute check
@@ -184,12 +186,17 @@ class AlertCoordinator extends ChangeNotifier {
   // ===== Acknowledge / Resolve =====
 
   /// Acknowledge an alarm: "I see it, stop the noise."
-  /// Alert stays active — snackbar will re-show. Only resolveAlert clears it.
+  /// Row disappears from panel temporarily, re-shows after [_ackReshowInterval]
+  /// if the alert is still active. Only resolveAlert clears it permanently.
   void acknowledgeAlarm(AlertSubsystem subsystem, {String? alarmId}) {
+    final key = '${subsystem.name}:${alarmId ?? 'default'}';
     _audioPlayer.stop(source: subsystem.name);
     if (alarmId != null) {
       _notificationService.cancelAlarmNotification(alarmId);
     }
+    _acknowledgedUntil[key] = DateTime.now().add(_ackReshowInterval);
+    _startAckExpiryTimer();
+    _safeNotify();
   }
 
   /// Resolve an alert: condition is over (e.g., vessel moved away) or user dismissed.
@@ -199,18 +206,18 @@ class AlertCoordinator extends ChangeNotifier {
   /// (e.g., CPA sets dismissal cooldown). When [internal] is true (subsystem
   /// initiated the resolve itself), the callback is skipped to prevent loops.
   void resolveAlert(AlertSubsystem subsystem, {String? alarmId, bool internal = false}) {
+    final key = '${subsystem.name}:${alarmId ?? 'default'}';
     _audioPlayer.stop(source: subsystem.name);
     if (alarmId != null) {
       _notificationService.cancelAlarmNotification(alarmId);
     }
-    final key = '${subsystem.name}:${alarmId ?? 'default'}';
     _activeAlerts.remove(key);
+    _acknowledgedUntil.remove(key);
     _crewBroadcastSent.remove(key);
     _activeOverlays.remove(subsystem);
-    _stopReshowIfEmpty();
+
     _safeNotify();
 
-    // Notify subsystem so it can do its own cleanup
     if (!internal) {
       _resolveCallbacks[subsystem]?.call(alarmId);
     }
@@ -225,7 +232,7 @@ class AlertCoordinator extends ChangeNotifier {
     _activeAlerts.removeWhere((key, _) => key.startsWith('${subsystem.name}:'));
     _crewBroadcastSent.removeWhere((key) => key.startsWith('${subsystem.name}:'));
     _activeOverlays.remove(subsystem);
-    _stopReshowIfEmpty();
+
     _safeNotify();
 
     if (!internal) {
@@ -274,11 +281,6 @@ class AlertCoordinator extends ChangeNotifier {
     _safeNotify();
   }
 
-  // ===== App lifecycle =====
-
-  void setAppInForeground(bool foreground) {
-    _appInForeground = foreground;
-  }
 
   // ===== Overlay suppression =====
 
@@ -290,34 +292,29 @@ class AlertCoordinator extends ChangeNotifier {
     }
   }
 
-  // ===== Snackbar re-show =====
+  // ===== ACK expiry timer =====
 
-  void _startReshowTimer() {
-    if (_reshowTimer != null) return; // already running
-    _reshowTimer = Timer.periodic(_reshowInterval, (_) {
-      if (_activeAlerts.isEmpty) {
-        _stopReshowIfEmpty();
+  /// Periodically checks if any acknowledged alerts have expired and should re-show.
+  void _startAckExpiryTimer() {
+    if (_ackExpiryTimer != null) return;
+    _ackExpiryTimer = Timer.periodic(const Duration(seconds: 5), (_) {
+      if (_acknowledgedUntil.isEmpty) {
+        _ackExpiryTimer?.cancel();
+        _ackExpiryTimer = null;
         return;
       }
-      // Re-emit active alerts that still pass the filter
-      if (_appInForeground && _storageService.getNotificationsEnabled()) {
-        for (final event in _activeAlerts.values) {
-          final lvl = event.severity.filterLevel;
-          if (event.wantsInAppSnackbar &&
-              _storageService.getInAppNotificationFilter(lvl) &&
-              !_activeOverlays.contains(event.subsystem)) {
-            _snackbarController.add(event);
-          }
+      final now = DateTime.now();
+      final expired = _acknowledgedUntil.entries
+          .where((e) => now.isAfter(e.value))
+          .map((e) => e.key)
+          .toList();
+      if (expired.isNotEmpty) {
+        for (final key in expired) {
+          _acknowledgedUntil.remove(key);
         }
+        _safeNotify(); // Panel rebuilds, expired ACKs re-appear
       }
     });
-  }
-
-  void _stopReshowIfEmpty() {
-    if (_activeAlerts.isEmpty) {
-      _reshowTimer?.cancel();
-      _reshowTimer = null;
-    }
   }
 
   // ===== Safe notify =====
@@ -335,8 +332,7 @@ class AlertCoordinator extends ChangeNotifier {
   @override
   void dispose() {
     _autoUnmuteTimer?.cancel();
-    _reshowTimer?.cancel();
-    _snackbarController.close();
+    _ackExpiryTimer?.cancel();
     _audioPlayer.dispose();
     super.dispose();
   }

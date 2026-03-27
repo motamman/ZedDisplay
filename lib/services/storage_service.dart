@@ -800,6 +800,19 @@ class StorageService extends ChangeNotifier {
     return getInAppNotificationFilter(level);
   }
 
+  // ===== AIS Favorites Alerts =====
+
+  bool getFavoritesAlertsEnabled() {
+    if (!_initialized) return true;
+    return _settingsBox.get('favorites_alerts_enabled', defaultValue: 'true') == 'true';
+  }
+
+  Future<void> saveFavoritesAlertsEnabled(bool enabled) async {
+    if (!_initialized) return;
+    await _settingsBox.put('favorites_alerts_enabled', enabled ? 'true' : 'false');
+    notifyListeners();
+  }
+
   // ===== CPA Settings =====
 
   /// Seconds of sustained divergence before a CPA alert de-escalates. Default 60.

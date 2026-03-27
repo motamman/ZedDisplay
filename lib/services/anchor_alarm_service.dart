@@ -2,12 +2,12 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
-import 'package:audioplayers/audioplayers.dart';
+import '../models/alert_event.dart';
 import '../models/anchor_state.dart';
 import '../utils/conversion_utils.dart';
+import 'alarm_audio_player.dart';
+import 'alert_coordinator.dart';
 import 'signalk_service.dart';
-import 'notification_service.dart';
-import 'messaging_service.dart';
 
 /// Configuration for SignalK paths used by anchor alarm
 class AnchorAlarmPaths {
@@ -90,8 +90,7 @@ class AnchorAlarmService extends ChangeNotifier {
   static AnchorAlarmService? instance;
 
   final SignalKService _signalKService;
-  final NotificationService _notificationService;
-  final MessagingService? _messagingService;
+  final AlertCoordinator? _alertCoordinator;
 
   // Configurable SignalK paths
   AnchorAlarmPaths _paths = const AnchorAlarmPaths();
@@ -115,11 +114,8 @@ class AnchorAlarmService extends ChangeNotifier {
   DateTime? _checkInDeadline;
   DateTime? get checkInDeadline => _checkInDeadline;
 
-  // Audio playback
-  AudioPlayer? _alarmPlayer;
-  Timer? _alarmRepeatTimer;
+  // Alarm sound preference (passed to coordinator via AlertEvent)
   String _alarmSound = 'foghorn';
-  bool _alarmSoundPlaying = false;
 
   // Track connection state
   bool _wasConnected = false;
@@ -144,34 +140,30 @@ class AnchorAlarmService extends ChangeNotifier {
   double? _vesselLOA;
   double? get vesselLOA => _vesselLOA;
 
-  // Available alarm sounds
-  static const Map<String, String> alarmSounds = {
-    'bell': 'sounds/alarm_bell.mp3',
-    'foghorn': 'sounds/alarm_foghorn.mp3',
-    'chimes': 'sounds/alarm_chimes.mp3',
-    'ding': 'sounds/alarm_ding.mp3',
-    'whistle': 'sounds/alarm_whistle.mp3',
-    'dog': 'sounds/alarm_dog.mp3',
-  };
+  // Available alarm sounds (shared with AlarmAudioPlayer singleton)
+  static const Map<String, String> alarmSounds = AlarmAudioPlayer.alarmSounds;
 
   bool _disposed = false;
 
   AnchorAlarmService({
     required SignalKService signalKService,
-    NotificationService? notificationService,
-    MessagingService? messagingService,
+    AlertCoordinator? alertCoordinator,
   })  : _signalKService = signalKService,
-        _notificationService = notificationService ?? NotificationService(),
-        _messagingService = messagingService {
+        _alertCoordinator = alertCoordinator {
     instance = this;
-    _notificationService.registerAlarmCallback('anchor_alarm', _onAlarmTapped);
+    // Register resolve callback so user dismiss from alert panel propagates here
+    _alertCoordinator?.registerResolveCallback(AlertSubsystem.anchorAlarm, _onAlertResolved);
   }
 
-  /// Handle notification tap — user responded, cancel grace timer and stop sound.
-  /// The overlay is already visible via _onCheckInRequired setting _awaitingCheckIn.
-  void _onAlarmTapped(String? alarmId) {
-    _checkInGraceTimer?.cancel();
-    _stopAlarmSound();
+  /// Called by AlertCoordinator when the user dismisses an anchor alarm from the alert panel.
+  void _onAlertResolved(String? alarmId) {
+    if (alarmId == 'check_in') {
+      // User dismissed check-in alert from panel — treat as acknowledgement
+      acknowledgeCheckIn();
+    } else {
+      // User dismissed anchor alarm from panel — silence locally
+      acknowledgeAlarm();
+    }
   }
 
   /// Initialize and start listening to SignalK updates
@@ -231,13 +223,11 @@ class AnchorAlarmService extends ChangeNotifier {
   void dispose() {
     if (instance == this) instance = null;
     _disposed = true;
-    _notificationService.unregisterAlarmCallback('anchor_alarm');
+    _alertCoordinator?.unregisterResolveCallback(AlertSubsystem.anchorAlarm);
     _unsubscribeFromAnchorPaths();
     _signalKService.removeListener(_onSignalKUpdate);
     _checkInTimer?.cancel();
     _checkInGraceTimer?.cancel();
-    _alarmRepeatTimer?.cancel();
-    _alarmPlayer?.dispose();
     super.dispose();
   }
 
@@ -313,8 +303,8 @@ class AnchorAlarmService extends ChangeNotifier {
         // Stop check-in timer
         _stopCheckInTimer();
 
-        // Stop any playing alarm
-        await _stopAlarmSound();
+        // Clear all anchor alerts from coordinator (internal — we initiated it)
+        _alertCoordinator?.clearSubsystem(AlertSubsystem.anchorAlarm, internal: true);
 
         // Clear state
         _state = AnchorState.initial();
@@ -637,74 +627,44 @@ class AnchorAlarmService extends ChangeNotifier {
     String? message,
   ) {
     if (newState.isAlarming && !previousState.isAlarming) {
-      // Alarm triggered
-      _triggerAlerts(newState, message ?? 'Anchor Alarm!');
+      // Alarm triggered — submit to coordinator
+      _submitAlarmAlert(message ?? 'Anchor Alarm!');
     } else if (!newState.isAlarming && previousState.isAlarming) {
-      // Alarm cleared
-      _stopAlarmSound();
+      // Alarm cleared by server (vessel back in safe zone) — resolve internally
+      _alertCoordinator?.resolveAlert(AlertSubsystem.anchorAlarm, internal: true);
     }
   }
 
-  Future<void> _triggerAlerts(AnchorAlarmState state, String message) async {
-    // Play alarm sound
-    await _playAlarmSound();
-
-    // Show system notification
-    await _notificationService.showAlarmNotification(
+  void _submitAlarmAlert(String message) {
+    _alertCoordinator?.submitAlert(AlertEvent(
+      subsystem: AlertSubsystem.anchorAlarm,
+      severity: AlertSeverity.alarm,
       title: 'Anchor Alarm',
       body: message,
+      wantsSystemNotification: true,
+      wantsAudio: true,
+      wantsCrewBroadcast: true,
+      alarmSound: _alarmSound,
       alarmSource: 'anchor_alarm',
-    );
-
-    // Send crew alert (stable ID so repeated alarms overwrite one resource)
-    _messagingService?.sendAlert('ANCHOR ALARM: $message', alertId: 'alert-anchor');
-  }
-
-  Future<void> _playAlarmSound() async {
-    if (_alarmSoundPlaying) return;
-
-    final assetPath = alarmSounds[_alarmSound] ?? alarmSounds['foghorn']!;
-
-    try {
-      _alarmPlayer?.dispose();
-      _alarmPlayer = AudioPlayer();
-      await _alarmPlayer!.setVolume(1.0);
-      await _alarmPlayer!.play(AssetSource(assetPath));
-      _alarmSoundPlaying = true;
-
-      // Repeat every 5 seconds while alarm is active
-      _alarmRepeatTimer?.cancel();
-      _alarmRepeatTimer = Timer.periodic(const Duration(seconds: 5), (_) async {
-        if (_state.alarmState.isAlarming) {
-          _alarmPlayer?.dispose();
-          _alarmPlayer = AudioPlayer();
-          await _alarmPlayer!.play(AssetSource(assetPath));
-        } else {
-          _alarmRepeatTimer?.cancel();
-          _alarmSoundPlaying = false;
-        }
-      });
-    } catch (e) {
-      if (kDebugMode) {
-        print('Error playing alarm sound: $e');
-      }
-    }
-  }
-
-  Future<void> _stopAlarmSound() async {
-    _alarmRepeatTimer?.cancel();
-    _alarmPlayer?.stop();
-    _alarmPlayer?.dispose();
-    _alarmPlayer = null;
-    _alarmSoundPlaying = false;
+      crewMessage: 'ANCHOR ALARM: $message',
+    ));
   }
 
   /// Manually trigger alarm for check-in failure
-  Future<void> triggerCheckInAlarm() async {
-    await _triggerAlerts(
-      AnchorAlarmState.alarm,
-      'Check-in missed! Please confirm anchor watch.',
-    );
+  void triggerCheckInAlarm() {
+    _alertCoordinator?.submitAlert(AlertEvent(
+      subsystem: AlertSubsystem.anchorAlarm,
+      severity: AlertSeverity.alarm,
+      title: 'Anchor Watch',
+      body: 'Check-in missed! Please confirm anchor watch.',
+      wantsSystemNotification: true,
+      wantsAudio: true,
+      wantsCrewBroadcast: true,
+      alarmSound: _alarmSound,
+      alarmId: 'check_in',
+      alarmSource: 'anchor_alarm',
+      crewMessage: 'ANCHOR WATCH: Check-in missed — please confirm anchor watch.',
+    ));
   }
 
   // === Check-In System ===
@@ -735,19 +695,20 @@ class AnchorAlarmService extends ChangeNotifier {
     _checkInDeadline = DateTime.now().add(_checkInConfig.gracePeriod);
     notifyListeners();
 
-    // Show system notification requesting check-in
-    _notificationService.showAlarmNotification(
+    // Submit check-in warning through coordinator
+    final message = _checkInConfig.customMessage ?? 'Please confirm you are monitoring the anchor.';
+    _alertCoordinator?.submitAlert(AlertEvent(
+      subsystem: AlertSubsystem.anchorAlarm,
+      severity: AlertSeverity.warn,
       title: 'Anchor Watch Check-In',
-      body: _checkInConfig.customMessage ?? 'Please confirm you are monitoring the anchor.',
+      body: message,
+      wantsSystemNotification: true,
+      wantsAudio: false,
+      wantsCrewBroadcast: true,
       alarmId: 'check_in',
       alarmSource: 'anchor_alarm',
-    );
-
-    // Send crew alert for check-in warning (stable ID so repeated check-ins overwrite one resource)
-    _messagingService?.sendAlert(
-      'ANCHOR WATCH: Check-in required — please confirm anchor watch.',
-      alertId: 'alert-checkin',
-    );
+      crewMessage: 'ANCHOR WATCH: Check-in required — please confirm anchor watch.',
+    ));
 
     // Start grace period timer
     _checkInGraceTimer = Timer(_checkInConfig.gracePeriod, _onCheckInGraceExpired);
@@ -765,11 +726,11 @@ class AnchorAlarmService extends ChangeNotifier {
     _checkInGraceTimer?.cancel();
     _awaitingCheckIn = false;
     _checkInDeadline = null;
-    _stopAlarmSound(); // Silence alarm if it was playing from missed check-in
 
-    // Clear the check-in notification from the system tray so stale
-    // notifications can't re-trigger the overlay after acknowledgment.
-    _notificationService.cancelAlarmNotification('check_in');
+    // Resolve check-in alert from coordinator (stops audio, clears notification)
+    _alertCoordinator?.resolveAlert(
+      AlertSubsystem.anchorAlarm, alarmId: 'check_in', internal: true,
+    );
 
     // Restart check-in timer for next interval
     _startCheckInTimer();
@@ -777,10 +738,9 @@ class AnchorAlarmService extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Acknowledge and silence alarm
+  /// Acknowledge and silence alarm — stops audio via coordinator.
+  /// SignalK alarm state remains until vessel returns to safe zone.
   void acknowledgeAlarm() {
-    _stopAlarmSound();
-    // Note: This only stops the local sound, the SignalK alarm state
-    // will remain until the vessel returns to safe zone
+    _alertCoordinator?.acknowledgeAlarm(AlertSubsystem.anchorAlarm);
   }
 }

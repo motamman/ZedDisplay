@@ -72,13 +72,9 @@ class AISFavoritesService extends ChangeNotifier {
   void startMonitoring(SignalKService signalKService, AlertCoordinator alertCoordinator) {
     _signalKService = signalKService;
     _alertCoordinator = alertCoordinator;
-    // When user dismisses a favorites alert, clear from _inRangeNotified
-    // so the vessel can re-trigger on next encounter
-    alertCoordinator.registerResolveCallback(AlertSubsystem.aisFavorites, (alarmId) {
-      if (alarmId != null) {
-        _inRangeNotified.remove(alarmId);
-      }
-    });
+    // No resolve callback needed — dismiss means "stop showing me this snackbar,"
+    // not "forget you detected this vessel." Vessel re-triggers only after it
+    // leaves range and comes back (handled by _inRangeNotified.removeWhere).
     signalKService.aisVesselRegistry.addListener(_onAISUpdate);
 
     // Register for server sync
@@ -119,9 +115,10 @@ class AISFavoritesService extends ChangeNotifier {
       mmsiToVesselId[bareMMSI] = vesselId;
     }
 
-    // Detect newly-arrived favorites
+    // Detect newly-arrived favorites (only if alerts enabled)
+    final alertsEnabled = _storageService?.getFavoritesAlertsEnabled() ?? true;
     for (final fav in _favorites) {
-      if (visibleMMSIs.contains(fav.mmsi) && !_inRangeNotified.contains(fav.mmsi)) {
+      if (alertsEnabled && visibleMMSIs.contains(fav.mmsi) && !_inRangeNotified.contains(fav.mmsi)) {
         _inRangeNotified.add(fav.mmsi);
         final vesselId = mmsiToVesselId[fav.mmsi];
         _submitDetectionAlert(fav, vesselId);

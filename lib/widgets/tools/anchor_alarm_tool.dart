@@ -9,7 +9,6 @@ import '../../models/tool_config.dart';
 import '../../models/tool_definition.dart';
 import '../../services/signalk_service.dart';
 import '../../services/anchor_alarm_service.dart';
-import '../../services/messaging_service.dart';
 import '../../services/alert_coordinator.dart';
 import '../../models/anchor_state.dart';
 import '../../models/alert_event.dart';
@@ -60,23 +59,14 @@ class _AnchorAlarmToolState extends State<AnchorAlarmTool>
   void initState() {
     super.initState();
 
-    // Get messaging service from provider if available
-    MessagingService? messagingService;
-    try {
-      messagingService = Provider.of<MessagingService>(context, listen: false);
-    } catch (_) {
-      // Messaging service not available
-    }
-
-    // Get alert coordinator from provider if available (cached for state updates)
+    // Get alert coordinator from provider if available
     try {
       _alertCoordinator = Provider.of<AlertCoordinator>(context, listen: false);
     } catch (_) {}
 
     _alarmService = AnchorAlarmService(
       signalKService: widget.signalKService,
-      messagingService: messagingService,
-      // alertCoordinator: _alertCoordinator, // TEMP: bypass to test freeze
+      alertCoordinator: _alertCoordinator,
     );
     _alarmService.initialize();
     _alarmService.addListener(_onStateChanged);

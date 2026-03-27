@@ -130,7 +130,8 @@ class CpaAlertService extends ChangeNotifier {
     _notificationService.cancelAlarmNotification(vesselId);
     _dismissedUntil[vesselId] =
         DateTime.now().add(Duration(seconds: _config.cooldownSeconds));
-    if (!hasActiveAlarm) _alertCoordinator?.resolveAlert(AlertSubsystem.cpa, internal: true);
+    // Don't call blanket resolveAlert — the coordinator already resolved
+    // this specific vessel via the resolve callback before we got here.
     _safeNotify();
   }
 
@@ -142,7 +143,6 @@ class CpaAlertService extends ChangeNotifier {
       _dismissedUntil[id] = now.add(Duration(seconds: _config.cooldownSeconds));
     }
     _vesselAlerts.clear();
-    _alertCoordinator?.resolveAlert(AlertSubsystem.cpa, internal: true);
     _safeNotify();
   }
 
