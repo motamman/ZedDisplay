@@ -31,15 +31,21 @@ class MetadataStore extends ChangeNotifier {
     String? category,
   }) {
     final existing = _metadata[path];
-    final newMetadata = PathMetadata.fromDisplayUnits(
+    final incoming = PathMetadata.fromDisplayUnits(
       path,
       displayUnits,
       category: category ?? existing?.category,
     );
 
-    // Only update and notify if something changed
-    if (_hasChanged(existing, newMetadata)) {
-      _metadata[path] = newMetadata;
+    // Merge: if existing has a formula but incoming doesn't, keep existing.
+    // WS meta deltas often resend only {category: ...} without the full
+    // displayUnits payload — don't let that overwrite good data.
+    final merged = existing != null && incoming.formula == null && existing.formula != null
+        ? existing.copyWith(category: incoming.category ?? existing.category)
+        : incoming;
+
+    if (_hasChanged(existing, merged)) {
+      _metadata[path] = merged;
       notifyListeners();
     }
   }

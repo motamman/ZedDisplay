@@ -25,7 +25,7 @@
 - [x] Add "What's New" markdown modal as a menu item
 - [ ] Re-examine the entire messaging and notification system
 - [ ] Message deletion semantics: deleting a message locally also deletes from Resources API — should this propagate to other devices? Should there be a "delete for me" vs "delete for everyone" distinction? What about the WS delta cache?
-- [ ] Finish refactoring for single source of truth for base URL (`httpBaseUrl` on SignalKService) — migrate remaining scattered `$protocol://$_serverUrl` constructions in SignalKService internal REST calls
+- [x] Finish refactoring for single source of truth for base URL (`httpBaseUrl` on SignalKService) — migrate remaining scattered `$protocol://$_serverUrl` constructions in SignalKService internal REST calls
 
 ## Widget Inventory — AIS Context Status
 

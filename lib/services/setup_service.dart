@@ -376,11 +376,13 @@ class SetupService extends ChangeNotifier {
         await _toolService.saveTool(tool);
       }
 
+      // Set active setup ID BEFORE updating layout — updateLayout() fires
+      // notifyListeners() which triggers auto-save, and auto-save uses
+      // _activeSetupId to determine which setup to write to.
+      _activeSetupId = setupId;
+
       // Then update the dashboard layout
       await _dashboardService.updateLayout(setup.layout);
-
-      // Set this as the active setup for auto-saving
-      _activeSetupId = setupId;
 
       // Update the setup's last used timestamp
       final updatedMetadata = setup.metadata.copyWith(

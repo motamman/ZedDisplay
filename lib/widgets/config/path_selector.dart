@@ -181,24 +181,23 @@ class _PathSelectorDialogState extends State<PathSelectorDialog> {
           }
         }
       } else if (widget.useHistoricalPaths || widget.numericOnly) {
-        // Self vessel: numeric paths from live data + history badges
-        final numericPaths = <String>[];
-        for (final entry in widget.signalKService.latestData.entries) {
-          final path = entry.key;
-          final value = entry.value.value;
+        // Self vessel: numeric paths from server catalog + live data
+        final pathSet = <String>{};
+        final store = widget.signalKService.metadataStore;
 
-          // Skip source-specific paths (contain :: or @)
+        // Catalog paths that resolve to a numeric category
+        for (final path in widget.signalKService.availablePathsList) {
           if (path.contains('::') || path.contains('@')) continue;
-
-          // Skip AIS vessel paths (stored with context prefix in cache)
           if (path.startsWith('vessels.')) continue;
-
-          // Only include paths with numeric values
-          if (value is num) {
-            numericPaths.add(path);
-          }
+          if (store.get(path)?.category != null) pathSet.add(path);
         }
-        paths = numericPaths;
+
+        // Plugin paths with numeric values not in the catalog
+        for (final entry in widget.signalKService.latestData.entries) {
+          if (entry.value.value is num) pathSet.add(entry.key);
+        }
+
+        paths = pathSet.toList();
 
         // Fetch history paths for badge indicator
         if (widget.useHistoricalPaths) {

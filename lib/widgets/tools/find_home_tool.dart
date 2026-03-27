@@ -23,6 +23,7 @@ import '../../utils/angle_utils.dart';
 import '../../widgets/countdown_confirmation_overlay.dart';
 import '../../utils/cpa_utils.dart';
 import '../../utils/dodge_utils.dart';
+import '../../utils/sun_calc.dart';
 
 
 /// Find Home Tool - ILS-style approach display for navigating back to an
@@ -104,6 +105,15 @@ class _FindHomeToolState extends State<FindHomeTool> {
   bool _dodgeMode = false;       // dodge vs track view
   bool _dodgeBowPass = false;    // stern (default) vs bow
 
+  // Sun/moon sky display
+  double _sunAltitudeDeg = -90;
+  double _sunAzimuthDeg = 0;
+  double _moonAltitudeDeg = -90;
+  double _moonAzimuthDeg = 0;
+  double _moonPhase = 0;
+  double _moonFraction = 0;
+  Timer? _skyTimer;
+
   // Auto-dodge autopilot integration
   DodgeAutopilotService? _dodgeAutopilotService;
   bool _autoDodgeEnabled = false;
@@ -148,6 +158,13 @@ class _FindHomeToolState extends State<FindHomeTool> {
     );
     widget.signalKService.addListener(_onSignalKUpdate);
     _initDeviceGps();
+    // Update sky bodies every 60s so sun/moon move even when stationary
+    _skyTimer = Timer.periodic(const Duration(seconds: 60), (_) {
+      final pos = _devicePosition;
+      if (pos != null && mounted) {
+        setState(() => _updateSunMoon(pos.latitude, pos.longitude));
+      }
+    });
   }
 
   @override
@@ -224,6 +241,7 @@ class _FindHomeToolState extends State<FindHomeTool> {
     _dodgeAutopilotService?.deactivate();
     _dodgeAutopilotService?.dispose();
     _hapticTimer?.cancel();
+    _skyTimer?.cancel();
     _positionSub?.cancel();
     _whistlePlayer?.dispose();
     widget.signalKService.removeListener(_onSignalKUpdate);
@@ -303,7 +321,10 @@ class _FindHomeToolState extends State<FindHomeTool> {
           Geolocator.getPositionStream(locationSettings: settings).listen(
         (position) {
           if (mounted) {
-            setState(() => _devicePosition = position);
+            setState(() {
+              _devicePosition = position;
+              _updateSunMoon(position.latitude, position.longitude);
+            });
             // Auto-start feedback when GPS ready and active was restored
             if (_active && _hapticTimer == null) {
               _startFeedback();
@@ -486,6 +507,21 @@ class _FindHomeToolState extends State<FindHomeTool> {
       vesselSogMs: vesselSogMs,
       isWrongWay: isWrongWay,
     );
+  }
+
+  // --------------- Sun/Moon sky ---------------
+
+  void _updateSunMoon(double lat, double lng) {
+    final now = DateTime.now().toUtc();
+    final sunPos = SunCalc.getPosition(now, lat, lng);
+    final moonPos = MoonCalc.getPosition(now, lat, lng);
+    final moonIllum = MoonCalc.getIllumination(now);
+    _sunAltitudeDeg = sunPos.altitudeDegrees;
+    _sunAzimuthDeg = sunPos.azimuthDegrees;
+    _moonAltitudeDeg = moonPos.altitudeDegrees;
+    _moonAzimuthDeg = moonPos.azimuthDegrees;
+    _moonPhase = moonIllum.phase;
+    _moonFraction = moonIllum.fraction;
   }
 
   // --------------- Dodge computation ---------------
@@ -1097,6 +1133,14 @@ class _FindHomeToolState extends State<FindHomeTool> {
                     isDodgeMode: inDodge,
                     targetCogDeg: dodgeNav?.targetCogDeg,
                     isBowPass: _dodgeBowPass,
+                    sunAltitudeDeg: _sunAltitudeDeg,
+                    sunAzimuthDeg: _sunAzimuthDeg,
+                    moonAltitudeDeg: _moonAltitudeDeg,
+                    moonAzimuthDeg: _moonAzimuthDeg,
+                    moonPhase: _moonPhase,
+                    moonFraction: _moonFraction,
+                    vesselCogDeg: displayCogDeg,
+                    vesselLatitude: _devicePosition?.latitude ?? 0,
                   ),
                   size: Size.infinite,
                 ),
@@ -2131,6 +2175,14 @@ class _RunwayPainter extends CustomPainter {
   final bool isDodgeMode;
   final double? targetCogDeg;
   final bool isBowPass;
+  final double sunAltitudeDeg;
+  final double sunAzimuthDeg;
+  final double moonAltitudeDeg;
+  final double moonAzimuthDeg;
+  final double moonPhase;
+  final double moonFraction;
+  final double vesselCogDeg;
+  final double vesselLatitude;
 
   _RunwayPainter({
     required this.deviation,
@@ -2148,6 +2200,14 @@ class _RunwayPainter extends CustomPainter {
     this.isDodgeMode = false,
     this.targetCogDeg,
     this.isBowPass = false,
+    this.sunAltitudeDeg = -90,
+    this.sunAzimuthDeg = 0,
+    this.moonAltitudeDeg = -90,
+    this.moonAzimuthDeg = 0,
+    this.moonPhase = 0,
+    this.moonFraction = 0,
+    this.vesselCogDeg = 0,
+    this.vesselLatitude = 0,
   });
 
   @override
@@ -2182,68 +2242,240 @@ class _RunwayPainter extends CustomPainter {
     } else {
       effectiveBg = bgColor;
     }
-    canvas.drawRect(
-      Rect.fromLTWH(0, 0, w, h),
-      Paint()..color = effectiveBg,
+    // Sky above horizon, ground below — horizon at runway top (~40% down)
+    final horizonFrac = 0.4;
+
+    // Dynamic sky — warm color rises from horizon as sun climbs
+    const nightColor = Color(0xFF0D1B2A);       // deep navy
+    const dawnColor = Color(0xFFD4893F);         // golden/orange
+    const daySkyTop = Color(0xFF1A4A7A);         // clear blue
+    const daySkyHorizon = Color(0xFF5B8FB9);     // lighter blue
+
+    final alt = sunAltitudeDeg;
+
+    // How far up the sky the warm color has risen (0 = horizon only, 1 = fills sky)
+    // Starts at horizon during early twilight, rises to top by full day
+    final double warmRise;
+    final Color warmColor;
+    final Color topColor;
+
+    if (alt < -18) {
+      // Full night — all dark
+      warmRise = 0;
+      warmColor = nightColor;
+      topColor = nightColor;
+    } else if (alt < -6) {
+      // Twilight — warm glow appears at horizon, stays low
+      final t = (alt + 18) / 12; // 0→1
+      warmRise = t * 0.1; // rises to 10% of sky
+      warmColor = Color.lerp(nightColor, dawnColor, t)!;
+      topColor = nightColor;
+    } else if (alt < 0) {
+      // Civil twilight — warm band rises, intensifies
+      final t = (alt + 6) / 6; // 0→1
+      warmRise = 0.1 + t * 0.25; // 10% → 35%
+      warmColor = Color.lerp(dawnColor, const Color(0xFFE8A54B), t)!;
+      topColor = Color.lerp(nightColor, const Color(0xFF1B3555), t)!;
+    } else if (alt < 10) {
+      // Low sun — warm color floods upward, transitions to blue
+      final t = alt / 10; // 0→1
+      warmRise = 0.35 + t * 0.65; // 35% → 100%
+      warmColor = Color.lerp(const Color(0xFFE8A54B), daySkyHorizon, t)!;
+      topColor = Color.lerp(const Color(0xFF1B3555), daySkyTop, t)!;
+    } else {
+      // Full day — blue sky
+      warmRise = 1.0;
+      warmColor = daySkyHorizon;
+      topColor = daySkyTop;
+    }
+
+    // Build gradient: top color → warm color rising from horizon → ground
+    // The warm/top boundary sits at horizonFrac * (1 - warmRise)
+    final warmBoundary = horizonFrac * (1.0 - warmRise);
+
+    final groundColor = effectiveBg;
+    final groundPaint = Paint()
+      ..shader = LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        stops: [
+          0.0,
+          math.max(warmBoundary - 0.02, 0.0),
+          math.min(warmBoundary + 0.02, horizonFrac - 0.01),
+          horizonFrac,
+          1.0,
+        ],
+        colors: [
+          topColor,
+          topColor,
+          warmColor,
+          groundColor,
+          groundColor,
+        ],
+      ).createShader(Rect.fromLTWH(0, 0, w, h));
+    canvas.drawRect(Rect.fromLTWH(0, 0, w, h), groundPaint);
+
+    // Horizon line
+    final horizonY = h * horizonFrac;
+    canvas.drawLine(
+      Offset(0, horizonY),
+      Offset(w, horizonY),
+      Paint()
+        ..color = (isDark ? Colors.white : Colors.black).withValues(alpha: 0.3)
+        ..strokeWidth = 1.0,
     );
+
+    // --- Sun/Moon in sky — positioned by azimuth relative to vessel heading ---
+    final skyHeight = horizonY;
+    // Field of view: ±90° from heading maps to full sky width
+    const skyFov = 90.0;
+
+    // Sun
+    if (sunAltitudeDeg > 0) {
+      // Relative bearing: how far left/right of heading is the sun
+      var sunRelBearing = (sunAzimuthDeg - vesselCogDeg) % 360;
+      if (sunRelBearing > 180) sunRelBearing -= 360; // -180 to +180
+      if (sunRelBearing.abs() <= skyFov) {
+        final sunX = w / 2 + (sunRelBearing / skyFov) * (w / 2);
+        final sunY = horizonY - (sunAltitudeDeg.clamp(0, 90) / 90) * (skyHeight - 20);
+        final sunCenter = Offset(sunX, sunY);
+        const sunRadius = 14.0;
+        // Glow
+        canvas.drawCircle(
+          sunCenter,
+          sunRadius + 6,
+          Paint()..color = Colors.amber.withValues(alpha: 0.25),
+        );
+        // Disc
+        canvas.drawCircle(
+          sunCenter,
+          sunRadius,
+          Paint()..color = Colors.amber,
+        );
+      }
+    }
+    // Moon
+    if (moonAltitudeDeg > 0) {
+      var moonRelBearing = (moonAzimuthDeg - vesselCogDeg) % 360;
+      if (moonRelBearing > 180) moonRelBearing -= 360;
+      if (moonRelBearing.abs() <= skyFov) {
+        final moonX = w / 2 + (moonRelBearing / skyFov) * (w / 2);
+        final moonY = horizonY - (moonAltitudeDeg.clamp(0, 90) / 90) * (skyHeight - 20);
+        final moonSize = 36.0;
+        canvas.save();
+        canvas.translate(moonX - moonSize / 2, moonY - moonSize / 2);
+        _paintMoonPhase(canvas, Size(moonSize, moonSize));
+        canvas.restore();
+      }
+    }
+
+    // Polaris — visible at night, northern hemisphere only
+    // Altitude ≈ vessel latitude, azimuth ≈ true north (0°)
+    if (sunAltitudeDeg < -6 && vesselLatitude > 5) {
+      final polarisAlt = vesselLatitude.clamp(0.0, 90.0);
+      var polarisRelBearing = (0.0 - vesselCogDeg) % 360;
+      if (polarisRelBearing > 180) polarisRelBearing -= 360;
+      if (polarisRelBearing.abs() <= skyFov) {
+        final px = w / 2 + (polarisRelBearing / skyFov) * (w / 2);
+        final py = horizonY - (polarisAlt / 90) * (skyHeight - 20);
+        // Star with 4-point rays and glow
+        final starCenter = Offset(px, py);
+        // Outer glow
+        canvas.drawCircle(starCenter, 8, Paint()
+          ..color = Colors.white.withValues(alpha: 0.12)
+          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8));
+        // Core
+        canvas.drawCircle(starCenter, 3, Paint()
+          ..color = Colors.white.withValues(alpha: 0.9));
+        // Rays
+        final rayPaint = Paint()
+          ..color = Colors.white.withValues(alpha: 0.7)
+          ..strokeWidth = 1.0
+          ..strokeCap = StrokeCap.round;
+        const rayLen = 10.0;
+        canvas.drawLine(Offset(px - rayLen, py), Offset(px + rayLen, py), rayPaint);
+        canvas.drawLine(Offset(px, py - rayLen), Offset(px, py + rayLen), rayPaint);
+        // Diagonal rays (shorter)
+        const diagLen = 6.0;
+        canvas.drawLine(Offset(px - diagLen, py - diagLen), Offset(px + diagLen, py + diagLen), rayPaint);
+        canvas.drawLine(Offset(px + diagLen, py - diagLen), Offset(px - diagLen, py + diagLen), rayPaint);
+      }
+    }
 
     // Dim runway elements when wrong way
     final dimFactor = isWrongWay ? 0.5 : 1.0;
 
-    // Runway geometry — apex (anchor) at top, base (vessel) at bottom
-    final apexY = 20.0;
+    // Runway geometry — trapezoid: narrow at top (far), wide at bottom (near)
+    final apexY = 20.0 + (h - 40) * 0.4;
     final baseY = h - 20.0;
     final runwayHeight = baseY - apexY;
     final baseHalfWidth = (w / 2) - 20;
+    final topHalfWidth = baseHalfWidth * 0.15; // Squared-off far end
 
-    // --- Localizer beam triangle (full ±30° cone) ---
-    final beamPaint = Paint()
+    // --- Rolling road runway surface ---
+    final runwayPaint = Paint()
       ..color = isDark
-          ? Colors.white.withValues(alpha: 0.04 * dimFactor)
-          : Colors.black.withValues(alpha: 0.03 * dimFactor);
-    final beamPath = Path()
-      ..moveTo(centerX, apexY)
-      ..lineTo(centerX - baseHalfWidth, baseY)
+          ? const Color(0xFF1A3A5C).withValues(alpha: 0.7 * dimFactor)
+          : const Color(0xFFB0C4DE).withValues(alpha: 0.4 * dimFactor);
+    final runwayPath = Path()
+      ..moveTo(centerX - topHalfWidth, apexY)
+      ..lineTo(centerX + topHalfWidth, apexY)
       ..lineTo(centerX + baseHalfWidth, baseY)
+      ..lineTo(centerX - baseHalfWidth, baseY)
       ..close();
-    canvas.drawPath(beamPath, beamPaint);
+    canvas.drawPath(runwayPath, runwayPaint);
 
-    // Beam edge lines
-    final beamEdgePaint = Paint()
-      ..color = isDark
-          ? Colors.white.withValues(alpha: 0.15 * dimFactor)
-          : Colors.black.withValues(alpha: 0.1 * dimFactor)
-      ..strokeWidth = 1.0;
-    canvas.drawLine(Offset(centerX, apexY),
-        Offset(centerX - baseHalfWidth, baseY), beamEdgePaint);
-    canvas.drawLine(Offset(centerX, apexY),
-        Offset(centerX + baseHalfWidth, baseY), beamEdgePaint);
+    // --- Perspective lines fanning from top to bottom ---
+    const perspectiveLineCount = 10;
+    final perspLinePaint = Paint()
+      ..color = (isDark ? Colors.white : Colors.black).withValues(alpha: 0.15 * dimFactor)
+      ..strokeWidth = 0.5;
+    for (var i = 0; i <= perspectiveLineCount; i++) {
+      final frac = i / perspectiveLineCount;
+      final topX = centerX - topHalfWidth + (2 * topHalfWidth * frac);
+      final baseX = centerX - baseHalfWidth + (2 * baseHalfWidth * frac);
+      canvas.drawLine(Offset(topX, apexY), Offset(baseX, baseY), perspLinePaint);
+    }
 
-    // --- Haptic corridor triangle (±5° on-course zone) ---
+    // --- Port (red) and starboard (green) edge lines ---
+    final portEdgePaint = Paint()
+      ..color = Colors.red.withValues(alpha: 0.8 * dimFactor)
+      ..strokeWidth = 1.5;
+    final stbdEdgePaint = Paint()
+      ..color = Colors.green.withValues(alpha: 0.8 * dimFactor)
+      ..strokeWidth = 1.5;
+    canvas.drawLine(Offset(centerX - topHalfWidth, apexY),
+        Offset(centerX - baseHalfWidth, baseY), portEdgePaint);
+    canvas.drawLine(Offset(centerX + topHalfWidth, apexY),
+        Offset(centerX + baseHalfWidth, baseY), stbdEdgePaint);
+
+    // --- Haptic corridor (±5° on-course zone) ---
     final hapticFrac = hapticThreshold / maxDeviation;
     final hapticBaseHalf = baseHalfWidth * hapticFrac;
+    final hapticTopHalf = topHalfWidth * hapticFrac;
     final hapticFillPaint = Paint()
-      ..color = Colors.green.withValues(alpha: (isDark ? 0.10 : 0.07) * dimFactor);
+      ..color = Colors.green.withValues(alpha: (isDark ? 0.08 : 0.05) * dimFactor);
     final hapticPath = Path()
-      ..moveTo(centerX, apexY)
-      ..lineTo(centerX - hapticBaseHalf, baseY)
+      ..moveTo(centerX - hapticTopHalf, apexY)
+      ..lineTo(centerX + hapticTopHalf, apexY)
       ..lineTo(centerX + hapticBaseHalf, baseY)
+      ..lineTo(centerX - hapticBaseHalf, baseY)
       ..close();
     canvas.drawPath(hapticPath, hapticFillPaint);
 
     // Haptic corridor edge lines
     final hapticEdgePaint = Paint()
-      ..color = Colors.green.withValues(alpha: 0.35 * dimFactor)
-      ..strokeWidth = 1.0;
-    canvas.drawLine(Offset(centerX, apexY),
+      ..color = Colors.green.withValues(alpha: 0.25 * dimFactor)
+      ..strokeWidth = 0.5;
+    canvas.drawLine(Offset(centerX - hapticTopHalf, apexY),
         Offset(centerX - hapticBaseHalf, baseY), hapticEdgePaint);
-    canvas.drawLine(Offset(centerX, apexY),
+    canvas.drawLine(Offset(centerX + hapticTopHalf, apexY),
         Offset(centerX + hapticBaseHalf, baseY), hapticEdgePaint);
 
     // --- Center line (dashed) ---
     final centerPaint = Paint()
       ..color = centerLineColor
-      ..strokeWidth = 1.5;
+      ..strokeWidth = 2.0;
     const dashLen = 8.0;
     const gapLen = 6.0;
     var y = apexY;
@@ -2265,6 +2497,8 @@ class _RunwayPainter extends CustomPainter {
     if (isDodgeMode && targetCogDeg != null) {
       // In dodge mode: draw target vessel chevron rotated to its COG
       _drawTargetVesselAtApex(canvas, Offset(centerX, apexY + 10), targetCogDeg!);
+    } else if (isAisMode) {
+      _drawVesselIcon(canvas, Offset(centerX, apexY - 8));
     } else if (isTrackMode) {
       _drawBoatIcon(canvas, Offset(centerX, apexY + 10));
     } else {
@@ -2298,7 +2532,7 @@ class _RunwayPainter extends CustomPainter {
         text: TextSpan(text: isStaleTarget ? 'AIS ?' : 'AIS', style: aisStyle),
         textDirection: TextDirection.ltr,
       )..layout();
-      aisTp.paint(canvas, Offset(centerX - aisTp.width / 2, apexY - 4));
+      aisTp.paint(canvas, Offset(centerX - aisTp.width / 2, apexY - 32));
     }
 
     // --- Vessel triangle ---
@@ -2554,6 +2788,24 @@ class _RunwayPainter extends CustomPainter {
     canvas.drawLine(Offset(x, y - 8), Offset(x, y + 6), paint);
   }
 
+  /// Draw a vessel icon using Material Icons.directions_boat for AIS mode.
+  void _drawVesselIcon(Canvas canvas, Offset center) {
+    final Color color = isStaleTarget ? Colors.orange : Colors.cyan;
+    final tp = TextPainter(
+      text: TextSpan(
+        text: String.fromCharCode(Icons.directions_boat.codePoint),
+        style: TextStyle(
+          fontSize: 20,
+          fontFamily: Icons.directions_boat.fontFamily,
+          package: Icons.directions_boat.fontPackage,
+          color: color,
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    tp.paint(canvas, Offset(center.dx - tp.width / 2, center.dy - tp.height / 2));
+  }
+
   /// Draw target vessel chevron at apex, rotated to target COG.
   /// The rotation is relative: 0° means target heading same as dodge course (up).
   void _drawTargetVesselAtApex(Canvas canvas, Offset center, double cogDeg) {
@@ -2620,6 +2872,57 @@ class _RunwayPainter extends CustomPainter {
     tp.paint(canvas, offset);
   }
 
+  /// Paint moon phase disc — same algorithm as SunMoonArc's _MoonPhasePainter.
+  void _paintMoonPhase(Canvas canvas, Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+    final radius = size.width / 2 - 1;
+
+    // Dark side
+    canvas.drawCircle(center, radius, Paint()
+      ..color = Colors.grey.shade800
+      ..style = PaintingStyle.fill);
+
+    if (moonFraction < 0.01) return;
+    if (moonFraction > 0.99) {
+      canvas.drawCircle(center, radius, Paint()
+        ..color = Colors.grey.shade200
+        ..style = PaintingStyle.fill);
+      return;
+    }
+
+    final lightPaint = Paint()
+      ..color = Colors.grey.shade200
+      ..style = PaintingStyle.fill;
+    final isWaxing = moonPhase < 0.5;
+    final termWidth = radius * (2.0 * moonFraction - 1.0);
+    final isGibbous = moonFraction > 0.5;
+    final path = Path();
+
+    if (isWaxing) {
+      path.moveTo(center.dx, center.dy - radius);
+      path.arcToPoint(Offset(center.dx, center.dy + radius),
+          radius: Radius.circular(radius), clockwise: true);
+      path.arcToPoint(Offset(center.dx, center.dy - radius),
+          radius: Radius.elliptical(termWidth.abs().clamp(0.1, radius), radius),
+          clockwise: isGibbous);
+    } else {
+      path.moveTo(center.dx, center.dy - radius);
+      path.arcToPoint(Offset(center.dx, center.dy + radius),
+          radius: Radius.circular(radius), clockwise: false);
+      path.arcToPoint(Offset(center.dx, center.dy - radius),
+          radius: Radius.elliptical(termWidth.abs().clamp(0.1, radius), radius),
+          clockwise: !isGibbous);
+    }
+    path.close();
+    canvas.drawPath(path, lightPaint);
+
+    // Outline
+    canvas.drawCircle(center, radius, Paint()
+      ..color = Colors.grey.shade400
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 0.5);
+  }
+
   @override
   bool shouldRepaint(_RunwayPainter oldDelegate) {
     return oldDelegate.deviation != deviation ||
@@ -2633,7 +2936,15 @@ class _RunwayPainter extends CustomPainter {
         oldDelegate.isTrackMode != isTrackMode ||
         oldDelegate.isDodgeMode != isDodgeMode ||
         oldDelegate.targetCogDeg != targetCogDeg ||
-        oldDelegate.isBowPass != isBowPass;
+        oldDelegate.isBowPass != isBowPass ||
+        oldDelegate.sunAltitudeDeg != sunAltitudeDeg ||
+        oldDelegate.sunAzimuthDeg != sunAzimuthDeg ||
+        oldDelegate.moonAltitudeDeg != moonAltitudeDeg ||
+        oldDelegate.moonAzimuthDeg != moonAzimuthDeg ||
+        oldDelegate.moonPhase != moonPhase ||
+        oldDelegate.moonFraction != moonFraction ||
+        oldDelegate.vesselCogDeg != vesselCogDeg ||
+        oldDelegate.vesselLatitude != vesselLatitude;
   }
 }
 
