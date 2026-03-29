@@ -120,6 +120,7 @@ class PowerLoadConfig {
 
 /// Battery configuration paths
 class BatteryConfig {
+  final String name;
   final String? socPath;
   final String? voltagePath;
   final String? currentPath;
@@ -128,6 +129,7 @@ class BatteryConfig {
   final String? temperaturePath;
 
   const BatteryConfig({
+    this.name = 'Battery',
     this.socPath,
     this.voltagePath,
     this.currentPath,
@@ -139,6 +141,7 @@ class BatteryConfig {
   factory BatteryConfig.fromMap(Map<String, dynamic>? map) {
     if (map == null) return const BatteryConfig();
     return BatteryConfig(
+      name: map['name'] as String? ?? 'Battery',
       socPath: map['socPath'] as String?,
       voltagePath: map['voltagePath'] as String?,
       currentPath: map['currentPath'] as String?,
@@ -149,6 +152,7 @@ class BatteryConfig {
   }
 
   Map<String, dynamic> toMap() => {
+    'name': name,
     if (socPath != null) 'socPath': socPath,
     if (voltagePath != null) 'voltagePath': voltagePath,
     if (currentPath != null) 'currentPath': currentPath,
@@ -156,6 +160,19 @@ class BatteryConfig {
     if (timeRemainingPath != null) 'timeRemainingPath': timeRemainingPath,
     if (temperaturePath != null) 'temperaturePath': temperaturePath,
   };
+
+  /// Get the primary value for flow animation (current or power)
+  double getPrimaryValue(SignalKService service) {
+    if (currentPath != null) {
+      final data = service.getValue(currentPath!);
+      if (data?.value is num) return (data!.value as num).toDouble().abs();
+    }
+    if (powerPath != null) {
+      final data = service.getValue(powerPath!);
+      if (data?.value is num) return (data!.value as num).toDouble().abs() / 100;
+    }
+    return 0;
+  }
 }
 
 /// Victron Power Flow Tool - Visual power flow diagram with animated flow lines
@@ -179,7 +196,7 @@ class _VictronFlowToolState extends State<VictronFlowTool> with SingleTickerProv
   late AnimationController _animController;
   late List<PowerSourceConfig> _sources;
   late List<PowerLoadConfig> _loads;
-  late BatteryConfig _batteryConfig;
+  late List<BatteryConfig> _batteryConfigs;
   late String? _inverterStatePath;
   late Color _primaryColor;
 
@@ -199,12 +216,14 @@ class _VictronFlowToolState extends State<VictronFlowTool> with SingleTickerProv
       if (l.powerPath != null) paths.add(l.powerPath!);
       if (l.frequencyPath != null) paths.add(l.frequencyPath!);
     }
-    if (_batteryConfig.socPath != null) paths.add(_batteryConfig.socPath!);
-    if (_batteryConfig.voltagePath != null) paths.add(_batteryConfig.voltagePath!);
-    if (_batteryConfig.currentPath != null) paths.add(_batteryConfig.currentPath!);
-    if (_batteryConfig.powerPath != null) paths.add(_batteryConfig.powerPath!);
-    if (_batteryConfig.timeRemainingPath != null) paths.add(_batteryConfig.timeRemainingPath!);
-    if (_batteryConfig.temperaturePath != null) paths.add(_batteryConfig.temperaturePath!);
+    for (final b in _batteryConfigs) {
+      if (b.socPath != null) paths.add(b.socPath!);
+      if (b.voltagePath != null) paths.add(b.voltagePath!);
+      if (b.currentPath != null) paths.add(b.currentPath!);
+      if (b.powerPath != null) paths.add(b.powerPath!);
+      if (b.timeRemainingPath != null) paths.add(b.timeRemainingPath!);
+      if (b.temperaturePath != null) paths.add(b.temperaturePath!);
+    }
     if (_inverterStatePath != null) paths.add(_inverterStatePath!);
     return paths;
   }
@@ -258,10 +277,21 @@ class _VictronFlowToolState extends State<VictronFlowTool> with SingleTickerProv
       _loads = _getDefaultLoads();
     }
 
-    // Parse battery config
-    _batteryConfig = BatteryConfig.fromMap(customProps['battery'] as Map<String, dynamic>?);
-    if (_batteryConfig.socPath == null) {
-      _batteryConfig = _getDefaultBatteryConfig();
+    // Parse battery configs (list), with backward compat for single 'battery' map
+    final batteriesData = customProps['batteries'] as List<dynamic>?;
+    if (batteriesData != null && batteriesData.isNotEmpty) {
+      _batteryConfigs = batteriesData
+          .whereType<Map<String, dynamic>>()
+          .map((m) => BatteryConfig.fromMap(m))
+          .toList();
+    } else {
+      // Backward compat: single 'battery' map → wrap in list
+      final singleBattery = BatteryConfig.fromMap(customProps['battery'] as Map<String, dynamic>?);
+      if (singleBattery.socPath != null) {
+        _batteryConfigs = [singleBattery];
+      } else {
+        _batteryConfigs = [_getDefaultBatteryConfig()];
+      }
     }
 
     // Parse inverter state path
@@ -328,6 +358,7 @@ class _VictronFlowToolState extends State<VictronFlowTool> with SingleTickerProv
   ];
 
   BatteryConfig _getDefaultBatteryConfig() => const BatteryConfig(
+    name: 'House',
     socPath: 'electrical.batteries.house.capacity.stateOfCharge',
     voltagePath: 'electrical.batteries.house.voltage',
     currentPath: 'electrical.batteries.house.current',
@@ -368,12 +399,10 @@ class _VictronFlowToolState extends State<VictronFlowTool> with SingleTickerProv
 
   @override
   Widget build(BuildContext context) {
-    // Get battery current for flow direction
-    final batteryCurrent = _getPathValue(_batteryConfig.currentPath) ?? 0;
-
     // Build flow data for painter
     final sourceFlows = _sources.map((s) => s.getPrimaryValue(widget.signalKService)).toList();
     final loadFlows = _loads.map((l) => l.getPrimaryValue(widget.signalKService)).toList();
+    final batteryCurrents = _batteryConfigs.map((b) => _getPathValue(b.currentPath) ?? 0.0).toList();
 
     return Stack(
       children: [
@@ -389,9 +418,8 @@ class _VictronFlowToolState extends State<VictronFlowTool> with SingleTickerProv
                     loadCount: _loads.length,
                     sourceFlows: sourceFlows,
                     loadFlows: loadFlows,
-                    batteryCharging: batteryCurrent > 0,
-                    batteryDischarging: batteryCurrent < 0,
-                    batteryCurrent: batteryCurrent.abs(),
+                    batteryCount: _batteryConfigs.length,
+                    batteryCurrents: batteryCurrents,
                     primaryColor: _primaryColor,
                   ),
                   child: child,
@@ -442,14 +470,20 @@ class _VictronFlowToolState extends State<VictronFlowTool> with SingleTickerProv
           ),
         ),
         const SizedBox(width: 70),
-        // Center column - Inverter & Battery
+        // Center column - Inverter & Batteries
         Expanded(
           flex: 4,
           child: Column(
             children: [
               Expanded(flex: 2, child: _buildInverterBox()),
               const SizedBox(height: 28),
-              Expanded(flex: 3, child: _buildBatteryBox()),
+              for (int i = 0; i < _batteryConfigs.length; i++) ...[
+                if (i > 0) const SizedBox(height: 8),
+                Expanded(
+                  flex: _batteryConfigs.length == 1 ? 3 : 2,
+                  child: _buildBatteryBox(_batteryConfigs[i]),
+                ),
+              ],
             ],
           ),
         ),
@@ -733,13 +767,13 @@ class _VictronFlowToolState extends State<VictronFlowTool> with SingleTickerProv
     );
   }
 
-  Widget _buildBatteryBox() {
-    final soc = _getPathValue(_batteryConfig.socPath);
-    final voltage = _getPathValue(_batteryConfig.voltagePath);
-    final current = _getPathValue(_batteryConfig.currentPath);
-    final power = _getPathValue(_batteryConfig.powerPath);
-    final timeRemaining = _getPathValue(_batteryConfig.timeRemainingPath);
-    final temp = _getPathValue(_batteryConfig.temperaturePath);
+  Widget _buildBatteryBox(BatteryConfig battery) {
+    final soc = _getPathValue(battery.socPath);
+    final voltage = _getPathValue(battery.voltagePath);
+    final current = _getPathValue(battery.currentPath);
+    final power = _getPathValue(battery.powerPath);
+    final timeRemaining = _getPathValue(battery.timeRemainingPath);
+    final temp = _getPathValue(battery.temperaturePath);
 
     final isCharging = (current ?? 0) > 0;
     final isDischarging = (current ?? 0) < 0;
@@ -763,7 +797,7 @@ class _VictronFlowToolState extends State<VictronFlowTool> with SingleTickerProv
     final borderColor = HSLColor.fromColor(_primaryColor).withLightness(0.7).toColor();
 
     return _buildComponentBox(
-      title: 'Battery',
+      title: battery.name,
       icon: Icons.battery_std,
       backgroundColor: bgColor,
       borderColor: borderColor,
@@ -803,7 +837,7 @@ class _VictronFlowToolState extends State<VictronFlowTool> with SingleTickerProv
                         if (temp != null)
                           Builder(
                             builder: (context) {
-                              final tempPath = _batteryConfig.temperaturePath ?? 'electrical.batteries.house.temperature';
+                              final tempPath = battery.temperaturePath ?? 'electrical.batteries.house.temperature';
                               final metadata = widget.signalKService.metadataStore.get(tempPath);
                               final formatted = metadata?.format(temp, decimals: 0) ?? temp.toStringAsFixed(0);
                               return Text(formatted, style: const TextStyle(color: Colors.white70, fontSize: 13));
@@ -853,7 +887,7 @@ class _VictronFlowToolState extends State<VictronFlowTool> with SingleTickerProv
                       const SizedBox(width: 16),
                       Builder(
                         builder: (context) {
-                          final tempPath = _batteryConfig.temperaturePath ?? 'electrical.batteries.house.temperature';
+                          final tempPath = battery.temperaturePath ?? 'electrical.batteries.house.temperature';
                           final metadata = widget.signalKService.metadataStore.get(tempPath);
                           final formatted = metadata?.format(temp, decimals: 0) ?? temp.toStringAsFixed(0);
                           return Text(formatted, style: const TextStyle(color: Colors.white70, fontSize: 14));
@@ -903,9 +937,8 @@ class _FlowLinesPainter extends CustomPainter {
   final int loadCount;
   final List<double> sourceFlows;
   final List<double> loadFlows;
-  final bool batteryCharging;
-  final bool batteryDischarging;
-  final double batteryCurrent;
+  final int batteryCount;
+  final List<double> batteryCurrents;
   final Color primaryColor;
 
   _FlowLinesPainter({
@@ -914,9 +947,8 @@ class _FlowLinesPainter extends CustomPainter {
     required this.loadCount,
     required this.sourceFlows,
     required this.loadFlows,
-    required this.batteryCharging,
-    required this.batteryDischarging,
-    required this.batteryCurrent,
+    required this.batteryCount,
+    required this.batteryCurrents,
     required this.primaryColor,
   });
 
@@ -971,26 +1003,42 @@ class _FlowLinesPainter extends CustomPainter {
       loadRowCenters.add(paddingTop + loadRowHeight * i + loadSpacing * i + loadRowHeight / 2);
     }
 
-    // Center column: inverter (flex 2) and battery (flex 3) with 28px gap
-    final inverterHeight = (contentHeight - 28) * 2 / 5;
-    final batteryHeight = (contentHeight - 28) * 3 / 5;
+    // Center column: inverter (flex 2) and batteries (flex 3 total) with 28px gap
+    final batteryFlex = batteryCount == 1 ? 3 : batteryCount * 2;
+    final totalFlex = 2 + batteryFlex;
+    final batteryGaps = batteryCount > 1 ? (batteryCount - 1) * 8.0 : 0.0;
+    final inverterHeight = (contentHeight - 28 - batteryGaps) * 2 / totalFlex;
+    final totalBatteryHeight = (contentHeight - 28 - batteryGaps) * batteryFlex / totalFlex;
+    final singleBatteryHeight = totalBatteryHeight / batteryCount;
     final inverterBottom = paddingTop + inverterHeight;
-    final batteryTop = inverterBottom + 28;
-    final batteryCenter = batteryTop + batteryHeight / 2;
     final inverterCenter = paddingTop + inverterHeight / 2;
 
+    // Calculate center Y for each battery
+    List<double> batteryCenters = [];
+    for (int i = 0; i < batteryCount; i++) {
+      final top = inverterBottom + 28 + i * (singleBatteryHeight + 8);
+      batteryCenters.add(top + singleBatteryHeight / 2);
+    }
+    // First battery top (for inverter→battery line)
+    final firstBatteryTop = inverterBottom + 28;
+
     final midX = leftColRight + gap / 2;
+
+    // Center of entire battery area (for shared flow lines)
+    final batteryAreaCenter = batteryCenters.isNotEmpty
+        ? (batteryCenters.first + batteryCenters.last) / 2
+        : firstBatteryTop + singleBatteryHeight / 2;
 
     // Draw source flows
     int lineIndex = 0;
     for (int i = 0; i < sourceCount; i++) {
       final flow = i < sourceFlows.length ? sourceFlows[i] : 0.0;
       final isActive = flow > 0.1;
-      final phaseOffset = lineIndex * 0.17; // Stagger by ~17% of cycle
+      final phaseOffset = lineIndex * 0.17;
       lineIndex++;
 
       if (i == 0) {
-        // First source goes to inverter (like Shore) - orthogonal routing
+        // First source goes to inverter
         _drawAnimatedPath(
           canvas,
           [
@@ -1006,15 +1054,15 @@ class _FlowLinesPainter extends CustomPainter {
           phaseOffset: phaseOffset,
         );
       } else {
-        // Other sources go to battery with corner routing
-        final yOffset = (i - 1) * 10.0 - 5; // Spread the lines vertically
+        // Other sources go to battery area center
+        final yOffset = (i - 1) * 10.0 - 5;
         _drawAnimatedPath(
           canvas,
           [
             Offset(leftColRight, sourceRowCenters[i]),
             Offset(midX, sourceRowCenters[i]),
-            Offset(midX, batteryCenter + yOffset),
-            Offset(centerColLeft, batteryCenter + yOffset),
+            Offset(midX, batteryAreaCenter + yOffset),
+            Offset(centerColLeft, batteryAreaCenter + yOffset),
           ],
           isActive,
           flow,
@@ -1025,15 +1073,18 @@ class _FlowLinesPainter extends CustomPainter {
       }
     }
 
-    // Inverter to/from Battery (vertical)
+    // Inverter to/from battery area (vertical)
+    final primaryCurrent = batteryCurrents.isNotEmpty ? batteryCurrents[0] : 0.0;
+    final primaryCharging = primaryCurrent > 0;
+    final primaryDischarging = primaryCurrent < 0;
     _drawAnimatedLine(
       canvas,
       Offset((centerColLeft + centerColRight) / 2, inverterBottom),
-      Offset((centerColLeft + centerColRight) / 2, batteryTop),
-      batteryCharging || batteryDischarging,
-      batteryCurrent,
+      Offset((centerColLeft + centerColRight) / 2, firstBatteryTop),
+      primaryCharging || primaryDischarging,
+      primaryCurrent.abs(),
       inactivePaint,
-      batteryCharging,
+      primaryCharging,
       phaseOffset: lineIndex * 0.17,
     );
     lineIndex++;
@@ -1047,7 +1098,7 @@ class _FlowLinesPainter extends CustomPainter {
       lineIndex++;
 
       if (i == 0) {
-        // First load from inverter (like AC loads) - orthogonal routing
+        // First load from inverter
         _drawAnimatedPath(
           canvas,
           [
@@ -1063,13 +1114,13 @@ class _FlowLinesPainter extends CustomPainter {
           phaseOffset: phaseOffset,
         );
       } else {
-        // Other loads from battery - orthogonal routing
+        // Other loads from battery area center
         final yOffset = (i - 1) * 10.0 - 5;
         _drawAnimatedPath(
           canvas,
           [
-            Offset(centerColRight, batteryCenter + yOffset),
-            Offset(midXRight, batteryCenter + yOffset),
+            Offset(centerColRight, batteryAreaCenter + yOffset),
+            Offset(midXRight, batteryAreaCenter + yOffset),
             Offset(midXRight, loadRowCenters[i]),
             Offset(rightColLeft, loadRowCenters[i]),
           ],
@@ -1446,14 +1497,17 @@ class VictronFlowToolBuilder extends ToolBuilder {
             },
           ],
           'inverterStatePath': 'electrical.inverter.state',
-          'battery': {
-            'socPath': 'electrical.batteries.house.capacity.stateOfCharge',
-            'voltagePath': 'electrical.batteries.house.voltage',
-            'currentPath': 'electrical.batteries.house.current',
-            'powerPath': 'electrical.batteries.house.power',
-            'timeRemainingPath': 'electrical.batteries.house.capacity.timeRemaining',
-            'temperaturePath': 'electrical.batteries.house.temperature',
-          },
+          'batteries': [
+            {
+              'name': 'House',
+              'socPath': 'electrical.batteries.house.capacity.stateOfCharge',
+              'voltagePath': 'electrical.batteries.house.voltage',
+              'currentPath': 'electrical.batteries.house.current',
+              'powerPath': 'electrical.batteries.house.power',
+              'timeRemainingPath': 'electrical.batteries.house.capacity.timeRemaining',
+              'temperaturePath': 'electrical.batteries.house.temperature',
+            },
+          ],
         },
       ),
     );

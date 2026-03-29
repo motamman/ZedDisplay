@@ -338,7 +338,10 @@ class _AutopilotToolV2State extends State<AutopilotToolV2> with AutomaticKeepAli
     dynamic verifyValue,
   }) async {
     try {
-      if (_apiVersion == 'v2' && _v2Api != null && _selectedInstanceId != null) {
+      final useV2 = _apiVersion == 'v2'
+          && _v2Api != null
+          && _selectedInstanceId != null;
+      if (useV2) {
         await v2Command();
       } else {
         await v1Command();
@@ -356,7 +359,10 @@ class _AutopilotToolV2State extends State<AutopilotToolV2> with AutomaticKeepAli
 
       bool verified = true;
       if (verifyPath != null && verifyValue != null) {
-        final verifier = AutopilotStateVerifier(widget.signalKService);
+        final verifier = AutopilotStateVerifier(
+          widget.signalKService,
+          timeout: const Duration(seconds: 10),
+        );
         verified = await verifier.verifyChange(
           path: verifyPath,
           expectedValue: verifyValue,
@@ -581,10 +587,7 @@ class _AutopilotToolV2State extends State<AutopilotToolV2> with AutomaticKeepAli
         );
       },
       v2Command: () async {
-        await widget.signalKService.sendPutRequest(
-          'steering.autopilot.actions.advanceWaypoint',
-          1,
-        );
+        await _v2Api!.courseNextPoint(_selectedInstanceId!);
       },
       verifyPath: null,
       verifyValue: null,

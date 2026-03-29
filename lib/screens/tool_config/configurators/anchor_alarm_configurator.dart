@@ -15,6 +15,7 @@ class AnchorAlarmConfigurator extends ToolConfigurator {
 
   // Alarm settings
   String alarmSound = 'foghorn';
+  int alarmClearDelaySeconds = 15;
   bool checkInEnabled = false;
   int checkInIntervalMinutes = 30;
   int checkInGracePeriodSeconds = 60;
@@ -31,6 +32,7 @@ class AnchorAlarmConfigurator extends ToolConfigurator {
   @override
   void reset() {
     alarmSound = 'foghorn';
+    alarmClearDelaySeconds = 15;
     checkInEnabled = false;
     checkInIntervalMinutes = 30;
     checkInGracePeriodSeconds = 60;
@@ -45,6 +47,7 @@ class AnchorAlarmConfigurator extends ToolConfigurator {
   void loadFromTool(Tool tool) {
     final props = tool.config.style.customProperties ?? {};
     alarmSound = props['alarmSound'] as String? ?? 'foghorn';
+    alarmClearDelaySeconds = props['alarmClearDelaySeconds'] as int? ?? 15;
     checkInEnabled = props['checkInEnabled'] as bool? ?? false;
     checkInIntervalMinutes = props['checkInIntervalMinutes'] as int? ?? 30;
     checkInGracePeriodSeconds = props['checkInGracePeriodSeconds'] as int? ?? 60;
@@ -57,6 +60,7 @@ class AnchorAlarmConfigurator extends ToolConfigurator {
       style: StyleConfig(
         customProperties: {
           'alarmSound': alarmSound,
+          'alarmClearDelaySeconds': alarmClearDelaySeconds,
           'checkInEnabled': checkInEnabled,
           'checkInIntervalMinutes': checkInIntervalMinutes,
           'checkInGracePeriodSeconds': checkInGracePeriodSeconds,
@@ -94,6 +98,23 @@ class AnchorAlarmConfigurator extends ToolConfigurator {
                 onSelected: (value) {
                   if (value != null) {
                     setState(() => alarmSound = value);
+                  }
+                },
+              ),
+
+              const SizedBox(height: 16),
+              TextFormField(
+                initialValue: alarmClearDelaySeconds.toString(),
+                decoration: const InputDecoration(
+                  labelText: 'Alarm Clear Delay (seconds)',
+                  helperText: 'How long to wait before clearing a resolved alarm',
+                  border: OutlineInputBorder(),
+                ),
+                keyboardType: TextInputType.number,
+                onChanged: (value) {
+                  final parsed = int.tryParse(value);
+                  if (parsed != null && parsed > 0) {
+                    alarmClearDelaySeconds = parsed;
                   }
                 },
               ),

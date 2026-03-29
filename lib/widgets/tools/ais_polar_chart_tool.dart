@@ -3,11 +3,8 @@ import 'package:provider/provider.dart';
 import '../../models/tool_definition.dart';
 import '../../models/tool_config.dart';
 import '../../models/cpa_alert_state.dart';
-import '../../models/notification_payload.dart';
 import '../../services/signalk_service.dart';
 import '../../services/cpa_alert_service.dart';
-import '../../services/dashboard_service.dart';
-import '../../services/notification_navigation_service.dart';
 import '../../services/tool_registry.dart';
 import '../../services/tool_service.dart';
 import '../../utils/color_extensions.dart';
@@ -79,97 +76,8 @@ class _AISPolarChartToolState extends State<AISPolarChartTool> {
 
   void _onCpaAlertTriggered(CpaVesselAlert alert, String message) {
     if (!mounted) return;
-
-    final isAlarm = alert.level.isAlarming;
-    final backgroundColor =
-        isAlarm ? Colors.red.shade700 : Colors.orange.shade700;
-    final icon = isAlarm ? Icons.warning : Icons.info;
-    final duration =
-        isAlarm ? const Duration(seconds: 10) : const Duration(seconds: 5);
-
-    // Build navigation target
-    const payload = NotificationPayload(
-      type: 'signalk',
-      toolTypeId: 'ais_polar_chart',
-    );
-
-    DashboardService? dashboardService;
-    try {
-      dashboardService =
-          Provider.of<DashboardService>(context, listen: false);
-    } catch (_) {}
-
-    (VoidCallback navigate, String screenName)? navResult;
-    if (dashboardService != null) {
-      final navService = NotificationNavigationService(dashboardService);
-      navResult = navService.getNavigation(payload);
-    }
-
-    final String? hintText =
-        navResult != null ? 'TAP: ${navResult.$2}' : null;
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: GestureDetector(
-          onTap: navResult != null
-              ? () {
-                  navResult!.$1();
-                  _cpaAlertService?.requestHighlight(alert.vesselId);
-                  _cpaAlertService?.acknowledgeAlarm();
-                  ScaffoldMessenger.of(context).hideCurrentSnackBar();
-                }
-              : null,
-          behavior: navResult != null
-              ? HitTestBehavior.opaque
-              : HitTestBehavior.deferToChild,
-          child: Row(
-            children: [
-              Icon(icon, color: Colors.white, size: 24),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      message,
-                      style: const TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 14,
-                        color: Colors.white,
-                      ),
-                    ),
-                    if (hintText != null) ...[
-                      const SizedBox(height: 4),
-                      Text(
-                        hintText,
-                        style: const TextStyle(
-                          fontSize: 10,
-                          color: Colors.white54,
-                          fontStyle: FontStyle.italic,
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-        backgroundColor: backgroundColor,
-        duration: duration,
-        behavior: SnackBarBehavior.floating,
-        action: SnackBarAction(
-          label: 'DISMISS',
-          textColor: Colors.white,
-          onPressed: () {
-            _cpaAlertService?.acknowledgeAlarm();
-            _cpaAlertService?.dismissAlert(alert.vesselId);
-            ScaffoldMessenger.of(context).hideCurrentSnackBar();
-          },
-        ),
-      ),
-    );
+    // Highlight the vessel on the chart — snackbar is handled by AlertCoordinator
+    _cpaAlertService?.requestHighlight(alert.vesselId);
   }
 
   void _onDisplayStateChanged(String key, dynamic value) {

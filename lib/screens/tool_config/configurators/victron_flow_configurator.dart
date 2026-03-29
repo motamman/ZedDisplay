@@ -20,8 +20,8 @@ class VictronFlowConfigurator extends ToolConfigurator {
   // Loads configuration
   List<Map<String, dynamic>> _loads = [];
 
-  // Battery configuration
-  Map<String, String> _battery = {};
+  // Battery configurations
+  List<Map<String, dynamic>> _batteries = [];
 
   // Inverter state path
   String _inverterStatePath = 'electrical.inverter.state';
@@ -130,14 +130,17 @@ class VictronFlowConfigurator extends ToolConfigurator {
       },
     ];
 
-    _battery = {
-      'socPath': 'electrical.batteries.house.capacity.stateOfCharge',
-      'voltagePath': 'electrical.batteries.house.voltage',
-      'currentPath': 'electrical.batteries.house.current',
-      'powerPath': 'electrical.batteries.house.power',
-      'timeRemainingPath': 'electrical.batteries.house.capacity.timeRemaining',
-      'temperaturePath': 'electrical.batteries.house.temperature',
-    };
+    _batteries = [
+      {
+        'name': 'House',
+        'socPath': 'electrical.batteries.house.capacity.stateOfCharge',
+        'voltagePath': 'electrical.batteries.house.voltage',
+        'currentPath': 'electrical.batteries.house.current',
+        'powerPath': 'electrical.batteries.house.power',
+        'timeRemainingPath': 'electrical.batteries.house.capacity.timeRemaining',
+        'temperaturePath': 'electrical.batteries.house.temperature',
+      },
+    ];
 
     _inverterStatePath = 'electrical.inverter.state';
     _primaryColor = null;
@@ -165,10 +168,16 @@ class VictronFlowConfigurator extends ToolConfigurator {
       _loads = loadsData.map((l) => Map<String, dynamic>.from(l as Map)).toList();
     }
 
-    // Load battery config
-    final batteryData = customProps['battery'] as Map<String, dynamic>?;
-    if (batteryData != null) {
-      _battery = batteryData.map((k, v) => MapEntry(k, v?.toString() ?? ''));
+    // Load battery configs (list), with backward compat for single 'battery' map
+    final batteriesData = customProps['batteries'] as List<dynamic>?;
+    if (batteriesData != null && batteriesData.isNotEmpty) {
+      _batteries = batteriesData.map((b) => Map<String, dynamic>.from(b as Map)).toList();
+    } else {
+      final batteryData = customProps['battery'] as Map<String, dynamic>?;
+      if (batteryData != null) {
+        _batteries = [Map<String, dynamic>.from(batteryData)];
+        if (!_batteries[0].containsKey('name')) _batteries[0]['name'] = 'Battery';
+      }
     }
 
     // Load inverter path
@@ -187,7 +196,7 @@ class VictronFlowConfigurator extends ToolConfigurator {
         customProperties: {
           'sources': _sources,
           'loads': _loads,
-          'battery': _battery,
+          'batteries': _batteries,
           'inverterStatePath': _inverterStatePath,
         },
       ),
@@ -276,9 +285,26 @@ class VictronFlowConfigurator extends ToolConfigurator {
               const SizedBox(height: 24),
 
               // Battery Section
-              _buildSectionHeader(context, 'Battery', Icons.battery_std, Colors.green),
+              _buildSectionHeader(context, 'Batteries', Icons.battery_std, Colors.green),
               const SizedBox(height: 8),
-              _buildBatteryConfig(context, setState, signalKService),
+              _buildBatteriesList(context, setState, signalKService),
+              _buildAddButton(context, 'Add Battery', () {
+                final newBattery = <String, dynamic>{
+                  'name': 'New Battery',
+                  'socPath': '',
+                  'voltagePath': '',
+                  'currentPath': '',
+                  'powerPath': '',
+                  'timeRemainingPath': '',
+                  'temperaturePath': '',
+                };
+                setState(() {
+                  _batteries.add(newBattery);
+                });
+                _showNameEditor(context, setState, 'New Battery', (newName) {
+                  setState(() => newBattery['name'] = newName);
+                });
+              }),
             ],
           ),
         );
@@ -565,32 +591,86 @@ class VictronFlowConfigurator extends ToolConfigurator {
     );
   }
 
-  Widget _buildBatteryConfig(BuildContext context, StateSetter setState, SignalKService signalKService) {
+  Widget _buildBatteriesList(BuildContext context, StateSetter setState, SignalKService signalKService) {
+    return ReorderableListView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      itemCount: _batteries.length,
+      onReorder: (oldIndex, newIndex) {
+        setState(() {
+          if (newIndex > oldIndex) newIndex--;
+          final item = _batteries.removeAt(oldIndex);
+          _batteries.insert(newIndex, item);
+        });
+      },
+      itemBuilder: (context, index) {
+        return _buildBatteryCard(context, setState, signalKService, index);
+      },
+    );
+  }
+
+  Widget _buildBatteryCard(BuildContext context, StateSetter setState, SignalKService signalKService, int index) {
+    final battery = _batteries[index];
+    final name = battery['name'] as String? ?? 'Battery';
+
     return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
+      key: ValueKey('battery_$index'),
+      margin: const EdgeInsets.only(bottom: 8),
+      child: ExpansionTile(
+        leading: Row(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            _buildPathTile(context, setState, signalKService, 'State of Charge', _battery['socPath'] ?? '', (path) {
-              setState(() => _battery['socPath'] = path);
-            }),
-            _buildPathTile(context, setState, signalKService, 'Voltage', _battery['voltagePath'] ?? '', (path) {
-              setState(() => _battery['voltagePath'] = path);
-            }),
-            _buildPathTile(context, setState, signalKService, 'Current', _battery['currentPath'] ?? '', (path) {
-              setState(() => _battery['currentPath'] = path);
-            }),
-            _buildPathTile(context, setState, signalKService, 'Power', _battery['powerPath'] ?? '', (path) {
-              setState(() => _battery['powerPath'] = path);
-            }),
-            _buildPathTile(context, setState, signalKService, 'Time Remaining', _battery['timeRemainingPath'] ?? '', (path) {
-              setState(() => _battery['timeRemainingPath'] = path);
-            }),
-            _buildPathTile(context, setState, signalKService, 'Temperature', _battery['temperaturePath'] ?? '', (path) {
-              setState(() => _battery['temperaturePath'] = path);
-            }),
+            ReorderableDragStartListener(
+              index: index,
+              child: const Icon(Icons.drag_handle, color: Colors.grey),
+            ),
+            const SizedBox(width: 8),
+            const Icon(Icons.battery_std, color: Colors.green),
           ],
         ),
+        title: _buildEditableName(context, setState, name, (newName) {
+          setState(() => battery['name'] = newName);
+        }),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            IconButton(
+              icon: const Icon(Icons.delete_outline, color: Colors.red, size: 20),
+              onPressed: _batteries.length > 1 ? () {
+                setState(() => _batteries.removeAt(index));
+              } : null,
+              tooltip: 'Remove battery',
+            ),
+            const Icon(Icons.expand_more),
+          ],
+        ),
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+            child: Column(
+              children: [
+                _buildPathTile(context, setState, signalKService, 'State of Charge', battery['socPath'] ?? '', (path) {
+                  setState(() => battery['socPath'] = path);
+                }),
+                _buildPathTile(context, setState, signalKService, 'Voltage', battery['voltagePath'] ?? '', (path) {
+                  setState(() => battery['voltagePath'] = path);
+                }),
+                _buildPathTile(context, setState, signalKService, 'Current', battery['currentPath'] ?? '', (path) {
+                  setState(() => battery['currentPath'] = path);
+                }),
+                _buildPathTile(context, setState, signalKService, 'Power', battery['powerPath'] ?? '', (path) {
+                  setState(() => battery['powerPath'] = path);
+                }),
+                _buildPathTile(context, setState, signalKService, 'Time Remaining', battery['timeRemainingPath'] ?? '', (path) {
+                  setState(() => battery['timeRemainingPath'] = path);
+                }),
+                _buildPathTile(context, setState, signalKService, 'Temperature', battery['temperaturePath'] ?? '', (path) {
+                  setState(() => battery['temperaturePath'] = path);
+                }),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }

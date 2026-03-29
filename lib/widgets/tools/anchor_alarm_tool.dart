@@ -9,7 +9,6 @@ import '../../models/tool_config.dart';
 import '../../models/tool_definition.dart';
 import '../../services/signalk_service.dart';
 import '../../services/anchor_alarm_service.dart';
-import '../../services/messaging_service.dart';
 import '../../services/alert_coordinator.dart';
 import '../../models/anchor_state.dart';
 import '../../models/alert_event.dart';
@@ -60,23 +59,14 @@ class _AnchorAlarmToolState extends State<AnchorAlarmTool>
   void initState() {
     super.initState();
 
-    // Get messaging service from provider if available
-    MessagingService? messagingService;
-    try {
-      messagingService = Provider.of<MessagingService>(context, listen: false);
-    } catch (_) {
-      // Messaging service not available
-    }
-
-    // Get alert coordinator from provider if available (cached for state updates)
+    // Get alert coordinator from provider if available
     try {
       _alertCoordinator = Provider.of<AlertCoordinator>(context, listen: false);
     } catch (_) {}
 
     _alarmService = AnchorAlarmService(
       signalKService: widget.signalKService,
-      messagingService: messagingService,
-      // alertCoordinator: _alertCoordinator, // TEMP: bypass to test freeze
+      alertCoordinator: _alertCoordinator,
     );
     _alarmService.initialize();
     _alarmService.addListener(_onStateChanged);
@@ -115,6 +105,10 @@ class _AnchorAlarmToolState extends State<AnchorAlarmTool>
       interval: Duration(minutes: intervalMinutes),
       gracePeriod: Duration(seconds: gracePeriodSeconds),
     ));
+
+    // Alarm clear debounce delay
+    final alarmClearDelaySeconds = customProps['alarmClearDelaySeconds'] as int? ?? 15;
+    _alarmService.setAlarmClearDelay(Duration(seconds: alarmClearDelaySeconds));
   }
 
   @override
@@ -137,6 +131,7 @@ class _AnchorAlarmToolState extends State<AnchorAlarmTool>
   @override
   void dispose() {
     _lockTimer?.cancel();
+    _alertCoordinator?.setOverlayActive(AlertSubsystem.anchorAlarm, false);
     _alarmService.removeListener(_onStateChanged);
     widget.signalKService.removeListener(_onSignalKChanged);
     _alarmService.dispose();
@@ -160,7 +155,8 @@ class _AnchorAlarmToolState extends State<AnchorAlarmTool>
       setState(() {});
 
       // Update overlay state with coordinator only when it changes
-      final overlayActive = _alarmService.awaitingCheckIn || _alarmService.state.alarmState.isAlarming;
+      final overlayActive = _alarmService.awaitingCheckIn ||
+          (_alarmService.state.alarmState.isAlarming && !_alarmService.alarmAcknowledged);
       if (overlayActive != _lastOverlayActive) {
         _lastOverlayActive = overlayActive;
         _alertCoordinator?.setOverlayActive(AlertSubsystem.anchorAlarm, overlayActive);
@@ -454,7 +450,7 @@ class _AnchorAlarmToolState extends State<AnchorAlarmTool>
                     child: _buildCheckInOverlay(),
                   ),
                 // Alarm overlay
-                if (state.alarmState.isAlarming)
+                if (state.alarmState.isAlarming && !_alarmService.alarmAcknowledged)
                   Positioned.fill(
                     child: _buildAlarmOverlay(state),
                   ),
@@ -478,7 +474,7 @@ class _AnchorAlarmToolState extends State<AnchorAlarmTool>
                     child: _buildCheckInOverlay(),
                   ),
                 // Alarm overlay
-                if (state.alarmState.isAlarming)
+                if (state.alarmState.isAlarming && !_alarmService.alarmAcknowledged)
                   Positioned.fill(
                     child: _buildAlarmOverlay(state),
                   ),
@@ -1548,6 +1544,7 @@ class AnchorAlarmToolBuilder extends ToolBuilder {
           'checkInEnabled': false,
           'checkInIntervalMinutes': 30,
           'checkInGracePeriodSeconds': 60,
+          'alarmClearDelaySeconds': 15,
         },
       ),
     );

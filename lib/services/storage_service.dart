@@ -800,6 +800,62 @@ class StorageService extends ChangeNotifier {
     return getInAppNotificationFilter(level);
   }
 
+  // ===== AIS Favorites Alerts =====
+
+  bool getFavoritesAlertsEnabled() {
+    if (!_initialized) return true;
+    return _settingsBox.get('favorites_alerts_enabled', defaultValue: 'true') == 'true';
+  }
+
+  Future<void> saveFavoritesAlertsEnabled(bool enabled) async {
+    if (!_initialized) return;
+    await _settingsBox.put('favorites_alerts_enabled', enabled ? 'true' : 'false');
+    notifyListeners();
+  }
+
+  // ===== CPA Settings =====
+
+  /// Seconds of sustained divergence before a CPA alert de-escalates. Default 60.
+  int getCpaDivergenceSeconds() {
+    if (!_initialized) return 60;
+    return int.tryParse(_settingsBox.get('cpa_divergence_seconds', defaultValue: '60') ?? '60') ?? 60;
+  }
+
+  Future<void> saveCpaDivergenceSeconds(int seconds) async {
+    if (!_initialized) return;
+    await _settingsBox.put('cpa_divergence_seconds', seconds.toString());
+  }
+
+  // ===== Crew Broadcast Per-Subsystem Toggles =====
+
+  /// Whether a subsystem is allowed to broadcast alerts to crew.
+  /// Defaults: anchorAlarm and cpa enabled, others disabled.
+  bool getCrewBroadcastEnabled(String subsystem) {
+    if (!_initialized) {
+      return subsystem == 'anchorAlarm' || subsystem == 'cpa';
+    }
+    final defaultValue = subsystem == 'anchorAlarm' ? 'true' : 'false';
+    return _settingsBox.get('crew_broadcast_$subsystem', defaultValue: defaultValue) == 'true';
+  }
+
+  Future<void> saveCrewBroadcastEnabled(String subsystem, bool enabled) async {
+    if (!_initialized) throw Exception('StorageService not initialized');
+    await _settingsBox.put('crew_broadcast_$subsystem', enabled ? 'true' : 'false');
+    notifyListeners();
+  }
+
+  // ===== Audio Mute =====
+
+  bool getAudioMuted() {
+    if (!_initialized) return false;
+    return _settingsBox.get('audio_muted', defaultValue: 'false') == 'true';
+  }
+
+  Future<void> saveAudioMuted(bool muted) async {
+    if (!_initialized) return;
+    await _settingsBox.put('audio_muted', muted ? 'true' : 'false');
+  }
+
   // ===== DisplayUnits Cache Management =====
 
   /// Save displayUnits cache for a server

@@ -29,14 +29,13 @@ import 'models/notification_payload.dart';
 import 'screens/splash_screen.dart';
 import 'screens/setup_management_screen.dart';
 import 'widgets/crew/intercom_panel.dart';
-import 'services/anchor_alarm_service.dart';
 import 'services/alert_coordinator.dart';
 import 'services/ais_favorites_service.dart';
 import 'services/cpa_alert_service.dart';
+import 'widgets/alert_panel.dart';
 import 'services/find_home_target_service.dart';
 import 'services/dashboard_store_service.dart';
 import 'models/alert_event.dart' as alert_models;
-import 'widgets/tools/weather_alerts_tool.dart';
 
 // Global app start time
 final DateTime appStartTime = DateTime.now();
@@ -457,9 +456,6 @@ class _ZedDisplayAppState extends State<ZedDisplayApp> with WidgetsBindingObserv
     switch (state) {
       case AppLifecycleState.paused:
       case AppLifecycleState.inactive:
-        // Tell coordinator we're backgrounded — suppresses snackbar callback
-        // accumulation that causes jank on resume
-        widget.alertCoordinator.setAppInForeground(false);
         // Flush diagnostic log on background
         DiagnosticService.instance?.stop();
         // Save connection state when app goes to background
@@ -477,8 +473,6 @@ class _ZedDisplayAppState extends State<ZedDisplayApp> with WidgetsBindingObserv
         break;
 
       case AppLifecycleState.resumed:
-        // Resume snackbar delivery
-        widget.alertCoordinator.setAppInForeground(true);
         // Restart diagnostic logging on foreground return
         if (widget.storageService.getDiagnosticsEnabled()) {
           DiagnosticService.instance?.start();
@@ -532,6 +526,7 @@ class _ZedDisplayAppState extends State<ZedDisplayApp> with WidgetsBindingObserv
         ChangeNotifierProvider.value(value: widget.cpaAlertService),
         ChangeNotifierProvider.value(value: widget.findHomeTargetService),
         ChangeNotifierProvider.value(value: widget.dashboardStoreService),
+        Provider<NotificationNavigationService>.value(value: widget.notificationNavigationService),
       ],
       child: MaterialApp(
         scrollBehavior: const MaterialScrollBehavior().copyWith(
@@ -565,16 +560,13 @@ class _ZedDisplayAppState extends State<ZedDisplayApp> with WidgetsBindingObserv
         builder: (context, child) {
           return SignalKNotificationListener(
             signalKService: widget.signalKService,
-            storageService: widget.storageService,
-            notificationService: widget.notificationService,
-            dashboardService: widget.dashboardService,
-            notificationNavigationService: widget.notificationNavigationService,
             child: Stack(
               children: [
                 child ?? const SizedBox.shrink(),
                 // Intercom status indicator overlay (shows when receiving transmission)
                 const IntercomStatusIndicator(),
-                // Connection state is shown in the dashboard app bar title area
+                // Persistent alert panel — renders all active alerts as stacked rows
+                const AlertPanel(),
               ],
             ),
           );
@@ -584,22 +576,15 @@ class _ZedDisplayAppState extends State<ZedDisplayApp> with WidgetsBindingObserv
   }
 }
 
-/// Widget that listens to SignalK notifications and displays them
+/// Widget that listens to SignalK notifications and routes them through AlertCoordinator.
+/// Replaces legacy snackbar display — alerts now render in the persistent AlertPanel.
 class SignalKNotificationListener extends StatefulWidget {
   final SignalKService signalKService;
-  final StorageService storageService;
-  final NotificationService notificationService;
-  final DashboardService dashboardService;
-  final NotificationNavigationService notificationNavigationService;
   final Widget child;
 
   const SignalKNotificationListener({
     super.key,
     required this.signalKService,
-    required this.storageService,
-    required this.notificationService,
-    required this.dashboardService,
-    required this.notificationNavigationService,
     required this.child,
   });
 
@@ -609,28 +594,21 @@ class SignalKNotificationListener extends StatefulWidget {
 
 class _SignalKNotificationListenerState extends State<SignalKNotificationListener> {
   StreamSubscription<SignalKNotification>? _notificationSubscription;
+  AlertCoordinator? _coordinator;
 
-  bool _coordinatorWired = false;
+  /// Notification key prefixes owned by dedicated subsystems.
+  /// These submit their own alerts — skip to prevent duplicates.
+  static const _ownedPrefixes = [
+    'navigation.anchor',  // AnchorAlarmService → AlertSubsystem.anchorAlarm
+    'weather.nws',        // WeatherAlertsNotifier → AlertSubsystem.nwsWeather
+  ];
 
   @override
   void initState() {
     super.initState();
-    _setupNotificationListener();
-  }
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    if (!_coordinatorWired) {
-      _coordinatorWired = true;
-      try {
-        final coordinator = Provider.of<AlertCoordinator>(context, listen: false);
-        coordinator.onShowSnackbar = showAlertEventSnackbar;
-      } catch (_) {}
-    }
-  }
-
-  void _setupNotificationListener() {
+    try {
+      _coordinator = Provider.of<AlertCoordinator>(context, listen: false);
+    } catch (_) {}
     _notificationSubscription = widget.signalKService.notificationStream.listen(
       _handleNotification,
       onError: (error) {
@@ -642,26 +620,50 @@ class _SignalKNotificationListenerState extends State<SignalKNotificationListene
   }
 
   void _handleNotification(SignalKNotification notification) {
-    if (!mounted) return;
+    if (!mounted || _coordinator == null) return;
 
-    // Check both in-app and system notification filters
-    final showInApp = widget.storageService.getInAppNotificationFilter(notification.state.toLowerCase());
-    final showSystem = widget.storageService.getSystemNotificationFilter(notification.state.toLowerCase());
-
-    if (!showInApp && !showSystem) return;
-
-    // Show system notification if enabled for this level
-    if (showSystem) {
-      widget.notificationService.showNotification(notification);
+    // Skip notifications owned by dedicated subsystems
+    for (final prefix in _ownedPrefixes) {
+      if (notification.key.startsWith(prefix)) return;
     }
 
-    // Show in-app snackbar if enabled for this level
-    if (showInApp) {
-      _showSignalKSnackbar(notification);
+    final severity = _mapSeverity(notification.state);
+
+    // "normal" / "nominal" = condition cleared → resolve active alert
+    if (severity == alert_models.AlertSeverity.normal ||
+        severity == alert_models.AlertSeverity.nominal) {
+      _coordinator!.resolveAlert(
+        alert_models.AlertSubsystem.signalk,
+        alarmId: notification.key,
+        internal: true,
+      );
+      return;
     }
+
+    // Extract headline (strip language prefix like "en-US: ")
+    final headline = _extractHeadline(notification.message);
+
+    // SignalK "method" field tells us if sound is requested
+    final wantsSound = notification.method.contains('sound');
+
+    _coordinator!.submitAlert(alert_models.AlertEvent(
+      subsystem: alert_models.AlertSubsystem.signalk,
+      severity: severity,
+      title: notification.key,
+      body: headline,
+      alarmId: notification.key,
+      alarmSource: 'signalk',
+      wantsSystemNotification: true,
+      wantsAudio: wantsSound && severity >= alert_models.AlertSeverity.alarm,
+      alarmSound: 'foghorn',
+      callbackData: NotificationPayload(
+        type: 'signalk',
+        notificationKey: notification.key,
+      ),
+    ));
   }
 
-  alert_models.AlertSeverity _mapNotificationSeverity(String state) {
+  static alert_models.AlertSeverity _mapSeverity(String state) {
     switch (state.toLowerCase()) {
       case 'emergency': return alert_models.AlertSeverity.emergency;
       case 'alarm': return alert_models.AlertSeverity.alarm;
@@ -673,191 +675,9 @@ class _SignalKNotificationListenerState extends State<SignalKNotificationListene
     }
   }
 
-  /// Show a snackbar for an AlertEvent from the coordinator.
-  void showAlertEventSnackbar(alert_models.AlertEvent event) {
-    if (!mounted) return;
-
-    // If the callbackData is a SignalKNotification, use the full snackbar
-    if (event.callbackData is SignalKNotification) {
-      _showSignalKSnackbar(event.callbackData as SignalKNotification);
-      return;
-    }
-
-    // AIS Favorites: snackbar with "VIEW" action to highlight vessel on chart
-    if (event.subsystem == alert_models.AlertSubsystem.aisFavorites &&
-        event.callbackData is String) {
-      final vesselId = event.callbackData as String;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Row(
-            children: [
-              const Icon(Icons.favorite, color: Colors.white, size: 20),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  '${event.title} ${event.body}',
-                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Colors.white),
-                ),
-              ),
-            ],
-          ),
-          backgroundColor: Colors.blue.shade700,
-          duration: const Duration(seconds: 5),
-          behavior: SnackBarBehavior.floating,
-          action: SnackBarAction(
-            label: 'VIEW',
-            textColor: Colors.white,
-            onPressed: () {
-              final favService = Provider.of<AISFavoritesService>(context, listen: false);
-              favService.requestHighlight(vesselId);
-            },
-          ),
-        ),
-      );
-      return;
-    }
-
-    // Generic snackbar for other alert types
-    final colors = _severityColors(event.severity);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Row(
-          children: [
-            Icon(colors.$2, color: Colors.white, size: 24),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Text(
-                '${event.title} ${event.body}',
-                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Colors.white),
-              ),
-            ),
-          ],
-        ),
-        backgroundColor: colors.$1,
-        duration: event.severity >= alert_models.AlertSeverity.alarm
-            ? const Duration(seconds: 10) : const Duration(seconds: 5),
-        behavior: SnackBarBehavior.floating,
-        action: SnackBarAction(
-          label: 'DISMISS',
-          textColor: Colors.white,
-          onPressed: () => ScaffoldMessenger.of(context).hideCurrentSnackBar(),
-        ),
-      ),
-    );
-  }
-
-  (Color, IconData) _severityColors(alert_models.AlertSeverity severity) {
-    switch (severity) {
-      case alert_models.AlertSeverity.emergency: return (Colors.red.shade900, Icons.emergency);
-      case alert_models.AlertSeverity.alarm: return (Colors.red.shade700, Icons.alarm);
-      case alert_models.AlertSeverity.warn: return (Colors.orange.shade700, Icons.warning);
-      case alert_models.AlertSeverity.alert: return (Colors.amber.shade700, Icons.info);
-      case alert_models.AlertSeverity.normal: return (Colors.blue.shade700, Icons.notifications);
-      case alert_models.AlertSeverity.nominal: return (Colors.green.shade700, Icons.check_circle);
-    }
-  }
-
-  void _showSignalKSnackbar(SignalKNotification notification) {
-    final colors = _severityColors(_mapNotificationSeverity(notification.state));
-
-    // Extract headline from message (remove language prefix like "en-US: ")
-    String headline = notification.message;
-    final langMatch = RegExp(r'^[a-z]{2}(-[A-Z]{2})?: ').firstMatch(headline);
-    if (langMatch != null) {
-      headline = headline.substring(langMatch.end);
-    }
-
-    // Check if this is an NWS weather alert
-    final isNwsAlert = notification.key.startsWith('weather.nws.');
-    final alertId = isNwsAlert ? notification.key.replaceFirst('weather.nws.', '') : null;
-
-    // Build payload and check for tap-to-navigate target
-    final payload = NotificationPayload(
-      type: isNwsAlert ? 'weather_nws' : 'signalk',
-      notificationKey: notification.key,
-      context: isNwsAlert && alertId != null ? {'alertId': alertId} : null,
-    );
-    final navResult = widget.notificationNavigationService.getNavigation(payload);
-    final hasNavTarget = navResult != null;
-    final String? targetScreenName = navResult?.$2;
-
-    // Build tap handler
-    VoidCallback? onTap;
-    if (hasNavTarget) {
-      onTap = () {
-        navResult.$1();
-        if (isNwsAlert && alertId != null) {
-          WeatherAlertsNotifier.instance.requestExpandAlert(alertId);
-        }
-        if (notification.key.startsWith('navigation.anchor')) {
-          AnchorAlarmService.instance?.acknowledgeAlarm();
-        }
-        ScaffoldMessenger.of(context).hideCurrentSnackBar();
-      };
-    } else if (isNwsAlert && alertId != null) {
-      onTap = () {
-        WeatherAlertsNotifier.instance.requestExpandAlert(alertId);
-        ScaffoldMessenger.of(context).hideCurrentSnackBar();
-      };
-    }
-
-    String? hintText;
-    if (hasNavTarget) {
-      hintText = 'TAP: $targetScreenName';
-    } else if (isNwsAlert) {
-      hintText = 'TAP FOR DETAILS';
-    }
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: GestureDetector(
-          onTap: onTap,
-          behavior: onTap != null ? HitTestBehavior.opaque : HitTestBehavior.deferToChild,
-          child: Row(
-            children: [
-              Icon(colors.$2, color: Colors.white, size: 24),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      '[${notification.state.toUpperCase()}] $headline',
-                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Colors.white),
-                    ),
-                    const SizedBox(height: 4),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(notification.key, style: const TextStyle(fontSize: 12, color: Colors.white70)),
-                        ),
-                        if (hintText != null)
-                          Text(hintText, style: const TextStyle(fontSize: 10, color: Colors.white54, fontStyle: FontStyle.italic)),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-        backgroundColor: colors.$1,
-        duration: notification.state.toLowerCase() == 'emergency' || notification.state.toLowerCase() == 'alarm'
-            ? const Duration(seconds: 10) : const Duration(seconds: 5),
-        behavior: SnackBarBehavior.floating,
-        action: SnackBarAction(
-          label: 'DISMISS',
-          textColor: Colors.white,
-          onPressed: () {
-            if (notification.key.startsWith('navigation.anchor')) {
-              AnchorAlarmService.instance?.acknowledgeAlarm();
-            }
-            ScaffoldMessenger.of(context).hideCurrentSnackBar();
-          },
-        ),
-      ),
-    );
+  static String _extractHeadline(String message) {
+    final langMatch = RegExp(r'^[a-z]{2}(-[A-Z]{2})?: ').firstMatch(message);
+    return langMatch != null ? message.substring(langMatch.end) : message;
   }
 
   @override

@@ -86,6 +86,14 @@ class CpaAlertService extends ChangeNotifier {
         _storageService = storageService,
         _alertCoordinator = alertCoordinator {
     _notificationService.registerAlarmCallback('ais_polar_chart', _onAlarmTapped);
+    // Register resolve callback so coordinator can tell us when the user dismisses an alert
+    _alertCoordinator?.registerResolveCallback(AlertSubsystem.cpa, (alarmId) {
+      if (alarmId != null) {
+        dismissAlert(alarmId);
+      } else {
+        dismissAllAlerts();
+      }
+    });
   }
 
   /// Apply config in memory and start/stop monitoring accordingly.
@@ -122,7 +130,8 @@ class CpaAlertService extends ChangeNotifier {
     _notificationService.cancelAlarmNotification(vesselId);
     _dismissedUntil[vesselId] =
         DateTime.now().add(Duration(seconds: _config.cooldownSeconds));
-    if (!hasActiveAlarm) _alertCoordinator?.acknowledgeAlarm(AlertSubsystem.cpa);
+    // Don't call blanket resolveAlert — the coordinator already resolved
+    // this specific vessel via the resolve callback before we got here.
     _safeNotify();
   }
 
@@ -134,7 +143,6 @@ class CpaAlertService extends ChangeNotifier {
       _dismissedUntil[id] = now.add(Duration(seconds: _config.cooldownSeconds));
     }
     _vesselAlerts.clear();
-    _alertCoordinator?.acknowledgeAlarm(AlertSubsystem.cpa);
     _safeNotify();
   }
 
@@ -145,7 +153,7 @@ class CpaAlertService extends ChangeNotifier {
 
   void _stopMonitoring() {
     _signalKService.aisVesselRegistry.removeListener(_onAISUpdate);
-    _alertCoordinator?.acknowledgeAlarm(AlertSubsystem.cpa);
+    _alertCoordinator?.resolveAlert(AlertSubsystem.cpa, internal: true);
     for (final id in _vesselAlerts.keys.toList()) {
       _notificationService.cancelAlarmNotification(id);
     }
@@ -215,38 +223,47 @@ class CpaAlertService extends ChangeNotifier {
 
       if (cpaTcpa == null) continue;
 
-      final newLevel = _determineLevel(
+      final existing = _vesselAlerts[vessel.vesselId];
+      final previousLevel = existing?.level ?? CpaAlertLevel.normal;
+
+      final result = _determineLevel(
         vessel.vesselId,
         cpaTcpa.cpa,
         cpaTcpa.tcpa,
         now,
+        existing,
       );
 
-      final existing = _vesselAlerts[vessel.vesselId];
-      final previousLevel = existing?.level ?? CpaAlertLevel.normal;
+      // Clean up expired dismissals
+      if (result.dismissalExpired) {
+        _dismissedUntil.remove(vessel.vesselId);
+      }
 
-      if (newLevel == CpaAlertLevel.normal && existing == null) continue;
+      if (result.level == CpaAlertLevel.normal && existing == null) continue;
 
-      if (newLevel == CpaAlertLevel.normal) {
+      if (result.level == CpaAlertLevel.normal) {
         _vesselAlerts.remove(vessel.vesselId);
         _notificationService.cancelAlarmNotification(vessel.vesselId);
+        _alertCoordinator?.resolveAlert(AlertSubsystem.cpa, alarmId: vessel.vesselId, internal: true);
         changed = true;
       } else {
+        // Single writer — update alert with all state from evaluation
         final alert = CpaVesselAlert(
           vesselId: vessel.vesselId,
           vesselName: vessel.name,
-          level: newLevel,
+          level: result.level,
           cpaMeters: cpaTcpa.cpa,
           tcpaSeconds: cpaTcpa.tcpa,
           firstAlerted: existing?.firstAlerted ?? now,
           lastUpdated: now,
-          cooldownUntil: existing?.cooldownUntil,
+          cooldownUntil: result.cooldownUntil,
+          divergingSince: result.divergingSince,
         );
         _vesselAlerts[vessel.vesselId] = alert;
         changed = true;
 
-        // Dispatch alerts on escalation
-        if (newLevel.index > previousLevel.index) {
+        // Dispatch alerts on escalation only
+        if (result.level.index > previousLevel.index) {
           _triggerAlerts(alert);
         }
       }
@@ -273,66 +290,76 @@ class CpaAlertService extends ChangeNotifier {
       changed = true;
     }
 
-    // Stop alarm sound if no vessels at alarm level and audio is playing
+    // Resolve alert if no vessels at alarm level
     if (!hasActiveAlarm && (_alertCoordinator?.audioPlayer.activeSource == 'cpa')) {
-      _alertCoordinator?.acknowledgeAlarm(AlertSubsystem.cpa);
+      _alertCoordinator?.resolveAlert(AlertSubsystem.cpa, internal: true);
       changed = true;
     }
 
     if (changed) notifyListeners();
   }
 
-  /// Determine alert level with hysteresis and cooldown.
-  CpaAlertLevel _determineLevel(
+  /// Result of level evaluation — pure data, no side effects.
+  /// The main loop uses this to update _vesselAlerts in one place.
+  ({CpaAlertLevel level, DateTime? divergingSince, DateTime? cooldownUntil, bool dismissalExpired}) _determineLevel(
     String vesselId,
     double cpaMeters,
     double tcpaSeconds,
     DateTime now,
+    CpaVesselAlert? existing,
   ) {
-    final existing = _vesselAlerts[vesselId];
-
     // Check manual dismissal cooldown
     final dismissedUntil = _dismissedUntil[vesselId];
-    if (dismissedUntil != null) {
-      if (now.isBefore(dismissedUntil)) return CpaAlertLevel.normal;
-      _dismissedUntil.remove(vesselId); // expired
+    if (dismissedUntil != null && now.isBefore(dismissedUntil)) {
+      return (level: CpaAlertLevel.normal, divergingSince: null, cooldownUntil: existing?.cooldownUntil, dismissalExpired: false);
     }
+    final dismissalExpired = dismissedUntil != null; // was set but now expired
 
-    // Check cooldown
-    if (existing?.cooldownUntil != null &&
-        now.isBefore(existing!.cooldownUntil!)) {
-      return CpaAlertLevel.normal;
+    // Check de-escalation cooldown
+    if (existing?.cooldownUntil != null && now.isBefore(existing!.cooldownUntil!)) {
+      return (level: CpaAlertLevel.normal, divergingSince: null, cooldownUntil: existing.cooldownUntil, dismissalExpired: dismissalExpired);
     }
 
     final approaching = tcpaSeconds > 0 && tcpaSeconds < _config.tcpaThresholdSeconds;
     final hysteresisThreshold = _config.warnThresholdMeters * 1.2;
 
-    // De-escalation: vessel diverging or moved outside hysteresis band
+    // De-escalation: require sustained divergence before clearing.
     if (existing != null && existing.level != CpaAlertLevel.normal) {
-      if (!approaching || cpaMeters > hysteresisThreshold) {
-        // Set cooldown when de-escalating from alarm
-        if (existing.level.isAlarming) {
-          _vesselAlerts[vesselId] = existing.copyWith(
-            level: CpaAlertLevel.normal,
-            lastUpdated: now,
-            cooldownUntil: now.add(Duration(seconds: _config.cooldownSeconds)),
-          );
-          return CpaAlertLevel.normal;
+      final isDiverging = !approaching || cpaMeters > hysteresisThreshold;
+
+      if (isDiverging) {
+        final divergingSince = existing.divergingSince ?? now;
+        final divergingDuration = now.difference(divergingSince);
+        final divergenceThreshold = Duration(seconds: _storageService?.getCpaDivergenceSeconds() ?? 60);
+
+        if (divergingDuration >= divergenceThreshold) {
+          // Sustained divergence — de-escalate
+          final cooldown = (existing.level.isAlarming || existing.level.isWarning)
+              ? now.add(Duration(seconds: _config.cooldownSeconds))
+              : null;
+          return (level: CpaAlertLevel.normal, divergingSince: null, cooldownUntil: cooldown, dismissalExpired: dismissalExpired);
         }
-        return CpaAlertLevel.normal;
+
+        // Not long enough — keep current level, track divergence start
+        return (level: existing.level, divergingSince: divergingSince, cooldownUntil: existing.cooldownUntil, dismissalExpired: dismissalExpired);
+      } else {
+        // Vessel approaching again — clear divergence, keep level
+        return (level: existing.level, divergingSince: null, cooldownUntil: existing.cooldownUntil, dismissalExpired: dismissalExpired);
       }
     }
 
-    if (!approaching) return CpaAlertLevel.normal;
+    if (!approaching) {
+      return (level: CpaAlertLevel.normal, divergingSince: null, cooldownUntil: existing?.cooldownUntil, dismissalExpired: dismissalExpired);
+    }
 
     // Escalation
     if (cpaMeters < _config.alarmThresholdMeters) {
-      return CpaAlertLevel.alarm;
+      return (level: CpaAlertLevel.alarm, divergingSince: null, cooldownUntil: null, dismissalExpired: dismissalExpired);
     } else if (cpaMeters < _config.warnThresholdMeters) {
-      return CpaAlertLevel.warning;
+      return (level: CpaAlertLevel.warning, divergingSince: null, cooldownUntil: null, dismissalExpired: dismissalExpired);
     }
 
-    return CpaAlertLevel.normal;
+    return (level: CpaAlertLevel.normal, divergingSince: null, cooldownUntil: null, dismissalExpired: dismissalExpired);
   }
 
   // ===== Alert Dispatch =====
@@ -343,7 +370,7 @@ class CpaAlertService extends ChangeNotifier {
     final tcpaDisplay = _formatTcpa(alert.tcpaSeconds);
 
     final title = alert.level.isAlarming ? 'CPA ALARM' : 'CPA Warning';
-    final message = '$title: $name - CPA $cpaDisplay in $tcpaDisplay';
+    final message = '$name - CPA $cpaDisplay in $tcpaDisplay';
 
     if (_alertCoordinator != null) {
       _alertCoordinator.submitAlert(AlertEvent(
@@ -352,7 +379,7 @@ class CpaAlertService extends ChangeNotifier {
         title: title,
         body: message,
         wantsSystemNotification: true,
-        wantsInAppSnackbar: false, // CPA uses its own snackbar via onAlertTriggered
+        wantsInAppSnackbar: true,
         wantsAudio: alert.level.isAlarming,
         wantsCrewBroadcast: _config.sendCrewAlert && alert.level.isAlarming,
         alarmSound: _config.alarmSound,
@@ -360,13 +387,8 @@ class CpaAlertService extends ChangeNotifier {
         alarmSource: 'ais_polar_chart',
         callbackData: alert,
       ));
-      // Fire in-app callback (CPA chart handles its own snackbar display)
-      // Respect in-app filter like the old code did
-      final showInApp = _storageService?.getInAppNotificationFilter(
-        alert.level.isAlarming ? 'alarm' : 'warn') ?? true;
-      if (showInApp) {
-        onAlertTriggered?.call(alert, message);
-      }
+      // Also fire widget callback for highlight/focus if registered
+      onAlertTriggered?.call(alert, message);
     } else {
       // Fallback without coordinator
       final filterLevel = alert.level.isAlarming ? 'alarm' : 'warn';
