@@ -16,9 +16,13 @@ import '../../services/storage_service.dart';
 import '../../services/tool_registry.dart';
 import '../../services/alarm_audio_player.dart';
 import '../../services/alert_coordinator.dart';
+import '../../services/autopilot_command_service.dart';
+import '../../services/autopilot_state_verifier.dart';
+import '../../services/route_arrival_monitor.dart';
 import '../../services/dodge_autopilot_service.dart';
 import '../../services/find_home_target_service.dart';
 import '../../models/alert_event.dart';
+import '../../models/autopilot_errors.dart';
 import '../../utils/angle_utils.dart';
 import '../../widgets/countdown_confirmation_overlay.dart';
 import '../../utils/cpa_utils.dart';
@@ -54,6 +58,16 @@ class _FindHomeToolState extends State<FindHomeTool> {
   static const _defaultTargetPath = 'navigation.position';
   static const _defaultTrackCogPath = 'navigation.courseOverGroundTrue';
   static const _defaultTrackSogPath = 'navigation.speedOverGround';
+
+  /// SignalK paths for route navigation data
+  static const _routePaths = [
+    'navigation.course.calcValues.bearingTrue',
+    'navigation.course.calcValues.crossTrackError',
+    'navigation.course.calcValues.distance',
+    'navigation.course.calcValues.timeToGo',
+    'navigation.course.calcValues.estimatedTimeOfArrival',
+    'navigation.courseGreatCircle.nextPoint.position',
+  ];
 
   /// Full deflection angle in degrees
   static const _maxDeviation = 30.0;
@@ -120,11 +134,30 @@ class _FindHomeToolState extends State<FindHomeTool> {
   bool _dodgeCompleting = false;
   AlertCoordinator? _alertCoordinator;
 
+  // Route mode
+  bool _routeMode = false;
+  AutopilotCommandService? _routeApService;
+  RouteArrivalMonitor? _routeArrivalMonitor;
+  StreamSubscription<RouteArrivalEvent>? _arrivalSub;
+  bool _routeApEngaged = false;
+  String _routeApMode = 'Standby';
+  double? _routeBearingTrue;       // degrees (converted from radians)
+  double? _routeXteMeters;         // signed: +starboard, -port
+  double? _routeDistanceMeters;
+  Duration? _routeTimeToGo;
+  DateTime? _routeEta;
+
   /// Safe pass distance in SI meters (from config, default 300m).
   /// Stored in SI; displayed via MetadataStore through _formatDistance().
   double get _dodgeSafeDistanceM {
     final val = widget.config.style.customProperties?['dodgeDistance'] as num?;
     return val?.toDouble() ?? 300.0;
+  }
+
+  /// Full lateral deflection in meters for route XTE display (default 0.1nm = 185.2m).
+  double get _routeXteScaleMeters {
+    final val = widget.config.style.customProperties?['routeXteScale'] as num?;
+    return val?.toDouble() ?? 185.2;
   }
 
   /// SignalK path for the home target (boat position)
@@ -151,9 +184,9 @@ class _FindHomeToolState extends State<FindHomeTool> {
   @override
   void initState() {
     super.initState();
-    // Subscribe to the target position + track-mode nav paths from SignalK
+    // Subscribe to the target position + track-mode nav paths + route paths
     widget.signalKService.subscribeToPaths(
-      [_targetPath, _trackCogPath, _trackSogPath],
+      [_targetPath, _trackCogPath, _trackSogPath, ..._routePaths],
       ownerId: _ownerId,
     );
     widget.signalKService.addListener(_onSignalKUpdate);
@@ -240,13 +273,16 @@ class _FindHomeToolState extends State<FindHomeTool> {
   void dispose() {
     _dodgeAutopilotService?.deactivate();
     _dodgeAutopilotService?.dispose();
+    _arrivalSub?.cancel();
+    _routeArrivalMonitor?.dispose();
+    _routeApService?.dispose();
     _hapticTimer?.cancel();
     _skyTimer?.cancel();
     _positionSub?.cancel();
     _whistlePlayer?.dispose();
     widget.signalKService.removeListener(_onSignalKUpdate);
     widget.signalKService.unsubscribeFromPaths(
-      [_targetPath, _trackCogPath, _trackSogPath, _apStatePath],
+      [_targetPath, _trackCogPath, _trackSogPath, _apStatePath, ..._routePaths],
       ownerId: _ownerId,
     );
     _findHomeTargetService?.removeListener(_onFindHomeTargetUpdate);
@@ -257,7 +293,63 @@ class _FindHomeToolState extends State<FindHomeTool> {
   }
 
   void _onSignalKUpdate() {
-    if (mounted) setState(() {});
+    if (!mounted) return;
+    setState(() {
+      _updateRouteData();
+    });
+  }
+
+  void _updateRouteData() {
+    // Route bearing (radians → degrees)
+    final bearingData = widget.signalKService.getValue(
+        'navigation.course.calcValues.bearingTrue');
+    _routeBearingTrue = bearingData?.value is num
+        ? (bearingData!.value as num).toDouble() * 180.0 / math.pi
+        : null;
+
+    // Cross-track error (meters, signed)
+    final xteData = widget.signalKService.getValue(
+        'navigation.course.calcValues.crossTrackError');
+    _routeXteMeters =
+        xteData?.value is num ? (xteData!.value as num).toDouble() : null;
+
+    // Distance to waypoint (meters)
+    final distData = widget.signalKService.getValue(
+        'navigation.course.calcValues.distance');
+    _routeDistanceMeters =
+        distData?.value is num ? (distData!.value as num).toDouble() : null;
+
+    // Time to go (seconds → Duration)
+    final ttgData = widget.signalKService.getValue(
+        'navigation.course.calcValues.timeToGo');
+    _routeTimeToGo = ttgData?.value is num
+        ? Duration(seconds: (ttgData!.value as num).toInt())
+        : null;
+
+    // ETA (ISO 8601 string → DateTime)
+    final etaData = widget.signalKService.getValue(
+        'navigation.course.calcValues.estimatedTimeOfArrival');
+    if (etaData?.value != null) {
+      try {
+        _routeEta = DateTime.parse(etaData!.value.toString());
+      } catch (_) {
+        _routeEta = null;
+      }
+    } else {
+      _routeEta = null;
+    }
+
+    // AP state (only read when in route mode)
+    if (_routeMode) {
+      final apData = widget.signalKService.getValue(_apStatePath);
+      if (apData?.value != null) {
+        final raw = apData!.value.toString();
+        _routeApMode = raw.isNotEmpty
+            ? raw[0].toUpperCase() + raw.substring(1).toLowerCase()
+            : 'Standby';
+        _routeApEngaged = _routeApMode.toLowerCase() != 'standby';
+      }
+    }
   }
 
   // --------------- Device GPS ---------------
@@ -505,6 +597,65 @@ class _FindHomeToolState extends State<FindHomeTool> {
       cogDeg: AngleUtils.normalize(cogDeg),
       sogMs: sogMs,
       vesselSogMs: vesselSogMs,
+      isWrongWay: isWrongWay,
+    );
+  }
+
+  // --------------- Route nav computation ---------------
+
+  /// Compute route navigation data when in route mode.
+  /// Uses vessel position from SignalK and route bearing/XTE from calcValues.
+  ({
+    double bearing,
+    double deviation,
+    double distance,
+    double cogDeg,
+    double sogMs,
+    double vesselSogMs,
+    bool isWrongWay,
+  })? _computeRoute() {
+    if (_routeBearingTrue == null) return null;
+
+    // Position source: always SignalK vessel position in route mode
+    final posData = widget.signalKService.getValue(_targetPath);
+    if (posData?.value is! Map) return null;
+    final m = posData!.value as Map;
+    final skLat = m['latitude'];
+    final skLon = m['longitude'];
+    if (skLat is! num || skLon is! num) return null;
+
+    // COG/SOG from vessel
+    final cogData = widget.signalKService.getValue(_trackCogPath);
+    final sogData = widget.signalKService.getValue(_trackSogPath);
+    final sogMs = (sogData?.value as num?)?.toDouble() ?? 0.0;
+    final cogRad = (cogData?.value as num?)?.toDouble();
+    final cogDeg = cogRad != null ? cogRad * 180.0 / math.pi : 0.0;
+
+    // Bearing: from route calcValues
+    final bearing = _routeBearingTrue!;
+
+    // Deviation: XTE mapped to degrees for runway display
+    double deviation = 0.0;
+    if (_routeXteMeters != null) {
+      deviation =
+          (_routeXteMeters! / _routeXteScaleMeters) * _maxDeviation;
+      deviation = deviation.clamp(-_maxDeviation, _maxDeviation);
+    } else if (sogMs >= _sogThreshold) {
+      // Fallback: COG vs bearing deviation
+      deviation = AngleUtils.difference(cogDeg, bearing);
+    }
+
+    final distance = _routeDistanceMeters ?? 0.0;
+    final isWrongWay = sogMs >= _sogThreshold &&
+        AngleUtils.difference(cogDeg, bearing).abs() > 90.0;
+
+    return (
+      bearing: AngleUtils.normalize(bearing),
+      deviation: deviation,
+      distance: distance,
+      cogDeg: AngleUtils.normalize(cogDeg),
+      sogMs: sogMs,
+      vesselSogMs: sogMs, // same vessel in route mode
       isWrongWay: isWrongWay,
     );
   }
@@ -810,6 +961,171 @@ class _FindHomeToolState extends State<FindHomeTool> {
     });
   }
 
+  // --------------- Route autopilot controls ---------------
+
+  Future<void> _initRouteAp() async {
+    _routeApService ??=
+        AutopilotCommandService(signalKService: widget.signalKService);
+    await _routeApService!.detect();
+    widget.signalKService.subscribeToPaths([_apStatePath], ownerId: _ownerId);
+    // Wire AP service into arrival monitor
+    _routeArrivalMonitor?.apService = _routeApService;
+  }
+
+  void _toggleRouteMode() {
+    if (_routeMode) {
+      _routeArrivalMonitor?.stop();
+      _arrivalSub?.cancel();
+      _arrivalSub = null;
+      setState(() => _routeMode = false);
+    } else {
+      _disengageAutoDodge();
+      setState(() {
+        _routeMode = true;
+        _dodgeMode = false;
+      });
+      // Re-subscribe to route paths — the server may not have been
+      // streaming them if the route was activated after our initial subscribe.
+      widget.signalKService.subscribeToPaths(
+        [..._routePaths, _apStatePath],
+        ownerId: _ownerId,
+      );
+      if (_routeApService == null || !_routeApService!.isDetected) {
+        _initRouteAp();
+      }
+      _startArrivalMonitor();
+    }
+  }
+
+  void _startArrivalMonitor() {
+    _routeArrivalMonitor ??=
+        RouteArrivalMonitor(signalKService: widget.signalKService);
+    _routeArrivalMonitor!.apService = _routeApService;
+    _arrivalSub?.cancel();
+    _arrivalSub = _routeArrivalMonitor!.arrivalStream.listen(_onWaypointArrival);
+    _routeArrivalMonitor!.start();
+  }
+
+  void _onWaypointArrival(RouteArrivalEvent event) {
+    if (!mounted || !_routeMode) return;
+
+    if (event.isLastWaypoint) {
+      // Last waypoint — offer to end route
+      showCountdownConfirmation(
+        context: context,
+        title: 'Final Waypoint Reached',
+        action: 'End Route',
+      ).then((confirmed) {
+        if (confirmed) _toggleRouteMode();
+      });
+    } else {
+      // Auto-advance with countdown
+      showCountdownConfirmation(
+        context: context,
+        title: 'Waypoint ${event.pointIndex + 1}/${event.pointTotal} Reached',
+        action: 'Next Waypoint',
+      ).then((confirmed) {
+        if (confirmed) {
+          _routeApCommand(
+            'Advance Waypoint',
+            () => _routeArrivalMonitor!.advance(),
+          );
+        }
+      });
+    }
+  }
+
+  /// Shared snackbar wrapper for route AP commands.
+  Future<void> _routeApCommand(
+    String desc,
+    Future<void> Function() cmd, {
+    String? verifyPath,
+    dynamic verifyValue,
+  }) async {
+    try {
+      await cmd();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('$desc...'),
+            backgroundColor: Colors.orange,
+            duration: const Duration(seconds: 5),
+          ),
+        );
+      }
+      if (verifyPath != null && verifyValue != null) {
+        final verifier = AutopilotStateVerifier(
+          widget.signalKService,
+          timeout: const Duration(seconds: 10),
+        );
+        final ok = await verifier.verifyChange(
+          path: verifyPath,
+          expectedValue: verifyValue,
+        );
+        if (mounted) {
+          ScaffoldMessenger.of(context).clearSnackBars();
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                ok ? 'Command successful' : 'Command sent but not confirmed',
+              ),
+              backgroundColor: ok ? Colors.green : Colors.orange,
+              duration: const Duration(seconds: 3),
+            ),
+          );
+        }
+      }
+    } on AutopilotException catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).clearSnackBars();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(e.getUserFriendlyMessage()),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).clearSnackBars();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Command failed: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  void _routeEngageDisengage() => _routeApCommand(
+        _routeApEngaged ? 'Disengage' : 'Engage',
+        () => _routeApEngaged
+            ? _routeApService!.disengage()
+            : _routeApService!.engage(),
+        verifyPath: _apStatePath,
+        verifyValue: _routeApEngaged ? 'standby' : 'auto',
+      );
+
+  void _routeAdjustHeading(int deg) => _routeApCommand(
+        'Adjust ${deg > 0 ? "+" : ""}$deg\u00B0',
+        () => _routeApService!.adjustHeading(deg),
+      );
+
+  void _routeAdvanceWaypoint() async {
+    final confirmed = await showCountdownConfirmation(
+      context: context,
+      title: 'Advance to Next Waypoint?',
+      action: 'Advance Waypoint',
+    );
+    if (!confirmed) return;
+    _routeApCommand(
+      'Advance Waypoint',
+      () => _routeApService!.advanceWaypoint(),
+    );
+  }
+
+
   // --------------- Feedback engine ---------------
 
   void _toggleActive() {
@@ -1032,6 +1348,18 @@ class _FindHomeToolState extends State<FindHomeTool> {
     return '$mins:${secs.toString().padLeft(2, '0')}';
   }
 
+  /// Format a Duration as h:mm or m:ss
+  String _formatDuration(Duration d) {
+    final totalMins = d.inMinutes;
+    if (totalMins >= 60) {
+      final hrs = totalMins ~/ 60;
+      final mins = totalMins % 60;
+      return '$hrs:${mins.toString().padLeft(2, '0')}';
+    }
+    final secs = d.inSeconds % 60;
+    return '$totalMins:${secs.toString().padLeft(2, '0')}';
+  }
+
   /// Format lat/lon in degrees decimal minutes
   String _formatDDM(double lat, double lon) {
     String fmt(double v, String pos, String neg) {
@@ -1049,6 +1377,26 @@ class _FindHomeToolState extends State<FindHomeTool> {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    // Route mode: compute from route data (independent of home/AIS target)
+    if (_routeMode) {
+      final routeNav = _computeRoute();
+      if (routeNav == null) {
+        return _buildNoActiveRoute(isDark);
+      }
+      return _buildRunway(
+        bearing: routeNav.bearing,
+        deviation: routeNav.deviation,
+        distance: routeNav.distance,
+        cogDeg: routeNav.cogDeg,
+        sogMs: routeNav.sogMs,
+        vesselSogMs: routeNav.vesselSogMs,
+        isWrongWay: routeNav.isWrongWay,
+        isDark: isDark,
+        inDodge: false,
+        inRoute: true,
+      );
+    }
 
     // Check for target position (manual or SignalK)
     final (homeLat, _) = _getTargetPosition();
@@ -1089,9 +1437,36 @@ class _FindHomeToolState extends State<FindHomeTool> {
     final displayVesselSogMs = inDodge ? dodgeNav.vesselSogMs : nav.vesselSogMs;
     final displayIsWrongWay = inDodge ? dodgeNav.isWrongWay : nav.isWrongWay;
 
-    final distMeta = _pickDistanceMeta(displayDistance);
-    // Derive metersPerUnit from metadata for the runway painter
-    double metersPerUnit = 1.0; // fallback: SI meters
+    return _buildRunway(
+      bearing: displayBearing,
+      deviation: displayDeviation,
+      distance: displayDistance,
+      cogDeg: displayCogDeg,
+      sogMs: displaySogMs,
+      vesselSogMs: displayVesselSogMs,
+      isWrongWay: displayIsWrongWay,
+      isDark: isDark,
+      inDodge: inDodge,
+      inRoute: false,
+      dodgeTargetCogDeg: dodgeNav?.targetCogDeg,
+    );
+  }
+
+  Widget _buildRunway({
+    required double bearing,
+    required double deviation,
+    required double distance,
+    required double cogDeg,
+    required double sogMs,
+    required double vesselSogMs,
+    required bool isWrongWay,
+    required bool isDark,
+    required bool inDodge,
+    required bool inRoute,
+    double? dodgeTargetCogDeg,
+  }) {
+    final distMeta = _pickDistanceMeta(distance);
+    double metersPerUnit = 1.0;
     String unitSymbol = 'm';
     if (distMeta != null) {
       final oneConverted = distMeta.convert(1.0);
@@ -1104,60 +1479,94 @@ class _FindHomeToolState extends State<FindHomeTool> {
     return Column(
       children: [
         _buildHeader(
-          bearing: displayBearing,
-          deviation: displayDeviation,
-          distance: displayDistance,
-          cogDeg: displayCogDeg,
-          sogMs: displaySogMs,
-          vesselSogMs: displayVesselSogMs,
-          isWrongWay: displayIsWrongWay,
+          bearing: bearing,
+          deviation: deviation,
+          distance: distance,
+          cogDeg: cogDeg,
+          sogMs: sogMs,
+          vesselSogMs: vesselSogMs,
+          isWrongWay: isWrongWay,
           isDark: isDark,
           inDodge: inDodge,
+          inRoute: inRoute,
         ),
         Expanded(
           child: ClipRect(
             child: CustomPaint(
               painter: _RunwayPainter(
-                deviation: displayDeviation,
+                deviation: deviation,
                 maxDeviation: _maxDeviation,
-                distanceMeters: displayDistance,
+                distanceMeters: distance,
                 metersPerUnit: metersPerUnit,
                 unitSymbol: unitSymbol,
                 isDark: isDark,
                 active: _active,
                 hapticThreshold: _hapticDeviationThreshold,
-                    isWrongWay: displayIsWrongWay,
-                    isAisMode: _aisVesselId != null,
-                    isStaleTarget: _aisTargetStale,
-                    isTrackMode: _trackMode,
-                    isDodgeMode: inDodge,
-                    targetCogDeg: dodgeNav?.targetCogDeg,
-                    isBowPass: _dodgeBowPass,
-                    sunAltitudeDeg: _sunAltitudeDeg,
-                    sunAzimuthDeg: _sunAzimuthDeg,
-                    moonAltitudeDeg: _moonAltitudeDeg,
-                    moonAzimuthDeg: _moonAzimuthDeg,
-                    moonPhase: _moonPhase,
-                    moonFraction: _moonFraction,
-                    vesselCogDeg: displayCogDeg,
-                    vesselLatitude: _devicePosition?.latitude ?? 0,
-                  ),
-                  size: Size.infinite,
-                ),
+                isWrongWay: isWrongWay,
+                isAisMode: _aisVesselId != null,
+                isStaleTarget: _aisTargetStale,
+                isTrackMode: _trackMode || inRoute,
+                isDodgeMode: inDodge,
+                isRouteMode: inRoute,
+                targetCogDeg: dodgeTargetCogDeg,
+                isBowPass: _dodgeBowPass,
+                sunAltitudeDeg: _sunAltitudeDeg,
+                sunAzimuthDeg: _sunAzimuthDeg,
+                moonAltitudeDeg: _moonAltitudeDeg,
+                moonAzimuthDeg: _moonAzimuthDeg,
+                moonPhase: _moonPhase,
+                moonFraction: _moonFraction,
+                vesselCogDeg: cogDeg,
+                vesselLatitude: _devicePosition?.latitude ?? 0,
               ),
+              size: Size.infinite,
             ),
-            _buildFooter(
-              bearing: displayBearing,
-              deviation: displayDeviation,
-              distance: displayDistance,
-              cogDeg: displayCogDeg,
-              sogMs: displaySogMs,
-              vesselSogMs: displayVesselSogMs,
-              isWrongWay: displayIsWrongWay,
-              isDark: isDark,
-              inDodge: inDodge,
-            ),
+          ),
+        ),
+        _buildFooter(
+          bearing: bearing,
+          deviation: deviation,
+          distance: distance,
+          cogDeg: cogDeg,
+          sogMs: sogMs,
+          vesselSogMs: vesselSogMs,
+          isWrongWay: isWrongWay,
+          isDark: isDark,
+          inDodge: inDodge,
+          inRoute: inRoute,
+        ),
       ],
+    );
+  }
+
+  Widget _buildNoActiveRoute(bool isDark) {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const Icon(Icons.route, size: 32, color: Colors.grey),
+          const SizedBox(height: 8),
+          const Text(
+            'No active route',
+            style: TextStyle(color: Colors.grey),
+          ),
+          const SizedBox(height: 4),
+          const Text(
+            'Activate a route on the SignalK server',
+            style: TextStyle(color: Colors.grey, fontSize: 12),
+          ),
+          const SizedBox(height: 12),
+          ElevatedButton.icon(
+            onPressed: _toggleRouteMode,
+            icon: const Icon(Icons.close, size: 18),
+            label: const Text('Exit Route'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.grey,
+              foregroundColor: Colors.white,
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -1265,16 +1674,19 @@ class _FindHomeToolState extends State<FindHomeTool> {
     required bool isWrongWay,
     required bool isDark,
     required bool inDodge,
+    bool inRoute = false,
   }) {
     final textColor = isDark ? Colors.white : Colors.black87;
     final labelColor = isDark ? Colors.white60 : Colors.black54;
     final (homeLat, homeLon) = _getTargetPosition();
     final hasManual = _manualLat != null && _manualLon != null;
     final inAisMode = _aisVesselId != null;
-    final headerTitle = inDodge ? 'DODGE' : 'FIND HOME';
-    final headerColor = inDodge
-        ? (_dodgeBowPass ? Colors.orange : Colors.cyan)
-        : labelColor;
+    final headerTitle = inRoute ? 'ROUTE' : (inDodge ? 'DODGE' : 'FIND HOME');
+    final headerColor = inRoute
+        ? Colors.green
+        : inDodge
+            ? (_dodgeBowPass ? Colors.orange : Colors.cyan)
+            : labelColor;
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(12, 8, 40, 4),
@@ -1292,7 +1704,7 @@ class _FindHomeToolState extends State<FindHomeTool> {
                       style: TextStyle(
                         fontSize: 13,
                         fontWeight: FontWeight.bold,
-                        color: inDodge ? headerColor : labelColor,
+                        color: (inDodge || inRoute) ? headerColor : labelColor,
                         letterSpacing: 1.2,
                       ),
                     ),
@@ -1318,7 +1730,7 @@ class _FindHomeToolState extends State<FindHomeTool> {
                         child: Icon(Icons.close, size: 14, color: headerColor),
                       ),
                     ],
-                    if (!inAisMode) ...[
+                    if (!inAisMode && !inRoute) ...[
                       const SizedBox(width: 6),
                       GestureDetector(
                         behavior: HitTestBehavior.opaque,
@@ -1340,19 +1752,30 @@ class _FindHomeToolState extends State<FindHomeTool> {
                 ),
               ),
               Text(
-                inDodge
-                    ? 'APEX ${_formatDistance(distance)}'
-                    : _formatDistance(distance),
+                inRoute
+                    ? 'DTW ${_formatDistance(distance)}'
+                    : inDodge
+                        ? 'APEX ${_formatDistance(distance)}'
+                        : _formatDistance(distance),
                 style: TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.bold,
                   fontFamily: 'monospace',
-                  color: inDodge ? headerColor : textColor,
+                  color: (inDodge || inRoute) ? headerColor : textColor,
                 ),
               ),
             ],
           ),
-          if (inDodge)
+          if (inRoute)
+            Text(
+              _routeEta != null
+                  ? 'ETA ${_routeEta!.toLocal().hour.toString().padLeft(2, '0')}:${_routeEta!.toLocal().minute.toString().padLeft(2, '0')}  BRG ${_formatAngle(bearing)}'
+                  : _routeTimeToGo != null
+                      ? 'TTW ${_formatDuration(_routeTimeToGo!)}  BRG ${_formatAngle(bearing)}'
+                      : 'BRG ${_formatAngle(bearing)}',
+              style: TextStyle(fontSize: 10, color: headerColor, fontFamily: 'monospace'),
+            )
+          else if (inDodge)
             Text(
               '${_dodgeBowPass ? 'BOW' : 'STERN'} PASS @ ${_formatDistance(_dodgeSafeDistanceM)}  STR ${_formatAngle(bearing)}',
               style: TextStyle(fontSize: 10, color: headerColor, fontFamily: 'monospace'),
@@ -1367,6 +1790,34 @@ class _FindHomeToolState extends State<FindHomeTool> {
     );
   }
 
+  Widget _buildPillButton(
+    String label,
+    Color color,
+    VoidCallback onTap, {
+    bool enabled = true,
+  }) {
+    final effectiveColor = enabled ? color : Colors.grey.withValues(alpha: 0.4);
+    return GestureDetector(
+      onTap: enabled ? onTap : null,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+        decoration: BoxDecoration(
+          color: effectiveColor.withValues(alpha: enabled ? 0.2 : 0.1),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: effectiveColor, width: 1),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 10,
+            fontWeight: FontWeight.bold,
+            color: effectiveColor,
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildFooter({
     required double bearing,
     required double deviation,
@@ -1377,6 +1828,7 @@ class _FindHomeToolState extends State<FindHomeTool> {
     required bool isWrongWay,
     required bool isDark,
     required bool inDodge,
+    bool inRoute = false,
   }) {
     final labelColor = isDark ? Colors.white60 : Colors.black54;
     final absDev = deviation.abs();
@@ -1386,6 +1838,15 @@ class _FindHomeToolState extends State<FindHomeTool> {
     Color devColor;
     if (isWrongWay) {
       devColor = Colors.red;
+    } else if (inRoute) {
+      // XTE-based coloring: tighter thresholds
+      if (absDev < 5) {
+        devColor = Colors.green;
+      } else if (absDev < 15) {
+        devColor = Colors.amber;
+      } else {
+        devColor = Colors.red;
+      }
     } else if (absDev < 5) {
       devColor = Colors.green;
     } else if (absDev < 15) {
@@ -1394,23 +1855,38 @@ class _FindHomeToolState extends State<FindHomeTool> {
       devColor = Colors.red;
     }
 
-    final devLabel = isWrongWay
-        ? 'WRONG WAY'
-        : 'DEV ${absDev.toStringAsFixed(0)}° $devSide';
-    final etaLabel = isWrongWay
-        ? 'ETA --:--'
-        : 'ETA ${_formatEta(distance, sogMs)}';
+    final String devLabel;
+    if (isWrongWay) {
+      devLabel = 'WRONG WAY';
+    } else if (inRoute && _routeXteMeters != null) {
+      // Show XTE in distance units with port/starboard
+      final xteSide = _routeXteMeters! > 0 ? 'S' : 'P';
+      devLabel = 'XTE ${_formatDistance(_routeXteMeters!.abs())} $xteSide';
+    } else {
+      devLabel = 'DEV ${absDev.toStringAsFixed(0)}\u00B0 $devSide';
+    }
 
-    // Labels change based on AIS mode, track mode, and dodge mode
+    final String etaLabel;
+    if (isWrongWay) {
+      etaLabel = 'ETA --:--';
+    } else if (inRoute && _routeTimeToGo != null) {
+      etaLabel = 'TTW ${_formatDuration(_routeTimeToGo!)}';
+    } else {
+      etaLabel = 'ETA ${_formatEta(distance, sogMs)}';
+    }
+
+    // Labels change based on AIS mode, track mode, dodge mode, route mode
     final String bearingLabel;
-    if (inDodge) {
+    if (inRoute) {
+      bearingLabel = 'WPT ${_formatAngle(bearing)}';
+    } else if (inDodge) {
       bearingLabel = 'STR ${_formatAngle(bearing)}';
     } else if (inAisMode) {
       bearingLabel = 'TO ${_aisVesselName ?? 'AIS'}';
     } else {
       bearingLabel = 'TO BOAT';
     }
-    final youLabel = _trackMode ? 'VESSEL' : 'YOU';
+    final youLabel = (inRoute || _trackMode) ? 'VESSEL' : 'YOU';
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
@@ -1426,9 +1902,9 @@ class _FindHomeToolState extends State<FindHomeTool> {
               ),
               Flexible(
                 child: Text(
-                  inDodge ? bearingLabel : '$bearingLabel ${_formatAngle(bearing)}',
+                  (inDodge || inRoute) ? bearingLabel : '$bearingLabel ${_formatAngle(bearing)}',
                   style: TextStyle(
-                      fontSize: 12, fontFamily: 'monospace', color: inDodge ? (_dodgeBowPass ? Colors.orange : Colors.cyan) : labelColor),
+                      fontSize: 12, fontFamily: 'monospace', color: inRoute ? Colors.green : inDodge ? (_dodgeBowPass ? Colors.orange : Colors.cyan) : labelColor),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
@@ -1449,7 +1925,7 @@ class _FindHomeToolState extends State<FindHomeTool> {
                 ),
               ),
               Text(
-                '$youLabel ${_formatSpeed(sogMs, skPath: _trackMode ? 'navigation.speedOverGround' : null)}',
+                '$youLabel ${_formatSpeed(sogMs, skPath: (_trackMode || inRoute) ? 'navigation.speedOverGround' : null)}',
                 style: TextStyle(
                     fontSize: 12, fontFamily: 'monospace', color: labelColor),
               ),
@@ -1464,7 +1940,17 @@ class _FindHomeToolState extends State<FindHomeTool> {
                 style: TextStyle(
                     fontSize: 12, fontFamily: 'monospace', color: labelColor),
               ),
-              if (inDodge)
+              if (inRoute)
+                Text(
+                  'AP ${_routeApMode.toUpperCase()}',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontFamily: 'monospace',
+                    fontWeight: FontWeight.bold,
+                    color: _routeApEngaged ? Colors.green : Colors.grey,
+                  ),
+                )
+              else if (inDodge)
                 Text(
                   '${_dodgeBowPass ? 'BOW' : 'STERN'} PASS',
                   style: TextStyle(
@@ -1486,6 +1972,80 @@ class _FindHomeToolState extends State<FindHomeTool> {
           Row(
             mainAxisAlignment: MainAxisAlignment.end,
             children: [
+                  // ROUTE button (visible when not in AIS mode)
+                  // Always tappable — route data may arrive after subscribe
+                  if (!inAisMode) ...[
+                    GestureDetector(
+                      onTap: _toggleRouteMode,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: _routeMode
+                              ? Colors.green.withValues(alpha: 0.3)
+                              : Colors.grey.withValues(alpha: 0.2),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: _routeMode ? Colors.green : Colors.grey,
+                            width: 1,
+                          ),
+                        ),
+                        child: Text(
+                          'ROUTE',
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
+                            color: _routeMode ? Colors.green : Colors.grey,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                  ],
+                  // Route AP controls (when route mode active and AP detected)
+                  if (inRoute && _routeApService?.isDetected == true) ...[
+                    _buildPillButton('-10', Colors.red, () => _routeAdjustHeading(-10),
+                        enabled: _routeApEngaged),
+                    const SizedBox(width: 4),
+                    _buildPillButton('-1', Colors.red, () => _routeAdjustHeading(-1),
+                        enabled: _routeApEngaged),
+                    const SizedBox(width: 4),
+                    GestureDetector(
+                      onTap: _routeEngageDisengage,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: _routeApEngaged
+                              ? Colors.green.withValues(alpha: 0.3)
+                              : Colors.grey.withValues(alpha: 0.2),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: _routeApEngaged ? Colors.green : Colors.grey,
+                            width: 1,
+                          ),
+                        ),
+                        child: Text(
+                          _routeApEngaged ? _routeApMode.toUpperCase() : 'STBY',
+                          style: TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold,
+                            color: _routeApEngaged ? Colors.green : Colors.grey,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    _buildPillButton('+1', Colors.green, () => _routeAdjustHeading(1),
+                        enabled: _routeApEngaged),
+                    const SizedBox(width: 4),
+                    _buildPillButton('+10', Colors.green, () => _routeAdjustHeading(10),
+                        enabled: _routeApEngaged),
+                    const SizedBox(width: 4),
+                    _buildPillButton('WPT\u203A', Colors.blue, _routeAdvanceWaypoint,
+                        enabled: _routeApEngaged),
+                    const SizedBox(width: 8),
+                  ],
                   // Return-to-home button + Track/Dodge toggles (only in AIS mode)
                   if (inAisMode) ...[
                     // HOME button
@@ -2173,6 +2733,7 @@ class _RunwayPainter extends CustomPainter {
   final bool isStaleTarget;
   final bool isTrackMode;
   final bool isDodgeMode;
+  final bool isRouteMode;
   final double? targetCogDeg;
   final bool isBowPass;
   final double sunAltitudeDeg;
@@ -2198,6 +2759,7 @@ class _RunwayPainter extends CustomPainter {
     this.isStaleTarget = false,
     this.isTrackMode = false,
     this.isDodgeMode = false,
+    this.isRouteMode = false,
     this.targetCogDeg,
     this.isBowPass = false,
     this.sunAltitudeDeg = -90,
@@ -2497,6 +3059,8 @@ class _RunwayPainter extends CustomPainter {
     if (isDodgeMode && targetCogDeg != null) {
       // In dodge mode: draw target vessel chevron rotated to its COG
       _drawTargetVesselAtApex(canvas, Offset(centerX, apexY + 10), targetCogDeg!);
+    } else if (isRouteMode) {
+      _drawWaypointIcon(canvas, Offset(centerX, apexY + 10));
     } else if (isAisMode) {
       _drawVesselIcon(canvas, Offset(centerX, apexY - 8));
     } else if (isTrackMode) {
@@ -2520,6 +3084,18 @@ class _RunwayPainter extends CustomPainter {
         textDirection: TextDirection.ltr,
       )..layout();
       labelTp.paint(canvas, Offset(centerX - labelTp.width / 2, apexY - 4));
+    } else if (isRouteMode) {
+      const wptStyle = TextStyle(
+        fontSize: 9,
+        fontWeight: FontWeight.w900,
+        color: Colors.green,
+        letterSpacing: 0.5,
+      );
+      final wptTp = TextPainter(
+        text: const TextSpan(text: 'WPT', style: wptStyle),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      wptTp.paint(canvas, Offset(centerX - wptTp.width / 2, apexY - 4));
     } else if (isAisMode) {
       final aisColor = isStaleTarget ? Colors.orange : Colors.cyan;
       final aisStyle = TextStyle(
@@ -2725,6 +3301,34 @@ class _RunwayPainter extends CustomPainter {
     if (value >= 1) return value.toStringAsFixed(1);
     if (value >= 0.1) return value.toStringAsFixed(2);
     return value.toStringAsFixed(3);
+  }
+
+  /// Draw a waypoint flag icon for route mode apex.
+  void _drawWaypointIcon(Canvas canvas, Offset center) {
+    const color = Colors.green;
+    final paint = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.0;
+    final fillPaint = Paint()
+      ..color = color.withValues(alpha: 0.6)
+      ..style = PaintingStyle.fill;
+
+    final x = center.dx;
+    final y = center.dy;
+
+    // Pole
+    canvas.drawLine(Offset(x, y - 8), Offset(x, y + 8), paint);
+    // Flag triangle
+    final flag = Path()
+      ..moveTo(x, y - 8)
+      ..lineTo(x + 8, y - 4)
+      ..lineTo(x, y)
+      ..close();
+    canvas.drawPath(flag, fillPaint);
+    canvas.drawPath(flag, paint);
+    // Base dot
+    canvas.drawCircle(Offset(x, y + 8), 2, fillPaint);
   }
 
   void _drawAnchorIcon(Canvas canvas, Offset center) {
@@ -2935,6 +3539,7 @@ class _RunwayPainter extends CustomPainter {
         oldDelegate.isStaleTarget != isStaleTarget ||
         oldDelegate.isTrackMode != isTrackMode ||
         oldDelegate.isDodgeMode != isDodgeMode ||
+        oldDelegate.isRouteMode != isRouteMode ||
         oldDelegate.targetCogDeg != targetCogDeg ||
         oldDelegate.isBowPass != isBowPass ||
         oldDelegate.sunAltitudeDeg != sunAltitudeDeg ||
@@ -2989,6 +3594,7 @@ class FindHomeToolBuilder extends ToolBuilder {
           'trackCogPath': 'navigation.courseOverGroundTrue',
           'trackSogPath': 'navigation.speedOverGround',
           'dodgeDistance': 300.0, // meters (SI) — displayed via MetadataStore
+          'routeXteScale': 185.2, // meters (0.1nm) — full deflection XTE
         },
       ),
     );
