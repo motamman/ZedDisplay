@@ -287,77 +287,6 @@ class SunMoonArcWidget extends StatelessWidget {
 
     // Add sunrise/sunset/solar noon and moon markers for days within arc range
     for (final day in arcDays) {
-      // Sunrise marker
-      if (config.showSunMarkers &&
-          day.sunrise != null &&
-          day.sunrise!.isAfter(arcStart) &&
-          day.sunrise!.isBefore(arcEnd)) {
-        final sunrisePos = getArcPosition(day.sunrise!, size: 20 * scale);
-        if (sunrisePos != null) {
-          children.add(
-            Positioned(
-              left: sunrisePos.$1,
-              top: sunrisePos.$2,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    Icons.arrow_upward,
-                    color: Colors.amber.shade600,
-                    size: 10 * scale,
-                  ),
-                  Icon(Icons.wb_sunny, color: Colors.amber, size: 16 * scale),
-                ],
-              ),
-            ),
-          );
-        }
-      }
-
-      // Sunset marker
-      if (config.showSunMarkers &&
-          day.sunset != null &&
-          day.sunset!.isAfter(arcStart) &&
-          day.sunset!.isBefore(arcEnd)) {
-        final sunsetPos = getArcPosition(day.sunset!, size: 20 * scale);
-        if (sunsetPos != null) {
-          children.add(
-            Positioned(
-              left: sunsetPos.$1,
-              top: sunsetPos.$2 - 10 * scale,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.wb_sunny, color: Colors.deepOrange, size: 16 * scale),
-                  Icon(
-                    Icons.arrow_downward,
-                    color: Colors.deepOrange.shade600,
-                    size: 10 * scale,
-                  ),
-                ],
-              ),
-            ),
-          );
-        }
-      }
-
-      // Solar noon marker (sun at max height)
-      if (config.showSunMarkers &&
-          day.solarNoon != null &&
-          day.solarNoon!.isAfter(arcStart) &&
-          day.solarNoon!.isBefore(arcEnd)) {
-        final noonPos = getArcPosition(day.solarNoon!, size: 24 * scale);
-        if (noonPos != null) {
-          children.add(
-            Positioned(
-              left: noonPos.$1,
-              top: noonPos.$2 - 8 * scale,
-              child: Icon(Icons.wb_sunny, color: Colors.amber, size: 24 * scale),
-            ),
-          );
-        }
-      }
-
       // Moonrise marker
       if (config.showMoonMarkers &&
           day.moonrise != null &&
@@ -435,6 +364,77 @@ class SunMoonArcWidget extends StatelessWidget {
               ),
             );
           }
+        }
+      }
+
+      // Sunrise marker
+      if (config.showSunMarkers &&
+          day.sunrise != null &&
+          day.sunrise!.isAfter(arcStart) &&
+          day.sunrise!.isBefore(arcEnd)) {
+        final sunrisePos = getArcPosition(day.sunrise!, size: 20 * scale);
+        if (sunrisePos != null) {
+          children.add(
+            Positioned(
+              left: sunrisePos.$1,
+              top: sunrisePos.$2,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.arrow_upward,
+                    color: Colors.amber.shade600,
+                    size: 10 * scale,
+                  ),
+                  Icon(Icons.wb_sunny, color: Colors.amber, size: 16 * scale),
+                ],
+              ),
+            ),
+          );
+        }
+      }
+
+      // Sunset marker
+      if (config.showSunMarkers &&
+          day.sunset != null &&
+          day.sunset!.isAfter(arcStart) &&
+          day.sunset!.isBefore(arcEnd)) {
+        final sunsetPos = getArcPosition(day.sunset!, size: 20 * scale);
+        if (sunsetPos != null) {
+          children.add(
+            Positioned(
+              left: sunsetPos.$1,
+              top: sunsetPos.$2 - 10 * scale,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.wb_sunny, color: Colors.deepOrange, size: 16 * scale),
+                  Icon(
+                    Icons.arrow_downward,
+                    color: Colors.deepOrange.shade600,
+                    size: 10 * scale,
+                  ),
+                ],
+              ),
+            ),
+          );
+        }
+      }
+
+      // Solar noon marker (sun at max height)
+      if (config.showSunMarkers &&
+          day.solarNoon != null &&
+          day.solarNoon!.isAfter(arcStart) &&
+          day.solarNoon!.isBefore(arcEnd)) {
+        final noonPos = getArcPosition(day.solarNoon!, size: 24 * scale);
+        if (noonPos != null) {
+          children.add(
+            Positioned(
+              left: noonPos.$1,
+              top: noonPos.$2 - 8 * scale,
+              child: Icon(Icons.wb_sunny, color: Colors.amber, size: 24 * scale),
+            ),
+          );
         }
       }
 

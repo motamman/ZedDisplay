@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io' show Platform;
 import 'dart:math' as math;
+import 'dart:ui' as ui;
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
@@ -142,6 +143,7 @@ class _FindHomeToolState extends State<FindHomeTool> {
   StreamSubscription<RouteArrivalEvent>? _arrivalSub;
   bool _routeApEngaged = false;
   String _routeApMode = 'Standby';
+  bool _routeDodgeActive = false;
   double? _routeBearingTrue;       // degrees (converted from radians)
   double? _routeXteMeters;         // signed: +starboard, -port
   double? _routeDistanceMeters;
@@ -1149,6 +1151,29 @@ class _FindHomeToolState extends State<FindHomeTool> {
     );
   }
 
+  void _routeDodgeToggle() async {
+    if (_routeApService == null || !_routeApService!.isV2) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Dodge mode requires V2 API'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+      return;
+    }
+    final newState = !_routeDodgeActive;
+    await _routeApCommand(
+      newState ? 'Activate dodge' : 'Deactivate dodge',
+      () => newState
+          ? _routeApService!.activateDodge()
+          : _routeApService!.deactivateDodge(),
+    );
+    if (mounted) {
+      setState(() => _routeDodgeActive = newState);
+    }
+  }
 
   // --------------- Feedback engine ---------------
 
@@ -2037,12 +2062,7 @@ class _FindHomeToolState extends State<FindHomeTool> {
                   ],
                   // Route AP controls (when route mode active and AP detected)
                   if (inRoute && _routeApService?.isDetected == true) ...[
-                    _buildPillButton('-10', Colors.red, () => _routeAdjustHeading(-10),
-                        enabled: _routeApEngaged),
-                    const SizedBox(width: 4),
-                    _buildPillButton('-1', Colors.red, () => _routeAdjustHeading(-1),
-                        enabled: _routeApEngaged),
-                    const SizedBox(width: 4),
+                    // Engage/Stop
                     GestureDetector(
                       onTap: _routeEngageDisengage,
                       child: Container(
@@ -2050,33 +2070,54 @@ class _FindHomeToolState extends State<FindHomeTool> {
                             horizontal: 8, vertical: 4),
                         decoration: BoxDecoration(
                           color: _routeApEngaged
-                              ? Colors.green.withValues(alpha: 0.3)
-                              : Colors.grey.withValues(alpha: 0.2),
+                              ? const Color(0xFFFF1744).withValues(alpha: 0.3)
+                              : const Color(0xFF00E676).withValues(alpha: 0.3),
                           borderRadius: BorderRadius.circular(12),
                           border: Border.all(
-                            color: _routeApEngaged ? Colors.green : Colors.grey,
+                            color: _routeApEngaged
+                                ? const Color(0xFFFF1744)
+                                : const Color(0xFF00E676),
                             width: 1,
                           ),
                         ),
                         child: Text(
-                          _routeApEngaged ? _routeApMode.toUpperCase() : 'STBY',
+                          _routeApEngaged ? 'STOP' : 'ENGAGE',
                           style: TextStyle(
                             fontSize: 10,
                             fontWeight: FontWeight.bold,
-                            color: _routeApEngaged ? Colors.green : Colors.grey,
+                            color: _routeApEngaged
+                                ? const Color(0xFFFF1744)
+                                : const Color(0xFF00E676),
                           ),
                         ),
                       ),
                     ),
                     const SizedBox(width: 4),
-                    _buildPillButton('+1', Colors.green, () => _routeAdjustHeading(1),
-                        enabled: _routeApEngaged),
-                    const SizedBox(width: 4),
-                    _buildPillButton('+10', Colors.green, () => _routeAdjustHeading(10),
-                        enabled: _routeApEngaged),
-                    const SizedBox(width: 4),
-                    _buildPillButton('WPT\u203A', Colors.blue, _routeAdvanceWaypoint,
-                        enabled: _routeApEngaged),
+                    // Dodge active: ±1/±10 heading adjust + EXIT
+                    if (_routeDodgeActive) ...[
+                      _buildPillButton('-10', Colors.red, () => _routeAdjustHeading(-10),
+                          enabled: _routeApEngaged),
+                      const SizedBox(width: 4),
+                      _buildPillButton('-1', Colors.red, () => _routeAdjustHeading(-1),
+                          enabled: _routeApEngaged),
+                      const SizedBox(width: 4),
+                      _buildPillButton('EXIT', Colors.orange, _routeDodgeToggle),
+                      const SizedBox(width: 4),
+                      _buildPillButton('+1', Colors.green, () => _routeAdjustHeading(1),
+                          enabled: _routeApEngaged),
+                      const SizedBox(width: 4),
+                      _buildPillButton('+10', Colors.green, () => _routeAdjustHeading(10),
+                          enabled: _routeApEngaged),
+                    ],
+                    // Not dodging: DODGE + WPT advance
+                    if (!_routeDodgeActive) ...[
+                      if (_routeApService!.isV2 && _routeApEngaged)
+                        _buildPillButton('DODGE', const Color(0xFF00B0FF), _routeDodgeToggle),
+                      if (_routeApService!.isV2 && _routeApEngaged)
+                        const SizedBox(width: 4),
+                      _buildPillButton('WPT\u203A', Colors.blue, _routeAdvanceWaypoint,
+                          enabled: _routeApEngaged),
+                    ],
                     const SizedBox(width: 8),
                   ],
                   // Return-to-home button + Track/Dodge toggles (only in AIS mode)
@@ -2994,6 +3035,47 @@ class _RunwayPainter extends CustomPainter {
         const diagLen = 6.0;
         canvas.drawLine(Offset(px - diagLen, py - diagLen), Offset(px + diagLen, py + diagLen), rayPaint);
         canvas.drawLine(Offset(px + diagLen, py - diagLen), Offset(px - diagLen, py + diagLen), rayPaint);
+      }
+    }
+
+    // Off-screen sun glow — orange corner glow when sun is above horizon but outside FOV
+    if (sunAltitudeDeg > 0) {
+      var sunRel = (sunAzimuthDeg - vesselCogDeg) % 360;
+      if (sunRel > 180) sunRel -= 360;
+      if (sunRel.abs() > skyFov) {
+        final cornerX = sunRel > 0 ? w : 0.0;
+        final glowRadius = w * 0.3;
+        canvas.drawCircle(
+          Offset(cornerX, 0),
+          glowRadius,
+          Paint()
+            ..shader = ui.Gradient.radial(
+              Offset(cornerX, 0),
+              glowRadius,
+              [Colors.orange.withValues(alpha: 0.4), Colors.orange.withValues(alpha: 0.0)],
+            ),
+        );
+      }
+    }
+
+    // Off-screen moon glow — white corner glow at night, brightness ∝ moonFraction
+    if (sunAltitudeDeg <= 0 && moonAltitudeDeg > 0) {
+      var moonRel = (moonAzimuthDeg - vesselCogDeg) % 360;
+      if (moonRel > 180) moonRel -= 360;
+      if (moonRel.abs() > skyFov) {
+        final cornerX = moonRel > 0 ? w : 0.0;
+        final glowRadius = w * 0.3;
+        final alpha = (moonFraction * 0.5).clamp(0.0, 0.5);
+        canvas.drawCircle(
+          Offset(cornerX, 0),
+          glowRadius,
+          Paint()
+            ..shader = ui.Gradient.radial(
+              Offset(cornerX, 0),
+              glowRadius,
+              [Colors.white.withValues(alpha: alpha), Colors.white.withValues(alpha: 0.0)],
+            ),
+        );
       }
     }
 
