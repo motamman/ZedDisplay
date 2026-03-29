@@ -482,10 +482,10 @@ class _AutopilotWidgetV2State extends State<AutopilotWidgetV2> {
                         ),
                       ),
 
-                      // Dodge button (Route/Nav mode, V2 API only)
+                      // Dodge button (Route/Nav mode or active dodge, V2 API only)
                       if (widget.isV2Api &&
                           widget.engaged &&
-                          (widget.mode.toLowerCase() == 'route' || widget.mode.toLowerCase() == 'nav')) ...[
+                          (widget.mode.toLowerCase() == 'route' || widget.mode.toLowerCase() == 'nav' || widget.dodgeActive)) ...[
                         const SizedBox(height: 6),
                         SizedBox(
                           width: 80,
@@ -586,7 +586,7 @@ class _AutopilotWidgetV2State extends State<AutopilotWidgetV2> {
     // Tack to Port (turn left through the wind)
     buttons.add(_buildTackGybeBanana(
       size: size,
-      startAngle: 155.0, // Left side, upper
+      startAngle: 175.0, // Left side, upper
       sweepAngle: 35.0,
       isPort: true,
       isTack: true,
@@ -602,7 +602,7 @@ class _AutopilotWidgetV2State extends State<AutopilotWidgetV2> {
     if (widget.isV2Api) {
       buttons.add(_buildTackGybeBanana(
         size: size,
-        startAngle: 195.0, // Left side, lower
+        startAngle: 135.0, // Left side, lower
         sweepAngle: 35.0,
         isPort: true,
         isTack: false,

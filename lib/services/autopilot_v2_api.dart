@@ -186,6 +186,14 @@ class AutopilotV2Api {
     await _executeCommand(url, 'POST');
   }
 
+  /// Advance to next waypoint on route (V2 only feature)
+  Future<void> courseNextPoint(String instanceId) async {
+    final url = Uri.parse(
+        '$baseUrl/signalk/v2/api/vessels/self/autopilots/$instanceId/courseNextPoint');
+
+    await _executeCommand(url, 'POST');
+  }
+
   /// Initiate gybe maneuver (V2 only feature)
   Future<void> gybe(String instanceId, String direction) async {
     final url = Uri.parse(
