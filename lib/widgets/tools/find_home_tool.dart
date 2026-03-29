@@ -67,6 +67,7 @@ class _FindHomeToolState extends State<FindHomeTool> {
     'navigation.course.calcValues.timeToGo',
     'navigation.course.calcValues.estimatedTimeOfArrival',
     'navigation.courseGreatCircle.nextPoint.position',
+    'navigation.course.activeRoute',
   ];
 
   /// Full deflection angle in degrees
@@ -146,6 +147,8 @@ class _FindHomeToolState extends State<FindHomeTool> {
   double? _routeDistanceMeters;
   Duration? _routeTimeToGo;
   DateTime? _routeEta;
+  int? _routePointIndex;
+  int? _routePointTotal;
 
   /// Safe pass distance in SI meters (from config, default 300m).
   /// Stored in SI; displayed via MetadataStore through _formatDistance().
@@ -337,6 +340,18 @@ class _FindHomeToolState extends State<FindHomeTool> {
       }
     } else {
       _routeEta = null;
+    }
+
+    // Active route info (pointIndex / pointTotal)
+    final activeRouteData = widget.signalKService.getValue(
+        'navigation.course.activeRoute');
+    if (activeRouteData?.value is Map) {
+      final m = activeRouteData!.value as Map;
+      _routePointIndex = m['pointIndex'] as int?;
+      _routePointTotal = m['pointTotal'] as int?;
+    } else {
+      _routePointIndex = null;
+      _routePointTotal = null;
     }
 
     // AP state (only read when in route mode)
@@ -1074,6 +1089,15 @@ class _FindHomeToolState extends State<FindHomeTool> {
             ),
           );
         }
+      } else if (mounted) {
+        ScaffoldMessenger.of(context).clearSnackBars();
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Command successful'),
+            backgroundColor: Colors.green,
+            duration: Duration(seconds: 3),
+          ),
+        );
       }
     } on AutopilotException catch (e) {
       if (mounted) {
@@ -1681,7 +1705,16 @@ class _FindHomeToolState extends State<FindHomeTool> {
     final (homeLat, homeLon) = _getTargetPosition();
     final hasManual = _manualLat != null && _manualLon != null;
     final inAisMode = _aisVesselId != null;
-    final headerTitle = inRoute ? 'ROUTE' : (inDodge ? 'DODGE' : 'FIND HOME');
+    final String headerTitle;
+    if (inRoute && _routePointIndex != null && _routePointTotal != null) {
+      headerTitle = 'ROUTE ${_routePointIndex! + 1}/$_routePointTotal';
+    } else if (inRoute) {
+      headerTitle = 'ROUTE';
+    } else if (inDodge) {
+      headerTitle = 'DODGE';
+    } else {
+      headerTitle = 'FIND HOME';
+    }
     final headerColor = inRoute
         ? Colors.green
         : inDodge
