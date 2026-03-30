@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/foundation.dart';
@@ -7,7 +8,14 @@ import '../../models/tool_config.dart';
 import '../../services/signalk_service.dart';
 import '../../services/tool_registry.dart';
 
-/// WebView tool for embedding web pages in the dashboard
+/// Inactivity timeout before interactive mode auto-disengages.
+const _inactivityTimeout = Duration(seconds: 10);
+
+/// WebView tool for embedding web pages in the dashboard.
+///
+/// Long-press to enter interactive mode (full gesture control for the webview,
+/// dashboard swiping disabled). After 10 seconds of no touch, interactive mode
+/// auto-disengages and dashboard swiping resumes.
 class WebViewTool extends StatefulWidget {
   final ToolConfig config;
   final SignalKService signalKService;
@@ -27,10 +35,15 @@ class _WebViewToolState extends State<WebViewTool> with AutomaticKeepAliveClient
   bool _isLoading = true;
   String? _errorMessage;
   String? _currentUrl;
-  bool _isLocked = false; // Lock mode for web interaction
+  bool _refreshVisible = true;
+  Timer? _refreshFadeTimer;
+
+  // Interactive mode — long-press to enable, auto-disables after inactivity
+  bool _interactiveMode = false;
+  Timer? _inactivityTimer;
 
   @override
-  bool get wantKeepAlive => true; // Keep WebView alive when navigating away
+  bool get wantKeepAlive => true;
 
   @override
   void initState() {
@@ -38,8 +51,14 @@ class _WebViewToolState extends State<WebViewTool> with AutomaticKeepAliveClient
     _initializeWebView();
   }
 
+  @override
+  void dispose() {
+    _refreshFadeTimer?.cancel();
+    _inactivityTimer?.cancel();
+    super.dispose();
+  }
+
   void _initializeWebView() {
-    // Get URL from config (stored in customProperties)
     _currentUrl = widget.config.style.customProperties?['url'] as String?;
 
     if (_currentUrl == null || _currentUrl!.isEmpty) {
@@ -50,7 +69,6 @@ class _WebViewToolState extends State<WebViewTool> with AutomaticKeepAliveClient
       return;
     }
 
-    // Ensure URL has a protocol
     if (!_currentUrl!.startsWith('http://') && !_currentUrl!.startsWith('https://')) {
       _currentUrl = 'http://$_currentUrl';
     }
@@ -71,9 +89,8 @@ class _WebViewToolState extends State<WebViewTool> with AutomaticKeepAliveClient
           },
           onPageFinished: (String url) {
             if (mounted) {
-              setState(() {
-                _isLoading = false;
-              });
+              setState(() => _isLoading = false);
+              _startRefreshFadeTimer();
             }
           },
           onWebResourceError: (WebResourceError error) {
@@ -87,7 +104,6 @@ class _WebViewToolState extends State<WebViewTool> with AutomaticKeepAliveClient
         ),
       );
 
-    // Set auth cookie before loading page
     _setAuthCookieAndLoad();
   }
 
@@ -112,21 +128,43 @@ class _WebViewToolState extends State<WebViewTool> with AutomaticKeepAliveClient
     setState(() {
       _isLoading = true;
       _errorMessage = null;
+      _refreshVisible = true;
     });
     _controller.reload();
   }
 
-  void _goBack() {
-    _controller.goBack();
+  void _startRefreshFadeTimer() {
+    _refreshFadeTimer?.cancel();
+    setState(() => _refreshVisible = true);
+    _refreshFadeTimer = Timer(const Duration(seconds: 3), () {
+      if (mounted) setState(() => _refreshVisible = false);
+    });
   }
 
-  void _goForward() {
-    _controller.goForward();
+  void _showRefresh() {
+    _startRefreshFadeTimer();
+  }
+
+  // --------------- Interactive mode ---------------
+
+  void _enterInteractiveMode() {
+    setState(() => _interactiveMode = true);
+    _resetInactivityTimer();
+  }
+
+  void _exitInteractiveMode() {
+    _inactivityTimer?.cancel();
+    if (mounted) setState(() => _interactiveMode = false);
+  }
+
+  void _resetInactivityTimer() {
+    _inactivityTimer?.cancel();
+    _inactivityTimer = Timer(_inactivityTimeout, _exitInteractiveMode);
   }
 
   @override
   Widget build(BuildContext context) {
-    super.build(context); // Required for AutomaticKeepAliveClientMixin
+    super.build(context);
 
     if (_errorMessage != null) {
       return Container(
@@ -176,139 +214,113 @@ class _WebViewToolState extends State<WebViewTool> with AutomaticKeepAliveClient
       );
     }
 
-    return Stack(
-      children: [
-        // WebView with full interaction enabled and gesture recognizers
-        WebViewWidget(
-          controller: _controller,
-          gestureRecognizers: {
-            Factory<VerticalDragGestureRecognizer>(
-              () => VerticalDragGestureRecognizer(),
-            ),
-            Factory<HorizontalDragGestureRecognizer>(
-              () => HorizontalDragGestureRecognizer(),
-            ),
-            Factory<ScaleGestureRecognizer>(
-              () => ScaleGestureRecognizer(),
-            ),
-            Factory<TapGestureRecognizer>(
-              () => TapGestureRecognizer(),
-            ),
-          },
+    // Gesture recognizers: full set when interactive, minimal when not
+    final recognizers = <Factory<OneSequenceGestureRecognizer>>{
+      Factory<TapGestureRecognizer>(() => TapGestureRecognizer()),
+      Factory<LongPressGestureRecognizer>(() => LongPressGestureRecognizer()
+        ..onLongPress = _enterInteractiveMode),
+    };
+    if (_interactiveMode) {
+      recognizers.addAll({
+        Factory<VerticalDragGestureRecognizer>(
+          () => VerticalDragGestureRecognizer(),
         ),
-        if (_isLoading)
-          Container(
-            color: Colors.black.withValues(alpha: 0.1),
-            child: const Center(
-              child: CircularProgressIndicator(),
-            ),
-          ),
-        // Control bar at top
-        Positioned(
-          top: 0,
-          left: 0,
-          right: 0,
-          child: Container(
-            decoration: BoxDecoration(
-              color: Colors.black.withValues(alpha: 0.7),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.3),
-                  blurRadius: 4,
-                ),
-              ],
-            ),
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-            child: Row(
-              children: [
-                IconButton(
-                  icon: const Icon(Icons.arrow_back, size: 20),
-                  color: Colors.white,
-                  onPressed: _goBack,
-                  tooltip: 'Back',
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(),
-                ),
-                const SizedBox(width: 8),
-                IconButton(
-                  icon: const Icon(Icons.arrow_forward, size: 20),
-                  color: Colors.white,
-                  onPressed: _goForward,
-                  tooltip: 'Forward',
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(),
-                ),
-                const SizedBox(width: 8),
-                IconButton(
-                  icon: const Icon(Icons.refresh, size: 20),
-                  color: Colors.white,
-                  onPressed: _reload,
-                  tooltip: 'Reload',
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(),
-                ),
-                const SizedBox(width: 8),
-                // Lock/Unlock button
-                IconButton(
-                  icon: Icon(
-                    _isLocked ? Icons.lock : Icons.lock_open,
-                    size: 20,
-                  ),
-                  color: _isLocked ? Colors.yellow : Colors.white,
-                  onPressed: () {
-                    setState(() {
-                      _isLocked = !_isLocked;
-                    });
-                  },
-                  tooltip: _isLocked ? 'Dashboard swipes blocked' : 'Dashboard swipes enabled',
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    _currentUrl!,
-                    style: const TextStyle(
-                      color: Colors.white70,
-                      fontSize: 11,
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-              ],
-            ),
-          ),
+        Factory<HorizontalDragGestureRecognizer>(
+          () => HorizontalDragGestureRecognizer(),
         ),
-        // Lock indicator overlay
-        if (_isLocked)
-          Positioned(
-            bottom: 8,
-            left: 8,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              decoration: BoxDecoration(
-                color: Colors.yellow.withValues(alpha: 0.9),
-                borderRadius: BorderRadius.circular(12),
+        Factory<ScaleGestureRecognizer>(
+          () => ScaleGestureRecognizer(),
+        ),
+      });
+    }
+
+    return Listener(
+      // Any pointer activity resets the inactivity timer
+      onPointerDown: (_) {
+        if (_interactiveMode) _resetInactivityTimer();
+      },
+      onPointerMove: (_) {
+        if (_interactiveMode) _resetInactivityTimer();
+      },
+      child: Container(
+        decoration: _interactiveMode
+            ? BoxDecoration(
+                border: Border.all(color: Colors.green, width: 2),
+              )
+            : null,
+        child: Stack(
+          children: [
+            WebViewWidget(
+              key: ValueKey('webview_interactive_$_interactiveMode'),
+              controller: _controller,
+              gestureRecognizers: recognizers,
+            ),
+            if (_isLoading)
+              Container(
+                color: Colors.black.withValues(alpha: 0.1),
+                child: const Center(
+                  child: CircularProgressIndicator(),
+                ),
               ),
-              child: const Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.lock, size: 14, color: Colors.black),
-                  SizedBox(width: 4),
-                  Text(
-                    'Dashboard swipes disabled',
-                    style: TextStyle(
-                      fontSize: 10,
-                      color: Colors.black,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ],
+            // Tap zone to reveal refresh button
+            Positioned(
+              top: 0,
+              right: 0,
+              width: 48,
+              height: 48,
+              child: GestureDetector(
+                behavior: HitTestBehavior.translucent,
+                onTap: _showRefresh,
               ),
             ),
-          ),
-      ],
+            // Floating refresh button
+            Positioned(
+              top: _interactiveMode ? 6 : 4,
+              right: _interactiveMode ? 6 : 4,
+              child: AnimatedOpacity(
+                opacity: _refreshVisible ? 1.0 : 0.0,
+                duration: const Duration(milliseconds: 300),
+                child: GestureDetector(
+                  onTap: _reload,
+                  child: Container(
+                    width: 32,
+                    height: 32,
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.5),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(Icons.refresh, size: 18, color: Colors.white70),
+                  ),
+                ),
+              ),
+            ),
+            // Interactive mode hint (shown briefly when not interactive)
+            if (!_interactiveMode && !_isLoading)
+              Positioned(
+                bottom: 4,
+                left: 0,
+                right: 0,
+                child: Center(
+                  child: AnimatedOpacity(
+                    opacity: _refreshVisible ? 0.7 : 0.0,
+                    duration: const Duration(milliseconds: 300),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: 0.5),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: const Text(
+                        'Long-press for map control',
+                        style: TextStyle(fontSize: 9, color: Colors.white60),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
     );
   }
 }

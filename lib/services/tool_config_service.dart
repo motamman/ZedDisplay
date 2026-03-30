@@ -239,7 +239,7 @@ class ToolConfigService {
     }
 
     final protocol = useSecure ? 'https' : 'http';
-    final url = Uri.parse('$protocol://$serverUrl/webapps');
+    final url = Uri.parse('$protocol://$serverUrl/skServer/webapps');
 
     final response = await http.get(url);
 
@@ -250,13 +250,15 @@ class ToolConfigService {
         final name = app['name'] as String? ?? 'Unknown';
         final version = app['version'] as String? ?? '';
         final description = app['description'] as String?;
-        final location = app['location'] as String? ?? '';
+        final displayName = (app['signalk'] is Map)
+            ? (app['signalk'] as Map)['displayName'] as String? ?? name
+            : name;
 
-        // Build full URL
-        final webappUrl = '$protocol://$serverUrl$location';
+        // Build full URL from package name (e.g., @signalk/freeboard-sk → /@signalk/freeboard-sk/)
+        final webappUrl = '$protocol://$serverUrl/$name/';
 
         return {
-          'name': name,
+          'name': displayName,
           'version': version,
           'description': description ?? 'Version $version',
           'url': webappUrl,
