@@ -100,6 +100,7 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
 
   @override
   void dispose() {
+    _stopArrivalMonitor();
     widget.signalKService.aisVesselRegistry.removeListener(_onAISUpdate);
     widget.signalKService.removeListener(_onSignalKUpdate);
     _resetSwipeBlock();
@@ -126,6 +127,7 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
     _mapReady = true;
     _pushVesselPosition();
     _pushAISVessels();
+    if (_routeCoords != null) _pushRoute();
   }
 
   void _onAutoFollowChanged(bool autoFollow, {bool? autoZoom}) {
@@ -854,6 +856,17 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
             _hudItem('DTW', _formatValue('navigation.course.calcValues.distance', decimals: 1)),
             _hudItem('BRG', _formatValue('navigation.course.calcValues.bearingTrue', decimals: 0)),
             _hudItem('XTE', _formatValue('navigation.course.calcValues.crossTrackError', decimals: 1)),
+            if (_routeCoords != null &&
+                _routePointIndex != null &&
+                _routePointTotal != null &&
+                _routePointIndex! + 1 < _routePointTotal!)
+              GestureDetector(
+                onTap: _advanceWaypoint,
+                child: const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 4),
+                  child: Icon(Icons.skip_next, color: Colors.white70, size: 24),
+                ),
+              ),
           ],
         ),
       ),
