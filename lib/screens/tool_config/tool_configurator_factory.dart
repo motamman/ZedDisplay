@@ -17,6 +17,7 @@ import 'configurators/victron_flow_configurator.dart';
 import 'configurators/find_home_configurator.dart';
 import 'configurators/sun_moon_arc_configurator.dart';
 import 'configurators/historical_data_explorer_configurator.dart';
+import 'configurators/chart_plotter_configurator.dart';
 
 /// Factory for creating tool-specific configurators
 ///
@@ -113,6 +114,10 @@ class ToolConfiguratorFactory {
       case 'historical_data_explorer':
         return HistoricalDataExplorerConfigurator();
 
+      // Chart Plotter
+      case 'chart_plotter':
+        return ChartPlotterConfigurator();
+
       // No custom configurator - use default UI
       default:
         return null;
@@ -154,6 +159,7 @@ class ToolConfiguratorFactory {
       'find_home',
       'sun_moon_arc',
       'historical_data_explorer',
+      'chart_plotter',
     ];
   }
 }
