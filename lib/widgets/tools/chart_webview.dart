@@ -13,7 +13,7 @@ class ChartWebView extends StatefulWidget {
   final String baseUrl;
   final String? authToken;
   final void Function(WebViewController controller)? onReady;
-  final void Function(bool autoFollow)? onAutoFollowChanged;
+  final void Function(bool autoFollow, {bool? autoZoom})? onAutoFollowChanged;
   final void Function(String vesselId)? onAISVesselClick;
 
   const ChartWebView({
@@ -80,7 +80,8 @@ class _ChartWebViewState extends State<ChartWebView> {
   void _onViewState(JavaScriptMessage message) {
     final data = jsonDecode(message.message) as Map<String, dynamic>;
     if (data.containsKey('autoFollow')) {
-      widget.onAutoFollowChanged?.call(data['autoFollow'] as bool);
+      final autoZoom = data['autoZoom'] as bool?;
+      widget.onAutoFollowChanged?.call(data['autoFollow'] as bool, autoZoom: autoZoom);
     }
   }
 
@@ -142,6 +143,12 @@ const LOOKUP_DATA = $lookupsJson;
 const COLOR_TABLE = $colorsJson;
 const TILE_URL = '$tileUrl';
 const AUTH_TOKEN = '$authToken';
+
+// =========================================================================
+// Land extent cache — top-level so S57Style.getStyle can access it
+// =========================================================================
+const _landExtents = [];
+const _landExtentKeys = new Set();
 
 // =========================================================================
 // S57Service — ported from Freeboard s57.service.ts
@@ -767,21 +774,19 @@ class S57Style {
     }
     if (lupIndex >= 0) {
       const lup = this.s57Service.getLookup(lupIndex);
+      // Cache LNDARE extents for land proximity detection
+      if (lup.name === 'LNDARE') {
+        const ext = feature.getGeometry().getExtent();
+        const key = Math.round(ext[0]/100) + ',' + Math.round(ext[1]/100);
+        if (!_landExtentKeys.has(key)) {
+          _landExtentKeys.add(key);
+          _landExtents.push(ext);
+        }
+      }
       const cat = lup.displayCategory;
       if (cat === 0 || cat === 1 || cat === 3 ||
           this.s57Service.options.otherLayers.includes(lup.name)) {
         const styles = this.getStylesFromRules(lup, feature);
-        // Debug: log first render of WRECKS/OBSTRN
-        if (!this._debugged) this._debugged = {};
-        const layer = feature.getProperties().layer;
-        if ((layer === 'WRECKS' || layer === 'OBSTRN' || layer === 'UWTROC') && !this._debugged[layer]) {
-          this._debugged[layer] = true;
-          const props = feature.getProperties();
-          const syNames = styles.map(s => s.getImage ? (s.getImage()?.getSrc ? s.getImage().getSrc().substring(0,30) : 'no-src') : 'no-image');
-          console.log(layer + ': lupIdx=' + lupIndex + ' inst=' + lup.instruction +
-            ' CATWRK=' + props.CATWRK + ' WATLEV=' + props.WATLEV + ' VALSOU=' + props.VALSOU +
-            ' styles=' + styles.length + ' imgs=' + JSON.stringify(syNames));
-        }
         return styles;
       }
     }
@@ -836,7 +841,7 @@ async function initMap() {
     }),
     style: s57Style.getStyle,
     renderOrder: s57Style.renderOrder,
-    preload: 0,
+    preload: 1,
     minZoom: 9,
     maxZoom: 23,
   });
@@ -970,16 +975,29 @@ async function initMap() {
   vesselSource.addFeatures([vesselFeature, headingFeature, cogFeature]);
 
   let _autoFollow = true;
+  let _autoZoom = true;
   let _viewMode = 'north-up';
   let _lastHeading = 0;
   let _lastPos = null;
+  let _programmaticMove = false;
+  let _lastResolution = map.getView().getResolution();
 
   // Disable auto-follow on user drag
   map.on('pointerdrag', () => {
     if (_autoFollow) {
       _autoFollow = false;
       if (window.ViewState) {
-        ViewState.postMessage(JSON.stringify({ autoFollow: false }));
+        ViewState.postMessage(JSON.stringify({ autoFollow: false, autoZoom: _autoZoom }));
+      }
+    }
+  });
+
+  // Disable auto-zoom on user pinch/scroll zoom
+  map.getView().on('change:resolution', () => {
+    if (!_programmaticMove && _autoZoom) {
+      _autoZoom = false;
+      if (window.ViewState) {
+        ViewState.postMessage(JSON.stringify({ autoFollow: _autoFollow, autoZoom: false }));
       }
     }
   });
@@ -1030,13 +1048,46 @@ async function initMap() {
       cogFeature.setGeometry(null);
     }
 
-    // Auto-follow: snap center (+ rotation in heading-up)
+    // Auto-follow: center + optional auto-zoom
     if (_autoFollow) {
       const view = map.getView();
-      view.setCenter(pos);
-      if (_viewMode === 'heading-up') {
-        view.setRotation(-_lastHeading);
+      _programmaticMove = true;
+
+      if (_autoZoom && sogMs > 0.3) {
+        // Check land proximity first — overrides 30-min zoom if land is near
+        let nearestLand = Infinity;
+        if (sogMs > 0.5) {
+          for (let i = 0; i < _landExtents.length; i++) {
+            const ext = _landExtents[i];
+            const dx = Math.max(ext[0] - pos[0], 0, pos[0] - ext[2]);
+            const dy = Math.max(ext[1] - pos[1], 0, pos[1] - ext[3]);
+            const dist = Math.hypot(dx, dy);
+            if (dist < nearestLand) nearestLand = dist;
+          }
+        }
+
+        const landThreshold = sogMs * 900; // 15 min at current speed
+        let bufferDist;
+        if (nearestLand < landThreshold && nearestLand < Infinity) {
+          // Land nearby — zoom tighter to show coastline
+          bufferDist = Math.max(nearestLand * 1.3, 300);
+        } else {
+          // Default 30-min projected area
+          bufferDist = Math.max(sogMs * 1800, 500);
+        }
+
+        const extent = [pos[0] - bufferDist, pos[1] - bufferDist, pos[0] + bufferDist, pos[1] + bufferDist];
+        const fitOpts = { duration: 0, maxZoom: 16, minZoom: 10 };
+        if (_viewMode === 'heading-up') fitOpts.rotation = -_lastHeading;
+        view.fit(extent, fitOpts);
+      } else {
+        view.setCenter(pos);
+        if (_viewMode === 'heading-up') {
+          view.setRotation(-_lastHeading);
+        }
       }
+
+      _programmaticMove = false;
     }
   };
 
@@ -1052,13 +1103,15 @@ async function initMap() {
 
   window.setAutoFollow = function(enabled) {
     _autoFollow = enabled;
+    _autoZoom = enabled; // re-engage auto-zoom with auto-follow
     if (enabled && _lastPos) {
+      _programmaticMove = true;
       const opts = { center: _lastPos, duration: 500 };
       if (_viewMode === 'heading-up') opts.rotation = -_lastHeading;
-      map.getView().animate(opts);
+      map.getView().animate(opts, function() { _programmaticMove = false; });
     }
     if (window.ViewState) {
-      ViewState.postMessage(JSON.stringify({ autoFollow: enabled }));
+      ViewState.postMessage(JSON.stringify({ autoFollow: enabled, autoZoom: enabled }));
     }
   };
 
@@ -1192,6 +1245,71 @@ async function initMap() {
       }
     }
     aisSource.addFeatures(features);
+  };
+
+  // =========================================================================
+  // Active route layer
+  // =========================================================================
+  const routeSource = new ol.source.Vector();
+  map.addLayer(new ol.layer.Vector({ source: routeSource, zIndex: 100 }));
+
+  window.updateRoute = function(jsonStr) {
+    routeSource.clear();
+    if (!jsonStr || jsonStr === 'null') return;
+    const data = JSON.parse(jsonStr);
+    const coords = data.coords;
+    const names = data.names;
+    const activeIdx = data.activeIndex;
+    if (!coords || coords.length < 2) return;
+
+    const mapCoords = coords.map(function(c) { return ol.proj.fromLonLat(c); });
+
+    // Full route polyline
+    const routeLine = new ol.Feature({ geometry: new ol.geom.LineString(mapCoords) });
+    routeLine.setStyle(new ol.style.Style({
+      stroke: new ol.style.Stroke({ color: 'rgba(255,255,255,0.4)', width: 3 }),
+    }));
+    routeSource.addFeature(routeLine);
+
+    // Active leg highlight (previous → next waypoint)
+    if (activeIdx != null && activeIdx > 0 && activeIdx < coords.length) {
+      const legLine = new ol.Feature({
+        geometry: new ol.geom.LineString([mapCoords[activeIdx - 1], mapCoords[activeIdx]]),
+      });
+      legLine.setStyle(new ol.style.Style({
+        stroke: new ol.style.Stroke({ color: 'rgba(76,175,80,0.9)', width: 4 }),
+      }));
+      routeSource.addFeature(legLine);
+    }
+
+    // Waypoint markers
+    var res = map.getView().getResolution();
+    coords.forEach(function(c, i) {
+      var isNext = (i === activeIdx);
+      var isPast = (activeIdx != null && i < activeIdx);
+      var pt = new ol.Feature({ geometry: new ol.geom.Point(mapCoords[i]) });
+      var styles = [new ol.style.Style({
+        image: new ol.style.Circle({
+          radius: isNext ? 8 : 5,
+          fill: new ol.style.Fill({
+            color: isNext ? 'rgba(76,175,80,0.9)' : isPast ? 'rgba(255,255,255,0.3)' : 'rgba(255,255,255,0.7)',
+          }),
+          stroke: new ol.style.Stroke({ color: isNext ? '#fff' : '#666', width: isNext ? 2 : 1 }),
+        }),
+      })];
+      var name = names && names[i] ? names[i] : '';
+      if (name && (isNext || (!isPast && res < 20))) {
+        styles.push(new ol.style.Style({
+          text: new ol.style.Text({
+            text: name, scale: isNext ? 1.1 : 0.9, offsetY: -16,
+            fill: new ol.style.Fill({ color: isNext ? '#4caf50' : 'rgba(255,255,255,0.7)' }),
+            stroke: new ol.style.Stroke({ color: 'rgba(0,0,0,0.5)', width: 1 }),
+          }),
+        }));
+      }
+      pt.setStyle(styles);
+      routeSource.addFeature(pt);
+    });
   };
 
   console.log('Map initialized with OpenLayers + S57 + overlays');

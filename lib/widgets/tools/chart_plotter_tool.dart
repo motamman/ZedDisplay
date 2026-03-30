@@ -1,17 +1,21 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import '../../models/tool_config.dart';
 import '../../models/tool_definition.dart';
 import '../../services/signalk_service.dart';
 import '../../services/tool_registry.dart';
+import '../../services/route_arrival_monitor.dart';
 import '../../models/ais_favorite.dart';
 import '../../services/ais_favorites_service.dart';
 import '../../services/dashboard_service.dart';
 import '../../services/find_home_target_service.dart';
 import '../../utils/cpa_utils.dart';
+import '../../widgets/countdown_confirmation_overlay.dart';
 import 'chart_webview.dart';
 
 /// Chart Plotter — OpenLayers-based unified navigation chart.
@@ -55,10 +59,20 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
   WebViewController? _controller;
   bool _mapReady = false;
   bool _autoFollow = true;
+  bool _autoZoom = true;
   String _viewMode = 'north-up';
   DateTime _lastVesselPush = DateTime(0);
   DateTime _lastAISPush = DateTime(0);
   bool _hasLoadedAIS = false;
+
+  // Route overlay
+  String? _activeRouteHref;
+  List<List<double>>? _routeCoords;
+  List<String>? _waypointNames;
+  int? _routePointIndex;
+  int? _routePointTotal;
+  RouteArrivalMonitor? _arrivalMonitor;
+  StreamSubscription<RouteArrivalEvent>? _arrivalSub;
 
   // ---------------------------------------------------------------------------
   // Config accessors
@@ -114,8 +128,13 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
     _pushAISVessels();
   }
 
-  void _onAutoFollowChanged(bool autoFollow) {
-    if (mounted) setState(() => _autoFollow = autoFollow);
+  void _onAutoFollowChanged(bool autoFollow, {bool? autoZoom}) {
+    if (mounted) {
+      setState(() {
+        _autoFollow = autoFollow;
+        if (autoZoom != null) _autoZoom = autoZoom;
+      });
+    }
   }
 
   void _onSignalKUpdate() {
@@ -124,10 +143,14 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
     if (widget.signalKService.isConnected && !_hasLoadedAIS) {
       _ensureAISLoaded();
     }
+    // Check for route changes
+    _checkActiveRoute();
     final now = DateTime.now();
     if (now.difference(_lastVesselPush).inMilliseconds < 500) return;
     _lastVesselPush = now;
     _pushVesselPosition();
+    // Push route on every throttled update (activeIndex may change)
+    if (_routeCoords != null) _pushRoute();
   }
 
   void _onAISUpdate() {
@@ -161,9 +184,137 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
     _controller?.runJavaScript("setViewMode('$newMode')");
   }
 
+  void _disableAutoFollow() {
+    setState(() {
+      _autoFollow = false;
+      _autoZoom = false;
+    });
+    _controller?.runJavaScript('setAutoFollow(false)');
+  }
+
   void _reCenter() {
-    setState(() => _autoFollow = true);
+    setState(() {
+      _autoFollow = true;
+      _autoZoom = true;
+    });
     _controller?.runJavaScript('setAutoFollow(true)');
+  }
+
+  // ---------------------------------------------------------------------------
+  // Active route
+  // ---------------------------------------------------------------------------
+
+  void _checkActiveRoute() {
+    final data = widget.signalKService.getValue('navigation.course.activeRoute');
+    if (data?.value is Map) {
+      final m = data!.value as Map;
+      final href = m['href'] as String?;
+      _routePointIndex = m['pointIndex'] as int?;
+      _routePointTotal = m['pointTotal'] as int?;
+
+      if (href != null && href != _activeRouteHref) {
+        _activeRouteHref = href;
+        _fetchRoute(href);
+        _startArrivalMonitor();
+      }
+    } else if (_activeRouteHref != null) {
+      // Route deactivated
+      _activeRouteHref = null;
+      _routeCoords = null;
+      _waypointNames = null;
+      _routePointIndex = null;
+      _routePointTotal = null;
+      _stopArrivalMonitor();
+      _controller?.runJavaScript('updateRoute(null)');
+      if (mounted) setState(() {});
+    }
+  }
+
+  Future<void> _fetchRoute(String href) async {
+    final routeId = href.split('/').last;
+    final data = await widget.signalKService.getResource('routes', routeId);
+    if (data == null) return;
+    final feature = data['feature'] as Map?;
+    final geometry = feature?['geometry'] as Map?;
+    _routeCoords = (geometry?['coordinates'] as List?)
+        ?.map((c) => [(c[0] as num).toDouble(), (c[1] as num).toDouble()])
+        .toList();
+    final meta = (feature?['properties'] as Map?)?['coordinatesMeta'] as List?;
+    _waypointNames = meta?.map((m) => (m['name'] as String?) ?? '').toList();
+    _pushRoute();
+    if (mounted) setState(() {});
+  }
+
+  void _pushRoute() {
+    if (_routeCoords == null || _controller == null || !_mapReady) return;
+    final json = jsonEncode({
+      'coords': _routeCoords,
+      'names': _waypointNames,
+      'activeIndex': _routePointIndex,
+    });
+    _controller!.runJavaScript('updateRoute(${_escapeForJS(json)})');
+  }
+
+  // ---------------------------------------------------------------------------
+  // Waypoint arrival & advance
+  // ---------------------------------------------------------------------------
+
+  void _startArrivalMonitor() {
+    _stopArrivalMonitor();
+    _arrivalMonitor = RouteArrivalMonitor(signalKService: widget.signalKService);
+    _arrivalSub = _arrivalMonitor!.arrivalStream.listen(_onWaypointArrival);
+    _arrivalMonitor!.start();
+  }
+
+  void _stopArrivalMonitor() {
+    _arrivalSub?.cancel();
+    _arrivalSub = null;
+    _arrivalMonitor?.dispose();
+    _arrivalMonitor = null;
+  }
+
+  void _onWaypointArrival(RouteArrivalEvent event) {
+    if (!mounted || _routeCoords == null) return;
+    if (event.isLastWaypoint) {
+      showCountdownConfirmation(
+        context: context,
+        title: 'Final Waypoint Reached',
+        action: 'End Route',
+      );
+    } else {
+      showCountdownConfirmation(
+        context: context,
+        title: 'Waypoint ${event.pointIndex + 1}/${event.pointTotal} Reached',
+        action: 'Next Waypoint',
+      ).then((confirmed) {
+        if (confirmed) _advanceWaypoint();
+      });
+    }
+  }
+
+  Future<void> _advanceWaypoint() async {
+    if (_routePointIndex == null || _routePointTotal == null) return;
+    if (_routePointIndex! + 1 >= _routePointTotal!) return;
+
+    final url = '${widget.signalKService.httpBaseUrl}'
+        '/signalk/v2/api/vessels/self/navigation/course/activeRoute/pointIndex';
+    try {
+      await http.put(
+        Uri.parse(url),
+        headers: {
+          'Content-Type': 'application/json',
+          if (widget.signalKService.authToken?.token != null)
+            'Authorization': 'Bearer ${widget.signalKService.authToken!.token}',
+        },
+        body: jsonEncode({'value': _routePointIndex! + 1}),
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Advance failed: $e')),
+        );
+      }
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -784,12 +935,15 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
                 onPressed: _toggleViewMode,
                 tooltip: _viewMode == 'north-up' ? 'Heading up' : 'North up',
               ),
-              if (!_autoFollow)
-                _mapButton(
-                  icon: Icons.my_location,
-                  onPressed: _reCenter,
-                  tooltip: 'Re-center on vessel',
-                ),
+              _mapButton(
+                icon: _autoFollow && _autoZoom
+                    ? Icons.my_location
+                    : Icons.location_searching,
+                onPressed: _autoFollow && _autoZoom ? _disableAutoFollow : _reCenter,
+                tooltip: _autoFollow && _autoZoom
+                    ? 'Auto-follow on (tap to disable)'
+                    : 'Re-center & auto-follow',
+              ),
             ],
           ),
         ),
