@@ -1304,16 +1304,6 @@ async function initMap() {
         }),
       })];
 
-      var name = names && names[i] ? names[i] : '';
-      if (name && (isNext || (!isPast && res < 20))) {
-        styles.push(new ol.style.Style({
-          text: new ol.style.Text({
-            text: name, scale: isNext ? 1.1 : 0.9, offsetY: isNext ? -22 : -14,
-            fill: new ol.style.Fill({ color: isNext ? '#4caf50' : 'rgba(255,255,255,0.7)' }),
-            stroke: new ol.style.Stroke({ color: 'rgba(0,0,0,0.5)', width: 1 }),
-          }),
-        }));
-      }
       pt.setStyle(styles);
       routeSource.addFeature(pt);
     });
