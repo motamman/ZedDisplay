@@ -854,7 +854,7 @@ async function initMap() {
       center: ol.proj.fromLonLat([-74.01, 40.67]),
       zoom: 14,
     }),
-    controls: ol.control.defaults.defaults().extend([
+    controls: ol.control.defaults.defaults({ attribution: false }).extend([
       new ol.control.Zoom(),
     ]),
   });
@@ -982,17 +982,7 @@ async function initMap() {
   let _programmaticMove = false;
   let _lastResolution = map.getView().getResolution();
 
-  // Disable auto-follow on user drag
-  map.on('pointerdrag', () => {
-    if (_autoFollow) {
-      _autoFollow = false;
-      if (window.ViewState) {
-        ViewState.postMessage(JSON.stringify({ autoFollow: false, autoZoom: _autoZoom }));
-      }
-    }
-  });
-
-  // Disable auto-zoom on user pinch/scroll zoom
+  // Disable auto-zoom on user pinch/scroll zoom (auto-follow only toggles via button)
   map.getView().on('change:resolution', () => {
     if (!_programmaticMove && _autoZoom) {
       _autoZoom = false;
@@ -1259,25 +1249,31 @@ async function initMap() {
     const data = JSON.parse(jsonStr);
     const coords = data.coords;
     const names = data.names;
-    const activeIdx = data.activeIndex;
+    const rawIdx = data.activeIndex;
+    const reversed = data.reverse || false;
     if (!coords || coords.length < 2) return;
+    // In reverse mode, pointIndex 0 = last coord, 1 = second-to-last, etc.
+    const activeIdx = (reversed && rawIdx != null) ? coords.length - 1 - rawIdx : rawIdx;
 
     const mapCoords = coords.map(function(c) { return ol.proj.fromLonLat(c); });
 
-    // Full route polyline
+    // Route polyline — green with direction arrows
     const routeLine = new ol.Feature({ geometry: new ol.geom.LineString(mapCoords) });
-    routeLine.setStyle(new ol.style.Style({
-      stroke: new ol.style.Stroke({ color: 'rgba(255,255,255,0.4)', width: 3 }),
-    }));
+    routeLine.setStyle([
+      new ol.style.Style({
+        stroke: new ol.style.Stroke({ color: 'rgba(76,175,80,0.6)', width: 3 }),
+      }),
+    ]);
     routeSource.addFeature(routeLine);
 
-    // Active leg highlight (previous → next waypoint)
-    if (activeIdx != null && activeIdx > 0 && activeIdx < coords.length) {
-      const legLine = new ol.Feature({
-        geometry: new ol.geom.LineString([mapCoords[activeIdx - 1], mapCoords[activeIdx]]),
+    // Active leg highlight (previous → next waypoint) — brighter, wider
+    var prevIdx = reversed ? activeIdx + 1 : activeIdx - 1;
+    if (activeIdx != null && prevIdx >= 0 && prevIdx < coords.length && activeIdx >= 0 && activeIdx < coords.length) {
+      var legLine = new ol.Feature({
+        geometry: new ol.geom.LineString([mapCoords[prevIdx], mapCoords[activeIdx]]),
       });
       legLine.setStyle(new ol.style.Style({
-        stroke: new ol.style.Stroke({ color: 'rgba(76,175,80,0.9)', width: 4 }),
+        stroke: new ol.style.Stroke({ color: 'rgba(76,175,80,0.95)', width: 5 }),
       }));
       routeSource.addFeature(legLine);
     }
@@ -1286,22 +1282,33 @@ async function initMap() {
     var res = map.getView().getResolution();
     coords.forEach(function(c, i) {
       var isNext = (i === activeIdx);
-      var isPast = (activeIdx != null && i < activeIdx);
+      var isPast = (activeIdx != null && (reversed ? i > activeIdx : i < activeIdx));
       var pt = new ol.Feature({ geometry: new ol.geom.Point(mapCoords[i]) });
+
+      // Every waypoint = green arrow in route direction; next waypoint = larger
+      var rot = 0;
+      if (reversed) {
+        var toIdx = (i > 0) ? i - 1 : 0;
+        rot = Math.atan2(mapCoords[toIdx][0] - mapCoords[i][0], mapCoords[toIdx][1] - mapCoords[i][1]);
+      } else {
+        var toIdx = (i < mapCoords.length - 1) ? i + 1 : i;
+        rot = Math.atan2(mapCoords[toIdx][0] - mapCoords[i][0], mapCoords[toIdx][1] - mapCoords[i][1]);
+      }
+      var sz = isNext ? 12 : 7;
+      var alpha = isPast ? 0.3 : (isNext ? 0.95 : 0.7);
       var styles = [new ol.style.Style({
-        image: new ol.style.Circle({
-          radius: isNext ? 8 : 5,
-          fill: new ol.style.Fill({
-            color: isNext ? 'rgba(76,175,80,0.9)' : isPast ? 'rgba(255,255,255,0.3)' : 'rgba(255,255,255,0.7)',
-          }),
-          stroke: new ol.style.Stroke({ color: isNext ? '#fff' : '#666', width: isNext ? 2 : 1 }),
+        image: new ol.style.RegularShape({
+          points: 3, radius: sz, rotation: rot, rotateWithView: true,
+          fill: new ol.style.Fill({ color: 'rgba(76,175,80,' + alpha + ')' }),
+          stroke: isNext ? new ol.style.Stroke({ color: '#fff', width: 2 }) : null,
         }),
       })];
+
       var name = names && names[i] ? names[i] : '';
       if (name && (isNext || (!isPast && res < 20))) {
         styles.push(new ol.style.Style({
           text: new ol.style.Text({
-            text: name, scale: isNext ? 1.1 : 0.9, offsetY: -16,
+            text: name, scale: isNext ? 1.1 : 0.9, offsetY: isNext ? -22 : -14,
             fill: new ol.style.Fill({ color: isNext ? '#4caf50' : 'rgba(255,255,255,0.7)' }),
             stroke: new ol.style.Stroke({ color: 'rgba(0,0,0,0.5)', width: 1 }),
           }),

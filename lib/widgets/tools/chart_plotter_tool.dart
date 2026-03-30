@@ -59,7 +59,6 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
   WebViewController? _controller;
   bool _mapReady = false;
   bool _autoFollow = true;
-  bool _autoZoom = true;
   String _viewMode = 'north-up';
   DateTime _lastVesselPush = DateTime(0);
   DateTime _lastAISPush = DateTime(0);
@@ -71,6 +70,7 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
   List<String>? _waypointNames;
   int? _routePointIndex;
   int? _routePointTotal;
+  bool _routeReversed = false;
   RouteArrivalMonitor? _arrivalMonitor;
   StreamSubscription<RouteArrivalEvent>? _arrivalSub;
 
@@ -134,7 +134,7 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
     if (mounted) {
       setState(() {
         _autoFollow = autoFollow;
-        if (autoZoom != null) _autoZoom = autoZoom;
+        // autoZoom handled on JS side only
       });
     }
   }
@@ -189,7 +189,6 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
   void _disableAutoFollow() {
     setState(() {
       _autoFollow = false;
-      _autoZoom = false;
     });
     _controller?.runJavaScript('setAutoFollow(false)');
   }
@@ -197,7 +196,6 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
   void _reCenter() {
     setState(() {
       _autoFollow = true;
-      _autoZoom = true;
     });
     _controller?.runJavaScript('setAutoFollow(true)');
   }
@@ -206,30 +204,58 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
   // Active route
   // ---------------------------------------------------------------------------
 
-  void _checkActiveRoute() {
-    final data = widget.signalKService.getValue('navigation.course.activeRoute');
-    if (data?.value is Map) {
-      final m = data!.value as Map;
-      final href = m['href'] as String?;
-      _routePointIndex = m['pointIndex'] as int?;
-      _routePointTotal = m['pointTotal'] as int?;
+  DateTime _lastRoutePoll = DateTime(0);
 
-      if (href != null && href != _activeRouteHref) {
-        _activeRouteHref = href;
-        _fetchRoute(href);
-        _startArrivalMonitor();
+  void _checkActiveRoute() {
+    // activeRoute data is v2-only — not in WS deltas.
+    // Poll v2 REST endpoint every 3 seconds.
+    final now = DateTime.now();
+    if (now.difference(_lastRoutePoll).inSeconds < 3) return;
+    _lastRoutePoll = now;
+    _pollCourseAPI();
+  }
+
+  Future<void> _pollCourseAPI() async {
+    final url = '${widget.signalKService.httpBaseUrl}'
+        '/signalk/v2/api/vessels/self/navigation/course';
+    try {
+      final response = await http.get(
+        Uri.parse(url),
+        headers: {
+          if (widget.signalKService.authToken?.token != null)
+            'Authorization': 'Bearer ${widget.signalKService.authToken!.token}',
+        },
+      );
+      if (response.statusCode != 200) return;
+      final data = jsonDecode(response.body) as Map<String, dynamic>;
+      final activeRoute = data['activeRoute'] as Map<String, dynamic>?;
+
+      if (activeRoute != null) {
+        final href = activeRoute['href'] as String?;
+        _routePointIndex = activeRoute['pointIndex'] as int?;
+        _routePointTotal = activeRoute['pointTotal'] as int?;
+        _routeReversed = activeRoute['reverse'] == true;
+
+        if (href != null && href != _activeRouteHref) {
+          _activeRouteHref = href;
+          _fetchRoute(href);
+          _startArrivalMonitor();
+        } else if (_routeCoords != null) {
+          _pushRoute();
+        }
+        if (mounted) setState(() {});
+      } else if (_activeRouteHref != null) {
+        _activeRouteHref = null;
+        _routeCoords = null;
+        _waypointNames = null;
+        _routePointIndex = null;
+        _routePointTotal = null;
+        _routeReversed = false;
+        _stopArrivalMonitor();
+        _controller?.runJavaScript('updateRoute(null)');
+        if (mounted) setState(() {});
       }
-    } else if (_activeRouteHref != null) {
-      // Route deactivated
-      _activeRouteHref = null;
-      _routeCoords = null;
-      _waypointNames = null;
-      _routePointIndex = null;
-      _routePointTotal = null;
-      _stopArrivalMonitor();
-      _controller?.runJavaScript('updateRoute(null)');
-      if (mounted) setState(() {});
-    }
+    } catch (_) {}
   }
 
   Future<void> _fetchRoute(String href) async {
@@ -253,6 +279,7 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
       'coords': _routeCoords,
       'names': _waypointNames,
       'activeIndex': _routePointIndex,
+      'reverse': _routeReversed,
     });
     _controller!.runJavaScript('updateRoute(${_escapeForJS(json)})');
   }
@@ -296,7 +323,8 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
 
   Future<void> _advanceWaypoint() async {
     if (_routePointIndex == null || _routePointTotal == null) return;
-    if (_routePointIndex! + 1 >= _routePointTotal!) return;
+    final nextIdx = _routePointIndex! + 1;
+    if (nextIdx >= _routePointTotal!) return;
 
     final url = '${widget.signalKService.httpBaseUrl}'
         '/signalk/v2/api/vessels/self/navigation/course/activeRoute/pointIndex';
@@ -308,8 +336,10 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
           if (widget.signalKService.authToken?.token != null)
             'Authorization': 'Bearer ${widget.signalKService.authToken!.token}',
         },
-        body: jsonEncode({'value': _routePointIndex! + 1}),
+        body: jsonEncode({'value': nextIdx}),
       );
+      _lastRoutePoll = DateTime(0);
+      await _pollCourseAPI();
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -859,7 +889,7 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
             if (_routeCoords != null &&
                 _routePointIndex != null &&
                 _routePointTotal != null &&
-                _routePointIndex! + 1 < _routePointTotal!)
+                _routePointIndex! + 1 < _routePointTotal!) ...[
               GestureDetector(
                 onTap: _advanceWaypoint,
                 child: const Padding(
@@ -867,6 +897,14 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
                   child: Icon(Icons.skip_next, color: Colors.white70, size: 24),
                 ),
               ),
+              GestureDetector(
+                onTap: _fastForwardToNearest,
+                child: const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 4),
+                  child: Icon(Icons.fast_forward, color: Colors.white70, size: 24),
+                ),
+              ),
+            ],
           ],
         ),
       ),
@@ -882,6 +920,347 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
                   color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold)),
         ],
       );
+
+  // ---------------------------------------------------------------------------
+  // Route management UI
+  // ---------------------------------------------------------------------------
+
+  void _showRouteManager() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetCtx) => DraggableScrollableSheet(
+        initialChildSize: 0.45,
+        maxChildSize: 0.7,
+        minChildSize: 0.2,
+        snap: true,
+        snapSizes: const [0.2, 0.45],
+        builder: (_, scrollController) => Container(
+          decoration: const BoxDecoration(
+            color: Color(0xFF1E1E2E),
+            borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+          ),
+          child: _routeCoords != null
+              ? _buildActiveRoutePanel(sheetCtx, scrollController)
+              : _buildRouteList(sheetCtx, scrollController),
+        ),
+      ),
+    );
+  }
+
+  /// Shows list of available routes to activate.
+  Widget _buildRouteList(BuildContext sheetCtx, ScrollController scrollController) {
+    return FutureBuilder<Map<String, dynamic>>(
+      future: widget.signalKService.getResources('routes'),
+      builder: (context, snapshot) {
+        final routes = snapshot.data;
+        return ListView(
+          controller: scrollController,
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+          children: [
+            Center(child: Container(
+              width: 40, height: 4,
+              margin: const EdgeInsets.only(bottom: 12),
+              decoration: BoxDecoration(color: Colors.grey[600], borderRadius: BorderRadius.circular(2)),
+            )),
+            const Text('Routes', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            if (!snapshot.hasData)
+              const Center(child: Padding(
+                padding: EdgeInsets.all(24),
+                child: CircularProgressIndicator(),
+              ))
+            else if (routes == null || routes.isEmpty)
+              const Padding(
+                padding: EdgeInsets.all(24),
+                child: Text('No routes on server', style: TextStyle(color: Colors.white54)),
+              )
+            else
+              ...routes.entries.map((entry) {
+                final id = entry.key;
+                final data = entry.value as Map<String, dynamic>;
+                final name = data['name'] as String? ?? id;
+                final desc = data['description'] as String?;
+                final distM = data['distance'] as num?;
+                final distMeta = widget.signalKService.metadataStore.getByCategory('distance');
+                final distStr = distM != null
+                    ? '${(distMeta?.convert(distM.toDouble()) ?? distM).toStringAsFixed(1)} ${distMeta?.symbol ?? 'm'}'
+                    : null;
+                final feature = data['feature'] as Map?;
+                final coords = (feature?['geometry'] as Map?)?['coordinates'] as List?;
+                final wptCount = coords?.length ?? 0;
+
+                return ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.route, color: Colors.white54),
+                  title: Text(name, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w500)),
+                  subtitle: Text(
+                    [if (distStr != null) distStr, '$wptCount waypoints', if (desc != null) desc] // ignore: use_null_aware_elements
+                        .join(' · '),
+                    style: const TextStyle(color: Colors.white38, fontSize: 12),
+                    maxLines: 1, overflow: TextOverflow.ellipsis,
+                  ),
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      IconButton(
+                        icon: const Icon(Icons.play_arrow, color: Colors.green, size: 22),
+                        tooltip: 'Activate forward',
+                        constraints: const BoxConstraints.tightFor(width: 36, height: 36),
+                        onPressed: () {
+                          Navigator.of(sheetCtx).pop();
+                          _activateRoute(id);
+                        },
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.play_arrow, color: Colors.red, size: 22),
+                        tooltip: 'Activate reversed',
+                        constraints: const BoxConstraints.tightFor(width: 36, height: 36),
+                        onPressed: () {
+                          Navigator.of(sheetCtx).pop();
+                          _activateRoute(id, reverse: true);
+                        },
+                      ),
+                    ],
+                  ),
+                );
+              }),
+          ],
+        );
+      },
+    );
+  }
+
+  /// Shows active route info with deactivate/advance controls.
+  Widget _buildActiveRoutePanel(BuildContext sheetCtx, ScrollController scrollController) {
+    return ListView(
+      controller: scrollController,
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+      children: [
+        Center(child: Container(
+          width: 40, height: 4,
+          margin: const EdgeInsets.only(bottom: 12),
+          decoration: BoxDecoration(color: Colors.grey[600], borderRadius: BorderRadius.circular(2)),
+        )),
+        Row(children: [
+          const Icon(Icons.route, color: Colors.green, size: 24),
+          const SizedBox(width: 8),
+          const Expanded(child: Text('Active Route',
+            style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold))),
+          // Reverse route
+          IconButton(
+            icon: const Icon(Icons.swap_horiz, color: Colors.orange),
+            tooltip: 'Reverse route',
+            onPressed: () {
+              Navigator.of(sheetCtx).pop();
+              _reverseRoute();
+            },
+          ),
+          // Deactivate
+          IconButton(
+            icon: const Icon(Icons.stop_circle_outlined, color: Colors.red),
+            tooltip: 'Deactivate route',
+            onPressed: () {
+              Navigator.of(sheetCtx).pop();
+              _clearCourse();
+            },
+          ),
+        ]),
+        const SizedBox(height: 4),
+        Text(
+          'Waypoint ${(_routePointIndex ?? 0) + 1} of ${_routePointTotal ?? _routeCoords?.length ?? 0}',
+          style: const TextStyle(color: Colors.white54, fontSize: 13),
+        ),
+        // DTW / BRG / XTE with MetadataStore fallbacks
+        Builder(builder: (_) {
+          final store = widget.signalKService.metadataStore;
+          final distMeta = store.get('navigation.course.calcValues.distance') ?? store.getByCategory('distance');
+          final brgMeta = store.get('navigation.course.calcValues.bearingTrue') ?? store.get('navigation.courseOverGroundTrue');
+          final xteMeta = store.get('navigation.course.calcValues.crossTrackError') ?? store.getByCategory('distance');
+
+          String fmt(String path, dynamic meta, {int dec = 1}) {
+            final d = widget.signalKService.getValue(path);
+            if (d?.value == null || d!.value is! num) return '--';
+            final raw = (d.value as num).toDouble();
+            if (meta != null) return meta.format(raw, decimals: dec) as String;
+            return raw.toStringAsFixed(dec);
+          }
+
+          return Row(children: [
+            Text('DTW: ${fmt('navigation.course.calcValues.distance', distMeta)}',
+              style: const TextStyle(color: Colors.white70, fontSize: 13)),
+            const SizedBox(width: 16),
+            Text('BRG: ${fmt('navigation.course.calcValues.bearingTrue', brgMeta, dec: 0)}',
+              style: const TextStyle(color: Colors.white70, fontSize: 13)),
+            const SizedBox(width: 16),
+            Text('XTE: ${fmt('navigation.course.calcValues.crossTrackError', xteMeta)}',
+              style: const TextStyle(color: Colors.white70, fontSize: 13)),
+          ]);
+        }),
+        const Divider(color: Colors.white24, height: 20),
+        // Waypoint list
+        if (_routeCoords != null)
+          ...List.generate(_routeCoords!.length, (i) {
+            final isActive = i == _routePointIndex;
+            final isPast = _routePointIndex != null && i < _routePointIndex!;
+            final name = (_waypointNames != null && i < _waypointNames!.length && _waypointNames![i].isNotEmpty)
+                ? _waypointNames![i]
+                : 'WPT ${i + 1}';
+            // Leg distance from previous waypoint
+            String? legDist;
+            if (i > 0) {
+              final distMeta = widget.signalKService.metadataStore.getByCategory('distance');
+              final prev = _routeCoords![i - 1];
+              final cur = _routeCoords![i];
+              final m = CpaUtils.calculateDistance(prev[1], prev[0], cur[1], cur[0]);
+              final v = distMeta?.convert(m) ?? m;
+              legDist = '${v.toStringAsFixed(1)} ${distMeta?.symbol ?? 'm'}';
+            }
+            return ListTile(
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+              leading: Icon(
+                isActive ? Icons.flag : isPast ? Icons.check_circle : Icons.circle_outlined,
+                color: isActive ? Colors.green : isPast ? Colors.white24 : Colors.white54,
+                size: 20,
+              ),
+              title: Text(name, style: TextStyle(
+                color: isActive ? Colors.green : isPast ? Colors.white38 : Colors.white,
+                fontWeight: isActive ? FontWeight.bold : FontWeight.normal,
+                fontSize: 13,
+              )),
+              subtitle: legDist != null
+                  ? Text(legDist, style: TextStyle(
+                      color: isPast ? Colors.white24 : Colors.white38, fontSize: 11))
+                  : null,
+              trailing: !isPast && !isActive && _routePointIndex != null && i > _routePointIndex!
+                  ? IconButton(
+                      icon: const Icon(Icons.near_me, size: 18, color: Colors.white54),
+                      tooltip: 'Skip to this waypoint',
+                      onPressed: () => _skipToWaypoint(i),
+                    )
+                  : null,
+            );
+          }),
+      ],
+    );
+  }
+
+  Future<void> _activateRoute(String routeId, {bool reverse = false}) async {
+    final url = '${widget.signalKService.httpBaseUrl}'
+        '/signalk/v2/api/vessels/self/navigation/course/activeRoute';
+    try {
+      await http.put(
+        Uri.parse(url),
+        headers: {
+          'Content-Type': 'application/json',
+          if (widget.signalKService.authToken?.token != null)
+            'Authorization': 'Bearer ${widget.signalKService.authToken!.token}',
+        },
+        body: jsonEncode({
+          'href': '/resources/routes/$routeId',
+          'pointIndex': 0,
+          'reverse': reverse,
+          'arrivalCircle': 100,
+        }),
+      );
+      _lastRoutePoll = DateTime(0);
+      await _pollCourseAPI();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Activate failed: $e')));
+      }
+    }
+  }
+
+  Future<void> _reverseRoute() async {
+    // Stop arrival monitor during reverse to prevent spurious arrival events
+    _stopArrivalMonitor();
+    final url = '${widget.signalKService.httpBaseUrl}'
+        '/signalk/v2/api/vessels/self/navigation/course/activeRoute/reverse';
+    try {
+      await http.put(
+        Uri.parse(url),
+        headers: {
+          'Content-Type': 'application/json',
+          if (widget.signalKService.authToken?.token != null)
+            'Authorization': 'Bearer ${widget.signalKService.authToken!.token}',
+        },
+        body: '{}',
+      );
+      // Jump to start of the new direction
+      await _skipToWaypoint(0);
+      _startArrivalMonitor();
+    } catch (e) {
+      _startArrivalMonitor(); // restart even on failure
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Reverse failed: $e')));
+      }
+    }
+  }
+
+  Future<void> _clearCourse() async {
+    final url = '${widget.signalKService.httpBaseUrl}'
+        '/signalk/v2/api/vessels/self/navigation/course';
+    try {
+      await http.delete(
+        Uri.parse(url),
+        headers: {
+          if (widget.signalKService.authToken?.token != null)
+            'Authorization': 'Bearer ${widget.signalKService.authToken!.token}',
+        },
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Clear failed: $e')));
+      }
+    }
+  }
+
+  Future<void> _skipToWaypoint(int pointIndex) async {
+    final url = '${widget.signalKService.httpBaseUrl}'
+        '/signalk/v2/api/vessels/self/navigation/course/activeRoute/pointIndex';
+    try {
+      await http.put(
+        Uri.parse(url),
+        headers: {
+          'Content-Type': 'application/json',
+          if (widget.signalKService.authToken?.token != null)
+            'Authorization': 'Bearer ${widget.signalKService.authToken!.token}',
+        },
+        body: jsonEncode({'value': pointIndex}),
+      );
+      _lastRoutePoll = DateTime(0);
+      await _pollCourseAPI();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Skip failed: $e')));
+      }
+    }
+  }
+
+  Future<void> _fastForwardToNearest() async {
+    if (_routeCoords == null) return;
+    final posData = widget.signalKService.getValue('navigation.position');
+    if (posData?.value is! Map) return;
+    final pos = posData!.value as Map;
+    final vLat = (pos['latitude'] as num?)?.toDouble();
+    final vLon = (pos['longitude'] as num?)?.toDouble();
+    if (vLat == null || vLon == null) return;
+
+    double minDist = double.infinity;
+    int closestCoordIdx = 0;
+    for (int i = 0; i < _routeCoords!.length; i++) {
+      final d = CpaUtils.calculateDistance(vLat, vLon, _routeCoords![i][1], _routeCoords![i][0]);
+      if (d < minDist) { minDist = d; closestCoordIdx = i; }
+    }
+
+    final pointIdx = _routeReversed
+        ? _routeCoords!.length - 1 - closestCoordIdx
+        : closestCoordIdx;
+    await _skipToWaypoint(pointIdx);
+  }
 
   // ---------------------------------------------------------------------------
   // Swipe coordination
@@ -949,13 +1328,14 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
                 tooltip: _viewMode == 'north-up' ? 'Heading up' : 'North up',
               ),
               _mapButton(
-                icon: _autoFollow && _autoZoom
-                    ? Icons.my_location
-                    : Icons.location_searching,
-                onPressed: _autoFollow && _autoZoom ? _disableAutoFollow : _reCenter,
-                tooltip: _autoFollow && _autoZoom
-                    ? 'Auto-follow on (tap to disable)'
-                    : 'Re-center & auto-follow',
+                icon: _autoFollow ? Icons.my_location : Icons.location_searching,
+                onPressed: _autoFollow ? _disableAutoFollow : _reCenter,
+                tooltip: _autoFollow ? 'Snap to vessel (on)' : 'Snap to vessel (off)',
+              ),
+              _mapButton(
+                icon: _routeCoords != null ? Icons.route : Icons.alt_route,
+                onPressed: _showRouteManager,
+                tooltip: 'Routes',
               ),
             ],
           ),
