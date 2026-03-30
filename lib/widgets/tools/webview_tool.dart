@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/foundation.dart';
+import 'package:provider/provider.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import '../../models/tool_definition.dart';
 import '../../models/tool_config.dart';
@@ -55,6 +56,12 @@ class _WebViewToolState extends State<WebViewTool> with AutomaticKeepAliveClient
   void dispose() {
     _refreshFadeTimer?.cancel();
     _inactivityTimer?.cancel();
+    // Ensure dashboard swiping is re-enabled
+    if (_interactiveMode) {
+      try {
+        context.read<ValueNotifier<bool>>().value = false;
+      } catch (_) {}
+    }
     super.dispose();
   }
 
@@ -149,11 +156,19 @@ class _WebViewToolState extends State<WebViewTool> with AutomaticKeepAliveClient
 
   void _enterInteractiveMode() {
     setState(() => _interactiveMode = true);
+    // Tell dashboard to stop swiping
+    try {
+      context.read<ValueNotifier<bool>>().value = true;
+    } catch (_) {} // Not in dashboard context (e.g., standalone)
     _resetInactivityTimer();
   }
 
   void _exitInteractiveMode() {
     _inactivityTimer?.cancel();
+    // Re-enable dashboard swiping
+    try {
+      context.read<ValueNotifier<bool>>().value = false;
+    } catch (_) {}
     if (mounted) setState(() => _interactiveMode = false);
   }
 
@@ -214,25 +229,22 @@ class _WebViewToolState extends State<WebViewTool> with AutomaticKeepAliveClient
       );
     }
 
-    // Gesture recognizers: full set when interactive, minimal when not
+    // All gesture recognizers always registered — dashboard swiping
+    // is disabled via PageView physics when interactive mode is on.
     final recognizers = <Factory<OneSequenceGestureRecognizer>>{
       Factory<TapGestureRecognizer>(() => TapGestureRecognizer()),
       Factory<LongPressGestureRecognizer>(() => LongPressGestureRecognizer()
         ..onLongPress = _enterInteractiveMode),
+      Factory<VerticalDragGestureRecognizer>(
+        () => VerticalDragGestureRecognizer(),
+      ),
+      Factory<HorizontalDragGestureRecognizer>(
+        () => HorizontalDragGestureRecognizer(),
+      ),
+      Factory<ScaleGestureRecognizer>(
+        () => ScaleGestureRecognizer(),
+      ),
     };
-    if (_interactiveMode) {
-      recognizers.addAll({
-        Factory<VerticalDragGestureRecognizer>(
-          () => VerticalDragGestureRecognizer(),
-        ),
-        Factory<HorizontalDragGestureRecognizer>(
-          () => HorizontalDragGestureRecognizer(),
-        ),
-        Factory<ScaleGestureRecognizer>(
-          () => ScaleGestureRecognizer(),
-        ),
-      });
-    }
 
     return Listener(
       // Any pointer activity resets the inactivity timer
@@ -251,7 +263,6 @@ class _WebViewToolState extends State<WebViewTool> with AutomaticKeepAliveClient
         child: Stack(
           children: [
             WebViewWidget(
-              key: ValueKey('webview_interactive_$_interactiveMode'),
               controller: _controller,
               gestureRecognizers: recognizers,
             ),

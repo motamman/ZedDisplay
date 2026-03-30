@@ -63,6 +63,9 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen>
   bool _isEditMode = false;
   bool _isFullScreen = false;
   bool _showAppBar = true;
+
+  /// Allows child widgets (e.g., webview) to temporarily block dashboard swiping.
+  final ValueNotifier<bool> _widgetSwipeBlock = ValueNotifier(false);
   Timer? _appBarHideTimer;
 
   // Cache built tool widgets so they persist across page rebuilds
@@ -74,6 +77,11 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen>
 
     // Register for app lifecycle events
     WidgetsBinding.instance.addObserver(this);
+
+    // Listen for widget swipe block changes (e.g., webview interactive mode)
+    _widgetSwipeBlock.addListener(() {
+      if (mounted) setState(() {});
+    });
 
     // Start screen selector auto-hide timer
     _startSelectorHideTimer();
@@ -1335,7 +1343,9 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen>
 
   @override
   Widget build(BuildContext context) {
-    return IncomingCallOverlay(
+    return ChangeNotifierProvider<ValueNotifier<bool>>.value(
+      value: _widgetSwipeBlock,
+      child: IncomingCallOverlay(
       child: Scaffold(
         extendBody: _isFullScreen,
         extendBodyBehindAppBar: _isFullScreen,
@@ -1459,6 +1469,7 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen>
           ),
         ),
       ),
+    ),
     );
   }
 
@@ -1469,8 +1480,8 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen>
 
     final int screenCount = layout.screens.length;
 
-    // Disable swipe in edit mode, placement mode, or single screen
-    final disableSwipe = _isEditMode || _toolBeingPlaced != null || screenCount <= 1;
+    // Disable swipe in edit mode, placement mode, single screen, or widget request
+    final disableSwipe = _isEditMode || _toolBeingPlaced != null || screenCount <= 1 || _widgetSwipeBlock.value;
 
     // Ensure PageController is initialized before building
     if (!_pageControllerInitialized) {
