@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
@@ -198,10 +197,6 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
       }
 
       final freshness = cacheService.getViewportFreshness(tiles);
-      if (kDebugMode) {
-        final sampleKeys = tiles.take(5).map((t) => '${t.$1}/${t.$2}/${t.$3}=${cacheService.hasTile(t.$1, t.$2, t.$3)}').join(', ');
-        print('ChartPlotter freshness: z=$z tiles=${tiles.length} cached=${cacheService.cachedTileCount} result=$freshness keys=[$sampleKeys]');
-      }
       if (mounted) setState(() => _viewportFreshness = freshness);
 
       // If not fully fresh, re-check after tiles have had time to cache via proxy
