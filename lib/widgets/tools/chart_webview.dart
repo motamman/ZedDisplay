@@ -81,7 +81,7 @@ class _ChartWebViewState extends State<ChartWebView> {
 
     // Layer config — default to CartoDB Voyager + first S-57 chart
     final layerConfig = widget.layers ?? [
-      {'type': 'base', 'id': 'carto_voyager', 'enabled': true, 'opacity': 0.6},
+      {'type': 'base', 'id': 'carto_voyager', 'enabled': true, 'opacity': 1.0},
       {'type': 's57', 'id': '01CGD_ENCs', 'enabled': true, 'opacity': 1.0},
     ];
 
@@ -900,7 +900,7 @@ async function initMap() {
 
   const s57Style = new S57Style(s57Service);
 
-  // Dynamic layer creation from config
+  // Base map URL registry
   const BASE_MAP_URLS = {
     'carto_voyager': 'https://basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png',
     'carto_dark': 'https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
@@ -909,55 +909,66 @@ async function initMap() {
     'esri_satellite': 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
   };
 
-  const chartLayers = [];
-  for (const cfg of LAYER_CONFIG) {
-    if (!cfg.enabled) continue;
+  // Tag to distinguish chart layers from overlay layers (vessel, AIS, route, etc.)
+  const CHART_LAYER_TAG = '_chartLayer';
 
-    if (cfg.type === 'base') {
-      const url = BASE_MAP_URLS[cfg.id];
-      if (!url) continue;
-      chartLayers.push(new ol.layer.Tile({
-        source: new ol.source.XYZ({ url: url }),
-        opacity: cfg.opacity != null ? cfg.opacity : 0.6,
-      }));
-    }
-
-    if (cfg.type === 's57') {
-      const tileUrl = TILE_URL_BASE + '/' + cfg.id + '/{z}/{x}/{y}';
-      chartLayers.push(new ol.layer.VectorTile({
-        declutter: true,
-        source: new ol.source.VectorTile({
-          url: tileUrl,
-          format: new ol.format.MVT(),
-          tileSize: 256,
+  function _buildChartLayers(configs) {
+    const result = [];
+    for (const cfg of configs) {
+      if (!cfg.enabled) continue;
+      if (cfg.type === 'base') {
+        const url = BASE_MAP_URLS[cfg.id];
+        if (!url) continue;
+        const layer = new ol.layer.Tile({
+          source: new ol.source.XYZ({ url: url }),
+          opacity: cfg.opacity != null ? cfg.opacity : 1.0,
+        });
+        layer.set(CHART_LAYER_TAG, true);
+        result.push(layer);
+      }
+      if (cfg.type === 's57') {
+        const tileUrl = TILE_URL_BASE + '/' + cfg.id + '/{z}/{x}/{y}';
+        const layer = new ol.layer.VectorTile({
+          declutter: true,
+          source: new ol.source.VectorTile({
+            url: tileUrl,
+            format: new ol.format.MVT(),
+            tileSize: 256,
+            minZoom: 9,
+            maxZoom: 16,
+            tileLoadFunction: (tile, url) => {
+              tile.setLoader((extent, resolution, projection) => {
+                fetch(url, {
+                  headers: AUTH_TOKEN ? {'Authorization': 'Bearer ' + AUTH_TOKEN} : {},
+                })
+                .then(r => r.arrayBuffer())
+                .then(data => {
+                  const format = tile.getFormat();
+                  const features = format.readFeatures(data, {
+                    extent, featureProjection: projection,
+                  });
+                  tile.setFeatures(features);
+                })
+                .catch(() => tile.setFeatures([]));
+              });
+            },
+          }),
+          style: s57Style.getStyle,
+          renderOrder: s57Style.renderOrder,
+          opacity: cfg.opacity != null ? cfg.opacity : 1.0,
+          preload: 1,
           minZoom: 9,
-          maxZoom: 16,
-          tileLoadFunction: (tile, url) => {
-            tile.setLoader((extent, resolution, projection) => {
-              fetch(url, {
-                headers: AUTH_TOKEN ? {'Authorization': 'Bearer ' + AUTH_TOKEN} : {},
-              })
-              .then(r => r.arrayBuffer())
-              .then(data => {
-                const format = tile.getFormat();
-                const features = format.readFeatures(data, {
-                  extent, featureProjection: projection,
-                });
-                tile.setFeatures(features);
-              })
-              .catch(() => tile.setFeatures([]));
-            });
-          },
-        }),
-        style: s57Style.getStyle,
-        renderOrder: s57Style.renderOrder,
-        opacity: cfg.opacity != null ? cfg.opacity : 1.0,
-        preload: 1,
-        minZoom: 9,
-        maxZoom: 23,
-      }));
+          maxZoom: 23,
+        });
+        layer.set(CHART_LAYER_TAG, true);
+        result.push(layer);
+      }
     }
+    return result;
   }
+
+  // Reverse so config[0] (highest priority) renders on top
+  const chartLayers = _buildChartLayers(LAYER_CONFIG).reverse();
 
   // Create map
   // Suppress Canvas2D willReadFrequently warnings from OL tile renderer
@@ -1173,6 +1184,33 @@ async function initMap() {
     const b = parseInt(hex.slice(5,7),16);
     return 'rgba('+r+','+g+','+b+','+a+')';
   }
+
+  // =========================================================================
+  // Map interaction lock (disable all interactions when panels overlay the map)
+  // =========================================================================
+  window.setMapInteractive = function(enabled) {
+    map.getInteractions().forEach(function(i) { i.setActive(enabled); });
+  };
+
+  // =========================================================================
+  // Dynamic layer updates (called from Dart when user changes layer config)
+  // =========================================================================
+  window.updateLayers = function(jsonStr) {
+    const configs = JSON.parse(jsonStr);
+    // Remove existing chart layers (keep overlay layers like vessel, AIS, route)
+    const toRemove = [];
+    map.getLayers().forEach(function(layer) {
+      if (layer.get(CHART_LAYER_TAG)) toRemove.push(layer);
+    });
+    toRemove.forEach(function(layer) { map.removeLayer(layer); });
+
+    // Build and insert chart layers. List order = top-to-bottom priority:
+    // config[0] renders on top, config[n] renders at bottom.
+    const newLayers = _buildChartLayers(configs);
+    for (let i = 0; i < newLayers.length; i++) {
+      map.getLayers().insertAt(0, newLayers[i]);
+    }
+  };
 
   // =========================================================================
   // Vessel trail layer

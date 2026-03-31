@@ -19,6 +19,7 @@ import '../../widgets/countdown_confirmation_overlay.dart';
 import '../../services/chart_tile_cache_service.dart';
 import '../../services/chart_tile_server_service.dart';
 import '../../services/chart_download_manager.dart';
+import '../../services/tool_service.dart';
 import 'chart_webview.dart';
 
 /// Chart Plotter — OpenLayers-based unified navigation chart.
@@ -75,6 +76,9 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
   double? _rulerDistM;
   double? _rulerBearingFromRed;
   double? _rulerBearingFromBlue;
+
+  // Chart layers (live state — synced to JS and saved to config)
+  late List<Map<String, dynamic>> _layers;
 
   // Tile freshness
   TileFreshness _viewportFreshness = TileFreshness.uncached;
@@ -144,6 +148,14 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
   @override
   void initState() {
     super.initState();
+    // Initialize layer config from widget config
+    final rawLayers = widget.config.style.customProperties?['layers'] as List?;
+    _layers = rawLayers != null
+        ? rawLayers.map((e) => Map<String, dynamic>.from(e as Map)).toList()
+        : [
+            {'type': 'base', 'id': 'carto_voyager', 'enabled': true, 'opacity': 1.0},
+            {'type': 's57', 'id': '01CGD_ENCs', 'enabled': true, 'opacity': 1.0},
+          ];
     widget.signalKService.subscribeToPaths(
       _allPaths,
       ownerId: _ownerId,
@@ -809,6 +821,277 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
     ).whenComplete(() {
       downloadManager?.reset();
     });
+  }
+
+  void _pushLayers() {
+    if (_controller == null || !_mapReady) return;
+    final json = jsonEncode(_layers);
+    _controller!.runJavaScript('updateLayers(${_escapeForJS(json)})');
+    _saveLayerConfig();
+  }
+
+  void _saveLayerConfig() {
+    final toolId = widget.config.style.customProperties?['_toolId'] as String?;
+    if (toolId == null) return;
+    try {
+      final toolService = context.read<ToolService>();
+      final tool = toolService.getTool(toolId);
+      if (tool == null) return;
+      final updatedProps = {
+        ...?tool.config.style.customProperties,
+        'layers': _layers,
+      };
+      final updatedTool = tool.copyWith(
+        config: ToolConfig(
+          vesselId: tool.config.vesselId,
+          dataSources: tool.config.dataSources,
+          style: StyleConfig(
+            minValue: tool.config.style.minValue,
+            maxValue: tool.config.style.maxValue,
+            unit: tool.config.style.unit,
+            primaryColor: tool.config.style.primaryColor,
+            secondaryColor: tool.config.style.secondaryColor,
+            showLabel: tool.config.style.showLabel,
+            showValue: tool.config.style.showValue,
+            showUnit: tool.config.style.showUnit,
+            ttlSeconds: tool.config.style.ttlSeconds,
+            customProperties: updatedProps,
+          ),
+        ),
+      );
+      toolService.saveTool(updatedTool);
+    } catch (_) {}
+  }
+
+  static const _baseMapNames = <String, String>{
+    'carto_voyager': 'CartoDB Voyager',
+    'carto_dark': 'CartoDB Dark Matter',
+    'carto_light': 'CartoDB Positron',
+    'esri_ocean': 'Esri Ocean',
+    'esri_satellite': 'Esri Satellite',
+  };
+
+  static const _baseMapDescriptions = <String, String>{
+    'carto_voyager': 'Street map with muted colors',
+    'carto_dark': 'Dark map for night use',
+    'carto_light': 'Light minimal background',
+    'esri_ocean': 'Ocean bathymetry',
+    'esri_satellite': 'Aerial/satellite imagery',
+  };
+
+  void _showLayersPanel() {
+    _controller?.runJavaScript('setMapInteractive(false)');
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetCtx) => StatefulBuilder(
+        builder: (ctx, setSheetState) => DraggableScrollableSheet(
+          initialChildSize: 0.45,
+          maxChildSize: 0.7,
+          minChildSize: 0.2,
+          snap: true,
+          snapSizes: const [0.2, 0.45],
+          builder: (_, scrollController) => Container(
+            decoration: const BoxDecoration(
+              color: Color(0xFF1E1E2E),
+              borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+            ),
+            child: Column(
+              children: [
+                // Drag handle + header
+                Center(child: Container(
+                  width: 40, height: 4,
+                  margin: const EdgeInsets.only(top: 8, bottom: 8),
+                  decoration: BoxDecoration(color: Colors.grey[600], borderRadius: BorderRadius.circular(2)),
+                )),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Row(children: [
+                    const Icon(Icons.layers, color: Colors.white70),
+                    const SizedBox(width: 8),
+                    const Expanded(child: Text('Chart Layers',
+                      style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold))),
+                    // Add layer button
+                    IconButton(
+                      icon: const Icon(Icons.add_circle_outline, color: Colors.white70),
+                      onPressed: () => _showAddLayerPicker(ctx, setSheetState),
+                    ),
+                  ]),
+                ),
+                const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 16),
+                  child: Text('Drag to reorder. Top of list = bottom of map.',
+                    style: TextStyle(color: Colors.white38, fontSize: 11)),
+                ),
+                const SizedBox(height: 4),
+                // Reorderable layer list
+                Expanded(
+                  child: ReorderableListView.builder(
+                    scrollController: scrollController,
+                    itemCount: _layers.length,
+                    onReorder: (oldIndex, newIndex) {
+                      setSheetState(() {
+                        if (newIndex > oldIndex) newIndex--;
+                        final item = _layers.removeAt(oldIndex);
+                        _layers.insert(newIndex, item);
+                      });
+                      _pushLayers();
+                    },
+                    itemBuilder: (_, index) {
+                      final layer = _layers[index];
+                      final type = layer['type'] as String;
+                      final id = layer['id'] as String;
+                      final enabled = layer['enabled'] as bool? ?? true;
+                      final opacity = (layer['opacity'] as num?)?.toDouble() ?? 1.0;
+                      final name = type == 'base' ? (_baseMapNames[id] ?? id) : id;
+
+                      return Card(
+                        key: ValueKey('$type:$id:$index'),
+                        color: const Color(0xFF2A2A3E),
+                        margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
+                        child: Column(children: [
+                          ListTile(
+                            dense: true,
+                            leading: ReorderableDragStartListener(
+                              index: index,
+                              child: const Icon(Icons.drag_handle, color: Colors.grey, size: 20),
+                            ),
+                            title: Row(children: [
+                              Icon(
+                                type == 'base' ? Icons.map_outlined : Icons.layers,
+                                size: 14,
+                                color: enabled ? Colors.white70 : Colors.white24,
+                              ),
+                              const SizedBox(width: 6),
+                              Expanded(child: Text(name,
+                                style: TextStyle(
+                                  color: enabled ? Colors.white : Colors.white38,
+                                  fontSize: 13,
+                                ))),
+                            ]),
+                            trailing: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Switch(
+                                  value: enabled,
+                                  onChanged: (v) {
+                                    setSheetState(() => layer['enabled'] = v);
+                                    _pushLayers();
+                                  },
+                                ),
+                                IconButton(
+                                  icon: const Icon(Icons.close, size: 16, color: Colors.white38),
+                                  constraints: const BoxConstraints.tightFor(width: 28),
+                                  onPressed: () {
+                                    setSheetState(() => _layers.removeAt(index));
+                                    _pushLayers();
+                                  },
+                                ),
+                              ],
+                            ),
+                          ),
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(48, 0, 12, 4),
+                            child: Row(children: [
+                              Expanded(
+                                child: Slider(
+                                  value: opacity,
+                                  min: 0.1, max: 1.0, divisions: 9,
+                                  onChanged: enabled ? (v) {
+                                    setSheetState(() => layer['opacity'] = double.parse(v.toStringAsFixed(1)));
+                                    _pushLayers();
+                                  } : null,
+                                ),
+                              ),
+                              SizedBox(width: 32, child: Text(
+                                '${(opacity * 100).round()}%',
+                                style: const TextStyle(fontSize: 10, color: Colors.white38),
+                                textAlign: TextAlign.right,
+                              )),
+                            ]),
+                          ),
+                        ]),
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    ).whenComplete(() {
+      _controller?.runJavaScript('setMapInteractive(true)');
+    });
+  }
+
+  void _showAddLayerPicker(BuildContext ctx, void Function(VoidCallback) setSheetState) {
+    final existingIds = _layers.map((l) => l['id'] as String).toSet();
+    final options = <Map<String, String>>[];
+    for (final entry in _baseMapNames.entries) {
+      if (!existingIds.contains(entry.key)) {
+        options.add({'type': 'base', 'id': entry.key, 'name': entry.value,
+          'desc': _baseMapDescriptions[entry.key] ?? ''});
+      }
+    }
+
+    showModalBottomSheet(
+      context: ctx,
+      backgroundColor: const Color(0xFF1E1E2E),
+      builder: (pickerCtx) => FutureBuilder<Map<String, dynamic>>(
+        future: widget.signalKService.getResources('charts'),
+        builder: (_, snapshot) {
+          final allOptions = List<Map<String, String>>.from(options);
+          final charts = snapshot.data ?? {};
+          for (final entry in charts.entries) {
+            if (!existingIds.contains(entry.key)) {
+              final data = entry.value as Map<String, dynamic>;
+              allOptions.add({
+                'type': 's57', 'id': entry.key,
+                'name': data['name'] as String? ?? entry.key,
+                'desc': data['description'] as String? ?? 'S-57 chart',
+              });
+            }
+          }
+          if (allOptions.isEmpty) {
+            return const Padding(
+              padding: EdgeInsets.all(24),
+              child: Text('All available layers added',
+                style: TextStyle(color: Colors.white54)),
+            );
+          }
+          return ListView(
+            shrinkWrap: true,
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            children: allOptions.map((opt) {
+              final isBase = opt['type'] == 'base';
+              return ListTile(
+                leading: Icon(
+                  isBase ? Icons.map_outlined : Icons.layers,
+                  color: isBase ? Colors.blue : Colors.green,
+                ),
+                title: Text(opt['name']!, style: const TextStyle(color: Colors.white)),
+                subtitle: Text(opt['desc'] ?? '',
+                  style: const TextStyle(color: Colors.white38, fontSize: 12)),
+                onTap: () {
+                  Navigator.pop(pickerCtx);
+                  setSheetState(() {
+                    _layers.add({
+                      'type': opt['type']!,
+                      'id': opt['id']!,
+                      'enabled': true,
+                      'opacity': 1.0,
+                    });
+                  });
+                  _pushLayers();
+                },
+              );
+            }).toList(),
+          );
+        },
+      ),
+    );
   }
 
   String _mapDistSymbolToOLUnits(String? symbol) {
@@ -1905,9 +2188,6 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
             final tileServer = context.read<ChartTileServerService>();
             if (tileServer.isRunning) tilePort = tileServer.port;
           } catch (_) {}
-          final layerConfig = (widget.config.style.customProperties?['layers'] as List?)
-              ?.map((e) => Map<String, dynamic>.from(e as Map))
-              .toList();
           return ChartWebView(
             baseUrl: widget.signalKService.httpBaseUrl,
             authToken: widget.signalKService.authToken?.token,
@@ -1920,7 +2200,7 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
             onRulerUpdate: _onRulerUpdate,
             onViewportChanged: _onViewportChanged,
             localTileServerPort: tilePort,
-            layers: layerConfig,
+            layers: _layers,
             depthUnit: symbol,
             depthConversionFactor: factor,
           );
@@ -1978,6 +2258,11 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
                   tooltip: _aisShowPaths ? 'Paths on' : 'Paths off',
                 ),
               ],
+              _mapButton(
+                icon: Icons.layers,
+                onPressed: _showLayersPanel,
+                tooltip: 'Layers',
+              ),
               _mapButton(
                 icon: _rulerVisible ? Icons.straighten : Icons.straighten_outlined,
                 onPressed: _toggleRuler,

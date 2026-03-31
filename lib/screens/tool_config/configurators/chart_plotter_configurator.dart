@@ -43,7 +43,7 @@ class ChartPlotterConfigurator extends ToolConfigurator {
   @override
   void reset() {
     layers = [
-      {'type': 'base', 'id': 'carto_voyager', 'enabled': true, 'opacity': 0.6},
+      {'type': 'base', 'id': 'carto_voyager', 'enabled': true, 'opacity': 1.0},
     ];
     trailMinutes = 10;
     showAIS = true;
@@ -67,7 +67,7 @@ class ChartPlotterConfigurator extends ToolConfigurator {
       // Migrate from old enabledChartIds format
       final oldIds = (props['enabledChartIds'] as List?)?.cast<String>() ?? [];
       layers = [
-        {'type': 'base', 'id': 'carto_voyager', 'enabled': true, 'opacity': 0.6},
+        {'type': 'base', 'id': 'carto_voyager', 'enabled': true, 'opacity': 1.0},
       ];
       for (final id in oldIds) {
         layers.add({'type': 's57', 'id': id, 'enabled': true, 'opacity': 1.0});
@@ -444,7 +444,7 @@ class ChartPlotterConfigurator extends ToolConfigurator {
                               'type': opt['type']!,
                               'id': opt['id']!,
                               'enabled': true,
-                              'opacity': isBase ? 0.6 : 1.0,
+                              'opacity': 1.0,
                             });
                           });
                         },
