@@ -95,17 +95,20 @@ class _ChartWebViewState extends State<ChartWebView> {
 
   void _onFeatureClick(JavaScriptMessage message) {
     final data = jsonDecode(message.message) as Map<String, dynamic>;
-    final layer = data['layer'] as String? ?? 'Unknown';
-    final props = data['properties'] as Map<String, dynamic>? ?? {};
     final lngLat = data['lngLat'] as List?;
+    final rawFeatures = data['features'] as List? ?? [];
+    final features = rawFeatures
+        .map((f) => f as Map<String, dynamic>)
+        .toList();
+
+    if (features.isEmpty) return;
 
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (_) => _FeaturePopover(
-        layerCode: layer,
-        properties: props,
+        features: features,
         lngLat: lngLat,
         depthUnit: widget.depthUnit,
         depthConversionFactor: widget.depthConversionFactor,
@@ -877,31 +880,115 @@ async function initMap() {
     'DISMAR','CURENT','FSHFAC','CONVYR',
     'RESARE','ACHARE',
   ]);
+  // Debug tap halo layer
+  const _tapHaloSource = new ol.source.Vector();
+  map.addLayer(new ol.layer.Vector({ source: _tapHaloSource, zIndex: 999 }));
+
   map.on('singleclick', (e) => {
+    // Debug: show tap halo (30px radius circle at tap point)
+    _tapHaloSource.clear();
+    const halo = new ol.Feature({ geometry: new ol.geom.Point(e.coordinate) });
+    halo.setStyle(new ol.style.Style({
+      image: new ol.style.Circle({
+        radius: 30,
+        stroke: new ol.style.Stroke({ color: 'rgba(255,255,0,0.8)', width: 2 }),
+        fill: new ol.style.Fill({ color: 'rgba(255,255,0,0.1)' }),
+      }),
+    }));
+    _tapHaloSource.addFeature(halo);
+    setTimeout(() => _tapHaloSource.clear(), 2000);
+
     let aisFeature = null;
-    let s57Feature = null;
+    const s57Features = [];
     map.forEachFeatureAtPixel(e.pixel, (feature) => {
       if (feature.get('isAIS') && !aisFeature) {
         aisFeature = feature;
       }
       const props = feature.getProperties();
-      if (props.layer && CLICKABLE.has(props.layer) && !s57Feature) {
-        s57Feature = feature;
+      if (props.layer && CLICKABLE.has(props.layer)) {
+        s57Features.push(feature);
       }
-    });
+    }, { hitTolerance: 30 });
     // AIS tap takes priority
     if (aisFeature && window.AISVesselClick) {
       AISVesselClick.postMessage(aisFeature.get('vesselId'));
       return;
     }
-    if (s57Feature && window.FeatureClick) {
-      const props = s57Feature.getProperties();
+    if (s57Features.length > 0 && window.FeatureClick) {
       const coord = ol.proj.toLonLat(e.coordinate);
+      // Get S-57 display priority for a feature
+      function getDP(f) {
+        const li = f[LOOKUPINDEXKEY];
+        if (li != null && li >= 0) {
+          const lup = s57Service.getLookup(li);
+          if (lup) return lup.displayPriority || 0;
+        }
+        return 0;
+      }
+      // Group features within 15px of each other (compound markers)
+      const res = map.getView().getResolution() || 1;
+      const groupTolSq = (30 * res) * (30 * res); // 30 pixels in map units, squared
+      const groups = [];
+      for (const f of s57Features) {
+        const props = f.getProperties();
+        const dp = getDP(f);
+        const geom = f.getGeometry();
+        let gX = null, gY = null;
+        if (geom && geom.getType() === 'Point') {
+          const c = geom.getFlatCoordinates ? geom.getFlatCoordinates() : (geom.getCoordinates ? geom.getCoordinates() : null);
+          if (c && c.length >= 2) {
+            gX = c[0]; gY = c[1];
+          }
+        }
+        const entry = {
+          layer: props.layer || 'unknown',
+          dp: dp,
+          properties: Object.fromEntries(
+            Object.entries(props).filter(([k]) => k !== 'geometry' && k !== '_lupIndex')
+          ),
+        };
+        // Find existing group within 15px radius
+        let added = false;
+        if (gX != null) {
+          for (const g of groups) {
+            if (!g.isPoint) continue;
+            const dx = gX - g.cx;
+            const dy = gY - g.cy;
+            if (dx * dx + dy * dy < groupTolSq) {
+              g.features.push(entry);
+              if (dp > g.maxDP) g.maxDP = dp;
+              added = true;
+              break;
+            }
+          }
+        }
+        if (!added) {
+          groups.push({
+            key: gX != null ? (gX + ',' + gY) : ('line_' + groups.length),
+            isPoint: gX != null,
+            cx: gX, cy: gY,
+            maxDP: dp,
+            features: [entry],
+          });
+        }
+      }
+      // Sort groups: highest display priority wins; points over lines as tiebreak
+      groups.sort((a, b) => {
+        if (a.maxDP !== b.maxDP) return b.maxDP - a.maxDP;
+        return (b.isPoint ? 1 : 0) - (a.isPoint ? 1 : 0);
+      });
+      // Within winning group, sort: physical structures first, then equipment
+      // Buoys/beacons are the primary object; lights/fog/topmarks are equipment on them
+      const EQUIPMENT = new Set(['LIGHTS','FOGSIG','TOPMAR','RTPBCN','RADSTA','RDOSTA']);
+      const best = groups[0];
+      best.features.sort((a, b) => {
+        const aEquip = EQUIPMENT.has(a.layer) ? 1 : 0;
+        const bEquip = EQUIPMENT.has(b.layer) ? 1 : 0;
+        if (aEquip !== bEquip) return aEquip - bEquip; // structures before equipment
+        return b.dp - a.dp; // then by display priority
+      });
       const msg = JSON.stringify({
-        layer: props.layer || 'unknown',
-        properties: Object.fromEntries(
-          Object.entries(props).filter(([k]) => k !== 'geometry' && k !== '_lupIndex')
-        ),
+        features: best.features.map(f => ({ layer: f.layer, properties: f.properties })),
         lngLat: [coord[0], coord[1]],
       });
       FeatureClick.postMessage(msg);
@@ -1346,15 +1433,13 @@ initMap().catch(e => console.error('Init failed:', e));
 // =============================================================================
 
 class _FeaturePopover extends StatelessWidget {
-  final String layerCode;
-  final Map<String, dynamic> properties;
+  final List<Map<String, dynamic>> features;
   final List? lngLat;
   final String depthUnit;
   final double depthConversionFactor;
 
   const _FeaturePopover({
-    required this.layerCode,
-    required this.properties,
+    required this.features,
     this.lngLat,
     this.depthUnit = 'm',
     this.depthConversionFactor = 1.0,
@@ -1362,14 +1447,18 @@ class _FeaturePopover extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final name = properties['OBJNAM'] as String? ??
-        _objectClassNames[layerCode] ??
-        layerCode;
+    // Primary feature determines the header name
+    final primary = features.first;
+    final primaryLayer = primary['layer'] as String? ?? 'Unknown';
+    final primaryProps = primary['properties'] as Map<String, dynamic>? ?? {};
+    final name = primaryProps['OBJNAM'] as String? ??
+        _objectClassNames[primaryLayer] ??
+        primaryLayer;
 
     return DraggableScrollableSheet(
-      initialChildSize: 0.35,
+      initialChildSize: features.length > 1 ? 0.45 : 0.35,
       minChildSize: 0.15,
-      maxChildSize: 0.6,
+      maxChildSize: 0.7,
       builder: (context, scrollController) {
         return Container(
           decoration: const BoxDecoration(
@@ -1394,8 +1483,8 @@ class _FeaturePopover extends StatelessWidget {
                       child: Text(name,
                         style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
                     ),
-                    if (properties['OBJNAM'] != null)
-                      Text(_objectClassNames[layerCode] ?? layerCode,
+                    if (primaryProps['OBJNAM'] != null)
+                      Text(_objectClassNames[primaryLayer] ?? primaryLayer,
                         style: const TextStyle(color: Colors.white54, fontSize: 13)),
                   ],
                 ),
@@ -1415,7 +1504,7 @@ class _FeaturePopover extends StatelessWidget {
                 child: ListView(
                   controller: scrollController,
                   padding: const EdgeInsets.symmetric(horizontal: 16),
-                  children: _buildPropertyRows(),
+                  children: _buildAllFeatureRows(),
                 ),
               ),
             ],
@@ -1425,7 +1514,28 @@ class _FeaturePopover extends StatelessWidget {
     );
   }
 
-  List<Widget> _buildPropertyRows() {
+  List<Widget> _buildAllFeatureRows() {
+    final rows = <Widget>[];
+    for (int i = 0; i < features.length; i++) {
+      final f = features[i];
+      final layer = f['layer'] as String? ?? 'Unknown';
+      final props = f['properties'] as Map<String, dynamic>? ?? {};
+      // Section header for additional features
+      if (i > 0) {
+        final sectionName = _objectClassNames[layer] ?? layer;
+        rows.add(Padding(
+          padding: const EdgeInsets.only(top: 12, bottom: 4),
+          child: Text(sectionName,
+            style: const TextStyle(color: Colors.white70, fontSize: 14, fontWeight: FontWeight.bold)),
+        ));
+        rows.add(const Divider(color: Colors.white12, height: 8));
+      }
+      rows.addAll(_buildPropertyRows(props));
+    }
+    return rows;
+  }
+
+  List<Widget> _buildPropertyRows(Map<String, dynamic> properties) {
     final rows = <Widget>[];
     for (final key in _displayOrder) {
       final val = properties[key];
