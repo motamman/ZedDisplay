@@ -64,6 +64,11 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
   DateTime _lastAISPush = DateTime(0);
   bool _hasLoadedAIS = false;
 
+  // AIS controls
+  bool _aisEnabled = true;
+  bool _aisActiveOnly = false;
+  bool _aisShowPaths = true;
+
   // Route overlay
   String? _activeRouteHref;
   List<List<double>>? _routeCoords;
@@ -354,6 +359,11 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
   // ---------------------------------------------------------------------------
 
   void _pushAISVessels() {
+    if (!_aisEnabled) {
+      _controller!.runJavaScript('updateAISVessels(${_escapeForJS(jsonEncode([]))})');
+      return;
+    }
+
     final registry = widget.signalKService.aisVesselRegistry.vessels;
     final ownCogRad = _numValue('navigation.courseOverGroundTrue');
     final ownSogMs = _numValue('navigation.speedOverGround') ?? 0.0;
@@ -371,6 +381,12 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
     for (final entry in registry.entries) {
       final v = entry.value;
       if (!v.hasPosition) continue;
+
+      // Active-only filter: hide stale vessels (lost, removed, or unseen 10+ min)
+      if (_aisActiveOnly) {
+        if (v.aisStatus == 'lost' || v.aisStatus == 'remove') continue;
+        if (v.lastSeen.difference(DateTime.now()).inMinutes.abs() >= 10) continue;
+      }
 
       // CPA/TCPA (needs own position)
       double? cpa, tcpa;
@@ -409,7 +425,7 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
         'lastSeen': v.lastSeen.millisecondsSinceEpoch,
         'cpa': cpa,
         'tcpa': tcpa,
-        'projections': projections.map((p) => {'lat': p.lat, 'lon': p.lon}).toList(),
+        'projections': _aisShowPaths ? projections.map((p) => {'lat': p.lat, 'lon': p.lon}).toList() : [],
       });
     }
 
@@ -1337,6 +1353,32 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
                 onPressed: _showRouteManager,
                 tooltip: 'Routes',
               ),
+              _mapButton(
+                icon: _aisEnabled ? Icons.sailing : Icons.sailing_outlined,
+                onPressed: () {
+                  setState(() => _aisEnabled = !_aisEnabled);
+                  if (_mapReady && _controller != null) _pushAISVessels();
+                },
+                tooltip: _aisEnabled ? 'AIS on' : 'AIS off',
+              ),
+              if (_aisEnabled) ...[
+                _mapButton(
+                  icon: _aisActiveOnly ? Icons.filter_alt : Icons.filter_alt_outlined,
+                  onPressed: () {
+                    setState(() => _aisActiveOnly = !_aisActiveOnly);
+                    if (_mapReady && _controller != null) _pushAISVessels();
+                  },
+                  tooltip: _aisActiveOnly ? 'Active only' : 'All vessels',
+                ),
+                _mapButton(
+                  icon: _aisShowPaths ? Icons.timeline : Icons.timeline_outlined,
+                  onPressed: () {
+                    setState(() => _aisShowPaths = !_aisShowPaths);
+                    if (_mapReady && _controller != null) _pushAISVessels();
+                  },
+                  tooltip: _aisShowPaths ? 'Paths on' : 'Paths off',
+                ),
+              ],
             ],
           ),
         ),
