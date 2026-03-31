@@ -946,16 +946,13 @@ async function initMap() {
     );
   }
 
-  // Anchored — anchor symbol
+  // Anchored — Material Design anchor icon (same as Icons.anchor in Flutter)
   function anchorSvgSrc(fillHex, alpha) {
     const key = 'a_' + fillHex + '_' + alpha;
     const fc = hexToRgba(fillHex, alpha);
     return _svgDataUrl(key,
       '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24">' +
-      '<circle cx="12" cy="5" r="2.5" fill="none" stroke="' + fc + '" stroke-width="1.8"/>' +
-      '<line x1="12" y1="7.5" x2="12" y2="21" stroke="' + fc + '" stroke-width="2" stroke-linecap="round"/>' +
-      '<line x1="5" y1="14" x2="19" y2="14" stroke="' + fc + '" stroke-width="2" stroke-linecap="round"/>' +
-      '<path d="M6 21 C6 17 12 13 12 13 C12 13 18 17 18 21" fill="none" stroke="' + fc + '" stroke-width="1.8" stroke-linecap="round"/>' +
+      '<path d="M17 15l1.55 1.55c-.96 1.69-3.33 3.04-5.55 3.37V11h3V9h-3V7.82C14.16 7.4 15 6.3 15 5c0-1.65-1.35-3-3-3S9 3.35 9 5c0 1.3.84 2.4 2 2.82V9H8v2h3v8.92c-2.22-.33-4.59-1.68-5.55-3.37L7 15l-4-3v3c0 3.88 4.92 7 9 7s9-3.12 9-7v-3l-4 3zM12 4c.55 0 1 .45 1 1s-.45 1-1 1s-1-.45-1-1s.45-1 1-1z" fill="' + fc + '"/>' +
       '</svg>'
     );
   }
