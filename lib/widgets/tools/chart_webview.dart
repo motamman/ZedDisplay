@@ -905,7 +905,8 @@ async function initMap() {
     'carto_voyager': 'https://basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png',
     'carto_dark': 'https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
     'carto_light': 'https://basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',
-    'osm': 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+    'esri_ocean': 'https://server.arcgisonline.com/ArcGIS/rest/services/Ocean/World_Ocean_Base/MapServer/tile/{z}/{y}/{x}',
+    'esri_satellite': 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
   };
 
   const chartLayers = [];
