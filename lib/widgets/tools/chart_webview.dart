@@ -1147,6 +1147,40 @@ async function initMap() {
   }
 
   // =========================================================================
+  // Vessel trail layer
+  // =========================================================================
+  const trailSource = new ol.source.Vector();
+  map.addLayer(new ol.layer.Vector({ source: trailSource, zIndex: 180 }));
+
+  window.updateTrail = function(jsonStr) {
+    trailSource.clear();
+    if (!jsonStr || jsonStr === 'null') return;
+    const coords = JSON.parse(jsonStr);
+    if (coords.length < 2) return;
+    const mapCoords = coords.map(function(c) { return ol.proj.fromLonLat(c); });
+
+    // Gradient fade: oldest = faded, newest = bright
+    const segCount = Math.min(mapCoords.length - 1, 5);
+    const segLen = Math.floor(mapCoords.length / segCount);
+    for (let s = 0; s < segCount; s++) {
+      const start = s * segLen;
+      const end = s === segCount - 1 ? mapCoords.length : (s + 1) * segLen + 1;
+      const alpha = 0.15 + 0.65 * (s / (segCount - 1));
+      const seg = new ol.Feature({
+        geometry: new ol.geom.LineString(mapCoords.slice(start, end)),
+      });
+      seg.setStyle(new ol.style.Style({
+        stroke: new ol.style.Stroke({
+          color: 'rgba(33,150,243,' + alpha + ')',
+          width: 2,
+          lineDash: [6, 4],
+        }),
+      }));
+      trailSource.addFeature(seg);
+    }
+  };
+
+  // =========================================================================
   // Navigation overlay layers
   // =========================================================================
   const vesselSource = new ol.source.Vector();

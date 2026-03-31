@@ -1,10 +1,15 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../../../models/tool_config.dart';
 import '../../../models/tool.dart';
+import '../../../services/chart_tile_cache_service.dart';
 import '../../../services/signalk_service.dart';
 import '../base_tool_configurator.dart';
 
-/// Configurator for Chart Plotter tool
+/// Configurator for Chart Plotter tool.
+///
+/// SignalK paths are managed via dataSources (same pattern as autopilot).
+/// The standard path selector in the config screen handles path editing.
 class ChartPlotterConfigurator extends ToolConfigurator {
   @override
   String get toolTypeId => 'chart_plotter';
@@ -17,6 +22,7 @@ class ChartPlotterConfigurator extends ToolConfigurator {
   bool showAIS = true;
   bool showRoute = true;
   String hudPosition = 'bottom';
+  String cacheRefresh = 'stale'; // 'aging' or 'stale'
 
   @override
   void reset() {
@@ -25,6 +31,7 @@ class ChartPlotterConfigurator extends ToolConfigurator {
     showAIS = true;
     showRoute = true;
     hudPosition = 'bottom';
+    cacheRefresh = 'stale';
   }
 
   @override
@@ -41,12 +48,13 @@ class ChartPlotterConfigurator extends ToolConfigurator {
     showAIS = props['showAIS'] as bool? ?? true;
     showRoute = props['showRoute'] as bool? ?? true;
     hudPosition = props['hudPosition'] as String? ?? 'bottom';
+    cacheRefresh = props['cacheRefresh'] as String? ?? 'stale';
   }
 
   @override
   ToolConfig getConfig() {
     return ToolConfig(
-      dataSources: const [],
+      dataSources: const [], // Paths managed by standard path selector
       style: StyleConfig(
         customProperties: {
           'enabledChartIds': enabledChartIds,
@@ -54,6 +62,7 @@ class ChartPlotterConfigurator extends ToolConfigurator {
           'showAIS': showAIS,
           'showRoute': showRoute,
           'hudPosition': hudPosition,
+          'cacheRefresh': cacheRefresh,
         },
       ),
     );
@@ -108,39 +117,18 @@ class ChartPlotterConfigurator extends ToolConfigurator {
               const SizedBox(height: 16),
 
               // Trail length
-              Text('Trail Length',
+              Text('Trail Duration',
                   style: Theme.of(context).textTheme.titleSmall),
-              const SizedBox(height: 4),
-              const Text(
-                'How many minutes of vessel track to display',
-                style: TextStyle(color: Colors.grey, fontSize: 12),
-              ),
               const SizedBox(height: 8),
-              Row(
-                children: [
-                  Expanded(
-                    child: Slider(
-                      value: trailMinutes.toDouble(),
-                      min: 1,
-                      max: 60,
-                      divisions: 59,
-                      label: '$trailMinutes min',
-                      onChanged: (v) =>
-                          setState(() => trailMinutes = v.round()),
-                    ),
-                  ),
-                  SizedBox(
-                    width: 48,
-                    child: Text(
-                      '${trailMinutes}m',
-                      style: const TextStyle(
-                        fontFamily: 'monospace',
-                        fontWeight: FontWeight.bold,
-                      ),
-                      textAlign: TextAlign.center,
-                    ),
-                  ),
+              SegmentedButton<int>(
+                segments: const [
+                  ButtonSegment(value: 5, label: Text('5 min')),
+                  ButtonSegment(value: 15, label: Text('15 min')),
+                  ButtonSegment(value: 60, label: Text('60 min')),
                 ],
+                selected: {trailMinutes},
+                onSelectionChanged: (v) =>
+                    setState(() => trailMinutes = v.first),
               ),
 
               const SizedBox(height: 16),
@@ -159,6 +147,71 @@ class ChartPlotterConfigurator extends ToolConfigurator {
                 selected: {hudPosition},
                 onSelectionChanged: (v) =>
                     setState(() => hudPosition = v.first),
+              ),
+
+              const SizedBox(height: 16),
+              const Divider(),
+              const SizedBox(height: 16),
+
+              // Cache refresh
+              Text('Auto-Refresh Charts',
+                  style: Theme.of(context).textTheme.titleSmall),
+              const SizedBox(height: 4),
+              const Text(
+                'Automatically re-fetch cached tiles when they reach this age',
+                style: TextStyle(color: Colors.grey, fontSize: 12),
+              ),
+              const SizedBox(height: 8),
+              SegmentedButton<String>(
+                segments: const [
+                  ButtonSegment(value: 'aging', label: Text('15 days')),
+                  ButtonSegment(value: 'stale', label: Text('30 days')),
+                ],
+                selected: {cacheRefresh},
+                onSelectionChanged: (v) =>
+                    setState(() => cacheRefresh = v.first),
+              ),
+
+              const SizedBox(height: 16),
+
+              // Flush cache
+              Builder(builder: (ctx) {
+                ChartTileCacheService? cacheService;
+                try {
+                  cacheService = ctx.read<ChartTileCacheService>();
+                } catch (_) {}
+                if (cacheService == null) return const SizedBox.shrink();
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('${cacheService.cachedTileCount} tiles cached',
+                        style: const TextStyle(color: Colors.grey, fontSize: 12)),
+                    const SizedBox(height: 8),
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        icon: const Icon(Icons.delete_sweep),
+                        label: const Text('Clear Tile Cache'),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: Colors.red,
+                          side: const BorderSide(color: Colors.red),
+                        ),
+                        onPressed: () async {
+                          await cacheService!.clearCache();
+                          setState(() {});
+                        },
+                      ),
+                    ),
+                  ],
+                );
+              }),
+
+              const SizedBox(height: 16),
+              const Divider(),
+              const SizedBox(height: 8),
+              const Text(
+                'SignalK paths are configured in the Paths tab above.',
+                style: TextStyle(color: Colors.grey, fontSize: 12),
               ),
             ],
           ),

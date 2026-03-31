@@ -119,6 +119,12 @@ class ChartTileCacheService extends ChangeNotifier {
     return file;
   }
 
+  /// Reset a tile's timestamp to now without rewriting file data.
+  Future<void> refreshTimestamp(int z, int x, int y) async {
+    await _metaBox.put(
+        _tileKey(z, x, y), DateTime.now().millisecondsSinceEpoch);
+  }
+
   // ---------------------------------------------------------------------------
   // Staleness
   // ---------------------------------------------------------------------------

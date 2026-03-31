@@ -22,15 +22,21 @@ class ChartTileServerService extends ChangeNotifier {
 
   String? _upstreamBaseUrl;
   String? _authToken;
+  TileFreshness _refreshThreshold = TileFreshness.stale;
 
   bool get isRunning => _server != null;
   int get port => _port;
 
   /// Set the upstream SignalK server URL and auth token.
   /// Called when the chart plotter connects.
-  void configure({required String upstreamBaseUrl, String? authToken}) {
+  void configure({
+    required String upstreamBaseUrl,
+    String? authToken,
+    TileFreshness refreshThreshold = TileFreshness.stale,
+  }) {
     _upstreamBaseUrl = upstreamBaseUrl;
     _authToken = authToken;
+    _refreshThreshold = refreshThreshold;
   }
 
   /// Start the local tile proxy server.
@@ -125,6 +131,15 @@ class ChartTileServerService extends ChangeNotifier {
     final cachedFile = cacheService.getTileFile(z, x, y);
     if (cachedFile != null) {
       final bytes = await cachedFile.readAsBytes();
+
+      // Background refresh if tile has reached the staleness threshold
+      final freshness = cacheService.getTileFreshness(z, x, y);
+      if (_upstreamBaseUrl != null &&
+          freshness.index >= _refreshThreshold.index &&
+          _refreshThreshold != TileFreshness.uncached) {
+        _backgroundRefresh(z, x, y, bytes);
+      }
+
       return Response.ok(bytes, headers: {
         'Content-Type': 'application/x-protobuf',
         'X-Cache': 'HIT',
@@ -160,6 +175,39 @@ class ChartTileServerService extends ChangeNotifier {
     } catch (e) {
       return Response.internalServerError(body: 'Upstream fetch failed: $e');
     }
+  }
+
+  /// Re-fetch a tile in the background. If bytes match, just reset timestamp.
+  /// If different, write the new tile data.
+  void _backgroundRefresh(int z, int x, int y, Uint8List cachedBytes) {
+    final url = '$_upstreamBaseUrl/plugins/signalk-charts-provider-simple/01CGD_ENCs/$z/$x/$y';
+    http.get(
+      Uri.parse(url),
+      headers: {
+        if (_authToken != null && _authToken!.isNotEmpty)
+          'Authorization': 'Bearer $_authToken',
+      },
+    ).then((response) {
+      if (response.statusCode == 200) {
+        if (_bytesEqual(cachedBytes, response.bodyBytes)) {
+          // Same content — just reset timestamp to fresh
+          cacheService.refreshTimestamp(z, x, y);
+        } else {
+          // Different content — write new tile
+          cacheService.putTile(z, x, y, response.bodyBytes);
+        }
+      }
+    }).catchError((_) {
+      // Background refresh failure is silent — cached tile still served
+    });
+  }
+
+  static bool _bytesEqual(Uint8List a, Uint8List b) {
+    if (a.length != b.length) return false;
+    for (int i = 0; i < a.length; i++) {
+      if (a[i] != b[i]) return false;
+    }
+    return true;
   }
 
   @override

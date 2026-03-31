@@ -43,21 +43,19 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
 
   static const _ownerId = 'chart_plotter';
 
-  static const _navPaths = [
-    'navigation.position',
-    'navigation.headingTrue',
-    'navigation.courseOverGroundTrue',
-    'navigation.speedOverGround',
-    'environment.depth.belowTransducer',
-  ];
-
-  static const _routePaths = [
-    'navigation.course.calcValues.bearingTrue',
-    'navigation.course.calcValues.crossTrackError',
-    'navigation.course.calcValues.distance',
-    'navigation.course.activeRoute',
-    'navigation.courseGreatCircle.nextPoint.position',
-  ];
+  // DataSource indices — matches getDefaultConfig() order
+  static const _dsPosition = 0;
+  static const _dsHeading = 1;
+  static const _dsCog = 2;
+  static const _dsSog = 3;
+  static const _dsDepth = 4;
+  static const _dsBearing = 5;
+  static const _dsXte = 6;
+  static const _dsDtw = 7;
+  // ignore: unused_field
+  static const _dsActiveRoute = 8; // subscribed; read via REST
+  // ignore: unused_field
+  static const _dsNextPoint = 9; // subscribed; read via REST
 
   WebViewController? _controller;
   bool _mapReady = false;
@@ -83,6 +81,11 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
   Timer? _freshnessRetryTimer;
   Map<String, dynamic>? _lastViewportData;
 
+  // Vessel trail
+  final List<List<double>> _trailPoints = []; // [[lon, lat], ...]
+  final List<int> _trailTimestamps = []; // epoch ms, parallel list
+  DateTime _lastTrailPush = DateTime(0);
+
   // Route overlay
   String? _activeRouteHref;
   List<List<double>>? _routeCoords;
@@ -97,6 +100,39 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
   // Config accessors
   // ---------------------------------------------------------------------------
 
+  // Fallback defaults when dataSources is empty (legacy configs)
+  static const _fallbackPaths = [
+    'navigation.position',          // 0: position
+    'navigation.headingTrue',       // 1: heading
+    'navigation.courseOverGroundTrue', // 2: COG
+    'navigation.speedOverGround',   // 3: SOG
+    'environment.depth.belowTransducer', // 4: depth
+    'navigation.course.calcValues.bearingTrue', // 5: bearing
+    'navigation.course.calcValues.crossTrackError', // 6: XTE
+    'navigation.course.calcValues.distance', // 7: DTW
+    'navigation.course.activeRoute', // 8: active route
+    'navigation.courseGreatCircle.nextPoint.position', // 9: next point
+  ];
+
+  /// Read a SignalK path from dataSources by index, falling back to defaults.
+  String _dsPath(int index) {
+    if (widget.config.dataSources.length > index) {
+      return widget.config.dataSources[index].path;
+    }
+    return index < _fallbackPaths.length ? _fallbackPaths[index] : '';
+  }
+
+  /// All configured paths (for subscribe/unsubscribe).
+  List<String> get _allPaths {
+    if (widget.config.dataSources.isNotEmpty) {
+      return widget.config.dataSources.map((ds) => ds.path).toList();
+    }
+    return List.from(_fallbackPaths);
+  }
+
+  int get _trailMinutes =>
+      widget.config.style.customProperties?['trailMinutes'] as int? ?? 10;
+
   String get _hudPosition =>
       widget.config.style.customProperties?['hudPosition'] as String? ??
       'bottom';
@@ -109,7 +145,7 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
   void initState() {
     super.initState();
     widget.signalKService.subscribeToPaths(
-      [..._navPaths, ..._routePaths],
+      _allPaths,
       ownerId: _ownerId,
     );
     widget.signalKService.addListener(_onSignalKUpdate);
@@ -125,7 +161,7 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
     widget.signalKService.removeListener(_onSignalKUpdate);
     _resetSwipeBlock();
     widget.signalKService.unsubscribeFromPaths(
-      [..._navPaths, ..._routePaths],
+      _allPaths,
       ownerId: _ownerId,
     );
     super.dispose();
@@ -155,9 +191,11 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
     // Configure tile server with upstream URL and auth token
     try {
       final tileServer = context.read<ChartTileServerService>();
+      final refreshStr = widget.config.style.customProperties?['cacheRefresh'] as String? ?? 'stale';
       tileServer.configure(
         upstreamBaseUrl: widget.signalKService.httpBaseUrl,
         authToken: widget.signalKService.authToken?.token,
+        refreshThreshold: refreshStr == 'aging' ? TileFreshness.aging : TileFreshness.stale,
       );
     } catch (_) {}
   }
@@ -247,20 +285,55 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
   }
 
   void _pushVesselPosition() {
-    final posData = widget.signalKService.getValue('navigation.position');
+    final posData = widget.signalKService.getValue(_dsPath(_dsPosition));
     if (posData?.value is! Map) return;
     final pos = posData!.value as Map;
     final lat = (pos['latitude'] as num?)?.toDouble();
     final lon = (pos['longitude'] as num?)?.toDouble();
     if (lat == null || lon == null) return;
 
-    final heading = _numValue('navigation.headingTrue');
-    final cog = _numValue('navigation.courseOverGroundTrue');
-    final sog = _numValue('navigation.speedOverGround');
+    final heading = _numValue(_dsPath(_dsHeading));
+    final cog = _numValue(_dsPath(_dsCog));
+    final sog = _numValue(_dsPath(_dsSog));
 
     _controller!.runJavaScript(
       'updateVesselPosition($lat, $lon, ${heading ?? 'null'}, ${cog ?? 'null'}, ${sog ?? 0})',
     );
+
+    // Trail: append point if moved >5m from last
+    _collectTrailPoint(lon, lat);
+  }
+
+  void _collectTrailPoint(double lon, double lat) {
+    if (_trailPoints.isNotEmpty) {
+      final last = _trailPoints.last;
+      final dx = (lon - last[0]) * math.cos(lat * math.pi / 180) * 111320;
+      final dy = (lat - last[1]) * 111320;
+      if (dx * dx + dy * dy < 25) return; // <5m, skip
+    }
+    _trailPoints.add([lon, lat]);
+    _trailTimestamps.add(DateTime.now().millisecondsSinceEpoch);
+
+    // Trim old points
+    final cutoff =
+        DateTime.now().millisecondsSinceEpoch - _trailMinutes * 60000;
+    while (_trailTimestamps.isNotEmpty && _trailTimestamps.first < cutoff) {
+      _trailTimestamps.removeAt(0);
+      _trailPoints.removeAt(0);
+    }
+
+    // Throttled push (every 2s)
+    final now = DateTime.now();
+    if (now.difference(_lastTrailPush).inSeconds >= 2) {
+      _lastTrailPush = now;
+      _pushTrail();
+    }
+  }
+
+  void _pushTrail() {
+    if (_trailPoints.length < 2 || _controller == null || !_mapReady) return;
+    final json = jsonEncode(_trailPoints);
+    _controller!.runJavaScript('updateTrail(${_escapeForJS(json)})');
   }
 
   void _toggleViewMode() {
@@ -443,11 +516,11 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
     }
 
     final registry = widget.signalKService.aisVesselRegistry.vessels;
-    final ownCogRad = _numValue('navigation.courseOverGroundTrue');
-    final ownSogMs = _numValue('navigation.speedOverGround') ?? 0.0;
+    final ownCogRad = _numValue(_dsPath(_dsCog));
+    final ownSogMs = _numValue(_dsPath(_dsSog)) ?? 0.0;
 
     // Own position for bearing/distance/CPA
-    final posData = widget.signalKService.getValue('navigation.position');
+    final posData = widget.signalKService.getValue(_dsPath(_dsPosition));
     double? ownLat, ownLon;
     if (posData?.value is Map) {
       final pos = posData!.value as Map;
@@ -560,7 +633,7 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
     final distMeta = widget.signalKService.metadataStore.getByCategory('distance');
     final factor = distMeta?.convert(1.0) ?? 0.000539957;
     final symbol = distMeta?.symbol ?? 'nm';
-    _controller?.runJavaScript("updateRulerUnits($factor, ${jsonEncode(symbol)})");
+    _controller?.runJavaScript('updateRulerUnits($factor, ${jsonEncode(symbol)})');
   }
 
   void _showDownloadDialog() async {
@@ -657,7 +730,7 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
                 // Download progress (if downloading)
                 ListenableBuilder(
                   listenable: downloadManager,
-                  builder: (_, __) {
+                  builder: (_, _) {
                     if (downloadManager!.status == DownloadStatus.downloading) {
                       return Column(children: [
                         LinearProgressIndicator(value: downloadManager.progress),
@@ -679,28 +752,53 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
                       return Text(downloadManager.errorMessage ?? 'Download failed',
                         style: const TextStyle(color: Colors.red, fontSize: 13));
                     }
-                    // idle/cancelled — show download button
-                    return SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton.icon(
-                        icon: const Icon(Icons.download),
-                        label: const Text('Download'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.green.shade700,
-                          foregroundColor: Colors.white,
+                    // idle/cancelled — show download + flush buttons
+                    return Column(children: [
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton.icon(
+                          icon: const Icon(Icons.download),
+                          label: const Text('Download New'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.green.shade700,
+                            foregroundColor: Colors.white,
+                          ),
+                          onPressed: () {
+                            downloadManager!.downloadArea(
+                              minLon: minLon, minLat: minLat,
+                              maxLon: maxLon, maxLat: maxLat,
+                              minZoom: minZoom, maxZoom: maxZoom,
+                              baseUrl: widget.signalKService.httpBaseUrl,
+                              authToken: widget.signalKService.authToken?.token,
+                              regionName: nameController.text,
+                            );
+                          },
                         ),
-                        onPressed: () {
-                          downloadManager!.downloadArea(
-                            minLon: minLon, minLat: minLat,
-                            maxLon: maxLon, maxLat: maxLat,
-                            minZoom: minZoom, maxZoom: maxZoom,
-                            baseUrl: widget.signalKService.httpBaseUrl,
-                            authToken: widget.signalKService.authToken?.token,
-                            regionName: nameController.text,
-                          );
-                        },
                       ),
-                    );
+                      const SizedBox(height: 8),
+                      SizedBox(
+                        width: double.infinity,
+                        child: OutlinedButton.icon(
+                          icon: const Icon(Icons.refresh),
+                          label: const Text('Flush & Re-download All'),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.orange,
+                            side: const BorderSide(color: Colors.orange),
+                          ),
+                          onPressed: () {
+                            downloadManager!.downloadArea(
+                              minLon: minLon, minLat: minLat,
+                              maxLon: maxLon, maxLat: maxLat,
+                              minZoom: minZoom, maxZoom: maxZoom,
+                              baseUrl: widget.signalKService.httpBaseUrl,
+                              authToken: widget.signalKService.authToken?.token,
+                              regionName: nameController.text,
+                              flush: true,
+                            );
+                          },
+                        ),
+                      ),
+                    ]);
                   },
                 ),
               ],
@@ -741,9 +839,9 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
     if (vessel == null) return;
 
     final store = widget.signalKService.metadataStore;
-    final cogMeta = store.get('navigation.courseOverGroundTrue');
-    final sogMeta = store.get('navigation.speedOverGround');
-    final hdgMeta = store.get('navigation.headingTrue');
+    final cogMeta = store.get(_dsPath(_dsCog));
+    final sogMeta = store.get(_dsPath(_dsSog));
+    final hdgMeta = store.get(_dsPath(_dsHeading));
     final distMeta = store.getByCategory('distance');
     final lenMeta = store.getByCategory('length');
 
@@ -774,7 +872,7 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
 
     // CPA/TCPA
     double? ownLat, ownLon;
-    final posData = widget.signalKService.getValue('navigation.position');
+    final posData = widget.signalKService.getValue(_dsPath(_dsPosition));
     if (posData?.value is Map) {
       final pos = posData!.value as Map;
       ownLat = (pos['latitude'] as num?)?.toDouble();
@@ -787,8 +885,8 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
       final result = CpaUtils.calculateCpaTcpa(
         bearingDeg: bearing,
         distanceM: distance,
-        ownCogRad: _numValue('navigation.courseOverGroundTrue'),
-        ownSogMs: _numValue('navigation.speedOverGround') ?? 0.0,
+        ownCogRad: _numValue(_dsPath(_dsCog)),
+        ownSogMs: _numValue(_dsPath(_dsSog)) ?? 0.0,
         targetCogRad: vessel.cogRad,
         targetSogMs: vessel.sogMs,
       );
@@ -1156,12 +1254,12 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceEvenly,
           children: [
-            _hudItem('SOG', _formatValue('navigation.speedOverGround')),
-            _hudItem('COG', _formatValue('navigation.courseOverGroundTrue', decimals: 0)),
-            _hudItem('DPT', _formatValue('environment.depth.belowTransducer', decimals: 1)),
-            _hudItem('DTW', _formatValue('navigation.course.calcValues.distance', decimals: 1)),
-            _hudItem('BRG', _formatValue('navigation.course.calcValues.bearingTrue', decimals: 0)),
-            _hudItem('XTE', _formatValue('navigation.course.calcValues.crossTrackError', decimals: 1)),
+            _hudItem('SOG', _formatValue(_dsPath(_dsSog))),
+            _hudItem('COG', _formatValue(_dsPath(_dsCog), decimals: 0)),
+            _hudItem('DPT', _formatValue(_dsPath(_dsDepth), decimals: 1)),
+            _hudItem('DTW', _formatValue(_dsPath(_dsDtw), decimals: 1)),
+            _hudItem('BRG', _formatValue(_dsPath(_dsBearing), decimals: 0)),
+            _hudItem('XTE', _formatValue(_dsPath(_dsXte), decimals: 1)),
             if (_routeCoords != null &&
                 _routePointIndex != null &&
                 _routePointTotal != null &&
@@ -1366,9 +1464,9 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
         // DTW / BRG / XTE with MetadataStore fallbacks
         Builder(builder: (_) {
           final store = widget.signalKService.metadataStore;
-          final distMeta = store.get('navigation.course.calcValues.distance') ?? store.getByCategory('distance');
-          final brgMeta = store.get('navigation.course.calcValues.bearingTrue') ?? store.get('navigation.courseOverGroundTrue');
-          final xteMeta = store.get('navigation.course.calcValues.crossTrackError') ?? store.getByCategory('distance');
+          final distMeta = store.get(_dsPath(_dsDtw)) ?? store.getByCategory('distance');
+          final brgMeta = store.get(_dsPath(_dsBearing)) ?? store.get(_dsPath(_dsCog));
+          final xteMeta = store.get(_dsPath(_dsXte)) ?? store.getByCategory('distance');
 
           String fmt(String path, dynamic meta, {int dec = 1}) {
             final d = widget.signalKService.getValue(path);
@@ -1379,13 +1477,13 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
           }
 
           return Row(children: [
-            Text('DTW: ${fmt('navigation.course.calcValues.distance', distMeta)}',
+            Text('DTW: ${fmt(_dsPath(_dsDtw), distMeta)}',
               style: const TextStyle(color: Colors.white70, fontSize: 13)),
             const SizedBox(width: 16),
-            Text('BRG: ${fmt('navigation.course.calcValues.bearingTrue', brgMeta, dec: 0)}',
+            Text('BRG: ${fmt(_dsPath(_dsBearing), brgMeta, dec: 0)}',
               style: const TextStyle(color: Colors.white70, fontSize: 13)),
             const SizedBox(width: 16),
-            Text('XTE: ${fmt('navigation.course.calcValues.crossTrackError', xteMeta)}',
+            Text('XTE: ${fmt(_dsPath(_dsXte), xteMeta)}',
               style: const TextStyle(color: Colors.white70, fontSize: 13)),
           ]);
         }),
@@ -1467,12 +1565,12 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
           ),
           TextButton(
             onPressed: () async {
+              final nav = Navigator.of(sheetCtx);
               Navigator.pop(ctx);
               routeData['name'] = controller.text;
               await widget.signalKService.putResource('routes', routeId, routeData);
-              // Refresh the route list
               if (mounted) {
-                Navigator.of(sheetCtx).pop();
+                nav.pop();
                 _showRouteManager();
               }
             },
@@ -1500,10 +1598,11 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
           ),
           TextButton(
             onPressed: () async {
+              final nav = Navigator.of(sheetCtx);
               Navigator.pop(ctx);
               await widget.signalKService.deleteResource('routes', routeId);
               if (mounted) {
-                Navigator.of(sheetCtx).pop();
+                nav.pop();
                 _showRouteManager();
               }
             },
@@ -1736,7 +1835,7 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
 
   Future<void> _fastForwardToNearest() async {
     if (_routeCoords == null) return;
-    final posData = widget.signalKService.getValue('navigation.position');
+    final posData = widget.signalKService.getValue(_dsPath(_dsPosition));
     if (posData?.value is! Map) return;
     final pos = posData!.value as Map;
     final vLat = (pos['latitude'] as num?)?.toDouble();
@@ -1990,7 +2089,7 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
             child: ListenableBuilder(
               listenable: widget.signalKService,
               builder: (context, _) {
-                final heading = _numValue('navigation.headingTrue') ?? 0.0;
+                final heading = _numValue(_dsPath(_dsHeading)) ?? 0.0;
                 return Transform.rotate(
                   angle: -heading,
                   child: Container(
@@ -2077,13 +2176,25 @@ class ChartPlotterBuilder extends ToolBuilder {
       configSchema: ConfigSchema(
         allowsMinMax: false,
         allowsColorCustomization: false,
-        allowsMultiplePaths: false,
-        minPaths: 0,
-        maxPaths: 0,
+        allowsMultiplePaths: true,
+        minPaths: 10,
+        maxPaths: 10,
         styleOptions: const [],
         allowsUnitSelection: false,
         allowsVisibilityToggles: false,
         allowsTTL: false,
+        slotDefinitions: const [
+          SlotDefinition(roleLabel: 'Position', defaultPath: 'navigation.position'),
+          SlotDefinition(roleLabel: 'Heading', defaultPath: 'navigation.headingTrue'),
+          SlotDefinition(roleLabel: 'COG', defaultPath: 'navigation.courseOverGroundTrue'),
+          SlotDefinition(roleLabel: 'SOG', defaultPath: 'navigation.speedOverGround'),
+          SlotDefinition(roleLabel: 'Depth', defaultPath: 'environment.depth.belowTransducer'),
+          SlotDefinition(roleLabel: 'Bearing to WP', defaultPath: 'navigation.course.calcValues.bearingTrue'),
+          SlotDefinition(roleLabel: 'Cross Track Error', defaultPath: 'navigation.course.calcValues.crossTrackError'),
+          SlotDefinition(roleLabel: 'Distance to WP', defaultPath: 'navigation.course.calcValues.distance'),
+          SlotDefinition(roleLabel: 'Active Route', defaultPath: 'navigation.course.activeRoute'),
+          SlotDefinition(roleLabel: 'Next Point', defaultPath: 'navigation.courseGreatCircle.nextPoint.position'),
+        ],
       ),
       defaultWidth: 4,
       defaultHeight: 4,

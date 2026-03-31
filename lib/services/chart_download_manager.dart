@@ -104,19 +104,22 @@ class ChartDownloadManager extends ChangeNotifier {
     required String baseUrl,
     String? authToken,
     String? regionName,
+    bool flush = false,
   }) async {
     _cancelled = false;
     _errorMessage = null;
     _status = DownloadStatus.calculating;
     notifyListeners();
 
-    // Build tile list and filter out already-cached tiles
+    // Build tile list — skip cached tiles unless flush mode
     final allTiles = _buildTileList(
       minLon: minLon, minLat: minLat,
       maxLon: maxLon, maxLat: maxLat,
       minZoom: minZoom, maxZoom: maxZoom,
     );
-    final tiles = allTiles.where((t) => !cacheService.hasTile(t.$1, t.$2, t.$3)).toList();
+    final tiles = flush
+        ? allTiles
+        : allTiles.where((t) => !cacheService.hasTile(t.$1, t.$2, t.$3)).toList();
 
     _totalTiles = tiles.length;
     _downloadedTiles = 0;
