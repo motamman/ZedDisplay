@@ -15,6 +15,9 @@ class ChartWebView extends StatefulWidget {
   final void Function(WebViewController controller)? onReady;
   final void Function(bool autoFollow, {bool? autoZoom})? onAutoFollowChanged;
   final void Function(String vesselId)? onAISVesselClick;
+  final void Function(int index, double lon, double lat)? onWaypointDrag;
+  final void Function(int index)? onWaypointLongPress;
+  final void Function(int afterIndex, double lon, double lat)? onRouteLineAdd;
   final String depthUnit;
   final double depthConversionFactor;
 
@@ -25,6 +28,9 @@ class ChartWebView extends StatefulWidget {
     this.onReady,
     this.onAutoFollowChanged,
     this.onAISVesselClick,
+    this.onWaypointDrag,
+    this.onWaypointLongPress,
+    this.onRouteLineAdd,
     this.depthUnit = 'm',
     this.depthConversionFactor = 1.0,
   });
@@ -72,6 +78,9 @@ class _ChartWebViewState extends State<ChartWebView> {
       ..addJavaScriptChannel('MapReady', onMessageReceived: _onMapReady)
       ..addJavaScriptChannel('ViewState', onMessageReceived: _onViewState)
       ..addJavaScriptChannel('AISVesselClick', onMessageReceived: _onAISVesselClick)
+      ..addJavaScriptChannel('WaypointDrag', onMessageReceived: _onWaypointDrag)
+      ..addJavaScriptChannel('WaypointLongPress', onMessageReceived: _onWaypointLongPress)
+      ..addJavaScriptChannel('RouteLineAdd', onMessageReceived: _onRouteLineAdd)
       ..loadHtmlString(html);
 
     if (mounted) setState(() => _loading = false);
@@ -93,6 +102,43 @@ class _ChartWebViewState extends State<ChartWebView> {
     widget.onAISVesselClick?.call(message.message);
   }
 
+  void _onWaypointDrag(JavaScriptMessage message) {
+    final data = jsonDecode(message.message) as Map<String, dynamic>;
+    final index = data['index'] as int?;
+    final lon = (data['lon'] as num?)?.toDouble();
+    final lat = (data['lat'] as num?)?.toDouble();
+    if (index != null && lon != null && lat != null) {
+      widget.onWaypointDrag?.call(index, lon, lat);
+    }
+  }
+
+  void _onWaypointLongPress(JavaScriptMessage message) {
+    final data = jsonDecode(message.message) as Map<String, dynamic>;
+    final index = data['index'] as int?;
+    if (index != null) {
+      widget.onWaypointLongPress?.call(index);
+    }
+  }
+
+  void _onRouteLineAdd(JavaScriptMessage message) {
+    final data = jsonDecode(message.message) as Map<String, dynamic>;
+    final afterIndex = data['afterIndex'] as int?;
+    final lon = (data['lon'] as num?)?.toDouble();
+    final lat = (data['lat'] as num?)?.toDouble();
+    if (afterIndex != null && lon != null && lat != null) {
+      widget.onRouteLineAdd?.call(afterIndex, lon, lat);
+    }
+  }
+
+  bool _featureSheetOpen = false;
+
+  void _dismissFeatureSheet() {
+    if (_featureSheetOpen && mounted) {
+      Navigator.of(context).pop();
+      _featureSheetOpen = false;
+    }
+  }
+
   void _onFeatureClick(JavaScriptMessage message) {
     final data = jsonDecode(message.message) as Map<String, dynamic>;
     final lngLat = data['lngLat'] as List?;
@@ -101,8 +147,11 @@ class _ChartWebViewState extends State<ChartWebView> {
         .map((f) => f as Map<String, dynamic>)
         .toList();
 
+    // Close existing sheet before opening new one (or just close if no features)
+    _dismissFeatureSheet();
     if (features.isEmpty) return;
 
+    _featureSheetOpen = true;
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -113,7 +162,7 @@ class _ChartWebViewState extends State<ChartWebView> {
         depthUnit: widget.depthUnit,
         depthConversionFactor: widget.depthConversionFactor,
       ),
-    );
+    ).whenComplete(() => _featureSheetOpen = false);
   }
 
   String _buildHtml({
@@ -854,6 +903,13 @@ async function initMap() {
   });
 
   // Create map
+  // Suppress Canvas2D willReadFrequently warnings from OL tile renderer
+  const _origGetContext = HTMLCanvasElement.prototype.getContext;
+  HTMLCanvasElement.prototype.getContext = function(type, attrs) {
+    if (type === '2d') return _origGetContext.call(this, type, Object.assign({ willReadFrequently: true }, attrs));
+    return _origGetContext.call(this, type, attrs);
+  };
+
   const map = new ol.Map({
     target: 'map',
     layers: [cartoLayer, s57Layer],
@@ -992,6 +1048,9 @@ async function initMap() {
         lngLat: [coord[0], coord[1]],
       });
       FeatureClick.postMessage(msg);
+    } else if (!aisFeature && window.FeatureClick) {
+      // Empty tap — dismiss any open feature sheet
+      FeatureClick.postMessage(JSON.stringify({ features: [], lngLat: null }));
     }
   });
 
@@ -1347,6 +1406,7 @@ async function initMap() {
 
     // Route polyline — green with direction arrows
     const routeLine = new ol.Feature({ geometry: new ol.geom.LineString(mapCoords) });
+    routeLine.set('isRouteLine', true);
     routeLine.setStyle([
       new ol.style.Style({
         stroke: new ol.style.Stroke({ color: 'rgba(76,175,80,0.6)', width: 3 }),
@@ -1372,6 +1432,8 @@ async function initMap() {
       var isNext = (i === activeIdx);
       var isPast = (activeIdx != null && (reversed ? i > activeIdx : i < activeIdx));
       var pt = new ol.Feature({ geometry: new ol.geom.Point(mapCoords[i]) });
+      pt.set('isWaypoint', true);
+      pt.set('wpIndex', i);
 
       // Every waypoint = green arrow in route direction; next waypoint = larger
       var rot = 0;
@@ -1396,6 +1458,147 @@ async function initMap() {
       routeSource.addFeature(pt);
     });
   };
+
+  // =========================================================================
+  // Waypoint drag + long-press interaction
+  // =========================================================================
+  // Waypoint drag via Translate interaction (only waypoint Point features, zoom >= 14)
+  const wpTranslate = new ol.interaction.Translate({
+    filter: function(feature) {
+      if (map.getView().getZoom() < 12) return false;
+      return feature.get('isWaypoint') === true;
+    },
+    hitTolerance: 15,
+  });
+  let _wpDragOrigStyle = null;
+  const _wpDragHighlight = new ol.style.Style({
+    image: new ol.style.Circle({
+      radius: 14,
+      fill: new ol.style.Fill({ color: 'rgba(255,255,255,0.8)' }),
+      stroke: new ol.style.Stroke({ color: '#4caf50', width: 3 }),
+    }),
+  });
+  wpTranslate.on('translatestart', function(e) {
+    e.features.forEach(function(f) {
+      if (f.get('isWaypoint')) {
+        _wpDragOrigStyle = f.getStyle();
+        f.setStyle(_wpDragHighlight);
+      }
+    });
+  });
+  wpTranslate.on('translating', function(e) {
+    // Update route line in real-time during drag
+    e.features.forEach(function(f) {
+      if (f.get('isWaypoint')) {
+        const idx = f.get('wpIndex');
+        const newCoord = f.getGeometry().getCoordinates();
+        // Update the main route line vertex
+        routeSource.getFeatures().forEach(function(rf) {
+          if (!rf.get('isRouteLine')) return;
+          try {
+            const coords = rf.getGeometry().getCoordinates();
+            if (idx >= 0 && idx < coords.length) {
+              coords[idx] = newCoord;
+              rf.getGeometry().setCoordinates(coords);
+            }
+          } catch(e) {}
+        });
+      }
+    });
+  });
+  wpTranslate.on('translateend', function(e) {
+    e.features.forEach(function(f) {
+      if (f.get('isWaypoint')) {
+        if (_wpDragOrigStyle) f.setStyle(_wpDragOrigStyle);
+        _wpDragOrigStyle = null;
+        const idx = f.get('wpIndex');
+        const coord = ol.proj.toLonLat(f.getGeometry().getCoordinates());
+        if (window.WaypointDrag) {
+          WaypointDrag.postMessage(JSON.stringify({ index: idx, lon: coord[0], lat: coord[1] }));
+        }
+      }
+    });
+  });
+  map.addInteraction(wpTranslate);
+
+  // Long-press detection on waypoints and route line (500ms hold, fires on release, zoom >= 14)
+  let _lpReady = false;
+  let _lpType = null; // 'waypoint' or 'line'
+  let _lpData = null;
+  let _lpTimer = null;
+  let _lpPixel = null;
+  map.on('pointerdown', function(e) {
+    _lpReady = false;
+    _lpType = null;
+    _lpData = null;
+    if (map.getView().getZoom() < 12) return;
+    // Check waypoints first
+    let wpIdx = null;
+    map.forEachFeatureAtPixel(e.pixel, function(f) {
+      if (f.get('isWaypoint') && wpIdx === null) wpIdx = f.get('wpIndex');
+    }, { hitTolerance: 15 });
+    if (wpIdx !== null) {
+      _lpPixel = e.pixel;
+      _lpType = 'waypoint';
+      _lpData = { index: wpIdx };
+      _lpTimer = setTimeout(function() { _lpTimer = null; _lpReady = true; }, 500);
+      return;
+    }
+    // Check route line
+    let routeLine = null;
+    map.forEachFeatureAtPixel(e.pixel, function(f) {
+      const geom = f.getGeometry();
+      if (f.get('isRouteLine') && !routeLine) {
+        routeLine = f;
+      }
+    }, { hitTolerance: 15 });
+    if (routeLine) {
+      // Find which segment the tap is closest to
+      const coords = routeLine.getGeometry().getCoordinates();
+      const tapCoord = e.coordinate;
+      let bestSeg = 0;
+      let bestDist = Infinity;
+      for (let i = 0; i < coords.length - 1; i++) {
+        // Distance from point to line segment
+        const ax = coords[i][0], ay = coords[i][1];
+        const bx = coords[i+1][0], by = coords[i+1][1];
+        const dx = bx - ax, dy = by - ay;
+        const lenSq = dx * dx + dy * dy;
+        let t = lenSq > 0 ? ((tapCoord[0] - ax) * dx + (tapCoord[1] - ay) * dy) / lenSq : 0;
+        t = Math.max(0, Math.min(1, t));
+        const px = ax + t * dx, py = ay + t * dy;
+        const d = (tapCoord[0] - px) * (tapCoord[0] - px) + (tapCoord[1] - py) * (tapCoord[1] - py);
+        if (d < bestDist) { bestDist = d; bestSeg = i; }
+      }
+      const lonLat = ol.proj.toLonLat(tapCoord);
+      _lpPixel = e.pixel;
+      _lpType = 'line';
+      _lpData = { afterIndex: bestSeg, lon: lonLat[0], lat: lonLat[1] };
+      _lpTimer = setTimeout(function() { _lpTimer = null; _lpReady = true; }, 500);
+    }
+  });
+  map.on('pointermove', function(e) {
+    if (_lpTimer && _lpPixel) {
+      const dx = e.pixel[0] - _lpPixel[0];
+      const dy = e.pixel[1] - _lpPixel[1];
+      if (dx * dx + dy * dy > 25) {
+        clearTimeout(_lpTimer);
+        _lpTimer = null;
+        _lpReady = false;
+      }
+    }
+  });
+  map.on('pointerup', function() {
+    if (_lpTimer) { clearTimeout(_lpTimer); _lpTimer = null; }
+    if (_lpReady && _lpType === 'waypoint' && _lpData && window.WaypointLongPress) {
+      WaypointLongPress.postMessage(JSON.stringify(_lpData));
+    } else if (_lpReady && _lpType === 'line' && _lpData && window.RouteLineAdd) {
+      RouteLineAdd.postMessage(JSON.stringify(_lpData));
+    }
+    _lpReady = false;
+    _lpType = null;
+    _lpData = null;
+  });
 
   console.log('Map initialized with OpenLayers + S57 + overlays');
   if (window.MapReady) MapReady.postMessage('ready');

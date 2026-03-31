@@ -1023,6 +1023,18 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       IconButton(
+                        icon: Transform.flip(
+                          flipX: true,
+                          child: const Icon(Icons.play_arrow, color: Colors.red, size: 22),
+                        ),
+                        tooltip: 'Activate reversed',
+                        constraints: const BoxConstraints.tightFor(width: 36, height: 36),
+                        onPressed: () {
+                          Navigator.of(sheetCtx).pop();
+                          _activateRoute(id, reverse: true);
+                        },
+                      ),
+                      IconButton(
                         icon: const Icon(Icons.play_arrow, color: Colors.green, size: 22),
                         tooltip: 'Activate forward',
                         constraints: const BoxConstraints.tightFor(width: 36, height: 36),
@@ -1032,13 +1044,16 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
                         },
                       ),
                       IconButton(
-                        icon: const Icon(Icons.play_arrow, color: Colors.red, size: 22),
-                        tooltip: 'Activate reversed',
-                        constraints: const BoxConstraints.tightFor(width: 36, height: 36),
-                        onPressed: () {
-                          Navigator.of(sheetCtx).pop();
-                          _activateRoute(id, reverse: true);
-                        },
+                        icon: const Icon(Icons.edit, color: Colors.white38, size: 18),
+                        tooltip: 'Edit route',
+                        constraints: const BoxConstraints.tightFor(width: 32, height: 36),
+                        onPressed: () => _showEditRouteDialog(sheetCtx, id, name, data),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.delete_outline, color: Colors.white38, size: 18),
+                        tooltip: 'Delete route',
+                        constraints: const BoxConstraints.tightFor(width: 32, height: 36),
+                        onPressed: () => _showDeleteRouteDialog(sheetCtx, id, name),
                       ),
                     ],
                   ),
@@ -1162,6 +1177,209 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
             );
           }),
       ],
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Route editing
+  // ---------------------------------------------------------------------------
+
+  void _showEditRouteDialog(BuildContext sheetCtx, String routeId, String currentName, Map<String, dynamic> routeData) {
+    final controller = TextEditingController(text: currentName);
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1E1E2E),
+        title: const Text('Rename Route', style: TextStyle(color: Colors.white)),
+        content: TextField(
+          controller: controller,
+          style: const TextStyle(color: Colors.white),
+          decoration: const InputDecoration(
+            hintText: 'Route name',
+            hintStyle: TextStyle(color: Colors.white38),
+            enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: Colors.white24)),
+            focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: Colors.green)),
+          ),
+          autofocus: true,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () async {
+              Navigator.pop(ctx);
+              routeData['name'] = controller.text;
+              await widget.signalKService.putResource('routes', routeId, routeData);
+              // Refresh the route list
+              if (mounted) {
+                Navigator.of(sheetCtx).pop();
+                _showRouteManager();
+              }
+            },
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showDeleteRouteDialog(BuildContext sheetCtx, String routeId, String name) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1E1E2E),
+        title: const Text('Delete Route', style: TextStyle(color: Colors.white)),
+        content: Text(
+          'Delete "$name"?\n\nThis cannot be undone.',
+          style: const TextStyle(color: Colors.white70),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () async {
+              Navigator.pop(ctx);
+              await widget.signalKService.deleteResource('routes', routeId);
+              if (mounted) {
+                Navigator.of(sheetCtx).pop();
+                _showRouteManager();
+              }
+            },
+            child: const Text('Delete', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Get the route ID from the active route href
+  String? get _activeRouteId {
+    if (_activeRouteHref == null) return null;
+    return _activeRouteHref!.split('/').last;
+  }
+
+  /// Save current route coords/names to the server
+  Future<void> _saveRouteToServer() async {
+    final routeId = _activeRouteId;
+    if (routeId == null || _routeCoords == null) return;
+    final routeData = {
+      'feature': {
+        'type': 'Feature',
+        'geometry': {
+          'type': 'LineString',
+          'coordinates': _routeCoords,
+        },
+        'properties': {
+          'coordinatesMeta': _waypointNames?.map((n) => {'name': n}).toList() ?? [],
+        },
+      },
+    };
+    await widget.signalKService.putResource('routes', routeId, routeData);
+  }
+
+  void _onWaypointDrag(int index, double lon, double lat) {
+    if (_routeCoords == null || index < 0 || index >= _routeCoords!.length) return;
+    _routeCoords![index] = [lon, lat];
+    _pushRoute();
+    _saveRouteToServer();
+  }
+
+  void _showWaypointEditDialog(int index) {
+    if (_routeCoords == null || index < 0 || index >= _routeCoords!.length) return;
+    final currentName = (_waypointNames != null && index < _waypointNames!.length)
+        ? _waypointNames![index]
+        : '';
+    final controller = TextEditingController(text: currentName);
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1E1E2E),
+        title: Text('Waypoint ${index + 1}', style: const TextStyle(color: Colors.white)),
+        content: TextField(
+          controller: controller,
+          style: const TextStyle(color: Colors.white),
+          decoration: const InputDecoration(
+            hintText: 'Waypoint name',
+            hintStyle: TextStyle(color: Colors.white38),
+            enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: Colors.white24)),
+            focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: Colors.green)),
+          ),
+          autofocus: true,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              // Delete waypoint
+              _routeCoords!.removeAt(index);
+              _waypointNames?.removeAt(index);
+              _pushRoute();
+              _saveRouteToServer();
+              if (mounted) setState(() {});
+            },
+            child: const Text('Delete Waypoint', style: TextStyle(color: Colors.red)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              if (_waypointNames != null && index < _waypointNames!.length) {
+                _waypointNames![index] = controller.text;
+              }
+              _saveRouteToServer();
+            },
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showAddWaypointDialog(int afterIndex, double lon, double lat) {
+    if (_routeCoords == null) return;
+    final controller = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1E1E2E),
+        title: const Text('Add Waypoint', style: TextStyle(color: Colors.white)),
+        content: TextField(
+          controller: controller,
+          style: const TextStyle(color: Colors.white),
+          decoration: const InputDecoration(
+            hintText: 'Waypoint name (optional)',
+            hintStyle: TextStyle(color: Colors.white38),
+            enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: Colors.white24)),
+            focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: Colors.green)),
+          ),
+          autofocus: true,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              final insertAt = afterIndex + 1;
+              _routeCoords!.insert(insertAt, [lon, lat]);
+              _waypointNames?.insert(insertAt, controller.text);
+              _pushRoute();
+              _saveRouteToServer();
+              if (mounted) setState(() {});
+            },
+            child: const Text('Save'),
+          ),
+        ],
+      ),
     );
   }
 
@@ -1331,6 +1549,9 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
             onReady: _onWebViewReady,
             onAutoFollowChanged: _onAutoFollowChanged,
             onAISVesselClick: _onAISVesselClick,
+            onWaypointDrag: _onWaypointDrag,
+            onWaypointLongPress: _showWaypointEditDialog,
+            onRouteLineAdd: _showAddWaypointDialog,
             depthUnit: symbol,
             depthConversionFactor: factor,
           );
