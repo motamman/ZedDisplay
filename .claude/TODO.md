@@ -30,12 +30,12 @@
 - [ ] Integrate SignalK notifications into the centralized alerting system
 - [ ] Add bespoke alerts for individual paths
 - [ ] Design crew roles/permissions for alert broadcasting — when multiple devices have different CPA/alarm thresholds, who is authoritative? Should crew broadcast be restricted to a captain/helm role? Should there be vessel-level default settings that mirror the captain's config?
-- [ ] Chart plotter: add chart tile caching and downloading to device for offline use
+- [x] Chart plotter: add chart tile caching and downloading to device for offline use
 - [x] Chart plotter: make chart depth rendering metadata-aware (use MetadataStore depth unit preferences)
-- [ ] Chart plotter: make routes editable in the chart plotter
+- [x] Chart plotter: make routes editable in the chart plotter
 - [ ] Chart plotter: add basic anchor alarm based on anchor alarm widget
-- [ ] Chart plotter: add dynamic ruler and permanent scale bar
-- [ ] Fix Linux CI build: `flutter_scene` native asset build failure on GitHub Actions (may need pinned Flutter version or stale pubspec.lock cleanup after removing vector_map_tiles/vector_tile_renderer/maplibre_gl)
+- [x] Chart plotter: add dynamic ruler and permanent scale bar
+- [x] Fix Linux CI build: `flutter_scene` native asset build failure on GitHub Actions (may need pinned Flutter version or stale pubspec.lock cleanup after removing vector_map_tiles/vector_tile_renderer/maplibre_gl)
 
 ## Widget Inventory — AIS Context Status
 
