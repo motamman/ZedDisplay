@@ -615,12 +615,26 @@ class SignalKService extends ChangeNotifier implements DataService {
             _diagnosticService?.instrumentWsMessage('meta');
           }
           for (final metaEntry in updateValue.metaEntries) {
-            if (metaEntry.displayUnits != null) {
+            // Parse zones if present
+            List<PathZone>? parsedZones;
+            if (metaEntry.zones != null) {
+              parsedZones = metaEntry.zones!
+                  .map((z) => PathZone.fromJson(z))
+                  .toList();
+            }
+
+            if (metaEntry.displayUnits != null || parsedZones != null) {
               // Update single source of truth (MetadataStore)
-              _metadataStore.updateFromMeta(metaEntry.path, metaEntry.displayUnits!);
+              _metadataStore.updateFromMeta(
+                metaEntry.path,
+                metaEntry.displayUnits ?? {},
+                zones: parsedZones,
+              );
 
               // Also update legacy cache for backward compatibility
-              _displayUnitsCache[metaEntry.path] = metaEntry.displayUnits!;
+              if (metaEntry.displayUnits != null) {
+                _displayUnitsCache[metaEntry.path] = metaEntry.displayUnits!;
+              }
               displayUnitsChanged = true;
             }
           }

@@ -1,5 +1,29 @@
 import 'package:math_expressions/math_expressions.dart';
 
+/// A SignalK zone — a value range with an alarm state.
+class PathZone {
+  final double? lower;
+  final double? upper;
+  final String state; // nominal, normal, alert, warn, alarm, emergency
+  final String message;
+
+  const PathZone({this.lower, this.upper, required this.state, this.message = ''});
+
+  factory PathZone.fromJson(Map<String, dynamic> json) => PathZone(
+        lower: (json['lower'] as num?)?.toDouble(),
+        upper: (json['upper'] as num?)?.toDouble(),
+        state: json['state'] as String? ?? 'nominal',
+        message: json['message'] as String? ?? '',
+      );
+
+  Map<String, dynamic> toJson() => {
+        'lower': lower,
+        'upper': upper,
+        'state': state,
+        'message': message,
+      };
+}
+
 /// Single source of truth for path metadata and conversion formulas.
 /// Populated from WebSocket meta deltas (sendMeta=all).
 class PathMetadata {
@@ -11,6 +35,7 @@ class PathMetadata {
   final String? inverseFormula; // display → SI (e.g., "value * 0.514444")
   final String? symbol;         // Display symbol (e.g., "kn", "°C")
   final String? displayFormat;  // Format string (e.g., "0.0")
+  final List<PathZone>? zones;  // Alarm zones (from server meta)
   final DateTime lastUpdated;
 
   PathMetadata({
@@ -22,6 +47,7 @@ class PathMetadata {
     this.inverseFormula,
     this.symbol,
     this.displayFormat,
+    this.zones,
     DateTime? lastUpdated,
   }) : lastUpdated = lastUpdated ?? DateTime.now();
 
@@ -31,6 +57,7 @@ class PathMetadata {
     String path,
     Map<String, dynamic> displayUnits, {
     String? category,
+    List<PathZone>? zones,
   }) {
     // targetUnit: try 'units' first, fall back to 'symbol' (WebSocket meta uses symbol)
     final targetUnit = displayUnits['units'] as String? ??
@@ -45,6 +72,7 @@ class PathMetadata {
       inverseFormula: displayUnits['inverseFormula'] as String?,
       symbol: displayUnits['symbol'] as String?,
       displayFormat: displayUnits['displayFormat'] as String?,
+      zones: zones,
     );
   }
 
@@ -57,6 +85,7 @@ class PathMetadata {
     String? inverseFormula,
     String? symbol,
     String? displayFormat,
+    List<PathZone>? zones,
   }) {
     return PathMetadata(
       path: path,
@@ -67,6 +96,7 @@ class PathMetadata {
       inverseFormula: inverseFormula ?? this.inverseFormula,
       symbol: symbol ?? this.symbol,
       displayFormat: displayFormat ?? this.displayFormat,
+      zones: zones ?? this.zones,
     );
   }
 
@@ -149,6 +179,7 @@ class PathMetadata {
       'inverseFormula': inverseFormula,
       'symbol': symbol,
       'displayFormat': displayFormat,
+      if (zones != null) 'zones': zones!.map((z) => z.toJson()).toList(),
       'lastUpdated': lastUpdated.toIso8601String(),
     };
   }
@@ -164,6 +195,9 @@ class PathMetadata {
       inverseFormula: json['inverseFormula'] as String?,
       symbol: json['symbol'] as String?,
       displayFormat: json['displayFormat'] as String?,
+      zones: (json['zones'] as List?)
+          ?.map((z) => PathZone.fromJson(z as Map<String, dynamic>))
+          .toList(),
       lastUpdated: json['lastUpdated'] != null
           ? DateTime.tryParse(json['lastUpdated'] as String)
           : null,

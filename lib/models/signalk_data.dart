@@ -86,6 +86,12 @@ class SignalKMetaEntry {
   Map<String, dynamic>? get displayUnits {
     return value['displayUnits'] as Map<String, dynamic>?;
   }
+
+  /// Get zones from meta value if available
+  List<Map<String, dynamic>>? get zones {
+    final raw = value['zones'] as List?;
+    return raw?.cast<Map<String, dynamic>>();
+  }
 }
 
 class SignalKValue {

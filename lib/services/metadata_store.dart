@@ -29,19 +29,24 @@ class MetadataStore extends ChangeNotifier {
     String path,
     Map<String, dynamic> displayUnits, {
     String? category,
+    List<PathZone>? zones,
   }) {
     final existing = _metadata[path];
     final incoming = PathMetadata.fromDisplayUnits(
       path,
       displayUnits,
       category: category ?? existing?.category,
+      zones: zones ?? existing?.zones,
     );
 
     // Merge: if existing has a formula but incoming doesn't, keep existing.
     // WS meta deltas often resend only {category: ...} without the full
     // displayUnits payload — don't let that overwrite good data.
     final merged = existing != null && incoming.formula == null && existing.formula != null
-        ? existing.copyWith(category: incoming.category ?? existing.category)
+        ? existing.copyWith(
+            category: incoming.category ?? existing.category,
+            zones: incoming.zones ?? existing.zones,
+          )
         : incoming;
 
     if (_hasChanged(existing, merged)) {
