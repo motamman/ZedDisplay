@@ -172,7 +172,7 @@ class S57Service {
       graphicsStyle: 'Paper', boundaries: 'Plain',
       colors: 4, colorTable: 0,
       otherLayers: ['SOUNDG','OBSTRN','UWTROC','WRECKS','DEPCNT'],
-      depthUnit: '${widget.depthUnit}',
+      depthUnit: ${jsonEncode(widget.depthUnit)},
       depthConversionFactor: ${widget.depthConversionFactor},
     };
     this.attMatch = /([A-Za-z0-9]{6})([0-9,?]*)/;
@@ -1437,7 +1437,7 @@ class _FeaturePopover extends StatelessWidget {
         display = n != null ? '${(n * depthConversionFactor).toStringAsFixed(1)} $depthUnit' : val.toString();
       } else if (_heightKeys.contains(key)) {
         final n = num.tryParse(val.toString());
-        display = n != null ? '${(n * depthConversionFactor).toStringAsFixed(1)} $depthUnit' : val.toString();
+        display = n != null ? '${n.toStringAsFixed(1)} m' : val.toString();
       } else if (key == 'SIGPER') {
         display = '${val}s';
       } else if (key == 'VALNMR') {

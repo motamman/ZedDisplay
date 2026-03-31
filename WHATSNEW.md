@@ -2,13 +2,7 @@
 
 ## Release Notes (Google Play - max 500 chars)
 
-v0.6.0 Chart Plotter, Route Navigation & Alert Overhaul
-
-NEW: Chart Plotter with S-57 vector charts, own vessel, AIS targets, active route overlay, route management (activate, reverse, advance, fast-forward), HUD with SOG/COG/depth/DTW/BRG/XTE, heading-up mode with compass rose, and auto-zoom.
-
-NEW: Find Home Route Mode — follow active routes with autopilot controls, arrival detection, and ILS-style guidance.
-
-IMPROVED: Alert system with sustained CPA divergence tracking, anchor alarm clear delay, favorites alerts, and centralized audio management.
+v0.6.0: New chart plotter with S-57 charts, own vessel, AIS, active routes, HUD, heading-up and auto-zoom. New Find Home route mode with autopilot controls and arrival detection. Alert overhaul with smarter CPA and anchor alarms, favorites alerts, and centralized audio.
 
 ## Release Notes (App Store / TestFlight - max 4000 chars)
 
