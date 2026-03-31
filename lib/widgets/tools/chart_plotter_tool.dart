@@ -146,8 +146,10 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
 
   void _onSignalKUpdate() {
     if (!_mapReady || _controller == null) return;
-    // Re-load AIS on reconnect
-    if (widget.signalKService.isConnected && !_hasLoadedAIS) {
+    // Reset AIS flag on disconnect so we re-subscribe on reconnect
+    if (!widget.signalKService.isConnected) {
+      _hasLoadedAIS = false;
+    } else if (!_hasLoadedAIS) {
       _ensureAISLoaded();
     }
     // Check for route changes

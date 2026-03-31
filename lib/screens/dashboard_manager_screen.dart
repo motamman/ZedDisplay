@@ -189,6 +189,7 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen>
     // Remove lifecycle observer
     WidgetsBinding.instance.removeObserver(this);
 
+    _widgetSwipeBlock.dispose();
     _appBarHideTimer?.cancel();
     _selectorHideTimer?.cancel();
 
