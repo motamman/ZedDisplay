@@ -15,6 +15,8 @@ class ChartWebView extends StatefulWidget {
   final void Function(WebViewController controller)? onReady;
   final void Function(bool autoFollow, {bool? autoZoom})? onAutoFollowChanged;
   final void Function(String vesselId)? onAISVesselClick;
+  final String depthUnit;
+  final double depthConversionFactor;
 
   const ChartWebView({
     super.key,
@@ -23,6 +25,8 @@ class ChartWebView extends StatefulWidget {
     this.onReady,
     this.onAutoFollowChanged,
     this.onAISVesselClick,
+    this.depthUnit = 'm',
+    this.depthConversionFactor = 1.0,
   });
 
   @override
@@ -103,6 +107,8 @@ class _ChartWebViewState extends State<ChartWebView> {
         layerCode: layer,
         properties: props,
         lngLat: lngLat,
+        depthUnit: widget.depthUnit,
+        depthConversionFactor: widget.depthConversionFactor,
       ),
     );
   }
@@ -166,7 +172,8 @@ class S57Service {
       graphicsStyle: 'Paper', boundaries: 'Plain',
       colors: 4, colorTable: 0,
       otherLayers: ['SOUNDG','OBSTRN','UWTROC','WRECKS','DEPCNT'],
-      depthUnit: 'm',
+      depthUnit: '${widget.depthUnit}',
+      depthConversionFactor: ${widget.depthConversionFactor},
     };
     this.attMatch = /([A-Za-z0-9]{6})([0-9,?]*)/;
 
@@ -574,20 +581,17 @@ class S57Style {
     let depth = parseFloat(p.DEPTH);
     if (isNaN(depth)) depth = parseFloat(p.VALSOU);
     if (isNaN(depth)) return r;
-    if (this.s57Service.options.depthUnit === 'ft') depth *= 3.28084;
+    const factor = this.s57Service.options.depthConversionFactor || 1.0;
+    depth *= factor;
     const sign = depth < 0 ? '-' : '';
     const abs = Math.abs(depth);
     let str;
-    if (this.s57Service.options.depthUnit === 'ft') {
-      str = sign + Math.round(abs);
+    const showTenths = this.currentResolution < 5;
+    if (showTenths) {
+      const rounded = Math.round(abs * 10) / 10;
+      str = sign + (rounded % 1 === 0 ? rounded.toFixed(0) : rounded.toFixed(1));
     } else {
-      const showTenths = this.currentResolution < 5;
-      if (showTenths) {
-        const rounded = Math.round(abs * 10) / 10;
-        str = sign + (rounded % 1 === 0 ? rounded.toFixed(0) : rounded.toFixed(1));
-      } else {
-        str = sign + Math.round(abs);
-      }
+      str = sign + Math.round(abs);
     }
     p._SOUNDG_WHOLE = str;
     r.push('TX(_SOUNDG_WHOLE,1,2,2)');
@@ -1348,11 +1352,15 @@ class _FeaturePopover extends StatelessWidget {
   final String layerCode;
   final Map<String, dynamic> properties;
   final List? lngLat;
+  final String depthUnit;
+  final double depthConversionFactor;
 
   const _FeaturePopover({
     required this.layerCode,
     required this.properties,
     this.lngLat,
+    this.depthUnit = 'm',
+    this.depthConversionFactor = 1.0,
   });
 
   @override
@@ -1429,10 +1437,10 @@ class _FeaturePopover extends StatelessWidget {
       String display;
       if (_depthKeys.contains(key)) {
         final n = num.tryParse(val.toString());
-        display = n != null ? '${n.toStringAsFixed(1)} m' : val.toString();
+        display = n != null ? '${(n * depthConversionFactor).toStringAsFixed(1)} $depthUnit' : val.toString();
       } else if (_heightKeys.contains(key)) {
         final n = num.tryParse(val.toString());
-        display = n != null ? '${n.toStringAsFixed(1)} m' : val.toString();
+        display = n != null ? '${(n * depthConversionFactor).toStringAsFixed(1)} $depthUnit' : val.toString();
       } else if (key == 'SIGPER') {
         display = '${val}s';
       } else if (key == 'VALNMR') {

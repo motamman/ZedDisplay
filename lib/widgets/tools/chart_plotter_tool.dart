@@ -1319,13 +1319,20 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
 
     return Stack(
       children: [
-        ChartWebView(
-          baseUrl: widget.signalKService.httpBaseUrl,
-          authToken: widget.signalKService.authToken?.token,
-          onReady: _onWebViewReady,
-          onAutoFollowChanged: _onAutoFollowChanged,
-          onAISVesselClick: _onAISVesselClick,
-        ),
+        Builder(builder: (context) {
+          final depthMeta = widget.signalKService.metadataStore.getByCategory('depth');
+          final factor = depthMeta?.convert(1.0) ?? 1.0;
+          final symbol = depthMeta?.symbol ?? 'm';
+          return ChartWebView(
+            baseUrl: widget.signalKService.httpBaseUrl,
+            authToken: widget.signalKService.authToken?.token,
+            onReady: _onWebViewReady,
+            onAutoFollowChanged: _onAutoFollowChanged,
+            onAISVesselClick: _onAISVesselClick,
+            depthUnit: symbol,
+            depthConversionFactor: factor,
+          );
+        }),
         ListenableBuilder(
           listenable: widget.signalKService,
           builder: (context, _) => _buildHUD(),
