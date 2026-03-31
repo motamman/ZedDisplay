@@ -37,6 +37,7 @@ class ChartPlotterConfigurator extends ToolConfigurator {
   int trailMinutes = 10;
   bool showAIS = true;
   bool showRoute = true;
+  String hudStyle = 'text';
   String hudPosition = 'bottom';
   String cacheRefresh = 'stale';
 
@@ -48,6 +49,7 @@ class ChartPlotterConfigurator extends ToolConfigurator {
     trailMinutes = 10;
     showAIS = true;
     showRoute = true;
+    hudStyle = 'text';
     hudPosition = 'bottom';
     cacheRefresh = 'stale';
   }
@@ -79,6 +81,7 @@ class ChartPlotterConfigurator extends ToolConfigurator {
     trailMinutes = props['trailMinutes'] as int? ?? 10;
     showAIS = props['showAIS'] as bool? ?? true;
     showRoute = props['showRoute'] as bool? ?? true;
+    hudStyle = props['hudStyle'] as String? ?? 'text';
     hudPosition = props['hudPosition'] as String? ?? 'bottom';
     cacheRefresh = props['cacheRefresh'] as String? ?? 'stale';
   }
@@ -93,6 +96,7 @@ class ChartPlotterConfigurator extends ToolConfigurator {
           'trailMinutes': trailMinutes,
           'showAIS': showAIS,
           'showRoute': showRoute,
+          'hudStyle': hudStyle,
           'hudPosition': hudPosition,
           'cacheRefresh': cacheRefresh,
         },
@@ -169,19 +173,38 @@ class ChartPlotterConfigurator extends ToolConfigurator {
               const Divider(),
               const SizedBox(height: 16),
 
-              // HUD position
-              Text('HUD Position',
+              // HUD style
+              Text('HUD Style',
                   style: Theme.of(context).textTheme.titleSmall),
               const SizedBox(height: 8),
               SegmentedButton<String>(
                 segments: const [
-                  ButtonSegment(value: 'top', label: Text('Top')),
-                  ButtonSegment(value: 'bottom', label: Text('Bottom')),
+                  ButtonSegment(value: 'text', label: Text('Text')),
+                  ButtonSegment(value: 'visual', label: Text('Visual')),
+                  ButtonSegment(value: 'off', label: Text('Off')),
                 ],
-                selected: {hudPosition},
+                selected: {hudStyle},
                 onSelectionChanged: (v) =>
-                    setState(() => hudPosition = v.first),
+                    setState(() => hudStyle = v.first),
               ),
+
+              if (hudStyle != 'off') ...[
+                const SizedBox(height: 16),
+
+                // HUD position
+                Text('HUD Position',
+                    style: Theme.of(context).textTheme.titleSmall),
+                const SizedBox(height: 8),
+                SegmentedButton<String>(
+                  segments: const [
+                    ButtonSegment(value: 'top', label: Text('Top')),
+                    ButtonSegment(value: 'bottom', label: Text('Bottom')),
+                  ],
+                  selected: {hudPosition},
+                  onSelectionChanged: (v) =>
+                      setState(() => hudPosition = v.first),
+                ),
+              ],
 
               const SizedBox(height: 16),
               const Divider(),
