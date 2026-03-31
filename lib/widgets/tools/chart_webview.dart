@@ -18,6 +18,7 @@ class ChartWebView extends StatefulWidget {
   final void Function(int index, double lon, double lat)? onWaypointDrag;
   final void Function(int index)? onWaypointLongPress;
   final void Function(int afterIndex, double lon, double lat)? onRouteLineAdd;
+  final void Function(Map<String, dynamic> data)? onRulerUpdate;
   final String depthUnit;
   final double depthConversionFactor;
 
@@ -31,6 +32,7 @@ class ChartWebView extends StatefulWidget {
     this.onWaypointDrag,
     this.onWaypointLongPress,
     this.onRouteLineAdd,
+    this.onRulerUpdate,
     this.depthUnit = 'm',
     this.depthConversionFactor = 1.0,
   });
@@ -81,6 +83,7 @@ class _ChartWebViewState extends State<ChartWebView> {
       ..addJavaScriptChannel('WaypointDrag', onMessageReceived: _onWaypointDrag)
       ..addJavaScriptChannel('WaypointLongPress', onMessageReceived: _onWaypointLongPress)
       ..addJavaScriptChannel('RouteLineAdd', onMessageReceived: _onRouteLineAdd)
+      ..addJavaScriptChannel('RulerUpdate', onMessageReceived: _onRulerUpdate)
       ..loadHtmlString(html);
 
     if (mounted) setState(() => _loading = false);
@@ -128,6 +131,11 @@ class _ChartWebViewState extends State<ChartWebView> {
     if (afterIndex != null && lon != null && lat != null) {
       widget.onRouteLineAdd?.call(afterIndex, lon, lat);
     }
+  }
+
+  void _onRulerUpdate(JavaScriptMessage message) {
+    final data = jsonDecode(message.message) as Map<String, dynamic>;
+    widget.onRulerUpdate?.call(data);
   }
 
   bool _featureSheetOpen = false;
@@ -187,6 +195,9 @@ class _ChartWebViewState extends State<ChartWebView> {
   <style>
     body { margin:0; overflow:hidden; }
     #map { width:100%; height:100vh; }
+    .ol-scale-bar { bottom: 40px; left: 10px; }
+    .ol-scale-bar .ol-scale-bar-inner { background: rgba(0,0,0,0.5); }
+    .ol-scale-text { color: #fff; font-size: 10px; text-shadow: 0 0 3px #000; }
   </style>
 </head>
 <body>
@@ -919,6 +930,13 @@ async function initMap() {
     }),
     controls: ol.control.defaults.defaults({ attribution: false }).extend([
       new ol.control.Zoom(),
+      new ol.control.ScaleLine({
+        units: 'nautical',
+        bar: true,
+        steps: 4,
+        text: true,
+        minWidth: 120,
+      }),
     ]),
   });
 
@@ -1185,6 +1203,20 @@ async function initMap() {
       cogFeature.setGeometry(null);
     }
 
+    // Ruler snap-follow for own vessel
+    if (_rulerVisible) {
+      let _rulerSelfChanged = false;
+      if (_rulerRedSnap === 'self' && _redEndpoint) {
+        _redEndpoint.getGeometry().setCoordinates(pos);
+        _rulerSelfChanged = true;
+      }
+      if (_rulerBlueSnap === 'self' && _blueEndpoint) {
+        _blueEndpoint.getGeometry().setCoordinates(pos);
+        _rulerSelfChanged = true;
+      }
+      if (_rulerSelfChanged) _updateRulerGeometry();
+    }
+
     // Auto-follow: center + optional auto-zoom
     if (_autoFollow) {
       const view = map.getView();
@@ -1382,6 +1414,7 @@ async function initMap() {
       }
     }
     aisSource.addFeatures(features);
+    _updateRulerSnapsFromAIS(vessels);
   };
 
   // =========================================================================
@@ -1599,6 +1632,289 @@ async function initMap() {
     _lpType = null;
     _lpData = null;
   });
+
+  // =========================================================================
+  // Scale bar unit switching
+  // =========================================================================
+  window.setScaleBarUnits = function(units) {
+    map.getControls().forEach(function(c) {
+      if (c instanceof ol.control.ScaleLine) c.setUnits(units);
+    });
+  };
+
+  // =========================================================================
+  // Dynamic ruler
+  // =========================================================================
+  const rulerSource = new ol.source.Vector();
+  map.addLayer(new ol.layer.Vector({ source: rulerSource, zIndex: 250 }));
+
+  let _rulerVisible = false;
+  let _rulerRedSnap = null;   // vessel ID string or 'self', or null
+  let _rulerBlueSnap = null;
+  let _rulerDistFactor = 0.000539957; // m → nm default
+  let _rulerDistSymbol = 'nm';
+  let _rulerLastPost = 0;
+
+  // Reusable feature refs
+  let _redEndpoint = null;
+  let _blueEndpoint = null;
+  let _redHalfLine = null;
+  let _blueHalfLine = null;
+  let _rulerTickFeatures = [];
+  let _rulerRedLabel = null;
+  let _rulerBlueLabel = null;
+  let _rulerDistLabel = null;
+
+  function calcBearing(lat1, lon1, lat2, lon2) {
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const la1 = lat1 * Math.PI / 180, la2 = lat2 * Math.PI / 180;
+    const y = Math.sin(dLon) * Math.cos(la2);
+    const x = Math.cos(la1) * Math.sin(la2) - Math.sin(la1) * Math.cos(la2) * Math.cos(dLon);
+    return ((Math.atan2(y, x) * 180 / Math.PI) + 360) % 360;
+  }
+
+  function _niceInterval(totalDisplay) {
+    const candidates = [0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10, 25, 50, 100, 250, 500];
+    for (const c of candidates) {
+      const ticks = totalDisplay / c;
+      if (ticks >= 3 && ticks <= 10) return c;
+    }
+    return totalDisplay / 5;
+  }
+
+  function _updateRulerGeometry() {
+    if (!_redEndpoint || !_blueEndpoint) return;
+    const redCoord = _redEndpoint.getGeometry().getCoordinates();
+    const blueCoord = _blueEndpoint.getGeometry().getCoordinates();
+    const mid = [(redCoord[0] + blueCoord[0]) / 2, (redCoord[1] + blueCoord[1]) / 2];
+
+    // Half-lines
+    _redHalfLine.getGeometry().setCoordinates([redCoord, mid]);
+    _blueHalfLine.getGeometry().setCoordinates([mid, blueCoord]);
+
+    // Distance & bearing in WGS84
+    const redLL = ol.proj.toLonLat(redCoord);
+    const blueLL = ol.proj.toLonLat(blueCoord);
+    const distM = ol.sphere.getDistance(redLL, blueLL);
+    const bearingRB = calcBearing(redLL[1], redLL[0], blueLL[1], blueLL[0]);
+    const bearingBR = calcBearing(blueLL[1], blueLL[0], redLL[1], redLL[0]);
+    const distDisplay = distM * _rulerDistFactor;
+
+    // Tick marks
+    _rulerTickFeatures.forEach(f => rulerSource.removeFeature(f));
+    _rulerTickFeatures = [];
+    const interval = _niceInterval(distDisplay);
+    const tickCount = Math.floor(distDisplay / interval);
+    const totalProj = Math.hypot(blueCoord[0] - redCoord[0], blueCoord[1] - redCoord[1]);
+    const dirX = totalProj > 0 ? (blueCoord[0] - redCoord[0]) / totalProj : 0;
+    const dirY = totalProj > 0 ? (blueCoord[1] - redCoord[1]) / totalProj : 0;
+    const perpX = -dirY, perpY = dirX;
+    const res = map.getView().getResolution() || 1;
+    const tickHalf = 8 * res; // 8 pixels
+
+    for (let i = 1; i <= tickCount && i <= 20; i++) {
+      const frac = (interval * i) / distDisplay;
+      if (frac >= 1) break;
+      const px = redCoord[0] + (blueCoord[0] - redCoord[0]) * frac;
+      const py = redCoord[1] + (blueCoord[1] - redCoord[1]) * frac;
+      const tf = new ol.Feature({
+        geometry: new ol.geom.LineString([
+          [px + perpX * tickHalf, py + perpY * tickHalf],
+          [px - perpX * tickHalf, py - perpY * tickHalf],
+        ]),
+      });
+      tf.setStyle([
+        new ol.style.Style({ stroke: new ol.style.Stroke({ color: 'rgba(0,0,0,0.6)', width: 3 }) }),
+        new ol.style.Style({ stroke: new ol.style.Stroke({ color: '#fff', width: 1.5 }) }),
+      ]);
+      rulerSource.addFeature(tf);
+      _rulerTickFeatures.push(tf);
+    }
+
+    // Labels
+    const brgFmt = function(deg) { return deg.toFixed(1) + '\\u00B0'; };
+    const distStr = distDisplay < 1 ? distDisplay.toFixed(3) : (distDisplay < 10 ? distDisplay.toFixed(2) : distDisplay.toFixed(1));
+
+    _rulerRedLabel.getGeometry().setCoordinates(redCoord);
+    _rulerRedLabel.getStyle().getText().setText(brgFmt(bearingRB));
+    _rulerBlueLabel.getGeometry().setCoordinates(blueCoord);
+    _rulerBlueLabel.getStyle().getText().setText(brgFmt(bearingBR));
+    _rulerDistLabel.getGeometry().setCoordinates(mid);
+    _rulerDistLabel.getStyle().getText().setText(distStr + ' ' + _rulerDistSymbol);
+
+    // Post to Dart (throttled during drag)
+    const now = Date.now();
+    if (now - _rulerLastPost > 100) {
+      _rulerLastPost = now;
+      if (window.RulerUpdate) {
+        RulerUpdate.postMessage(JSON.stringify({
+          distM: distM,
+          bearingFromRed: bearingRB,
+          bearingFromBlue: bearingBR,
+          redSnap: _rulerRedSnap,
+          blueSnap: _rulerBlueSnap,
+        }));
+      }
+    }
+  }
+
+  function _createLabelFeature(color) {
+    const f = new ol.Feature({ geometry: new ol.geom.Point([0, 0]) });
+    f.setStyle(new ol.style.Style({
+      text: new ol.style.Text({
+        text: '',
+        scale: 1.3,
+        offsetY: -18,
+        fill: new ol.style.Fill({ color: color }),
+        stroke: new ol.style.Stroke({ color: 'rgba(0,0,0,0.8)', width: 3 }),
+      }),
+    }));
+    return f;
+  }
+
+  window.showRuler = function(show) {
+    _rulerVisible = show;
+    if (!show) {
+      rulerSource.clear();
+      _redEndpoint = null;
+      _blueEndpoint = null;
+      _redHalfLine = null;
+      _blueHalfLine = null;
+      _rulerTickFeatures = [];
+      _rulerRedLabel = null;
+      _rulerBlueLabel = null;
+      _rulerDistLabel = null;
+      _rulerRedSnap = null;
+      _rulerBlueSnap = null;
+      return;
+    }
+    // Place endpoints offset from map center
+    const center = map.getView().getCenter();
+    const r = map.getView().getResolution() * 80; // 80px offset
+    const redCoord = [center[0] - r, center[1]];
+    const blueCoord = [center[0] + r, center[1]];
+
+    _redEndpoint = new ol.Feature({ geometry: new ol.geom.Point(redCoord) });
+    _redEndpoint.set('isRulerEndpoint', true);
+    _redEndpoint.set('rulerEnd', 'red');
+    _redEndpoint.setStyle(new ol.style.Style({
+      image: new ol.style.Circle({
+        radius: 12,
+        fill: new ol.style.Fill({ color: 'rgba(244,67,54,0.8)' }),
+        stroke: new ol.style.Stroke({ color: '#fff', width: 2 }),
+      }),
+    }));
+
+    _blueEndpoint = new ol.Feature({ geometry: new ol.geom.Point(blueCoord) });
+    _blueEndpoint.set('isRulerEndpoint', true);
+    _blueEndpoint.set('rulerEnd', 'blue');
+    _blueEndpoint.setStyle(new ol.style.Style({
+      image: new ol.style.Circle({
+        radius: 12,
+        fill: new ol.style.Fill({ color: 'rgba(33,150,243,0.8)' }),
+        stroke: new ol.style.Stroke({ color: '#fff', width: 2 }),
+      }),
+    }));
+
+    _redHalfLine = new ol.Feature({ geometry: new ol.geom.LineString([redCoord, center]) });
+    _redHalfLine.setStyle(new ol.style.Style({
+      stroke: new ol.style.Stroke({ color: 'rgba(244,67,54,0.7)', width: 3, lineDash: [8, 4] }),
+    }));
+
+    _blueHalfLine = new ol.Feature({ geometry: new ol.geom.LineString([center, blueCoord]) });
+    _blueHalfLine.setStyle(new ol.style.Style({
+      stroke: new ol.style.Stroke({ color: 'rgba(33,150,243,0.7)', width: 3, lineDash: [8, 4] }),
+    }));
+
+    _rulerRedLabel = _createLabelFeature('#f44336');
+    _rulerBlueLabel = _createLabelFeature('#2196f3');
+    _rulerDistLabel = _createLabelFeature('#ffffff');
+    _rulerDistLabel.getStyle().getText().setOffsetY(16);
+
+    rulerSource.addFeatures([
+      _redHalfLine, _blueHalfLine,
+      _redEndpoint, _blueEndpoint,
+      _rulerRedLabel, _rulerBlueLabel, _rulerDistLabel,
+    ]);
+    _updateRulerGeometry();
+  };
+
+  window.updateRulerUnits = function(factor, symbol) {
+    _rulerDistFactor = factor;
+    _rulerDistSymbol = symbol;
+    if (_rulerVisible) _updateRulerGeometry();
+  };
+
+  // Ruler endpoint drag interaction
+  const rulerTranslate = new ol.interaction.Translate({
+    filter: function(feature) {
+      return feature.get('isRulerEndpoint') === true;
+    },
+    hitTolerance: 15,
+  });
+
+  rulerTranslate.on('translating', function(e) {
+    e.features.forEach(function(f) {
+      if (!f.get('isRulerEndpoint')) return;
+      const end = f.get('rulerEnd');
+      const pixel = map.getPixelFromCoordinate(f.getGeometry().getCoordinates());
+
+      // Snap-to-vessel check
+      let snapped = false;
+      map.forEachFeatureAtPixel(pixel, function(hit) {
+        if (snapped) return;
+        if (hit === f) return; // skip self
+        if (hit.get('isAIS')) {
+          const vCoord = hit.getGeometry().getCoordinates();
+          f.getGeometry().setCoordinates(vCoord);
+          if (end === 'red') _rulerRedSnap = hit.get('vesselId');
+          else _rulerBlueSnap = hit.get('vesselId');
+          snapped = true;
+        }
+        if (hit === vesselFeature) {
+          const vCoord = hit.getGeometry().getCoordinates();
+          f.getGeometry().setCoordinates(vCoord);
+          if (end === 'red') _rulerRedSnap = 'self';
+          else _rulerBlueSnap = 'self';
+          snapped = true;
+        }
+      }, { hitTolerance: 20 });
+
+      if (!snapped) {
+        if (end === 'red') _rulerRedSnap = null;
+        else _rulerBlueSnap = null;
+      }
+      _updateRulerGeometry();
+    });
+  });
+
+  rulerTranslate.on('translateend', function() {
+    _rulerLastPost = 0; // force immediate post
+    _updateRulerGeometry();
+  });
+
+  map.addInteraction(rulerTranslate);
+
+  // Snap-follow: update ruler endpoints when snapped vessels move
+  function _updateRulerSnapsFromAIS(vessels) {
+    if (!_rulerVisible) return;
+    let changed = false;
+    if (_rulerRedSnap && _rulerRedSnap !== 'self' && _redEndpoint) {
+      const v = vessels.find(function(v) { return v.id === _rulerRedSnap; });
+      if (v) {
+        _redEndpoint.getGeometry().setCoordinates(ol.proj.fromLonLat([v.lon, v.lat]));
+        changed = true;
+      }
+    }
+    if (_rulerBlueSnap && _rulerBlueSnap !== 'self' && _blueEndpoint) {
+      const v = vessels.find(function(v) { return v.id === _rulerBlueSnap; });
+      if (v) {
+        _blueEndpoint.getGeometry().setCoordinates(ol.proj.fromLonLat([v.lon, v.lat]));
+        changed = true;
+      }
+    }
+    if (changed) _updateRulerGeometry();
+  }
 
   console.log('Map initialized with OpenLayers + S57 + overlays');
   if (window.MapReady) MapReady.postMessage('ready');

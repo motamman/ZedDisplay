@@ -69,6 +69,12 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
   bool _aisActiveOnly = false;
   bool _aisShowPaths = true;
 
+  // Ruler
+  bool _rulerVisible = false;
+  double? _rulerDistM;
+  double? _rulerBearingFromRed;
+  double? _rulerBearingFromBlue;
+
   // Route overlay
   String? _activeRouteHref;
   List<List<double>>? _routeCoords;
@@ -133,6 +139,10 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
     _pushVesselPosition();
     _pushAISVessels();
     if (_routeCoords != null) _pushRoute();
+    // Push scale bar units
+    final distMeta = widget.signalKService.metadataStore.getByCategory('distance');
+    final scaleUnits = _mapDistSymbolToOLUnits(distMeta?.symbol);
+    _controller!.runJavaScript("setScaleBarUnits('$scaleUnits')");
   }
 
   void _onAutoFollowChanged(bool autoFollow, {bool? autoZoom}) {
@@ -461,6 +471,38 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
       results.add((lat: lat2 * 180 / math.pi, lon: lon2 * 180 / math.pi));
     }
     return results;
+  }
+
+  void _onRulerUpdate(Map<String, dynamic> data) {
+    if (!mounted) return;
+    setState(() {
+      _rulerDistM = (data['distM'] as num?)?.toDouble();
+      _rulerBearingFromRed = (data['bearingFromRed'] as num?)?.toDouble();
+      _rulerBearingFromBlue = (data['bearingFromBlue'] as num?)?.toDouble();
+    });
+  }
+
+  void _toggleRuler() {
+    setState(() => _rulerVisible = !_rulerVisible);
+    _controller?.runJavaScript('showRuler($_rulerVisible)');
+    if (_rulerVisible) {
+      _pushRulerUnits();
+    }
+  }
+
+  void _pushRulerUnits() {
+    final distMeta = widget.signalKService.metadataStore.getByCategory('distance');
+    final factor = distMeta?.convert(1.0) ?? 0.000539957;
+    final symbol = distMeta?.symbol ?? 'nm';
+    _controller?.runJavaScript("updateRulerUnits($factor, ${jsonEncode(symbol)})");
+  }
+
+  String _mapDistSymbolToOLUnits(String? symbol) {
+    if (symbol == null) return 'nautical';
+    final s = symbol.toLowerCase();
+    if (s == 'nm' || s == 'nmi') return 'nautical';
+    if (s == 'mi') return 'imperial';
+    return 'metric';
   }
 
   String _escapeForJS(String json) {
@@ -1552,6 +1594,7 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
             onWaypointDrag: _onWaypointDrag,
             onWaypointLongPress: _showWaypointEditDialog,
             onRouteLineAdd: _showAddWaypointDialog,
+            onRulerUpdate: _onRulerUpdate,
             depthUnit: symbol,
             depthConversionFactor: factor,
           );
@@ -1609,13 +1652,69 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
                   tooltip: _aisShowPaths ? 'Paths on' : 'Paths off',
                 ),
               ],
+              _mapButton(
+                icon: _rulerVisible ? Icons.straighten : Icons.straighten_outlined,
+                onPressed: _toggleRuler,
+                tooltip: 'Ruler',
+              ),
             ],
           ),
         ),
+        // Ruler info overlay
+        if (_rulerVisible && _rulerDistM != null)
+          Positioned(
+            top: 8,
+            left: 8,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.7),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Builder(builder: (_) {
+                final distMeta = widget.signalKService.metadataStore.getByCategory('distance');
+                final dist = distMeta?.convert(_rulerDistM!) ?? _rulerDistM!;
+                final distSym = distMeta?.symbol ?? 'm';
+                final distStr = dist < 1
+                    ? dist.toStringAsFixed(3)
+                    : (dist < 10 ? dist.toStringAsFixed(2) : dist.toStringAsFixed(1));
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(width: 10, height: 10,
+                          decoration: const BoxDecoration(color: Colors.red, shape: BoxShape.circle)),
+                        const SizedBox(width: 6),
+                        Text('${_rulerBearingFromRed?.toStringAsFixed(1) ?? '--'}°',
+                          style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w500)),
+                      ],
+                    ),
+                    const SizedBox(height: 2),
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(width: 10, height: 10,
+                          decoration: const BoxDecoration(color: Colors.blue, shape: BoxShape.circle)),
+                        const SizedBox(width: 6),
+                        Text('${_rulerBearingFromBlue?.toStringAsFixed(1) ?? '--'}°',
+                          style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w500)),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Text('$distStr $distSym',
+                      style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.bold)),
+                  ],
+                );
+              }),
+            ),
+          ),
         // Compass rose — heading-up mode only
         if (_viewMode == 'heading-up')
           Positioned(
-            top: 80,
+            top: _rulerVisible ? 130 : 80,
             left: 8,
             child: ListenableBuilder(
               listenable: widget.signalKService,
