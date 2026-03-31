@@ -146,8 +146,10 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
 
   void _onSignalKUpdate() {
     if (!_mapReady || _controller == null) return;
-    // Re-load AIS on reconnect
-    if (widget.signalKService.isConnected && !_hasLoadedAIS) {
+    // Reset AIS flag on disconnect so we re-subscribe on reconnect
+    if (!widget.signalKService.isConnected) {
+      _hasLoadedAIS = false;
+    } else if (!_hasLoadedAIS) {
       _ensureAISLoaded();
     }
     // Check for route changes
@@ -1319,13 +1321,20 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
 
     return Stack(
       children: [
-        ChartWebView(
-          baseUrl: widget.signalKService.httpBaseUrl,
-          authToken: widget.signalKService.authToken?.token,
-          onReady: _onWebViewReady,
-          onAutoFollowChanged: _onAutoFollowChanged,
-          onAISVesselClick: _onAISVesselClick,
-        ),
+        Builder(builder: (context) {
+          final depthMeta = widget.signalKService.metadataStore.getByCategory('depth');
+          final factor = depthMeta?.convert(1.0) ?? 1.0;
+          final symbol = depthMeta?.symbol ?? 'm';
+          return ChartWebView(
+            baseUrl: widget.signalKService.httpBaseUrl,
+            authToken: widget.signalKService.authToken?.token,
+            onReady: _onWebViewReady,
+            onAutoFollowChanged: _onAutoFollowChanged,
+            onAISVesselClick: _onAISVesselClick,
+            depthUnit: symbol,
+            depthConversionFactor: factor,
+          );
+        }),
         ListenableBuilder(
           listenable: widget.signalKService,
           builder: (context, _) => _buildHUD(),
@@ -1382,9 +1391,84 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
             ],
           ),
         ),
+        // Compass rose — heading-up mode only
+        if (_viewMode == 'heading-up')
+          Positioned(
+            top: 80,
+            left: 8,
+            child: ListenableBuilder(
+              listenable: widget.signalKService,
+              builder: (context, _) {
+                final heading = _numValue('navigation.headingTrue') ?? 0.0;
+                return Transform.rotate(
+                  angle: -heading,
+                  child: Container(
+                    width: 60,
+                    height: 60,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: Colors.black.withValues(alpha: 0.6),
+                      border: Border.all(color: Colors.white24),
+                    ),
+                    child: CustomPaint(
+                      painter: _CompassRosePainter(),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
       ],
     );
   }
+}
+
+// =============================================================================
+// Compass Rose Painter
+// =============================================================================
+
+class _CompassRosePainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+    final r = size.width / 2 - 4;
+
+    // North arrow (red)
+    final northPaint = Paint()..color = Colors.red..style = PaintingStyle.fill;
+    final northPath = Path()
+      ..moveTo(center.dx, center.dy - r)
+      ..lineTo(center.dx - 5, center.dy - 2)
+      ..lineTo(center.dx + 5, center.dy - 2)
+      ..close();
+    canvas.drawPath(northPath, northPaint);
+
+    // South arrow (white)
+    final southPaint = Paint()..color = Colors.white54..style = PaintingStyle.fill;
+    final southPath = Path()
+      ..moveTo(center.dx, center.dy + r)
+      ..lineTo(center.dx - 5, center.dy + 2)
+      ..lineTo(center.dx + 5, center.dy + 2)
+      ..close();
+    canvas.drawPath(southPath, southPaint);
+
+    // Cardinal tick marks (E, W)
+    final tickPaint = Paint()..color = Colors.white54..strokeWidth = 1.5;
+    canvas.drawLine(Offset(center.dx + r, center.dy), Offset(center.dx + r - 6, center.dy), tickPaint);
+    canvas.drawLine(Offset(center.dx - r, center.dy), Offset(center.dx - r + 6, center.dy), tickPaint);
+
+    // "N" label
+    final textPainter = TextPainter(
+      text: const TextSpan(
+        text: 'N',
+        style: TextStyle(color: Colors.red, fontSize: 11, fontWeight: FontWeight.bold),
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    textPainter.paint(canvas, Offset(center.dx - textPainter.width / 2, center.dy - r + 10));
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
 // =============================================================================

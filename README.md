@@ -17,9 +17,8 @@ A customizable SignalK marine dashboard and crew comms application to display re
 - **signalk-rpi-uptime**: Required for system uptime display in RPi Monitor tool
 - **signalk-weatherflow-api**: Required for WeatherFlow Forecast tool (weather data from Tempest stations)
 - **signalk-meteoblue-weather**: Weather forecasts from Meteoblue (for Weather API Spinner)
-- **signalk-open-meteo-weather**: Weather forecasts from Open-Meteo (for Weather API Spinner) 
-
-
+- **signalk-open-meteo-weather**: Weather forecasts from Open-Meteo (for Weather API Spinner)
+- **signalk-charts-provider-simple**: Required for Chart Plotter tool (S-57 ENC vector chart tiles)
 
 
 ## Features
@@ -209,6 +208,24 @@ A customizable SignalK marine dashboard and crew comms application to display re
     - Color-coded runway display (cyan=stern, orange=bow) with target vessel at apex
     - Auto-appears when AIS target has COG/SOG
   - Distance display with proper unit formatting
+  - **Route Mode**: Follow the active SignalK route with ILS-style runway guidance
+    - Integrated autopilot controls (engage/disengage, advance waypoint, dodge)
+    - Automatic waypoint arrival detection via RouteArrivalMonitor
+    - Active route progress (waypoint index / total) shown in header
+
+- **Chart Plotter**: Full-featured chart plotter with S-57 vector chart rendering
+  - S-57 ENC vector tiles from SignalK chart provider with IHO S-52 symbology
+  - Own vessel marker with heading line and COG vector
+  - AIS targets with ship-type colors, nav-state icons, COG projections, and name labels
+  - AIS controls: toggle on/off, active-only filter, projection path toggle
+  - Active route overlay with directional waypoint arrows and active leg highlighting
+  - Route management: list routes, activate forward/reverse, advance, skip, fast-forward to nearest
+  - Nav data HUD: SOG, COG, depth, DTW, BRG, XTE with MetadataStore unit display
+  - North-up / heading-up view modes with compass rose indicator
+  - Auto-follow with auto-zoom and land proximity override
+  - Metadata-aware depth rendering (server's preferred unit)
+  - Tap chart features for detailed property inspection
+  - Requires signalk-charts-provider-simple plugin for S-57 chart tiles
 
 - **Position Display**: Current vessel position in configurable formats
   - Latitude/longitude display with multiple format options
@@ -306,7 +323,9 @@ A customizable SignalK marine dashboard and crew comms application to display re
 
 - **WebView**: Embedded web content display
   - Display any web page within the dashboard
-  - Useful for integrating external web apps or documentation
+  - Useful for integrating external web apps (FreeboardSK, Grafana, etc.)
+  - Automatic SignalK authentication cookie for authenticated pages
+  - Dashboard swipe blocking for full gesture control
   - Configurable URL
 
 **Crew Communication Tools**

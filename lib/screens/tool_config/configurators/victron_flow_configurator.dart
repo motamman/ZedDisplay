@@ -614,7 +614,7 @@ class VictronFlowConfigurator extends ToolConfigurator {
     final name = battery['name'] as String? ?? 'Battery';
 
     return Card(
-      key: ValueKey('battery_$index'),
+      key: ObjectKey(battery),
       margin: const EdgeInsets.only(bottom: 8),
       child: ExpansionTile(
         leading: Row(

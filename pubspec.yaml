@@ -1,7 +1,7 @@
 name: zed_display
 description: A SignalK data display app with gauges and charts
 publish_to: 'none'
-version: 0.5.94+67
+version: 0.6.0+68
 
 environment:
   sdk: '>=3.8.0 <4.0.0'
@@ -115,9 +115,6 @@ dependencies:
 
   # Vibration patterns for Find Home haptic feedback
   vibration: ^3.1.8
-  vector_map_tiles: ^10.0.0-beta.2
-  vector_tile_renderer: ^7.0.0-beta.1
-  maplibre_gl: ^0.25.0
 
 dev_dependencies:
   flutter_test:

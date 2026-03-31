@@ -15,6 +15,8 @@ class ChartWebView extends StatefulWidget {
   final void Function(WebViewController controller)? onReady;
   final void Function(bool autoFollow, {bool? autoZoom})? onAutoFollowChanged;
   final void Function(String vesselId)? onAISVesselClick;
+  final String depthUnit;
+  final double depthConversionFactor;
 
   const ChartWebView({
     super.key,
@@ -23,6 +25,8 @@ class ChartWebView extends StatefulWidget {
     this.onReady,
     this.onAutoFollowChanged,
     this.onAISVesselClick,
+    this.depthUnit = 'm',
+    this.depthConversionFactor = 1.0,
   });
 
   @override
@@ -103,6 +107,8 @@ class _ChartWebViewState extends State<ChartWebView> {
         layerCode: layer,
         properties: props,
         lngLat: lngLat,
+        depthUnit: widget.depthUnit,
+        depthConversionFactor: widget.depthConversionFactor,
       ),
     );
   }
@@ -166,7 +172,8 @@ class S57Service {
       graphicsStyle: 'Paper', boundaries: 'Plain',
       colors: 4, colorTable: 0,
       otherLayers: ['SOUNDG','OBSTRN','UWTROC','WRECKS','DEPCNT'],
-      depthUnit: 'm',
+      depthUnit: ${jsonEncode(widget.depthUnit)},
+      depthConversionFactor: ${widget.depthConversionFactor},
     };
     this.attMatch = /([A-Za-z0-9]{6})([0-9,?]*)/;
 
@@ -574,20 +581,17 @@ class S57Style {
     let depth = parseFloat(p.DEPTH);
     if (isNaN(depth)) depth = parseFloat(p.VALSOU);
     if (isNaN(depth)) return r;
-    if (this.s57Service.options.depthUnit === 'ft') depth *= 3.28084;
+    const factor = this.s57Service.options.depthConversionFactor || 1.0;
+    depth *= factor;
     const sign = depth < 0 ? '-' : '';
     const abs = Math.abs(depth);
     let str;
-    if (this.s57Service.options.depthUnit === 'ft') {
-      str = sign + Math.round(abs);
+    const showTenths = this.currentResolution < 5;
+    if (showTenths) {
+      const rounded = Math.round(abs * 10) / 10;
+      str = sign + (rounded % 1 === 0 ? rounded.toFixed(0) : rounded.toFixed(1));
     } else {
-      const showTenths = this.currentResolution < 5;
-      if (showTenths) {
-        const rounded = Math.round(abs * 10) / 10;
-        str = sign + (rounded % 1 === 0 ? rounded.toFixed(0) : rounded.toFixed(1));
-      } else {
-        str = sign + Math.round(abs);
-      }
+      str = sign + Math.round(abs);
     }
     p._SOUNDG_WHOLE = str;
     r.push('TX(_SOUNDG_WHOLE,1,2,2)');
@@ -942,16 +946,13 @@ async function initMap() {
     );
   }
 
-  // Anchored — anchor symbol
+  // Anchored — Material Design anchor icon (same as Icons.anchor in Flutter)
   function anchorSvgSrc(fillHex, alpha) {
     const key = 'a_' + fillHex + '_' + alpha;
     const fc = hexToRgba(fillHex, alpha);
     return _svgDataUrl(key,
       '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24">' +
-      '<circle cx="12" cy="5" r="2.5" fill="none" stroke="' + fc + '" stroke-width="1.8"/>' +
-      '<line x1="12" y1="7.5" x2="12" y2="21" stroke="' + fc + '" stroke-width="2" stroke-linecap="round"/>' +
-      '<line x1="5" y1="14" x2="19" y2="14" stroke="' + fc + '" stroke-width="2" stroke-linecap="round"/>' +
-      '<path d="M6 21 C6 17 12 13 12 13 C12 13 18 17 18 21" fill="none" stroke="' + fc + '" stroke-width="1.8" stroke-linecap="round"/>' +
+      '<path d="M17 15l1.55 1.55c-.96 1.69-3.33 3.04-5.55 3.37V11h3V9h-3V7.82C14.16 7.4 15 6.3 15 5c0-1.65-1.35-3-3-3S9 3.35 9 5c0 1.3.84 2.4 2 2.82V9H8v2h3v8.92c-2.22-.33-4.59-1.68-5.55-3.37L7 15l-4-3v3c0 3.88 4.92 7 9 7s9-3.12 9-7v-3l-4 3zM12 4c.55 0 1 .45 1 1s-.45 1-1 1s-1-.45-1-1s.45-1 1-1z" fill="' + fc + '"/>' +
       '</svg>'
     );
   }
@@ -1348,11 +1349,15 @@ class _FeaturePopover extends StatelessWidget {
   final String layerCode;
   final Map<String, dynamic> properties;
   final List? lngLat;
+  final String depthUnit;
+  final double depthConversionFactor;
 
   const _FeaturePopover({
     required this.layerCode,
     required this.properties,
     this.lngLat,
+    this.depthUnit = 'm',
+    this.depthConversionFactor = 1.0,
   });
 
   @override
@@ -1429,7 +1434,7 @@ class _FeaturePopover extends StatelessWidget {
       String display;
       if (_depthKeys.contains(key)) {
         final n = num.tryParse(val.toString());
-        display = n != null ? '${n.toStringAsFixed(1)} m' : val.toString();
+        display = n != null ? '${(n * depthConversionFactor).toStringAsFixed(1)} $depthUnit' : val.toString();
       } else if (_heightKeys.contains(key)) {
         final n = num.tryParse(val.toString());
         display = n != null ? '${n.toStringAsFixed(1)} m' : val.toString();

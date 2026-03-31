@@ -14,7 +14,8 @@ class RouteArrivalEvent {
   final int pointTotal;
 
   /// True if this is the last waypoint on the route.
-  bool get isLastWaypoint => pointIndex >= pointTotal - 1;
+  bool get isLastWaypoint =>
+      pointTotal > 0 && pointIndex >= 0 && pointIndex >= pointTotal - 1;
 
   /// The notification key that triggered this event.
   final String trigger;

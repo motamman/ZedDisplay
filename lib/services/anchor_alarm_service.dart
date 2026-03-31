@@ -701,7 +701,7 @@ class AnchorAlarmService extends ChangeNotifier {
       case AnchorAlarmState.alarm:
         return AlertSeverity.alarm;
       case AnchorAlarmState.alert:
-        return AlertSeverity.alert;
+        return AlertSeverity.alarm;
       case AnchorAlarmState.warn:
         return AlertSeverity.warn;
       case AnchorAlarmState.normal:

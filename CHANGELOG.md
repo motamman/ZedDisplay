@@ -5,6 +5,59 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0+68] - 2026-03-30
+
+### Added
+- **Chart Plotter (NEW WIDGET)**: Full-featured chart plotter with S-57 vector chart rendering via OpenLayers in a WebView.
+  - S-57 ENC vector tiles from SignalK chart provider with IHO S-52 symbology, sprite-based chart symbols, and land/depth area rendering
+  - Own vessel marker with heading line and COG vector, pushed from SignalK via JS bridge
+  - AIS targets with ship-type color coding, nav-state icons (chevron/anchor/mooring buoy/circle), COG projection lines, stale vessel detection, and name labels
+  - AIS controls: toggle AIS on/off, filter to active-only (hide stale), toggle projection paths
+  - Active route overlay with directional arrow waypoints, active leg highlighting, and next-waypoint emphasis
+  - Route management: list all routes, activate forward/reverse, deactivate, advance waypoint, skip to any waypoint, fast-forward to nearest waypoint
+  - Route reverse moves to first point of new direction; all route mutations immediately refresh state from server
+  - Nav data HUD: SOG, COG, depth, DTW, BRG, XTE — all values via MetadataStore for correct unit display
+  - North-up / heading-up view modes with compass rose indicator in heading-up mode
+  - Auto-follow vessel with manual pan override; auto-zoom to 30-minute projected area with land proximity override
+  - Metadata-aware depth rendering: sounding labels and feature info popup use server's preferred depth unit (m/ft)
+  - Feature tap inspection: tap any chart feature to see detailed properties in a bottom sheet
+  - Dashboard swipe coordination via ValueNotifier swipe blocker
+- **Find Home — Route Mode**: Full autopilot route navigation ported into Find Home widget.
+  - Toggle route mode to follow the active SignalK route with ILS-style runway display
+  - Integrated autopilot controls (engage/disengage, advance waypoint, dodge) directly in Find Home
+  - RouteArrivalMonitor for automatic waypoint arrival detection
+  - Active route point index and total displayed in header
+  - New shared services: `AutopilotCommandService` (AP control abstraction), `RouteArrivalMonitor` (arrival detection)
+- **Autopilot V2 — courseNextPoint**: New V2 API method for setting the next waypoint position, enabling route mode support in autopilot widgets.
+- **Alert System — Major Overhaul**:
+  - Centralized alert resolution with audio mute functionality
+  - CPA alerts: sustained divergence tracking — alerts only fire after vessel has been closing for a configurable duration, reducing false positives from vessels passing at safe distance
+  - Anchor alarm: configurable alarm clear delay — alarm stays active for a set duration after vessel returns to safe zone, preventing rapid on/off cycling in marginal conditions
+  - Anchor alarm: explicit `isAlarming` state tracking ensures active alerts are always tracked in AlertCoordinator
+  - Alert overlay suppression: snackbar suppressed when full overlay is visible for the same subsystem
+  - AIS favorites alerts: get notified when favorited vessels appear in AIS range (configurable per-vessel)
+  - Alert panel: dedicated panel for viewing and managing active alerts, with SignalK notification navigation
+  - Audio severity preemption: only one alarm sound plays at a time, higher severity wins
+- **Dashboard — Widget Swipe Blocking**: Widgets (WebView, chart plotter) can temporarily block dashboard page swiping via `ValueNotifier<bool>` for interactive content that needs full gesture control.
+- **WebView Tool — Authentication**: WebView now sets JAUTHENTICATION cookie before loading, enabling access to authenticated SignalK pages (FreeboardSK, Grafana, etc.).
+- **Track Simplification — Course-Delta Algorithm**: New algorithm that preserves heading changes rather than just spatial deviation, producing more navigable routes from historical data. Configurable heading threshold.
+
+### Changed
+- **Autopilot — XTE Display**: Cross-track error now uses MetadataStore formatting instead of hardcoded m/km conversion. Rudder indicator layout refactored to include dedicated XTE box.
+- **Victron Flow — Multi-Battery Support**: Battery configuration changed from single battery map to a list of battery maps, supporting vessels with multiple battery banks.
+- **Sun/Moon Arc — Visual Improvements**: Sun rendered with glow effect and disc; sun and moon azimuth positions calculated from astronomical data for accurate sky placement.
+- **Find Home — Sky Display**: Sun and moon positions on the runway sky display now use calculated azimuth angles.
+- **Dashboard Manager — Layout Improvements**: Screen management sheet constrained to 60% height; improved responsiveness for narrow screens.
+- **Tool Config Service — URL Handling**: Uses new httpBaseUrl structure; improved app name handling for tool configuration.
+- **MetadataStore — Merge Protection**: Metadata updates now merge rather than overwrite, preventing loss of existing conversion formulas.
+- **Path Selector — Numeric Filter**: Path selector dialog optimized to filter for numeric-value paths.
+- **SignalK Service — Notification Cleanup**: Removed unused WebSocket connection logic from NotificationManager; streamlined notification handling through main message handler.
+- **SignalK Service — httpBaseUrl Completion**: Migrated all remaining scattered protocol/URL constructions to use centralized `httpBaseUrl`.
+- **Victron Flow — Subscription Management**: Proper SignalK path subscription/unsubscription lifecycle with owner tracking.
+
+### Fixed
+- **Setup Service — Layout Updates**: Active setup ID assignment fixed for reliable layout update handling.
+
 ## [0.5.94+67] - 2026-03-22
 
 ### Added

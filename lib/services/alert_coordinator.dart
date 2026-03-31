@@ -105,6 +105,9 @@ class AlertCoordinator extends ChangeNotifier {
     if (lastTime != null && now.difference(lastTime) < throttle) {
       // Within throttle window — but still allow audio preemption
       // if the new alert has higher severity than what's playing
+      // Still update active alerts so AlertPanel reflects latest state
+      _activeAlerts[key] = event;
+      _safeNotify();
       if (event.wantsAudio && !_audioMuted) {
         final currentSeverity = _audioPlayer.activeSeverity;
         if (currentSeverity != null && event.severity > currentSeverity) {

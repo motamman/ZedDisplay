@@ -1,4 +1,46 @@
-# What's New in v0.5.94
+# What's New in v0.6.0
+
+## Release Notes (Google Play - max 500 chars)
+
+v0.6.0: New chart plotter with S-57 charts, own vessel, AIS, active routes, HUD, heading-up and auto-zoom. New Find Home route mode with autopilot controls and arrival detection. Alert overhaul with smarter CPA and anchor alarms, favorites alerts, and centralized audio.
+
+## Release Notes (App Store / TestFlight - max 4000 chars)
+
+### Chart Plotter (NEW)
+- **S-57 Vector Charts** - Full ENC rendering with IHO S-52 symbology via OpenLayers WebView. Depth areas, soundings, buoys, lights, wrecks, obstructions — all from your SignalK chart provider.
+- **Own Vessel** - Vessel marker with heading line and COG vector, updated in real-time from SignalK data.
+- **AIS Targets** - Ship-type color coding, nav-state icons, COG projection lines, stale detection, name labels. Toggle AIS on/off, filter to active-only, show/hide projections.
+- **Active Route** - Green directional arrow waypoints with active leg highlighting. Route management: list routes, activate forward/reverse, advance waypoint, skip to any waypoint, fast-forward to nearest. Reverse moves to first point of new direction.
+- **Nav HUD** - SOG, COG, depth, DTW, BRG, XTE overlay — all values use MetadataStore for correct unit display.
+- **View Modes** - North-up and heading-up with compass rose. Auto-follow with auto-zoom to 30-min projected area. Land proximity override prevents zooming out over coastline.
+- **Metadata-Aware Depths** - Soundings and feature info use server's preferred depth unit (m or ft).
+- **Feature Inspection** - Tap any chart feature for detailed properties.
+
+### Find Home — Route Mode (NEW)
+- **Route Navigation** - Toggle route mode to follow the active SignalK route with ILS-style runway deviation display.
+- **Autopilot Controls** - Engage/disengage AP, advance waypoint, and dodge — all from within Find Home.
+- **Arrival Detection** - RouteArrivalMonitor watches for waypoint arrival and triggers advance.
+- **Route Progress** - Active waypoint index and total shown in header.
+
+### Alert System Overhaul (IMPROVED)
+- **CPA Sustained Divergence** - Alerts only fire after a vessel has been closing for a configurable duration, reducing false positives.
+- **Anchor Alarm Clear Delay** - Alarm stays active for a configurable period after vessel returns to safe zone.
+- **Favorites Alerts** - Get notified when favorited AIS vessels appear in range.
+- **Alert Panel** - Dedicated panel for active alerts with SignalK notification navigation.
+- **Audio Mute** - Centralized audio management with severity preemption.
+- **Overlay Suppression** - Snackbar hidden when full overlay is visible for same subsystem.
+
+### Other Improvements
+- **Autopilot XTE** - Cross-track error uses MetadataStore formatting.
+- **Autopilot courseNextPoint** - V2 API method for route waypoint support.
+- **Victron Flow** - Multi-battery bank support.
+- **WebView Auth** - Sets authentication cookie for SignalK pages.
+- **Dashboard Swipe Block** - Widgets can block page swiping for interactive content.
+- **Track Simplification** - Course-Delta algorithm preserves heading changes for better routes.
+
+---
+
+# Previous: v0.5.94
 
 ## Release Notes (Google Play - max 500 chars)
 
