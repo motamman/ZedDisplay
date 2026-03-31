@@ -1514,11 +1514,14 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
   // HUD — ALL values via MetadataStore
   // ---------------------------------------------------------------------------
 
-  String _formatValue(String path, {int decimals = 1}) {
+  String _formatValue(String path, {int decimals = 1, String? fallbackCategory, String? fallbackPath}) {
     final data = widget.signalKService.getValue(path);
     if (data?.value == null || data!.value is! num) return '--';
     final rawValue = (data.value as num).toDouble();
-    final metadata = widget.signalKService.metadataStore.get(path);
+    final store = widget.signalKService.metadataStore;
+    final metadata = store.get(path)
+        ?? (fallbackPath != null ? store.get(fallbackPath) : null)
+        ?? (fallbackCategory != null ? store.getByCategory(fallbackCategory) : null);
     if (metadata != null) {
       return metadata.format(rawValue, decimals: decimals);
     }
@@ -1537,12 +1540,12 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceEvenly,
           children: [
-            _hudItem('SOG', _formatValue(_dsPath(_dsSog))),
-            _hudItem('COG', _formatValue(_dsPath(_dsCog), decimals: 0)),
-            _hudItem('DPT', _formatValue(_dsPath(_dsDepth), decimals: 1)),
-            _hudItem('DTW', _formatValue(_dsPath(_dsDtw), decimals: 1)),
-            _hudItem('BRG', _formatValue(_dsPath(_dsBearing), decimals: 0)),
-            _hudItem('XTE', _formatValue(_dsPath(_dsXte), decimals: 1)),
+            _hudItem('SOG', _formatValue(_dsPath(_dsSog), fallbackCategory: 'speed')),
+            _hudItem('COG', _formatValue(_dsPath(_dsCog), decimals: 0, fallbackCategory: 'angle')),
+            _hudItem('DPT', _formatValue(_dsPath(_dsDepth), decimals: 1, fallbackCategory: 'depth')),
+            _hudItem('DTW', _formatValue(_dsPath(_dsDtw), decimals: 1, fallbackCategory: 'distance')),
+            _hudItem('BRG', _formatValue(_dsPath(_dsBearing), decimals: 0, fallbackPath: _dsPath(_dsCog), fallbackCategory: 'angle')),
+            _hudItem('XTE', _formatValue(_dsPath(_dsXte), decimals: 1, fallbackCategory: 'distance')),
             if (_routeCoords != null &&
                 _routePointIndex != null &&
                 _routePointTotal != null &&
