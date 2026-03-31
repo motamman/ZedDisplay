@@ -499,6 +499,28 @@ class _AISPolarChartState extends State<AISPolarChart>
                         ],
                       ),
                     ),
+                    // Favorite toggle
+                    Builder(builder: (_) {
+                      final favService = context.read<AISFavoritesService>();
+                      final bareMMSI = _extractMMSI(mmsi);
+                      final isFav = favService.isFavorite(bareMMSI);
+                      return IconButton(
+                        icon: Icon(isFav ? Icons.favorite : Icons.favorite_border,
+                          color: isFav ? Colors.red : subtitleColor),
+                        tooltip: isFav ? 'Remove from favorites' : 'Add to favorites',
+                        onPressed: () {
+                          if (isFav) {
+                            favService.removeFavorite(bareMMSI);
+                          } else {
+                            favService.addFavorite(AISFavorite(
+                              mmsi: bareMMSI,
+                              name: vesselName,
+                            ));
+                          }
+                          setState(() {});
+                        },
+                      );
+                    }),
                     // External vessel lookup
                     if (widget.vesselLookupService != 'none') ...[
                       Builder(builder: (_) {
@@ -2263,7 +2285,8 @@ class _AISPolarChartState extends State<AISPolarChart>
       );
     }
 
-    final favService = context.watch<AISFavoritesService>();
+    // Watch favorites to rebuild list when toggled from details overlay
+    context.watch<AISFavoritesService>();
 
     // Sort by distance
     final sortedVessels = List<_VesselPoint>.from(_displayVessels)
@@ -2324,8 +2347,6 @@ class _AISPolarChartState extends State<AISPolarChart>
           itemCount: sortedVessels.length,
           itemBuilder: (context, index) {
             final vessel = sortedVessels[index];
-            final bareMMSI = _extractMMSI(vessel.mmsi);
-            final isFav = favService.isFavorite(bareMMSI);
             // Use cached CPA/TCPA values from vessel
             final cpa = vessel.cpa;
             final tcpa = vessel.tcpa;
@@ -2378,17 +2399,6 @@ class _AISPolarChartState extends State<AISPolarChart>
                       ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                  GestureDetector(
-                    onTap: () => _toggleFavorite(vessel),
-                    child: Padding(
-                      padding: const EdgeInsets.all(4),
-                      child: Icon(
-                        isFav ? Icons.favorite : Icons.favorite_border,
-                        size: 16,
-                        color: isFav ? Colors.red : Colors.grey,
-                      ),
                     ),
                   ),
                   if (vessel.timestamp != null)
@@ -2475,19 +2485,6 @@ class _AISPolarChartState extends State<AISPolarChart>
       ),
       ],
     );
-  }
-
-  void _toggleFavorite(_VesselPoint vessel) {
-    final favService = context.read<AISFavoritesService>();
-    final bareMMSI = _extractMMSI(vessel.mmsi);
-    if (favService.isFavorite(bareMMSI)) {
-      favService.removeFavorite(bareMMSI);
-    } else {
-      favService.addFavorite(AISFavorite(
-        mmsi: bareMMSI,
-        name: vessel.name ?? bareMMSI,
-      ));
-    }
   }
 
   /// Navigate to Find Home screen with vessel as AIS target.

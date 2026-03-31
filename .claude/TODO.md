@@ -30,6 +30,8 @@
 - [ ] Integrate SignalK notifications into the centralized alerting system
 - [ ] Add bespoke alerts for individual paths
 - [ ] Design crew roles/permissions for alert broadcasting — when multiple devices have different CPA/alarm thresholds, who is authoritative? Should crew broadcast be restricted to a captain/helm role? Should there be vessel-level default settings that mirror the captain's config?
+- [ ] Chart plotter: add chart tile caching and downloading to device for offline use
+- [ ] Chart plotter: make chart depth rendering metadata-aware (use MetadataStore depth unit preferences)
 
 ## Widget Inventory — AIS Context Status
 
