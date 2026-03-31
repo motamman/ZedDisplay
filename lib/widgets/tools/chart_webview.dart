@@ -19,6 +19,8 @@ class ChartWebView extends StatefulWidget {
   final void Function(int index)? onWaypointLongPress;
   final void Function(int afterIndex, double lon, double lat)? onRouteLineAdd;
   final void Function(Map<String, dynamic> data)? onRulerUpdate;
+  final void Function(Map<String, dynamic> viewportData)? onViewportChanged;
+  final int? localTileServerPort;
   final String depthUnit;
   final double depthConversionFactor;
 
@@ -33,6 +35,8 @@ class ChartWebView extends StatefulWidget {
     this.onWaypointLongPress,
     this.onRouteLineAdd,
     this.onRulerUpdate,
+    this.onViewportChanged,
+    this.localTileServerPort,
     this.depthUnit = 'm',
     this.depthConversionFactor = 1.0,
   });
@@ -61,9 +65,17 @@ class _ChartWebViewState extends State<ChartWebView> {
     final colorsJson =
         await rootBundle.loadString('assets/charts/s57_colors.json');
 
-    final tileUrl =
-        '${widget.baseUrl}/plugins/signalk-charts-provider-simple/01CGD_ENCs/{z}/{x}/{y}';
-    final authToken = widget.authToken ?? '';
+    // When local tile server is running, route tiles through it (enables caching).
+    // Auth is handled server-side, so no token needed in JS fetch headers.
+    final String tileUrl;
+    final String authToken;
+    if (widget.localTileServerPort != null) {
+      tileUrl = 'http://localhost:${widget.localTileServerPort}/tiles/{z}/{x}/{y}';
+      authToken = '';
+    } else {
+      tileUrl = '${widget.baseUrl}/plugins/signalk-charts-provider-simple/01CGD_ENCs/{z}/{x}/{y}';
+      authToken = widget.authToken ?? '';
+    }
 
     final html = _buildHtml(
       tileUrl: tileUrl,
@@ -84,6 +96,7 @@ class _ChartWebViewState extends State<ChartWebView> {
       ..addJavaScriptChannel('WaypointLongPress', onMessageReceived: _onWaypointLongPress)
       ..addJavaScriptChannel('RouteLineAdd', onMessageReceived: _onRouteLineAdd)
       ..addJavaScriptChannel('RulerUpdate', onMessageReceived: _onRulerUpdate)
+      ..addJavaScriptChannel('ViewportInfo', onMessageReceived: _onViewportInfo)
       ..loadHtmlString(html);
 
     if (mounted) setState(() => _loading = false);
@@ -136,6 +149,11 @@ class _ChartWebViewState extends State<ChartWebView> {
   void _onRulerUpdate(JavaScriptMessage message) {
     final data = jsonDecode(message.message) as Map<String, dynamic>;
     widget.onRulerUpdate?.call(data);
+  }
+
+  void _onViewportInfo(JavaScriptMessage message) {
+    final data = jsonDecode(message.message) as Map<String, dynamic>;
+    widget.onViewportChanged?.call(data);
   }
 
   bool _featureSheetOpen = false;
@@ -1915,6 +1933,24 @@ async function initMap() {
     }
     if (changed) _updateRulerGeometry();
   }
+
+  // =========================================================================
+  // Viewport info for freshness + download
+  // =========================================================================
+  window.getViewportTileInfo = function() {
+    const view = map.getView();
+    const extent = view.calculateExtent(map.getSize());
+    const ll = ol.proj.transformExtent(extent, 'EPSG:3857', 'EPSG:4326');
+    const zoom = Math.round(view.getZoom());
+    return JSON.stringify({minLon: ll[0], minLat: ll[1], maxLon: ll[2], maxLat: ll[3], zoom: zoom});
+  };
+
+  // Post viewport info on pan/zoom for freshness indicator
+  map.on('moveend', function() {
+    if (window.ViewportInfo) {
+      ViewportInfo.postMessage(window.getViewportTileInfo());
+    }
+  });
 
   console.log('Map initialized with OpenLayers + S57 + overlays');
   if (window.MapReady) MapReady.postMessage('ready');

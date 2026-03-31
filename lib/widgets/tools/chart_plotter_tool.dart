@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
@@ -16,6 +17,9 @@ import '../../services/dashboard_service.dart';
 import '../../services/find_home_target_service.dart';
 import '../../utils/cpa_utils.dart';
 import '../../widgets/countdown_confirmation_overlay.dart';
+import '../../services/chart_tile_cache_service.dart';
+import '../../services/chart_tile_server_service.dart';
+import '../../services/chart_download_manager.dart';
 import 'chart_webview.dart';
 
 /// Chart Plotter — OpenLayers-based unified navigation chart.
@@ -75,6 +79,11 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
   double? _rulerBearingFromRed;
   double? _rulerBearingFromBlue;
 
+  // Tile freshness
+  TileFreshness _viewportFreshness = TileFreshness.uncached;
+  Timer? _freshnessRetryTimer;
+  Map<String, dynamic>? _lastViewportData;
+
   // Route overlay
   String? _activeRouteHref;
   List<List<double>>? _routeCoords;
@@ -111,6 +120,7 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
 
   @override
   void dispose() {
+    _freshnessRetryTimer?.cancel();
     _stopArrivalMonitor();
     widget.signalKService.aisVesselRegistry.removeListener(_onAISUpdate);
     widget.signalKService.removeListener(_onSignalKUpdate);
@@ -143,6 +153,67 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
     final distMeta = widget.signalKService.metadataStore.getByCategory('distance');
     final scaleUnits = _mapDistSymbolToOLUnits(distMeta?.symbol);
     _controller!.runJavaScript("setScaleBarUnits('$scaleUnits')");
+    // Configure tile server with upstream URL and auth token
+    try {
+      final tileServer = context.read<ChartTileServerService>();
+      tileServer.configure(
+        upstreamBaseUrl: widget.signalKService.httpBaseUrl,
+        authToken: widget.signalKService.authToken?.token,
+      );
+    } catch (_) {}
+  }
+
+  void _onViewportChanged(Map<String, dynamic> data) {
+    if (!mounted) return;
+    _lastViewportData = data;
+    _freshnessRetryTimer?.cancel();
+    _updateFreshness(data);
+  }
+
+  void _updateFreshness(Map<String, dynamic> viewport) {
+    try {
+      final cacheService = context.read<ChartTileCacheService>();
+      final zoom = (viewport['zoom'] as num).toInt();
+      final minLon = (viewport['minLon'] as num).toDouble();
+      final minLat = (viewport['minLat'] as num).toDouble();
+      final maxLon = (viewport['maxLon'] as num).toDouble();
+      final maxLat = (viewport['maxLat'] as num).toDouble();
+
+      // Only check tile freshness at zooms where S-57 tiles exist (9-16)
+      if (zoom < 9) {
+        setState(() => _viewportFreshness = TileFreshness.uncached);
+        return;
+      }
+      final z = zoom.clamp(9, 16);
+      final x0 = ChartDownloadManager.lonToTileX(minLon, z);
+      final x1 = ChartDownloadManager.lonToTileX(maxLon, z);
+      final y0 = ChartDownloadManager.latToTileY(maxLat, z);
+      final y1 = ChartDownloadManager.latToTileY(minLat, z);
+
+      final tiles = <(int, int, int)>[];
+      for (int x = x0; x <= x1; x++) {
+        for (int y = y0; y <= y1; y++) {
+          tiles.add((z, x, y));
+        }
+      }
+
+      final freshness = cacheService.getViewportFreshness(tiles);
+      if (kDebugMode) {
+        final sampleKeys = tiles.take(5).map((t) => '${t.$1}/${t.$2}/${t.$3}=${cacheService.hasTile(t.$1, t.$2, t.$3)}').join(', ');
+        print('ChartPlotter freshness: z=$z tiles=${tiles.length} cached=${cacheService.cachedTileCount} result=$freshness keys=[$sampleKeys]');
+      }
+      if (mounted) setState(() => _viewportFreshness = freshness);
+
+      // If not fully fresh, re-check after tiles have had time to cache via proxy
+      if (freshness != TileFreshness.fresh && _lastViewportData != null) {
+        _freshnessRetryTimer?.cancel();
+        _freshnessRetryTimer = Timer(const Duration(seconds: 3), () {
+          if (mounted && _lastViewportData != null) {
+            _updateFreshness(_lastViewportData!);
+          }
+        });
+      }
+    } catch (_) {}
   }
 
   void _onAutoFollowChanged(bool autoFollow, {bool? autoZoom}) {
@@ -495,6 +566,156 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
     final factor = distMeta?.convert(1.0) ?? 0.000539957;
     final symbol = distMeta?.symbol ?? 'nm';
     _controller?.runJavaScript("updateRulerUnits($factor, ${jsonEncode(symbol)})");
+  }
+
+  void _showDownloadDialog() async {
+    if (_controller == null) return;
+    // Get current viewport from JS
+    final result = await _controller!.runJavaScriptReturningResult('getViewportTileInfo()');
+    final viewportJson = result is String ? result : result.toString();
+    // Strip quotes if wrapped
+    final cleaned = viewportJson.startsWith('"') ? viewportJson.substring(1, viewportJson.length - 1) : viewportJson;
+    final viewport = jsonDecode(cleaned.replaceAll(r'\"', '"')) as Map<String, dynamic>;
+    final minLon = (viewport['minLon'] as num).toDouble();
+    final minLat = (viewport['minLat'] as num).toDouble();
+    final maxLon = (viewport['maxLon'] as num).toDouble();
+    final maxLat = (viewport['maxLat'] as num).toDouble();
+
+    if (!mounted) return;
+
+    ChartDownloadManager? downloadManager;
+    try {
+      downloadManager = context.read<ChartDownloadManager>();
+    } catch (_) {
+      return;
+    }
+
+    var minZoom = 9;
+    var maxZoom = 16;
+    final nameController = TextEditingController(text: 'Area ${DateTime.now().toString().substring(0, 16)}');
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetCtx) => StatefulBuilder(
+        builder: (ctx, setSheetState) {
+          final estimate = downloadManager!.estimateTileCount(
+            minLon: minLon, minLat: minLat,
+            maxLon: maxLon, maxLat: maxLat,
+            minZoom: minZoom, maxZoom: maxZoom,
+          );
+          final estimatedMB = (estimate * 10 / 1024).toStringAsFixed(1);
+
+          return Container(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+            decoration: const BoxDecoration(
+              color: Color(0xFF1E1E2E),
+              borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Center(child: Container(
+                  width: 40, height: 4,
+                  margin: const EdgeInsets.only(bottom: 12),
+                  decoration: BoxDecoration(color: Colors.grey[600], borderRadius: BorderRadius.circular(2)),
+                )),
+                const Text('Download Charts', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 8),
+                Text(
+                  '${minLat.toStringAsFixed(2)}°N to ${maxLat.toStringAsFixed(2)}°N, '
+                  '${minLon.toStringAsFixed(2)}°E to ${maxLon.toStringAsFixed(2)}°E',
+                  style: const TextStyle(color: Colors.white54, fontSize: 12),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: nameController,
+                  style: const TextStyle(color: Colors.white),
+                  decoration: const InputDecoration(
+                    hintText: 'Region name',
+                    hintStyle: TextStyle(color: Colors.white38),
+                    enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: Colors.white24)),
+                    focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: Colors.green)),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Row(children: [
+                  const Text('Zoom: ', style: TextStyle(color: Colors.white70, fontSize: 13)),
+                  Expanded(
+                    child: RangeSlider(
+                      values: RangeValues(minZoom.toDouble(), maxZoom.toDouble()),
+                      min: 9, max: 16,
+                      divisions: 7,
+                      labels: RangeLabels('$minZoom', '$maxZoom'),
+                      onChanged: (v) => setSheetState(() {
+                        minZoom = v.start.toInt();
+                        maxZoom = v.end.toInt();
+                      }),
+                    ),
+                  ),
+                ]),
+                const SizedBox(height: 4),
+                Text('$estimate tiles (~$estimatedMB MB)',
+                  style: const TextStyle(color: Colors.white54, fontSize: 13)),
+                const SizedBox(height: 12),
+                // Download progress (if downloading)
+                ListenableBuilder(
+                  listenable: downloadManager,
+                  builder: (_, __) {
+                    if (downloadManager!.status == DownloadStatus.downloading) {
+                      return Column(children: [
+                        LinearProgressIndicator(value: downloadManager.progress),
+                        const SizedBox(height: 4),
+                        Text('${downloadManager.downloadedTiles} of ${downloadManager.totalTiles}',
+                          style: const TextStyle(color: Colors.white54, fontSize: 12)),
+                        const SizedBox(height: 8),
+                        TextButton(
+                          onPressed: () => downloadManager!.cancel(),
+                          child: const Text('Cancel', style: TextStyle(color: Colors.red)),
+                        ),
+                      ]);
+                    }
+                    if (downloadManager.status == DownloadStatus.completed) {
+                      return const Text('Download complete!',
+                        style: TextStyle(color: Colors.green, fontSize: 14, fontWeight: FontWeight.w500));
+                    }
+                    if (downloadManager.status == DownloadStatus.error) {
+                      return Text(downloadManager.errorMessage ?? 'Download failed',
+                        style: const TextStyle(color: Colors.red, fontSize: 13));
+                    }
+                    // idle/cancelled — show download button
+                    return SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        icon: const Icon(Icons.download),
+                        label: const Text('Download'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.green.shade700,
+                          foregroundColor: Colors.white,
+                        ),
+                        onPressed: () {
+                          downloadManager!.downloadArea(
+                            minLon: minLon, minLat: minLat,
+                            maxLon: maxLon, maxLat: maxLat,
+                            minZoom: minZoom, maxZoom: maxZoom,
+                            baseUrl: widget.signalKService.httpBaseUrl,
+                            authToken: widget.signalKService.authToken?.token,
+                            regionName: nameController.text,
+                          );
+                        },
+                      ),
+                    );
+                  },
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    ).whenComplete(() {
+      downloadManager?.reset();
+    });
   }
 
   String _mapDistSymbolToOLUnits(String? symbol) {
@@ -1585,6 +1806,11 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
           final depthMeta = widget.signalKService.metadataStore.getByCategory('depth');
           final factor = depthMeta?.convert(1.0) ?? 1.0;
           final symbol = depthMeta?.symbol ?? 'm';
+          int? tilePort;
+          try {
+            final tileServer = context.read<ChartTileServerService>();
+            if (tileServer.isRunning) tilePort = tileServer.port;
+          } catch (_) {}
           return ChartWebView(
             baseUrl: widget.signalKService.httpBaseUrl,
             authToken: widget.signalKService.authToken?.token,
@@ -1595,6 +1821,8 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
             onWaypointLongPress: _showWaypointEditDialog,
             onRouteLineAdd: _showAddWaypointDialog,
             onRulerUpdate: _onRulerUpdate,
+            onViewportChanged: _onViewportChanged,
+            localTileServerPort: tilePort,
             depthUnit: symbol,
             depthConversionFactor: factor,
           );
@@ -1657,6 +1885,11 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
                 onPressed: _toggleRuler,
                 tooltip: 'Ruler',
               ),
+              _mapButton(
+                icon: Icons.download_outlined,
+                onPressed: _showDownloadDialog,
+                tooltip: 'Download charts',
+              ),
             ],
           ),
         ),
@@ -1711,6 +1944,49 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
               }),
             ),
           ),
+        // Tile freshness indicator
+        Positioned(
+          bottom: 52,
+          right: 8,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: Colors.black.withValues(alpha: 0.6),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 8, height: 8,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: switch (_viewportFreshness) {
+                      TileFreshness.fresh => Colors.green,
+                      TileFreshness.aging => Colors.yellow,
+                      TileFreshness.stale => Colors.orange,
+                      TileFreshness.uncached => widget.signalKService.isConnected
+                          ? Colors.red
+                          : Colors.grey,
+                    },
+                  ),
+                ),
+                const SizedBox(width: 4),
+                Text(
+                  switch (_viewportFreshness) {
+                    TileFreshness.fresh => 'Fresh',
+                    TileFreshness.aging => '15d+',
+                    TileFreshness.stale => '30d+',
+                    TileFreshness.uncached => widget.signalKService.isConnected
+                        ? 'No cache'
+                        : 'Offline',
+                  },
+                  style: const TextStyle(color: Colors.white70, fontSize: 10),
+                ),
+              ],
+            ),
+          ),
+        ),
         // Compass rose — heading-up mode only
         if (_viewMode == 'heading-up')
           Positioned(
