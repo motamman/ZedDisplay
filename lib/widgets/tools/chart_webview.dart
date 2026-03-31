@@ -21,6 +21,7 @@ class ChartWebView extends StatefulWidget {
   final void Function(Map<String, dynamic> data)? onRulerUpdate;
   final void Function(Map<String, dynamic> viewportData)? onViewportChanged;
   final int? localTileServerPort;
+  final List<Map<String, dynamic>>? layers;
   final String depthUnit;
   final double depthConversionFactor;
 
@@ -37,6 +38,7 @@ class ChartWebView extends StatefulWidget {
     this.onRulerUpdate,
     this.onViewportChanged,
     this.localTileServerPort,
+    this.layers,
     this.depthUnit = 'm',
     this.depthConversionFactor = 1.0,
   });
@@ -65,21 +67,28 @@ class _ChartWebViewState extends State<ChartWebView> {
     final colorsJson =
         await rootBundle.loadString('assets/charts/s57_colors.json');
 
+    // Tile URL base — chart ID is appended per-layer in JS.
     // When local tile server is running, route tiles through it (enables caching).
-    // Auth is handled server-side, so no token needed in JS fetch headers.
-    final String tileUrl;
+    final String tileUrlBase;
     final String authToken;
     if (widget.localTileServerPort != null) {
-      tileUrl = 'http://localhost:${widget.localTileServerPort}/tiles/{z}/{x}/{y}';
+      tileUrlBase = 'http://localhost:${widget.localTileServerPort}/tiles';
       authToken = '';
     } else {
-      tileUrl = '${widget.baseUrl}/plugins/signalk-charts-provider-simple/01CGD_ENCs/{z}/{x}/{y}';
+      tileUrlBase = '${widget.baseUrl}/plugins/signalk-charts-provider-simple';
       authToken = widget.authToken ?? '';
     }
 
+    // Layer config — default to CartoDB Voyager + first S-57 chart
+    final layerConfig = widget.layers ?? [
+      {'type': 'base', 'id': 'carto_voyager', 'enabled': true, 'opacity': 0.6},
+      {'type': 's57', 'id': '01CGD_ENCs', 'enabled': true, 'opacity': 1.0},
+    ];
+
     final html = _buildHtml(
-      tileUrl: tileUrl,
+      tileUrlBase: tileUrlBase,
       authToken: authToken,
+      layerConfig: layerConfig,
       spriteJson: spriteJson,
       spritePngB64: spritePngB64,
       lookupsJson: lookupsJson,
@@ -192,8 +201,9 @@ class _ChartWebViewState extends State<ChartWebView> {
   }
 
   String _buildHtml({
-    required String tileUrl,
+    required String tileUrlBase,
     required String authToken,
+    required List<Map<String, dynamic>> layerConfig,
     required String spriteJson,
     required String spritePngB64,
     required String lookupsJson,
@@ -228,8 +238,9 @@ const SPRITE_META = $spriteJson;
 const SPRITE_PNG_B64 = '$spritePngB64';
 const LOOKUP_DATA = $lookupsJson;
 const COLOR_TABLE = $colorsJson;
-const TILE_URL = '$tileUrl';
+const TILE_URL_BASE = '$tileUrlBase';
 const AUTH_TOKEN = '$authToken';
+const LAYER_CONFIG = ${jsonEncode(layerConfig)};
 
 // =========================================================================
 // Land extent cache — top-level so S57Style.getStyle can access it
@@ -889,47 +900,63 @@ async function initMap() {
 
   const s57Style = new S57Style(s57Service);
 
-  // Base map — CartoDB Voyager
-  const cartoLayer = new ol.layer.Tile({
-    source: new ol.source.XYZ({
-      url: 'https://basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png',
-      attributions: '&copy; CARTO &copy; OSM',
-    }),
-    opacity: 0.6,
-  });
+  // Dynamic layer creation from config
+  const BASE_MAP_URLS = {
+    'carto_voyager': 'https://basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png',
+    'carto_dark': 'https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
+    'carto_light': 'https://basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',
+    'osm': 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+  };
 
-  // S-57 vector tile layer
-  const s57Layer = new ol.layer.VectorTile({
-    declutter: true,
-    source: new ol.source.VectorTile({
-      url: TILE_URL,
-      format: new ol.format.MVT(),
-      tileSize: 256,
-      minZoom: 9,
-      maxZoom: 16,
-      tileLoadFunction: (tile, url) => {
-        tile.setLoader((extent, resolution, projection) => {
-          fetch(url, {
-            headers: AUTH_TOKEN ? {'Authorization': 'Bearer ' + AUTH_TOKEN} : {},
-          })
-          .then(r => r.arrayBuffer())
-          .then(data => {
-            const format = tile.getFormat();
-            const features = format.readFeatures(data, {
-              extent, featureProjection: projection,
+  const chartLayers = [];
+  for (const cfg of LAYER_CONFIG) {
+    if (!cfg.enabled) continue;
+
+    if (cfg.type === 'base') {
+      const url = BASE_MAP_URLS[cfg.id];
+      if (!url) continue;
+      chartLayers.push(new ol.layer.Tile({
+        source: new ol.source.XYZ({ url: url }),
+        opacity: cfg.opacity != null ? cfg.opacity : 0.6,
+      }));
+    }
+
+    if (cfg.type === 's57') {
+      const tileUrl = TILE_URL_BASE + '/' + cfg.id + '/{z}/{x}/{y}';
+      chartLayers.push(new ol.layer.VectorTile({
+        declutter: true,
+        source: new ol.source.VectorTile({
+          url: tileUrl,
+          format: new ol.format.MVT(),
+          tileSize: 256,
+          minZoom: 9,
+          maxZoom: 16,
+          tileLoadFunction: (tile, url) => {
+            tile.setLoader((extent, resolution, projection) => {
+              fetch(url, {
+                headers: AUTH_TOKEN ? {'Authorization': 'Bearer ' + AUTH_TOKEN} : {},
+              })
+              .then(r => r.arrayBuffer())
+              .then(data => {
+                const format = tile.getFormat();
+                const features = format.readFeatures(data, {
+                  extent, featureProjection: projection,
+                });
+                tile.setFeatures(features);
+              })
+              .catch(() => tile.setFeatures([]));
             });
-            tile.setFeatures(features);
-          })
-          .catch(() => tile.setFeatures([]));
-        });
-      },
-    }),
-    style: s57Style.getStyle,
-    renderOrder: s57Style.renderOrder,
-    preload: 1,
-    minZoom: 9,
-    maxZoom: 23,
-  });
+          },
+        }),
+        style: s57Style.getStyle,
+        renderOrder: s57Style.renderOrder,
+        opacity: cfg.opacity != null ? cfg.opacity : 1.0,
+        preload: 1,
+        minZoom: 9,
+        maxZoom: 23,
+      }));
+    }
+  }
 
   // Create map
   // Suppress Canvas2D willReadFrequently warnings from OL tile renderer
@@ -941,7 +968,7 @@ async function initMap() {
 
   const map = new ol.Map({
     target: 'map',
-    layers: [cartoLayer, s57Layer],
+    layers: chartLayers,
     view: new ol.View({
       center: ol.proj.fromLonLat([-74.01, 40.67]),
       zoom: 14,

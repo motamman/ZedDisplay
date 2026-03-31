@@ -94,35 +94,36 @@ class ChartTileCacheService extends ChangeNotifier {
   // Tile I/O
   // ---------------------------------------------------------------------------
 
-  String _tilePath(int z, int x, int y) =>
-      '${_cacheDir.path}/$z/$x/$y.mvt';
+  String _tilePath(int z, int x, int y, [String chartId = '01CGD_ENCs']) =>
+      '${_cacheDir.path}/$chartId/$z/$x/$y.mvt';
 
-  String _tileKey(int z, int x, int y) => '$z/$x/$y';
+  String _tileKey(int z, int x, int y, [String chartId = '01CGD_ENCs']) =>
+      '$chartId/$z/$x/$y';
 
   /// Check if a tile exists in cache (fast, metadata-only).
-  bool hasTile(int z, int x, int y) =>
-      _metaBox.containsKey(_tileKey(z, x, y));
+  bool hasTile(int z, int x, int y, [String chartId = '01CGD_ENCs']) =>
+      _metaBox.containsKey(_tileKey(z, x, y, chartId));
 
   /// Get the cached tile file, or null if not cached.
-  File? getTileFile(int z, int x, int y) {
-    final file = File(_tilePath(z, x, y));
+  File? getTileFile(int z, int x, int y, [String chartId = '01CGD_ENCs']) {
+    final file = File(_tilePath(z, x, y, chartId));
     return file.existsSync() ? file : null;
   }
 
   /// Write tile bytes to disk and update metadata.
-  Future<File> putTile(int z, int x, int y, Uint8List data) async {
-    final file = File(_tilePath(z, x, y));
+  Future<File> putTile(int z, int x, int y, Uint8List data, [String chartId = '01CGD_ENCs']) async {
+    final file = File(_tilePath(z, x, y, chartId));
     await file.parent.create(recursive: true);
     await file.writeAsBytes(data, flush: true);
     await _metaBox.put(
-        _tileKey(z, x, y), DateTime.now().millisecondsSinceEpoch);
+        _tileKey(z, x, y, chartId), DateTime.now().millisecondsSinceEpoch);
     return file;
   }
 
   /// Reset a tile's timestamp to now without rewriting file data.
-  Future<void> refreshTimestamp(int z, int x, int y) async {
+  Future<void> refreshTimestamp(int z, int x, int y, [String chartId = '01CGD_ENCs']) async {
     await _metaBox.put(
-        _tileKey(z, x, y), DateTime.now().millisecondsSinceEpoch);
+        _tileKey(z, x, y, chartId), DateTime.now().millisecondsSinceEpoch);
   }
 
   // ---------------------------------------------------------------------------
@@ -133,14 +134,14 @@ class ChartTileCacheService extends ChangeNotifier {
   static const _agingDays = 30;
 
   /// Get the date a tile was cached, or null if not cached.
-  DateTime? getTileCachedDate(int z, int x, int y) {
-    final epoch = _metaBox.get(_tileKey(z, x, y));
+  DateTime? getTileCachedDate(int z, int x, int y, [String chartId = '01CGD_ENCs']) {
+    final epoch = _metaBox.get(_tileKey(z, x, y, chartId));
     return epoch != null ? DateTime.fromMillisecondsSinceEpoch(epoch) : null;
   }
 
   /// Get the freshness tier for a single tile.
-  TileFreshness getTileFreshness(int z, int x, int y) {
-    final epoch = _metaBox.get(_tileKey(z, x, y));
+  TileFreshness getTileFreshness(int z, int x, int y, [String chartId = '01CGD_ENCs']) {
+    final epoch = _metaBox.get(_tileKey(z, x, y, chartId));
     if (epoch == null) return TileFreshness.uncached;
     final age = DateTime.now()
         .difference(DateTime.fromMillisecondsSinceEpoch(epoch))

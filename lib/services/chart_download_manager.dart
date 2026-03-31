@@ -103,6 +103,7 @@ class ChartDownloadManager extends ChangeNotifier {
     required int maxZoom,
     required String baseUrl,
     String? authToken,
+    String chartId = '01CGD_ENCs',
     String? regionName,
     bool flush = false,
   }) async {
@@ -119,7 +120,7 @@ class ChartDownloadManager extends ChangeNotifier {
     );
     final tiles = flush
         ? allTiles
-        : allTiles.where((t) => !cacheService.hasTile(t.$1, t.$2, t.$3)).toList();
+        : allTiles.where((t) => !cacheService.hasTile(t.$1, t.$2, t.$3, chartId)).toList();
 
     _totalTiles = tiles.length;
     _downloadedTiles = 0;
@@ -142,7 +143,7 @@ class ChartDownloadManager extends ChangeNotifier {
       while (index < tiles.length && !_cancelled) {
         final i = index++;
         final (z, x, y) = tiles[i];
-        final url = '$baseUrl/plugins/signalk-charts-provider-simple/01CGD_ENCs/$z/$x/$y';
+        final url = '$baseUrl/plugins/signalk-charts-provider-simple/$chartId/$z/$x/$y';
         try {
           final response = await http.get(
             Uri.parse(url),
@@ -152,7 +153,7 @@ class ChartDownloadManager extends ChangeNotifier {
             },
           );
           if (response.statusCode == 200) {
-            await cacheService.putTile(z, x, y, response.bodyBytes);
+            await cacheService.putTile(z, x, y, response.bodyBytes, chartId);
           } else {
             errors++;
           }

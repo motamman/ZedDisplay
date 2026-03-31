@@ -8,7 +8,7 @@ import '../base_tool_configurator.dart';
 
 /// Configurator for Chart Plotter tool.
 ///
-/// SignalK paths are managed via dataSources (same pattern as autopilot).
+/// SignalK paths are managed via slotDefinitions (same pattern as wind compass).
 /// The standard path selector in the config screen handles path editing.
 class ChartPlotterConfigurator extends ToolConfigurator {
   @override
@@ -17,16 +17,25 @@ class ChartPlotterConfigurator extends ToolConfigurator {
   @override
   Size get defaultSize => const Size(4, 4);
 
-  List<String> enabledChartIds = [];
+  static const _baseMapOptions = <String, String>{
+    'carto_voyager': 'CartoDB Voyager',
+    'carto_dark': 'CartoDB Dark Matter',
+    'carto_light': 'CartoDB Positron',
+    'osm': 'OpenStreetMap',
+  };
+
+  List<Map<String, dynamic>> layers = [];
   int trailMinutes = 10;
   bool showAIS = true;
   bool showRoute = true;
   String hudPosition = 'bottom';
-  String cacheRefresh = 'stale'; // 'aging' or 'stale'
+  String cacheRefresh = 'stale';
 
   @override
   void reset() {
-    enabledChartIds = [];
+    layers = [
+      {'type': 'base', 'id': 'carto_voyager', 'enabled': true, 'opacity': 0.6},
+    ];
     trailMinutes = 10;
     showAIS = true;
     showRoute = true;
@@ -42,8 +51,22 @@ class ChartPlotterConfigurator extends ToolConfigurator {
   @override
   void loadFromTool(Tool tool) {
     final props = tool.config.style.customProperties ?? {};
-    enabledChartIds =
-        (props['enabledChartIds'] as List?)?.cast<String>() ?? [];
+    final rawLayers = props['layers'] as List?;
+    if (rawLayers != null && rawLayers.isNotEmpty) {
+      layers = rawLayers.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+    } else {
+      // Migrate from old enabledChartIds format
+      final oldIds = (props['enabledChartIds'] as List?)?.cast<String>() ?? [];
+      layers = [
+        {'type': 'base', 'id': 'carto_voyager', 'enabled': true, 'opacity': 0.6},
+      ];
+      for (final id in oldIds) {
+        layers.add({'type': 's57', 'id': id, 'enabled': true, 'opacity': 1.0});
+      }
+      if (oldIds.isEmpty) {
+        layers.add({'type': 's57', 'id': '01CGD_ENCs', 'enabled': true, 'opacity': 1.0});
+      }
+    }
     trailMinutes = props['trailMinutes'] as int? ?? 10;
     showAIS = props['showAIS'] as bool? ?? true;
     showRoute = props['showRoute'] as bool? ?? true;
@@ -54,10 +77,10 @@ class ChartPlotterConfigurator extends ToolConfigurator {
   @override
   ToolConfig getConfig() {
     return ToolConfig(
-      dataSources: const [], // Paths managed by standard path selector
+      dataSources: const [],
       style: StyleConfig(
         customProperties: {
-          'enabledChartIds': enabledChartIds,
+          'layers': layers,
           'trailMinutes': trailMinutes,
           'showAIS': showAIS,
           'showRoute': showRoute,
@@ -80,16 +103,18 @@ class ChartPlotterConfigurator extends ToolConfigurator {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Chart layer selection
+              // Chart layers — reorderable
               Text('Chart Layers',
                   style: Theme.of(context).textTheme.titleSmall),
               const SizedBox(height: 4),
               const Text(
-                'Select which SignalK chart layers to display',
+                'Drag to reorder. Bottom layer renders first.',
                 style: TextStyle(color: Colors.grey, fontSize: 12),
               ),
               const SizedBox(height: 8),
-              _buildChartSelector(signalKService, setState),
+              _buildLayerList(signalKService, setState),
+              const SizedBox(height: 8),
+              _buildAddLayerButton(signalKService, setState),
 
               const SizedBox(height: 24),
               const Divider(),
@@ -174,7 +199,7 @@ class ChartPlotterConfigurator extends ToolConfigurator {
 
               const SizedBox(height: 16),
 
-              // Flush cache
+              // Cache management
               Builder(builder: (ctx) {
                 ChartTileCacheService? cacheService;
                 try {
@@ -220,54 +245,201 @@ class ChartPlotterConfigurator extends ToolConfigurator {
     );
   }
 
-  Widget _buildChartSelector(
+  Widget _buildLayerList(
       SignalKService signalKService, void Function(VoidCallback) setState) {
-    return FutureBuilder<Map<String, dynamic>>(
-      future: signalKService.getResources('charts'),
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Padding(
-            padding: EdgeInsets.symmetric(vertical: 8),
-            child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
-          );
+    return ReorderableListView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      itemCount: layers.length,
+      onReorder: (oldIndex, newIndex) {
+        setState(() {
+          if (newIndex > oldIndex) newIndex--;
+          final item = layers.removeAt(oldIndex);
+          layers.insert(newIndex, item);
+        });
+      },
+      itemBuilder: (context, index) {
+        final layer = layers[index];
+        final type = layer['type'] as String;
+        final id = layer['id'] as String;
+        final enabled = layer['enabled'] as bool? ?? true;
+        final opacity = (layer['opacity'] as num?)?.toDouble() ?? 1.0;
+
+        String name;
+        IconData icon;
+        if (type == 'base') {
+          name = _baseMapOptions[id] ?? id;
+          icon = Icons.map_outlined;
+        } else {
+          name = id;
+          icon = Icons.layers;
         }
 
-        final charts = snapshot.data ?? {};
-        if (charts.isEmpty) {
-          return const Padding(
-            padding: EdgeInsets.symmetric(vertical: 8),
-            child: Text(
-              'No charts available on server',
-              style: TextStyle(color: Colors.grey),
-            ),
-          );
-        }
-
-        return Column(
-          children: charts.entries.map((entry) {
-            final chartId = entry.key;
-            final chartData = entry.value as Map<String, dynamic>;
-            final name = chartData['name'] as String? ?? chartId;
-            final description = chartData['description'] as String?;
-            final isEnabled = enabledChartIds.contains(chartId);
-
-            return CheckboxListTile(
-              title: Text(name),
-              subtitle: description != null ? Text(description) : null,
-              value: isEnabled,
-              onChanged: (checked) {
-                setState(() {
-                  if (checked == true) {
-                    enabledChartIds.add(chartId);
-                  } else {
-                    enabledChartIds.remove(chartId);
-                  }
-                });
-              },
-            );
-          }).toList(),
+        return Card(
+          key: ValueKey('$type:$id:$index'),
+          child: Column(
+            children: [
+              ListTile(
+                leading: ReorderableDragStartListener(
+                  index: index,
+                  child: const Icon(Icons.drag_handle, color: Colors.grey),
+                ),
+                title: Row(
+                  children: [
+                    Icon(icon, size: 16, color: enabled ? Colors.white70 : Colors.white24),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(name,
+                          style: TextStyle(
+                            color: enabled ? Colors.white : Colors.white38,
+                            fontSize: 14,
+                          )),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: type == 'base' ? Colors.blue.withValues(alpha: 0.2) : Colors.green.withValues(alpha: 0.2),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        type == 'base' ? 'Base' : 'S-57',
+                        style: TextStyle(
+                          fontSize: 10,
+                          color: type == 'base' ? Colors.blue : Colors.green,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Switch(
+                      value: enabled,
+                      onChanged: (v) => setState(() => layer['enabled'] = v),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.delete_outline, size: 18),
+                      onPressed: () => setState(() => layers.removeAt(index)),
+                      constraints: const BoxConstraints.tightFor(width: 32),
+                    ),
+                  ],
+                ),
+              ),
+              // Opacity slider
+              Padding(
+                padding: const EdgeInsets.fromLTRB(56, 0, 16, 8),
+                child: Row(
+                  children: [
+                    const Text('Opacity', style: TextStyle(fontSize: 11, color: Colors.grey)),
+                    Expanded(
+                      child: Slider(
+                        value: opacity,
+                        min: 0.1,
+                        max: 1.0,
+                        divisions: 9,
+                        label: '${(opacity * 100).round()}%',
+                        onChanged: (v) =>
+                            setState(() => layer['opacity'] = double.parse(v.toStringAsFixed(1))),
+                      ),
+                    ),
+                    SizedBox(
+                      width: 36,
+                      child: Text('${(opacity * 100).round()}%',
+                          style: const TextStyle(fontSize: 11, color: Colors.grey),
+                          textAlign: TextAlign.right),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
         );
       },
+    );
+  }
+
+  Widget _buildAddLayerButton(
+      SignalKService signalKService, void Function(VoidCallback) setState) {
+    return Builder(
+      builder: (ctx) => SizedBox(
+        width: double.infinity,
+        child: OutlinedButton.icon(
+          icon: const Icon(Icons.add),
+          label: const Text('Add Layer'),
+          onPressed: () {
+            final existingIds = layers.map((l) => l['id'] as String).toSet();
+
+            // Build available options
+            final options = <Map<String, String>>[];
+            for (final entry in _baseMapOptions.entries) {
+              if (!existingIds.contains(entry.key)) {
+                options.add({'type': 'base', 'id': entry.key, 'name': entry.value});
+              }
+            }
+
+            showModalBottomSheet(
+              context: ctx,
+              backgroundColor: const Color(0xFF1E1E2E),
+              builder: (sheetCtx) => FutureBuilder<Map<String, dynamic>>(
+                future: signalKService.getResources('charts'),
+                builder: (_, snapshot) {
+                  // Add S-57 charts from server
+                  final allOptions = List<Map<String, String>>.from(options);
+                  final charts = snapshot.data ?? {};
+                  for (final entry in charts.entries) {
+                    if (!existingIds.contains(entry.key)) {
+                      final data = entry.value as Map<String, dynamic>;
+                      allOptions.add({
+                        'type': 's57',
+                        'id': entry.key,
+                        'name': data['name'] as String? ?? entry.key,
+                      });
+                    }
+                  }
+
+                  if (allOptions.isEmpty) {
+                    return const Padding(
+                      padding: EdgeInsets.all(24),
+                      child: Text('All available layers already added',
+                          style: TextStyle(color: Colors.white54)),
+                    );
+                  }
+
+                  return ListView(
+                    shrinkWrap: true,
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    children: allOptions.map((opt) {
+                      final isBase = opt['type'] == 'base';
+                      return ListTile(
+                        leading: Icon(
+                          isBase ? Icons.map_outlined : Icons.layers,
+                          color: isBase ? Colors.blue : Colors.green,
+                        ),
+                        title: Text(opt['name']!,
+                            style: const TextStyle(color: Colors.white)),
+                        subtitle: Text(isBase ? 'Base map' : 'S-57 chart',
+                            style: const TextStyle(color: Colors.white38, fontSize: 12)),
+                        onTap: () {
+                          Navigator.pop(sheetCtx);
+                          setState(() {
+                            layers.add({
+                              'type': opt['type']!,
+                              'id': opt['id']!,
+                              'enabled': true,
+                              'opacity': isBase ? 0.6 : 1.0,
+                            });
+                          });
+                        },
+                      );
+                    }).toList(),
+                  );
+                },
+              ),
+            );
+          },
+        ),
+      ),
     );
   }
 }

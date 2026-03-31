@@ -45,7 +45,7 @@ class ChartTileServerService extends ChangeNotifier {
 
     try {
       final router = Router();
-      router.get('/tiles/<z>/<x>/<y>', _handleTileRequest);
+      router.get('/tiles/<chartId>/<z>/<x>/<y>', _handleTileRequest);
       router.get('/health', (Request r) => Response.ok('OK'));
 
       // CORS middleware — required because WebView HTML has opaque origin
@@ -119,7 +119,7 @@ class ChartTileServerService extends ChangeNotifier {
   }
 
   /// Handle a tile request: cache-first, then upstream fetch.
-  Future<Response> _handleTileRequest(Request request, String zStr, String xStr, String yStr) async {
+  Future<Response> _handleTileRequest(Request request, String chartId, String zStr, String xStr, String yStr) async {
     final z = int.tryParse(zStr);
     final x = int.tryParse(xStr);
     final y = int.tryParse(yStr);
@@ -128,16 +128,16 @@ class ChartTileServerService extends ChangeNotifier {
     }
 
     // 1. Check cache
-    final cachedFile = cacheService.getTileFile(z, x, y);
+    final cachedFile = cacheService.getTileFile(z, x, y, chartId);
     if (cachedFile != null) {
       final bytes = await cachedFile.readAsBytes();
 
       // Background refresh if tile has reached the staleness threshold
-      final freshness = cacheService.getTileFreshness(z, x, y);
+      final freshness = cacheService.getTileFreshness(z, x, y, chartId);
       if (_upstreamBaseUrl != null &&
           freshness.index >= _refreshThreshold.index &&
           _refreshThreshold != TileFreshness.uncached) {
-        _backgroundRefresh(z, x, y, bytes);
+        _backgroundRefresh(z, x, y, chartId, bytes);
       }
 
       return Response.ok(bytes, headers: {
@@ -151,7 +151,7 @@ class ChartTileServerService extends ChangeNotifier {
       return Response.notFound('No upstream configured and tile not cached');
     }
 
-    final url = '$_upstreamBaseUrl/plugins/signalk-charts-provider-simple/01CGD_ENCs/$z/$x/$y';
+    final url = '$_upstreamBaseUrl/plugins/signalk-charts-provider-simple/$chartId/$z/$x/$y';
     try {
       final response = await http.get(
         Uri.parse(url),
@@ -166,7 +166,7 @@ class ChartTileServerService extends ChangeNotifier {
       }
 
       // Cache the tile
-      await cacheService.putTile(z, x, y, response.bodyBytes);
+      await cacheService.putTile(z, x, y, response.bodyBytes, chartId);
 
       return Response.ok(response.bodyBytes, headers: {
         'Content-Type': 'application/x-protobuf',
@@ -179,8 +179,8 @@ class ChartTileServerService extends ChangeNotifier {
 
   /// Re-fetch a tile in the background. If bytes match, just reset timestamp.
   /// If different, write the new tile data.
-  void _backgroundRefresh(int z, int x, int y, Uint8List cachedBytes) {
-    final url = '$_upstreamBaseUrl/plugins/signalk-charts-provider-simple/01CGD_ENCs/$z/$x/$y';
+  void _backgroundRefresh(int z, int x, int y, String chartId, Uint8List cachedBytes) {
+    final url = '$_upstreamBaseUrl/plugins/signalk-charts-provider-simple/$chartId/$z/$x/$y';
     http.get(
       Uri.parse(url),
       headers: {
@@ -191,10 +191,10 @@ class ChartTileServerService extends ChangeNotifier {
       if (response.statusCode == 200) {
         if (_bytesEqual(cachedBytes, response.bodyBytes)) {
           // Same content — just reset timestamp to fresh
-          cacheService.refreshTimestamp(z, x, y);
+          cacheService.refreshTimestamp(z, x, y, chartId);
         } else {
           // Different content — write new tile
-          cacheService.putTile(z, x, y, response.bodyBytes);
+          cacheService.putTile(z, x, y, response.bodyBytes, chartId);
         }
       }
     }).catchError((_) {

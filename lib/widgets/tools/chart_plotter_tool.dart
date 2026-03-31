@@ -1905,6 +1905,9 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
             final tileServer = context.read<ChartTileServerService>();
             if (tileServer.isRunning) tilePort = tileServer.port;
           } catch (_) {}
+          final layerConfig = (widget.config.style.customProperties?['layers'] as List?)
+              ?.map((e) => Map<String, dynamic>.from(e as Map))
+              .toList();
           return ChartWebView(
             baseUrl: widget.signalKService.httpBaseUrl,
             authToken: widget.signalKService.authToken?.token,
@@ -1917,6 +1920,7 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
             onRulerUpdate: _onRulerUpdate,
             onViewportChanged: _onViewportChanged,
             localTileServerPort: tilePort,
+            layers: layerConfig,
             depthUnit: symbol,
             depthConversionFactor: factor,
           );
