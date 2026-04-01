@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
 import 'package:syncfusion_flutter_gauges/gauges.dart';
 import 'package:provider/provider.dart';
 import 'package:webview_flutter/webview_flutter.dart';
@@ -397,18 +396,9 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
   }
 
   Future<void> _pollCourseAPI() async {
-    final url = '${widget.signalKService.httpBaseUrl}'
-        '/signalk/v2/api/vessels/self/navigation/course';
     try {
-      final response = await http.get(
-        Uri.parse(url),
-        headers: {
-          if (widget.signalKService.authToken?.token != null)
-            'Authorization': 'Bearer ${widget.signalKService.authToken!.token}',
-        },
-      );
-      if (response.statusCode != 200) return;
-      final data = jsonDecode(response.body) as Map<String, dynamic>;
+      final data = await widget.signalKService.getCourseInfo();
+      if (data == null) return;
       final activeRoute = data['activeRoute'] as Map<String, dynamic>?;
 
       if (activeRoute != null) {
@@ -507,18 +497,8 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
     final nextIdx = _routePointIndex! + 1;
     if (nextIdx >= _routePointTotal!) return;
 
-    final url = '${widget.signalKService.httpBaseUrl}'
-        '/signalk/v2/api/vessels/self/navigation/course/activeRoute/pointIndex';
     try {
-      await http.put(
-        Uri.parse(url),
-        headers: {
-          'Content-Type': 'application/json',
-          if (widget.signalKService.authToken?.token != null)
-            'Authorization': 'Bearer ${widget.signalKService.authToken!.token}',
-        },
-        body: jsonEncode({'value': nextIdx}),
-      );
+      await widget.signalKService.setActiveRoutePointIndex(nextIdx);
       _lastRoutePoll = DateTime(0);
       await _pollCourseAPI();
     } catch (e) {
@@ -2258,23 +2238,8 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
   }
 
   Future<void> _activateRoute(String routeId, {bool reverse = false}) async {
-    final url = '${widget.signalKService.httpBaseUrl}'
-        '/signalk/v2/api/vessels/self/navigation/course/activeRoute';
     try {
-      await http.put(
-        Uri.parse(url),
-        headers: {
-          'Content-Type': 'application/json',
-          if (widget.signalKService.authToken?.token != null)
-            'Authorization': 'Bearer ${widget.signalKService.authToken!.token}',
-        },
-        body: jsonEncode({
-          'href': '/resources/routes/$routeId',
-          'pointIndex': 0,
-          'reverse': reverse,
-          'arrivalCircle': 100,
-        }),
-      );
+      await widget.signalKService.activateRoute(routeId, reverse: reverse);
       _lastRoutePoll = DateTime(0);
       await _pollCourseAPI();
     } catch (e) {
@@ -2287,18 +2252,8 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
   Future<void> _reverseRoute() async {
     // Stop arrival monitor during reverse to prevent spurious arrival events
     _stopArrivalMonitor();
-    final url = '${widget.signalKService.httpBaseUrl}'
-        '/signalk/v2/api/vessels/self/navigation/course/activeRoute/reverse';
     try {
-      await http.put(
-        Uri.parse(url),
-        headers: {
-          'Content-Type': 'application/json',
-          if (widget.signalKService.authToken?.token != null)
-            'Authorization': 'Bearer ${widget.signalKService.authToken!.token}',
-        },
-        body: '{}',
-      );
+      await widget.signalKService.reverseActiveRoute();
       // Jump to start of the new direction
       await _skipToWaypoint(0);
       _startArrivalMonitor();
@@ -2311,16 +2266,8 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
   }
 
   Future<void> _clearCourse() async {
-    final url = '${widget.signalKService.httpBaseUrl}'
-        '/signalk/v2/api/vessels/self/navigation/course';
     try {
-      await http.delete(
-        Uri.parse(url),
-        headers: {
-          if (widget.signalKService.authToken?.token != null)
-            'Authorization': 'Bearer ${widget.signalKService.authToken!.token}',
-        },
-      );
+      await widget.signalKService.clearCourse();
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Clear failed: $e')));
@@ -2329,18 +2276,8 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
   }
 
   Future<void> _skipToWaypoint(int pointIndex) async {
-    final url = '${widget.signalKService.httpBaseUrl}'
-        '/signalk/v2/api/vessels/self/navigation/course/activeRoute/pointIndex';
     try {
-      await http.put(
-        Uri.parse(url),
-        headers: {
-          'Content-Type': 'application/json',
-          if (widget.signalKService.authToken?.token != null)
-            'Authorization': 'Bearer ${widget.signalKService.authToken!.token}',
-        },
-        body: jsonEncode({'value': pointIndex}),
-      );
+      await widget.signalKService.setActiveRoutePointIndex(pointIndex);
       _lastRoutePoll = DateTime(0);
       await _pollCourseAPI();
     } catch (e) {

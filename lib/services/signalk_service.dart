@@ -1246,6 +1246,94 @@ class SignalKService extends ChangeNotifier implements DataService {
     return response;
   }
 
+  // ===== Course API (v2) =====
+  // SignalK v2 Course API for route navigation
+
+  /// Get current course info (active route, next point, etc.)
+  Future<Map<String, dynamic>?> getCourseInfo() async {
+    final url = '$httpBaseUrl/signalk/v2/api/vessels/self/navigation/course';
+    try {
+      final memBefore = _diagnosticRssKB();
+      final response = await http.get(
+        Uri.parse(url),
+        headers: _getHeaders(),
+      ).timeout(const Duration(seconds: 10));
+      _diagnosticService?.instrumentRestCall('GET', memBefore, _diagnosticRssKB());
+      if (response.statusCode == 200) {
+        return jsonDecode(response.body) as Map<String, dynamic>;
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  /// Activate a route for navigation
+  Future<bool> activateRoute(String routeId, {bool reverse = false, int pointIndex = 0, int arrivalCircle = 100}) async {
+    final url = '$httpBaseUrl/signalk/v2/api/vessels/self/navigation/course/activeRoute';
+    try {
+      final memBefore = _diagnosticRssKB();
+      final response = await http.put(
+        Uri.parse(url),
+        headers: _getHeaders(),
+        body: jsonEncode({
+          'href': '/resources/routes/$routeId',
+          'pointIndex': pointIndex,
+          'reverse': reverse,
+          'arrivalCircle': arrivalCircle,
+        }),
+      ).timeout(const Duration(seconds: 10));
+      _diagnosticService?.instrumentRestCall('PUT', memBefore, _diagnosticRssKB());
+      return response.statusCode == 200;
+    } catch (_) {}
+    return false;
+  }
+
+  /// Set active route point index (advance/skip waypoint)
+  Future<bool> setActiveRoutePointIndex(int index) async {
+    final url = '$httpBaseUrl/signalk/v2/api/vessels/self/navigation/course/activeRoute/pointIndex';
+    try {
+      final memBefore = _diagnosticRssKB();
+      final response = await http.put(
+        Uri.parse(url),
+        headers: _getHeaders(),
+        body: jsonEncode({'value': index}),
+      ).timeout(const Duration(seconds: 10));
+      _diagnosticService?.instrumentRestCall('PUT', memBefore, _diagnosticRssKB());
+      return response.statusCode == 200;
+    } catch (_) {}
+    return false;
+  }
+
+  /// Reverse active route direction
+  Future<bool> reverseActiveRoute() async {
+    final url = '$httpBaseUrl/signalk/v2/api/vessels/self/navigation/course/activeRoute/reverse';
+    try {
+      final memBefore = _diagnosticRssKB();
+      final response = await http.put(
+        Uri.parse(url),
+        headers: _getHeaders(),
+        body: '{}',
+      ).timeout(const Duration(seconds: 10));
+      _diagnosticService?.instrumentRestCall('PUT', memBefore, _diagnosticRssKB());
+      return response.statusCode == 200;
+    } catch (_) {}
+    return false;
+  }
+
+  /// Clear course / deactivate route
+  Future<bool> clearCourse() async {
+    final url = '$httpBaseUrl/signalk/v2/api/vessels/self/navigation/course';
+    try {
+      final memBefore = _diagnosticRssKB();
+      final response = await http.delete(
+        Uri.parse(url),
+        headers: _getHeaders(),
+      ).timeout(const Duration(seconds: 10));
+      _diagnosticService?.instrumentRestCall('DELETE', memBefore, _diagnosticRssKB());
+      return response.statusCode == 200 || response.statusCode == 204;
+    } catch (_) {}
+    return false;
+  }
+
   /// Get value for specific path, optionally from a specific source
   @override
   SignalKDataPoint? getValue(String path, {String? source}) {
