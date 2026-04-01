@@ -13,6 +13,7 @@ import '../../utils/cpa_utils.dart';
 import '../../widgets/ais_vessel_detail_sheet.dart';
 import '../../widgets/chart_plotter/chart_hud.dart';
 import '../../widgets/chart_plotter/chart_layer_panel.dart';
+import '../../widgets/chart_plotter/chart_route_panel.dart';
 import '../../widgets/countdown_confirmation_overlay.dart';
 import '../../services/chart_tile_cache_service.dart';
 import '../../services/chart_tile_server_service.dart';
@@ -49,9 +50,12 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
   static const _dsSog = 3;
   // ignore: unused_field
   static const _dsDepth = 4; // used by HUD via _allPaths index
-  static const _dsBearing = 5;
-  static const _dsXte = 6;
-  static const _dsDtw = 7;
+  // ignore: unused_field
+  static const _dsBearing = 5; // used by HUD/route panel via _allPaths index
+  // ignore: unused_field
+  static const _dsXte = 6; // used by HUD/route panel via _allPaths index
+  // ignore: unused_field
+  static const _dsDtw = 7; // used by HUD/route panel via _allPaths index
   // ignore: unused_field
   static const _dsActiveRoute = 8; // subscribed; read via REST
   // ignore: unused_field
@@ -998,327 +1002,69 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
   // Route management UI
   // ---------------------------------------------------------------------------
 
+  // Route manager, route list, active route panel, and route editing dialogs
+  // moved to lib/widgets/chart_plotter/chart_route_panel.dart
+
+  ChartRouteCallbacks get _routeCallbacks => ChartRouteCallbacks(
+    activateRoute: _activateRoute,
+    reverseRoute: _reverseRoute,
+    clearCourse: _clearCourse,
+    skipToWaypoint: _skipToWaypoint,
+    showRouteManager: _showRouteManager,
+    saveRouteToServer: _saveRouteToServer,
+  );
+
   void _showRouteManager() {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (sheetCtx) => DraggableScrollableSheet(
-        initialChildSize: 0.45,
-        maxChildSize: 0.7,
-        minChildSize: 0.2,
-        snap: true,
-        snapSizes: const [0.2, 0.45],
-        builder: (_, scrollController) => Container(
-          decoration: const BoxDecoration(
-            color: Color(0xFF1E1E2E),
-            borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-          ),
-          child: _routeCoords != null
-              ? _buildActiveRoutePanel(sheetCtx, scrollController)
-              : _buildRouteList(sheetCtx, scrollController),
-        ),
+    showRouteManagerSheet(
+      context,
+      signalKService: widget.signalKService,
+      routeState: ChartRouteState(
+        routeCoords: _routeCoords,
+        waypointNames: _waypointNames,
+        routePointIndex: _routePointIndex,
+        routePointTotal: _routePointTotal,
+        activeRouteId: _activeRouteId,
       ),
+      callbacks: _routeCallbacks,
+      navPaths: _allPaths,
     );
   }
 
-  /// Shows list of available routes to activate.
-  Widget _buildRouteList(BuildContext sheetCtx, ScrollController scrollController) {
-    return FutureBuilder<Map<String, dynamic>>(
-      future: widget.signalKService.getResources('routes'),
-      builder: (context, snapshot) {
-        final routes = snapshot.data;
-        return ListView(
-          controller: scrollController,
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-          children: [
-            Center(child: Container(
-              width: 40, height: 4,
-              margin: const EdgeInsets.only(bottom: 12),
-              decoration: BoxDecoration(color: Colors.grey[600], borderRadius: BorderRadius.circular(2)),
-            )),
-            const Text('Routes', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 8),
-            if (!snapshot.hasData)
-              const Center(child: Padding(
-                padding: EdgeInsets.all(24),
-                child: CircularProgressIndicator(),
-              ))
-            else if (routes == null || routes.isEmpty)
-              const Padding(
-                padding: EdgeInsets.all(24),
-                child: Text('No routes on server', style: TextStyle(color: Colors.white54)),
-              )
-            else
-              ...routes.entries.map((entry) {
-                final id = entry.key;
-                final data = entry.value as Map<String, dynamic>;
-                final name = data['name'] as String? ?? id;
-                final desc = data['description'] as String?;
-                final distM = data['distance'] as num?;
-                final distMeta = widget.signalKService.metadataStore.getByCategory('distance');
-                final distStr = distM != null
-                    ? '${(distMeta?.convert(distM.toDouble()) ?? distM).toStringAsFixed(1)} ${distMeta?.symbol ?? 'm'}'
-                    : null;
-                final feature = data['feature'] as Map?;
-                final coords = (feature?['geometry'] as Map?)?['coordinates'] as List?;
-                final wptCount = coords?.length ?? 0;
-
-                return ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: const Icon(Icons.route, color: Colors.white54),
-                  title: Text(name, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w500)),
-                  subtitle: Text(
-                    [if (distStr != null) distStr, '$wptCount waypoints', if (desc != null) desc] // ignore: use_null_aware_elements
-                        .join(' · '),
-                    style: const TextStyle(color: Colors.white38, fontSize: 12),
-                    maxLines: 1, overflow: TextOverflow.ellipsis,
-                  ),
-                  trailing: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      IconButton(
-                        icon: Transform.flip(
-                          flipX: true,
-                          child: const Icon(Icons.play_arrow, color: Colors.red, size: 22),
-                        ),
-                        tooltip: 'Activate reversed',
-                        constraints: const BoxConstraints.tightFor(width: 36, height: 36),
-                        onPressed: () {
-                          Navigator.of(sheetCtx).pop();
-                          _activateRoute(id, reverse: true);
-                        },
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.play_arrow, color: Colors.green, size: 22),
-                        tooltip: 'Activate forward',
-                        constraints: const BoxConstraints.tightFor(width: 36, height: 36),
-                        onPressed: () {
-                          Navigator.of(sheetCtx).pop();
-                          _activateRoute(id);
-                        },
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.edit, color: Colors.white38, size: 18),
-                        tooltip: 'Edit route',
-                        constraints: const BoxConstraints.tightFor(width: 32, height: 36),
-                        onPressed: () => _showEditRouteDialog(sheetCtx, id, name, data),
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.delete_outline, color: Colors.white38, size: 18),
-                        tooltip: 'Delete route',
-                        constraints: const BoxConstraints.tightFor(width: 32, height: 36),
-                        onPressed: () => _showDeleteRouteDialog(sheetCtx, id, name),
-                      ),
-                    ],
-                  ),
-                );
-              }),
-          ],
-        );
+  void _showWaypointEditDialog(int index) {
+    showWaypointEditDialog(
+      context,
+      index: index,
+      routeCoords: _routeCoords,
+      waypointNames: _waypointNames,
+      onChanged: () {
+        _pushRoute();
+        if (mounted) setState(() {});
       },
+      saveRouteToServer: _saveRouteToServer,
     );
   }
 
-  /// Shows active route info with deactivate/advance controls.
-  Widget _buildActiveRoutePanel(BuildContext sheetCtx, ScrollController scrollController) {
-    return ListView(
-      controller: scrollController,
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-      children: [
-        Center(child: Container(
-          width: 40, height: 4,
-          margin: const EdgeInsets.only(bottom: 12),
-          decoration: BoxDecoration(color: Colors.grey[600], borderRadius: BorderRadius.circular(2)),
-        )),
-        Row(children: [
-          const Icon(Icons.route, color: Colors.green, size: 24),
-          const SizedBox(width: 8),
-          const Expanded(child: Text('Active Route',
-            style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold))),
-          // Reverse route
-          IconButton(
-            icon: const Icon(Icons.swap_horiz, color: Colors.orange),
-            tooltip: 'Reverse route',
-            onPressed: () {
-              Navigator.of(sheetCtx).pop();
-              _reverseRoute();
-            },
-          ),
-          // Deactivate
-          IconButton(
-            icon: const Icon(Icons.stop_circle_outlined, color: Colors.red),
-            tooltip: 'Deactivate route',
-            onPressed: () {
-              Navigator.of(sheetCtx).pop();
-              _clearCourse();
-            },
-          ),
-        ]),
-        const SizedBox(height: 4),
-        Text(
-          'Waypoint ${(_routePointIndex ?? 0) + 1} of ${_routePointTotal ?? _routeCoords?.length ?? 0}',
-          style: const TextStyle(color: Colors.white54, fontSize: 13),
-        ),
-        // DTW / BRG / XTE with MetadataStore fallbacks
-        Builder(builder: (_) {
-          final store = widget.signalKService.metadataStore;
-          final distMeta = store.get(_dsPath(_dsDtw)) ?? store.getByCategory('distance');
-          final brgMeta = store.get(_dsPath(_dsBearing)) ?? store.get(_dsPath(_dsCog));
-          final xteMeta = store.get(_dsPath(_dsXte)) ?? store.getByCategory('distance');
-
-          String fmt(String path, dynamic meta, {int dec = 1}) {
-            final d = widget.signalKService.getValue(path);
-            if (d?.value == null || d!.value is! num) return '--';
-            final raw = (d.value as num).toDouble();
-            if (meta != null) return meta.format(raw, decimals: dec) as String;
-            return raw.toStringAsFixed(dec);
-          }
-
-          return Row(children: [
-            Text('DTW: ${fmt(_dsPath(_dsDtw), distMeta)}',
-              style: const TextStyle(color: Colors.white70, fontSize: 13)),
-            const SizedBox(width: 16),
-            Text('BRG: ${fmt(_dsPath(_dsBearing), brgMeta, dec: 0)}',
-              style: const TextStyle(color: Colors.white70, fontSize: 13)),
-            const SizedBox(width: 16),
-            Text('XTE: ${fmt(_dsPath(_dsXte), xteMeta)}',
-              style: const TextStyle(color: Colors.white70, fontSize: 13)),
-          ]);
-        }),
-        const Divider(color: Colors.white24, height: 20),
-        // Waypoint list
-        if (_routeCoords != null)
-          ...List.generate(_routeCoords!.length, (i) {
-            final isActive = i == _routePointIndex;
-            final isPast = _routePointIndex != null && i < _routePointIndex!;
-            final name = (_waypointNames != null && i < _waypointNames!.length && _waypointNames![i].isNotEmpty)
-                ? _waypointNames![i]
-                : 'WPT ${i + 1}';
-            // Leg distance from previous waypoint
-            String? legDist;
-            if (i > 0) {
-              final distMeta = widget.signalKService.metadataStore.getByCategory('distance');
-              final prev = _routeCoords![i - 1];
-              final cur = _routeCoords![i];
-              final m = CpaUtils.calculateDistance(prev[1], prev[0], cur[1], cur[0]);
-              final v = distMeta?.convert(m) ?? m;
-              legDist = '${v.toStringAsFixed(1)} ${distMeta?.symbol ?? 'm'}';
-            }
-            return ListTile(
-              dense: true,
-              contentPadding: EdgeInsets.zero,
-              leading: Icon(
-                isActive ? Icons.flag : isPast ? Icons.check_circle : Icons.circle_outlined,
-                color: isActive ? Colors.green : isPast ? Colors.white24 : Colors.white54,
-                size: 20,
-              ),
-              title: Text(name, style: TextStyle(
-                color: isActive ? Colors.green : isPast ? Colors.white38 : Colors.white,
-                fontWeight: isActive ? FontWeight.bold : FontWeight.normal,
-                fontSize: 13,
-              )),
-              subtitle: legDist != null
-                  ? Text(legDist, style: TextStyle(
-                      color: isPast ? Colors.white24 : Colors.white38, fontSize: 11))
-                  : null,
-              trailing: !isPast && !isActive && _routePointIndex != null && i > _routePointIndex!
-                  ? IconButton(
-                      icon: const Icon(Icons.near_me, size: 18, color: Colors.white54),
-                      tooltip: 'Skip to this waypoint',
-                      onPressed: () => _skipToWaypoint(i),
-                    )
-                  : null,
-            );
-          }),
-      ],
+  void _showAddWaypointDialog(int afterIndex, double lon, double lat) {
+    showAddWaypointDialog(
+      context,
+      afterIndex: afterIndex,
+      lon: lon,
+      lat: lat,
+      routeCoords: _routeCoords,
+      waypointNames: _waypointNames,
+      onChanged: () {
+        _pushRoute();
+        if (mounted) setState(() {});
+      },
+      saveRouteToServer: _saveRouteToServer,
     );
   }
 
-  // ---------------------------------------------------------------------------
-  // Route editing
-  // ---------------------------------------------------------------------------
-
-  void _showEditRouteDialog(BuildContext sheetCtx, String routeId, String currentName, Map<String, dynamic> routeData) {
-    final controller = TextEditingController(text: currentName);
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF1E1E2E),
-        title: const Text('Rename Route', style: TextStyle(color: Colors.white)),
-        content: TextField(
-          controller: controller,
-          style: const TextStyle(color: Colors.white),
-          decoration: const InputDecoration(
-            hintText: 'Route name',
-            hintStyle: TextStyle(color: Colors.white38),
-            enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: Colors.white24)),
-            focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: Colors.green)),
-          ),
-          autofocus: true,
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () async {
-              final nav = Navigator.of(sheetCtx);
-              Navigator.pop(ctx);
-              routeData['name'] = controller.text;
-              await widget.signalKService.putResource('routes', routeId, routeData);
-              if (mounted) {
-                nav.pop();
-                _showRouteManager();
-              }
-            },
-            child: const Text('Save'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showDeleteRouteDialog(BuildContext sheetCtx, String routeId, String name) {
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF1E1E2E),
-        title: const Text('Delete Route', style: TextStyle(color: Colors.white)),
-        content: Text(
-          'Delete "$name"?\n\nThis cannot be undone.',
-          style: const TextStyle(color: Colors.white70),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () async {
-              final nav = Navigator.of(sheetCtx);
-              Navigator.pop(ctx);
-              await widget.signalKService.deleteResource('routes', routeId);
-              if (mounted) {
-                nav.pop();
-                _showRouteManager();
-              }
-            },
-            child: const Text('Delete', style: TextStyle(color: Colors.red)),
-          ),
-        ],
-      ),
-    );
-  }
-
-  /// Get the route ID from the active route href
   String? get _activeRouteId {
     if (_activeRouteHref == null) return null;
     return _activeRouteHref!.split('/').last;
   }
 
-  /// Save current route coords/names to the server
   Future<void> _saveRouteToServer() async {
     final routeId = _activeRouteId;
     if (routeId == null || _routeCoords == null) return;
@@ -1342,101 +1088,6 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
     _routeCoords![index] = [lon, lat];
     _pushRoute();
     _saveRouteToServer();
-  }
-
-  void _showWaypointEditDialog(int index) {
-    if (_routeCoords == null || index < 0 || index >= _routeCoords!.length) return;
-    final currentName = (_waypointNames != null && index < _waypointNames!.length)
-        ? _waypointNames![index]
-        : '';
-    final controller = TextEditingController(text: currentName);
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF1E1E2E),
-        title: Text('Waypoint ${index + 1}', style: const TextStyle(color: Colors.white)),
-        content: TextField(
-          controller: controller,
-          style: const TextStyle(color: Colors.white),
-          decoration: const InputDecoration(
-            hintText: 'Waypoint name',
-            hintStyle: TextStyle(color: Colors.white38),
-            enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: Colors.white24)),
-            focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: Colors.green)),
-          ),
-          autofocus: true,
-        ),
-        actions: [
-          TextButton(
-            onPressed: () {
-              Navigator.pop(ctx);
-              // Delete waypoint
-              _routeCoords!.removeAt(index);
-              _waypointNames?.removeAt(index);
-              _pushRoute();
-              _saveRouteToServer();
-              if (mounted) setState(() {});
-            },
-            child: const Text('Delete Waypoint', style: TextStyle(color: Colors.red)),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () {
-              Navigator.pop(ctx);
-              if (_waypointNames != null && index < _waypointNames!.length) {
-                _waypointNames![index] = controller.text;
-              }
-              _saveRouteToServer();
-            },
-            child: const Text('Save'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showAddWaypointDialog(int afterIndex, double lon, double lat) {
-    if (_routeCoords == null) return;
-    final controller = TextEditingController();
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF1E1E2E),
-        title: const Text('Add Waypoint', style: TextStyle(color: Colors.white)),
-        content: TextField(
-          controller: controller,
-          style: const TextStyle(color: Colors.white),
-          decoration: const InputDecoration(
-            hintText: 'Waypoint name (optional)',
-            hintStyle: TextStyle(color: Colors.white38),
-            enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: Colors.white24)),
-            focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: Colors.green)),
-          ),
-          autofocus: true,
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () {
-              Navigator.pop(ctx);
-              final insertAt = afterIndex + 1;
-              _routeCoords!.insert(insertAt, [lon, lat]);
-              _waypointNames?.insert(insertAt, controller.text);
-              _pushRoute();
-              _saveRouteToServer();
-              if (mounted) setState(() {});
-            },
-            child: const Text('Save'),
-          ),
-        ],
-      ),
-    );
   }
 
   Future<void> _activateRoute(String routeId, {bool reverse = false}) async {
