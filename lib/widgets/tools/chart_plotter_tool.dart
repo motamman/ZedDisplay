@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
-import 'package:syncfusion_flutter_gauges/gauges.dart';
 import 'package:provider/provider.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import '../../models/tool_config.dart';
@@ -10,16 +9,11 @@ import '../../models/tool_definition.dart';
 import '../../services/signalk_service.dart';
 import '../../services/tool_registry.dart';
 import '../../services/route_arrival_monitor.dart';
-import '../../models/ais_favorite.dart';
-import '../../services/ais_favorites_service.dart';
-import '../../services/dashboard_service.dart';
-import '../../services/find_home_target_service.dart';
 import '../../config/chart_constants.dart';
-import '../../models/cpa_alert_state.dart';
 import '../../utils/cpa_utils.dart';
-import '../../utils/ship_type_utils.dart' as ship_type;
+import '../../widgets/ais_vessel_detail_sheet.dart';
+import '../../widgets/chart_plotter/chart_hud.dart';
 import '../../widgets/countdown_confirmation_overlay.dart';
-import '../../widgets/compass_gauge.dart';
 import '../../services/chart_tile_cache_service.dart';
 import '../../services/chart_tile_server_service.dart';
 import '../../services/chart_download_manager.dart';
@@ -53,7 +47,8 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
   static const _dsHeading = 1;
   static const _dsCog = 2;
   static const _dsSog = 3;
-  static const _dsDepth = 4;
+  // ignore: unused_field
+  static const _dsDepth = 4; // used by HUD via _allPaths index
   static const _dsBearing = 5;
   static const _dsXte = 6;
   static const _dsDtw = 7;
@@ -1104,42 +1099,7 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
   }
 
   void _showVesselDetail(String vesselId) {
-    final vessel = widget.signalKService.aisVesselRegistry.vessels[vesselId];
-    if (vessel == null) return;
-
-    final store = widget.signalKService.metadataStore;
-    final cogMeta = store.get(_dsPath(_dsCog));
-    final sogMeta = store.get(_dsPath(_dsSog));
-    final hdgMeta = store.get(_dsPath(_dsHeading));
-    final distMeta = store.getByCategory('distance');
-    final lenMeta = store.getByCategory('length');
-
-    String fmtAngle(double? rad) {
-      if (rad == null) return '--';
-      if (cogMeta != null) return cogMeta.format(rad, decimals: 1);
-      return '${rad.toStringAsFixed(2)} rad';
-    }
-    String fmtSpeed(double? ms) {
-      if (ms == null) return '--';
-      final v = sogMeta?.convert(ms) ?? ms;
-      return '${v.toStringAsFixed(1)} ${sogMeta?.symbol ?? 'm/s'}';
-    }
-    String fmtHeading(double? rad) {
-      if (rad == null) return '--';
-      if (hdgMeta != null) return hdgMeta.format(rad, decimals: 1);
-      return '${rad.toStringAsFixed(2)} rad';
-    }
-    String fmtDist(double? m) {
-      if (m == null) return '--';
-      final v = distMeta?.convert(m) ?? m;
-      return '${v.toStringAsFixed(2)} ${distMeta?.symbol ?? 'm'}';
-    }
-    String fmtLength(double meters) {
-      final v = lenMeta?.convert(meters) ?? meters;
-      return '${v.toStringAsFixed(1)} ${lenMeta?.symbol ?? 'm'}';
-    }
-
-    // CPA/TCPA
+    // Own vessel position for CPA calculation
     double? ownLat, ownLon;
     final posData = widget.signalKService.getValue(_dsPath(_dsPosition));
     if (posData?.value is Map) {
@@ -1147,306 +1107,16 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
       ownLat = (pos['latitude'] as num?)?.toDouble();
       ownLon = (pos['longitude'] as num?)?.toDouble();
     }
-    double? bearing, distance, cpa, tcpa;
-    if (ownLat != null && ownLon != null && vessel.hasPosition) {
-      bearing = CpaUtils.calculateBearing(ownLat, ownLon, vessel.latitude!, vessel.longitude!);
-      distance = CpaUtils.calculateDistance(ownLat, ownLon, vessel.latitude!, vessel.longitude!);
-      final result = CpaUtils.calculateCpaTcpa(
-        bearingDeg: bearing,
-        distanceM: distance,
-        ownCogRad: _numValue(_dsPath(_dsCog)),
-        ownSogMs: _numValue(_dsPath(_dsSog)) ?? 0.0,
-        targetCogRad: vessel.cogRad,
-        targetSogMs: vessel.sogMs,
-      );
-      cpa = result?.cpa;
-      tcpa = result?.tcpa;
-      if (cpa != null && !cpa.isFinite) cpa = null;
-      if (tcpa != null && !tcpa.isFinite) tcpa = null;
-    }
-
-    // Extra data from cache (callsign, destination, dimensions, IMO, AIS status)
-    final cache = widget.signalKService.latestData;
-    final prefix = 'vessels.${vessel.vesselId}';
-    String? callsign, destination, shipTypeName, imo, aisStatusFromCache;
-    final comm = cache['$prefix.communication']?.value;
-    if (comm is Map) callsign = comm['callsignVhf'] as String?;
-    final dest = cache['$prefix.navigation.destination.commonName']?.value;
-    if (dest is String && dest.isNotEmpty) destination = dest;
-    final aisType = cache['$prefix.design.aisShipType']?.value;
-    if (aisType is Map) shipTypeName = aisType['name'] as String?;
-    final reg = cache['$prefix.registrations']?.value;
-    if (reg is Map) imo = reg['imo'] as String?;
-    final aisStatusVal = cache['$prefix.sensors.ais.status']?.value;
-    if (aisStatusVal is String) aisStatusFromCache = aisStatusVal;
-    final aisClassFromCache = cache['$prefix.sensors.ais.class']?.value as String?;
-
-    // Dimensions
-    String? lengthStr, beamStr, draftStr;
-    final beamVal = cache['$prefix.design.beam']?.value;
-    if (beamVal is num) beamStr = fmtLength(beamVal.toDouble());
-    final lengthVal = cache['$prefix.design.length']?.value;
-    if (lengthVal is Map) {
-      final overall = lengthVal['overall'];
-      if (overall is num) lengthStr = fmtLength(overall.toDouble());
-    } else if (lengthVal is num) {
-      lengthStr = fmtLength(lengthVal.toDouble());
-    }
-    final draftVal = cache['$prefix.design.draft']?.value;
-    if (draftVal is Map) {
-      final current = draftVal['current'];
-      if (current is num) draftStr = fmtLength(current.toDouble());
-    } else if (draftVal is num) {
-      draftStr = fmtLength(draftVal.toDouble());
-    }
-    String? dimensionsStr;
-    final dimParts = <String>[];
-    if (lengthStr != null && beamStr != null) {
-      dimParts.add('$lengthStr x $beamStr');
-    } else {
-      if (lengthStr != null) dimParts.add(lengthStr);
-      if (beamStr != null) dimParts.add('beam $beamStr');
-    }
-    if (draftStr != null) dimParts.add('draft $draftStr');
-    if (dimParts.isNotEmpty) dimensionsStr = dimParts.join(', ');
-
-    final mmsi = _extractMMSI(vessel.vesselId);
-    final vesselName = vessel.name ?? 'Unknown Vessel';
-    final typeLabel = shipTypeName ?? ship_type.shipTypeLabel(vessel.aisShipType);
-    final typeColor = ship_type.shipTypeColor(vessel.aisShipType, aisClass: vessel.aisClass);
-    final heading = (vessel.headingTrueRad ?? vessel.cogRad ?? 0.0);
-
-    // CPA color coding — thresholds from CpaAlertConfig defaults
-    const cpaDefaults = CpaAlertConfig();
-    Color cpaColor(double? cpaM) {
-      if (cpaM == null) return Colors.white;
-      if (cpaM < cpaDefaults.alarmThresholdMeters) return Colors.red;
-      if (cpaM < cpaDefaults.warnThresholdMeters) return Colors.orange;
-      return Colors.white;
-    }
-
-    final vesselIcon = ship_type.shipTypeIcon(vessel.aisShipType, vessel.navState, sogMs: vessel.sogMs);
-
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (sheetContext) => DraggableScrollableSheet(
-        initialChildSize: 0.4,
-        maxChildSize: 0.65,
-        minChildSize: 0.15,
-        snap: true,
-        snapSizes: const [0.15, 0.4],
-        builder: (_, scrollController) => StatefulBuilder(
-          builder: (sheetCtx, setSheetState) => NotificationListener<DraggableScrollableNotification>(
-          onNotification: (notification) {
-            if (notification.extent <= notification.minExtent) {
-              Navigator.of(sheetContext).pop();
-            }
-            return false;
-          },
-          child: Container(
-            decoration: const BoxDecoration(
-              color: Color(0xFF1E1E2E),
-              borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-              boxShadow: [BoxShadow(color: Colors.black38, blurRadius: 10, offset: Offset(0, -2))],
-            ),
-            child: ListView(
-              controller: scrollController,
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-              children: [
-                // Drag handle
-                Center(child: Container(
-                  width: 40, height: 4,
-                  margin: const EdgeInsets.only(bottom: 12),
-                  decoration: BoxDecoration(color: Colors.grey[600], borderRadius: BorderRadius.circular(2)),
-                )),
-                // Header with icon, name, action buttons
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  children: [
-                    Transform.rotate(
-                      angle: heading,
-                      child: Icon(vesselIcon, color: typeColor, size: 32,
-                        shadows: [Shadow(color: Colors.black.withValues(alpha: 0.3), blurRadius: 2)]),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(vesselName,
-                          style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
-                        const SizedBox(height: 2),
-                        Text('MMSI: $mmsi',
-                          style: const TextStyle(color: Colors.white54, fontSize: 13)),
-                      ],
-                    )),
-                    // Favorite toggle
-                    Builder(builder: (_) {
-                      final favService = sheetCtx.read<AISFavoritesService>();
-                      final isFav = favService.isFavorite(mmsi);
-                      return IconButton(
-                        icon: Icon(isFav ? Icons.favorite : Icons.favorite_border,
-                          color: isFav ? Colors.red : Colors.white70),
-                        tooltip: isFav ? 'Remove from favorites' : 'Add to favorites',
-                        onPressed: () {
-                          if (isFav) {
-                            favService.removeFavorite(mmsi);
-                          } else {
-                            favService.addFavorite(AISFavorite(
-                              mmsi: mmsi,
-                              name: vesselName,
-                            ));
-                          }
-                          setSheetState(() {});
-                        },
-                      );
-                    }),
-                    // VesselFinder lookup
-                    IconButton(
-                      icon: const Icon(Icons.travel_explore, color: Colors.white70),
-                      tooltip: 'Look up on VesselFinder',
-                      onPressed: () {
-                        Navigator.of(sheetContext).pop();
-                        Navigator.of(context).push(MaterialPageRoute(
-                          builder: (_) => _VesselLookupPage(
-                            url: 'https://www.vesselfinder.com/vessels/details/$mmsi',
-                            title: 'VesselFinder',
-                          ),
-                        ));
-                      },
-                    ),
-                    // Track in Find Home
-                    Builder(builder: (_) {
-                      final dashService = context.read<DashboardService>();
-                      final findHomeScreen = dashService.findScreenWithToolType('find_home');
-                      if (findHomeScreen == null) return const SizedBox.shrink();
-                      return IconButton(
-                        icon: const Icon(Icons.home_outlined, color: Colors.white70),
-                        tooltip: 'Track in Find Home',
-                        onPressed: () {
-                          final targetService = context.read<FindHomeTargetService>();
-                          targetService.setAisTarget(vesselId, vesselName);
-                          dashService.setActiveScreen(findHomeScreen.$1);
-                          Navigator.of(sheetContext).pop();
-                        },
-                      );
-                    }),
-                  ],
-                ),
-                const SizedBox(height: 6),
-                // Chips: type, class, status
-                Wrap(spacing: 8, children: [
-                  _typeChip(typeLabel, typeColor),
-                  if (aisClassFromCache != null || vessel.aisClass != null)
-                    _chip('Class ${aisClassFromCache ?? vessel.aisClass}'),
-                  if (aisStatusFromCache != null || vessel.aisStatus != null)
-                    _chip(aisStatusFromCache ?? vessel.aisStatus!),
-                  if (vessel.navState != null)
-                    _chip(vessel.navState!),
-                ]),
-
-                // Identity section
-                if (callsign != null || imo != null || destination != null) ...[
-                  _section('Identity'),
-                  if (callsign != null) _row('Callsign', callsign),
-                  if (imo != null) _row('IMO', imo),
-                  if (destination != null) _row('Destination', destination),
-                ],
-
-                // Relative section
-                if (bearing != null) ...[
-                  _section('Relative'),
-                  _row('Bearing', '${bearing.toStringAsFixed(1)}°'),
-                  if (distance != null) _row('Distance', fmtDist(distance)),
-                  if (cpa != null) _rowColored('CPA', fmtDist(cpa), cpaColor(cpa)),
-                  if (tcpa != null && tcpa.isFinite && tcpa > 0)
-                    _rowColored('TCPA', _fmtTCPA(tcpa), cpaColor(cpa)),
-                ],
-
-                // Dimensions section
-                if (dimensionsStr != null) ...[
-                  _section('Dimensions'),
-                  _row('Size', dimensionsStr),
-                ],
-
-                // Navigation section
-                _section('Navigation'),
-                if (vessel.navState != null) _row('Nav Status', vessel.navState!),
-                _row('SOG', fmtSpeed(vessel.sogMs)),
-                _row('COG', fmtAngle(vessel.cogRad)),
-                _row('Heading', fmtHeading(vessel.headingTrueRad)),
-
-                // Position section
-                _section('Position'),
-                if (vessel.hasPosition)
-                  _row('Lat/Lon', '${vessel.latitude!.toStringAsFixed(5)}, ${vessel.longitude!.toStringAsFixed(5)}'),
-                _row('Last Update', '${_formatTimeSince(vessel.lastSeen)} ago'),
-              ],
-            ),
-          ),
-        )),
-      ),
+    AISVesselDetailSheet.show(
+      context,
+      signalKService: widget.signalKService,
+      vesselId: vesselId,
+      ownLat: ownLat,
+      ownLon: ownLon,
+      ownCogRad: _numValue(_dsPath(_dsCog)),
+      ownSogMs: _numValue(_dsPath(_dsSog)),
     );
   }
-
-  Widget _typeChip(String text, Color color) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-    decoration: BoxDecoration(
-      color: color.withValues(alpha: 0.15),
-      borderRadius: BorderRadius.circular(12),
-      border: Border.all(color: color.withValues(alpha: 0.4)),
-    ),
-    child: Text(text, style: TextStyle(fontSize: 12, color: color, fontWeight: FontWeight.w600)),
-  );
-
-  Widget _chip(String text) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-    decoration: BoxDecoration(color: Colors.white10, borderRadius: BorderRadius.circular(12)),
-    child: Text(text, style: const TextStyle(fontSize: 12, color: Colors.white54)),
-  );
-
-  Widget _section(String title) => Padding(
-    padding: const EdgeInsets.only(top: 12, bottom: 4),
-    child: Text(title.toUpperCase(),
-      style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white38, letterSpacing: 0.8)),
-  );
-
-  Widget _row(String label, String value) => Padding(
-    padding: const EdgeInsets.symmetric(vertical: 3),
-    child: Row(children: [
-      SizedBox(width: 110, child: Text(label, style: const TextStyle(color: Colors.white54, fontSize: 13))),
-      Expanded(child: Text(value, style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w500))),
-    ]),
-  );
-
-  Widget _rowColored(String label, String value, Color valueColor) => Padding(
-    padding: const EdgeInsets.symmetric(vertical: 3),
-    child: Row(children: [
-      SizedBox(width: 110, child: Text(label, style: const TextStyle(color: Colors.white54, fontSize: 13))),
-      Expanded(child: Text(value, style: TextStyle(color: valueColor, fontSize: 13, fontWeight: FontWeight.w500))),
-    ]),
-  );
-
-  String _fmtTCPA(double seconds) {
-    if (seconds < 60) return '${seconds.toStringAsFixed(0)}s';
-    if (seconds < 3600) return '${(seconds / 60).toStringAsFixed(1)}m';
-    return '${(seconds / 3600).toStringAsFixed(1)}h';
-  }
-
-  static String _formatTimeSince(DateTime timestamp) {
-    final elapsed = DateTime.now().difference(timestamp);
-    if (elapsed.inSeconds < 60) return '${elapsed.inSeconds}s';
-    if (elapsed.inMinutes < 60) return '${elapsed.inMinutes}m';
-    return '${elapsed.inHours}h';
-  }
-
-  static String _extractMMSI(String vesselId) {
-    final match = RegExp(r'(\d{9})').firstMatch(vesselId);
-    return match?.group(1) ?? vesselId;
-  }
-
-  // Ship type label, color, and icon moved to lib/utils/ship_type_utils.dart
 
   // ---------------------------------------------------------------------------
   // Vessel data (raw SI from single WS)
@@ -1461,336 +1131,24 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
   // HUD — ALL values via MetadataStore
   // ---------------------------------------------------------------------------
 
-  String _formatValue(String path, {int decimals = 1, String? fallbackCategory, String? fallbackPath}) {
-    final data = widget.signalKService.getValue(path);
-    if (data?.value == null || data!.value is! num) return '--';
-    final rawValue = (data.value as num).toDouble();
-    final store = widget.signalKService.metadataStore;
-    final metadata = store.get(path)
-        ?? (fallbackPath != null ? store.get(fallbackPath) : null)
-        ?? (fallbackCategory != null ? store.getByCategory(fallbackCategory) : null);
-    if (metadata != null) {
-      return metadata.format(rawValue, decimals: decimals);
-    }
-    return rawValue.toStringAsFixed(decimals);
-  }
+  // HUD moved to lib/widgets/chart_plotter/chart_hud.dart
 
   Widget _buildHUD() {
-    if (_hudStyle == 'off') return const SizedBox.shrink();
-    if (_hudStyle == 'visual') return _buildVisualHUD();
-    return _buildTextHUD();
-  }
-
-  Widget _buildTextHUD() {
-    return Positioned(
-      left: 0,
-      right: 0,
-      bottom: _hudPosition == 'bottom' ? 0 : null,
-      top: _hudPosition == 'top' ? 0 : null,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-        decoration: BoxDecoration(color: Colors.black.withValues(alpha: 0.7)),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-          children: [
-            _hudItem('SOG', _formatValue(_dsPath(_dsSog), fallbackCategory: 'speed')),
-            _hudItem('COG', _formatValue(_dsPath(_dsCog), decimals: 0, fallbackCategory: 'angle')),
-            _hudItem('DPT', _formatValue(_dsPath(_dsDepth), decimals: 1, fallbackCategory: 'depth')),
-            _hudItem('DTW', _formatValue(_dsPath(_dsDtw), decimals: 1, fallbackCategory: 'distance')),
-            _hudItem('BRG', _formatValue(_dsPath(_dsBearing), decimals: 0, fallbackPath: _dsPath(_dsCog), fallbackCategory: 'angle')),
-            _hudItem('XTE', _formatValue(_dsPath(_dsXte), decimals: 1, fallbackCategory: 'distance')),
-            if (_routeCoords != null &&
-                _routePointIndex != null &&
-                _routePointTotal != null &&
-                _routePointIndex! + 1 < _routePointTotal!) ...[
-              GestureDetector(
-                onTap: _advanceWaypoint,
-                child: const Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 4),
-                  child: Icon(Icons.skip_next, color: Colors.white70, size: 24),
-                ),
-              ),
-              GestureDetector(
-                onTap: _fastForwardToNearest,
-                child: const Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 4),
-                  child: Icon(Icons.fast_forward, color: Colors.white70, size: 24),
-                ),
-              ),
-            ],
-          ],
-        ),
-      ),
+    final canAdvance = _routeCoords != null &&
+        _routePointIndex != null &&
+        _routePointTotal != null &&
+        _routePointIndex! + 1 < _routePointTotal!;
+    return ChartPlotterHUD(
+      signalKService: widget.signalKService,
+      hudStyle: _hudStyle,
+      hudPosition: _hudPosition,
+      paths: _allPaths,
+      hasActiveRoute: _routeCoords != null,
+      canAdvance: canAdvance,
+      onAdvanceWaypoint: _advanceWaypoint,
+      onFastForward: _fastForwardToNearest,
     );
   }
-
-  Widget _buildVisualHUD() {
-    final store = widget.signalKService.metadataStore;
-
-    // SOG
-    final sogRaw = _numValue(_dsPath(_dsSog));
-    final sogMeta = store.get(_dsPath(_dsSog)) ?? store.getByCategory('speed');
-    final sogVal = sogMeta?.convert(sogRaw ?? 0) ?? sogRaw ?? 0;
-    final sogFmt = sogRaw != null ? (sogMeta?.format(sogRaw, decimals: 1) ?? sogRaw.toStringAsFixed(1)) : '--';
-
-    // DPT
-    final dptRaw = _numValue(_dsPath(_dsDepth));
-    final dptMeta = store.get(_dsPath(_dsDepth)) ?? store.getByCategory('depth');
-    final dptVal = dptMeta?.convert(dptRaw ?? 0) ?? dptRaw ?? 0;
-    final dptFmt = dptRaw != null ? (dptMeta?.format(dptRaw, decimals: 1) ?? dptRaw.toStringAsFixed(1)) : '--';
-
-    // COG
-    final cogRaw = _numValue(_dsPath(_dsCog));
-    final cogMeta = store.get(_dsPath(_dsCog)) ?? store.getByCategory('angle');
-    final cogDeg = cogMeta?.convert(cogRaw ?? 0) ?? cogRaw ?? 0;
-    final cogFmt = cogRaw != null ? (cogMeta?.format(cogRaw, decimals: 0) ?? cogRaw.toStringAsFixed(2)) : '--';
-
-    // BRG
-    final brgRaw = _numValue(_dsPath(_dsBearing));
-    final brgMeta = store.get(_dsPath(_dsBearing)) ?? cogMeta;
-    final brgDeg = brgMeta?.convert(brgRaw ?? 0) ?? brgRaw ?? 0;
-
-    // DTW (raw SI meters for XTE scaling)
-    final dtwRaw = _numValue(_dsPath(_dsDtw));
-
-    // XTE
-    final xteRaw = _numValue(_dsPath(_dsXte));
-    final xteMeta = store.get(_dsPath(_dsXte)) ?? store.getByCategory('distance');
-    final xteVal = xteMeta?.convert(xteRaw ?? 0) ?? xteRaw ?? 0;
-    final xteFmt = xteRaw != null ? (xteMeta?.format(xteRaw, decimals: 1) ?? xteRaw.toStringAsFixed(1)) : '--';
-
-    return Positioned(
-      left: 0,
-      right: 0,
-      bottom: _hudPosition == 'bottom' ? 0 : null,
-      top: _hudPosition == 'top' ? 0 : null,
-      child: Container(
-        padding: const EdgeInsets.fromLTRB(8, 6, 8, 4),
-        decoration: BoxDecoration(color: Colors.black.withValues(alpha: 0.75)),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // Top row: SOG gauge, compass, DPT gauge
-            SizedBox(
-              height: 135,
-              child: Row(
-                children: [
-                  // SOG arc gauge
-                  SizedBox(
-                    width: 90,
-                    child: _miniArcGauge(
-                      label: 'SOG',
-                      value: sogVal.toDouble(),
-                      maxValue: 20,
-                      formattedValue: sogFmt,
-                      color: Colors.cyan,
-                    ),
-                  ),
-                  // COG/BRG compass
-                  Expanded(
-                    child: _miniCompass(
-                      cogDeg: cogDeg.toDouble(),
-                      brgDeg: brgRaw != null ? brgDeg.toDouble() : null,
-                      cogFmt: cogFmt,
-                      brgFmt: brgRaw != null ? '${brgDeg.toStringAsFixed(0)}°' : null,
-                    ),
-                  ),
-                  // Depth arc gauge
-                  SizedBox(
-                    width: 90,
-                    child: _miniArcGauge(
-                      label: 'Depth',
-                      value: dptVal.toDouble(),
-                      maxValue: 30,
-                      formattedValue: dptFmt,
-                      color: _depthColor(dptVal.toDouble()),
-                      zones: dptMeta?.zones,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            // Bottom row: DTW, XTE, route controls
-            Padding(
-              padding: const EdgeInsets.only(top: 2),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                children: [
-                  _hudItem('DTW', _formatValue(_dsPath(_dsDtw), decimals: 1, fallbackCategory: 'distance')),
-                  // XTE bar
-                  Flexible(child: _miniXteBar(xteVal.toDouble(), xteFmt, xteMeta?.symbol ?? 'm', dtwRaw)),
-                  if (_routeCoords != null &&
-                      _routePointIndex != null &&
-                      _routePointTotal != null &&
-                      _routePointIndex! + 1 < _routePointTotal!) ...[
-                    GestureDetector(
-                      onTap: _advanceWaypoint,
-                      child: const Padding(
-                        padding: EdgeInsets.symmetric(horizontal: 4),
-                        child: Icon(Icons.skip_next, color: Colors.white70, size: 20),
-                      ),
-                    ),
-                    GestureDetector(
-                      onTap: _fastForwardToNearest,
-                      child: const Padding(
-                        padding: EdgeInsets.symmetric(horizontal: 4),
-                        child: Icon(Icons.fast_forward, color: Colors.white70, size: 20),
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Color _depthColor(double depth) {
-    if (depth < 2) return Colors.red;
-    if (depth < 5) return Colors.orange;
-    return Colors.cyan;
-  }
-
-  Widget _miniArcGauge({
-    required String label,
-    required double value,
-    required double maxValue,
-    required String formattedValue,
-    required Color color,
-    List<dynamic>? zones,
-  }) {
-    final clamped = value.clamp(0.0, maxValue);
-    return SfRadialGauge(
-      axes: [
-        RadialAxis(
-          minimum: 0,
-          maximum: maxValue,
-          startAngle: 135,
-          endAngle: 45,
-          showAxisLine: false,
-          showLabels: false,
-          majorTickStyle: MajorTickStyle(
-            length: 4, thickness: 1,
-            color: Colors.white.withValues(alpha: 0.3),
-          ),
-          minorTicksPerInterval: 0,
-          interval: maxValue / 5,
-          ranges: [
-            GaugeRange(
-              startValue: 0, endValue: maxValue,
-              color: Colors.white.withValues(alpha: 0.1),
-              startWidth: 8, endWidth: 8,
-            ),
-            GaugeRange(
-              startValue: 0, endValue: clamped,
-              color: color,
-              startWidth: 8, endWidth: 8,
-            ),
-          ],
-          annotations: [
-            GaugeAnnotation(
-              widget: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(label, style: const TextStyle(color: Colors.white54, fontSize: 9)),
-                  Text(formattedValue,
-                    style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold)),
-                ],
-              ),
-              angle: 90,
-              positionFactor: 0.0,
-            ),
-          ],
-        ),
-      ],
-    );
-  }
-
-  Widget _miniCompass({
-    required double cogDeg,
-    double? brgDeg,
-    required String cogFmt,
-    String? brgFmt,
-  }) {
-    return CompassGauge(
-      heading: cogDeg,
-      label: 'COG',
-      formattedValue: cogFmt,
-      primaryColor: Colors.cyan,
-      compassStyle: CompassStyle.marine,
-      showTickLabels: false,
-      showValue: true,
-      additionalHeadings: brgDeg != null ? [brgDeg] : null,
-      additionalLabels: brgDeg != null ? ['BRG'] : null,
-      additionalColors: brgDeg != null ? [Colors.green] : null,
-      additionalFormattedValues: brgFmt != null ? [brgFmt] : null,
-    );
-  }
-
-  Widget _miniXteBar(double xteValue, String xteFmt, String unit, double? dtwMeters) {
-    final dtw = (dtwMeters ?? 1000).abs();
-    final maxXte = (dtw * 0.25).clamp(10.0, 500.0);
-    final clamped = xteValue.clamp(-maxXte, maxXte);
-    final barColor = clamped.abs() < dtw * 0.05
-        ? Colors.green
-        : (clamped.abs() < dtw * 0.15 ? Colors.orange : Colors.red);
-    final startVal = clamped >= 0 ? 0.0 : clamped;
-    final endVal = clamped >= 0 ? clamped : 0.0;
-
-    return SizedBox(
-      height: 30,
-      child: SfLinearGauge(
-        minimum: -maxXte,
-        maximum: maxXte,
-        showTicks: false,
-        showLabels: false,
-        axisTrackStyle: LinearAxisTrackStyle(
-          thickness: 12,
-          edgeStyle: LinearEdgeStyle.bothCurve,
-          color: Colors.white.withValues(alpha: 0.1),
-        ),
-        ranges: [
-          // XTE fill from center outward
-          LinearGaugeRange(
-            startValue: startVal,
-            endValue: endVal,
-            color: barColor,
-            startWidth: 12,
-            endWidth: 12,
-            position: LinearElementPosition.cross,
-          ),
-        ],
-        markerPointers: [
-          // Center line
-          LinearWidgetPointer(
-            value: 0,
-            position: LinearElementPosition.cross,
-            child: Container(width: 2, height: 16, color: Colors.white.withValues(alpha: 0.5)),
-          ),
-          // Value label
-          LinearWidgetPointer(
-            value: clamped,
-            position: LinearElementPosition.outside,
-            offset: 2,
-            child: Text(xteFmt,
-              style: const TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.w500)),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _hudItem(String label, String value) => Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(label, style: const TextStyle(color: Colors.white60, fontSize: 10)),
-          Text(value,
-              style: const TextStyle(
-                  color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold)),
-        ],
-      );
 
   // ---------------------------------------------------------------------------
   // Route management UI
@@ -2691,49 +2049,4 @@ class ChartPlotterBuilder extends ToolBuilder {
   }
 }
 
-// =============================================================================
-// Vessel lookup WebView (VesselFinder / MarineTraffic)
-// =============================================================================
-
-class _VesselLookupPage extends StatefulWidget {
-  final String url;
-  final String title;
-  const _VesselLookupPage({required this.url, required this.title});
-
-  @override
-  State<_VesselLookupPage> createState() => _VesselLookupPageState();
-}
-
-class _VesselLookupPageState extends State<_VesselLookupPage> {
-  late final WebViewController _controller;
-  bool _isLoading = true;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = WebViewController()
-      ..setJavaScriptMode(JavaScriptMode.unrestricted)
-      ..setNavigationDelegate(NavigationDelegate(
-        onPageStarted: (_) => setState(() => _isLoading = true),
-        onPageFinished: (_) => setState(() => _isLoading = false),
-      ))
-      ..loadRequest(Uri.parse(widget.url));
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(widget.title),
-        actions: [
-          if (_isLoading)
-            const Padding(
-              padding: EdgeInsets.only(right: 16),
-              child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)),
-            ),
-        ],
-      ),
-      body: WebViewWidget(controller: _controller),
-    );
-  }
-}
+// VesselLookupPage moved to lib/widgets/ais_vessel_detail_sheet.dart
