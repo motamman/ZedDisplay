@@ -309,7 +309,7 @@ class _FindHomeToolState extends State<FindHomeTool> {
     final bearingData = widget.signalKService.getValue(
         'navigation.course.calcValues.bearingTrue');
     _routeBearingTrue = bearingData?.value is num
-        ? (bearingData!.value as num).toDouble() * 180.0 / math.pi
+        ? _convertAngle((bearingData!.value as num).toDouble())
         : null;
 
     // Cross-track error (meters, signed)
@@ -546,6 +546,21 @@ class _FindHomeToolState extends State<FindHomeTool> {
     return distMeta;
   }
 
+  /// Angle category metadata (rad → deg or user-configured unit).
+  PathMetadata? get _angleMeta =>
+      widget.signalKService.metadataStore.get('__category__.angle');
+
+  /// Convert a radian value to the user's preferred angle unit (typically degrees).
+  double _convertAngle(double radians) =>
+      _angleMeta?.convert(radians) ?? radians * 180.0 / math.pi;
+
+  /// Convert from display angle unit back to radians (for CPA/API calls).
+  double _convertToRadians(double displayAngle) =>
+      _angleMeta?.convertToSI(displayAngle) ?? displayAngle * math.pi / 180.0;
+
+  /// The symbol for the user's angle unit (e.g., '°').
+  String get _angleSymbol => _angleMeta?.symbol ?? '°';
+
   // --------------- Computed nav data ---------------
 
   ({
@@ -575,7 +590,7 @@ class _FindHomeToolState extends State<FindHomeTool> {
       sogMs = (sogData?.value as num?)?.toDouble() ?? 0.0;
       // SignalK COG is in radians
       final cogRad = (cogData?.value as num?)?.toDouble();
-      cogDeg = cogRad != null ? cogRad * 180.0 / math.pi : 0.0;
+      cogDeg = cogRad != null ? _convertAngle(cogRad) : 0.0;
     } else {
       // Dinghy mode: own position from device GPS
       final pos = _devicePosition;
@@ -646,7 +661,7 @@ class _FindHomeToolState extends State<FindHomeTool> {
     final sogData = widget.signalKService.getValue(_trackSogPath);
     final sogMs = (sogData?.value as num?)?.toDouble() ?? 0.0;
     final cogRad = (cogData?.value as num?)?.toDouble();
-    final cogDeg = cogRad != null ? cogRad * 180.0 / math.pi : 0.0;
+    final cogDeg = cogRad != null ? _convertAngle(cogRad) : 0.0;
 
     // Bearing: from route calcValues
     final bearing = _routeBearingTrue!;
@@ -740,7 +755,7 @@ class _FindHomeToolState extends State<FindHomeTool> {
       final sogData = widget.signalKService.getValue(_trackSogPath);
       ownSogMs = (sogData?.value as num?)?.toDouble() ?? 0.0;
       final cogRad = (cogData?.value as num?)?.toDouble();
-      ownCogDeg = cogRad != null ? cogRad * 180.0 / math.pi : 0.0;
+      ownCogDeg = cogRad != null ? _convertAngle(cogRad) : 0.0;
     } else {
       final pos = _devicePosition;
       if (pos == null) return null;
@@ -771,7 +786,7 @@ class _FindHomeToolState extends State<FindHomeTool> {
 
     if (dodgeResult == null || !dodgeResult.isFeasible) return null;
 
-    final courseToSteerDeg = dodgeResult.courseToSteerRad * 180.0 / math.pi;
+    final courseToSteerDeg = _convertAngle(dodgeResult.courseToSteerRad);
     final apexDist = math.sqrt(
       dodgeResult.apexX * dodgeResult.apexX +
       dodgeResult.apexY * dodgeResult.apexY,
@@ -788,7 +803,7 @@ class _FindHomeToolState extends State<FindHomeTool> {
     final vesselSogData = widget.signalKService.getValue(_trackSogPath);
     final vesselSogMs = (vesselSogData?.value as num?)?.toDouble() ?? 0.0;
 
-    final targetCogDeg = vessel.cogRad! * 180.0 / math.pi;
+    final targetCogDeg = _convertAngle(vessel.cogRad!);
 
     // Feed dodge result to autopilot if auto-dodge is active
     if (_autoDodgeEnabled && dodgeResult.isFeasible) {
@@ -800,7 +815,7 @@ class _FindHomeToolState extends State<FindHomeTool> {
       final cpaTcpa = CpaUtils.calculateCpaTcpa(
         bearingDeg: bearingToTarget,
         distanceM: distToTarget,
-        ownCogRad: ownSogMs > 0.1 ? ownCogDeg * math.pi / 180.0 : null,
+        ownCogRad: ownSogMs > 0.1 ? _convertToRadians(ownCogDeg) : null,
         ownSogMs: ownSogMs,
         targetCogRad: vessel.cogRad,
         targetSogMs: vessel.sogMs,
@@ -1134,7 +1149,7 @@ class _FindHomeToolState extends State<FindHomeTool> {
       );
 
   void _routeAdjustHeading(int deg) => _routeApCommand(
-        'Adjust ${deg > 0 ? "+" : ""}$deg\u00B0',
+        'Adjust ${deg > 0 ? "+" : ""}$deg$_angleSymbol',
         () => _routeApService!.adjustHeading(deg),
       );
 
@@ -1367,7 +1382,7 @@ class _FindHomeToolState extends State<FindHomeTool> {
   }
 
   String _formatAngle(double degrees) {
-    return '${degrees.toStringAsFixed(0)}°';
+    return '${degrees.toStringAsFixed(0)}$_angleSymbol';
   }
 
   /// Format a speed value using metadata.
@@ -1921,7 +1936,7 @@ class _FindHomeToolState extends State<FindHomeTool> {
       final xteSide = _routeXteMeters! > 0 ? 'S' : 'P';
       devLabel = 'XTE ${_formatDistance(_routeXteMeters!.abs())} $xteSide';
     } else {
-      devLabel = 'DEV ${absDev.toStringAsFixed(0)}\u00B0 $devSide';
+      devLabel = 'DEV ${absDev.toStringAsFixed(0)}$_angleSymbol $devSide';
     }
 
     final String etaLabel;
@@ -2283,7 +2298,7 @@ class _FindHomeToolState extends State<FindHomeTool> {
                           final hdg = status?.lastSentHeadingDeg;
                           return Text(
                             hdg != null
-                                ? 'AP\u2192${hdg.toStringAsFixed(0)}\u00B0'
+                                ? 'AP\u2192${hdg.toStringAsFixed(0)}$_angleSymbol'
                                 : 'AP\u2192...',
                             style: const TextStyle(
                               fontSize: 10,

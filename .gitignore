@@ -75,6 +75,8 @@ devtools/diagnostics_report.py
 
 # Claude Code skills (local only)
 .claude/skills/
+.claude/commands/
+
 
 # Local idea notes
 idea-notes/
