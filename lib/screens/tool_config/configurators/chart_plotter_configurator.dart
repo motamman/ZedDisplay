@@ -149,6 +149,7 @@ class ChartPlotterConfigurator extends ToolConfigurator {
               SegmentedButton<int>(
                 segments: const [
                   ButtonSegment(value: 5, label: Text('5 min')),
+                  ButtonSegment(value: 10, label: Text('10 min')),
                   ButtonSegment(value: 15, label: Text('15 min')),
                   ButtonSegment(value: 60, label: Text('60 min')),
                 ],

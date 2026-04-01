@@ -57,9 +57,9 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
   // ignore: unused_field
   static const _dsDtw = 7; // used by HUD/route panel via _allPaths index
   // ignore: unused_field
-  static const _dsActiveRoute = 8; // subscribed; read via REST
+  static const _dsActiveRoute = 8; // subscribed for WS delta triggers; data read via REST
   // ignore: unused_field
-  static const _dsNextPoint = 9; // subscribed; read via REST
+  static const _dsNextPoint = 9; // subscribed for WS delta triggers; data read via REST
 
   WebViewController? _controller;
   bool _mapReady = false;
@@ -162,6 +162,7 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
             {'type': 'base', 'id': 'carto_voyager', 'enabled': true, 'opacity': 1.0},
             {'type': 's57', 'id': '01CGD_ENCs', 'enabled': true, 'opacity': 1.0},
           ];
+    _aisEnabled = widget.config.style.customProperties?['showAIS'] as bool? ?? true;
     widget.signalKService.subscribeToPaths(
       _allPaths,
       ownerId: _ownerId,
