@@ -1760,6 +1760,11 @@ async function initMap() {
     });
   };
 
+  window.setScaleBarBottom = function(px) {
+    const el = document.querySelector('.ol-scale-bar');
+    if (el) el.style.bottom = px + 'px';
+  };
+
   // =========================================================================
   // Dynamic ruler
   // =========================================================================

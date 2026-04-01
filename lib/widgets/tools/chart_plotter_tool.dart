@@ -205,6 +205,9 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
     final distMeta = widget.signalKService.metadataStore.getByCategory('distance');
     final scaleUnits = _mapDistSymbolToOLUnits(distMeta?.symbol);
     _controller!.runJavaScript("setScaleBarUnits('$scaleUnits')");
+    // Position scale bar above HUD
+    final scaleBottom = _hudStyle == 'visual' ? 190 : (_hudStyle == 'text' ? 40 : 10);
+    _controller!.runJavaScript('setScaleBarBottom($scaleBottom)');
     // Configure tile server with upstream URL and auth token
     try {
       final tileServer = context.read<ChartTileServerService>();
@@ -1608,6 +1611,9 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
     final brgMeta = store.get(_dsPath(_dsBearing)) ?? cogMeta;
     final brgDeg = brgMeta?.convert(brgRaw ?? 0) ?? (brgRaw != null ? brgRaw * 180 / math.pi : 0);
 
+    // DTW (raw SI meters for XTE scaling)
+    final dtwRaw = _numValue(_dsPath(_dsDtw));
+
     // XTE
     final xteRaw = _numValue(_dsPath(_dsXte));
     final xteMeta = store.get(_dsPath(_dsXte)) ?? store.getByCategory('distance');
@@ -1632,7 +1638,7 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
                 children: [
                   // SOG arc gauge
                   SizedBox(
-                    width: 135,
+                    width: 90,
                     child: _miniArcGauge(
                       label: 'SOG',
                       value: sogVal.toDouble(),
@@ -1650,11 +1656,11 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
                       brgFmt: brgRaw != null ? '${brgDeg.toStringAsFixed(0)}°' : null,
                     ),
                   ),
-                  // DPT arc gauge
+                  // Depth arc gauge
                   SizedBox(
-                    width: 135,
+                    width: 90,
                     child: _miniArcGauge(
-                      label: 'DPT',
+                      label: 'Depth',
                       value: dptVal.toDouble(),
                       maxValue: 30,
                       formattedValue: dptFmt,
@@ -1673,8 +1679,7 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
                 children: [
                   _hudItem('DTW', _formatValue(_dsPath(_dsDtw), decimals: 1, fallbackCategory: 'distance')),
                   // XTE bar
-                  Expanded(child: _miniXteBar(xteVal.toDouble(), xteFmt, xteMeta?.symbol ?? 'm')),
-                  _hudItem('BRG', cogRaw != null ? '${brgDeg.toStringAsFixed(0)}°' : '--'),
+                  Flexible(child: _miniXteBar(xteVal.toDouble(), xteFmt, xteMeta?.symbol ?? 'm', dtwRaw)),
                   if (_routeCoords != null &&
                       _routePointIndex != null &&
                       _routePointTotal != null &&
@@ -1785,9 +1790,16 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
     );
   }
 
-  Widget _miniXteBar(double xteValue, String xteFmt, String unit) {
-    final maxXte = 100.0;
+  Widget _miniXteBar(double xteValue, String xteFmt, String unit, double? dtwMeters) {
+    final dtw = (dtwMeters ?? 1000).abs();
+    final maxXte = (dtw * 0.25).clamp(10.0, 500.0);
     final clamped = xteValue.clamp(-maxXte, maxXte);
+    final barColor = clamped.abs() < dtw * 0.05
+        ? Colors.green
+        : (clamped.abs() < dtw * 0.15 ? Colors.orange : Colors.red);
+    final startVal = clamped >= 0 ? 0.0 : clamped;
+    final endVal = clamped >= 0 ? clamped : 0.0;
+
     return SizedBox(
       height: 30,
       child: SfLinearGauge(
@@ -1801,30 +1813,24 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
           color: Colors.white.withValues(alpha: 0.1),
         ),
         ranges: [
+          // XTE fill from center outward
           LinearGaugeRange(
-            startValue: -maxXte * 0.2, endValue: maxXte * 0.2,
-            color: Colors.green.withValues(alpha: 0.3),
-            startWidth: 12, endWidth: 12,
-          ),
-        ],
-        barPointers: [
-          LinearBarPointer(
-            value: clamped,
-            thickness: 12,
-            edgeStyle: LinearEdgeStyle.bothCurve,
-            color: clamped.abs() < maxXte * 0.2
-                ? Colors.green
-                : (clamped.abs() < maxXte * 0.5 ? Colors.orange : Colors.red),
-            offset: 0,
+            startValue: startVal,
+            endValue: endVal,
+            color: barColor,
+            startWidth: 12,
+            endWidth: 12,
             position: LinearElementPosition.cross,
           ),
         ],
         markerPointers: [
+          // Center line
           LinearWidgetPointer(
             value: 0,
             position: LinearElementPosition.cross,
             child: Container(width: 2, height: 16, color: Colors.white.withValues(alpha: 0.5)),
           ),
+          // Value label
           LinearWidgetPointer(
             value: clamped,
             position: LinearElementPosition.outside,
@@ -2596,9 +2602,9 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
               }),
             ),
           ),
-        // Tile freshness indicator
+        // Tile freshness indicator — above HUD
         Positioned(
-          bottom: 52,
+          bottom: _hudStyle == 'visual' ? 190 : (_hudStyle == 'text' ? 52 : 8),
           right: 8,
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
