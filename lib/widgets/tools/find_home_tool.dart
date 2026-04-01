@@ -1424,17 +1424,8 @@ class _FindHomeToolState extends State<FindHomeTool> {
     return '$totalMins:${secs.toString().padLeft(2, '0')}';
   }
 
-  /// Format lat/lon in degrees decimal minutes
-  String _formatDDM(double lat, double lon) {
-    String fmt(double v, String pos, String neg) {
-      final h = v >= 0 ? pos : neg;
-      final a = v.abs();
-      final d = a.floor();
-      final m = (a - d) * 60;
-      return '$d\u00B0${m.toStringAsFixed(3)}\'$h';
-    }
-    return '${fmt(lat, 'N', 'S')} ${fmt(lon, 'E', 'W')}';
-  }
+  /// Format lat/lon in degrees decimal minutes (shared with SetHomeDialog)
+  String _formatDDM(double lat, double lon) => formatDDM(lat, lon);
 
   // --------------- Build ---------------
 

@@ -1,7 +1,5 @@
 import 'dart:async';
-import 'dart:convert';
 import 'package:flutter/foundation.dart';
-import 'package:http/http.dart' as http;
 import 'signalk_service.dart';
 import 'autopilot_command_service.dart';
 
@@ -90,23 +88,9 @@ class RouteArrivalMonitor {
 
   Future<void> _fetchRouteStateAndEmit(String trigger) async {
     try {
-      final baseUrl = _signalKService.httpBaseUrl;
-      final token = _signalKService.authToken?.token;
-      final headers = <String, String>{
-        if (token != null) 'Authorization': 'Bearer $token',
-      };
+      final data = await _signalKService.getCourseInfo();
+      if (data == null) return;
 
-      final response = await http.get(
-        Uri.parse('$baseUrl/signalk/v2/api/vessels/self/navigation/course'),
-        headers: headers,
-      );
-
-      if (response.statusCode != 200) {
-        if (kDebugMode) print('RouteArrivalMonitor: course API returned ${response.statusCode}');
-        return;
-      }
-
-      final data = jsonDecode(response.body) as Map<String, dynamic>;
       final activeRoute = data['activeRoute'] as Map<String, dynamic>?;
       if (activeRoute == null) return;
 

@@ -3,6 +3,18 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart' hide Path;
 
+/// Format lat/lon as degrees decimal minutes: "47°36.352'N 122°19.876'W"
+String formatDDM(double lat, double lon) {
+  String fmt(double v, String pos, String neg) {
+    final h = v >= 0 ? pos : neg;
+    final a = v.abs();
+    final d = a.floor();
+    final m = (a - d) * 60;
+    return '$d\u00B0${m.toStringAsFixed(3)}\'$h';
+  }
+  return '${fmt(lat, 'N', 'S')} ${fmt(lon, 'E', 'W')}';
+}
+
 /// Map-based dialog for choosing or editing the home position.
 /// Returns `(lat, lon)` on confirm, `(double.infinity, double.infinity)`
 /// on reset, or `null` on cancel.
@@ -156,14 +168,7 @@ class _FindHomeSetDialogState extends State<FindHomeSetDialog> {
   /// Format preview as DDM
   String get _preview {
     if (_selectedLat == null || _selectedLon == null) return '';
-    String fmt(double v, String pos, String neg) {
-      final h = v >= 0 ? pos : neg;
-      final a = v.abs();
-      final d = a.floor();
-      final m = (a - d) * 60;
-      return '$d\u00B0${m.toStringAsFixed(3)}\'$h';
-    }
-    return '${fmt(_selectedLat!, 'N', 'S')} ${fmt(_selectedLon!, 'E', 'W')}';
+    return formatDDM(_selectedLat!, _selectedLon!);
   }
 
   @override

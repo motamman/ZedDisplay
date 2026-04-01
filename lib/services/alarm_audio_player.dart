@@ -10,7 +10,7 @@ class AlarmAudioPlayer {
   factory AlarmAudioPlayer() => _instance;
   AlarmAudioPlayer._();
 
-  /// Shared sound asset map.
+  /// Shared sound asset map (key → file path).
   static const Map<String, String> alarmSounds = {
     'bell': 'sounds/alarm_bell.mp3',
     'foghorn': 'sounds/alarm_foghorn.mp3',
@@ -18,6 +18,16 @@ class AlarmAudioPlayer {
     'ding': 'sounds/alarm_ding.mp3',
     'whistle': 'sounds/alarm_whistle.mp3',
     'dog': 'sounds/alarm_dog.mp3',
+  };
+
+  /// Display names for alarm sounds (key → human label).
+  static const Map<String, String> alarmSoundNames = {
+    'bell': 'Bell',
+    'foghorn': 'Foghorn',
+    'chimes': 'Chimes',
+    'ding': 'Ding',
+    'whistle': 'Whistle',
+    'dog': 'Dog Bark',
   };
 
   AudioPlayer? _player;
