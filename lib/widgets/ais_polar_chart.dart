@@ -8,6 +8,7 @@ import 'dart:math' as math;
 import 'package:provider/provider.dart';
 import '../services/signalk_service.dart';
 import '../services/cpa_alert_service.dart';
+import '../utils/ship_type_utils.dart' as ship_type;
 import '../services/storage_service.dart';
 import '../services/ais_favorites_service.dart';
 import '../services/find_home_target_service.dart';
@@ -406,8 +407,8 @@ class _AISPolarChartState extends State<AISPolarChart>
 
     final vesselName = vessel?.name ?? extraData['name'] ?? 'Unknown Vessel';
     final displayMMSI = _extractMMSI(mmsi);
-    final shipTypeLabel = extraData['Ship Type'] ?? _getShipTypeLabel(vessel?.aisShipType);
-    final typeColor = _getVesselTypeColor(vessel?.aisShipType, aisClass: vessel?.aisClass);
+    final shipTypeLabel = extraData['Ship Type'] ?? ship_type.shipTypeLabel(vessel?.aisShipType);
+    final typeColor = ship_type.shipTypeColor(vessel?.aisShipType, aisClass: vessel?.aisClass);
     final heading = vessel?.headingTrue ?? vessel?.cog ?? 0.0;
 
     // Build dimensions string
@@ -940,67 +941,7 @@ class _AISPolarChartState extends State<AISPolarChart>
     return metadata?.symbol ?? 'm/s';
   }
 
-  /// Decode AIS ship type integer to human-readable label
-  String _getShipTypeLabel(int? type) {
-    if (type == null) return 'Unknown';
-    if (type >= 20 && type <= 29) return 'Wing in Ground';
-    if (type == 30) return 'Fishing';
-    if (type == 31 || type == 32) return 'Towing';
-    if (type == 33) return 'Dredging';
-    if (type == 34) return 'Diving ops';
-    if (type == 35) return 'Military';
-    if (type == 36) return 'Sailing';
-    if (type == 37) return 'Pleasure craft';
-    if (type >= 40 && type <= 49) return 'High speed craft';
-    if (type == 50) return 'Pilot vessel';
-    if (type == 51) return 'SAR';
-    if (type == 52) return 'Tug';
-    if (type == 53) return 'Port tender';
-    if (type == 55) return 'Law enforcement';
-    if (type >= 60 && type <= 69) return 'Passenger';
-    if (type >= 70 && type <= 79) return 'Cargo';
-    if (type >= 80 && type <= 89) return 'Tanker';
-    return 'Other ($type)';
-  }
-
-  /// Get vessel type color based on AIS ship type code (MarineTraffic convention)
-  Color _getVesselTypeColor(int? aisShipType, {String? aisClass}) {
-    if (aisShipType == null) {
-      return aisClass == 'A' ? Colors.grey.shade400 : Colors.grey;
-    }
-
-    // Special case: sailing vessel
-    if (aisShipType == 36) return Colors.purple;
-
-    final firstDigit = aisShipType ~/ 10;
-    switch (firstDigit) {
-      case 1:
-      case 2:
-        return Colors.cyan; // Fishing, towing
-      case 3:
-        return Colors.amber; // Special craft (SAR, tug, pilot)
-      case 4:
-      case 5:
-        return Colors.teal; // High-speed craft, special
-      case 6:
-        return Colors.blue; // Passenger
-      case 7:
-        return Colors.green.shade700; // Cargo
-      case 8:
-        return Colors.brown; // Tanker
-      default:
-        return Colors.grey; // Other/unknown
-    }
-  }
-
-  /// Get vessel icon based on motion state (type is conveyed by color)
-  IconData _getVesselIcon(int? aisShipType, String? navState, {double? sogRaw}) {
-    if (navState == 'anchored') return Icons.anchor;
-    if (navState == 'moored') return Icons.local_parking;
-    // Stationary: SOG ≈ 0 (< 0.1 m/s)
-    if (sogRaw != null && sogRaw < 0.1) return Icons.circle;
-    return Icons.navigation; // Moving chevron
-  }
+  // Ship type label, color, and icon moved to lib/utils/ship_type_utils.dart
 
   /// Mooring buoy SVG template — `white` is replaced with vessel type color
   static const _mooringBuoySvg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">'
@@ -1025,7 +966,7 @@ class _AISPolarChartState extends State<AISPolarChart>
       final svg = _mooringBuoySvg.replaceAll('TYPE_COLOR', hex);
       return SvgPicture.string(svg, width: size, height: size);
     }
-    final icon = _getVesselIcon(aisShipType, navState, sogRaw: sogRaw);
+    final icon = ship_type.shipTypeIcon(aisShipType, navState, sogMs: sogRaw);
     return Icon(icon, color: color, size: size, shadows: shadows);
   }
 
@@ -1761,7 +1702,7 @@ class _AISPolarChartState extends State<AISPolarChart>
       final projections = _calculateProjectedPositions(vessel);
       if (projections.isEmpty) continue;
 
-      final typeColor = _getVesselTypeColor(vessel.aisShipType, aisClass: vessel.aisClass);
+      final typeColor = ship_type.shipTypeColor(vessel.aisShipType, aisClass: vessel.aisClass);
       final isHighlighted = vessel.mmsi == _highlightedVesselMMSI;
 
       // Build line from vessel position through projected points
@@ -2001,7 +1942,7 @@ class _AISPolarChartState extends State<AISPolarChart>
                 final projections = _calculateProjectedPositions(vessel);
                 if (projections.isEmpty) return null;
 
-                final typeColor = _getVesselTypeColor(vessel.aisShipType, aisClass: vessel.aisClass);
+                final typeColor = ship_type.shipTypeColor(vessel.aisShipType, aisClass: vessel.aisClass);
                 final isHighlighted = vessel.mmsi == _highlightedVesselMMSI;
                 return Polyline(
                   points: [
@@ -2044,7 +1985,7 @@ class _AISPolarChartState extends State<AISPolarChart>
               final heading = vessel.headingTrue ?? vessel.cog ?? 0.0;
               final isHighlighted = vessel.mmsi == _highlightedVesselMMSI;
               final typeColor = widget.colorByShipType
-                  ? _getVesselTypeColor(vessel.aisShipType, aisClass: vessel.aisClass)
+                  ? ship_type.shipTypeColor(vessel.aisShipType, aisClass: vessel.aisClass)
                   : _getVesselFreshnessColor(vessel.timestamp);
               final stale = _isStale(vessel.timestamp, aisStatus: vessel.aisStatus);
               final iconSize = isHighlighted ? 48.0 : 32.0;
@@ -2092,7 +2033,7 @@ class _AISPolarChartState extends State<AISPolarChart>
                   .take(20)
                   .expand((vessel) {
                 final projections = _calculateProjectedPositions(vessel);
-                final typeColor = _getVesselTypeColor(vessel.aisShipType, aisClass: vessel.aisClass);
+                final typeColor = ship_type.shipTypeColor(vessel.aisShipType, aisClass: vessel.aisClass);
                 final isHighlighted = vessel.mmsi == _highlightedVesselMMSI;
                 const projectionDotSizes = [6.0, 10.0, 16.0, 22.0];
                 return projections.indexed.map((indexedProj) {
@@ -2208,7 +2149,7 @@ class _AISPolarChartState extends State<AISPolarChart>
       final y = vessel.distance * math.sin(angleRad);
 
       final color = widget.colorByShipType
-          ? _getVesselTypeColor(vessel.aisShipType, aisClass: vessel.aisClass)
+          ? ship_type.shipTypeColor(vessel.aisShipType, aisClass: vessel.aisClass)
           : _getVesselFreshnessColor(vessel.timestamp);
 
       return _CartesianPoint(
@@ -2353,7 +2294,7 @@ class _AISPolarChartState extends State<AISPolarChart>
 
             // Type-based color with freshness opacity (or plain freshness color)
             final typeColor = widget.colorByShipType
-                ? _getVesselTypeColor(vessel.aisShipType, aisClass: vessel.aisClass)
+                ? ship_type.shipTypeColor(vessel.aisShipType, aisClass: vessel.aisClass)
                 : _getVesselFreshnessColor(vessel.timestamp);
             final freshnessOpacity = widget.colorByShipType
                 ? _getFreshnessOpacity(vessel.timestamp, aisStatus: vessel.aisStatus)

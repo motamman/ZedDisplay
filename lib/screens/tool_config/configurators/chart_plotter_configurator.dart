@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../../../config/chart_constants.dart';
 import '../../../models/tool_config.dart';
 import '../../../models/tool.dart';
 import '../../../services/chart_tile_cache_service.dart';
@@ -17,21 +18,7 @@ class ChartPlotterConfigurator extends ToolConfigurator {
   @override
   Size get defaultSize => const Size(4, 4);
 
-  static const _baseMapOptions = <String, String>{
-    'carto_voyager': 'CartoDB Voyager',
-    'carto_dark': 'CartoDB Dark Matter',
-    'carto_light': 'CartoDB Positron',
-    'esri_ocean': 'Esri Ocean',
-    'esri_satellite': 'Esri Satellite',
-  };
-
-  static const _baseMapDescriptions = <String, String>{
-    'carto_voyager': 'Street map with muted colors, good under S-57 charts',
-    'carto_dark': 'Dark street map, best contrast for night use',
-    'carto_light': 'Light minimal map, clean background for chart overlays',
-    'esri_ocean': 'Ocean bathymetry with seafloor shading and labels',
-    'esri_satellite': 'Aerial/satellite imagery',
-  };
+  // Base map options and descriptions from chart_constants.dart
 
   List<Map<String, dynamic>> layers = [];
   int trailMinutes = 10;
@@ -300,7 +287,7 @@ class ChartPlotterConfigurator extends ToolConfigurator {
         String name;
         IconData icon;
         if (type == 'base') {
-          name = _baseMapOptions[id] ?? id;
+          name = baseMapNames[id] ?? id;
           icon = Icons.map_outlined;
         } else {
           name = id;
@@ -404,13 +391,13 @@ class ChartPlotterConfigurator extends ToolConfigurator {
 
             // Build available options
             final options = <Map<String, String>>[];
-            for (final entry in _baseMapOptions.entries) {
+            for (final entry in baseMapNames.entries) {
               if (!existingIds.contains(entry.key)) {
                 options.add({
                   'type': 'base',
                   'id': entry.key,
                   'name': entry.value,
-                  'desc': _baseMapDescriptions[entry.key] ?? '',
+                  'desc': baseMapDescriptions[entry.key] ?? '',
                 });
               }
             }

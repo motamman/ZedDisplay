@@ -15,7 +15,10 @@ import '../../models/ais_favorite.dart';
 import '../../services/ais_favorites_service.dart';
 import '../../services/dashboard_service.dart';
 import '../../services/find_home_target_service.dart';
+import '../../config/chart_constants.dart';
+import '../../models/cpa_alert_state.dart';
 import '../../utils/cpa_utils.dart';
+import '../../utils/ship_type_utils.dart' as ship_type;
 import '../../widgets/countdown_confirmation_overlay.dart';
 import '../../widgets/compass_gauge.dart';
 import '../../services/chart_tile_cache_service.dart';
@@ -205,6 +208,8 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
     final distMeta = widget.signalKService.metadataStore.getByCategory('distance');
     final scaleUnits = _mapDistSymbolToOLUnits(distMeta?.symbol);
     _controller!.runJavaScript("setScaleBarUnits('$scaleUnits')");
+    // Push depth units to JS for sounding labels
+    _pushDepthUnits();
     // Position scale bar above HUD
     final scaleBottom = _hudStyle == 'visual' ? 190 : (_hudStyle == 'text' ? 40 : 10);
     _controller!.runJavaScript('setScaleBarBottom($scaleBottom)');
@@ -651,9 +656,16 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
 
   void _pushRulerUnits() {
     final distMeta = widget.signalKService.metadataStore.getByCategory('distance');
-    final factor = distMeta?.convert(1.0) ?? 0.000539957;
-    final symbol = distMeta?.symbol ?? 'nm';
+    final factor = distMeta?.convert(1.0) ?? 1.0;
+    final symbol = distMeta?.symbol ?? 'm';
     _controller?.runJavaScript('updateRulerUnits($factor, ${jsonEncode(symbol)})');
+  }
+
+  void _pushDepthUnits() {
+    final depthMeta = widget.signalKService.metadataStore.getByCategory('depth');
+    final factor = depthMeta?.convert(1.0) ?? 1.0;
+    final symbol = depthMeta?.symbol ?? 'm';
+    _controller?.runJavaScript('updateDepthUnits($factor, ${jsonEncode(symbol)})');
   }
 
   void _showDownloadDialog() async {
@@ -871,21 +883,7 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
     } catch (_) {}
   }
 
-  static const _baseMapNames = <String, String>{
-    'carto_voyager': 'CartoDB Voyager',
-    'carto_dark': 'CartoDB Dark Matter',
-    'carto_light': 'CartoDB Positron',
-    'esri_ocean': 'Esri Ocean',
-    'esri_satellite': 'Esri Satellite',
-  };
-
-  static const _baseMapDescriptions = <String, String>{
-    'carto_voyager': 'Street map with muted colors',
-    'carto_dark': 'Dark map for night use',
-    'carto_light': 'Light minimal background',
-    'esri_ocean': 'Ocean bathymetry',
-    'esri_satellite': 'Aerial/satellite imagery',
-  };
+  // Base map names and descriptions from chart_constants.dart
 
   void _showLayersPanel() {
     _controller?.runJavaScript('setMapInteractive(false)');
@@ -952,7 +950,7 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
                       final id = layer['id'] as String;
                       final enabled = layer['enabled'] as bool? ?? true;
                       final opacity = (layer['opacity'] as num?)?.toDouble() ?? 1.0;
-                      final name = type == 'base' ? (_baseMapNames[id] ?? id) : id;
+                      final name = type == 'base' ? (baseMapNames[id] ?? id) : id;
 
                       return Card(
                         key: ValueKey('$type:$id:$index'),
@@ -1037,10 +1035,10 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
   void _showAddLayerPicker(BuildContext ctx, void Function(VoidCallback) setSheetState) {
     final existingIds = _layers.map((l) => l['id'] as String).toSet();
     final options = <Map<String, String>>[];
-    for (final entry in _baseMapNames.entries) {
+    for (final entry in baseMapNames.entries) {
       if (!existingIds.contains(entry.key)) {
         options.add({'type': 'base', 'id': entry.key, 'name': entry.value,
-          'desc': _baseMapDescriptions[entry.key] ?? ''});
+          'desc': baseMapDescriptions[entry.key] ?? ''});
       }
     }
 
@@ -1103,7 +1101,7 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
   }
 
   String _mapDistSymbolToOLUnits(String? symbol) {
-    if (symbol == null) return 'nautical';
+    if (symbol == null) return 'metric';
     final s = symbol.toLowerCase();
     if (s == 'nm' || s == 'nmi') return 'nautical';
     if (s == 'mi') return 'imperial';
@@ -1138,8 +1136,8 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
 
     String fmtAngle(double? rad) {
       if (rad == null) return '--';
-      final v = cogMeta?.convert(rad) ?? (rad * 180 / math.pi);
-      return '${v.toStringAsFixed(1)}${cogMeta?.symbol ?? '°'}';
+      if (cogMeta != null) return cogMeta.format(rad, decimals: 1);
+      return '${rad.toStringAsFixed(2)} rad';
     }
     String fmtSpeed(double? ms) {
       if (ms == null) return '--';
@@ -1148,8 +1146,8 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
     }
     String fmtHeading(double? rad) {
       if (rad == null) return '--';
-      final v = hdgMeta?.convert(rad) ?? (rad * 180 / math.pi);
-      return '${v.toStringAsFixed(1)}${hdgMeta?.symbol ?? '°'}';
+      if (hdgMeta != null) return hdgMeta.format(rad, decimals: 1);
+      return '${rad.toStringAsFixed(2)} rad';
     }
     String fmtDist(double? m) {
       if (m == null) return '--';
@@ -1234,31 +1232,20 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
 
     final mmsi = _extractMMSI(vessel.vesselId);
     final vesselName = vessel.name ?? 'Unknown Vessel';
-    final typeLabel = shipTypeName ?? _shipTypeLabel(vessel.aisShipType);
-    final typeColor = _shipTypeColor(vessel.aisShipType, vessel.aisClass);
+    final typeLabel = shipTypeName ?? ship_type.shipTypeLabel(vessel.aisShipType);
+    final typeColor = ship_type.shipTypeColor(vessel.aisShipType, aisClass: vessel.aisClass);
     final heading = (vessel.headingTrueRad ?? vessel.cogRad ?? 0.0);
 
-    // CPA color coding
-    const alarmThreshold = 926.0; // 0.5 nm
-    const warnThreshold = 1852.0; // 1 nm
+    // CPA color coding — thresholds from CpaAlertConfig defaults
+    const cpaDefaults = CpaAlertConfig();
     Color cpaColor(double? cpaM) {
       if (cpaM == null) return Colors.white;
-      if (cpaM < alarmThreshold) return Colors.red;
-      if (cpaM < warnThreshold) return Colors.orange;
+      if (cpaM < cpaDefaults.alarmThresholdMeters) return Colors.red;
+      if (cpaM < cpaDefaults.warnThresholdMeters) return Colors.orange;
       return Colors.white;
     }
 
-    // Vessel icon for header
-    IconData vesselIcon;
-    if (vessel.navState == 'anchored') {
-      vesselIcon = Icons.anchor;
-    } else if (vessel.navState == 'moored') {
-      vesselIcon = Icons.local_parking;
-    } else if ((vessel.sogMs ?? 0) < 0.1) {
-      vesselIcon = Icons.circle;
-    } else {
-      vesselIcon = Icons.navigation;
-    }
+    final vesselIcon = ship_type.shipTypeIcon(vessel.aisShipType, vessel.navState, sogMs: vessel.sogMs);
 
     showModalBottomSheet(
       context: context,
@@ -1390,7 +1377,7 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
                 // Relative section
                 if (bearing != null) ...[
                   _section('Relative'),
-                  _row('Bearing', '${bearing.toStringAsFixed(1)}${cogMeta?.symbol ?? '°'}'),
+                  _row('Bearing', '${bearing.toStringAsFixed(1)}°'),
                   if (distance != null) _row('Distance', fmtDist(distance)),
                   if (cpa != null) _rowColored('CPA', fmtDist(cpa), cpaColor(cpa)),
                   if (tcpa != null && tcpa.isFinite && tcpa > 0)
@@ -1479,35 +1466,7 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
     return match?.group(1) ?? vesselId;
   }
 
-  static String _shipTypeLabel(int? type) {
-    if (type == null) return 'Unknown';
-    if (type == 30) return 'Fishing';
-    if (type == 31 || type == 32) return 'Towing';
-    if (type == 35) return 'Military';
-    if (type == 36) return 'Sailing';
-    if (type == 37) return 'Pleasure craft';
-    if (type == 50) return 'Pilot vessel';
-    if (type == 51) return 'SAR';
-    if (type == 52) return 'Tug';
-    if (type >= 60 && type <= 69) return 'Passenger';
-    if (type >= 70 && type <= 79) return 'Cargo';
-    if (type >= 80 && type <= 89) return 'Tanker';
-    return 'Other ($type)';
-  }
-
-  static Color _shipTypeColor(int? type, String? aisClass) {
-    if (type == null) return aisClass == 'A' ? Colors.grey.shade400 : Colors.grey;
-    if (type == 36) return Colors.purple;
-    switch (type ~/ 10) {
-      case 1: case 2: return Colors.cyan;
-      case 3: return Colors.amber;
-      case 4: case 5: return Colors.teal;
-      case 6: return Colors.blue;
-      case 7: return Colors.green.shade700;
-      case 8: return Colors.brown;
-      default: return Colors.grey;
-    }
-  }
+  // Ship type label, color, and icon moved to lib/utils/ship_type_utils.dart
 
   // ---------------------------------------------------------------------------
   // Vessel data (raw SI from single WS)
@@ -1600,16 +1559,16 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
     final dptVal = dptMeta?.convert(dptRaw ?? 0) ?? dptRaw ?? 0;
     final dptFmt = dptRaw != null ? (dptMeta?.format(dptRaw, decimals: 1) ?? dptRaw.toStringAsFixed(1)) : '--';
 
-    // COG (radians → degrees)
+    // COG
     final cogRaw = _numValue(_dsPath(_dsCog));
     final cogMeta = store.get(_dsPath(_dsCog)) ?? store.getByCategory('angle');
-    final cogDeg = cogMeta?.convert(cogRaw ?? 0) ?? (cogRaw != null ? cogRaw * 180 / math.pi : 0);
-    final cogFmt = cogRaw != null ? (cogMeta?.format(cogRaw, decimals: 0) ?? '${cogDeg.toStringAsFixed(0)}°') : '--';
+    final cogDeg = cogMeta?.convert(cogRaw ?? 0) ?? cogRaw ?? 0;
+    final cogFmt = cogRaw != null ? (cogMeta?.format(cogRaw, decimals: 0) ?? cogRaw.toStringAsFixed(2)) : '--';
 
-    // BRG (radians → degrees)
+    // BRG
     final brgRaw = _numValue(_dsPath(_dsBearing));
     final brgMeta = store.get(_dsPath(_dsBearing)) ?? cogMeta;
-    final brgDeg = brgMeta?.convert(brgRaw ?? 0) ?? (brgRaw != null ? brgRaw * 180 / math.pi : 0);
+    final brgDeg = brgMeta?.convert(brgRaw ?? 0) ?? brgRaw ?? 0;
 
     // DTW (raw SI meters for XTE scaling)
     final dtwRaw = _numValue(_dsPath(_dsDtw));
@@ -2456,8 +2415,11 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
       children: [
         Builder(builder: (context) {
           final depthMeta = widget.signalKService.metadataStore.getByCategory('depth');
-          final factor = depthMeta?.convert(1.0) ?? 1.0;
-          final symbol = depthMeta?.symbol ?? 'm';
+          final depthFactor = depthMeta?.convert(1.0) ?? 1.0;
+          final depthSymbol = depthMeta?.symbol ?? 'm';
+          final heightMeta = widget.signalKService.metadataStore.getByCategory('length');
+          final heightFactor = heightMeta?.convert(1.0) ?? 1.0;
+          final heightSymbol = heightMeta?.symbol ?? 'm';
           int? tilePort;
           try {
             final tileServer = context.read<ChartTileServerService>();
@@ -2476,8 +2438,10 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
             onViewportChanged: _onViewportChanged,
             localTileServerPort: tilePort,
             layers: _layers,
-            depthUnit: symbol,
-            depthConversionFactor: factor,
+            depthUnit: depthSymbol,
+            depthConversionFactor: depthFactor,
+            heightUnit: heightSymbol,
+            heightConversionFactor: heightFactor,
           );
         }),
         ListenableBuilder(

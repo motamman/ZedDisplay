@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:provider/provider.dart';
 import 'package:webview_flutter/webview_flutter.dart';
+import '../../config/chart_constants.dart' as chart_const;
 
 /// OpenLayers WebView for chart rendering + navigation overlays.
 ///
@@ -24,6 +25,8 @@ class ChartWebView extends StatefulWidget {
   final List<Map<String, dynamic>>? layers;
   final String depthUnit;
   final double depthConversionFactor;
+  final String heightUnit;
+  final double heightConversionFactor;
 
   const ChartWebView({
     super.key,
@@ -41,6 +44,8 @@ class ChartWebView extends StatefulWidget {
     this.layers,
     this.depthUnit = 'm',
     this.depthConversionFactor = 1.0,
+    this.heightUnit = 'm',
+    this.heightConversionFactor = 1.0,
   });
 
   @override
@@ -196,6 +201,8 @@ class _ChartWebViewState extends State<ChartWebView> {
         lngLat: lngLat,
         depthUnit: widget.depthUnit,
         depthConversionFactor: widget.depthConversionFactor,
+        heightUnit: widget.heightUnit,
+        heightConversionFactor: widget.heightConversionFactor,
       ),
     ).whenComplete(() => _featureSheetOpen = false);
   }
@@ -900,14 +907,8 @@ async function initMap() {
 
   const s57Style = new S57Style(s57Service);
 
-  // Base map URL registry
-  const BASE_MAP_URLS = {
-    'carto_voyager': 'https://basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png',
-    'carto_dark': 'https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
-    'carto_light': 'https://basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',
-    'esri_ocean': 'https://server.arcgisonline.com/ArcGIS/rest/services/Ocean/World_Ocean_Base/MapServer/tile/{z}/{y}/{x}',
-    'esri_satellite': 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-  };
+  // Base map URL registry — injected from Dart chart_constants.dart
+  const BASE_MAP_URLS = ${jsonEncode(chart_const.baseMapUrls)};
 
   // Tag to distinguish chart layers from overlay layers (vessel, AIS, route, etc.)
   const CHART_LAYER_TAG = '_chartLayer';
@@ -1765,6 +1766,18 @@ async function initMap() {
     if (el) el.style.bottom = px + 'px';
   };
 
+  // Update depth display units at runtime (called from Dart when MetadataStore changes)
+  window.updateDepthUnits = function(factor, symbol) {
+    s57Service.options.depthConversionFactor = factor;
+    s57Service.options.depthUnit = symbol;
+    // Force S-57 layers to re-render with new depth units
+    map.getLayers().forEach(function(layer) {
+      if (layer.get('_chartLayer') && layer.getSource && layer.getSource().refresh) {
+        layer.getSource().refresh();
+      }
+    });
+  };
+
   // =========================================================================
   // Dynamic ruler
   // =========================================================================
@@ -2097,12 +2110,16 @@ class _FeaturePopover extends StatelessWidget {
   final List? lngLat;
   final String depthUnit;
   final double depthConversionFactor;
+  final String heightUnit;
+  final double heightConversionFactor;
 
   const _FeaturePopover({
     required this.features,
     this.lngLat,
     this.depthUnit = 'm',
     this.depthConversionFactor = 1.0,
+    this.heightUnit = 'm',
+    this.heightConversionFactor = 1.0,
   });
 
   @override
@@ -2207,7 +2224,7 @@ class _FeaturePopover extends StatelessWidget {
         display = n != null ? '${(n * depthConversionFactor).toStringAsFixed(1)} $depthUnit' : val.toString();
       } else if (_heightKeys.contains(key)) {
         final n = num.tryParse(val.toString());
-        display = n != null ? '${n.toStringAsFixed(1)} m' : val.toString();
+        display = n != null ? '${(n * heightConversionFactor).toStringAsFixed(1)} $heightUnit' : val.toString();
       } else if (key == 'SIGPER') {
         display = '${val}s';
       } else if (key == 'VALNMR') {
