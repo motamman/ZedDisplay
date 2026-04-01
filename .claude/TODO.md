@@ -36,6 +36,7 @@
 - [ ] Chart plotter: add basic anchor alarm based on anchor alarm widget
 - [x] Chart plotter: add dynamic ruler and permanent scale bar
 - [ ] Chart plotter: create a nicer, more visual HUD
+- [ ] AIS tracker: replace private `_VesselLookupWebView` with shared `VesselLookupPage` from `ais_vessel_detail_sheet.dart`
 - [x] Fix Linux CI build: `flutter_scene` native asset build failure on GitHub Actions (may need pinned Flutter version or stale pubspec.lock cleanup after removing vector_map_tiles/vector_tile_renderer/maplibre_gl)
 
 ## Widget Inventory — AIS Context Status
