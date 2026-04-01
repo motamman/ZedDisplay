@@ -9,10 +9,10 @@ import '../../models/tool_definition.dart';
 import '../../services/signalk_service.dart';
 import '../../services/tool_registry.dart';
 import '../../services/route_arrival_monitor.dart';
-import '../../config/chart_constants.dart';
 import '../../utils/cpa_utils.dart';
 import '../../widgets/ais_vessel_detail_sheet.dart';
 import '../../widgets/chart_plotter/chart_hud.dart';
+import '../../widgets/chart_plotter/chart_layer_panel.dart';
 import '../../widgets/countdown_confirmation_overlay.dart';
 import '../../services/chart_tile_cache_service.dart';
 import '../../services/chart_tile_server_service.dart';
@@ -858,8 +858,6 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
     } catch (_) {}
   }
 
-  // Base map names and descriptions from chart_constants.dart
-
   void _showLayersPanel() {
     _controller?.runJavaScript('setMapInteractive(false)');
     showModalBottomSheet<void>(
@@ -880,24 +878,18 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
             ),
             child: Column(
               children: [
-                // Drag handle + header
                 Center(child: Container(
                   width: 40, height: 4,
                   margin: const EdgeInsets.only(top: 8, bottom: 8),
                   decoration: BoxDecoration(color: Colors.grey[600], borderRadius: BorderRadius.circular(2)),
                 )),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 16),
                   child: Row(children: [
-                    const Icon(Icons.layers, color: Colors.white70),
-                    const SizedBox(width: 8),
-                    const Expanded(child: Text('Chart Layers',
+                    Icon(Icons.layers, color: Colors.white70),
+                    SizedBox(width: 8),
+                    Expanded(child: Text('Chart Layers',
                       style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold))),
-                    // Add layer button
-                    IconButton(
-                      icon: const Icon(Icons.add_circle_outline, color: Colors.white70),
-                      onPressed: () => _showAddLayerPicker(ctx, setSheetState),
-                    ),
                   ]),
                 ),
                 const Padding(
@@ -906,95 +898,15 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
                     style: TextStyle(color: Colors.white38, fontSize: 11)),
                 ),
                 const SizedBox(height: 4),
-                // Reorderable layer list
                 Expanded(
-                  child: ReorderableListView.builder(
-                    scrollController: scrollController,
-                    itemCount: _layers.length,
-                    onReorder: (oldIndex, newIndex) {
-                      setSheetState(() {
-                        if (newIndex > oldIndex) newIndex--;
-                        final item = _layers.removeAt(oldIndex);
-                        _layers.insert(newIndex, item);
-                      });
-                      _pushLayers();
-                    },
-                    itemBuilder: (_, index) {
-                      final layer = _layers[index];
-                      final type = layer['type'] as String;
-                      final id = layer['id'] as String;
-                      final enabled = layer['enabled'] as bool? ?? true;
-                      final opacity = (layer['opacity'] as num?)?.toDouble() ?? 1.0;
-                      final name = type == 'base' ? (baseMapNames[id] ?? id) : id;
-
-                      return Card(
-                        key: ValueKey('$type:$id:$index'),
-                        color: const Color(0xFF2A2A3E),
-                        margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
-                        child: Column(children: [
-                          ListTile(
-                            dense: true,
-                            leading: ReorderableDragStartListener(
-                              index: index,
-                              child: const Icon(Icons.drag_handle, color: Colors.grey, size: 20),
-                            ),
-                            title: Row(children: [
-                              Icon(
-                                type == 'base' ? Icons.map_outlined : Icons.layers,
-                                size: 14,
-                                color: enabled ? Colors.white70 : Colors.white24,
-                              ),
-                              const SizedBox(width: 6),
-                              Expanded(child: Text(name,
-                                style: TextStyle(
-                                  color: enabled ? Colors.white : Colors.white38,
-                                  fontSize: 13,
-                                ))),
-                            ]),
-                            trailing: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Switch(
-                                  value: enabled,
-                                  onChanged: (v) {
-                                    setSheetState(() => layer['enabled'] = v);
-                                    _pushLayers();
-                                  },
-                                ),
-                                IconButton(
-                                  icon: const Icon(Icons.close, size: 16, color: Colors.white38),
-                                  constraints: const BoxConstraints.tightFor(width: 28),
-                                  onPressed: () {
-                                    setSheetState(() => _layers.removeAt(index));
-                                    _pushLayers();
-                                  },
-                                ),
-                              ],
-                            ),
-                          ),
-                          Padding(
-                            padding: const EdgeInsets.fromLTRB(48, 0, 12, 4),
-                            child: Row(children: [
-                              Expanded(
-                                child: Slider(
-                                  value: opacity,
-                                  min: 0.1, max: 1.0, divisions: 9,
-                                  onChanged: enabled ? (v) {
-                                    setSheetState(() => layer['opacity'] = double.parse(v.toStringAsFixed(1)));
-                                    _pushLayers();
-                                  } : null,
-                                ),
-                              ),
-                              SizedBox(width: 32, child: Text(
-                                '${(opacity * 100).round()}%',
-                                style: const TextStyle(fontSize: 10, color: Colors.white38),
-                                textAlign: TextAlign.right,
-                              )),
-                            ]),
-                          ),
-                        ]),
-                      );
-                    },
+                  child: SingleChildScrollView(
+                    controller: scrollController,
+                    child: ChartLayerPanel(
+                      layers: _layers,
+                      signalKService: widget.signalKService,
+                      setState: setSheetState,
+                      onLayersChanged: _pushLayers,
+                    ),
                   ),
                 ),
               ],
@@ -1005,74 +917,6 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
     ).whenComplete(() {
       _controller?.runJavaScript('setMapInteractive(true)');
     });
-  }
-
-  void _showAddLayerPicker(BuildContext ctx, void Function(VoidCallback) setSheetState) {
-    final existingIds = _layers.map((l) => l['id'] as String).toSet();
-    final options = <Map<String, String>>[];
-    for (final entry in baseMapNames.entries) {
-      if (!existingIds.contains(entry.key)) {
-        options.add({'type': 'base', 'id': entry.key, 'name': entry.value,
-          'desc': baseMapDescriptions[entry.key] ?? ''});
-      }
-    }
-
-    showModalBottomSheet(
-      context: ctx,
-      backgroundColor: const Color(0xFF1E1E2E),
-      builder: (pickerCtx) => FutureBuilder<Map<String, dynamic>>(
-        future: widget.signalKService.getResources('charts'),
-        builder: (_, snapshot) {
-          final allOptions = List<Map<String, String>>.from(options);
-          final charts = snapshot.data ?? {};
-          for (final entry in charts.entries) {
-            if (!existingIds.contains(entry.key)) {
-              final data = entry.value as Map<String, dynamic>;
-              allOptions.add({
-                'type': 's57', 'id': entry.key,
-                'name': data['name'] as String? ?? entry.key,
-                'desc': data['description'] as String? ?? 'S-57 chart',
-              });
-            }
-          }
-          if (allOptions.isEmpty) {
-            return const Padding(
-              padding: EdgeInsets.all(24),
-              child: Text('All available layers added',
-                style: TextStyle(color: Colors.white54)),
-            );
-          }
-          return ListView(
-            shrinkWrap: true,
-            padding: const EdgeInsets.symmetric(vertical: 8),
-            children: allOptions.map((opt) {
-              final isBase = opt['type'] == 'base';
-              return ListTile(
-                leading: Icon(
-                  isBase ? Icons.map_outlined : Icons.layers,
-                  color: isBase ? Colors.blue : Colors.green,
-                ),
-                title: Text(opt['name']!, style: const TextStyle(color: Colors.white)),
-                subtitle: Text(opt['desc'] ?? '',
-                  style: const TextStyle(color: Colors.white38, fontSize: 12)),
-                onTap: () {
-                  Navigator.pop(pickerCtx);
-                  setSheetState(() {
-                    _layers.add({
-                      'type': opt['type']!,
-                      'id': opt['id']!,
-                      'enabled': true,
-                      'opacity': 1.0,
-                    });
-                  });
-                  _pushLayers();
-                },
-              );
-            }).toList(),
-          );
-        },
-      ),
-    );
   }
 
   String _mapDistSymbolToOLUnits(String? symbol) {
