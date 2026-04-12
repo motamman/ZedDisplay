@@ -57,15 +57,20 @@ class _AISPolarChartToolState extends State<AISPolarChartTool> {
     _cpaAlertService!.onAlertTriggered = _onCpaAlertTriggered;
     _cpaAlertService!.onAlertDismissed = _onCpaAlertDismissed;
 
+    // Convert persisted display-unit values back to meters via MetadataStore
+    final distMeta = widget.signalKService.metadataStore.get('__category__.distance');
+    double toMeters(double displayValue) =>
+        distMeta?.convertToSI(displayValue) ?? displayValue * 1852.0;
+
     _cpaAlertService!.applyConfig(CpaAlertConfig(
       enabled: enabled,
-      warnThresholdMeters: ((props['cpaWarnNm'] as num?)?.toDouble() ?? 1.0) * 1852.0,
-      alarmThresholdMeters: ((props['cpaAlarmNm'] as num?)?.toDouble() ?? 0.5) * 1852.0,
+      warnThresholdMeters: toMeters((props['cpaWarnNm'] as num?)?.toDouble() ?? 1.0),
+      alarmThresholdMeters: toMeters((props['cpaAlarmNm'] as num?)?.toDouble() ?? 0.5),
       tcpaThresholdSeconds: ((props['cpaTcpaMinutes'] as num?)?.toDouble() ?? 30.0) * 60.0,
       alarmSound: props['cpaAlarmSound'] as String? ?? 'foghorn',
       cooldownSeconds: ((props['cpaCooldownMinutes'] as int?) ?? 5) * 60,
       sendCrewAlert: props['cpaSendCrewAlert'] as bool? ?? true,
-      maxRangeMeters: ((props['maxRangeNm'] as num?)?.toDouble() ?? 100.0) * 1852.0,
+      maxRangeMeters: toMeters((props['maxRangeNm'] as num?)?.toDouble() ?? 100.0),
     ));
   }
 
