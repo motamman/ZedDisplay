@@ -134,6 +134,6 @@ jobs:
           serviceAccountJsonPlainText: ${{ secrets.GOOGLEPLAYSERVICEACCOUNT }}
           packageName: com.zennora.zed_display
           releaseFiles: build/app/outputs/bundle/release/app-release.aab
-          track: internal
+          tracks: internal
           status: draft
           whatsNewDirectory: distribution/whatsnew
