@@ -244,8 +244,8 @@ class PathMetadata {
 /// | non-null | x       | `metadata.format(x, decimals: decimals)`       |
 ///
 /// [siSuffix] lets the caller hint the SI unit (e.g. "rad", "m/s", "m")
-/// when metadata is missing. When omitted, falls back to
-/// `metadata?.baseUnit` or an empty string.
+/// to render alongside the raw value when metadata is missing. When
+/// omitted, no unit suffix is rendered — only the raw number.
 extension MetadataFormatExtension on PathMetadata? {
   String formatOrRaw(
     double? siValue, {

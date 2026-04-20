@@ -698,18 +698,15 @@ class SignalKService extends ChangeNotifier implements DataService {
                 final numericValue = convertedValue is num ? convertedValue.toDouble() : null;
 
                 // Feed plugin-delivered symbol into MetadataStore — the
-                // single read path — skipping when the store already knows
-                // the symbol for this path. (Without this guard the merge
-                // allocates a PathMetadata per delta at 1-10 Hz per path,
-                // causing frame drops at connect time.)
+                // single read path. updateSymbol is a no-op when the
+                // existing entry already has this symbol, so delta-rate
+                // calls at 1-10 Hz per path stay cheap. We deliberately
+                // don't route through updateFromMeta here: that would let
+                // the symbol leak into targetUnit via the fromDisplayUnits
+                // symbol-as-units fallback, overwriting a canonical unit
+                // id (e.g. "fahrenheit") learned from a prior meta delta.
                 if (symbolString != null && symbolString.isNotEmpty) {
-                  final existing = _metadataStore.get(value.path);
-                  if (existing == null || existing.symbol != symbolString) {
-                    _metadataStore.updateFromMeta(
-                      value.path,
-                      {'symbol': symbolString, 'units': symbolString},
-                    );
-                  }
+                  _metadataStore.updateSymbol(value.path, symbolString);
                 }
 
                 dataPoint = SignalKDataPoint(

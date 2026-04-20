@@ -39,15 +39,24 @@ class MetadataStore extends ChangeNotifier {
       zones: zones ?? existing?.zones,
     );
 
-    // Merge: if existing has a formula but incoming doesn't, keep existing.
-    // WS meta deltas often resend only {category: ...} without the full
-    // displayUnits payload — don't let that overwrite good data.
-    final merged = existing != null && incoming.formula == null && existing.formula != null
-        ? existing.copyWith(
+    // Field-by-field merge: prefer incoming values when present, otherwise
+    // retain existing. This preserves a hard-won formula when a later delta
+    // only carries a category or symbol update, and also propagates
+    // symbol-only updates instead of silently discarding them when existing
+    // already has a formula (the previous "keep existing wholesale" branch
+    // dropped incoming symbol/targetUnit/inverseFormula/etc.).
+    final merged = existing == null
+        ? incoming
+        : existing.copyWith(
+            baseUnit: incoming.baseUnit ?? existing.baseUnit,
+            targetUnit: incoming.targetUnit ?? existing.targetUnit,
             category: incoming.category ?? existing.category,
+            formula: incoming.formula ?? existing.formula,
+            inverseFormula: incoming.inverseFormula ?? existing.inverseFormula,
+            symbol: incoming.symbol ?? existing.symbol,
+            displayFormat: incoming.displayFormat ?? existing.displayFormat,
             zones: incoming.zones ?? existing.zones,
-          )
-        : incoming;
+          );
 
     if (_hasChanged(existing, merged)) {
       _metadata[path] = merged;
@@ -62,6 +71,26 @@ class MetadataStore extends ChangeNotifier {
       _metadata[metadata.path] = metadata;
       notifyListeners();
     }
+  }
+
+  /// Update only the display [symbol] for [path], preserving every other
+  /// [PathMetadata] field.
+  ///
+  /// Intended for the units-preference plugin ingest path, where each
+  /// WebSocket frame carries a symbol but no canonical unit id. Routing
+  /// through [updateFromMeta] there would let the symbol leak into
+  /// [PathMetadata.targetUnit] via [PathMetadata.fromDisplayUnits]'s
+  /// symbol-as-units fallback.
+  void updateSymbol(String path, String symbol) {
+    final existing = _metadata[path];
+    if (existing == null) {
+      _metadata[path] = PathMetadata(path: path, symbol: symbol);
+      notifyListeners();
+      return;
+    }
+    if (existing.symbol == symbol) return;
+    _metadata[path] = existing.copyWith(symbol: symbol);
+    notifyListeners();
   }
 
   /// Check if metadata has meaningfully changed.
