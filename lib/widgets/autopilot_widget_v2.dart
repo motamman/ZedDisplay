@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:syncfusion_flutter_gauges/gauges.dart';
 import 'dart:math' as math;
 import 'dart:async';
+import '../config/app_colors.dart';
 import 'base_compass.dart';
 import 'route_info_panel.dart';
 import '../utils/angle_utils.dart';
@@ -232,7 +233,7 @@ class _AutopilotWidgetV2State extends State<AutopilotWidgetV2> {
       markerHeight: _isDraggingTarget ? 24 : 20,
       markerWidth: _isDraggingTarget ? 20 : 16,
       color: _isDraggingTarget
-          ? const Color(0xFFFFD600) // Bright yellow when dragging
+          ? AppColors.warningYellow // Bright yellow when dragging
           : widget.primaryColor,
       markerOffset: -2,
     ));
@@ -342,13 +343,13 @@ class _AutopilotWidgetV2State extends State<AutopilotWidgetV2> {
                     color: Colors.black.withValues(alpha: 0.75),
                     border: Border.all(
                       color: widget.engaged
-                          ? const Color(0xFF00E676) // Vibrant green when engaged
+                          ? AppColors.successGreen // Vibrant green when engaged
                           : Colors.grey.withValues(alpha: 0.5),
                       width: widget.engaged ? 4 : 2,
                     ),
                     boxShadow: widget.engaged ? [
                       BoxShadow(
-                        color: const Color(0xFF00E676).withValues(alpha: 0.4),
+                        color: AppColors.successGreen.withValues(alpha: 0.4),
                         blurRadius: 25,
                         spreadRadius: 8,
                       ),
@@ -464,8 +465,8 @@ class _AutopilotWidgetV2State extends State<AutopilotWidgetV2> {
                           },
                           style: ElevatedButton.styleFrom(
                             backgroundColor: widget.engaged
-                                ? const Color(0xFFFF1744).withValues(alpha: 0.9) // Vibrant red
-                                : const Color(0xFF00E676).withValues(alpha: 0.9), // Vibrant green
+                                ? AppColors.alarmRed.withValues(alpha: 0.9) // Vibrant red
+                                : AppColors.successGreen.withValues(alpha: 0.9), // Vibrant green
                             foregroundColor: Colors.white,
                             padding: EdgeInsets.zero,
                             shape: RoundedRectangleBorder(
@@ -545,8 +546,8 @@ class _AutopilotWidgetV2State extends State<AutopilotWidgetV2> {
       final isPort = config.$4;
 
       final buttonColor = isPort
-          ? const Color(0xFFFF1744).withValues(alpha: enabled ? 0.85 : 0.25) // Vibrant red
-          : const Color(0xFF00E676).withValues(alpha: enabled ? 0.85 : 0.25); // Vibrant green
+          ? AppColors.alarmRed.withValues(alpha: enabled ? 0.85 : 0.25) // Vibrant red
+          : AppColors.successGreen.withValues(alpha: enabled ? 0.85 : 0.25); // Vibrant green
 
       return Positioned.fill(
         child: ClipPath(
@@ -1665,7 +1666,7 @@ class _DragIndicatorPainter extends CustomPainter {
 
     // Draw the arc showing the change
     final arcPaint = Paint()
-      ..color = const Color(0xFFFFD600).withValues(alpha: 0.5)
+      ..color = AppColors.warningYellow.withValues(alpha: 0.5)
       ..style = PaintingStyle.stroke
       ..strokeWidth = 20
       ..strokeCap = StrokeCap.round;

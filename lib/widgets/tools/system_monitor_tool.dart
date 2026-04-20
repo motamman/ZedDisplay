@@ -7,6 +7,7 @@ import 'package:battery_plus/battery_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:syncfusion_flutter_charts/charts.dart';
 import 'package:intl/intl.dart' as intl;
+import '../../utils/date_time_formatter.dart';
 import '../../models/tool_definition.dart';
 import '../../models/tool_config.dart';
 import '../../services/signalk_service.dart';
@@ -764,9 +765,8 @@ class _SystemMonitorToolState extends State<SystemMonitorTool> with AutomaticKee
     }
   }
 
-  String _formatTime(DateTime time) {
-    return '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}:${time.second.toString().padLeft(2, '0')}';
-  }
+  String _formatTime(DateTime time) =>
+      DateTimeFormatter.formatTimeWithSeconds(time);
 
   Widget _buildMemoryChart() {
     return SfCartesianChart(

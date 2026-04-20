@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../../utils/date_time_formatter.dart';
 import '../../models/shared_file.dart';
 import '../../services/file_share_service.dart';
 import '../../services/crew_service.dart';
@@ -276,19 +277,8 @@ class _FileListItem extends StatelessWidget {
     }
   }
 
-  String _formatTime(DateTime time) {
-    final now = DateTime.now();
-    final localTime = time.toLocal();
-
-    if (now.difference(time).inDays == 0) {
-      return '${localTime.hour.toString().padLeft(2, '0')}:'
-          '${localTime.minute.toString().padLeft(2, '0')}';
-    } else if (now.difference(time).inDays == 1) {
-      return 'Yesterday';
-    } else {
-      return '${localTime.day}/${localTime.month}';
-    }
-  }
+  String _formatTime(DateTime time) =>
+      DateTimeFormatter.formatChatTimestamp(time);
 
   void _openFile(BuildContext context) {
     Navigator.of(context).push(

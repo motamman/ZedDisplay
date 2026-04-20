@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import '../models/alert_event.dart';
 import '../models/anchor_state.dart';
+import '../utils/angle_utils.dart';
 import 'alarm_audio_player.dart';
 import 'alert_coordinator.dart';
 import 'signalk_service.dart';
@@ -603,7 +604,7 @@ class AnchorAlarmService extends ChangeNotifier {
     headingRaw ??= _getRawSI('navigation.headingMagnetic');
     if (headingRaw != null) {
       final metadata = _signalKService.metadataStore.get(_paths.heading);
-      vesselHeading = metadata?.convert(headingRaw) ?? (headingRaw * 180 / math.pi);
+      vesselHeading = metadata?.convert(headingRaw) ?? AngleUtils.toDegrees(headingRaw);
     }
 
     // Get GPS distance from bow (vessel design data) — raw SI meters

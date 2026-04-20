@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:webview_flutter/webview_flutter.dart';
+import '../config/app_colors.dart';
+import '../utils/date_time_formatter.dart';
 import '../models/ais_favorite.dart';
 import '../models/cpa_alert_state.dart';
 import '../models/path_metadata.dart';
@@ -150,7 +152,7 @@ class AISVesselDetailSheet {
           },
           child: Container(
             decoration: const BoxDecoration(
-              color: Color(0xFF1E1E2E),
+              color: AppColors.cardBackgroundDark,
               borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
               boxShadow: [BoxShadow(color: Colors.black38, blurRadius: 10, offset: Offset(0, -2))],
             ),
@@ -337,12 +339,8 @@ class AISVesselDetailSheet {
     return '${(seconds / 3600).toStringAsFixed(1)}h';
   }
 
-  static String _formatTimeSince(DateTime timestamp) {
-    final elapsed = DateTime.now().difference(timestamp);
-    if (elapsed.inSeconds < 60) return '${elapsed.inSeconds}s';
-    if (elapsed.inMinutes < 60) return '${elapsed.inMinutes}m';
-    return '${elapsed.inHours}h';
-  }
+  static String _formatTimeSince(DateTime timestamp) =>
+      DateTimeFormatter.formatElapsedShort(timestamp);
 
   static String _extractMMSI(String vesselId) {
     final match = RegExp(r'(\d{9})').firstMatch(vesselId);

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:provider/provider.dart';
 import 'package:webview_flutter/webview_flutter.dart';
+import '../../config/app_colors.dart';
 import '../../config/chart_constants.dart' as chart_const;
 
 /// OpenLayers WebView for chart rendering + navigation overlays.
@@ -2139,7 +2140,7 @@ class _FeaturePopover extends StatelessWidget {
       builder: (context, scrollController) {
         return Container(
           decoration: const BoxDecoration(
-            color: Color(0xFF1E1E2E),
+            color: AppColors.cardBackgroundDark,
             borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
           ),
           child: Column(

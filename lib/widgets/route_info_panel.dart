@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import '../config/navigation_constants.dart';
 
 /// Position data class
 class LatLon {
@@ -74,7 +75,7 @@ class RouteInfoPanel extends StatelessWidget {
             icon: Icons.straighten,
             label: 'DTW',
             value: distanceToWaypoint != null
-                ? '${(distanceToWaypoint! / 1852).toStringAsFixed(2)} nm'
+                ? '${(distanceToWaypoint! / NavigationConstants.metersPerNauticalMile).toStringAsFixed(2)} nm'
                 : '--',
           ),
 
@@ -102,7 +103,7 @@ class RouteInfoPanel extends StatelessWidget {
             _buildInfoRow(
               icon: Icons.compare_arrows,
               label: 'XTE',
-              value: '${(crossTrackError! / 1852).toStringAsFixed(3)} nm',
+              value: '${(crossTrackError! / NavigationConstants.metersPerNauticalMile).toStringAsFixed(3)} nm',
               valueColor: crossTrackError! < 0 ? Colors.red : Colors.green,
             ),
         ],

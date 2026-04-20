@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../config/app_colors.dart';
 import '../../../models/tool_config.dart';
 import '../../../models/tool.dart';
 import '../../../services/signalk_service.dart';
@@ -16,8 +17,8 @@ class TankType {
 /// Available tank types
 const List<TankType> tankTypes = [
   TankType('diesel', 'Diesel', Color(0xFFE91E63)),
-  TankType('petrol', 'Petrol', Color(0xFFFF5722)),
-  TankType('gasoline', 'Gasoline', Color(0xFFFF5722)),
+  TankType('petrol', 'Petrol', AppColors.warningOrange),
+  TankType('gasoline', 'Gasoline', AppColors.warningOrange),
   TankType('propane', 'Propane', Color(0xFF2E7D32)),
   TankType('freshWater', 'Fresh Water', Color(0xFF2196F3)),
   TankType('blackWater', 'Black Water', Color(0xFF5D4037)),

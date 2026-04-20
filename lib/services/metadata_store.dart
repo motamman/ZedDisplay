@@ -131,47 +131,35 @@ class MetadataStore extends ChangeNotifier {
   /// Check if store has data.
   bool get isNotEmpty => _metadata.isNotEmpty;
 
-  /// Convert a value using the formula for a path.
-  /// Returns the converted value, or the raw value if no conversion available.
+  /// Convert a raw SI value for [path] into the user's display units.
   ///
-  /// Identity fallback (returns `siValue` when metadata is missing) is
-  /// retained for backward compatibility. New callers should prefer
-  /// [tryConvert], which returns `null` on missing metadata so the caller
-  /// can decide the fallback policy explicitly.
+  /// Returns `null` when no metadata is registered for [path] — callers
+  /// must apply an explicit fallback (e.g. render the raw SI value, emit
+  /// "--", or skip rendering). This is the strict contract: "no metadata"
+  /// is distinguishable from "identity conversion", and the caller owns
+  /// the fallback policy.
   double? convert(String path, double siValue) {
-    final metadata = _metadata[path];
-    if (metadata == null) return siValue;
-    return metadata.convert(siValue);
+    return _metadata[path]?.convert(siValue);
   }
 
   /// Convert a display value back to SI using the inverse formula.
-  /// Returns the SI value, or the display value if no conversion available.
   ///
-  /// Identity fallback retained for backward compatibility. New callers
-  /// should prefer [tryConvertToSI].
+  /// Returns `null` when no metadata is registered for [path]. Callers
+  /// sending PUTs should treat `null` as "I can't safely persist this"
+  /// (skip the write, warn the user) rather than silently writing an
+  /// unconverted display-unit number to the server.
   double? convertToSI(String path, double displayValue) {
-    final metadata = _metadata[path];
-    if (metadata == null) return displayValue;
-    return metadata.convertToSI(displayValue);
+    return _metadata[path]?.convertToSI(displayValue);
   }
 
-  /// Strict convert: returns `null` when no metadata is registered for [path],
-  /// distinguishing "no metadata" from "identity conversion". Use this when
-  /// the caller needs to apply an explicit fallback (e.g. show raw SI, show
-  /// "--", or skip rendering).
-  double? tryConvert(String path, double siValue) {
-    final metadata = _metadata[path];
-    if (metadata == null) return null;
-    return metadata.convert(siValue);
-  }
+  /// Alias for [convert]. Kept for source compatibility with call sites
+  /// written during the transition period where [convert] used to return
+  /// the raw value on missing metadata.
+  double? tryConvert(String path, double siValue) => convert(path, siValue);
 
-  /// Strict inverse convert: returns `null` when no metadata is registered
-  /// for [path]. Companion to [tryConvert] for PUT / persistence paths.
-  double? tryConvertToSI(String path, double displayValue) {
-    final metadata = _metadata[path];
-    if (metadata == null) return null;
-    return metadata.convertToSI(displayValue);
-  }
+  /// Alias for [convertToSI]. See [tryConvert].
+  double? tryConvertToSI(String path, double displayValue) =>
+      convertToSI(path, displayValue);
 
   /// Format a value with its unit symbol.
   String format(String path, double siValue, {int decimals = 1}) {

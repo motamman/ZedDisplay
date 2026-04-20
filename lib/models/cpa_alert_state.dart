@@ -1,4 +1,5 @@
 import 'dart:convert';
+import '../config/navigation_constants.dart';
 
 enum CpaAlertLevel {
   normal,
@@ -68,13 +69,13 @@ class CpaAlertConfig {
 
   const CpaAlertConfig({
     this.enabled = true,
-    this.warnThresholdMeters = 1852.0, // 1 nm
-    this.alarmThresholdMeters = 926.0, // 0.5 nm
+    this.warnThresholdMeters = NavigationConstants.metersPerNauticalMile, // 1 nm
+    this.alarmThresholdMeters = NavigationConstants.metersPerNauticalMile / 2, // 0.5 nm
     this.tcpaThresholdSeconds = 1800.0, // 30 min
     this.alarmSound = 'foghorn',
     this.cooldownSeconds = 300, // 5 min
     this.sendCrewAlert = false,
-    this.maxRangeMeters = 185200.0, // 100 nm
+    this.maxRangeMeters = NavigationConstants.metersPerNauticalMile * 100, // 100 nm
   });
 
   Map<String, dynamic> toJson() => {
@@ -92,16 +93,16 @@ class CpaAlertConfig {
     return CpaAlertConfig(
       enabled: json['enabled'] as bool? ?? true,
       warnThresholdMeters:
-          (json['warnThresholdMeters'] as num?)?.toDouble() ?? 1852.0,
+          (json['warnThresholdMeters'] as num?)?.toDouble() ?? NavigationConstants.metersPerNauticalMile,
       alarmThresholdMeters:
-          (json['alarmThresholdMeters'] as num?)?.toDouble() ?? 926.0,
+          (json['alarmThresholdMeters'] as num?)?.toDouble() ?? NavigationConstants.metersPerNauticalMile / 2,
       tcpaThresholdSeconds:
           (json['tcpaThresholdSeconds'] as num?)?.toDouble() ?? 1800.0,
       alarmSound: json['alarmSound'] as String? ?? 'foghorn',
       cooldownSeconds: json['cooldownSeconds'] as int? ?? 300,
       sendCrewAlert: json['sendCrewAlert'] as bool? ?? true,
       maxRangeMeters:
-          (json['maxRangeMeters'] as num?)?.toDouble() ?? 185200.0,
+          (json['maxRangeMeters'] as num?)?.toDouble() ?? NavigationConstants.metersPerNauticalMile * 100,
     );
   }
 

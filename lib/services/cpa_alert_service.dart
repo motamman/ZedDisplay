@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import '../models/cpa_alert_state.dart';
 import '../models/alert_event.dart';
+import '../config/navigation_constants.dart';
 import '../utils/cpa_utils.dart';
 import 'signalk_service.dart';
 import 'notification_service.dart';
@@ -423,7 +424,7 @@ class CpaAlertService extends ChangeNotifier {
       return metadata.format(meters);
     }
     // Fallback: show in nautical miles
-    final nm = meters / 1852.0;
+    final nm = meters / NavigationConstants.metersPerNauticalMile;
     return '${nm.toStringAsFixed(2)} nm';
   }
 

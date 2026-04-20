@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../../models/tool_definition.dart';
 import '../../models/tool_config.dart';
 import '../../models/cpa_alert_state.dart';
+import '../../config/navigation_constants.dart';
 import '../../services/signalk_service.dart';
 import '../../services/cpa_alert_service.dart';
 import '../../services/tool_registry.dart';
@@ -60,7 +61,7 @@ class _AISPolarChartToolState extends State<AISPolarChartTool> {
     // Convert persisted display-unit values back to meters via MetadataStore
     final distMeta = widget.signalKService.metadataStore.get('__category__.distance');
     double toMeters(double displayValue) =>
-        distMeta?.convertToSI(displayValue) ?? displayValue * 1852.0;
+        distMeta?.convertToSI(displayValue) ?? displayValue * NavigationConstants.metersPerNauticalMile;
 
     _cpaAlertService!.applyConfig(CpaAlertConfig(
       enabled: enabled,

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../config/app_colors.dart';
 import '../../config/chart_constants.dart';
 import '../../services/signalk_service.dart';
 
@@ -154,7 +155,7 @@ class ChartLayerPanel extends StatelessWidget {
 
     showModalBottomSheet(
       context: ctx,
-      backgroundColor: const Color(0xFF1E1E2E),
+      backgroundColor: AppColors.cardBackgroundDark,
       builder: (pickerCtx) => FutureBuilder<Map<String, dynamic>>(
         future: signalKService.getResources('charts'),
         builder: (_, snapshot) {

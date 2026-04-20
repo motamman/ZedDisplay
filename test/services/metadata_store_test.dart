@@ -88,10 +88,10 @@ void main() {
     });
   });
 
-  group('MetadataStore.convert (legacy identity-on-missing)', () {
-    test('returns identity when metadata is missing', () {
+  group('MetadataStore.convert (strict null-on-missing)', () {
+    test('returns null when metadata is missing', () {
       final store = MetadataStore();
-      expect(store.convert('unknown.path', 42.0), 42.0);
+      expect(store.convert('unknown.path', 42.0), isNull);
     });
 
     test('applies formula when metadata exists', () {
