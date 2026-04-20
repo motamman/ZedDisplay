@@ -69,8 +69,8 @@ await signalKService.putValue(path, siValue);
 
 1. **DO NOT hardcode unit symbols** - Always get from `metadata?.symbol`
 2. **DO NOT hardcode conversion formulas** - Always use `metadata?.convert()`
-3. **DO NOT use ConversionUtils for new code** - Use MetadataStore instead
-4. **DO NOT assume units** - If metadata is null, show raw value or "--"
+3. **DO NOT assume units** - If metadata is null, show raw SI value with the
+   SI unit as suffix (permissive policy) or use the `formatOrRaw` extension
 
 ## Fallback Handling
 

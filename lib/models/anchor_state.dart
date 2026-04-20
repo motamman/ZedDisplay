@@ -193,13 +193,6 @@ class AnchorState {
   /// Create initial empty state
   factory AnchorState.initial() => const AnchorState();
 
-  /// Calculate bearing in degrees (0-360) from radians
-  double? get bearingDegrees {
-    if (bearingTrue == null) return null;
-    final degrees = bearingTrue! * 180 / 3.14159265359;
-    return (degrees + 360) % 360;
-  }
-
   /// Get percentage of radius used (0-100+)
   double? get radiusPercentage {
     if (currentRadius == null || maxRadius == null || maxRadius == 0) return null;

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../../models/tool_config.dart';
 import '../../../models/tool.dart';
 import '../../../services/signalk_service.dart';
+import '../../../services/alarm_audio_player.dart';
 import '../base_tool_configurator.dart';
 
 /// Configurator for Find Home tool
@@ -17,14 +18,8 @@ class FindHomeConfigurator extends ToolConfigurator {
   String trackCogPath = 'navigation.courseOverGroundTrue';
   String trackSogPath = 'navigation.speedOverGround';
 
-  static const Map<String, String> soundNames = {
-    'bell': 'Bell',
-    'foghorn': 'Foghorn',
-    'chimes': 'Chimes',
-    'ding': 'Ding',
-    'whistle': 'Whistle',
-    'dog': 'Dog Bark',
-  };
+  static Map<String, String> get soundNames =>
+      AlarmAudioPlayer.alarmSoundNames;
 
   @override
   void reset() {

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import '../../models/tool_definition.dart';
 import '../../models/tool_config.dart';
+import '../../config/service_constants.dart';
 import '../../services/signalk_service.dart';
 import '../../services/tool_registry.dart';
 
@@ -130,7 +131,7 @@ class _DeviceAccessManagerToolState extends State<DeviceAccessManagerTool> {
       final response = await http.get(
         Uri.parse('$_baseUrl/skServer/security/access/requests'),
         headers: _getHeaders(),
-      ).timeout(const Duration(seconds: 10));
+      ).timeout(ServiceConstants.httpTimeout);
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
@@ -193,7 +194,7 @@ class _DeviceAccessManagerToolState extends State<DeviceAccessManagerTool> {
       final response = await http.get(
         Uri.parse('$_baseUrl/skServer/security/devices'),
         headers: _getHeaders(),
-      ).timeout(const Duration(seconds: 10));
+      ).timeout(ServiceConstants.httpTimeout);
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
@@ -245,7 +246,7 @@ class _DeviceAccessManagerToolState extends State<DeviceAccessManagerTool> {
         Uri.parse('$_baseUrl/skServer/security/access/requests/${request.accessIdentifier}/${permission.toLowerCase()}'),
         headers: _getHeaders(),
         body: jsonEncode(payload),
-      ).timeout(const Duration(seconds: 10));
+      ).timeout(ServiceConstants.httpTimeout);
 
       if (mounted) {
         if (response.statusCode == 200 || response.statusCode == 202) {
@@ -321,7 +322,7 @@ class _DeviceAccessManagerToolState extends State<DeviceAccessManagerTool> {
       final response = await http.delete(
         Uri.parse('$_baseUrl/skServer/security/devices/${device.clientId}'),
         headers: _getHeaders(),
-      ).timeout(const Duration(seconds: 10));
+      ).timeout(ServiceConstants.httpTimeout);
 
       if (mounted) {
         if (response.statusCode == 200) {

@@ -12,6 +12,7 @@ import '../../services/anchor_alarm_service.dart';
 import '../../services/alert_coordinator.dart';
 import '../../models/anchor_state.dart';
 import '../../models/alert_event.dart';
+import '../../models/path_metadata.dart';
 import '../../services/tool_registry.dart';
 import 'anchor_compass_overlay.dart';
 
@@ -374,44 +375,33 @@ class _AnchorAlarmToolState extends State<AnchorAlarmTool>
   }
 
 
-  // Format distance with user's preferred units using MetadataStore (single source of truth)
-  String _formatDistance(double? meters, String path) {
-    if (meters == null) return '--';
-    final metadata = widget.signalKService.metadataStore.get(path);
-    if (metadata != null) {
-      return metadata.format(meters, decimals: 0);
-    }
-    // Fallback: return raw meters
-    return '${meters.toStringAsFixed(0)} m';
-  }
+  /// Format a distance value using [MetadataStore]. Falls back to the raw
+  /// SI number with an "m" suffix when no metadata is registered for [path].
+  String _formatDistance(double? meters, String path) =>
+      widget.signalKService.metadataStore
+          .get(path)
+          .formatOrRaw(meters, decimals: 0, siSuffix: 'm');
 
-  // Format depth with user's preferred units using MetadataStore
-  // Uses maxRadius path since it shares the same length category and has metadata
-  String _formatDepth(double? meters) {
-    if (meters == null) return '--';
-    final metadata = widget.signalKService.metadataStore.get('navigation.anchor.maxRadius');
-    if (metadata != null) {
-      return metadata.format(meters, decimals: 1);
-    }
-    // Fallback: return raw meters
-    return '${meters.toStringAsFixed(1)} m';
-  }
+  /// Format a depth value using [MetadataStore]. Reuses the anchor maxRadius
+  /// path because it shares the length category and reliably has metadata.
+  String _formatDepth(double? meters) =>
+      widget.signalKService.metadataStore
+          .get('navigation.anchor.maxRadius')
+          .formatOrRaw(meters, decimals: 1, siSuffix: 'm');
 
-  // Format bearing with user's preferred angle units using MetadataStore
+  /// Format a bearing (radians, 0..2π) using [MetadataStore]'s angle category.
+  /// Always normalises into 0..360° once converted.
   String _formatBearing(double radians) {
-    // Try to get angle metadata from a bearing path
-    final metadata = widget.signalKService.metadataStore.get('navigation.anchor.bearingTrue');
-    double degrees;
-    String symbol;
-    if (metadata != null) {
-      degrees = metadata.convert(radians) ?? (radians * 180 / math.pi);
-      symbol = metadata.symbol ?? '°';
-    } else {
-      // Fallback: manual radians to degrees
-      degrees = radians * 180 / math.pi;
-      symbol = '°';
-    }
-    return '${((degrees + 360) % 360).toStringAsFixed(0)}$symbol';
+    final metadata = widget.signalKService.metadataStore
+        .get('navigation.anchor.bearingTrue');
+    final converted = metadata?.convert(radians) ?? radians;
+    // Normalise only when the converted value looks like degrees; if the
+    // user's preset leaves angle in radians, normalise in radian-space.
+    final symbol = metadata?.symbol ?? 'rad';
+    final normalised = symbol == '°'
+        ? (converted + 360) % 360
+        : (converted + 2 * math.pi) % (2 * math.pi);
+    return '${normalised.toStringAsFixed(0)}$symbol';
   }
 
   @override

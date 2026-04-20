@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import '../config/service_constants.dart';
 import 'signalk_service.dart';
 
 /// Response from SignalK Weather API forecasts/point endpoint
@@ -167,68 +168,6 @@ class WeatherApiForecast {
     return 'partly-cloudy-$dayNight';
   }
 
-  /// Convert temperature from Kelvin to Fahrenheit
-  /// @deprecated Use ConversionUtils.convertWeatherValue() for user-preferred units
-  double? get temperatureF {
-    if (airTemperature == null) return null;
-    return (airTemperature! - 273.15) * 9 / 5 + 32;
-  }
-
-  /// Convert temperature from Kelvin to Celsius
-  /// @deprecated Use ConversionUtils.convertWeatherValue() for user-preferred units
-  double? get temperatureC {
-    if (airTemperature == null) return null;
-    return airTemperature! - 273.15;
-  }
-
-  /// Convert feels like from Kelvin to Fahrenheit
-  /// @deprecated Use ConversionUtils.convertWeatherValue() for user-preferred units
-  double? get feelsLikeF {
-    if (feelsLike == null) return null;
-    return (feelsLike! - 273.15) * 9 / 5 + 32;
-  }
-
-  /// Convert feels like from Kelvin to Celsius
-  /// @deprecated Use ConversionUtils.convertWeatherValue() for user-preferred units
-  double? get feelsLikeC {
-    if (feelsLike == null) return null;
-    return feelsLike! - 273.15;
-  }
-
-  /// Convert humidity from 0-1 ratio to percentage
-  /// @deprecated Use ConversionUtils.convertWeatherValue() for user-preferred units
-  double? get humidityPercent {
-    if (relativeHumidity == null) return null;
-    return relativeHumidity! * 100;
-  }
-
-  /// Convert precip probability from 0-1 ratio to percentage
-  /// @deprecated Use ConversionUtils.convertWeatherValue() for user-preferred units
-  double? get precipProbabilityPercent {
-    if (precipProbability == null) return null;
-    return precipProbability! * 100;
-  }
-
-  /// Convert wind speed from m/s to knots
-  /// @deprecated Use ConversionUtils.convertWeatherValue() for user-preferred units
-  double? get windSpeedKnots {
-    if (windAvg == null) return null;
-    return windAvg! * 1.94384;
-  }
-
-  /// Convert wind direction from radians to degrees
-  /// @deprecated Use ConversionUtils.convertWeatherValue() for user-preferred units
-  double? get windDirectionDegrees {
-    if (windDirection == null) return null;
-    return windDirection! * 180 / 3.14159265359;
-  }
-
-  /// Convert pressure from Pa to hPa (mbar)
-  /// @deprecated Use ConversionUtils.convertWeatherValue() for user-preferred units
-  double? get pressureHpa {
-    if (pressure == null) return null;
-    return pressure! / 100;
-  }
 }
 
 /// Service to fetch weather data from SignalK Weather API
@@ -348,7 +287,7 @@ class WeatherApiService extends ChangeNotifier {
         headers: _signalKService.authToken != null
             ? {'Authorization': 'Bearer ${_signalKService.authToken!.token}'}
             : null,
-      ).timeout(const Duration(seconds: 30));
+      ).timeout(ServiceConstants.veryLongHttpTimeout);
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);

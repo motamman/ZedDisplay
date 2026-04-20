@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import '../../models/tool_config.dart';
@@ -10,12 +9,16 @@ import '../../models/tool_definition.dart';
 import '../../services/signalk_service.dart';
 import '../../services/tool_registry.dart';
 import '../../services/route_arrival_monitor.dart';
-import '../../models/ais_favorite.dart';
-import '../../services/ais_favorites_service.dart';
-import '../../services/dashboard_service.dart';
-import '../../services/find_home_target_service.dart';
 import '../../utils/cpa_utils.dart';
+import '../../widgets/ais_vessel_detail_sheet.dart';
+import '../../widgets/chart_plotter/chart_hud.dart';
+import '../../widgets/chart_plotter/chart_layer_panel.dart';
+import '../../widgets/chart_plotter/chart_route_panel.dart';
 import '../../widgets/countdown_confirmation_overlay.dart';
+import '../../services/chart_tile_cache_service.dart';
+import '../../services/chart_tile_server_service.dart';
+import '../../services/chart_download_manager.dart';
+import '../../services/tool_service.dart';
 import 'chart_webview.dart';
 
 /// Chart Plotter — OpenLayers-based unified navigation chart.
@@ -40,21 +43,23 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
 
   static const _ownerId = 'chart_plotter';
 
-  static const _navPaths = [
-    'navigation.position',
-    'navigation.headingTrue',
-    'navigation.courseOverGroundTrue',
-    'navigation.speedOverGround',
-    'environment.depth.belowTransducer',
-  ];
-
-  static const _routePaths = [
-    'navigation.course.calcValues.bearingTrue',
-    'navigation.course.calcValues.crossTrackError',
-    'navigation.course.calcValues.distance',
-    'navigation.course.activeRoute',
-    'navigation.courseGreatCircle.nextPoint.position',
-  ];
+  // DataSource indices — matches getDefaultConfig() order
+  static const _dsPosition = 0;
+  static const _dsHeading = 1;
+  static const _dsCog = 2;
+  static const _dsSog = 3;
+  // ignore: unused_field
+  static const _dsDepth = 4; // used by HUD via _allPaths index
+  // ignore: unused_field
+  static const _dsBearing = 5; // used by HUD/route panel via _allPaths index
+  // ignore: unused_field
+  static const _dsXte = 6; // used by HUD/route panel via _allPaths index
+  // ignore: unused_field
+  static const _dsDtw = 7; // used by HUD/route panel via _allPaths index
+  // ignore: unused_field
+  static const _dsActiveRoute = 8; // subscribed for WS delta triggers; data read via REST
+  // ignore: unused_field
+  static const _dsNextPoint = 9; // subscribed for WS delta triggers; data read via REST
 
   WebViewController? _controller;
   bool _mapReady = false;
@@ -68,6 +73,25 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
   bool _aisEnabled = true;
   bool _aisActiveOnly = false;
   bool _aisShowPaths = true;
+
+  // Ruler
+  bool _rulerVisible = false;
+  double? _rulerDistM;
+  double? _rulerBearingFromRed;
+  double? _rulerBearingFromBlue;
+
+  // Chart layers (live state — synced to JS and saved to config)
+  late List<Map<String, dynamic>> _layers;
+
+  // Tile freshness
+  TileFreshness _viewportFreshness = TileFreshness.uncached;
+  Timer? _freshnessRetryTimer;
+  Map<String, dynamic>? _lastViewportData;
+
+  // Vessel trail
+  final List<List<double>> _trailPoints = []; // [[lon, lat], ...]
+  final List<int> _trailTimestamps = []; // epoch ms, parallel list
+  DateTime _lastTrailPush = DateTime(0);
 
   // Route overlay
   String? _activeRouteHref;
@@ -83,6 +107,42 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
   // Config accessors
   // ---------------------------------------------------------------------------
 
+  // Fallback defaults when dataSources is empty (legacy configs)
+  static const _fallbackPaths = [
+    'navigation.position',          // 0: position
+    'navigation.headingTrue',       // 1: heading
+    'navigation.courseOverGroundTrue', // 2: COG
+    'navigation.speedOverGround',   // 3: SOG
+    'environment.depth.belowTransducer', // 4: depth
+    'navigation.course.calcValues.bearingTrue', // 5: bearing
+    'navigation.course.calcValues.crossTrackError', // 6: XTE
+    'navigation.course.calcValues.distance', // 7: DTW
+    'navigation.course.activeRoute', // 8: active route
+    'navigation.courseGreatCircle.nextPoint.position', // 9: next point
+  ];
+
+  /// Read a SignalK path from dataSources by index, falling back to defaults.
+  String _dsPath(int index) {
+    if (widget.config.dataSources.length > index) {
+      return widget.config.dataSources[index].path;
+    }
+    return index < _fallbackPaths.length ? _fallbackPaths[index] : '';
+  }
+
+  /// All configured paths (for subscribe/unsubscribe).
+  List<String> get _allPaths {
+    if (widget.config.dataSources.isNotEmpty) {
+      return widget.config.dataSources.map((ds) => ds.path).toList();
+    }
+    return List.from(_fallbackPaths);
+  }
+
+  int get _trailMinutes =>
+      widget.config.style.customProperties?['trailMinutes'] as int? ?? 10;
+
+  String get _hudStyle =>
+      widget.config.style.customProperties?['hudStyle'] as String? ?? 'text';
+
   String get _hudPosition =>
       widget.config.style.customProperties?['hudPosition'] as String? ??
       'bottom';
@@ -94,8 +154,17 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
   @override
   void initState() {
     super.initState();
+    // Initialize layer config from widget config
+    final rawLayers = widget.config.style.customProperties?['layers'] as List?;
+    _layers = rawLayers != null
+        ? rawLayers.map((e) => Map<String, dynamic>.from(e as Map)).toList()
+        : [
+            {'type': 'base', 'id': 'carto_voyager', 'enabled': true, 'opacity': 1.0},
+            {'type': 's57', 'id': '01CGD_ENCs', 'enabled': true, 'opacity': 1.0},
+          ];
+    _aisEnabled = widget.config.style.customProperties?['showAIS'] as bool? ?? true;
     widget.signalKService.subscribeToPaths(
-      [..._navPaths, ..._routePaths],
+      _allPaths,
       ownerId: _ownerId,
     );
     widget.signalKService.addListener(_onSignalKUpdate);
@@ -105,12 +174,13 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
 
   @override
   void dispose() {
+    _freshnessRetryTimer?.cancel();
     _stopArrivalMonitor();
     widget.signalKService.aisVesselRegistry.removeListener(_onAISUpdate);
     widget.signalKService.removeListener(_onSignalKUpdate);
     _resetSwipeBlock();
     widget.signalKService.unsubscribeFromPaths(
-      [..._navPaths, ..._routePaths],
+      _allPaths,
       ownerId: _ownerId,
     );
     super.dispose();
@@ -133,6 +203,74 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
     _pushVesselPosition();
     _pushAISVessels();
     if (_routeCoords != null) _pushRoute();
+    // Push scale bar units
+    final distMeta = widget.signalKService.metadataStore.getByCategory('distance');
+    final scaleUnits = _mapDistSymbolToOLUnits(distMeta?.symbol);
+    _controller!.runJavaScript("setScaleBarUnits('$scaleUnits')");
+    // Push depth units to JS for sounding labels
+    _pushDepthUnits();
+    // Position scale bar above HUD
+    final scaleBottom = _hudStyle == 'visual' ? 190 : (_hudStyle == 'text' ? 40 : 10);
+    _controller!.runJavaScript('setScaleBarBottom($scaleBottom)');
+    // Configure tile server with upstream URL and auth token
+    try {
+      final tileServer = context.read<ChartTileServerService>();
+      final refreshStr = widget.config.style.customProperties?['cacheRefresh'] as String? ?? 'stale';
+      tileServer.configure(
+        upstreamBaseUrl: widget.signalKService.httpBaseUrl,
+        authToken: widget.signalKService.authToken?.token,
+        refreshThreshold: refreshStr == 'aging' ? TileFreshness.aging : TileFreshness.stale,
+      );
+    } catch (_) {}
+  }
+
+  void _onViewportChanged(Map<String, dynamic> data) {
+    if (!mounted) return;
+    _lastViewportData = data;
+    _freshnessRetryTimer?.cancel();
+    _updateFreshness(data);
+  }
+
+  void _updateFreshness(Map<String, dynamic> viewport) {
+    try {
+      final cacheService = context.read<ChartTileCacheService>();
+      final zoom = (viewport['zoom'] as num).toInt();
+      final minLon = (viewport['minLon'] as num).toDouble();
+      final minLat = (viewport['minLat'] as num).toDouble();
+      final maxLon = (viewport['maxLon'] as num).toDouble();
+      final maxLat = (viewport['maxLat'] as num).toDouble();
+
+      // Only check tile freshness at zooms where S-57 tiles exist (9-16)
+      if (zoom < 9) {
+        setState(() => _viewportFreshness = TileFreshness.uncached);
+        return;
+      }
+      final z = zoom.clamp(9, 16);
+      final x0 = ChartDownloadManager.lonToTileX(minLon, z);
+      final x1 = ChartDownloadManager.lonToTileX(maxLon, z);
+      final y0 = ChartDownloadManager.latToTileY(maxLat, z);
+      final y1 = ChartDownloadManager.latToTileY(minLat, z);
+
+      final tiles = <(int, int, int)>[];
+      for (int x = x0; x <= x1; x++) {
+        for (int y = y0; y <= y1; y++) {
+          tiles.add((z, x, y));
+        }
+      }
+
+      final freshness = cacheService.getViewportFreshness(tiles);
+      if (mounted) setState(() => _viewportFreshness = freshness);
+
+      // If not fully fresh, re-check after tiles have had time to cache via proxy
+      if (freshness != TileFreshness.fresh && _lastViewportData != null) {
+        _freshnessRetryTimer?.cancel();
+        _freshnessRetryTimer = Timer(const Duration(seconds: 3), () {
+          if (mounted && _lastViewportData != null) {
+            _updateFreshness(_lastViewportData!);
+          }
+        });
+      }
+    } catch (_) {}
   }
 
   void _onAutoFollowChanged(bool autoFollow, {bool? autoZoom}) {
@@ -171,20 +309,55 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
   }
 
   void _pushVesselPosition() {
-    final posData = widget.signalKService.getValue('navigation.position');
+    final posData = widget.signalKService.getValue(_dsPath(_dsPosition));
     if (posData?.value is! Map) return;
     final pos = posData!.value as Map;
     final lat = (pos['latitude'] as num?)?.toDouble();
     final lon = (pos['longitude'] as num?)?.toDouble();
     if (lat == null || lon == null) return;
 
-    final heading = _numValue('navigation.headingTrue');
-    final cog = _numValue('navigation.courseOverGroundTrue');
-    final sog = _numValue('navigation.speedOverGround');
+    final heading = _numValue(_dsPath(_dsHeading));
+    final cog = _numValue(_dsPath(_dsCog));
+    final sog = _numValue(_dsPath(_dsSog));
 
     _controller!.runJavaScript(
       'updateVesselPosition($lat, $lon, ${heading ?? 'null'}, ${cog ?? 'null'}, ${sog ?? 0})',
     );
+
+    // Trail: append point if moved >5m from last
+    _collectTrailPoint(lon, lat);
+  }
+
+  void _collectTrailPoint(double lon, double lat) {
+    if (_trailPoints.isNotEmpty) {
+      final last = _trailPoints.last;
+      final dx = (lon - last[0]) * math.cos(lat * math.pi / 180) * 111320;
+      final dy = (lat - last[1]) * 111320;
+      if (dx * dx + dy * dy < 25) return; // <5m, skip
+    }
+    _trailPoints.add([lon, lat]);
+    _trailTimestamps.add(DateTime.now().millisecondsSinceEpoch);
+
+    // Trim old points
+    final cutoff =
+        DateTime.now().millisecondsSinceEpoch - _trailMinutes * 60000;
+    while (_trailTimestamps.isNotEmpty && _trailTimestamps.first < cutoff) {
+      _trailTimestamps.removeAt(0);
+      _trailPoints.removeAt(0);
+    }
+
+    // Throttled push (every 2s)
+    final now = DateTime.now();
+    if (now.difference(_lastTrailPush).inSeconds >= 2) {
+      _lastTrailPush = now;
+      _pushTrail();
+    }
+  }
+
+  void _pushTrail() {
+    if (_trailPoints.length < 2 || _controller == null || !_mapReady) return;
+    final json = jsonEncode(_trailPoints);
+    _controller!.runJavaScript('updateTrail(${_escapeForJS(json)})');
   }
 
   void _toggleViewMode() {
@@ -223,18 +396,9 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
   }
 
   Future<void> _pollCourseAPI() async {
-    final url = '${widget.signalKService.httpBaseUrl}'
-        '/signalk/v2/api/vessels/self/navigation/course';
     try {
-      final response = await http.get(
-        Uri.parse(url),
-        headers: {
-          if (widget.signalKService.authToken?.token != null)
-            'Authorization': 'Bearer ${widget.signalKService.authToken!.token}',
-        },
-      );
-      if (response.statusCode != 200) return;
-      final data = jsonDecode(response.body) as Map<String, dynamic>;
+      final data = await widget.signalKService.getCourseInfo();
+      if (data == null) return;
       final activeRoute = data['activeRoute'] as Map<String, dynamic>?;
 
       if (activeRoute != null) {
@@ -333,18 +497,8 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
     final nextIdx = _routePointIndex! + 1;
     if (nextIdx >= _routePointTotal!) return;
 
-    final url = '${widget.signalKService.httpBaseUrl}'
-        '/signalk/v2/api/vessels/self/navigation/course/activeRoute/pointIndex';
     try {
-      await http.put(
-        Uri.parse(url),
-        headers: {
-          'Content-Type': 'application/json',
-          if (widget.signalKService.authToken?.token != null)
-            'Authorization': 'Bearer ${widget.signalKService.authToken!.token}',
-        },
-        body: jsonEncode({'value': nextIdx}),
-      );
+      await widget.signalKService.setActiveRoutePointIndex(nextIdx);
       _lastRoutePoll = DateTime(0);
       await _pollCourseAPI();
     } catch (e) {
@@ -367,11 +521,11 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
     }
 
     final registry = widget.signalKService.aisVesselRegistry.vessels;
-    final ownCogRad = _numValue('navigation.courseOverGroundTrue');
-    final ownSogMs = _numValue('navigation.speedOverGround') ?? 0.0;
+    final ownCogRad = _numValue(_dsPath(_dsCog));
+    final ownSogMs = _numValue(_dsPath(_dsSog)) ?? 0.0;
 
     // Own position for bearing/distance/CPA
-    final posData = widget.signalKService.getValue('navigation.position');
+    final posData = widget.signalKService.getValue(_dsPath(_dsPosition));
     double? ownLat, ownLon;
     if (posData?.value is Map) {
       final pos = posData!.value as Map;
@@ -463,6 +617,321 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
     return results;
   }
 
+  void _onRulerUpdate(Map<String, dynamic> data) {
+    if (!mounted) return;
+    setState(() {
+      _rulerDistM = (data['distM'] as num?)?.toDouble();
+      _rulerBearingFromRed = (data['bearingFromRed'] as num?)?.toDouble();
+      _rulerBearingFromBlue = (data['bearingFromBlue'] as num?)?.toDouble();
+    });
+  }
+
+  void _toggleRuler() {
+    setState(() => _rulerVisible = !_rulerVisible);
+    _controller?.runJavaScript('showRuler($_rulerVisible)');
+    if (_rulerVisible) {
+      _pushRulerUnits();
+    }
+  }
+
+  void _pushRulerUnits() {
+    final distMeta = widget.signalKService.metadataStore.getByCategory('distance');
+    final factor = distMeta?.convert(1.0) ?? 1.0;
+    final symbol = distMeta?.symbol ?? 'm';
+    _controller?.runJavaScript('updateRulerUnits($factor, ${jsonEncode(symbol)})');
+  }
+
+  void _pushDepthUnits() {
+    final depthMeta = widget.signalKService.metadataStore.getByCategory('depth');
+    final factor = depthMeta?.convert(1.0) ?? 1.0;
+    final symbol = depthMeta?.symbol ?? 'm';
+    _controller?.runJavaScript('updateDepthUnits($factor, ${jsonEncode(symbol)})');
+  }
+
+  void _showDownloadDialog() async {
+    if (_controller == null) return;
+    // Get current viewport from JS
+    final result = await _controller!.runJavaScriptReturningResult('getViewportTileInfo()');
+    final viewportJson = result is String ? result : result.toString();
+    // Strip quotes if wrapped
+    final cleaned = viewportJson.startsWith('"') ? viewportJson.substring(1, viewportJson.length - 1) : viewportJson;
+    final viewport = jsonDecode(cleaned.replaceAll(r'\"', '"')) as Map<String, dynamic>;
+    final minLon = (viewport['minLon'] as num).toDouble();
+    final minLat = (viewport['minLat'] as num).toDouble();
+    final maxLon = (viewport['maxLon'] as num).toDouble();
+    final maxLat = (viewport['maxLat'] as num).toDouble();
+
+    if (!mounted) return;
+
+    ChartDownloadManager? downloadManager;
+    try {
+      downloadManager = context.read<ChartDownloadManager>();
+    } catch (_) {
+      return;
+    }
+
+    var minZoom = 9;
+    var maxZoom = 16;
+    final nameController = TextEditingController(text: 'Area ${DateTime.now().toString().substring(0, 16)}');
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetCtx) => StatefulBuilder(
+        builder: (ctx, setSheetState) {
+          final estimate = downloadManager!.estimateTileCount(
+            minLon: minLon, minLat: minLat,
+            maxLon: maxLon, maxLat: maxLat,
+            minZoom: minZoom, maxZoom: maxZoom,
+          );
+          final estimatedMB = (estimate * 10 / 1024).toStringAsFixed(1);
+
+          return Container(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+            decoration: const BoxDecoration(
+              color: Color(0xFF1E1E2E),
+              borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Center(child: Container(
+                  width: 40, height: 4,
+                  margin: const EdgeInsets.only(bottom: 12),
+                  decoration: BoxDecoration(color: Colors.grey[600], borderRadius: BorderRadius.circular(2)),
+                )),
+                const Text('Download Charts', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 8),
+                Text(
+                  '${minLat.toStringAsFixed(2)}°N to ${maxLat.toStringAsFixed(2)}°N, '
+                  '${minLon.toStringAsFixed(2)}°E to ${maxLon.toStringAsFixed(2)}°E',
+                  style: const TextStyle(color: Colors.white54, fontSize: 12),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: nameController,
+                  style: const TextStyle(color: Colors.white),
+                  decoration: const InputDecoration(
+                    hintText: 'Region name',
+                    hintStyle: TextStyle(color: Colors.white38),
+                    enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: Colors.white24)),
+                    focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: Colors.green)),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Row(children: [
+                  const Text('Zoom: ', style: TextStyle(color: Colors.white70, fontSize: 13)),
+                  Expanded(
+                    child: RangeSlider(
+                      values: RangeValues(minZoom.toDouble(), maxZoom.toDouble()),
+                      min: 9, max: 16,
+                      divisions: 7,
+                      labels: RangeLabels('$minZoom', '$maxZoom'),
+                      onChanged: (v) => setSheetState(() {
+                        minZoom = v.start.toInt();
+                        maxZoom = v.end.toInt();
+                      }),
+                    ),
+                  ),
+                ]),
+                const SizedBox(height: 4),
+                Text('$estimate tiles (~$estimatedMB MB)',
+                  style: const TextStyle(color: Colors.white54, fontSize: 13)),
+                const SizedBox(height: 12),
+                // Download progress (if downloading)
+                ListenableBuilder(
+                  listenable: downloadManager,
+                  builder: (_, _) {
+                    if (downloadManager!.status == DownloadStatus.downloading) {
+                      return Column(children: [
+                        LinearProgressIndicator(value: downloadManager.progress),
+                        const SizedBox(height: 4),
+                        Text('${downloadManager.downloadedTiles} of ${downloadManager.totalTiles}',
+                          style: const TextStyle(color: Colors.white54, fontSize: 12)),
+                        const SizedBox(height: 8),
+                        TextButton(
+                          onPressed: () => downloadManager!.cancel(),
+                          child: const Text('Cancel', style: TextStyle(color: Colors.red)),
+                        ),
+                      ]);
+                    }
+                    if (downloadManager.status == DownloadStatus.completed) {
+                      return const Text('Download complete!',
+                        style: TextStyle(color: Colors.green, fontSize: 14, fontWeight: FontWeight.w500));
+                    }
+                    if (downloadManager.status == DownloadStatus.error) {
+                      return Text(downloadManager.errorMessage ?? 'Download failed',
+                        style: const TextStyle(color: Colors.red, fontSize: 13));
+                    }
+                    // idle/cancelled — show download + flush buttons
+                    return Column(children: [
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton.icon(
+                          icon: const Icon(Icons.download),
+                          label: const Text('Download New'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.green.shade700,
+                            foregroundColor: Colors.white,
+                          ),
+                          onPressed: () {
+                            downloadManager!.downloadArea(
+                              minLon: minLon, minLat: minLat,
+                              maxLon: maxLon, maxLat: maxLat,
+                              minZoom: minZoom, maxZoom: maxZoom,
+                              baseUrl: widget.signalKService.httpBaseUrl,
+                              authToken: widget.signalKService.authToken?.token,
+                              regionName: nameController.text,
+                            );
+                          },
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      SizedBox(
+                        width: double.infinity,
+                        child: OutlinedButton.icon(
+                          icon: const Icon(Icons.refresh),
+                          label: const Text('Flush & Re-download All'),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.orange,
+                            side: const BorderSide(color: Colors.orange),
+                          ),
+                          onPressed: () {
+                            downloadManager!.downloadArea(
+                              minLon: minLon, minLat: minLat,
+                              maxLon: maxLon, maxLat: maxLat,
+                              minZoom: minZoom, maxZoom: maxZoom,
+                              baseUrl: widget.signalKService.httpBaseUrl,
+                              authToken: widget.signalKService.authToken?.token,
+                              regionName: nameController.text,
+                              flush: true,
+                            );
+                          },
+                        ),
+                      ),
+                    ]);
+                  },
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    ).whenComplete(() {
+      downloadManager?.reset();
+    });
+  }
+
+  void _pushLayers() {
+    if (_controller == null || !_mapReady) return;
+    final json = jsonEncode(_layers);
+    _controller!.runJavaScript('updateLayers(${_escapeForJS(json)})');
+    _saveLayerConfig();
+  }
+
+  void _saveLayerConfig() {
+    final toolId = widget.config.style.customProperties?['_toolId'] as String?;
+    if (toolId == null) return;
+    try {
+      final toolService = context.read<ToolService>();
+      final tool = toolService.getTool(toolId);
+      if (tool == null) return;
+      final updatedProps = {
+        ...?tool.config.style.customProperties,
+        'layers': _layers,
+      };
+      final updatedTool = tool.copyWith(
+        config: ToolConfig(
+          vesselId: tool.config.vesselId,
+          dataSources: tool.config.dataSources,
+          style: StyleConfig(
+            minValue: tool.config.style.minValue,
+            maxValue: tool.config.style.maxValue,
+            unit: tool.config.style.unit,
+            primaryColor: tool.config.style.primaryColor,
+            secondaryColor: tool.config.style.secondaryColor,
+            showLabel: tool.config.style.showLabel,
+            showValue: tool.config.style.showValue,
+            showUnit: tool.config.style.showUnit,
+            ttlSeconds: tool.config.style.ttlSeconds,
+            customProperties: updatedProps,
+          ),
+        ),
+      );
+      toolService.saveTool(updatedTool);
+    } catch (_) {}
+  }
+
+  void _showLayersPanel() {
+    _controller?.runJavaScript('setMapInteractive(false)');
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetCtx) => StatefulBuilder(
+        builder: (ctx, setSheetState) => DraggableScrollableSheet(
+          initialChildSize: 0.45,
+          maxChildSize: 0.7,
+          minChildSize: 0.2,
+          snap: true,
+          snapSizes: const [0.2, 0.45],
+          builder: (_, scrollController) => Container(
+            decoration: const BoxDecoration(
+              color: Color(0xFF1E1E2E),
+              borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+            ),
+            child: Column(
+              children: [
+                Center(child: Container(
+                  width: 40, height: 4,
+                  margin: const EdgeInsets.only(top: 8, bottom: 8),
+                  decoration: BoxDecoration(color: Colors.grey[600], borderRadius: BorderRadius.circular(2)),
+                )),
+                const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 16),
+                  child: Row(children: [
+                    Icon(Icons.layers, color: Colors.white70),
+                    SizedBox(width: 8),
+                    Expanded(child: Text('Chart Layers',
+                      style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold))),
+                  ]),
+                ),
+                const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 16),
+                  child: Text('Drag to reorder. Top of list = bottom of map.',
+                    style: TextStyle(color: Colors.white38, fontSize: 11)),
+                ),
+                const SizedBox(height: 4),
+                Expanded(
+                  child: SingleChildScrollView(
+                    controller: scrollController,
+                    child: ChartLayerPanel(
+                      layers: _layers,
+                      signalKService: widget.signalKService,
+                      setState: setSheetState,
+                      onLayersChanged: _pushLayers,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    ).whenComplete(() {
+      _controller?.runJavaScript('setMapInteractive(true)');
+    });
+  }
+
+  String _mapDistSymbolToOLUnits(String? symbol) {
+    if (symbol == null) return 'metric';
+    final s = symbol.toLowerCase();
+    if (s == 'nm' || s == 'nmi') return 'nautical';
+    if (s == 'mi') return 'imperial';
+    return 'metric';
+  }
+
   String _escapeForJS(String json) {
     // Wrap in single quotes, escape internal single quotes and backslashes
     return "'${json.replaceAll('\\', '\\\\').replaceAll("'", "\\'")}'";
@@ -479,387 +948,23 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
   }
 
   void _showVesselDetail(String vesselId) {
-    final vessel = widget.signalKService.aisVesselRegistry.vessels[vesselId];
-    if (vessel == null) return;
-
-    final store = widget.signalKService.metadataStore;
-    final cogMeta = store.get('navigation.courseOverGroundTrue');
-    final sogMeta = store.get('navigation.speedOverGround');
-    final hdgMeta = store.get('navigation.headingTrue');
-    final distMeta = store.getByCategory('distance');
-    final lenMeta = store.getByCategory('length');
-
-    String fmtAngle(double? rad) {
-      if (rad == null) return '--';
-      final v = cogMeta?.convert(rad) ?? (rad * 180 / math.pi);
-      return '${v.toStringAsFixed(1)}${cogMeta?.symbol ?? '°'}';
-    }
-    String fmtSpeed(double? ms) {
-      if (ms == null) return '--';
-      final v = sogMeta?.convert(ms) ?? ms;
-      return '${v.toStringAsFixed(1)} ${sogMeta?.symbol ?? 'm/s'}';
-    }
-    String fmtHeading(double? rad) {
-      if (rad == null) return '--';
-      final v = hdgMeta?.convert(rad) ?? (rad * 180 / math.pi);
-      return '${v.toStringAsFixed(1)}${hdgMeta?.symbol ?? '°'}';
-    }
-    String fmtDist(double? m) {
-      if (m == null) return '--';
-      final v = distMeta?.convert(m) ?? m;
-      return '${v.toStringAsFixed(2)} ${distMeta?.symbol ?? 'm'}';
-    }
-    String fmtLength(double meters) {
-      final v = lenMeta?.convert(meters) ?? meters;
-      return '${v.toStringAsFixed(1)} ${lenMeta?.symbol ?? 'm'}';
-    }
-
-    // CPA/TCPA
+    // Own vessel position for CPA calculation
     double? ownLat, ownLon;
-    final posData = widget.signalKService.getValue('navigation.position');
+    final posData = widget.signalKService.getValue(_dsPath(_dsPosition));
     if (posData?.value is Map) {
       final pos = posData!.value as Map;
       ownLat = (pos['latitude'] as num?)?.toDouble();
       ownLon = (pos['longitude'] as num?)?.toDouble();
     }
-    double? bearing, distance, cpa, tcpa;
-    if (ownLat != null && ownLon != null && vessel.hasPosition) {
-      bearing = CpaUtils.calculateBearing(ownLat, ownLon, vessel.latitude!, vessel.longitude!);
-      distance = CpaUtils.calculateDistance(ownLat, ownLon, vessel.latitude!, vessel.longitude!);
-      final result = CpaUtils.calculateCpaTcpa(
-        bearingDeg: bearing,
-        distanceM: distance,
-        ownCogRad: _numValue('navigation.courseOverGroundTrue'),
-        ownSogMs: _numValue('navigation.speedOverGround') ?? 0.0,
-        targetCogRad: vessel.cogRad,
-        targetSogMs: vessel.sogMs,
-      );
-      cpa = result?.cpa;
-      tcpa = result?.tcpa;
-      if (cpa != null && !cpa.isFinite) cpa = null;
-      if (tcpa != null && !tcpa.isFinite) tcpa = null;
-    }
-
-    // Extra data from cache (callsign, destination, dimensions, IMO, AIS status)
-    final cache = widget.signalKService.latestData;
-    final prefix = 'vessels.${vessel.vesselId}';
-    String? callsign, destination, shipTypeName, imo, aisStatusFromCache;
-    final comm = cache['$prefix.communication']?.value;
-    if (comm is Map) callsign = comm['callsignVhf'] as String?;
-    final dest = cache['$prefix.navigation.destination.commonName']?.value;
-    if (dest is String && dest.isNotEmpty) destination = dest;
-    final aisType = cache['$prefix.design.aisShipType']?.value;
-    if (aisType is Map) shipTypeName = aisType['name'] as String?;
-    final reg = cache['$prefix.registrations']?.value;
-    if (reg is Map) imo = reg['imo'] as String?;
-    final aisStatusVal = cache['$prefix.sensors.ais.status']?.value;
-    if (aisStatusVal is String) aisStatusFromCache = aisStatusVal;
-    final aisClassFromCache = cache['$prefix.sensors.ais.class']?.value as String?;
-
-    // Dimensions
-    String? lengthStr, beamStr, draftStr;
-    final beamVal = cache['$prefix.design.beam']?.value;
-    if (beamVal is num) beamStr = fmtLength(beamVal.toDouble());
-    final lengthVal = cache['$prefix.design.length']?.value;
-    if (lengthVal is Map) {
-      final overall = lengthVal['overall'];
-      if (overall is num) lengthStr = fmtLength(overall.toDouble());
-    } else if (lengthVal is num) {
-      lengthStr = fmtLength(lengthVal.toDouble());
-    }
-    final draftVal = cache['$prefix.design.draft']?.value;
-    if (draftVal is Map) {
-      final current = draftVal['current'];
-      if (current is num) draftStr = fmtLength(current.toDouble());
-    } else if (draftVal is num) {
-      draftStr = fmtLength(draftVal.toDouble());
-    }
-    String? dimensionsStr;
-    final dimParts = <String>[];
-    if (lengthStr != null && beamStr != null) {
-      dimParts.add('$lengthStr x $beamStr');
-    } else {
-      if (lengthStr != null) dimParts.add(lengthStr);
-      if (beamStr != null) dimParts.add('beam $beamStr');
-    }
-    if (draftStr != null) dimParts.add('draft $draftStr');
-    if (dimParts.isNotEmpty) dimensionsStr = dimParts.join(', ');
-
-    final mmsi = _extractMMSI(vessel.vesselId);
-    final vesselName = vessel.name ?? 'Unknown Vessel';
-    final typeLabel = shipTypeName ?? _shipTypeLabel(vessel.aisShipType);
-    final typeColor = _shipTypeColor(vessel.aisShipType, vessel.aisClass);
-    final heading = (vessel.headingTrueRad ?? vessel.cogRad ?? 0.0);
-
-    // CPA color coding
-    const alarmThreshold = 926.0; // 0.5 nm
-    const warnThreshold = 1852.0; // 1 nm
-    Color cpaColor(double? cpaM) {
-      if (cpaM == null) return Colors.white;
-      if (cpaM < alarmThreshold) return Colors.red;
-      if (cpaM < warnThreshold) return Colors.orange;
-      return Colors.white;
-    }
-
-    // Vessel icon for header
-    IconData vesselIcon;
-    if (vessel.navState == 'anchored') {
-      vesselIcon = Icons.anchor;
-    } else if (vessel.navState == 'moored') {
-      vesselIcon = Icons.local_parking;
-    } else if ((vessel.sogMs ?? 0) < 0.1) {
-      vesselIcon = Icons.circle;
-    } else {
-      vesselIcon = Icons.navigation;
-    }
-
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (sheetContext) => DraggableScrollableSheet(
-        initialChildSize: 0.4,
-        maxChildSize: 0.65,
-        minChildSize: 0.15,
-        snap: true,
-        snapSizes: const [0.15, 0.4],
-        builder: (_, scrollController) => StatefulBuilder(
-          builder: (sheetCtx, setSheetState) => NotificationListener<DraggableScrollableNotification>(
-          onNotification: (notification) {
-            if (notification.extent <= notification.minExtent) {
-              Navigator.of(sheetContext).pop();
-            }
-            return false;
-          },
-          child: Container(
-            decoration: const BoxDecoration(
-              color: Color(0xFF1E1E2E),
-              borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-              boxShadow: [BoxShadow(color: Colors.black38, blurRadius: 10, offset: Offset(0, -2))],
-            ),
-            child: ListView(
-              controller: scrollController,
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-              children: [
-                // Drag handle
-                Center(child: Container(
-                  width: 40, height: 4,
-                  margin: const EdgeInsets.only(bottom: 12),
-                  decoration: BoxDecoration(color: Colors.grey[600], borderRadius: BorderRadius.circular(2)),
-                )),
-                // Header with icon, name, action buttons
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  children: [
-                    Transform.rotate(
-                      angle: heading,
-                      child: Icon(vesselIcon, color: typeColor, size: 32,
-                        shadows: [Shadow(color: Colors.black.withValues(alpha: 0.3), blurRadius: 2)]),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(vesselName,
-                          style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
-                        const SizedBox(height: 2),
-                        Text('MMSI: $mmsi',
-                          style: const TextStyle(color: Colors.white54, fontSize: 13)),
-                      ],
-                    )),
-                    // Favorite toggle
-                    Builder(builder: (_) {
-                      final favService = sheetCtx.read<AISFavoritesService>();
-                      final isFav = favService.isFavorite(mmsi);
-                      return IconButton(
-                        icon: Icon(isFav ? Icons.favorite : Icons.favorite_border,
-                          color: isFav ? Colors.red : Colors.white70),
-                        tooltip: isFav ? 'Remove from favorites' : 'Add to favorites',
-                        onPressed: () {
-                          if (isFav) {
-                            favService.removeFavorite(mmsi);
-                          } else {
-                            favService.addFavorite(AISFavorite(
-                              mmsi: mmsi,
-                              name: vesselName,
-                            ));
-                          }
-                          setSheetState(() {});
-                        },
-                      );
-                    }),
-                    // VesselFinder lookup
-                    IconButton(
-                      icon: const Icon(Icons.travel_explore, color: Colors.white70),
-                      tooltip: 'Look up on VesselFinder',
-                      onPressed: () {
-                        Navigator.of(sheetContext).pop();
-                        Navigator.of(context).push(MaterialPageRoute(
-                          builder: (_) => _VesselLookupPage(
-                            url: 'https://www.vesselfinder.com/vessels/details/$mmsi',
-                            title: 'VesselFinder',
-                          ),
-                        ));
-                      },
-                    ),
-                    // Track in Find Home
-                    Builder(builder: (_) {
-                      final dashService = context.read<DashboardService>();
-                      final findHomeScreen = dashService.findScreenWithToolType('find_home');
-                      if (findHomeScreen == null) return const SizedBox.shrink();
-                      return IconButton(
-                        icon: const Icon(Icons.home_outlined, color: Colors.white70),
-                        tooltip: 'Track in Find Home',
-                        onPressed: () {
-                          final targetService = context.read<FindHomeTargetService>();
-                          targetService.setAisTarget(vesselId, vesselName);
-                          dashService.setActiveScreen(findHomeScreen.$1);
-                          Navigator.of(sheetContext).pop();
-                        },
-                      );
-                    }),
-                  ],
-                ),
-                const SizedBox(height: 6),
-                // Chips: type, class, status
-                Wrap(spacing: 8, children: [
-                  _typeChip(typeLabel, typeColor),
-                  if (aisClassFromCache != null || vessel.aisClass != null)
-                    _chip('Class ${aisClassFromCache ?? vessel.aisClass}'),
-                  if (aisStatusFromCache != null || vessel.aisStatus != null)
-                    _chip(aisStatusFromCache ?? vessel.aisStatus!),
-                  if (vessel.navState != null)
-                    _chip(vessel.navState!),
-                ]),
-
-                // Identity section
-                if (callsign != null || imo != null || destination != null) ...[
-                  _section('Identity'),
-                  if (callsign != null) _row('Callsign', callsign),
-                  if (imo != null) _row('IMO', imo),
-                  if (destination != null) _row('Destination', destination),
-                ],
-
-                // Relative section
-                if (bearing != null) ...[
-                  _section('Relative'),
-                  _row('Bearing', '${bearing.toStringAsFixed(1)}${cogMeta?.symbol ?? '°'}'),
-                  if (distance != null) _row('Distance', fmtDist(distance)),
-                  if (cpa != null) _rowColored('CPA', fmtDist(cpa), cpaColor(cpa)),
-                  if (tcpa != null && tcpa.isFinite && tcpa > 0)
-                    _rowColored('TCPA', _fmtTCPA(tcpa), cpaColor(cpa)),
-                ],
-
-                // Dimensions section
-                if (dimensionsStr != null) ...[
-                  _section('Dimensions'),
-                  _row('Size', dimensionsStr),
-                ],
-
-                // Navigation section
-                _section('Navigation'),
-                if (vessel.navState != null) _row('Nav Status', vessel.navState!),
-                _row('SOG', fmtSpeed(vessel.sogMs)),
-                _row('COG', fmtAngle(vessel.cogRad)),
-                _row('Heading', fmtHeading(vessel.headingTrueRad)),
-
-                // Position section
-                _section('Position'),
-                if (vessel.hasPosition)
-                  _row('Lat/Lon', '${vessel.latitude!.toStringAsFixed(5)}, ${vessel.longitude!.toStringAsFixed(5)}'),
-                _row('Last Update', '${_formatTimeSince(vessel.lastSeen)} ago'),
-              ],
-            ),
-          ),
-        )),
-      ),
+    AISVesselDetailSheet.show(
+      context,
+      signalKService: widget.signalKService,
+      vesselId: vesselId,
+      ownLat: ownLat,
+      ownLon: ownLon,
+      ownCogRad: _numValue(_dsPath(_dsCog)),
+      ownSogMs: _numValue(_dsPath(_dsSog)),
     );
-  }
-
-  Widget _typeChip(String text, Color color) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-    decoration: BoxDecoration(
-      color: color.withValues(alpha: 0.15),
-      borderRadius: BorderRadius.circular(12),
-      border: Border.all(color: color.withValues(alpha: 0.4)),
-    ),
-    child: Text(text, style: TextStyle(fontSize: 12, color: color, fontWeight: FontWeight.w600)),
-  );
-
-  Widget _chip(String text) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-    decoration: BoxDecoration(color: Colors.white10, borderRadius: BorderRadius.circular(12)),
-    child: Text(text, style: const TextStyle(fontSize: 12, color: Colors.white54)),
-  );
-
-  Widget _section(String title) => Padding(
-    padding: const EdgeInsets.only(top: 12, bottom: 4),
-    child: Text(title.toUpperCase(),
-      style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white38, letterSpacing: 0.8)),
-  );
-
-  Widget _row(String label, String value) => Padding(
-    padding: const EdgeInsets.symmetric(vertical: 3),
-    child: Row(children: [
-      SizedBox(width: 110, child: Text(label, style: const TextStyle(color: Colors.white54, fontSize: 13))),
-      Expanded(child: Text(value, style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w500))),
-    ]),
-  );
-
-  Widget _rowColored(String label, String value, Color valueColor) => Padding(
-    padding: const EdgeInsets.symmetric(vertical: 3),
-    child: Row(children: [
-      SizedBox(width: 110, child: Text(label, style: const TextStyle(color: Colors.white54, fontSize: 13))),
-      Expanded(child: Text(value, style: TextStyle(color: valueColor, fontSize: 13, fontWeight: FontWeight.w500))),
-    ]),
-  );
-
-  String _fmtTCPA(double seconds) {
-    if (seconds < 60) return '${seconds.toStringAsFixed(0)}s';
-    if (seconds < 3600) return '${(seconds / 60).toStringAsFixed(1)}m';
-    return '${(seconds / 3600).toStringAsFixed(1)}h';
-  }
-
-  static String _formatTimeSince(DateTime timestamp) {
-    final elapsed = DateTime.now().difference(timestamp);
-    if (elapsed.inSeconds < 60) return '${elapsed.inSeconds}s';
-    if (elapsed.inMinutes < 60) return '${elapsed.inMinutes}m';
-    return '${elapsed.inHours}h';
-  }
-
-  static String _extractMMSI(String vesselId) {
-    final match = RegExp(r'(\d{9})').firstMatch(vesselId);
-    return match?.group(1) ?? vesselId;
-  }
-
-  static String _shipTypeLabel(int? type) {
-    if (type == null) return 'Unknown';
-    if (type == 30) return 'Fishing';
-    if (type == 31 || type == 32) return 'Towing';
-    if (type == 35) return 'Military';
-    if (type == 36) return 'Sailing';
-    if (type == 37) return 'Pleasure craft';
-    if (type == 50) return 'Pilot vessel';
-    if (type == 51) return 'SAR';
-    if (type == 52) return 'Tug';
-    if (type >= 60 && type <= 69) return 'Passenger';
-    if (type >= 70 && type <= 79) return 'Cargo';
-    if (type >= 80 && type <= 89) return 'Tanker';
-    return 'Other ($type)';
-  }
-
-  static Color _shipTypeColor(int? type, String? aisClass) {
-    if (type == null) return aisClass == 'A' ? Colors.grey.shade400 : Colors.grey;
-    if (type == 36) return Colors.purple;
-    switch (type ~/ 10) {
-      case 1: case 2: return Colors.cyan;
-      case 3: return Colors.amber;
-      case 4: case 5: return Colors.teal;
-      case 6: return Colors.blue;
-      case 7: return Colors.green.shade700;
-      case 8: return Colors.brown;
-      default: return Colors.grey;
-    }
   }
 
   // ---------------------------------------------------------------------------
@@ -875,314 +980,120 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
   // HUD — ALL values via MetadataStore
   // ---------------------------------------------------------------------------
 
-  String _formatValue(String path, {int decimals = 1}) {
-    final data = widget.signalKService.getValue(path);
-    if (data?.value == null || data!.value is! num) return '--';
-    final rawValue = (data.value as num).toDouble();
-    final metadata = widget.signalKService.metadataStore.get(path);
-    if (metadata != null) {
-      return metadata.format(rawValue, decimals: decimals);
-    }
-    return rawValue.toStringAsFixed(decimals);
-  }
+  // HUD moved to lib/widgets/chart_plotter/chart_hud.dart
 
   Widget _buildHUD() {
-    return Positioned(
-      left: 0,
-      right: 0,
-      bottom: _hudPosition == 'bottom' ? 0 : null,
-      top: _hudPosition == 'top' ? 0 : null,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-        decoration: BoxDecoration(color: Colors.black.withValues(alpha: 0.7)),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-          children: [
-            _hudItem('SOG', _formatValue('navigation.speedOverGround')),
-            _hudItem('COG', _formatValue('navigation.courseOverGroundTrue', decimals: 0)),
-            _hudItem('DPT', _formatValue('environment.depth.belowTransducer', decimals: 1)),
-            _hudItem('DTW', _formatValue('navigation.course.calcValues.distance', decimals: 1)),
-            _hudItem('BRG', _formatValue('navigation.course.calcValues.bearingTrue', decimals: 0)),
-            _hudItem('XTE', _formatValue('navigation.course.calcValues.crossTrackError', decimals: 1)),
-            if (_routeCoords != null &&
-                _routePointIndex != null &&
-                _routePointTotal != null &&
-                _routePointIndex! + 1 < _routePointTotal!) ...[
-              GestureDetector(
-                onTap: _advanceWaypoint,
-                child: const Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 4),
-                  child: Icon(Icons.skip_next, color: Colors.white70, size: 24),
-                ),
-              ),
-              GestureDetector(
-                onTap: _fastForwardToNearest,
-                child: const Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 4),
-                  child: Icon(Icons.fast_forward, color: Colors.white70, size: 24),
-                ),
-              ),
-            ],
-          ],
-        ),
-      ),
+    final canAdvance = _routeCoords != null &&
+        _routePointIndex != null &&
+        _routePointTotal != null &&
+        _routePointIndex! + 1 < _routePointTotal!;
+    return ChartPlotterHUD(
+      signalKService: widget.signalKService,
+      hudStyle: _hudStyle,
+      hudPosition: _hudPosition,
+      paths: _allPaths,
+      hasActiveRoute: _routeCoords != null,
+      canAdvance: canAdvance,
+      onAdvanceWaypoint: _advanceWaypoint,
+      onFastForward: _fastForwardToNearest,
     );
   }
-
-  Widget _hudItem(String label, String value) => Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(label, style: const TextStyle(color: Colors.white60, fontSize: 10)),
-          Text(value,
-              style: const TextStyle(
-                  color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold)),
-        ],
-      );
 
   // ---------------------------------------------------------------------------
   // Route management UI
   // ---------------------------------------------------------------------------
 
+  // Route manager, route list, active route panel, and route editing dialogs
+  // moved to lib/widgets/chart_plotter/chart_route_panel.dart
+
+  ChartRouteCallbacks get _routeCallbacks => ChartRouteCallbacks(
+    activateRoute: _activateRoute,
+    reverseRoute: _reverseRoute,
+    clearCourse: _clearCourse,
+    skipToWaypoint: _skipToWaypoint,
+    showRouteManager: _showRouteManager,
+    saveRouteToServer: _saveRouteToServer,
+  );
+
   void _showRouteManager() {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (sheetCtx) => DraggableScrollableSheet(
-        initialChildSize: 0.45,
-        maxChildSize: 0.7,
-        minChildSize: 0.2,
-        snap: true,
-        snapSizes: const [0.2, 0.45],
-        builder: (_, scrollController) => Container(
-          decoration: const BoxDecoration(
-            color: Color(0xFF1E1E2E),
-            borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-          ),
-          child: _routeCoords != null
-              ? _buildActiveRoutePanel(sheetCtx, scrollController)
-              : _buildRouteList(sheetCtx, scrollController),
-        ),
+    showRouteManagerSheet(
+      context,
+      signalKService: widget.signalKService,
+      routeState: ChartRouteState(
+        routeCoords: _routeCoords,
+        waypointNames: _waypointNames,
+        routePointIndex: _routePointIndex,
+        routePointTotal: _routePointTotal,
+        activeRouteId: _activeRouteId,
       ),
+      callbacks: _routeCallbacks,
+      navPaths: _allPaths,
     );
   }
 
-  /// Shows list of available routes to activate.
-  Widget _buildRouteList(BuildContext sheetCtx, ScrollController scrollController) {
-    return FutureBuilder<Map<String, dynamic>>(
-      future: widget.signalKService.getResources('routes'),
-      builder: (context, snapshot) {
-        final routes = snapshot.data;
-        return ListView(
-          controller: scrollController,
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-          children: [
-            Center(child: Container(
-              width: 40, height: 4,
-              margin: const EdgeInsets.only(bottom: 12),
-              decoration: BoxDecoration(color: Colors.grey[600], borderRadius: BorderRadius.circular(2)),
-            )),
-            const Text('Routes', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 8),
-            if (!snapshot.hasData)
-              const Center(child: Padding(
-                padding: EdgeInsets.all(24),
-                child: CircularProgressIndicator(),
-              ))
-            else if (routes == null || routes.isEmpty)
-              const Padding(
-                padding: EdgeInsets.all(24),
-                child: Text('No routes on server', style: TextStyle(color: Colors.white54)),
-              )
-            else
-              ...routes.entries.map((entry) {
-                final id = entry.key;
-                final data = entry.value as Map<String, dynamic>;
-                final name = data['name'] as String? ?? id;
-                final desc = data['description'] as String?;
-                final distM = data['distance'] as num?;
-                final distMeta = widget.signalKService.metadataStore.getByCategory('distance');
-                final distStr = distM != null
-                    ? '${(distMeta?.convert(distM.toDouble()) ?? distM).toStringAsFixed(1)} ${distMeta?.symbol ?? 'm'}'
-                    : null;
-                final feature = data['feature'] as Map?;
-                final coords = (feature?['geometry'] as Map?)?['coordinates'] as List?;
-                final wptCount = coords?.length ?? 0;
-
-                return ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: const Icon(Icons.route, color: Colors.white54),
-                  title: Text(name, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w500)),
-                  subtitle: Text(
-                    [if (distStr != null) distStr, '$wptCount waypoints', if (desc != null) desc] // ignore: use_null_aware_elements
-                        .join(' · '),
-                    style: const TextStyle(color: Colors.white38, fontSize: 12),
-                    maxLines: 1, overflow: TextOverflow.ellipsis,
-                  ),
-                  trailing: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      IconButton(
-                        icon: const Icon(Icons.play_arrow, color: Colors.green, size: 22),
-                        tooltip: 'Activate forward',
-                        constraints: const BoxConstraints.tightFor(width: 36, height: 36),
-                        onPressed: () {
-                          Navigator.of(sheetCtx).pop();
-                          _activateRoute(id);
-                        },
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.play_arrow, color: Colors.red, size: 22),
-                        tooltip: 'Activate reversed',
-                        constraints: const BoxConstraints.tightFor(width: 36, height: 36),
-                        onPressed: () {
-                          Navigator.of(sheetCtx).pop();
-                          _activateRoute(id, reverse: true);
-                        },
-                      ),
-                    ],
-                  ),
-                );
-              }),
-          ],
-        );
+  void _showWaypointEditDialog(int index) {
+    showWaypointEditDialog(
+      context,
+      index: index,
+      routeCoords: _routeCoords,
+      waypointNames: _waypointNames,
+      onChanged: () {
+        _pushRoute();
+        if (mounted) setState(() {});
       },
+      saveRouteToServer: _saveRouteToServer,
     );
   }
 
-  /// Shows active route info with deactivate/advance controls.
-  Widget _buildActiveRoutePanel(BuildContext sheetCtx, ScrollController scrollController) {
-    return ListView(
-      controller: scrollController,
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-      children: [
-        Center(child: Container(
-          width: 40, height: 4,
-          margin: const EdgeInsets.only(bottom: 12),
-          decoration: BoxDecoration(color: Colors.grey[600], borderRadius: BorderRadius.circular(2)),
-        )),
-        Row(children: [
-          const Icon(Icons.route, color: Colors.green, size: 24),
-          const SizedBox(width: 8),
-          const Expanded(child: Text('Active Route',
-            style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold))),
-          // Reverse route
-          IconButton(
-            icon: const Icon(Icons.swap_horiz, color: Colors.orange),
-            tooltip: 'Reverse route',
-            onPressed: () {
-              Navigator.of(sheetCtx).pop();
-              _reverseRoute();
-            },
-          ),
-          // Deactivate
-          IconButton(
-            icon: const Icon(Icons.stop_circle_outlined, color: Colors.red),
-            tooltip: 'Deactivate route',
-            onPressed: () {
-              Navigator.of(sheetCtx).pop();
-              _clearCourse();
-            },
-          ),
-        ]),
-        const SizedBox(height: 4),
-        Text(
-          'Waypoint ${(_routePointIndex ?? 0) + 1} of ${_routePointTotal ?? _routeCoords?.length ?? 0}',
-          style: const TextStyle(color: Colors.white54, fontSize: 13),
-        ),
-        // DTW / BRG / XTE with MetadataStore fallbacks
-        Builder(builder: (_) {
-          final store = widget.signalKService.metadataStore;
-          final distMeta = store.get('navigation.course.calcValues.distance') ?? store.getByCategory('distance');
-          final brgMeta = store.get('navigation.course.calcValues.bearingTrue') ?? store.get('navigation.courseOverGroundTrue');
-          final xteMeta = store.get('navigation.course.calcValues.crossTrackError') ?? store.getByCategory('distance');
-
-          String fmt(String path, dynamic meta, {int dec = 1}) {
-            final d = widget.signalKService.getValue(path);
-            if (d?.value == null || d!.value is! num) return '--';
-            final raw = (d.value as num).toDouble();
-            if (meta != null) return meta.format(raw, decimals: dec) as String;
-            return raw.toStringAsFixed(dec);
-          }
-
-          return Row(children: [
-            Text('DTW: ${fmt('navigation.course.calcValues.distance', distMeta)}',
-              style: const TextStyle(color: Colors.white70, fontSize: 13)),
-            const SizedBox(width: 16),
-            Text('BRG: ${fmt('navigation.course.calcValues.bearingTrue', brgMeta, dec: 0)}',
-              style: const TextStyle(color: Colors.white70, fontSize: 13)),
-            const SizedBox(width: 16),
-            Text('XTE: ${fmt('navigation.course.calcValues.crossTrackError', xteMeta)}',
-              style: const TextStyle(color: Colors.white70, fontSize: 13)),
-          ]);
-        }),
-        const Divider(color: Colors.white24, height: 20),
-        // Waypoint list
-        if (_routeCoords != null)
-          ...List.generate(_routeCoords!.length, (i) {
-            final isActive = i == _routePointIndex;
-            final isPast = _routePointIndex != null && i < _routePointIndex!;
-            final name = (_waypointNames != null && i < _waypointNames!.length && _waypointNames![i].isNotEmpty)
-                ? _waypointNames![i]
-                : 'WPT ${i + 1}';
-            // Leg distance from previous waypoint
-            String? legDist;
-            if (i > 0) {
-              final distMeta = widget.signalKService.metadataStore.getByCategory('distance');
-              final prev = _routeCoords![i - 1];
-              final cur = _routeCoords![i];
-              final m = CpaUtils.calculateDistance(prev[1], prev[0], cur[1], cur[0]);
-              final v = distMeta?.convert(m) ?? m;
-              legDist = '${v.toStringAsFixed(1)} ${distMeta?.symbol ?? 'm'}';
-            }
-            return ListTile(
-              dense: true,
-              contentPadding: EdgeInsets.zero,
-              leading: Icon(
-                isActive ? Icons.flag : isPast ? Icons.check_circle : Icons.circle_outlined,
-                color: isActive ? Colors.green : isPast ? Colors.white24 : Colors.white54,
-                size: 20,
-              ),
-              title: Text(name, style: TextStyle(
-                color: isActive ? Colors.green : isPast ? Colors.white38 : Colors.white,
-                fontWeight: isActive ? FontWeight.bold : FontWeight.normal,
-                fontSize: 13,
-              )),
-              subtitle: legDist != null
-                  ? Text(legDist, style: TextStyle(
-                      color: isPast ? Colors.white24 : Colors.white38, fontSize: 11))
-                  : null,
-              trailing: !isPast && !isActive && _routePointIndex != null && i > _routePointIndex!
-                  ? IconButton(
-                      icon: const Icon(Icons.near_me, size: 18, color: Colors.white54),
-                      tooltip: 'Skip to this waypoint',
-                      onPressed: () => _skipToWaypoint(i),
-                    )
-                  : null,
-            );
-          }),
-      ],
+  void _showAddWaypointDialog(int afterIndex, double lon, double lat) {
+    showAddWaypointDialog(
+      context,
+      afterIndex: afterIndex,
+      lon: lon,
+      lat: lat,
+      routeCoords: _routeCoords,
+      waypointNames: _waypointNames,
+      onChanged: () {
+        _pushRoute();
+        if (mounted) setState(() {});
+      },
+      saveRouteToServer: _saveRouteToServer,
     );
+  }
+
+  String? get _activeRouteId {
+    if (_activeRouteHref == null) return null;
+    return _activeRouteHref!.split('/').last;
+  }
+
+  Future<void> _saveRouteToServer() async {
+    final routeId = _activeRouteId;
+    if (routeId == null || _routeCoords == null) return;
+    final routeData = {
+      'feature': {
+        'type': 'Feature',
+        'geometry': {
+          'type': 'LineString',
+          'coordinates': _routeCoords,
+        },
+        'properties': {
+          'coordinatesMeta': _waypointNames?.map((n) => {'name': n}).toList() ?? [],
+        },
+      },
+    };
+    await widget.signalKService.putResource('routes', routeId, routeData);
+  }
+
+  void _onWaypointDrag(int index, double lon, double lat) {
+    if (_routeCoords == null || index < 0 || index >= _routeCoords!.length) return;
+    _routeCoords![index] = [lon, lat];
+    _pushRoute();
+    _saveRouteToServer();
   }
 
   Future<void> _activateRoute(String routeId, {bool reverse = false}) async {
-    final url = '${widget.signalKService.httpBaseUrl}'
-        '/signalk/v2/api/vessels/self/navigation/course/activeRoute';
     try {
-      await http.put(
-        Uri.parse(url),
-        headers: {
-          'Content-Type': 'application/json',
-          if (widget.signalKService.authToken?.token != null)
-            'Authorization': 'Bearer ${widget.signalKService.authToken!.token}',
-        },
-        body: jsonEncode({
-          'href': '/resources/routes/$routeId',
-          'pointIndex': 0,
-          'reverse': reverse,
-          'arrivalCircle': 100,
-        }),
-      );
+      await widget.signalKService.activateRoute(routeId, reverse: reverse);
       _lastRoutePoll = DateTime(0);
       await _pollCourseAPI();
     } catch (e) {
@@ -1195,18 +1106,8 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
   Future<void> _reverseRoute() async {
     // Stop arrival monitor during reverse to prevent spurious arrival events
     _stopArrivalMonitor();
-    final url = '${widget.signalKService.httpBaseUrl}'
-        '/signalk/v2/api/vessels/self/navigation/course/activeRoute/reverse';
     try {
-      await http.put(
-        Uri.parse(url),
-        headers: {
-          'Content-Type': 'application/json',
-          if (widget.signalKService.authToken?.token != null)
-            'Authorization': 'Bearer ${widget.signalKService.authToken!.token}',
-        },
-        body: '{}',
-      );
+      await widget.signalKService.reverseActiveRoute();
       // Jump to start of the new direction
       await _skipToWaypoint(0);
       _startArrivalMonitor();
@@ -1219,16 +1120,8 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
   }
 
   Future<void> _clearCourse() async {
-    final url = '${widget.signalKService.httpBaseUrl}'
-        '/signalk/v2/api/vessels/self/navigation/course';
     try {
-      await http.delete(
-        Uri.parse(url),
-        headers: {
-          if (widget.signalKService.authToken?.token != null)
-            'Authorization': 'Bearer ${widget.signalKService.authToken!.token}',
-        },
-      );
+      await widget.signalKService.clearCourse();
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Clear failed: $e')));
@@ -1237,18 +1130,8 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
   }
 
   Future<void> _skipToWaypoint(int pointIndex) async {
-    final url = '${widget.signalKService.httpBaseUrl}'
-        '/signalk/v2/api/vessels/self/navigation/course/activeRoute/pointIndex';
     try {
-      await http.put(
-        Uri.parse(url),
-        headers: {
-          'Content-Type': 'application/json',
-          if (widget.signalKService.authToken?.token != null)
-            'Authorization': 'Bearer ${widget.signalKService.authToken!.token}',
-        },
-        body: jsonEncode({'value': pointIndex}),
-      );
+      await widget.signalKService.setActiveRoutePointIndex(pointIndex);
       _lastRoutePoll = DateTime(0);
       await _pollCourseAPI();
     } catch (e) {
@@ -1260,7 +1143,7 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
 
   Future<void> _fastForwardToNearest() async {
     if (_routeCoords == null) return;
-    final posData = widget.signalKService.getValue('navigation.position');
+    final posData = widget.signalKService.getValue(_dsPath(_dsPosition));
     if (posData?.value is! Map) return;
     final pos = posData!.value as Map;
     final vLat = (pos['latitude'] as num?)?.toDouble();
@@ -1323,16 +1206,33 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
       children: [
         Builder(builder: (context) {
           final depthMeta = widget.signalKService.metadataStore.getByCategory('depth');
-          final factor = depthMeta?.convert(1.0) ?? 1.0;
-          final symbol = depthMeta?.symbol ?? 'm';
+          final depthFactor = depthMeta?.convert(1.0) ?? 1.0;
+          final depthSymbol = depthMeta?.symbol ?? 'm';
+          final heightMeta = widget.signalKService.metadataStore.getByCategory('length');
+          final heightFactor = heightMeta?.convert(1.0) ?? 1.0;
+          final heightSymbol = heightMeta?.symbol ?? 'm';
+          int? tilePort;
+          try {
+            final tileServer = context.read<ChartTileServerService>();
+            if (tileServer.isRunning) tilePort = tileServer.port;
+          } catch (_) {}
           return ChartWebView(
             baseUrl: widget.signalKService.httpBaseUrl,
             authToken: widget.signalKService.authToken?.token,
             onReady: _onWebViewReady,
             onAutoFollowChanged: _onAutoFollowChanged,
             onAISVesselClick: _onAISVesselClick,
-            depthUnit: symbol,
-            depthConversionFactor: factor,
+            onWaypointDrag: _onWaypointDrag,
+            onWaypointLongPress: _showWaypointEditDialog,
+            onRouteLineAdd: _showAddWaypointDialog,
+            onRulerUpdate: _onRulerUpdate,
+            onViewportChanged: _onViewportChanged,
+            localTileServerPort: tilePort,
+            layers: _layers,
+            depthUnit: depthSymbol,
+            depthConversionFactor: depthFactor,
+            heightUnit: heightSymbol,
+            heightConversionFactor: heightFactor,
           );
         }),
         ListenableBuilder(
@@ -1388,18 +1288,127 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
                   tooltip: _aisShowPaths ? 'Paths on' : 'Paths off',
                 ),
               ],
+              _mapButton(
+                icon: Icons.layers,
+                onPressed: _showLayersPanel,
+                tooltip: 'Layers',
+              ),
+              _mapButton(
+                icon: _rulerVisible ? Icons.straighten : Icons.straighten_outlined,
+                onPressed: _toggleRuler,
+                tooltip: 'Ruler',
+              ),
+              _mapButton(
+                icon: Icons.download_outlined,
+                onPressed: _showDownloadDialog,
+                tooltip: 'Download charts',
+              ),
             ],
+          ),
+        ),
+        // Ruler info overlay
+        if (_rulerVisible && _rulerDistM != null)
+          Positioned(
+            top: 8,
+            left: 8,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.7),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Builder(builder: (_) {
+                final distMeta = widget.signalKService.metadataStore.getByCategory('distance');
+                final dist = distMeta?.convert(_rulerDistM!) ?? _rulerDistM!;
+                final distSym = distMeta?.symbol ?? 'm';
+                final distStr = dist < 1
+                    ? dist.toStringAsFixed(3)
+                    : (dist < 10 ? dist.toStringAsFixed(2) : dist.toStringAsFixed(1));
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(width: 10, height: 10,
+                          decoration: const BoxDecoration(color: Colors.red, shape: BoxShape.circle)),
+                        const SizedBox(width: 6),
+                        Text('${_rulerBearingFromRed?.toStringAsFixed(1) ?? '--'}°',
+                          style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w500)),
+                      ],
+                    ),
+                    const SizedBox(height: 2),
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(width: 10, height: 10,
+                          decoration: const BoxDecoration(color: Colors.blue, shape: BoxShape.circle)),
+                        const SizedBox(width: 6),
+                        Text('${_rulerBearingFromBlue?.toStringAsFixed(1) ?? '--'}°',
+                          style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w500)),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Text('$distStr $distSym',
+                      style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.bold)),
+                  ],
+                );
+              }),
+            ),
+          ),
+        // Tile freshness indicator — above HUD
+        Positioned(
+          bottom: _hudStyle == 'visual' ? 190 : (_hudStyle == 'text' ? 52 : 8),
+          right: 8,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: Colors.black.withValues(alpha: 0.6),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 8, height: 8,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: switch (_viewportFreshness) {
+                      TileFreshness.fresh => Colors.green,
+                      TileFreshness.aging => Colors.yellow,
+                      TileFreshness.stale => Colors.orange,
+                      TileFreshness.uncached => widget.signalKService.isConnected
+                          ? Colors.red
+                          : Colors.grey,
+                    },
+                  ),
+                ),
+                const SizedBox(width: 4),
+                Text(
+                  switch (_viewportFreshness) {
+                    TileFreshness.fresh => 'Fresh',
+                    TileFreshness.aging => '15d+',
+                    TileFreshness.stale => '30d+',
+                    TileFreshness.uncached => widget.signalKService.isConnected
+                        ? 'No cache'
+                        : 'Offline',
+                  },
+                  style: const TextStyle(color: Colors.white70, fontSize: 10),
+                ),
+              ],
+            ),
           ),
         ),
         // Compass rose — heading-up mode only
         if (_viewMode == 'heading-up')
           Positioned(
-            top: 80,
+            top: _rulerVisible ? 130 : 80,
             left: 8,
             child: ListenableBuilder(
               listenable: widget.signalKService,
               builder: (context, _) {
-                final heading = _numValue('navigation.headingTrue') ?? 0.0;
+                final heading = _numValue(_dsPath(_dsHeading)) ?? 0.0;
                 return Transform.rotate(
                   angle: -heading,
                   child: Container(
@@ -1486,13 +1495,25 @@ class ChartPlotterBuilder extends ToolBuilder {
       configSchema: ConfigSchema(
         allowsMinMax: false,
         allowsColorCustomization: false,
-        allowsMultiplePaths: false,
-        minPaths: 0,
-        maxPaths: 0,
+        allowsMultiplePaths: true,
+        minPaths: 10,
+        maxPaths: 10,
         styleOptions: const [],
         allowsUnitSelection: false,
         allowsVisibilityToggles: false,
         allowsTTL: false,
+        slotDefinitions: const [
+          SlotDefinition(roleLabel: 'Position', defaultPath: 'navigation.position'),
+          SlotDefinition(roleLabel: 'Heading', defaultPath: 'navigation.headingTrue'),
+          SlotDefinition(roleLabel: 'COG', defaultPath: 'navigation.courseOverGroundTrue'),
+          SlotDefinition(roleLabel: 'SOG', defaultPath: 'navigation.speedOverGround'),
+          SlotDefinition(roleLabel: 'Depth', defaultPath: 'environment.depth.belowTransducer'),
+          SlotDefinition(roleLabel: 'Bearing to WP', defaultPath: 'navigation.course.calcValues.bearingTrue'),
+          SlotDefinition(roleLabel: 'Cross Track Error', defaultPath: 'navigation.course.calcValues.crossTrackError'),
+          SlotDefinition(roleLabel: 'Distance to WP', defaultPath: 'navigation.course.calcValues.distance'),
+          SlotDefinition(roleLabel: 'Active Route', defaultPath: 'navigation.course.activeRoute'),
+          SlotDefinition(roleLabel: 'Next Point', defaultPath: 'navigation.courseGreatCircle.nextPoint.position'),
+        ],
       ),
       defaultWidth: 4,
       defaultHeight: 4,
@@ -1524,49 +1545,4 @@ class ChartPlotterBuilder extends ToolBuilder {
   }
 }
 
-// =============================================================================
-// Vessel lookup WebView (VesselFinder / MarineTraffic)
-// =============================================================================
-
-class _VesselLookupPage extends StatefulWidget {
-  final String url;
-  final String title;
-  const _VesselLookupPage({required this.url, required this.title});
-
-  @override
-  State<_VesselLookupPage> createState() => _VesselLookupPageState();
-}
-
-class _VesselLookupPageState extends State<_VesselLookupPage> {
-  late final WebViewController _controller;
-  bool _isLoading = true;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = WebViewController()
-      ..setJavaScriptMode(JavaScriptMode.unrestricted)
-      ..setNavigationDelegate(NavigationDelegate(
-        onPageStarted: (_) => setState(() => _isLoading = true),
-        onPageFinished: (_) => setState(() => _isLoading = false),
-      ))
-      ..loadRequest(Uri.parse(widget.url));
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(widget.title),
-        actions: [
-          if (_isLoading)
-            const Padding(
-              padding: EdgeInsets.only(right: 16),
-              child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)),
-            ),
-        ],
-      ),
-      body: WebViewWidget(controller: _controller),
-    );
-  }
-}
+// VesselLookupPage moved to lib/widgets/ais_vessel_detail_sheet.dart

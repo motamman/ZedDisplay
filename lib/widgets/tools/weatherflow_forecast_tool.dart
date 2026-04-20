@@ -4,7 +4,6 @@ import '../../models/tool_config.dart';
 import '../../services/signalk_service.dart';
 import '../../services/tool_registry.dart';
 import '../../utils/color_extensions.dart';
-import '../../utils/conversion_utils.dart';
 import '../weatherflow_forecast.dart';
 
 
@@ -56,25 +55,25 @@ class WeatherFlowForecastTool extends StatelessWidget {
     final hoursToShow = style.customProperties?['hoursToShow'] as int? ?? 12;
     final showCurrentConditions = style.customProperties?['showCurrentConditions'] as bool? ?? true;
 
-    // Get current observations using ConversionUtils for proper unit handling
-    final currentTemp = ConversionUtils.getConvertedValue(signalKService, _getPath(0));
-    final currentHumidity = ConversionUtils.getConvertedValue(signalKService, _getPath(1));
-    final currentPressure = ConversionUtils.getConvertedValue(signalKService, _getPath(2));
-    final currentWindSpeed = ConversionUtils.getConvertedValue(signalKService, _getPath(3));
-    final currentWindGust = ConversionUtils.getConvertedValue(signalKService, _getPath(4));
-    final currentWindDirection = ConversionUtils.getConvertedValue(signalKService, _getPath(5));
+    // Current observations via MetadataStore-backed conversion.
+    final currentTemp = signalKService.getConvertedValue(_getPath(0));
+    final currentHumidity = signalKService.getConvertedValue(_getPath(1));
+    final currentPressure = signalKService.getConvertedValue(_getPath(2));
+    final currentWindSpeed = signalKService.getConvertedValue(_getPath(3));
+    final currentWindGust = signalKService.getConvertedValue(_getPath(4));
+    final currentWindDirection = signalKService.getConvertedValue(_getPath(5));
 
     // Get rain data
     const rainLastHourPath = 'environment.outside.tempest.observations.precipTotal1h';
     const rainTodayPath = 'environment.outside.tempest.observations.localDailyRainAccumulation';
-    final rainLastHour = ConversionUtils.getConvertedValue(signalKService, rainLastHourPath);
-    final rainToday = ConversionUtils.getConvertedValue(signalKService, rainTodayPath);
+    final rainLastHour = signalKService.getConvertedValue(rainLastHourPath);
+    final rainToday = signalKService.getConvertedValue(rainTodayPath);
 
-    // Get unit symbols from SignalK service
-    final tempUnit = signalKService.getUnitSymbol(_getPath(0)) ?? '°C';
-    final pressureUnit = signalKService.getUnitSymbol(_getPath(2)) ?? 'hPa';
-    final windUnit = signalKService.getUnitSymbol(_getPath(3)) ?? 'kts';
-    final rainUnit = signalKService.getUnitSymbol(rainLastHourPath) ?? 'mm';
+    // Unit symbols from MetadataStore (null when not yet known).
+    final tempUnit = signalKService.getUnitSymbol(_getPath(0));
+    final pressureUnit = signalKService.getUnitSymbol(_getPath(2));
+    final windUnit = signalKService.getUnitSymbol(_getPath(3));
+    final rainUnit = signalKService.getUnitSymbol(rainLastHourPath);
 
     // Get hourly forecasts
     final hourlyBasePath = _getPath(6);
@@ -190,15 +189,15 @@ class WeatherFlowForecastTool extends StatelessWidget {
     final forecasts = <HourlyForecast>[];
 
     for (int i = 0; i < count && i < 72; i++) {
-      final temp = ConversionUtils.getConvertedValue(signalKService, '$basePath.airTemperature.$i');
-      final feelsLike = ConversionUtils.getConvertedValue(signalKService, '$basePath.feelsLike.$i');
+      final temp = signalKService.getConvertedValue('$basePath.airTemperature.$i');
+      final feelsLike = signalKService.getConvertedValue('$basePath.feelsLike.$i');
       final conditions = _getStringValue('$basePath.conditions.$i');
       final icon = _getStringValue('$basePath.icon.$i');
-      final precipProb = ConversionUtils.getConvertedValue(signalKService, '$basePath.precipProbability.$i');
-      final humidity = ConversionUtils.getConvertedValue(signalKService, '$basePath.relativeHumidity.$i');
-      final pressure = ConversionUtils.getConvertedValue(signalKService, '$basePath.seaLevelPressure.$i');
-      final windSpeed = ConversionUtils.getConvertedValue(signalKService, '$basePath.windAvg.$i');
-      final windDirection = ConversionUtils.getConvertedValue(signalKService, '$basePath.windDirection.$i');
+      final precipProb = signalKService.getConvertedValue('$basePath.precipProbability.$i');
+      final humidity = signalKService.getConvertedValue('$basePath.relativeHumidity.$i');
+      final pressure = signalKService.getConvertedValue('$basePath.seaLevelPressure.$i');
+      final windSpeed = signalKService.getConvertedValue('$basePath.windAvg.$i');
+      final windDirection = signalKService.getConvertedValue('$basePath.windDirection.$i');
 
       // Only add if we have at least temperature or conditions
       if (temp != null || conditions != null) {
@@ -224,34 +223,26 @@ class WeatherFlowForecastTool extends StatelessWidget {
   List<DailyForecast> _getDailyForecasts(String basePath, int count) {
     final forecasts = <DailyForecast>[];
 
-    // Get temperature conversion formula from observations path
-    final tempPath = _getPath(0);
-    final availableUnits = signalKService.getAvailableUnits(tempPath);
-    String? tempFormula;
-    if (availableUnits.isNotEmpty) {
-      final conversionInfo = signalKService.getConversionInfo(tempPath, availableUnits.first);
-      tempFormula = conversionInfo?.formula;
-    }
+    // Borrow the temperature PathMetadata from the current-observations path
+    // so we can convert raw forecast values (which may not have their own
+    // metadata entries) using the same formula.
+    final tempMeta = signalKService.metadataStore.get(_getPath(0));
 
     for (int i = 0; i < count && i < 10; i++) {
-      // Get raw temp values and apply conversion manually
+      // Get raw temp values and apply conversion via MetadataStore.
       final rawTempHigh = _getNumericValue('$basePath.airTempHigh.$i');
       final rawTempLow = _getNumericValue('$basePath.airTempLow.$i');
 
-      double? tempHigh = rawTempHigh;
-      double? tempLow = rawTempLow;
-      if (tempFormula != null) {
-        if (rawTempHigh != null) {
-          tempHigh = ConversionUtils.evaluateFormula(tempFormula, rawTempHigh);
-        }
-        if (rawTempLow != null) {
-          tempLow = ConversionUtils.evaluateFormula(tempFormula, rawTempLow);
-        }
-      }
+      final tempHigh = rawTempHigh == null
+          ? null
+          : (tempMeta?.convert(rawTempHigh) ?? rawTempHigh);
+      final tempLow = rawTempLow == null
+          ? null
+          : (tempMeta?.convert(rawTempLow) ?? rawTempLow);
 
       final conditions = _getStringValue('$basePath.conditions.$i');
       final icon = _getStringValue('$basePath.icon.$i');
-      final precipProb = ConversionUtils.getConvertedValue(signalKService, '$basePath.precipProbability.$i');
+      final precipProb = signalKService.getConvertedValue('$basePath.precipProbability.$i');
       final precipIcon = _getStringValue('$basePath.precipIcon.$i');
 
       // Get sunrise/sunset ISO times

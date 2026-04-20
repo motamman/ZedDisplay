@@ -14,6 +14,7 @@ import 'interfaces/data_service.dart';
 import 'storage_service.dart';
 import 'metadata_store.dart';
 import '../models/path_metadata.dart';
+import '../config/service_constants.dart';
 import '../utils/nws_alert_utils.dart';
 import 'ais_vessel_registry.dart';
 import 'diagnostic_service.dart';
@@ -615,12 +616,26 @@ class SignalKService extends ChangeNotifier implements DataService {
             _diagnosticService?.instrumentWsMessage('meta');
           }
           for (final metaEntry in updateValue.metaEntries) {
-            if (metaEntry.displayUnits != null) {
+            // Parse zones if present
+            List<PathZone>? parsedZones;
+            if (metaEntry.zones != null) {
+              parsedZones = metaEntry.zones!
+                  .map((z) => PathZone.fromJson(z))
+                  .toList();
+            }
+
+            if (metaEntry.displayUnits != null || parsedZones != null) {
               // Update single source of truth (MetadataStore)
-              _metadataStore.updateFromMeta(metaEntry.path, metaEntry.displayUnits!);
+              _metadataStore.updateFromMeta(
+                metaEntry.path,
+                metaEntry.displayUnits ?? {},
+                zones: parsedZones,
+              );
 
               // Also update legacy cache for backward compatibility
-              _displayUnitsCache[metaEntry.path] = metaEntry.displayUnits!;
+              if (metaEntry.displayUnits != null) {
+                _displayUnitsCache[metaEntry.path] = metaEntry.displayUnits!;
+              }
               displayUnitsChanged = true;
             }
           }
@@ -672,23 +687,33 @@ class SignalKService extends ChangeNotifier implements DataService {
                                        valueMap.containsKey('formatted');
 
               if (isUnitsPreference) {
-                // Units-preference format - extract converted values
+                // Units-preference format - extract the SI value and symbol.
                 final convertedValue = valueMap['converted'];
                 final originalValue = valueMap['original'];
-                final formattedString = valueMap['formatted'] as String?;
                 final symbolString = valueMap['symbol'] as String?;
 
-                // For numeric values, use converted number for charts/gauges
+                // For numeric values, prefer `converted` as the displayable
+                // scalar on `.value`. `.original` preserves SI for consumers
+                // that re-run their own MetadataStore conversion.
                 final numericValue = convertedValue is num ? convertedValue.toDouble() : null;
+
+                // Feed plugin-delivered symbol into MetadataStore — the
+                // single read path. updateSymbol is a no-op when the
+                // existing entry already has this symbol, so delta-rate
+                // calls at 1-10 Hz per path stay cheap. We deliberately
+                // don't route through updateFromMeta here: that would let
+                // the symbol leak into targetUnit via the fromDisplayUnits
+                // symbol-as-units fallback, overwriting a canonical unit
+                // id (e.g. "fahrenheit") learned from a prior meta delta.
+                if (symbolString != null && symbolString.isNotEmpty) {
+                  _metadataStore.updateSymbol(value.path, symbolString);
+                }
 
                 dataPoint = SignalKDataPoint(
                   path: value.path,
                   value: numericValue ?? convertedValue ?? originalValue,
                   timestamp: updateValue.timestamp,
                   lastSeen: DateTime.now(),
-                  converted: numericValue,
-                  formatted: formattedString,
-                  symbol: symbolString,
                   original: originalValue,
                   source: source,
                 );
@@ -1069,7 +1094,7 @@ class SignalKService extends ChangeNotifier implements DataService {
       final response = await http.get(
         Uri.parse(url),
         headers: _getHeaders(),
-      ).timeout(const Duration(seconds: 10));
+      ).timeout(ServiceConstants.httpTimeout);
       _diagnosticService?.instrumentRestCall('GET', memBefore, _diagnosticRssKB());
 
       if (response.statusCode == 200) {
@@ -1095,7 +1120,7 @@ class SignalKService extends ChangeNotifier implements DataService {
       final response = await http.get(
         Uri.parse('$httpBaseUrl/signalk/v2/api/resources/$resourceType/$id'),
         headers: _getHeaders(),
-      ).timeout(const Duration(seconds: 10));
+      ).timeout(ServiceConstants.httpTimeout);
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
@@ -1121,7 +1146,7 @@ class SignalKService extends ChangeNotifier implements DataService {
         Uri.parse(url),
         headers: _getHeaders(),
         body: jsonEncode(data),
-      ).timeout(const Duration(seconds: 10));
+      ).timeout(ServiceConstants.httpTimeout);
       _diagnosticService?.instrumentRestCall('PUT', memBefore, _diagnosticRssKB());
 
       if (response.statusCode == 200 || response.statusCode == 201) {
@@ -1143,7 +1168,7 @@ class SignalKService extends ChangeNotifier implements DataService {
       final response = await http.delete(
         Uri.parse('$httpBaseUrl/signalk/v2/api/resources/$resourceType/$id'),
         headers: _getHeaders(),
-      ).timeout(const Duration(seconds: 10));
+      ).timeout(ServiceConstants.httpTimeout);
       _diagnosticService?.instrumentRestCall('DELETE', memBefore, _diagnosticRssKB());
 
       if (response.statusCode == 200 || response.statusCode == 204) {
@@ -1174,7 +1199,7 @@ class SignalKService extends ChangeNotifier implements DataService {
       final checkResponse = await http.get(
         Uri.parse('$httpBaseUrl/signalk/v2/api/resources/$resourceType'),
         headers: _getHeaders(),
-      ).timeout(const Duration(seconds: 5));
+      ).timeout(ServiceConstants.shortHttpTimeout);
 
       if (checkResponse.statusCode == 200) {
         // Resource type exists
@@ -1189,7 +1214,7 @@ class SignalKService extends ChangeNotifier implements DataService {
         body: jsonEncode({
           'description': description ?? 'ZedDisplay $resourceType',
         }),
-      ).timeout(const Duration(seconds: 10));
+      ).timeout(ServiceConstants.httpTimeout);
 
       if (createResponse.statusCode == 200 || createResponse.statusCode == 201) {
         _ensuredResourceTypes.add(resourceType);
@@ -1212,7 +1237,7 @@ class SignalKService extends ChangeNotifier implements DataService {
       Uri.parse(url),
       headers: _getHeaders(),
       body: body != null ? jsonEncode(body) : null,
-    ).timeout(const Duration(seconds: 10));
+    ).timeout(ServiceConstants.httpTimeout);
     _diagnosticService?.instrumentRestCall('POST', memBefore, _diagnosticRssKB());
     return response;
   }
@@ -1227,9 +1252,97 @@ class SignalKService extends ChangeNotifier implements DataService {
     final response = await http.get(
       Uri.parse(url),
       headers: _getHeaders(),
-    ).timeout(const Duration(seconds: 10));
+    ).timeout(ServiceConstants.httpTimeout);
     _diagnosticService?.instrumentRestCall('GET', memBefore, _diagnosticRssKB());
     return response;
+  }
+
+  // ===== Course API (v2) =====
+  // SignalK v2 Course API for route navigation
+
+  /// Get current course info (active route, next point, etc.)
+  Future<Map<String, dynamic>?> getCourseInfo() async {
+    final url = '$httpBaseUrl/signalk/v2/api/vessels/self/navigation/course';
+    try {
+      final memBefore = _diagnosticRssKB();
+      final response = await http.get(
+        Uri.parse(url),
+        headers: _getHeaders(),
+      ).timeout(ServiceConstants.httpTimeout);
+      _diagnosticService?.instrumentRestCall('GET', memBefore, _diagnosticRssKB());
+      if (response.statusCode == 200) {
+        return jsonDecode(response.body) as Map<String, dynamic>;
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  /// Activate a route for navigation
+  Future<bool> activateRoute(String routeId, {bool reverse = false, int pointIndex = 0, int arrivalCircle = 100}) async {
+    final url = '$httpBaseUrl/signalk/v2/api/vessels/self/navigation/course/activeRoute';
+    try {
+      final memBefore = _diagnosticRssKB();
+      final response = await http.put(
+        Uri.parse(url),
+        headers: _getHeaders(),
+        body: jsonEncode({
+          'href': '/resources/routes/$routeId',
+          'pointIndex': pointIndex,
+          'reverse': reverse,
+          'arrivalCircle': arrivalCircle,
+        }),
+      ).timeout(ServiceConstants.httpTimeout);
+      _diagnosticService?.instrumentRestCall('PUT', memBefore, _diagnosticRssKB());
+      return response.statusCode == 200;
+    } catch (_) {}
+    return false;
+  }
+
+  /// Set active route point index (advance/skip waypoint)
+  Future<bool> setActiveRoutePointIndex(int index) async {
+    final url = '$httpBaseUrl/signalk/v2/api/vessels/self/navigation/course/activeRoute/pointIndex';
+    try {
+      final memBefore = _diagnosticRssKB();
+      final response = await http.put(
+        Uri.parse(url),
+        headers: _getHeaders(),
+        body: jsonEncode({'value': index}),
+      ).timeout(ServiceConstants.httpTimeout);
+      _diagnosticService?.instrumentRestCall('PUT', memBefore, _diagnosticRssKB());
+      return response.statusCode == 200;
+    } catch (_) {}
+    return false;
+  }
+
+  /// Reverse active route direction
+  Future<bool> reverseActiveRoute() async {
+    final url = '$httpBaseUrl/signalk/v2/api/vessels/self/navigation/course/activeRoute/reverse';
+    try {
+      final memBefore = _diagnosticRssKB();
+      final response = await http.put(
+        Uri.parse(url),
+        headers: _getHeaders(),
+        body: '{}',
+      ).timeout(ServiceConstants.httpTimeout);
+      _diagnosticService?.instrumentRestCall('PUT', memBefore, _diagnosticRssKB());
+      return response.statusCode == 200;
+    } catch (_) {}
+    return false;
+  }
+
+  /// Clear course / deactivate route
+  Future<bool> clearCourse() async {
+    final url = '$httpBaseUrl/signalk/v2/api/vessels/self/navigation/course';
+    try {
+      final memBefore = _diagnosticRssKB();
+      final response = await http.delete(
+        Uri.parse(url),
+        headers: _getHeaders(),
+      ).timeout(ServiceConstants.httpTimeout);
+      _diagnosticService?.instrumentRestCall('DELETE', memBefore, _diagnosticRssKB());
+      return response.statusCode == 200 || response.statusCode == 204;
+    } catch (_) {}
+    return false;
   }
 
   /// Get value for specific path, optionally from a specific source
@@ -1263,7 +1376,7 @@ class SignalKService extends ChangeNotifier implements DataService {
       final response = await http.get(
         Uri.parse('$httpBaseUrl/signalk/v1/api/vessels/$_vesselRestPath/$urlPath'),
         headers: _getHeaders(),
-      ).timeout(const Duration(seconds: 10)); // Increased from 3s for busy servers
+      ).timeout(ServiceConstants.httpTimeout); // Increased from 3s for busy servers
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body) as Map<String, dynamic>;
@@ -1287,54 +1400,56 @@ class SignalKService extends ChangeNotifier implements DataService {
     return _dataCache.getNumericValue(path);
   }
 
-  /// Get formatted value string from units-preference plugin
-  /// Returns pre-formatted string like "10.0 kn" or falls back to raw value
-  String getFormattedValue(String path) {
-    final dataPoint = _dataCache.internalDataMap[path];
-
-    if (dataPoint == null) {
-      return '---';
-    }
-
-    // Use formatted value from units-preference plugin if available
-    if (dataPoint.formatted != null) {
-      return dataPoint.formatted!;
-    }
-
-    // Fallback to raw value
-    if (dataPoint.value is num) {
-      return dataPoint.value.toStringAsFixed(1);
-    }
-
-    return dataPoint.value.toString();
+  /// Get raw SI value for a path. Prefers [SignalKDataPoint.original] (the
+  /// SI scalar the units-preference plugin stashes when pre-converting) and
+  /// falls back to [SignalKDataPoint.value] (which the standard SignalK
+  /// stream sends in SI).
+  double? _rawSIValueForPath(String path) {
+    final dp = _dataCache.internalDataMap[path];
+    if (dp == null) return null;
+    if (dp.original is num) return (dp.original as num).toDouble();
+    if (dp.value is num) return (dp.value as num).toDouble();
+    return null;
   }
 
-  /// Get converted numeric value (already in user's preferred units)
+  /// Get formatted display string (e.g. "10.0 kn") for a path.
+  ///
+  /// Delegates to [MetadataStore] for the conversion + symbol; does not read
+  /// the plugin-delivered `formatted` field. Returns "---" when no data or
+  /// falls back to the raw value's string form when non-numeric.
+  String getFormattedValue(String path) {
+    final dp = _dataCache.internalDataMap[path];
+    if (dp == null) return '---';
+
+    final raw = _rawSIValueForPath(path);
+    if (raw == null) return dp.value?.toString() ?? '---';
+
+    final meta = _metadataStore.get(path);
+    return meta?.format(raw, decimals: 1) ?? raw.toStringAsFixed(1);
+  }
+
+  /// Get converted numeric value in the user's preferred display units.
+  ///
+  /// Delegates to [MetadataStore] for the conversion; does not read the
+  /// plugin-delivered `converted` field. Returns the raw SI value when no
+  /// metadata is registered for [path].
   @override
   double? getConvertedValue(String path) {
-    return _dataCache.getConvertedValue(path);
+    final raw = _rawSIValueForPath(path);
+    if (raw == null) return null;
+    final meta = _metadataStore.get(path);
+    return meta?.convert(raw) ?? raw;
   }
 
-  /// Get unit symbol for a path (e.g., "kn", "°C")
+  /// Get unit symbol for a path (e.g., "kn", "°C").
+  ///
+  /// Reads exclusively from [MetadataStore] — the single source of truth for
+  /// conversion data. Plugin-delivered symbols are piped into MetadataStore
+  /// at ingest (see [_handleMessage]); standard `sendMeta=all` deltas and
+  /// REST `populateFromPreset` also populate the store.
   @override
   String? getUnitSymbol(String path) {
-    final dataPoint = _dataCache.internalDataMap[path];
-
-    // First try to get symbol from data point (units-preference plugin)
-    if (dataPoint?.symbol != null) {
-      return dataPoint!.symbol;
-    }
-
-    // Fallback: get symbol from conversions data (standard stream with client-side conversions)
-    final availableUnits = getAvailableUnits(path);
-    if (availableUnits.isEmpty) {
-      return null;
-    }
-
-    // Get the first/preferred conversion for this path
-    final unit = availableUnits.first;
-    final conversionInfo = getConversionInfo(path, unit);
-    return conversionInfo?.symbol;
+    return _metadataStore.get(path)?.symbol;
   }
 
   /// Get live AIS vessel data from WebSocket cache
@@ -1368,7 +1483,7 @@ class SignalKService extends ChangeNotifier implements DataService {
       final response = await http.get(
         Uri.parse('$httpBaseUrl/signalk/v1/api/self'),
         headers: _getHeaders(),
-      ).timeout(const Duration(seconds: 5));
+      ).timeout(ServiceConstants.shortHttpTimeout);
 
       if (response.statusCode == 200) {
         // Response is a JSON string like "vessels.urn:mrn:imo:mmsi:367780840"
@@ -1396,7 +1511,7 @@ class SignalKService extends ChangeNotifier implements DataService {
       final response = await http.get(
         Uri.parse('$httpBaseUrl/signalk/v1/api/vessels/$_vesselRestPath'),
         headers: _getHeaders(),
-      ).timeout(const Duration(seconds: 30)); // Increased from 10s for busy servers
+      ).timeout(ServiceConstants.veryLongHttpTimeout); // Increased from 10s for busy servers
 
       if (response.statusCode == 200) {
         return jsonDecode(response.body) as Map<String, dynamic>;
@@ -1421,7 +1536,7 @@ class SignalKService extends ChangeNotifier implements DataService {
       final response = await http.get(
         Uri.parse('$httpBaseUrl/skServer/availablePaths'),
         headers: _getHeaders(),
-      ).timeout(const Duration(seconds: 10));
+      ).timeout(ServiceConstants.httpTimeout);
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
@@ -1475,7 +1590,7 @@ class SignalKService extends ChangeNotifier implements DataService {
       final configResponse = await http.get(
         Uri.parse('$httpBaseUrl/signalk/v1/unitpreferences/config'),
         headers: _getHeaders(),
-      ).timeout(const Duration(seconds: 10));
+      ).timeout(ServiceConstants.httpTimeout);
 
       if (configResponse.statusCode == 200) {
         final data = jsonDecode(configResponse.body);
@@ -1500,7 +1615,7 @@ class SignalKService extends ChangeNotifier implements DataService {
       final presetResponse = await http.get(
         Uri.parse('$httpBaseUrl/signalk/v1/unitpreferences/presets/$presetName'),
         headers: _getHeaders(),
-      ).timeout(const Duration(seconds: 10));
+      ).timeout(ServiceConstants.httpTimeout);
 
       if (presetResponse.statusCode == 200) {
         final presetData = jsonDecode(presetResponse.body) as Map<String, dynamic>;
@@ -1530,7 +1645,7 @@ class SignalKService extends ChangeNotifier implements DataService {
       final response = await http.get(
         Uri.parse('$httpBaseUrl/signalk/v1/unitpreferences/active'),
         headers: _getHeaders(),
-      ).timeout(const Duration(seconds: 10));
+      ).timeout(ServiceConstants.httpTimeout);
 
       if (response.statusCode == 200) {
         return jsonDecode(response.body) as Map<String, dynamic>;
@@ -1540,6 +1655,70 @@ class SignalKService extends ChangeNotifier implements DataService {
     }
 
     return null;
+  }
+
+  /// Whether a user-specific unit preset has been applied to MetadataStore
+  /// in this session. Flipped true by
+  /// [applyCachedUserPreferencesToMetadataStore]; reset by
+  /// [clearUserPreferencesFromMetadataStore] or on disconnect.
+  bool _userPreferencesApplied = false;
+  bool get hasUserPreferencesApplied => _userPreferencesApplied;
+
+  /// Apply the locally-cached user unit preset to [MetadataStore]. Callers
+  /// should invoke this after [fetchUserUnitPreferences] (or after a cached
+  /// session load) so category-level conversions reflect the user's choice
+  /// rather than the server default.
+  ///
+  /// No-op when there is no cached user preset, when auth type is not
+  /// [AuthType.user], or when the server metadata fetch hasn't completed
+  /// yet (category/unit definitions missing).
+  void applyCachedUserPreferencesToMetadataStore() {
+    final preset = getCachedUserUnitPreferences();
+    final presetName = getCachedUserPresetName();
+    if (preset == null || presetName == null) {
+      _userPreferencesApplied = false;
+      return;
+    }
+    final userCategories = preset['categories'] as Map<String, dynamic>?;
+    if (userCategories == null) {
+      _userPreferencesApplied = false;
+      return;
+    }
+    final defaults = _conversionManager.defaultCategories;
+    final unitDefs = _conversionManager.unitDefinitions;
+    if (defaults == null || unitDefs == null) {
+      // Connect-time metadata fetch hasn't populated the scaffolding yet.
+      // Caller can retry after the connection completes.
+      return;
+    }
+    _metadataStore.populateFromPreset(
+      defaultCategories: defaults,
+      presetDetails: userCategories,
+      unitDefinitions: unitDefs,
+      categoryToBaseUnit: _conversionManager.categoryToBaseUnit,
+    );
+    _userPreferencesApplied = true;
+    notifyListeners();
+  }
+
+  /// Revert MetadataStore to the server-default preset (if known) and clear
+  /// the [hasUserPreferencesApplied] flag. Called on user logout; the
+  /// navigation flow that follows typically triggers a reconnect, which
+  /// re-populates MetadataStore from scratch.
+  void clearUserPreferencesFromMetadataStore() {
+    _userPreferencesApplied = false;
+    final defaults = _conversionManager.defaultCategories;
+    final presetDetails = _conversionManager.presetDetails;
+    final unitDefs = _conversionManager.unitDefinitions;
+    if (defaults != null && presetDetails != null && unitDefs != null) {
+      _metadataStore.populateFromPreset(
+        defaultCategories: defaults,
+        presetDetails: presetDetails,
+        unitDefinitions: unitDefs,
+        categoryToBaseUnit: _conversionManager.categoryToBaseUnit,
+      );
+      notifyListeners();
+    }
   }
 
   /// Get cached user unit preferences if available
@@ -1746,7 +1925,7 @@ class SignalKService extends ChangeNotifier implements DataService {
       final response = await http.get(
         Uri.parse('$httpBaseUrl/signalk/v1/api/vessels/$restPath/$apiPath'),
         headers: _getHeaders(),
-      ).timeout(const Duration(seconds: 20)); // Increased from 5s for busy servers
+      ).timeout(ServiceConstants.longHttpTimeout); // Increased from 5s for busy servers
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body) as Map<String, dynamic>;
@@ -1933,6 +2112,7 @@ class SignalKService extends ChangeNotifier implements DataService {
       _ensuredResourceTypes.clear();
       _displayUnitsCache.clear();
       _metadataStore.clear();
+      _userPreferencesApplied = false;
       _aisManager.registry.clear();
 
       if (kDebugMode) {
@@ -2182,12 +2362,6 @@ class _DataCacheManager {
     return null;
   }
 
-  /// Get converted numeric value (already in user's preferred units)
-  double? getConvertedValue(String path) {
-    final dataPoint = _latestData[path];
-    return dataPoint?.converted ?? (dataPoint?.value is num ? (dataPoint!.value as num).toDouble() : null);
-  }
-
   /// Start periodic cache cleanup to prevent unbounded memory growth
   void startCacheCleanup() {
     _cacheCleanupTimer?.cancel();
@@ -2327,19 +2501,19 @@ class _ConversionManager {
         http.get(
           Uri.parse('$httpBaseUrl/signalk/v1/unitpreferences/definitions'),
           headers: headers,
-        ).timeout(const Duration(seconds: 10)),
+        ).timeout(ServiceConstants.httpTimeout),
         http.get(
           Uri.parse('$httpBaseUrl/signalk/v1/unitpreferences/default-categories'),
           headers: headers,
-        ).timeout(const Duration(seconds: 10)),
+        ).timeout(ServiceConstants.httpTimeout),
         http.get(
           Uri.parse('$httpBaseUrl/signalk/v1/unitpreferences/config'),
           headers: headers,
-        ).timeout(const Duration(seconds: 10)),
+        ).timeout(ServiceConstants.httpTimeout),
         http.get(
           Uri.parse('$httpBaseUrl/signalk/v1/unitpreferences/categories'),
           headers: headers,
-        ).timeout(const Duration(seconds: 10)),
+        ).timeout(ServiceConstants.httpTimeout),
       ]);
 
       final definitionsResponse = results[0];
@@ -2375,7 +2549,7 @@ class _ConversionManager {
         final userResponse = await http.get(
           Uri.parse('$httpBaseUrl/signalk/v1/applicationData/user/unitpreferences/1.0.0'),
           headers: headers,
-        ).timeout(const Duration(seconds: 10));
+        ).timeout(ServiceConstants.httpTimeout);
 
         if (userResponse.statusCode == 200) {
           final userConfig = jsonDecode(userResponse.body) as Map<String, dynamic>;
@@ -2401,7 +2575,7 @@ class _ConversionManager {
           final presetResponse = await http.get(
             Uri.parse('$httpBaseUrl/signalk/v1/unitpreferences/presets/$_activePresetName'),
             headers: headers,
-          ).timeout(const Duration(seconds: 10));
+          ).timeout(ServiceConstants.httpTimeout);
 
           if (presetResponse.statusCode == 200) {
             final presetData = jsonDecode(presetResponse.body) as Map<String, dynamic>;
@@ -2583,7 +2757,7 @@ class _ConversionManager {
         Uri.parse('$httpBaseUrl/signalk/v1/unitpreferences/active'),
         headers: headers,
         body: body,
-      ).timeout(const Duration(seconds: 10));
+      ).timeout(ServiceConstants.httpTimeout);
 
       if (response.statusCode == 200) {
         // Update local cache
@@ -2888,7 +3062,7 @@ class _AISManager {
       final response = await http.get(
         Uri.parse(endpoint),
         headers: getHeaders(),
-      ).timeout(const Duration(seconds: 5));
+      ).timeout(ServiceConstants.shortHttpTimeout);
 
       if (response.statusCode == 200) {
         final vesselsData = jsonDecode(response.body) as Map<String, dynamic>;
@@ -2898,7 +3072,7 @@ class _AISManager {
           final selfResponse = await http.get(
             Uri.parse('$httpBaseUrl/signalk/v1/api/self'),
             headers: getHeaders(),
-          ).timeout(const Duration(seconds: 5));
+          ).timeout(ServiceConstants.shortHttpTimeout);
 
           if (selfResponse.statusCode == 200) {
             final selfRef = selfResponse.body.replaceAll('"', '').trim();

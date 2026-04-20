@@ -6,7 +6,6 @@ import '../services/storage_service.dart';
 import '../services/dashboard_service.dart';
 import '../services/setup_service.dart';
 import '../models/auth_token.dart';
-import '../utils/conversion_utils.dart';
 import 'server_list_screen.dart';
 import 'dashboard_manager_screen.dart';
 import 'dashboard_picker_screen.dart';
@@ -70,10 +69,10 @@ class _SplashScreenState extends State<SplashScreen> {
               authToken: savedToken,
             );
 
-            // If user auth, load user unit preferences
+            // If user auth, load user unit preferences and apply to MetadataStore.
             if (savedToken.authType == AuthType.user) {
               await signalKService.fetchUserUnitPreferences();
-              ConversionUtils.loadUserPreferences(signalKService);
+              signalKService.applyCachedUserPreferencesToMetadataStore();
             }
 
             // Set up dashboard subscriptions

@@ -46,8 +46,6 @@ final symbol = metadata?.symbol; // "kn"
 final degrees = radians * 180 / pi;  // BAD!
 final fahrenheit = (kelvin - 273.15) * 9/5 + 32;  // BAD!
 
-// WRONG: Do not use ConversionUtils (LEGACY)
-final value = ConversionUtils.getConvertedValue(...);  // BAD - DEPRECATED!
 ```
 
 ### Required Pattern for PUT Requests
@@ -79,12 +77,6 @@ if (metadata != null) {
 | `lib/services/metadata_store.dart` | Store holding all path metadata |
 | `lib/services/signalk_service.dart` | Exposes `metadataStore` getter |
 
-### DEPRECATED - Do Not Use
-
-| File | Status |
-|------|--------|
-| `lib/utils/conversion_utils.dart` | **LEGACY** - Do not use for new code. Migrate existing uses to MetadataStore. |
-
 ## Rules for Future Sessions
 
 ### DO
@@ -97,6 +89,5 @@ if (metadata != null) {
 
 ### DON'T
 - Hardcode conversion formulas in widget code
-- Use ConversionUtils (LEGACY - migrate to MetadataStore)
 - Assume specific units - always check server preferences
 - Forget inverse conversion for PUT requests

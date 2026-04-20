@@ -8,6 +8,7 @@ import 'dart:math' as math;
 import 'package:provider/provider.dart';
 import '../services/signalk_service.dart';
 import '../services/cpa_alert_service.dart';
+import '../utils/ship_type_utils.dart' as ship_type;
 import '../services/storage_service.dart';
 import '../services/ais_favorites_service.dart';
 import '../services/find_home_target_service.dart';
@@ -15,8 +16,10 @@ import '../services/dashboard_service.dart';
 import '../models/ais_favorite.dart';  // For manual add dialog
 import '../models/cpa_alert_state.dart';
 import 'common/widget_empty_states.dart';
-import 'package:webview_flutter/webview_flutter.dart';
 import '../utils/cpa_utils.dart';
+import '../models/path_metadata.dart';
+import '../services/alarm_audio_player.dart';
+import 'ais_vessel_detail_sheet.dart' show VesselLookupPage;
 
 /// AIS Polar Chart that displays nearby vessels relative to own position
 ///
@@ -406,8 +409,8 @@ class _AISPolarChartState extends State<AISPolarChart>
 
     final vesselName = vessel?.name ?? extraData['name'] ?? 'Unknown Vessel';
     final displayMMSI = _extractMMSI(mmsi);
-    final shipTypeLabel = extraData['Ship Type'] ?? _getShipTypeLabel(vessel?.aisShipType);
-    final typeColor = _getVesselTypeColor(vessel?.aisShipType, aisClass: vessel?.aisClass);
+    final shipTypeLabel = extraData['Ship Type'] ?? ship_type.shipTypeLabel(vessel?.aisShipType);
+    final typeColor = ship_type.shipTypeColor(vessel?.aisShipType, aisClass: vessel?.aisClass);
     final heading = vessel?.headingTrue ?? vessel?.cog ?? 0.0;
 
     // Build dimensions string
@@ -532,7 +535,7 @@ class _AISPolarChartState extends State<AISPolarChart>
                           onPressed: () {
                           Navigator.of(context).push(
                             MaterialPageRoute(
-                              builder: (_) => _VesselLookupWebView(
+                              builder: (_) => VesselLookupPage(
                                 url: url,
                                 title: _getLookupServiceName(widget.vesselLookupService),
                               ),
@@ -614,26 +617,12 @@ class _AISPolarChartState extends State<AISPolarChart>
                   _detailRow('Distance', '${_convertDistance(vessel.distance).toStringAsFixed(2)} ${_getDistanceUnit()}', subtitleColor, textColor),
                   if (vessel.cpa != null) ...[
                     () {
-                      final cpaConfig = widget.cpaAlertService?.config;
-                      final alarmThreshold = cpaConfig?.alarmThresholdMeters ?? 926.0;
-                      final warnThreshold = cpaConfig?.warnThresholdMeters ?? 1852.0;
-                      final cpaColor = vessel.cpa! < alarmThreshold
-                          ? Colors.red
-                          : vessel.cpa! < warnThreshold
-                              ? Colors.orange
-                              : textColor;
+                      final cpaColor = _cpaColor(vessel.cpa!, textColor);
                       return _detailRow('CPA', '${_convertDistance(vessel.cpa!).toStringAsFixed(2)} ${_getDistanceUnit()}', subtitleColor, cpaColor);
                     }(),
                     if (vessel.tcpa != null && vessel.tcpa!.isFinite && vessel.tcpa! > 0)
                       () {
-                        final cpaConfig = widget.cpaAlertService?.config;
-                        final alarmThreshold = cpaConfig?.alarmThresholdMeters ?? 926.0;
-                        final warnThreshold = cpaConfig?.warnThresholdMeters ?? 1852.0;
-                        final cpaColor = vessel.cpa! < alarmThreshold
-                            ? Colors.red
-                            : vessel.cpa! < warnThreshold
-                                ? Colors.orange
-                                : textColor;
+                        final cpaColor = _cpaColor(vessel.cpa!, textColor);
                         return _detailRow('TCPA', _formatTCPA(vessel.tcpa!), subtitleColor, cpaColor);
                       }(),
                   ],
@@ -741,7 +730,7 @@ class _AISPolarChartState extends State<AISPolarChart>
       final distance = CpaUtils.calculateDistance(_ownLat!, _ownLon!, lat, lon);
 
       // Filter out vessels beyond max range (garbage AIS data)
-      final maxRangeMeters = widget.maxRangeNm * 1852.0;
+      final maxRangeMeters = _displayToMeters(widget.maxRangeNm);
       if (distance > maxRangeMeters) continue;
 
       // Convert COG from radians to display units (degrees) via MetadataStore
@@ -898,19 +887,31 @@ class _AISPolarChartState extends State<AISPolarChart>
     });
   }
 
+  /// Distance category metadata from MetadataStore.
+  PathMetadata? get _distanceMeta =>
+      widget.signalKService.metadataStore.get('__category__.distance');
+
   /// Convert distance from meters to user's preferred unit using MetadataStore
   double _convertDistance(double meters) {
-    final metadata = widget.signalKService.metadataStore.getByCategory('distance');
-    if (metadata != null) return metadata.convert(meters) ?? meters;
-    // Fallback to category-based conversion
-    return widget.signalKService.convertByCategory('distance', meters) ?? meters;
+    return _distanceMeta?.convert(meters) ?? meters;
+  }
+
+  /// Convert from user's display distance unit back to meters (SI).
+  double _displayToMeters(double displayValue) {
+    return _distanceMeta?.convertToSI(displayValue) ?? displayValue;
   }
 
   /// Get distance unit symbol from MetadataStore
   String _getDistanceUnit() {
-    final metadata = widget.signalKService.metadataStore.getByCategory('distance');
-    if (metadata?.symbol != null) return metadata!.symbol!;
-    return widget.signalKService.getSymbolForCategory('distance') ?? 'm';
+    return _distanceMeta?.symbol ?? 'm';
+  }
+
+  /// CPA color: red if below alarm threshold, orange if below warn, else default.
+  Color _cpaColor(double cpaMeters, [Color? defaultColor]) {
+    final config = widget.cpaAlertService?.config ?? const CpaAlertConfig();
+    if (cpaMeters < config.alarmThresholdMeters) return Colors.red;
+    if (cpaMeters < config.warnThresholdMeters) return Colors.orange;
+    return defaultColor ?? Colors.white;
   }
 
   /// Convert and format a length value (beam/length/draft) using MetadataStore
@@ -923,9 +924,11 @@ class _AISPolarChartState extends State<AISPolarChart>
     return '${meters.toStringAsFixed(1)} m';
   }
 
-  /// Get angle symbol from MetadataStore
+  /// Get angle symbol from MetadataStore (angle category)
   String _getAngleSymbol() {
-    return widget.signalKService.metadataStore.get(widget.cogPath)?.symbol ?? '°';
+    return widget.signalKService.metadataStore.get('__category__.angle')?.symbol
+        ?? widget.signalKService.metadataStore.get(widget.cogPath)?.symbol
+        ?? '°';
   }
 
   /// Convert speed from m/s to user's preferred unit using SOG path's displayUnits
@@ -940,67 +943,7 @@ class _AISPolarChartState extends State<AISPolarChart>
     return metadata?.symbol ?? 'm/s';
   }
 
-  /// Decode AIS ship type integer to human-readable label
-  String _getShipTypeLabel(int? type) {
-    if (type == null) return 'Unknown';
-    if (type >= 20 && type <= 29) return 'Wing in Ground';
-    if (type == 30) return 'Fishing';
-    if (type == 31 || type == 32) return 'Towing';
-    if (type == 33) return 'Dredging';
-    if (type == 34) return 'Diving ops';
-    if (type == 35) return 'Military';
-    if (type == 36) return 'Sailing';
-    if (type == 37) return 'Pleasure craft';
-    if (type >= 40 && type <= 49) return 'High speed craft';
-    if (type == 50) return 'Pilot vessel';
-    if (type == 51) return 'SAR';
-    if (type == 52) return 'Tug';
-    if (type == 53) return 'Port tender';
-    if (type == 55) return 'Law enforcement';
-    if (type >= 60 && type <= 69) return 'Passenger';
-    if (type >= 70 && type <= 79) return 'Cargo';
-    if (type >= 80 && type <= 89) return 'Tanker';
-    return 'Other ($type)';
-  }
-
-  /// Get vessel type color based on AIS ship type code (MarineTraffic convention)
-  Color _getVesselTypeColor(int? aisShipType, {String? aisClass}) {
-    if (aisShipType == null) {
-      return aisClass == 'A' ? Colors.grey.shade400 : Colors.grey;
-    }
-
-    // Special case: sailing vessel
-    if (aisShipType == 36) return Colors.purple;
-
-    final firstDigit = aisShipType ~/ 10;
-    switch (firstDigit) {
-      case 1:
-      case 2:
-        return Colors.cyan; // Fishing, towing
-      case 3:
-        return Colors.amber; // Special craft (SAR, tug, pilot)
-      case 4:
-      case 5:
-        return Colors.teal; // High-speed craft, special
-      case 6:
-        return Colors.blue; // Passenger
-      case 7:
-        return Colors.green.shade700; // Cargo
-      case 8:
-        return Colors.brown; // Tanker
-      default:
-        return Colors.grey; // Other/unknown
-    }
-  }
-
-  /// Get vessel icon based on motion state (type is conveyed by color)
-  IconData _getVesselIcon(int? aisShipType, String? navState, {double? sogRaw}) {
-    if (navState == 'anchored') return Icons.anchor;
-    if (navState == 'moored') return Icons.local_parking;
-    // Stationary: SOG ≈ 0 (< 0.1 m/s)
-    if (sogRaw != null && sogRaw < 0.1) return Icons.circle;
-    return Icons.navigation; // Moving chevron
-  }
+  // Ship type label, color, and icon moved to lib/utils/ship_type_utils.dart
 
   /// Mooring buoy SVG template — `white` is replaced with vessel type color
   static const _mooringBuoySvg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">'
@@ -1025,7 +968,7 @@ class _AISPolarChartState extends State<AISPolarChart>
       final svg = _mooringBuoySvg.replaceAll('TYPE_COLOR', hex);
       return SvgPicture.string(svg, width: size, height: size);
     }
-    final icon = _getVesselIcon(aisShipType, navState, sogRaw: sogRaw);
+    final icon = ship_type.shipTypeIcon(aisShipType, navState, sogMs: sogRaw);
     return Icon(icon, color: color, size: size, shadows: shadows);
   }
 
@@ -1512,22 +1455,21 @@ class _AISPolarChartState extends State<AISPolarChart>
                         border: OutlineInputBorder(),
                         helperText: 'Trigger warning notification at this CPA',
                       ),
-                      initialValue: config.warnThresholdMeters / 1852.0,
-                      items: const [
-                        DropdownMenuItem(value: 0.5, child: Text('0.5 nm')),
-                        DropdownMenuItem(value: 1.0, child: Text('1 nm')),
-                        DropdownMenuItem(value: 2.0, child: Text('2 nm')),
-                        DropdownMenuItem(value: 3.0, child: Text('3 nm')),
-                        DropdownMenuItem(value: 5.0, child: Text('5 nm')),
-                      ],
+                      initialValue: _convertDistance(config.warnThresholdMeters),
+                      items: [0.5, 1.0, 2.0, 3.0, 5.0].map((v) {
+                        final meters = _displayToMeters(v);
+                        final display = _convertDistance(meters);
+                        return DropdownMenuItem(value: display, child: Text('$v ${_getDistanceUnit()}'));
+                      }).toList(),
                       onChanged: (value) {
                         if (value == null) return;
-                        var alarmNm = config.alarmThresholdMeters / 1852.0;
-                        if (alarmNm >= value) alarmNm = value / 2;
+                        final warnMeters = _displayToMeters(value);
+                        var alarmDisplay = _convertDistance(config.alarmThresholdMeters);
+                        if (alarmDisplay >= value) alarmDisplay = value / 2;
                         final newConfig = CpaAlertConfig(
                           enabled: config.enabled,
-                          warnThresholdMeters: value * 1852.0,
-                          alarmThresholdMeters: alarmNm * 1852.0,
+                          warnThresholdMeters: warnMeters,
+                          alarmThresholdMeters: _displayToMeters(alarmDisplay),
                           tcpaThresholdSeconds: config.tcpaThresholdSeconds,
                           alarmSound: config.alarmSound,
                           cooldownSeconds: config.cooldownSeconds,
@@ -1545,19 +1487,18 @@ class _AISPolarChartState extends State<AISPolarChart>
                         border: OutlineInputBorder(),
                         helperText: 'Trigger audio alarm + crew alert at this CPA',
                       ),
-                      initialValue: config.alarmThresholdMeters / 1852.0,
-                      items: const [
-                        DropdownMenuItem(value: 0.1, child: Text('0.1 nm')),
-                        DropdownMenuItem(value: 0.25, child: Text('0.25 nm')),
-                        DropdownMenuItem(value: 0.5, child: Text('0.5 nm')),
-                        DropdownMenuItem(value: 1.0, child: Text('1 nm')),
-                      ],
+                      initialValue: _convertDistance(config.alarmThresholdMeters),
+                      items: [0.1, 0.25, 0.5, 1.0].map((v) {
+                        final meters = _displayToMeters(v);
+                        final display = _convertDistance(meters);
+                        return DropdownMenuItem(value: display, child: Text('$v ${_getDistanceUnit()}'));
+                      }).toList(),
                       onChanged: (value) {
                         if (value == null) return;
                         final newConfig = CpaAlertConfig(
                           enabled: config.enabled,
                           warnThresholdMeters: config.warnThresholdMeters,
-                          alarmThresholdMeters: value * 1852.0,
+                          alarmThresholdMeters: _displayToMeters(value),
                           tcpaThresholdSeconds: config.tcpaThresholdSeconds,
                           alarmSound: config.alarmSound,
                           cooldownSeconds: config.cooldownSeconds,
@@ -1606,11 +1547,9 @@ class _AISPolarChartState extends State<AISPolarChart>
                         border: OutlineInputBorder(),
                       ),
                       initialValue: config.alarmSound,
-                      items: const [
-                        DropdownMenuItem(value: 'bell', child: Text('Bell')),
-                        DropdownMenuItem(value: 'foghorn', child: Text('Foghorn')),
-                        DropdownMenuItem(value: 'chimes', child: Text('Chimes')),
-                      ],
+                      items: AlarmAudioPlayer.alarmSoundNames.entries.map((e) {
+                        return DropdownMenuItem(value: e.key, child: Text(e.value));
+                      }).toList(),
                       onChanged: (value) {
                         if (value == null) return;
                         final newConfig = CpaAlertConfig(
@@ -1684,8 +1623,8 @@ class _AISPolarChartState extends State<AISPolarChart>
   void _persistCpaConfig(CpaAlertConfig config) {
     widget.onCpaConfigChanged?.call({
       // 'cpaAlertsEnabled' intentionally NOT persisted — session-only toggle
-      'cpaWarnNm': config.warnThresholdMeters / 1852.0,
-      'cpaAlarmNm': config.alarmThresholdMeters / 1852.0,
+      'cpaWarnNm': _convertDistance(config.warnThresholdMeters),
+      'cpaAlarmNm': _convertDistance(config.alarmThresholdMeters),
       'cpaTcpaMinutes': config.tcpaThresholdSeconds / 60.0,
       'cpaAlarmSound': config.alarmSound,
       'cpaSendCrewAlert': config.sendCrewAlert,
@@ -1761,7 +1700,7 @@ class _AISPolarChartState extends State<AISPolarChart>
       final projections = _calculateProjectedPositions(vessel);
       if (projections.isEmpty) continue;
 
-      final typeColor = _getVesselTypeColor(vessel.aisShipType, aisClass: vessel.aisClass);
+      final typeColor = ship_type.shipTypeColor(vessel.aisShipType, aisClass: vessel.aisClass);
       final isHighlighted = vessel.mmsi == _highlightedVesselMMSI;
 
       // Build line from vessel position through projected points
@@ -2001,7 +1940,7 @@ class _AISPolarChartState extends State<AISPolarChart>
                 final projections = _calculateProjectedPositions(vessel);
                 if (projections.isEmpty) return null;
 
-                final typeColor = _getVesselTypeColor(vessel.aisShipType, aisClass: vessel.aisClass);
+                final typeColor = ship_type.shipTypeColor(vessel.aisShipType, aisClass: vessel.aisClass);
                 final isHighlighted = vessel.mmsi == _highlightedVesselMMSI;
                 return Polyline(
                   points: [
@@ -2044,7 +1983,7 @@ class _AISPolarChartState extends State<AISPolarChart>
               final heading = vessel.headingTrue ?? vessel.cog ?? 0.0;
               final isHighlighted = vessel.mmsi == _highlightedVesselMMSI;
               final typeColor = widget.colorByShipType
-                  ? _getVesselTypeColor(vessel.aisShipType, aisClass: vessel.aisClass)
+                  ? ship_type.shipTypeColor(vessel.aisShipType, aisClass: vessel.aisClass)
                   : _getVesselFreshnessColor(vessel.timestamp);
               final stale = _isStale(vessel.timestamp, aisStatus: vessel.aisStatus);
               final iconSize = isHighlighted ? 48.0 : 32.0;
@@ -2092,7 +2031,7 @@ class _AISPolarChartState extends State<AISPolarChart>
                   .take(20)
                   .expand((vessel) {
                 final projections = _calculateProjectedPositions(vessel);
-                final typeColor = _getVesselTypeColor(vessel.aisShipType, aisClass: vessel.aisClass);
+                final typeColor = ship_type.shipTypeColor(vessel.aisShipType, aisClass: vessel.aisClass);
                 final isHighlighted = vessel.mmsi == _highlightedVesselMMSI;
                 const projectionDotSizes = [6.0, 10.0, 16.0, 22.0];
                 return projections.indexed.map((indexedProj) {
@@ -2208,7 +2147,7 @@ class _AISPolarChartState extends State<AISPolarChart>
       final y = vessel.distance * math.sin(angleRad);
 
       final color = widget.colorByShipType
-          ? _getVesselTypeColor(vessel.aisShipType, aisClass: vessel.aisClass)
+          ? ship_type.shipTypeColor(vessel.aisShipType, aisClass: vessel.aisClass)
           : _getVesselFreshnessColor(vessel.timestamp);
 
       return _CartesianPoint(
@@ -2353,7 +2292,7 @@ class _AISPolarChartState extends State<AISPolarChart>
 
             // Type-based color with freshness opacity (or plain freshness color)
             final typeColor = widget.colorByShipType
-                ? _getVesselTypeColor(vessel.aisShipType, aisClass: vessel.aisClass)
+                ? ship_type.shipTypeColor(vessel.aisShipType, aisClass: vessel.aisClass)
                 : _getVesselFreshnessColor(vessel.timestamp);
             final freshnessOpacity = widget.colorByShipType
                 ? _getFreshnessOpacity(vessel.timestamp, aisStatus: vessel.aisStatus)
@@ -2432,10 +2371,12 @@ class _AISPolarChartState extends State<AISPolarChart>
                 ],
               ),
               trailing: cpa != null
-                  ? Container(
+                  ? Builder(builder: (_) {
+                      final color = _cpaColor(cpa);
+                      return Container(
                       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                       decoration: BoxDecoration(
-                        color: cpa < 926 ? Colors.red.withValues(alpha: 0.2) : Colors.orange.withValues(alpha: 0.2), // 926m = 0.5nm
+                        color: color.withValues(alpha: 0.2),
                         borderRadius: BorderRadius.circular(4),
                       ),
                       child: Column(
@@ -2447,7 +2388,7 @@ class _AISPolarChartState extends State<AISPolarChart>
                             style: TextStyle(
                               fontSize: 11,
                               fontWeight: FontWeight.w600,
-                              color: cpa < 926 ? Colors.red : Colors.orange, // 926m = 0.5nm
+                              color: color,
                             ),
                           ),
                           if (tcpa != null && tcpa.isFinite && tcpa > 0)
@@ -2455,12 +2396,12 @@ class _AISPolarChartState extends State<AISPolarChart>
                               'TCPA ${_formatTCPA(tcpa)}',
                               style: TextStyle(
                                 fontSize: 10,
-                                color: cpa < 926 ? Colors.red : Colors.orange,
+                                color: color,
                               ),
                             ),
                         ],
                       ),
-                    )
+                    );})
                   : null,
             );
 
@@ -2900,50 +2841,4 @@ class _CartesianPoint {
   });
 }
 
-/// Simple full-screen WebView for vessel lookup
-class _VesselLookupWebView extends StatefulWidget {
-  final String url;
-  final String title;
-
-  const _VesselLookupWebView({required this.url, required this.title});
-
-  @override
-  State<_VesselLookupWebView> createState() => _VesselLookupWebViewState();
-}
-
-class _VesselLookupWebViewState extends State<_VesselLookupWebView> {
-  late final WebViewController _controller;
-  bool _isLoading = true;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = WebViewController()
-      ..setJavaScriptMode(JavaScriptMode.unrestricted)
-      ..setNavigationDelegate(NavigationDelegate(
-        onPageStarted: (_) => setState(() => _isLoading = true),
-        onPageFinished: (_) => setState(() => _isLoading = false),
-      ))
-      ..loadRequest(Uri.parse(widget.url));
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(widget.title),
-        actions: [
-          if (_isLoading)
-            const Padding(
-              padding: EdgeInsets.only(right: 16),
-              child: SizedBox(
-                width: 20, height: 20,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              ),
-            ),
-        ],
-      ),
-      body: WebViewWidget(controller: _controller),
-    );
-  }
-}
+// VesselLookupPage imported from ais_vessel_detail_sheet.dart

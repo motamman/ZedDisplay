@@ -5,7 +5,6 @@ import '../../services/signalk_service.dart';
 import '../../services/weather_api_service.dart';
 import '../../services/tool_registry.dart';
 import '../../utils/color_extensions.dart';
-import '../../utils/conversion_utils.dart';
 import '../forecast_spinner.dart';
 import '../weatherflow_forecast.dart';
 
@@ -63,9 +62,6 @@ class _WeatherApiSpinnerToolState extends State<WeatherApiSpinnerTool>
 
       _weatherService = WeatherApiService(widget.signalKService, provider: provider, forecastDays: forecastDays);
       _weatherService!.addListener(_onDataChanged);
-
-      // Fetch unit categories for fallback conversions
-      ConversionUtils.fetchCategories(widget.signalKService);
 
       // Delay first fetch to allow position data to arrive
       Future.delayed(const Duration(seconds: 2), () {
@@ -159,21 +155,12 @@ class _WeatherApiSpinnerToolState extends State<WeatherApiSpinnerTool>
       fallback: Colors.blue,
     ) ?? Colors.blue;
 
-    // Get unit symbols from SignalK conversions (with fallback to server preferences)
-    var tempUnit = widget.signalKService.getUnitSymbol(_getConversionPath('airTemperature')) ?? '';
-    var windUnit = widget.signalKService.getUnitSymbol(_getConversionPath('windAvg')) ?? '';
-    var pressureUnit = widget.signalKService.getUnitSymbol(_getConversionPath('seaLevelPressure')) ?? '';
-
-    // Use fallback symbols if no conversion available
-    if (tempUnit.isEmpty) {
-      tempUnit = ConversionUtils.getWeatherUnitSymbol(WeatherFieldType.temperature);
-    }
-    if (windUnit.isEmpty) {
-      windUnit = ConversionUtils.getWeatherUnitSymbol(WeatherFieldType.speed);
-    }
-    if (pressureUnit.isEmpty) {
-      pressureUnit = ConversionUtils.getWeatherUnitSymbol(WeatherFieldType.pressure);
-    }
+    // Unit symbols from MetadataStore (via getUnitSymbol delegation).
+    // MetadataStore has category-level fallback wired, so a known path that
+    // lacks path-specific metadata still resolves via its category.
+    final tempUnit = widget.signalKService.getUnitSymbol(_getConversionPath('airTemperature')) ?? '';
+    final windUnit = widget.signalKService.getUnitSymbol(_getConversionPath('windAvg')) ?? '';
+    final pressureUnit = widget.signalKService.getUnitSymbol(_getConversionPath('seaLevelPressure')) ?? '';
 
     // Use cached forecasts (updated in _onDataChanged)
     // Always rebuild if cache is empty but service has data (handles swipe away/back)
@@ -325,29 +312,27 @@ class _WeatherApiSpinnerToolState extends State<WeatherApiSpinnerTool>
     }
   }
 
-  /// Convert a value using standard conversions, with fallback to weather-specific conversions
-  double? _convertWithFallback(SignalKService service, String path, double rawValue, WeatherFieldType fieldType) {
-    // Try standard conversion first
-    final converted = ConversionUtils.convertValue(service, path, rawValue);
-
-    // If conversion returned the raw value unchanged (no conversion available),
-    // use fallback weather conversions based on server preferences
-    if (converted == rawValue) {
-      return ConversionUtils.convertWeatherValue(service, fieldType, rawValue);
-    }
-
-    return converted;
+  /// Convert a raw SI value using MetadataStore. The weather API delivers
+  /// values as raw SI (Kelvin, Pa, m/s, radians, ratios) — they never enter
+  /// the data cache, so we apply the path's metadata directly.
+  ///
+  /// MetadataStore's category fallback (wired via [MetadataStore.categoryLookup])
+  /// resolves symbols/formulas for forecast paths that don't have direct
+  /// entries, so no separate per-field-type shim is needed.
+  double? _convertApi(String path, double? rawValue) {
+    if (rawValue == null) return null;
+    final meta = widget.signalKService.metadataStore.get(path);
+    return meta?.convert(rawValue) ?? rawValue;
   }
 
-  /// Convert WeatherApiForecast to HourlyForecast for the spinner
-  /// Uses ConversionUtils to apply the same unit conversions as WeatherFlow spinner
+  /// Convert WeatherApiForecast to HourlyForecast for the spinner, applying
+  /// unit conversions via MetadataStore for the configured provider paths.
   List<HourlyForecast> _buildHourlyForecasts() {
     final forecasts = <HourlyForecast>[];
     final weatherService = _weatherService;
     if (weatherService == null) return forecasts;
 
     final now = DateTime.now();
-    final service = widget.signalKService;
 
     for (int i = 0; i < weatherService.hourlyForecasts.length; i++) {
       final apiFC = weatherService.hourlyForecasts[i];
@@ -356,30 +341,13 @@ class _WeatherApiSpinnerToolState extends State<WeatherApiSpinnerTool>
       final hoursFromNow = apiFC.time.difference(now).inMinutes / 60.0;
       if (hoursFromNow < -1) continue; // Skip past forecasts
 
-      // Apply conversions using ConversionUtils
-      // Raw values from API are in SI units (Kelvin, Pa, m/s, radians, ratios)
-      // Use fallback conversions if standard conversions return unchanged value
-      final temp = apiFC.airTemperature != null
-          ? _convertWithFallback(service, _getConversionPath('airTemperature'), apiFC.airTemperature!, WeatherFieldType.temperature)
-          : null;
-      final feelsLike = apiFC.feelsLike != null
-          ? _convertWithFallback(service, _getConversionPath('airTemperature'), apiFC.feelsLike!, WeatherFieldType.temperature)
-          : null;
-      final windSpeed = apiFC.windAvg != null
-          ? _convertWithFallback(service, _getConversionPath('windAvg'), apiFC.windAvg!, WeatherFieldType.speed)
-          : null;
-      final windDir = apiFC.windDirection != null
-          ? _convertWithFallback(service, _getConversionPath('windDirection'), apiFC.windDirection!, WeatherFieldType.angle)
-          : null;
-      final pressure = apiFC.pressure != null
-          ? _convertWithFallback(service, _getConversionPath('seaLevelPressure'), apiFC.pressure!, WeatherFieldType.pressure)
-          : null;
-      final humidity = apiFC.relativeHumidity != null
-          ? _convertWithFallback(service, _getConversionPath('relativeHumidity'), apiFC.relativeHumidity!, WeatherFieldType.percentage)
-          : null;
-      final precipProb = apiFC.precipProbability != null
-          ? _convertWithFallback(service, _getConversionPath('precipProbability'), apiFC.precipProbability!, WeatherFieldType.percentage)
-          : null;
+      final temp = _convertApi(_getConversionPath('airTemperature'), apiFC.airTemperature);
+      final feelsLike = _convertApi(_getConversionPath('airTemperature'), apiFC.feelsLike);
+      final windSpeed = _convertApi(_getConversionPath('windAvg'), apiFC.windAvg);
+      final windDir = _convertApi(_getConversionPath('windDirection'), apiFC.windDirection);
+      final pressure = _convertApi(_getConversionPath('seaLevelPressure'), apiFC.pressure);
+      final humidity = _convertApi(_getConversionPath('relativeHumidity'), apiFC.relativeHumidity);
+      final precipProb = _convertApi(_getConversionPath('precipProbability'), apiFC.precipProbability);
 
       forecasts.add(HourlyForecast(
         hour: i,

@@ -35,6 +35,9 @@ import 'services/cpa_alert_service.dart';
 import 'widgets/alert_panel.dart';
 import 'services/find_home_target_service.dart';
 import 'services/dashboard_store_service.dart';
+import 'services/chart_tile_cache_service.dart';
+import 'services/chart_tile_server_service.dart';
+import 'services/chart_download_manager.dart';
 import 'models/alert_event.dart' as alert_models;
 
 // Global app start time
@@ -206,6 +209,13 @@ void main() async {
   // Initialize scale service (for menu items)
   await ScaleService.instance.initialize();
 
+  // Initialize chart tile cache and local proxy server
+  final chartTileCacheService = ChartTileCacheService();
+  await chartTileCacheService.initialize();
+  final chartTileServerService = ChartTileServerService(cacheService: chartTileCacheService);
+  await chartTileServerService.start();
+  final chartDownloadManager = ChartDownloadManager(cacheService: chartTileCacheService);
+
   runApp(ZedDisplayApp(
     storageService: storageService,
     signalKService: signalKService,
@@ -225,6 +235,9 @@ void main() async {
     cpaAlertService: cpaAlertService,
     findHomeTargetService: findHomeTargetService,
     dashboardStoreService: dashboardStoreService,
+    chartTileCacheService: chartTileCacheService,
+    chartTileServerService: chartTileServerService,
+    chartDownloadManager: chartDownloadManager,
   ));
 }
 
@@ -247,6 +260,9 @@ class ZedDisplayApp extends StatefulWidget {
   final CpaAlertService cpaAlertService;
   final FindHomeTargetService findHomeTargetService;
   final DashboardStoreService dashboardStoreService;
+  final ChartTileCacheService chartTileCacheService;
+  final ChartTileServerService chartTileServerService;
+  final ChartDownloadManager chartDownloadManager;
 
   const ZedDisplayApp({
     super.key,
@@ -268,6 +284,9 @@ class ZedDisplayApp extends StatefulWidget {
     required this.cpaAlertService,
     required this.findHomeTargetService,
     required this.dashboardStoreService,
+    required this.chartTileCacheService,
+    required this.chartTileServerService,
+    required this.chartDownloadManager,
   });
 
   @override
@@ -526,6 +545,9 @@ class _ZedDisplayAppState extends State<ZedDisplayApp> with WidgetsBindingObserv
         ChangeNotifierProvider.value(value: widget.cpaAlertService),
         ChangeNotifierProvider.value(value: widget.findHomeTargetService),
         ChangeNotifierProvider.value(value: widget.dashboardStoreService),
+        ChangeNotifierProvider.value(value: widget.chartTileCacheService),
+        ChangeNotifierProvider.value(value: widget.chartTileServerService),
+        ChangeNotifierProvider.value(value: widget.chartDownloadManager),
         Provider<NotificationNavigationService>.value(value: widget.notificationNavigationService),
       ],
       child: MaterialApp(

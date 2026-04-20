@@ -29,20 +29,34 @@ class MetadataStore extends ChangeNotifier {
     String path,
     Map<String, dynamic> displayUnits, {
     String? category,
+    List<PathZone>? zones,
   }) {
     final existing = _metadata[path];
     final incoming = PathMetadata.fromDisplayUnits(
       path,
       displayUnits,
       category: category ?? existing?.category,
+      zones: zones ?? existing?.zones,
     );
 
-    // Merge: if existing has a formula but incoming doesn't, keep existing.
-    // WS meta deltas often resend only {category: ...} without the full
-    // displayUnits payload — don't let that overwrite good data.
-    final merged = existing != null && incoming.formula == null && existing.formula != null
-        ? existing.copyWith(category: incoming.category ?? existing.category)
-        : incoming;
+    // Field-by-field merge: prefer incoming values when present, otherwise
+    // retain existing. This preserves a hard-won formula when a later delta
+    // only carries a category or symbol update, and also propagates
+    // symbol-only updates instead of silently discarding them when existing
+    // already has a formula (the previous "keep existing wholesale" branch
+    // dropped incoming symbol/targetUnit/inverseFormula/etc.).
+    final merged = existing == null
+        ? incoming
+        : existing.copyWith(
+            baseUnit: incoming.baseUnit ?? existing.baseUnit,
+            targetUnit: incoming.targetUnit ?? existing.targetUnit,
+            category: incoming.category ?? existing.category,
+            formula: incoming.formula ?? existing.formula,
+            inverseFormula: incoming.inverseFormula ?? existing.inverseFormula,
+            symbol: incoming.symbol ?? existing.symbol,
+            displayFormat: incoming.displayFormat ?? existing.displayFormat,
+            zones: incoming.zones ?? existing.zones,
+          );
 
     if (_hasChanged(existing, merged)) {
       _metadata[path] = merged;
@@ -57,6 +71,26 @@ class MetadataStore extends ChangeNotifier {
       _metadata[metadata.path] = metadata;
       notifyListeners();
     }
+  }
+
+  /// Update only the display [symbol] for [path], preserving every other
+  /// [PathMetadata] field.
+  ///
+  /// Intended for the units-preference plugin ingest path, where each
+  /// WebSocket frame carries a symbol but no canonical unit id. Routing
+  /// through [updateFromMeta] there would let the symbol leak into
+  /// [PathMetadata.targetUnit] via [PathMetadata.fromDisplayUnits]'s
+  /// symbol-as-units fallback.
+  void updateSymbol(String path, String symbol) {
+    final existing = _metadata[path];
+    if (existing == null) {
+      _metadata[path] = PathMetadata(path: path, symbol: symbol);
+      notifyListeners();
+      return;
+    }
+    if (existing.symbol == symbol) return;
+    _metadata[path] = existing.copyWith(symbol: symbol);
+    notifyListeners();
   }
 
   /// Check if metadata has meaningfully changed.
@@ -99,6 +133,11 @@ class MetadataStore extends ChangeNotifier {
 
   /// Convert a value using the formula for a path.
   /// Returns the converted value, or the raw value if no conversion available.
+  ///
+  /// Identity fallback (returns `siValue` when metadata is missing) is
+  /// retained for backward compatibility. New callers should prefer
+  /// [tryConvert], which returns `null` on missing metadata so the caller
+  /// can decide the fallback policy explicitly.
   double? convert(String path, double siValue) {
     final metadata = _metadata[path];
     if (metadata == null) return siValue;
@@ -107,9 +146,30 @@ class MetadataStore extends ChangeNotifier {
 
   /// Convert a display value back to SI using the inverse formula.
   /// Returns the SI value, or the display value if no conversion available.
+  ///
+  /// Identity fallback retained for backward compatibility. New callers
+  /// should prefer [tryConvertToSI].
   double? convertToSI(String path, double displayValue) {
     final metadata = _metadata[path];
     if (metadata == null) return displayValue;
+    return metadata.convertToSI(displayValue);
+  }
+
+  /// Strict convert: returns `null` when no metadata is registered for [path],
+  /// distinguishing "no metadata" from "identity conversion". Use this when
+  /// the caller needs to apply an explicit fallback (e.g. show raw SI, show
+  /// "--", or skip rendering).
+  double? tryConvert(String path, double siValue) {
+    final metadata = _metadata[path];
+    if (metadata == null) return null;
+    return metadata.convert(siValue);
+  }
+
+  /// Strict inverse convert: returns `null` when no metadata is registered
+  /// for [path]. Companion to [tryConvert] for PUT / persistence paths.
+  double? tryConvertToSI(String path, double displayValue) {
+    final metadata = _metadata[path];
+    if (metadata == null) return null;
     return metadata.convertToSI(displayValue);
   }
 

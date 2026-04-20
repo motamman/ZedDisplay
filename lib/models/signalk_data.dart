@@ -86,6 +86,12 @@ class SignalKMetaEntry {
   Map<String, dynamic>? get displayUnits {
     return value['displayUnits'] as Map<String, dynamic>?;
   }
+
+  /// Get zones from meta value if available
+  List<Map<String, dynamic>>? get zones {
+    final raw = value['zones'] as List?;
+    return raw?.cast<Map<String, dynamic>>();
+  }
 }
 
 class SignalKValue {
@@ -113,11 +119,11 @@ class SignalKDataPoint {
   final DateTime lastSeen;      // When client received this data (for freshness checks)
   final String? unit;
 
-  // Units-preference plugin fields
-  final double? converted;      // Converted numeric value
-  final String? formatted;      // Display-ready string (e.g., "10.0 kn")
-  final String? symbol;         // Unit symbol (e.g., "kn", "°C")
-  final dynamic original;       // Original SI value
+  /// SI value as delivered by the units-preference plugin. When the plugin
+  /// pre-converts [value] into display units, it stashes the canonical SI
+  /// number here so consumers can still read raw SI and run their own
+  /// conversions through MetadataStore.
+  final dynamic original;
 
   // Data source tracking
   final bool fromGET;           // true if from REST GET, false if from WebSocket
@@ -129,14 +135,8 @@ class SignalKDataPoint {
     required this.timestamp,
     DateTime? lastSeen,         // Defaults to now if not provided
     this.unit,
-    this.converted,
-    this.formatted,
-    this.symbol,
     this.original,
     this.fromGET = false,       // Default to WebSocket
     this.source,
   }) : lastSeen = lastSeen ?? DateTime.now();
-
-  /// Check if this data point has converted values from units-preference plugin
-  bool get hasConvertedValue => formatted != null;
 }

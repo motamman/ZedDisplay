@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:provider/provider.dart';
 import 'package:webview_flutter/webview_flutter.dart';
+import '../../config/chart_constants.dart' as chart_const;
 
 /// OpenLayers WebView for chart rendering + navigation overlays.
 ///
@@ -15,8 +16,17 @@ class ChartWebView extends StatefulWidget {
   final void Function(WebViewController controller)? onReady;
   final void Function(bool autoFollow, {bool? autoZoom})? onAutoFollowChanged;
   final void Function(String vesselId)? onAISVesselClick;
+  final void Function(int index, double lon, double lat)? onWaypointDrag;
+  final void Function(int index)? onWaypointLongPress;
+  final void Function(int afterIndex, double lon, double lat)? onRouteLineAdd;
+  final void Function(Map<String, dynamic> data)? onRulerUpdate;
+  final void Function(Map<String, dynamic> viewportData)? onViewportChanged;
+  final int? localTileServerPort;
+  final List<Map<String, dynamic>>? layers;
   final String depthUnit;
   final double depthConversionFactor;
+  final String heightUnit;
+  final double heightConversionFactor;
 
   const ChartWebView({
     super.key,
@@ -25,8 +35,17 @@ class ChartWebView extends StatefulWidget {
     this.onReady,
     this.onAutoFollowChanged,
     this.onAISVesselClick,
+    this.onWaypointDrag,
+    this.onWaypointLongPress,
+    this.onRouteLineAdd,
+    this.onRulerUpdate,
+    this.onViewportChanged,
+    this.localTileServerPort,
+    this.layers,
     this.depthUnit = 'm',
     this.depthConversionFactor = 1.0,
+    this.heightUnit = 'm',
+    this.heightConversionFactor = 1.0,
   });
 
   @override
@@ -53,13 +72,28 @@ class _ChartWebViewState extends State<ChartWebView> {
     final colorsJson =
         await rootBundle.loadString('assets/charts/s57_colors.json');
 
-    final tileUrl =
-        '${widget.baseUrl}/plugins/signalk-charts-provider-simple/01CGD_ENCs/{z}/{x}/{y}';
-    final authToken = widget.authToken ?? '';
+    // Tile URL base — chart ID is appended per-layer in JS.
+    // When local tile server is running, route tiles through it (enables caching).
+    final String tileUrlBase;
+    final String authToken;
+    if (widget.localTileServerPort != null) {
+      tileUrlBase = 'http://localhost:${widget.localTileServerPort}/tiles';
+      authToken = '';
+    } else {
+      tileUrlBase = '${widget.baseUrl}/plugins/signalk-charts-provider-simple';
+      authToken = widget.authToken ?? '';
+    }
+
+    // Layer config — default to CartoDB Voyager + first S-57 chart
+    final layerConfig = widget.layers ?? [
+      {'type': 'base', 'id': 'carto_voyager', 'enabled': true, 'opacity': 1.0},
+      {'type': 's57', 'id': '01CGD_ENCs', 'enabled': true, 'opacity': 1.0},
+    ];
 
     final html = _buildHtml(
-      tileUrl: tileUrl,
+      tileUrlBase: tileUrlBase,
       authToken: authToken,
+      layerConfig: layerConfig,
       spriteJson: spriteJson,
       spritePngB64: spritePngB64,
       lookupsJson: lookupsJson,
@@ -72,6 +106,11 @@ class _ChartWebViewState extends State<ChartWebView> {
       ..addJavaScriptChannel('MapReady', onMessageReceived: _onMapReady)
       ..addJavaScriptChannel('ViewState', onMessageReceived: _onViewState)
       ..addJavaScriptChannel('AISVesselClick', onMessageReceived: _onAISVesselClick)
+      ..addJavaScriptChannel('WaypointDrag', onMessageReceived: _onWaypointDrag)
+      ..addJavaScriptChannel('WaypointLongPress', onMessageReceived: _onWaypointLongPress)
+      ..addJavaScriptChannel('RouteLineAdd', onMessageReceived: _onRouteLineAdd)
+      ..addJavaScriptChannel('RulerUpdate', onMessageReceived: _onRulerUpdate)
+      ..addJavaScriptChannel('ViewportInfo', onMessageReceived: _onViewportInfo)
       ..loadHtmlString(html);
 
     if (mounted) setState(() => _loading = false);
@@ -93,29 +132,85 @@ class _ChartWebViewState extends State<ChartWebView> {
     widget.onAISVesselClick?.call(message.message);
   }
 
+  void _onWaypointDrag(JavaScriptMessage message) {
+    final data = jsonDecode(message.message) as Map<String, dynamic>;
+    final index = data['index'] as int?;
+    final lon = (data['lon'] as num?)?.toDouble();
+    final lat = (data['lat'] as num?)?.toDouble();
+    if (index != null && lon != null && lat != null) {
+      widget.onWaypointDrag?.call(index, lon, lat);
+    }
+  }
+
+  void _onWaypointLongPress(JavaScriptMessage message) {
+    final data = jsonDecode(message.message) as Map<String, dynamic>;
+    final index = data['index'] as int?;
+    if (index != null) {
+      widget.onWaypointLongPress?.call(index);
+    }
+  }
+
+  void _onRouteLineAdd(JavaScriptMessage message) {
+    final data = jsonDecode(message.message) as Map<String, dynamic>;
+    final afterIndex = data['afterIndex'] as int?;
+    final lon = (data['lon'] as num?)?.toDouble();
+    final lat = (data['lat'] as num?)?.toDouble();
+    if (afterIndex != null && lon != null && lat != null) {
+      widget.onRouteLineAdd?.call(afterIndex, lon, lat);
+    }
+  }
+
+  void _onRulerUpdate(JavaScriptMessage message) {
+    final data = jsonDecode(message.message) as Map<String, dynamic>;
+    widget.onRulerUpdate?.call(data);
+  }
+
+  void _onViewportInfo(JavaScriptMessage message) {
+    final data = jsonDecode(message.message) as Map<String, dynamic>;
+    widget.onViewportChanged?.call(data);
+  }
+
+  bool _featureSheetOpen = false;
+
+  void _dismissFeatureSheet() {
+    if (_featureSheetOpen && mounted) {
+      Navigator.of(context).pop();
+      _featureSheetOpen = false;
+    }
+  }
+
   void _onFeatureClick(JavaScriptMessage message) {
     final data = jsonDecode(message.message) as Map<String, dynamic>;
-    final layer = data['layer'] as String? ?? 'Unknown';
-    final props = data['properties'] as Map<String, dynamic>? ?? {};
     final lngLat = data['lngLat'] as List?;
+    final rawFeatures = data['features'] as List? ?? [];
+    final features = rawFeatures
+        .map((f) => f as Map<String, dynamic>)
+        .toList();
 
+    // Close existing sheet before opening new one (or just close if no features)
+    _dismissFeatureSheet();
+    if (features.isEmpty) return;
+
+    _featureSheetOpen = true;
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (_) => _FeaturePopover(
-        layerCode: layer,
-        properties: props,
+        features: features,
         lngLat: lngLat,
         depthUnit: widget.depthUnit,
         depthConversionFactor: widget.depthConversionFactor,
+        heightUnit: widget.heightUnit,
+        heightConversionFactor: widget.heightConversionFactor,
       ),
-    );
+    ).whenComplete(() => _featureSheetOpen = false);
   }
 
   String _buildHtml({
-    required String tileUrl,
+    required String tileUrlBase,
     required String authToken,
+    required List<Map<String, dynamic>> layerConfig,
     required String spriteJson,
     required String spritePngB64,
     required String lookupsJson,
@@ -135,6 +230,9 @@ class _ChartWebViewState extends State<ChartWebView> {
   <style>
     body { margin:0; overflow:hidden; }
     #map { width:100%; height:100vh; }
+    .ol-scale-bar { bottom: 40px; left: 10px; }
+    .ol-scale-bar .ol-scale-bar-inner { background: rgba(0,0,0,0.5); }
+    .ol-scale-text { color: #fff; font-size: 10px; text-shadow: 0 0 3px #000; }
   </style>
 </head>
 <body>
@@ -147,8 +245,9 @@ const SPRITE_META = $spriteJson;
 const SPRITE_PNG_B64 = '$spritePngB64';
 const LOOKUP_DATA = $lookupsJson;
 const COLOR_TABLE = $colorsJson;
-const TILE_URL = '$tileUrl';
+const TILE_URL_BASE = '$tileUrlBase';
 const AUTH_TOKEN = '$authToken';
+const LAYER_CONFIG = ${jsonEncode(layerConfig)};
 
 // =========================================================================
 // Land extent cache — top-level so S57Style.getStyle can access it
@@ -808,58 +907,94 @@ async function initMap() {
 
   const s57Style = new S57Style(s57Service);
 
-  // Base map — CartoDB Voyager
-  const cartoLayer = new ol.layer.Tile({
-    source: new ol.source.XYZ({
-      url: 'https://basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png',
-      attributions: '&copy; CARTO &copy; OSM',
-    }),
-    opacity: 0.6,
-  });
+  // Base map URL registry — injected from Dart chart_constants.dart
+  const BASE_MAP_URLS = ${jsonEncode(chart_const.baseMapUrls)};
 
-  // S-57 vector tile layer
-  const s57Layer = new ol.layer.VectorTile({
-    declutter: true,
-    source: new ol.source.VectorTile({
-      url: TILE_URL,
-      format: new ol.format.MVT(),
-      tileSize: 256,
-      minZoom: 9,
-      maxZoom: 16,
-      tileLoadFunction: (tile, url) => {
-        tile.setLoader((extent, resolution, projection) => {
-          fetch(url, {
-            headers: AUTH_TOKEN ? {'Authorization': 'Bearer ' + AUTH_TOKEN} : {},
-          })
-          .then(r => r.arrayBuffer())
-          .then(data => {
-            const format = tile.getFormat();
-            const features = format.readFeatures(data, {
-              extent, featureProjection: projection,
-            });
-            tile.setFeatures(features);
-          })
-          .catch(() => tile.setFeatures([]));
+  // Tag to distinguish chart layers from overlay layers (vessel, AIS, route, etc.)
+  const CHART_LAYER_TAG = '_chartLayer';
+
+  function _buildChartLayers(configs) {
+    const result = [];
+    for (const cfg of configs) {
+      if (!cfg.enabled) continue;
+      if (cfg.type === 'base') {
+        const url = BASE_MAP_URLS[cfg.id];
+        if (!url) continue;
+        const layer = new ol.layer.Tile({
+          source: new ol.source.XYZ({ url: url }),
+          opacity: cfg.opacity != null ? cfg.opacity : 1.0,
         });
-      },
-    }),
-    style: s57Style.getStyle,
-    renderOrder: s57Style.renderOrder,
-    preload: 1,
-    minZoom: 9,
-    maxZoom: 23,
-  });
+        layer.set(CHART_LAYER_TAG, true);
+        result.push(layer);
+      }
+      if (cfg.type === 's57') {
+        const tileUrl = TILE_URL_BASE + '/' + cfg.id + '/{z}/{x}/{y}';
+        const layer = new ol.layer.VectorTile({
+          declutter: true,
+          source: new ol.source.VectorTile({
+            url: tileUrl,
+            format: new ol.format.MVT(),
+            tileSize: 256,
+            minZoom: 9,
+            maxZoom: 16,
+            tileLoadFunction: (tile, url) => {
+              tile.setLoader((extent, resolution, projection) => {
+                fetch(url, {
+                  headers: AUTH_TOKEN ? {'Authorization': 'Bearer ' + AUTH_TOKEN} : {},
+                })
+                .then(r => r.arrayBuffer())
+                .then(data => {
+                  const format = tile.getFormat();
+                  const features = format.readFeatures(data, {
+                    extent, featureProjection: projection,
+                  });
+                  tile.setFeatures(features);
+                })
+                .catch(() => tile.setFeatures([]));
+              });
+            },
+          }),
+          style: s57Style.getStyle,
+          renderOrder: s57Style.renderOrder,
+          opacity: cfg.opacity != null ? cfg.opacity : 1.0,
+          preload: 1,
+          minZoom: 9,
+          maxZoom: 23,
+        });
+        layer.set(CHART_LAYER_TAG, true);
+        result.push(layer);
+      }
+    }
+    return result;
+  }
+
+  // Reverse so config[0] (highest priority) renders on top
+  const chartLayers = _buildChartLayers(LAYER_CONFIG).reverse();
 
   // Create map
+  // Suppress Canvas2D willReadFrequently warnings from OL tile renderer
+  const _origGetContext = HTMLCanvasElement.prototype.getContext;
+  HTMLCanvasElement.prototype.getContext = function(type, attrs) {
+    if (type === '2d') return _origGetContext.call(this, type, Object.assign({ willReadFrequently: true }, attrs));
+    return _origGetContext.call(this, type, attrs);
+  };
+
   const map = new ol.Map({
     target: 'map',
-    layers: [cartoLayer, s57Layer],
+    layers: chartLayers,
     view: new ol.View({
       center: ol.proj.fromLonLat([-74.01, 40.67]),
       zoom: 14,
     }),
     controls: ol.control.defaults.defaults({ attribution: false }).extend([
       new ol.control.Zoom(),
+      new ol.control.ScaleLine({
+        units: 'nautical',
+        bar: true,
+        steps: 4,
+        text: true,
+        minWidth: 120,
+      }),
     ]),
   });
 
@@ -877,34 +1012,121 @@ async function initMap() {
     'DISMAR','CURENT','FSHFAC','CONVYR',
     'RESARE','ACHARE',
   ]);
+  // Debug tap halo layer
+  const _tapHaloSource = new ol.source.Vector();
+  map.addLayer(new ol.layer.Vector({ source: _tapHaloSource, zIndex: 999 }));
+
   map.on('singleclick', (e) => {
+    // Debug: show tap halo (30px radius circle at tap point)
+    _tapHaloSource.clear();
+    const halo = new ol.Feature({ geometry: new ol.geom.Point(e.coordinate) });
+    halo.setStyle(new ol.style.Style({
+      image: new ol.style.Circle({
+        radius: 30,
+        stroke: new ol.style.Stroke({ color: 'rgba(255,255,0,0.8)', width: 2 }),
+        fill: new ol.style.Fill({ color: 'rgba(255,255,0,0.1)' }),
+      }),
+    }));
+    _tapHaloSource.addFeature(halo);
+    setTimeout(() => _tapHaloSource.clear(), 2000);
+
     let aisFeature = null;
-    let s57Feature = null;
+    const s57Features = [];
     map.forEachFeatureAtPixel(e.pixel, (feature) => {
       if (feature.get('isAIS') && !aisFeature) {
         aisFeature = feature;
       }
       const props = feature.getProperties();
-      if (props.layer && CLICKABLE.has(props.layer) && !s57Feature) {
-        s57Feature = feature;
+      if (props.layer && CLICKABLE.has(props.layer)) {
+        s57Features.push(feature);
       }
-    });
+    }, { hitTolerance: 30 });
     // AIS tap takes priority
     if (aisFeature && window.AISVesselClick) {
       AISVesselClick.postMessage(aisFeature.get('vesselId'));
       return;
     }
-    if (s57Feature && window.FeatureClick) {
-      const props = s57Feature.getProperties();
+    if (s57Features.length > 0 && window.FeatureClick) {
       const coord = ol.proj.toLonLat(e.coordinate);
+      // Get S-57 display priority for a feature
+      function getDP(f) {
+        const li = f[LOOKUPINDEXKEY];
+        if (li != null && li >= 0) {
+          const lup = s57Service.getLookup(li);
+          if (lup) return lup.displayPriority || 0;
+        }
+        return 0;
+      }
+      // Group features within 15px of each other (compound markers)
+      const res = map.getView().getResolution() || 1;
+      const groupTolSq = (30 * res) * (30 * res); // 30 pixels in map units, squared
+      const groups = [];
+      for (const f of s57Features) {
+        const props = f.getProperties();
+        const dp = getDP(f);
+        const geom = f.getGeometry();
+        let gX = null, gY = null;
+        if (geom && geom.getType() === 'Point') {
+          const c = geom.getFlatCoordinates ? geom.getFlatCoordinates() : (geom.getCoordinates ? geom.getCoordinates() : null);
+          if (c && c.length >= 2) {
+            gX = c[0]; gY = c[1];
+          }
+        }
+        const entry = {
+          layer: props.layer || 'unknown',
+          dp: dp,
+          properties: Object.fromEntries(
+            Object.entries(props).filter(([k]) => k !== 'geometry' && k !== '_lupIndex')
+          ),
+        };
+        // Find existing group within 15px radius
+        let added = false;
+        if (gX != null) {
+          for (const g of groups) {
+            if (!g.isPoint) continue;
+            const dx = gX - g.cx;
+            const dy = gY - g.cy;
+            if (dx * dx + dy * dy < groupTolSq) {
+              g.features.push(entry);
+              if (dp > g.maxDP) g.maxDP = dp;
+              added = true;
+              break;
+            }
+          }
+        }
+        if (!added) {
+          groups.push({
+            key: gX != null ? (gX + ',' + gY) : ('line_' + groups.length),
+            isPoint: gX != null,
+            cx: gX, cy: gY,
+            maxDP: dp,
+            features: [entry],
+          });
+        }
+      }
+      // Sort groups: highest display priority wins; points over lines as tiebreak
+      groups.sort((a, b) => {
+        if (a.maxDP !== b.maxDP) return b.maxDP - a.maxDP;
+        return (b.isPoint ? 1 : 0) - (a.isPoint ? 1 : 0);
+      });
+      // Within winning group, sort: physical structures first, then equipment
+      // Buoys/beacons are the primary object; lights/fog/topmarks are equipment on them
+      const EQUIPMENT = new Set(['LIGHTS','FOGSIG','TOPMAR','RTPBCN','RADSTA','RDOSTA']);
+      const best = groups[0];
+      best.features.sort((a, b) => {
+        const aEquip = EQUIPMENT.has(a.layer) ? 1 : 0;
+        const bEquip = EQUIPMENT.has(b.layer) ? 1 : 0;
+        if (aEquip !== bEquip) return aEquip - bEquip; // structures before equipment
+        return b.dp - a.dp; // then by display priority
+      });
       const msg = JSON.stringify({
-        layer: props.layer || 'unknown',
-        properties: Object.fromEntries(
-          Object.entries(props).filter(([k]) => k !== 'geometry' && k !== '_lupIndex')
-        ),
+        features: best.features.map(f => ({ layer: f.layer, properties: f.properties })),
         lngLat: [coord[0], coord[1]],
       });
       FeatureClick.postMessage(msg);
+    } else if (!aisFeature && window.FeatureClick) {
+      // Empty tap — dismiss any open feature sheet
+      FeatureClick.postMessage(JSON.stringify({ features: [], lngLat: null }));
     }
   });
 
@@ -963,6 +1185,67 @@ async function initMap() {
     const b = parseInt(hex.slice(5,7),16);
     return 'rgba('+r+','+g+','+b+','+a+')';
   }
+
+  // =========================================================================
+  // Map interaction lock (disable all interactions when panels overlay the map)
+  // =========================================================================
+  window.setMapInteractive = function(enabled) {
+    map.getInteractions().forEach(function(i) { i.setActive(enabled); });
+  };
+
+  // =========================================================================
+  // Dynamic layer updates (called from Dart when user changes layer config)
+  // =========================================================================
+  window.updateLayers = function(jsonStr) {
+    const configs = JSON.parse(jsonStr);
+    // Remove existing chart layers (keep overlay layers like vessel, AIS, route)
+    const toRemove = [];
+    map.getLayers().forEach(function(layer) {
+      if (layer.get(CHART_LAYER_TAG)) toRemove.push(layer);
+    });
+    toRemove.forEach(function(layer) { map.removeLayer(layer); });
+
+    // Build and insert chart layers. List order = top-to-bottom priority:
+    // config[0] renders on top, config[n] renders at bottom.
+    const newLayers = _buildChartLayers(configs);
+    for (let i = 0; i < newLayers.length; i++) {
+      map.getLayers().insertAt(0, newLayers[i]);
+    }
+  };
+
+  // =========================================================================
+  // Vessel trail layer
+  // =========================================================================
+  const trailSource = new ol.source.Vector();
+  map.addLayer(new ol.layer.Vector({ source: trailSource, zIndex: 180 }));
+
+  window.updateTrail = function(jsonStr) {
+    trailSource.clear();
+    if (!jsonStr || jsonStr === 'null') return;
+    const coords = JSON.parse(jsonStr);
+    if (coords.length < 2) return;
+    const mapCoords = coords.map(function(c) { return ol.proj.fromLonLat(c); });
+
+    // Gradient fade: oldest = faded, newest = bright
+    const segCount = Math.min(mapCoords.length - 1, 5);
+    const segLen = Math.floor(mapCoords.length / segCount);
+    for (let s = 0; s < segCount; s++) {
+      const start = s * segLen;
+      const end = s === segCount - 1 ? mapCoords.length : (s + 1) * segLen + 1;
+      const alpha = 0.15 + 0.65 * (s / (segCount - 1));
+      const seg = new ol.Feature({
+        geometry: new ol.geom.LineString(mapCoords.slice(start, end)),
+      });
+      seg.setStyle(new ol.style.Style({
+        stroke: new ol.style.Stroke({
+          color: 'rgba(33,150,243,' + alpha + ')',
+          width: 2,
+          lineDash: [6, 4],
+        }),
+      }));
+      trailSource.addFeature(seg);
+    }
+  };
 
   // =========================================================================
   // Navigation overlay layers
@@ -1037,6 +1320,20 @@ async function initMap() {
       }));
     } else {
       cogFeature.setGeometry(null);
+    }
+
+    // Ruler snap-follow for own vessel
+    if (_rulerVisible) {
+      let _rulerSelfChanged = false;
+      if (_rulerRedSnap === 'self' && _redEndpoint) {
+        _redEndpoint.getGeometry().setCoordinates(pos);
+        _rulerSelfChanged = true;
+      }
+      if (_rulerBlueSnap === 'self' && _blueEndpoint) {
+        _blueEndpoint.getGeometry().setCoordinates(pos);
+        _rulerSelfChanged = true;
+      }
+      if (_rulerSelfChanged) _updateRulerGeometry();
     }
 
     // Auto-follow: center + optional auto-zoom
@@ -1236,6 +1533,7 @@ async function initMap() {
       }
     }
     aisSource.addFeatures(features);
+    _updateRulerSnapsFromAIS(vessels);
   };
 
   // =========================================================================
@@ -1260,6 +1558,7 @@ async function initMap() {
 
     // Route polyline — green with direction arrows
     const routeLine = new ol.Feature({ geometry: new ol.geom.LineString(mapCoords) });
+    routeLine.set('isRouteLine', true);
     routeLine.setStyle([
       new ol.style.Style({
         stroke: new ol.style.Stroke({ color: 'rgba(76,175,80,0.6)', width: 3 }),
@@ -1285,6 +1584,8 @@ async function initMap() {
       var isNext = (i === activeIdx);
       var isPast = (activeIdx != null && (reversed ? i > activeIdx : i < activeIdx));
       var pt = new ol.Feature({ geometry: new ol.geom.Point(mapCoords[i]) });
+      pt.set('isWaypoint', true);
+      pt.set('wpIndex', i);
 
       // Every waypoint = green arrow in route direction; next waypoint = larger
       var rot = 0;
@@ -1309,6 +1610,465 @@ async function initMap() {
       routeSource.addFeature(pt);
     });
   };
+
+  // =========================================================================
+  // Waypoint drag + long-press interaction
+  // =========================================================================
+  // Waypoint drag via Translate interaction (only waypoint Point features, zoom >= 14)
+  const wpTranslate = new ol.interaction.Translate({
+    filter: function(feature) {
+      if (map.getView().getZoom() < 12) return false;
+      return feature.get('isWaypoint') === true;
+    },
+    hitTolerance: 15,
+  });
+  let _wpDragOrigStyle = null;
+  const _wpDragHighlight = new ol.style.Style({
+    image: new ol.style.Circle({
+      radius: 14,
+      fill: new ol.style.Fill({ color: 'rgba(255,255,255,0.8)' }),
+      stroke: new ol.style.Stroke({ color: '#4caf50', width: 3 }),
+    }),
+  });
+  wpTranslate.on('translatestart', function(e) {
+    e.features.forEach(function(f) {
+      if (f.get('isWaypoint')) {
+        _wpDragOrigStyle = f.getStyle();
+        f.setStyle(_wpDragHighlight);
+      }
+    });
+  });
+  wpTranslate.on('translating', function(e) {
+    // Update route line in real-time during drag
+    e.features.forEach(function(f) {
+      if (f.get('isWaypoint')) {
+        const idx = f.get('wpIndex');
+        const newCoord = f.getGeometry().getCoordinates();
+        // Update the main route line vertex
+        routeSource.getFeatures().forEach(function(rf) {
+          if (!rf.get('isRouteLine')) return;
+          try {
+            const coords = rf.getGeometry().getCoordinates();
+            if (idx >= 0 && idx < coords.length) {
+              coords[idx] = newCoord;
+              rf.getGeometry().setCoordinates(coords);
+            }
+          } catch(e) {}
+        });
+      }
+    });
+  });
+  wpTranslate.on('translateend', function(e) {
+    e.features.forEach(function(f) {
+      if (f.get('isWaypoint')) {
+        if (_wpDragOrigStyle) f.setStyle(_wpDragOrigStyle);
+        _wpDragOrigStyle = null;
+        const idx = f.get('wpIndex');
+        const coord = ol.proj.toLonLat(f.getGeometry().getCoordinates());
+        if (window.WaypointDrag) {
+          WaypointDrag.postMessage(JSON.stringify({ index: idx, lon: coord[0], lat: coord[1] }));
+        }
+      }
+    });
+  });
+  map.addInteraction(wpTranslate);
+
+  // Long-press detection on waypoints and route line (500ms hold, fires on release, zoom >= 14)
+  let _lpReady = false;
+  let _lpType = null; // 'waypoint' or 'line'
+  let _lpData = null;
+  let _lpTimer = null;
+  let _lpPixel = null;
+  map.on('pointerdown', function(e) {
+    _lpReady = false;
+    _lpType = null;
+    _lpData = null;
+    if (map.getView().getZoom() < 12) return;
+    // Check waypoints first
+    let wpIdx = null;
+    map.forEachFeatureAtPixel(e.pixel, function(f) {
+      if (f.get('isWaypoint') && wpIdx === null) wpIdx = f.get('wpIndex');
+    }, { hitTolerance: 15 });
+    if (wpIdx !== null) {
+      _lpPixel = e.pixel;
+      _lpType = 'waypoint';
+      _lpData = { index: wpIdx };
+      _lpTimer = setTimeout(function() { _lpTimer = null; _lpReady = true; }, 500);
+      return;
+    }
+    // Check route line
+    let routeLine = null;
+    map.forEachFeatureAtPixel(e.pixel, function(f) {
+      const geom = f.getGeometry();
+      if (f.get('isRouteLine') && !routeLine) {
+        routeLine = f;
+      }
+    }, { hitTolerance: 15 });
+    if (routeLine) {
+      // Find which segment the tap is closest to
+      const coords = routeLine.getGeometry().getCoordinates();
+      const tapCoord = e.coordinate;
+      let bestSeg = 0;
+      let bestDist = Infinity;
+      for (let i = 0; i < coords.length - 1; i++) {
+        // Distance from point to line segment
+        const ax = coords[i][0], ay = coords[i][1];
+        const bx = coords[i+1][0], by = coords[i+1][1];
+        const dx = bx - ax, dy = by - ay;
+        const lenSq = dx * dx + dy * dy;
+        let t = lenSq > 0 ? ((tapCoord[0] - ax) * dx + (tapCoord[1] - ay) * dy) / lenSq : 0;
+        t = Math.max(0, Math.min(1, t));
+        const px = ax + t * dx, py = ay + t * dy;
+        const d = (tapCoord[0] - px) * (tapCoord[0] - px) + (tapCoord[1] - py) * (tapCoord[1] - py);
+        if (d < bestDist) { bestDist = d; bestSeg = i; }
+      }
+      const lonLat = ol.proj.toLonLat(tapCoord);
+      _lpPixel = e.pixel;
+      _lpType = 'line';
+      _lpData = { afterIndex: bestSeg, lon: lonLat[0], lat: lonLat[1] };
+      _lpTimer = setTimeout(function() { _lpTimer = null; _lpReady = true; }, 500);
+    }
+  });
+  map.on('pointermove', function(e) {
+    if (_lpTimer && _lpPixel) {
+      const dx = e.pixel[0] - _lpPixel[0];
+      const dy = e.pixel[1] - _lpPixel[1];
+      if (dx * dx + dy * dy > 25) {
+        clearTimeout(_lpTimer);
+        _lpTimer = null;
+        _lpReady = false;
+      }
+    }
+  });
+  map.on('pointerup', function() {
+    if (_lpTimer) { clearTimeout(_lpTimer); _lpTimer = null; }
+    if (_lpReady && _lpType === 'waypoint' && _lpData && window.WaypointLongPress) {
+      WaypointLongPress.postMessage(JSON.stringify(_lpData));
+    } else if (_lpReady && _lpType === 'line' && _lpData && window.RouteLineAdd) {
+      RouteLineAdd.postMessage(JSON.stringify(_lpData));
+    }
+    _lpReady = false;
+    _lpType = null;
+    _lpData = null;
+  });
+
+  // =========================================================================
+  // Scale bar unit switching
+  // =========================================================================
+  window.setScaleBarUnits = function(units) {
+    map.getControls().forEach(function(c) {
+      if (c instanceof ol.control.ScaleLine) c.setUnits(units);
+    });
+  };
+
+  window.setScaleBarBottom = function(px) {
+    const el = document.querySelector('.ol-scale-bar');
+    if (el) el.style.bottom = px + 'px';
+  };
+
+  // Update depth display units at runtime (called from Dart when MetadataStore changes)
+  window.updateDepthUnits = function(factor, symbol) {
+    s57Service.options.depthConversionFactor = factor;
+    s57Service.options.depthUnit = symbol;
+    // Force S-57 layers to re-render with new depth units
+    map.getLayers().forEach(function(layer) {
+      if (layer.get('_chartLayer') && layer.getSource && layer.getSource().refresh) {
+        layer.getSource().refresh();
+      }
+    });
+  };
+
+  // =========================================================================
+  // Dynamic ruler
+  // =========================================================================
+  const rulerSource = new ol.source.Vector();
+  map.addLayer(new ol.layer.Vector({ source: rulerSource, zIndex: 250 }));
+
+  let _rulerVisible = false;
+  let _rulerRedSnap = null;   // vessel ID string or 'self', or null
+  let _rulerBlueSnap = null;
+  let _rulerDistFactor = 0.000539957; // m → nm default
+  let _rulerDistSymbol = 'nm';
+  let _rulerLastPost = 0;
+
+  // Reusable feature refs
+  let _redEndpoint = null;
+  let _blueEndpoint = null;
+  let _redHalfLine = null;
+  let _blueHalfLine = null;
+  let _rulerTickFeatures = [];
+  let _rulerRedLabel = null;
+  let _rulerBlueLabel = null;
+  let _rulerDistLabel = null;
+
+  function calcBearing(lat1, lon1, lat2, lon2) {
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const la1 = lat1 * Math.PI / 180, la2 = lat2 * Math.PI / 180;
+    const y = Math.sin(dLon) * Math.cos(la2);
+    const x = Math.cos(la1) * Math.sin(la2) - Math.sin(la1) * Math.cos(la2) * Math.cos(dLon);
+    return ((Math.atan2(y, x) * 180 / Math.PI) + 360) % 360;
+  }
+
+  function _niceInterval(totalDisplay) {
+    const candidates = [0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10, 25, 50, 100, 250, 500];
+    for (const c of candidates) {
+      const ticks = totalDisplay / c;
+      if (ticks >= 3 && ticks <= 10) return c;
+    }
+    return totalDisplay / 5;
+  }
+
+  function _updateRulerGeometry() {
+    if (!_redEndpoint || !_blueEndpoint) return;
+    const redCoord = _redEndpoint.getGeometry().getCoordinates();
+    const blueCoord = _blueEndpoint.getGeometry().getCoordinates();
+    const mid = [(redCoord[0] + blueCoord[0]) / 2, (redCoord[1] + blueCoord[1]) / 2];
+
+    // Half-lines
+    _redHalfLine.getGeometry().setCoordinates([redCoord, mid]);
+    _blueHalfLine.getGeometry().setCoordinates([mid, blueCoord]);
+
+    // Distance & bearing in WGS84
+    const redLL = ol.proj.toLonLat(redCoord);
+    const blueLL = ol.proj.toLonLat(blueCoord);
+    const distM = ol.sphere.getDistance(redLL, blueLL);
+    const bearingRB = calcBearing(redLL[1], redLL[0], blueLL[1], blueLL[0]);
+    const bearingBR = calcBearing(blueLL[1], blueLL[0], redLL[1], redLL[0]);
+    const distDisplay = distM * _rulerDistFactor;
+
+    // Tick marks
+    _rulerTickFeatures.forEach(f => rulerSource.removeFeature(f));
+    _rulerTickFeatures = [];
+    const interval = _niceInterval(distDisplay);
+    const tickCount = Math.floor(distDisplay / interval);
+    const totalProj = Math.hypot(blueCoord[0] - redCoord[0], blueCoord[1] - redCoord[1]);
+    const dirX = totalProj > 0 ? (blueCoord[0] - redCoord[0]) / totalProj : 0;
+    const dirY = totalProj > 0 ? (blueCoord[1] - redCoord[1]) / totalProj : 0;
+    const perpX = -dirY, perpY = dirX;
+    const res = map.getView().getResolution() || 1;
+    const tickHalf = 8 * res; // 8 pixels
+
+    for (let i = 1; i <= tickCount && i <= 20; i++) {
+      const frac = (interval * i) / distDisplay;
+      if (frac >= 1) break;
+      const px = redCoord[0] + (blueCoord[0] - redCoord[0]) * frac;
+      const py = redCoord[1] + (blueCoord[1] - redCoord[1]) * frac;
+      const tf = new ol.Feature({
+        geometry: new ol.geom.LineString([
+          [px + perpX * tickHalf, py + perpY * tickHalf],
+          [px - perpX * tickHalf, py - perpY * tickHalf],
+        ]),
+      });
+      tf.setStyle([
+        new ol.style.Style({ stroke: new ol.style.Stroke({ color: 'rgba(0,0,0,0.6)', width: 3 }) }),
+        new ol.style.Style({ stroke: new ol.style.Stroke({ color: '#fff', width: 1.5 }) }),
+      ]);
+      rulerSource.addFeature(tf);
+      _rulerTickFeatures.push(tf);
+    }
+
+    // Labels
+    const brgFmt = function(deg) { return deg.toFixed(1) + '\\u00B0'; };
+    const distStr = distDisplay < 1 ? distDisplay.toFixed(3) : (distDisplay < 10 ? distDisplay.toFixed(2) : distDisplay.toFixed(1));
+
+    _rulerRedLabel.getGeometry().setCoordinates(redCoord);
+    _rulerRedLabel.getStyle().getText().setText(brgFmt(bearingRB));
+    _rulerBlueLabel.getGeometry().setCoordinates(blueCoord);
+    _rulerBlueLabel.getStyle().getText().setText(brgFmt(bearingBR));
+    _rulerDistLabel.getGeometry().setCoordinates(mid);
+    _rulerDistLabel.getStyle().getText().setText(distStr + ' ' + _rulerDistSymbol);
+
+    // Post to Dart (throttled during drag)
+    const now = Date.now();
+    if (now - _rulerLastPost > 100) {
+      _rulerLastPost = now;
+      if (window.RulerUpdate) {
+        RulerUpdate.postMessage(JSON.stringify({
+          distM: distM,
+          bearingFromRed: bearingRB,
+          bearingFromBlue: bearingBR,
+          redSnap: _rulerRedSnap,
+          blueSnap: _rulerBlueSnap,
+        }));
+      }
+    }
+  }
+
+  function _createLabelFeature(color) {
+    const f = new ol.Feature({ geometry: new ol.geom.Point([0, 0]) });
+    f.setStyle(new ol.style.Style({
+      text: new ol.style.Text({
+        text: '',
+        scale: 1.3,
+        offsetY: -18,
+        fill: new ol.style.Fill({ color: color }),
+        stroke: new ol.style.Stroke({ color: 'rgba(0,0,0,0.8)', width: 3 }),
+      }),
+    }));
+    return f;
+  }
+
+  window.showRuler = function(show) {
+    _rulerVisible = show;
+    if (!show) {
+      rulerSource.clear();
+      _redEndpoint = null;
+      _blueEndpoint = null;
+      _redHalfLine = null;
+      _blueHalfLine = null;
+      _rulerTickFeatures = [];
+      _rulerRedLabel = null;
+      _rulerBlueLabel = null;
+      _rulerDistLabel = null;
+      _rulerRedSnap = null;
+      _rulerBlueSnap = null;
+      return;
+    }
+    // Place endpoints offset from map center
+    const center = map.getView().getCenter();
+    const r = map.getView().getResolution() * 80; // 80px offset
+    const redCoord = [center[0] - r, center[1]];
+    const blueCoord = [center[0] + r, center[1]];
+
+    _redEndpoint = new ol.Feature({ geometry: new ol.geom.Point(redCoord) });
+    _redEndpoint.set('isRulerEndpoint', true);
+    _redEndpoint.set('rulerEnd', 'red');
+    _redEndpoint.setStyle(new ol.style.Style({
+      image: new ol.style.Circle({
+        radius: 12,
+        fill: new ol.style.Fill({ color: 'rgba(244,67,54,0.8)' }),
+        stroke: new ol.style.Stroke({ color: '#fff', width: 2 }),
+      }),
+    }));
+
+    _blueEndpoint = new ol.Feature({ geometry: new ol.geom.Point(blueCoord) });
+    _blueEndpoint.set('isRulerEndpoint', true);
+    _blueEndpoint.set('rulerEnd', 'blue');
+    _blueEndpoint.setStyle(new ol.style.Style({
+      image: new ol.style.Circle({
+        radius: 12,
+        fill: new ol.style.Fill({ color: 'rgba(33,150,243,0.8)' }),
+        stroke: new ol.style.Stroke({ color: '#fff', width: 2 }),
+      }),
+    }));
+
+    _redHalfLine = new ol.Feature({ geometry: new ol.geom.LineString([redCoord, center]) });
+    _redHalfLine.setStyle(new ol.style.Style({
+      stroke: new ol.style.Stroke({ color: 'rgba(244,67,54,0.7)', width: 3, lineDash: [8, 4] }),
+    }));
+
+    _blueHalfLine = new ol.Feature({ geometry: new ol.geom.LineString([center, blueCoord]) });
+    _blueHalfLine.setStyle(new ol.style.Style({
+      stroke: new ol.style.Stroke({ color: 'rgba(33,150,243,0.7)', width: 3, lineDash: [8, 4] }),
+    }));
+
+    _rulerRedLabel = _createLabelFeature('#f44336');
+    _rulerBlueLabel = _createLabelFeature('#2196f3');
+    _rulerDistLabel = _createLabelFeature('#ffffff');
+    _rulerDistLabel.getStyle().getText().setOffsetY(16);
+
+    rulerSource.addFeatures([
+      _redHalfLine, _blueHalfLine,
+      _redEndpoint, _blueEndpoint,
+      _rulerRedLabel, _rulerBlueLabel, _rulerDistLabel,
+    ]);
+    _updateRulerGeometry();
+  };
+
+  window.updateRulerUnits = function(factor, symbol) {
+    _rulerDistFactor = factor;
+    _rulerDistSymbol = symbol;
+    if (_rulerVisible) _updateRulerGeometry();
+  };
+
+  // Ruler endpoint drag interaction
+  const rulerTranslate = new ol.interaction.Translate({
+    filter: function(feature) {
+      return feature.get('isRulerEndpoint') === true;
+    },
+    hitTolerance: 15,
+  });
+
+  rulerTranslate.on('translating', function(e) {
+    e.features.forEach(function(f) {
+      if (!f.get('isRulerEndpoint')) return;
+      const end = f.get('rulerEnd');
+      const pixel = map.getPixelFromCoordinate(f.getGeometry().getCoordinates());
+
+      // Snap-to-vessel check
+      let snapped = false;
+      map.forEachFeatureAtPixel(pixel, function(hit) {
+        if (snapped) return;
+        if (hit === f) return; // skip self
+        if (hit.get('isAIS')) {
+          const vCoord = hit.getGeometry().getCoordinates();
+          f.getGeometry().setCoordinates(vCoord);
+          if (end === 'red') _rulerRedSnap = hit.get('vesselId');
+          else _rulerBlueSnap = hit.get('vesselId');
+          snapped = true;
+        }
+        if (hit === vesselFeature) {
+          const vCoord = hit.getGeometry().getCoordinates();
+          f.getGeometry().setCoordinates(vCoord);
+          if (end === 'red') _rulerRedSnap = 'self';
+          else _rulerBlueSnap = 'self';
+          snapped = true;
+        }
+      }, { hitTolerance: 20 });
+
+      if (!snapped) {
+        if (end === 'red') _rulerRedSnap = null;
+        else _rulerBlueSnap = null;
+      }
+      _updateRulerGeometry();
+    });
+  });
+
+  rulerTranslate.on('translateend', function() {
+    _rulerLastPost = 0; // force immediate post
+    _updateRulerGeometry();
+  });
+
+  map.addInteraction(rulerTranslate);
+
+  // Snap-follow: update ruler endpoints when snapped vessels move
+  function _updateRulerSnapsFromAIS(vessels) {
+    if (!_rulerVisible) return;
+    let changed = false;
+    if (_rulerRedSnap && _rulerRedSnap !== 'self' && _redEndpoint) {
+      const v = vessels.find(function(v) { return v.id === _rulerRedSnap; });
+      if (v) {
+        _redEndpoint.getGeometry().setCoordinates(ol.proj.fromLonLat([v.lon, v.lat]));
+        changed = true;
+      }
+    }
+    if (_rulerBlueSnap && _rulerBlueSnap !== 'self' && _blueEndpoint) {
+      const v = vessels.find(function(v) { return v.id === _rulerBlueSnap; });
+      if (v) {
+        _blueEndpoint.getGeometry().setCoordinates(ol.proj.fromLonLat([v.lon, v.lat]));
+        changed = true;
+      }
+    }
+    if (changed) _updateRulerGeometry();
+  }
+
+  // =========================================================================
+  // Viewport info for freshness + download
+  // =========================================================================
+  window.getViewportTileInfo = function() {
+    const view = map.getView();
+    const extent = view.calculateExtent(map.getSize());
+    const ll = ol.proj.transformExtent(extent, 'EPSG:3857', 'EPSG:4326');
+    const zoom = Math.round(view.getZoom());
+    return JSON.stringify({minLon: ll[0], minLat: ll[1], maxLon: ll[2], maxLat: ll[3], zoom: zoom});
+  };
+
+  // Post viewport info on pan/zoom for freshness indicator
+  map.on('moveend', function() {
+    if (window.ViewportInfo) {
+      ViewportInfo.postMessage(window.getViewportTileInfo());
+    }
+  });
 
   console.log('Map initialized with OpenLayers + S57 + overlays');
   if (window.MapReady) MapReady.postMessage('ready');
@@ -1346,30 +2106,36 @@ initMap().catch(e => console.error('Init failed:', e));
 // =============================================================================
 
 class _FeaturePopover extends StatelessWidget {
-  final String layerCode;
-  final Map<String, dynamic> properties;
+  final List<Map<String, dynamic>> features;
   final List? lngLat;
   final String depthUnit;
   final double depthConversionFactor;
+  final String heightUnit;
+  final double heightConversionFactor;
 
   const _FeaturePopover({
-    required this.layerCode,
-    required this.properties,
+    required this.features,
     this.lngLat,
     this.depthUnit = 'm',
     this.depthConversionFactor = 1.0,
+    this.heightUnit = 'm',
+    this.heightConversionFactor = 1.0,
   });
 
   @override
   Widget build(BuildContext context) {
-    final name = properties['OBJNAM'] as String? ??
-        _objectClassNames[layerCode] ??
-        layerCode;
+    // Primary feature determines the header name
+    final primary = features.first;
+    final primaryLayer = primary['layer'] as String? ?? 'Unknown';
+    final primaryProps = primary['properties'] as Map<String, dynamic>? ?? {};
+    final name = primaryProps['OBJNAM'] as String? ??
+        _objectClassNames[primaryLayer] ??
+        primaryLayer;
 
     return DraggableScrollableSheet(
-      initialChildSize: 0.35,
+      initialChildSize: features.length > 1 ? 0.45 : 0.35,
       minChildSize: 0.15,
-      maxChildSize: 0.6,
+      maxChildSize: 0.7,
       builder: (context, scrollController) {
         return Container(
           decoration: const BoxDecoration(
@@ -1394,8 +2160,8 @@ class _FeaturePopover extends StatelessWidget {
                       child: Text(name,
                         style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
                     ),
-                    if (properties['OBJNAM'] != null)
-                      Text(_objectClassNames[layerCode] ?? layerCode,
+                    if (primaryProps['OBJNAM'] != null)
+                      Text(_objectClassNames[primaryLayer] ?? primaryLayer,
                         style: const TextStyle(color: Colors.white54, fontSize: 13)),
                   ],
                 ),
@@ -1415,7 +2181,7 @@ class _FeaturePopover extends StatelessWidget {
                 child: ListView(
                   controller: scrollController,
                   padding: const EdgeInsets.symmetric(horizontal: 16),
-                  children: _buildPropertyRows(),
+                  children: _buildAllFeatureRows(),
                 ),
               ),
             ],
@@ -1425,7 +2191,28 @@ class _FeaturePopover extends StatelessWidget {
     );
   }
 
-  List<Widget> _buildPropertyRows() {
+  List<Widget> _buildAllFeatureRows() {
+    final rows = <Widget>[];
+    for (int i = 0; i < features.length; i++) {
+      final f = features[i];
+      final layer = f['layer'] as String? ?? 'Unknown';
+      final props = f['properties'] as Map<String, dynamic>? ?? {};
+      // Section header for additional features
+      if (i > 0) {
+        final sectionName = _objectClassNames[layer] ?? layer;
+        rows.add(Padding(
+          padding: const EdgeInsets.only(top: 12, bottom: 4),
+          child: Text(sectionName,
+            style: const TextStyle(color: Colors.white70, fontSize: 14, fontWeight: FontWeight.bold)),
+        ));
+        rows.add(const Divider(color: Colors.white12, height: 8));
+      }
+      rows.addAll(_buildPropertyRows(props));
+    }
+    return rows;
+  }
+
+  List<Widget> _buildPropertyRows(Map<String, dynamic> properties) {
     final rows = <Widget>[];
     for (final key in _displayOrder) {
       final val = properties[key];
@@ -1437,7 +2224,7 @@ class _FeaturePopover extends StatelessWidget {
         display = n != null ? '${(n * depthConversionFactor).toStringAsFixed(1)} $depthUnit' : val.toString();
       } else if (_heightKeys.contains(key)) {
         final n = num.tryParse(val.toString());
-        display = n != null ? '${n.toStringAsFixed(1)} m' : val.toString();
+        display = n != null ? '${(n * heightConversionFactor).toStringAsFixed(1)} $heightUnit' : val.toString();
       } else if (key == 'SIGPER') {
         display = '${val}s';
       } else if (key == 'VALNMR') {

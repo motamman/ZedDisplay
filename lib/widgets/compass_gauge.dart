@@ -101,98 +101,88 @@ class CompassGauge extends StatelessWidget {
           child: Center(
             child: AspectRatio(
               aspectRatio: 1,
-              child: Stack(
-                children: [
-                  // Gauge with pointer - drawn first
-                  SfRadialGauge(
-                    axes: <RadialAxis>[
-                      RadialAxis(
-                        minimum: 0,
-                        maximum: 360,
-                        interval: _getInterval(),
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final size = constraints.maxWidth;
+                  final isCompact = size < 120;
+                  final valueFontSize = (size * 0.16).clamp(10.0, 32.0);
+                  final cardinalFontSize = (size * 0.09).clamp(8.0, 18.0);
+                  final labelFontSize = (size * 0.08).clamp(8.0, 16.0);
+                  final topPadding = size * 0.25;
 
-                        // Angles based on style
-                        startAngle: _getStartAngle(),
-                        endAngle: _getEndAngle(),
-
-                        // Hide axis line
-                        showAxisLine: false,
-                        showLastLabel: true,
-
-                        // Tick configuration
-                        majorTickStyle: MajorTickStyle(
-                          length: _getMajorTickLength(),
-                          thickness: 2,
-                          color: compassStyle == CompassStyle.minimal
-                              ? Colors.grey.withValues(alpha: 0.3)
-                              : Colors.grey,
-                        ),
-                        minorTicksPerInterval: compassStyle == CompassStyle.minimal ? 0 : 2,
-                        minorTickStyle: MinorTickStyle(
-                          length: 6,
-                          thickness: 1,
-                          color: Colors.grey.withValues(alpha: 0.5),
-                        ),
-
-                        // Hide auto-generated labels - we'll use custom annotations instead
-                        showLabels: false,
-
-                        // Outer ring for visual boundary
-                        ranges: _getRanges(),
-
-                        // Heading pointer
-                        pointers: _getPointers(),
-
-                        // Compass labels with counter-rotation to stay horizontal
-                        annotations: _buildCompassLabels(),
+                  return Stack(
+                    children: [
+                      SfRadialGauge(
+                        axes: <RadialAxis>[
+                          RadialAxis(
+                            minimum: 0,
+                            maximum: 360,
+                            interval: _getInterval(),
+                            startAngle: _getStartAngle(),
+                            endAngle: _getEndAngle(),
+                            showAxisLine: false,
+                            showLastLabel: true,
+                            majorTickStyle: MajorTickStyle(
+                              length: _getMajorTickLength(),
+                              thickness: 2,
+                              color: compassStyle == CompassStyle.minimal
+                                  ? Colors.grey.withValues(alpha: 0.3)
+                                  : Colors.grey,
+                            ),
+                            minorTicksPerInterval: compassStyle == CompassStyle.minimal ? 0 : 2,
+                            minorTickStyle: MinorTickStyle(
+                              length: 6,
+                              thickness: 1,
+                              color: Colors.grey.withValues(alpha: 0.5),
+                            ),
+                            showLabels: false,
+                            ranges: _getRanges(),
+                            pointers: _getPointers(),
+                            annotations: _buildCompassLabels(),
+                          ),
+                        ],
                       ),
-                    ],
-                  ),
-
-                  // Center annotation with heading value - drawn last so it's on top
-                  if (showValue)
-                    Align(
-                      alignment: Alignment.center,
-                      child: Padding(
-                        padding: const EdgeInsets.only(top: 55.0),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            if (compassStyle != CompassStyle.minimal && _activeLabel.isNotEmpty)
-                              Text(
-                                _activeLabel,
-                                style: const TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w300,
-                                ),
-                              ),
-                            if (compassStyle != CompassStyle.minimal && _activeLabel.isNotEmpty)
-                              const SizedBox(height: 4),
-                            Column(
+                      if (showValue)
+                        Align(
+                          alignment: Alignment.center,
+                          child: Padding(
+                            padding: EdgeInsets.only(top: topPadding),
+                            child: Column(
                               mainAxisSize: MainAxisSize.min,
                               children: [
+                                if (!isCompact && compassStyle != CompassStyle.minimal && _activeLabel.isNotEmpty)
+                                  Text(
+                                    _activeLabel,
+                                    style: TextStyle(
+                                      fontSize: labelFontSize,
+                                      fontWeight: FontWeight.w300,
+                                    ),
+                                  ),
+                                if (!isCompact && compassStyle != CompassStyle.minimal && _activeLabel.isNotEmpty)
+                                  const SizedBox(height: 4),
                                 Text(
                                   _activeFormattedValue ?? '${_activeHeading.toStringAsFixed(0)}°',
-                                  style: const TextStyle(
-                                    fontSize: 32,
+                                  style: TextStyle(
+                                    fontSize: valueFontSize,
                                     fontWeight: FontWeight.bold,
                                   ),
                                 ),
-                                Text(
-                                  _getCardinalDirection(_activeHeading),
-                                  style: TextStyle(
-                                    fontSize: 18,
-                                    fontWeight: FontWeight.w500,
-                                    color: _activeColor,
+                                if (!isCompact)
+                                  Text(
+                                    _getCardinalDirection(_activeHeading),
+                                    style: TextStyle(
+                                      fontSize: cardinalFontSize,
+                                      fontWeight: FontWeight.w500,
+                                      color: _activeColor,
+                                    ),
                                   ),
-                                ),
                               ],
                             ),
-                          ],
+                          ),
                         ),
-                      ),
-                    ),
-                ],
+                    ],
+                  );
+                },
               ),
             ),
           ),
@@ -475,125 +465,128 @@ class CompassGauge extends StatelessWidget {
           child: Center(
             child: AspectRatio(
               aspectRatio: 1,
-              child: Stack(
-                children: [
-                  // Rotating compass card
-                  Transform.rotate(
-                    angle: -heading * 3.14159265359 / 180,
-                    child: SfRadialGauge(
-                      axes: <RadialAxis>[
-                        RadialAxis(
-                          minimum: 0,
-                          maximum: 360,
-                          interval: _getInterval(),
-                          startAngle: 270,
-                          endAngle: 270,
-                          showAxisLine: false,
-                          showLastLabel: true,
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final size = constraints.maxWidth;
+                  final isCompact = size < 120;
+                  final valueFontSize = (size * 0.16).clamp(10.0, 32.0);
+                  final cardinalFontSize = (size * 0.09).clamp(8.0, 18.0);
+                  final labelFontSize = (size * 0.08).clamp(8.0, 16.0);
+                  final topPadding = size * 0.28;
 
-                          majorTickStyle: MajorTickStyle(
-                            length: _getMajorTickLength(),
-                            thickness: 2,
-                            color: Colors.grey,
-                          ),
-                          minorTicksPerInterval: 2,
-                          minorTickStyle: MinorTickStyle(
-                            length: 6,
-                            thickness: 1,
-                            color: Colors.grey.withValues(alpha: 0.5),
-                          ),
-
-                          showLabels: false,
-
-                          ranges: _getRanges(),
-
-                          pointers: const [],
-
-                          annotations: _buildMarineCompassLabels(),
-                        ),
-                      ],
-                    ),
-                  ),
-
-                  // Non-active needles first
-                  for (final needle in allNeedles)
-                    if (needle.index != activeIndex)
+                  return Stack(
+                    children: [
+                      // Rotating compass card
                       Transform.rotate(
-                        angle: (needle.value - heading) * 3.14159265359 / 180,
-                        child: Center(
-                          child: SizedBox.expand(
-                            child: CustomPaint(
-                              painter: _MarineNeedlePainter(
-                                needle.color,
-                                isSecondary: true,
+                        angle: -heading * 3.14159265359 / 180,
+                        child: SfRadialGauge(
+                          axes: <RadialAxis>[
+                            RadialAxis(
+                              minimum: 0,
+                              maximum: 360,
+                              interval: _getInterval(),
+                              startAngle: 270,
+                              endAngle: 270,
+                              showAxisLine: false,
+                              showLastLabel: true,
+                              showTicks: !isCompact,
+                              majorTickStyle: MajorTickStyle(
+                                length: _getMajorTickLength(),
+                                thickness: 2,
+                                color: Colors.grey,
                               ),
-                            ),
-                          ),
-                        ),
-                      ),
-
-                  // Active needle last (on top)
-                  () {
-                    final active = allNeedles.firstWhere(
-                      (n) => n.index == activeIndex,
-                      orElse: () => allNeedles.first,
-                    );
-                    return Transform.rotate(
-                      angle: (active.value - heading) * 3.14159265359 / 180,
-                      child: Center(
-                        child: SizedBox.expand(
-                          child: CustomPaint(
-                            painter: _MarineNeedlePainter(active.color),
-                          ),
-                        ),
-                      ),
-                    );
-                  }(),
-
-                  // Center annotation with heading value (non-rotating)
-                  if (showValue)
-                    Align(
-                      alignment: Alignment.center,
-                      child: Padding(
-                        padding: const EdgeInsets.only(top: 60.0),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            if (_activeLabel.isNotEmpty)
-                              Text(
-                                _activeLabel,
-                                style: const TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w300,
-                                ),
+                              minorTicksPerInterval: isCompact ? 0 : 2,
+                              minorTickStyle: MinorTickStyle(
+                                length: 6,
+                                thickness: 1,
+                                color: Colors.grey.withValues(alpha: 0.5),
                               ),
-                            if (_activeLabel.isNotEmpty)
-                              const SizedBox(height: 4),
-                            Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Text(
-                                  _activeFormattedValue ?? '${_activeHeading.toStringAsFixed(0)}°',
-                                  style: const TextStyle(
-                                    fontSize: 32,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                                Text(
-                                  _getCardinalDirection(_activeHeading),
-                                  style: TextStyle(
-                                    fontSize: 18,
-                                    fontWeight: FontWeight.w500,
-                                    color: _activeColor,
-                                  ),
-                                ),
-                              ],
+                              showLabels: false,
+                              ranges: _getRanges(),
+                              pointers: const [],
+                              annotations: _buildMarineCompassLabels(),
                             ),
                           ],
                         ),
                       ),
-                    ),
-                ],
+
+                      // Non-active needles first
+                      for (final needle in allNeedles)
+                        if (needle.index != activeIndex)
+                          Transform.rotate(
+                            angle: (needle.value - heading) * 3.14159265359 / 180,
+                            child: Center(
+                              child: SizedBox.expand(
+                                child: CustomPaint(
+                                  painter: _MarineNeedlePainter(
+                                    needle.color,
+                                    isSecondary: true,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+
+                      // Active needle last (on top)
+                      () {
+                        final active = allNeedles.firstWhere(
+                          (n) => n.index == activeIndex,
+                          orElse: () => allNeedles.first,
+                        );
+                        return Transform.rotate(
+                          angle: (active.value - heading) * 3.14159265359 / 180,
+                          child: Center(
+                            child: SizedBox.expand(
+                              child: CustomPaint(
+                                painter: _MarineNeedlePainter(active.color),
+                              ),
+                            ),
+                          ),
+                        );
+                      }(),
+
+                      // Center annotation with heading value (non-rotating)
+                      if (showValue)
+                        Align(
+                          alignment: Alignment.center,
+                          child: Padding(
+                            padding: EdgeInsets.only(top: topPadding),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                if (!isCompact && _activeLabel.isNotEmpty)
+                                  Text(
+                                    _activeLabel,
+                                    style: TextStyle(
+                                      fontSize: labelFontSize,
+                                      fontWeight: FontWeight.w300,
+                                    ),
+                                  ),
+                                if (!isCompact && _activeLabel.isNotEmpty)
+                                  const SizedBox(height: 4),
+                                Text(
+                                  _activeFormattedValue ?? '${_activeHeading.toStringAsFixed(0)}°',
+                                  style: TextStyle(
+                                    fontSize: valueFontSize,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                                if (!isCompact)
+                                  Text(
+                                    _getCardinalDirection(_activeHeading),
+                                    style: TextStyle(
+                                      fontSize: cardinalFontSize,
+                                      fontWeight: FontWeight.w500,
+                                      color: _activeColor,
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          ),
+                        ),
+                    ],
+                  );
+                },
               ),
             ),
           ),

@@ -13,7 +13,6 @@ import '../services/diagnostic_service.dart';
 import '../services/setup_service.dart';
 import '../models/server_connection.dart';
 import '../models/auth_token.dart';
-import '../utils/conversion_utils.dart';
 import 'dashboard_manager_screen.dart';
 import 'device_registration_screen.dart';
 import 'user_login_screen.dart';
@@ -698,7 +697,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ? 'User (${authToken?.username ?? "unknown"})'
                   : 'Device',
             ),
-            if (isUserAuth && ConversionUtils.hasUserPreferences)
+            if (isUserAuth && signalKService.hasUserPreferencesApplied)
               _buildInfoRow(
                 'Unit Preset',
                 signalKService.getCachedUserPresetName() ?? 'Default',
@@ -796,8 +795,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
         secure: signalKService.useSecureConnection,
       );
 
-      // Clear user preferences from ConversionUtils
-      ConversionUtils.clearUserPreferences();
+      // Revert MetadataStore to server defaults and clear the applied flag.
+      signalKService.clearUserPreferencesFromMetadataStore();
 
       // Clear cached user preferences from storage
       if (token.connectionId != null) {
@@ -1026,10 +1025,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
           connection.useSecure,
         );
 
-        // If user auth, load user preferences
+        // If user auth, load user preferences and apply to MetadataStore.
         if (savedToken.authType == AuthType.user) {
           await signalKService.fetchUserUnitPreferences();
-          ConversionUtils.loadUserPreferences(signalKService);
+          signalKService.applyCachedUserPreferencesToMetadataStore();
         }
 
         // Trigger dashboard subscription update to ensure subscriptions are set up
