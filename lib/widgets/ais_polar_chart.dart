@@ -733,8 +733,10 @@ class _AISPolarChartState extends State<AISPolarChart>
       final bearing = CpaUtils.calculateBearing(_ownLat!, _ownLon!, lat, lon);
       final distance = CpaUtils.calculateDistance(_ownLat!, _ownLon!, lat, lon);
 
-      // Filter out vessels beyond max range (garbage AIS data)
-      if (distance > widget.maxRangeMeters) continue;
+      // Filter out vessels beyond max range (garbage AIS data).
+      // `maxRangeMeters <= 0` means "auto / fit all vessels" per the
+      // configurator's Auto dropdown option, so skip the filter entirely.
+      if (widget.maxRangeMeters > 0 && distance > widget.maxRangeMeters) continue;
 
       // Convert COG from radians to display units (degrees) via MetadataStore
       final cogDisplay = vessel.cogRad != null

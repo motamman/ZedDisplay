@@ -5,6 +5,47 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.1+69] - 2026-04-20
+
+### Changed
+- **MetadataStore — Single Source of Truth Enforced**: Removed legacy `ConversionUtils` entirely. `MetadataStore.convert` / `convertToSI` now have a strict null-on-missing contract; widgets render fallback values through a uniform `MetadataFormatExtension.formatOrRaw` extension that encodes the app-wide permissive policy (raw SI value with SI-unit suffix when metadata is missing).
+- **CPA & Max-Range Thresholds — SI Persistence**: AIS polar chart thresholds now persist as meters instead of nautical miles. Legacy `cpaWarnNm`/`cpaAlarmNm`/`maxRangeNm` entries auto-migrate on read via `NavigationConstants.readDistanceMeters`; next save writes SI keys and the legacy keys fade out. Config now survives user unit-preference changes.
+- **Plugin Symbol Ingest**: New `MetadataStore.updateSymbol(path, symbol)` for the units-preference plugin's high-frequency deltas — targeted, preserves other PathMetadata fields, and 1-10Hz-safe via early-return when symbol is unchanged.
+- **Merge Semantics**: `MetadataStore.updateFromMeta` now does field-by-field overlay. Previously, a later delta carrying only a symbol change was silently discarded when existing metadata already had a formula.
+- **Compiled Formulas**: `PathMetadata` parses each conversion formula once via a process-wide static cache (was: re-parsed on every call through `GrammarParser`). Removed the hidden `value * N` regex fallback that silently masked full-parser failures.
+- **Weather Widgets Off Legacy Conversions**: `forecast_spinner_tool`, `weatherflow_forecast_tool`, and `weather_api_spinner_tool` now use MetadataStore (with category-level fallback) for all unit conversions. Collapsed the `WeatherFieldType` enum + `_convertWithFallback` shim into a single `_convertApi` helper.
+- **Preference Plumbing Centralised**: New `SignalKService.applyCachedUserPreferencesToMetadataStore()` / `clearUserPreferencesFromMetadataStore()` / `hasUserPreferencesApplied` replace the orphaned `ConversionUtils` preference cache. Logout now correctly reverts MetadataStore to server defaults instead of leaking the user preset into the next session.
+- **Plugin DataPoint Fields Pruned**: `SignalKDataPoint.symbol`, `.converted`, `.formatted`, and `hasConvertedValue` removed (zero remaining readers). `.original` retained as the SI fallback used by ~20 widgets.
+- **Widget Fallback Policy Unified**: Replaced scattered `* 180 / math.pi` and `'m'`-suffix fallbacks in `anchor_alarm_tool`, `find_home_tool`, `ais_vessel_detail_sheet`, and `AnchorState` with the permissive `formatOrRaw` extension. Anchor bearing now normalises in the correct period (360° or 2π rad) based on MetadataStore's symbol.
+- **Forecast Chrome Defaults Removed**: `ForecastSpinner` and `WeatherFlowForecast` widgets no longer hardcode default unit symbols (`'°F'`, `'kn'`, `'hPa'`, `'°C'`, `'kts'`, `'mm'`). All symbols flow from MetadataStore via nullable constructor params.
+- **`_formatValue` Dedup**: 7 tool widgets (wind compass, windsteer, compass gauge, radial/linear gauge, rpi monitor, chart HUD) now delegate formatting to `MetadataFormatExtension.formatOrRaw`. Single logic location.
+- **Display-Boundary Angle Conversions**: 6 sites that mixed `metadata?.convert(x) ?? x * 180 / math.pi` now use `AngleUtils.toDegrees(x)` explicitly for the fallback branch — signals internal trig math, not a silent conversion pretending to be metadata-driven.
+- **Constants Modules Introduced**:
+  - `lib/config/service_constants.dart` — HTTP timeouts (`httpTimeout`, `shortHttpTimeout`, `longHttpTimeout`, `veryLongHttpTimeout`) plus debounce/UX-delay slots. 40 `.timeout(...)` sites across 6 service-layer files migrated.
+  - `lib/config/navigation_constants.dart` — `metersPerNauticalMile`, `metersPerStatuteMile`, `knotsPerMps`, compass degrees, plus the `readDistanceMeters` migration helper used by the CPA persistence migration.
+  - `lib/config/app_colors.dart` — semantic palette (`cardBackgroundDark`, `alarmRed`, `alarmDarkRed`, `warningOrange`, `warningYellow`, `successGreen`, `infoBlue`). Migrated 11 widgets/services with duplicated hex codes.
+- **Time Formatter Dedup**: `DateTimeFormatter` gains `formatElapsedShort`, `formatTimeWithSeconds`, `formatChatTimestamp`. 6 private `_formatTime` / `_formatTimeSince` helpers across chat, AIS, file list, and system monitor consolidated.
+
+### Fixed
+- **Plugin Frame Drop at Connect**: Plugin-format WebSocket deltas no longer allocate a `PathMetadata` per frame at 1-10 Hz per path. `updateSymbol` short-circuits when the symbol already matches, eliminating the metadata churn that caused ~52 dropped frames at connect.
+- **Merge Silently Dropping Symbol Updates**: `updateFromMeta` previously used a "keep existing wholesale" branch when incoming had no formula, discarding any symbol/targetUnit/inverseFormula carried alongside. Now merges per-field; symbol-only deltas propagate.
+- **Hidden Regex Fallback**: `PathMetadata._evaluateFormula` previously caught parser failures with a silent `value * N` regex — parenthesised formulas (Kelvin→Fahrenheit) would hit the fallback and produce wrong values. Removed entirely; broken formulas now fail cleanly to `null`.
+- **`_parseCoordinate` Hemisphere Override** (find_home_set_dialog): Typing `-47.6 N` now correctly resolves to `+47.6` (hemisphere letter authoritative, numeric sign ignored). Previously returned the signed number unchanged.
+- **Logout Unit Drift**: User-logout path now resets MetadataStore to server-default preset. Previously the old user's preset survived until reconnect.
+
+### Removed
+- `lib/utils/conversion_utils.dart` — deleted entirely. No external callers remained after consumer migration.
+- `_DataCacheManager.getConvertedValue` — dead method removed (sole caller migrated).
+- `SignalKDataPoint.symbol`, `.converted`, `.formatted`, and `hasConvertedValue` — zero remaining readers.
+- `ConversionUtils.loadUserPreferences` / `hasUserPreferences` / `clearUserPreferences` and their 7 call sites across `splash_screen`, `user_login_screen`, `connection_screen`, `settings_screen`.
+- `AnchorState.bearingDegrees` getter — zero readers. Bearing conversion moved to widget layer via MetadataStore.
+- `WeatherApiForecast` deprecated getters — `temperatureF`, `temperatureC`, `feelsLikeF`, `feelsLikeC`, `humidityPercent`, `precipProbabilityPercent`, `windSpeedKnots`, `windDirectionDegrees`, `pressureHpa` (9 `@deprecated` getters). Zero external callers.
+- Debug print in Find Home map-tap handler (release-mode log spam).
+
+### Developer
+- 40 unit tests added/updated across `PathMetadata`, `MetadataStore` (including merge semantics, `updateSymbol` invariants, and the strict null contract), `MetadataFormatExtension`, and `NavigationConstants.readDistanceMeters` migration.
+- Full 16-phase refactor plan and architecture notes: `devdocs/metadata-store-compliance.md`.
+
 ## [0.6.0+68] - 2026-03-30
 
 ### Added

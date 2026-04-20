@@ -115,6 +115,12 @@ class _AISPolarChartToolState extends State<AISPolarChartTool> {
       ...?tool.config.style.customProperties,
       ...updatedCpaProps,
     };
+    // Strip legacy display-unit keys so they don't linger in saved configs
+    // after the first post-migration save. The Meters-suffixed keys are
+    // authoritative going forward.
+    updatedProps.remove('cpaWarnNm');
+    updatedProps.remove('cpaAlarmNm');
+    updatedProps.remove('maxRangeNm');
     final updatedTool = tool.copyWith(
       config: ToolConfig(
         vesselId: tool.config.vesselId,
