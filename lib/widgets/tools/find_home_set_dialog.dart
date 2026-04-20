@@ -82,25 +82,28 @@ class _FindHomeSetDialogState extends State<FindHomeSetDialog> {
     final tokens = cleaned.split(RegExp(r'\s+')).where((t) => t.isNotEmpty).toList();
     if (tokens.isEmpty) return null;
 
-    // Determine sign from hemisphere letter
+    // Determine sign from hemisphere letter. When a hemisphere letter is
+    // present it overrides the numeric sign (so "-47.6 N" resolves to
+    // +47.6, not -47.6). Without a hemisphere, fall back to the numeric
+    // sign as typed.
     double sign = 1.0;
+    bool hasHemisphere = false;
     final lastToken = tokens.last.toUpperCase();
     if (lastToken == 'S' || lastToken == 'W') {
       sign = -1.0;
+      hasHemisphere = true;
       tokens.removeLast();
     } else if (lastToken == 'N' || lastToken == 'E') {
+      hasHemisphere = true;
       tokens.removeLast();
     }
 
     if (tokens.isEmpty) return null;
 
     if (tokens.length == 1) {
-      // Decimal degrees: sign from hemisphere if present, else from number
       final dd = double.tryParse(tokens[0]);
       if (dd == null) return null;
-      // If hemisphere was given, use its sign; otherwise keep number's sign
-      if (sign < 0) return -dd.abs();
-      return dd;
+      return hasHemisphere ? sign * dd.abs() : dd;
     }
 
     if (tokens.length == 2) {
@@ -129,7 +132,6 @@ class _FindHomeSetDialogState extends State<FindHomeSetDialog> {
   }
 
   void _onMapTap(TapPosition tapPos, LatLng point) {
-    debugPrint('FindHome map tap: ${point.latitude}, ${point.longitude}');
     setState(() {
       _selectedLat = point.latitude;
       _selectedLon = point.longitude;
