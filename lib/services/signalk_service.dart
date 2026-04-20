@@ -695,6 +695,17 @@ class SignalKService extends ChangeNotifier implements DataService {
                 // For numeric values, use converted number for charts/gauges
                 final numericValue = convertedValue is num ? convertedValue.toDouble() : null;
 
+                // Feed plugin-delivered symbol into MetadataStore so the store
+                // is the single read path. Merge semantics in updateFromMeta
+                // preserve any existing formula/category learned from sendMeta
+                // deltas or REST populateFromPreset.
+                if (symbolString != null && symbolString.isNotEmpty) {
+                  _metadataStore.updateFromMeta(
+                    value.path,
+                    {'symbol': symbolString, 'units': symbolString},
+                  );
+                }
+
                 dataPoint = SignalKDataPoint(
                   path: value.path,
                   value: numericValue ?? convertedValue ?? originalValue,
@@ -1389,54 +1400,56 @@ class SignalKService extends ChangeNotifier implements DataService {
     return _dataCache.getNumericValue(path);
   }
 
-  /// Get formatted value string from units-preference plugin
-  /// Returns pre-formatted string like "10.0 kn" or falls back to raw value
-  String getFormattedValue(String path) {
-    final dataPoint = _dataCache.internalDataMap[path];
-
-    if (dataPoint == null) {
-      return '---';
-    }
-
-    // Use formatted value from units-preference plugin if available
-    if (dataPoint.formatted != null) {
-      return dataPoint.formatted!;
-    }
-
-    // Fallback to raw value
-    if (dataPoint.value is num) {
-      return dataPoint.value.toStringAsFixed(1);
-    }
-
-    return dataPoint.value.toString();
+  /// Get raw SI value for a path. Prefers [SignalKDataPoint.original] (the
+  /// SI scalar the units-preference plugin stashes when pre-converting) and
+  /// falls back to [SignalKDataPoint.value] (which the standard SignalK
+  /// stream sends in SI).
+  double? _rawSIValueForPath(String path) {
+    final dp = _dataCache.internalDataMap[path];
+    if (dp == null) return null;
+    if (dp.original is num) return (dp.original as num).toDouble();
+    if (dp.value is num) return (dp.value as num).toDouble();
+    return null;
   }
 
-  /// Get converted numeric value (already in user's preferred units)
+  /// Get formatted display string (e.g. "10.0 kn") for a path.
+  ///
+  /// Delegates to [MetadataStore] for the conversion + symbol; does not read
+  /// the plugin-delivered `formatted` field. Returns "---" when no data or
+  /// falls back to the raw value's string form when non-numeric.
+  String getFormattedValue(String path) {
+    final dp = _dataCache.internalDataMap[path];
+    if (dp == null) return '---';
+
+    final raw = _rawSIValueForPath(path);
+    if (raw == null) return dp.value?.toString() ?? '---';
+
+    final meta = _metadataStore.get(path);
+    return meta?.format(raw, decimals: 1) ?? raw.toStringAsFixed(1);
+  }
+
+  /// Get converted numeric value in the user's preferred display units.
+  ///
+  /// Delegates to [MetadataStore] for the conversion; does not read the
+  /// plugin-delivered `converted` field. Returns the raw SI value when no
+  /// metadata is registered for [path].
   @override
   double? getConvertedValue(String path) {
-    return _dataCache.getConvertedValue(path);
+    final raw = _rawSIValueForPath(path);
+    if (raw == null) return null;
+    final meta = _metadataStore.get(path);
+    return meta?.convert(raw) ?? raw;
   }
 
-  /// Get unit symbol for a path (e.g., "kn", "°C")
+  /// Get unit symbol for a path (e.g., "kn", "°C").
+  ///
+  /// Reads exclusively from [MetadataStore] — the single source of truth for
+  /// conversion data. Plugin-delivered symbols are piped into MetadataStore
+  /// at ingest (see [_handleMessage]); standard `sendMeta=all` deltas and
+  /// REST `populateFromPreset` also populate the store.
   @override
   String? getUnitSymbol(String path) {
-    final dataPoint = _dataCache.internalDataMap[path];
-
-    // First try to get symbol from data point (units-preference plugin)
-    if (dataPoint?.symbol != null) {
-      return dataPoint!.symbol;
-    }
-
-    // Fallback: get symbol from conversions data (standard stream with client-side conversions)
-    final availableUnits = getAvailableUnits(path);
-    if (availableUnits.isEmpty) {
-      return null;
-    }
-
-    // Get the first/preferred conversion for this path
-    final unit = availableUnits.first;
-    final conversionInfo = getConversionInfo(path, unit);
-    return conversionInfo?.symbol;
+    return _metadataStore.get(path)?.symbol;
   }
 
   /// Get live AIS vessel data from WebSocket cache
