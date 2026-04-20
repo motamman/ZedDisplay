@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../models/tool_definition.dart';
 import '../../models/tool_config.dart';
+import '../../models/path_metadata.dart';
 import '../../services/signalk_service.dart';
 import '../../services/tool_registry.dart';
 import '../compass_gauge.dart';
@@ -45,11 +46,11 @@ class _CompassGaugeToolState extends State<CompassGaugeTool> {
     return metadata?.convert(rawValue) ?? rawValue;
   }
 
-  /// Helper to format value with symbol using MetadataStore
+  /// Format using [MetadataFormatExtension.formatOrRaw]; returns null when
+  /// [rawValue] is null so callers can omit the value conditionally.
   String? _formatValue(String path, double? rawValue) {
     if (rawValue == null) return null;
-    final metadata = widget.signalKService.metadataStore.get(path);
-    return metadata?.format(rawValue, decimals: 1) ?? rawValue.toStringAsFixed(1);
+    return widget.signalKService.metadataStore.get(path).formatOrRaw(rawValue, decimals: 1);
   }
 
   /// Shift a color's hue by the given degrees

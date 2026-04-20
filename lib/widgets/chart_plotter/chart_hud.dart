@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:syncfusion_flutter_gauges/gauges.dart';
+import '../../models/path_metadata.dart';
 import '../../services/signalk_service.dart';
 import '../compass_gauge.dart';
 
@@ -44,18 +45,23 @@ class ChartPlotterHUD extends StatelessWidget {
     return data?.value is num ? (data!.value as num).toDouble() : null;
   }
 
-  String _formatValue(String path, {int decimals = 1, String? fallbackCategory, String? fallbackPath}) {
+  /// Format the SignalK value at [path] for HUD display. Walks MetadataStore
+  /// with optional [fallbackPath] and [fallbackCategory] before delegating to
+  /// [MetadataFormatExtension.formatOrRaw].
+  String _formatValue(
+    String path, {
+    int decimals = 1,
+    String? fallbackCategory,
+    String? fallbackPath,
+  }) {
     final data = signalKService.getValue(path);
     if (data?.value == null || data!.value is! num) return '--';
     final rawValue = (data.value as num).toDouble();
     final store = signalKService.metadataStore;
-    final metadata = store.get(path)
-        ?? (fallbackPath != null ? store.get(fallbackPath) : null)
-        ?? (fallbackCategory != null ? store.getByCategory(fallbackCategory) : null);
-    if (metadata != null) {
-      return metadata.format(rawValue, decimals: decimals);
-    }
-    return rawValue.toStringAsFixed(decimals);
+    final metadata = store.get(path) ??
+        (fallbackPath != null ? store.get(fallbackPath) : null) ??
+        (fallbackCategory != null ? store.getByCategory(fallbackCategory) : null);
+    return metadata.formatOrRaw(rawValue, decimals: decimals);
   }
 
   @override

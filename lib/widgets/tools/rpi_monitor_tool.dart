@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../models/tool_definition.dart';
 import '../../models/tool_config.dart';
+import '../../models/path_metadata.dart';
 import '../../services/signalk_service.dart';
 import '../../services/tool_registry.dart';
 
@@ -62,13 +63,11 @@ class _RpiMonitorToolState extends State<RpiMonitorTool> {
     return null;
   }
 
-  /// Helper to format a value using MetadataStore
+  /// Format a non-null [rawValue] via [MetadataFormatExtension.formatOrRaw].
   String _formatValue(String path, double rawValue, {int decimals = 1}) {
-    final metadata = signalKService.metadataStore.get(path);
-    if (metadata != null) {
-      return metadata.format(rawValue, decimals: decimals);
-    }
-    return rawValue.toStringAsFixed(decimals);
+    return signalKService.metadataStore
+        .get(path)
+        .formatOrRaw(rawValue, decimals: decimals);
   }
 
   @override
