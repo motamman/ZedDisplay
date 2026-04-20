@@ -46,10 +46,14 @@ class ForecastSpinnerTool extends StatelessWidget {
       fallback: Colors.blue,
     ) ?? Colors.blue;
 
-    // Get unit symbols
-    final tempUnit = signalKService.getUnitSymbol(_getPath(0)) ?? '°F';
-    final windUnit = signalKService.getUnitSymbol('environment.outside.tempest.forecast.hourly.windAvg.0') ?? 'kn';
-    final pressureUnit = signalKService.getUnitSymbol('environment.outside.tempest.forecast.hourly.seaLevelPressure.0') ?? 'hPa';
+    // Unit symbols from MetadataStore (null when not yet known).
+    final tempUnit = signalKService.getUnitSymbol(_getPath(0));
+    final windUnit = signalKService.getUnitSymbol(
+      'environment.outside.tempest.forecast.hourly.windAvg.0',
+    );
+    final pressureUnit = signalKService.getUnitSymbol(
+      'environment.outside.tempest.forecast.hourly.seaLevelPressure.0',
+    );
 
     // Get hourly forecasts (up to 72 hours)
     final hoursToShow = style.customProperties?['hoursToShow'] as int? ?? 72;

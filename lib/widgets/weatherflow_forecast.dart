@@ -479,11 +479,11 @@ class WeatherFlowForecast extends StatefulWidget {
   final double? rainLastHour; // precipitation in last hour
   final double? rainToday; // today's total precipitation
 
-  /// Unit labels for display
-  final String tempUnit;
-  final String pressureUnit;
-  final String windUnit;
-  final String rainUnit;
+  /// Unit labels for display (null when MetadataStore has no symbol).
+  final String? tempUnit;
+  final String? pressureUnit;
+  final String? windUnit;
+  final String? rainUnit;
 
   /// Hourly forecasts (up to 72 hours)
   final List<HourlyForecast> hourlyForecasts;
@@ -519,10 +519,10 @@ class WeatherFlowForecast extends StatefulWidget {
     this.currentWindDirection,
     this.rainLastHour,
     this.rainToday,
-    this.tempUnit = '°C',
-    this.pressureUnit = 'hPa',
-    this.windUnit = 'kts',
-    this.rainUnit = 'mm',
+    this.tempUnit,
+    this.pressureUnit,
+    this.windUnit,
+    this.rainUnit,
     this.hourlyForecasts = const [],
     this.dailyForecasts = const [],
     this.hoursToShow = 12,
@@ -664,7 +664,7 @@ class _WeatherFlowForecastState extends State<WeatherFlowForecast> {
         _buildConditionItem(
           context,
           Icons.thermostat,
-          widget.currentTemp != null ? '${widget.currentTemp!.toStringAsFixed(1)}${widget.tempUnit}' : '--',
+          widget.currentTemp != null ? '${widget.currentTemp!.toStringAsFixed(1)}${widget.tempUnit ?? ''}' : '--',
           'Temp',
           Colors.orange,
           isDark,
@@ -681,7 +681,7 @@ class _WeatherFlowForecastState extends State<WeatherFlowForecast> {
           context,
           Icons.umbrella,
           rainDisplay,
-          '${widget.rainUnit} 1h/day',
+          '${widget.rainUnit ?? ''} 1h/day',
           Colors.blue,
           isDark,
         ),
@@ -714,7 +714,7 @@ class _WeatherFlowForecastState extends State<WeatherFlowForecast> {
     BuildContext context,
     IconData icon,
     String value,
-    String label,
+    String? label,
     Color color,
     bool isDark, {
     String? subtitle2,
@@ -732,13 +732,14 @@ class _WeatherFlowForecastState extends State<WeatherFlowForecast> {
             color: isDark ? Colors.white : Colors.black87,
           ),
         ),
-        Text(
-          label,
-          style: TextStyle(
-            fontSize: 10,
-            color: isDark ? Colors.white60 : Colors.black45,
+        if (label != null && label.isNotEmpty)
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 10,
+              color: isDark ? Colors.white60 : Colors.black45,
+            ),
           ),
-        ),
         if (subtitle2 != null)
           Text(
             subtitle2,
@@ -1062,7 +1063,7 @@ class _WeatherFlowForecastState extends State<WeatherFlowForecast> {
               mainAxisAlignment: MainAxisAlignment.end,
               children: [
                 Text(
-                  forecast.tempHigh != null ? '${forecast.tempHigh!.toStringAsFixed(0)}${widget.tempUnit}' : '--',
+                  forecast.tempHigh != null ? '${forecast.tempHigh!.toStringAsFixed(0)}${widget.tempUnit ?? ''}' : '--',
                   style: TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.bold,
@@ -1077,7 +1078,7 @@ class _WeatherFlowForecastState extends State<WeatherFlowForecast> {
                   ),
                 ),
                 Text(
-                  forecast.tempLow != null ? '${forecast.tempLow!.toStringAsFixed(0)}${widget.tempUnit}' : '--',
+                  forecast.tempLow != null ? '${forecast.tempLow!.toStringAsFixed(0)}${widget.tempUnit ?? ''}' : '--',
                   style: TextStyle(
                     fontSize: 12,
                     color: isDark ? Colors.white54 : Colors.black45,
@@ -1185,7 +1186,7 @@ class _WeatherFlowForecastState extends State<WeatherFlowForecast> {
           const SizedBox(height: 2),
           // Temperature
           Text(
-            temp != null ? '${temp.toStringAsFixed(0)}${widget.tempUnit}' : '--',
+            temp != null ? '${temp.toStringAsFixed(0)}${widget.tempUnit ?? ''}' : '--',
             style: TextStyle(
               fontSize: 13,
               fontWeight: FontWeight.bold,

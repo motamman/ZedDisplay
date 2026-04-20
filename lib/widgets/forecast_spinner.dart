@@ -17,10 +17,10 @@ class ForecastSpinner extends StatefulWidget {
   /// Sun/Moon times for color calculations
   final SunMoonTimes? sunMoonTimes;
 
-  /// Unit labels
-  final String tempUnit;
-  final String windUnit;
-  final String pressureUnit;
+  /// Unit labels (null when MetadataStore has no symbol for the path).
+  final String? tempUnit;
+  final String? windUnit;
+  final String? pressureUnit;
 
   /// Primary accent color
   final Color primaryColor;
@@ -38,9 +38,9 @@ class ForecastSpinner extends StatefulWidget {
     super.key,
     required this.hourlyForecasts,
     this.sunMoonTimes,
-    this.tempUnit = '°F',
-    this.windUnit = 'kn',
-    this.pressureUnit = 'hPa',
+    this.tempUnit,
+    this.windUnit,
+    this.pressureUnit,
     this.primaryColor = Colors.blue,
     this.providerName,
     this.onHourChanged,
@@ -550,7 +550,7 @@ class _ForecastSpinnerState extends State<ForecastSpinner>
           // Temperature (large)
           Text(
             forecast.temperature != null
-                ? '${forecast.temperature!.toStringAsFixed(0)}${widget.tempUnit}'
+                ? '${forecast.temperature!.toStringAsFixed(0)}${widget.tempUnit ?? ''}'
                 : '--',
             style: TextStyle(
               fontSize: 28 * scale,
@@ -576,7 +576,7 @@ class _ForecastSpinnerState extends State<ForecastSpinner>
                   ),
                 SizedBox(width: 3 * scale),
                 Text(
-                  '${forecast.windSpeed!.toStringAsFixed(0)} ${widget.windUnit}',
+                  '${forecast.windSpeed!.toStringAsFixed(0)} ${widget.windUnit ?? ''}',
                   style: TextStyle(
                     fontSize: 16 * scale,
                     color: Colors.teal.shade300,
@@ -623,7 +623,7 @@ class _ForecastSpinnerState extends State<ForecastSpinner>
           // Pressure
           if (forecast.pressure != null)
             Text(
-              '${forecast.pressure!.toStringAsFixed(0)} ${widget.pressureUnit}',
+              '${forecast.pressure!.toStringAsFixed(0)} ${widget.pressureUnit ?? ''}',
               style: TextStyle(
                 fontSize: 13 * scale,
                 color: isDark ? Colors.white38 : Colors.black38,

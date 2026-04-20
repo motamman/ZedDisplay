@@ -69,11 +69,11 @@ class WeatherFlowForecastTool extends StatelessWidget {
     final rainLastHour = signalKService.getConvertedValue(rainLastHourPath);
     final rainToday = signalKService.getConvertedValue(rainTodayPath);
 
-    // Get unit symbols from SignalK service
-    final tempUnit = signalKService.getUnitSymbol(_getPath(0)) ?? '°C';
-    final pressureUnit = signalKService.getUnitSymbol(_getPath(2)) ?? 'hPa';
-    final windUnit = signalKService.getUnitSymbol(_getPath(3)) ?? 'kts';
-    final rainUnit = signalKService.getUnitSymbol(rainLastHourPath) ?? 'mm';
+    // Unit symbols from MetadataStore (null when not yet known).
+    final tempUnit = signalKService.getUnitSymbol(_getPath(0));
+    final pressureUnit = signalKService.getUnitSymbol(_getPath(2));
+    final windUnit = signalKService.getUnitSymbol(_getPath(3));
+    final rainUnit = signalKService.getUnitSymbol(rainLastHourPath);
 
     // Get hourly forecasts
     final hourlyBasePath = _getPath(6);

@@ -550,16 +550,20 @@ class _FindHomeToolState extends State<FindHomeTool> {
   PathMetadata? get _angleMeta =>
       widget.signalKService.metadataStore.get('__category__.angle');
 
-  /// Convert a radian value to the user's preferred angle unit (typically degrees).
+  /// Convert a radian value to the user's preferred angle unit. When
+  /// metadata is missing the value flows through unchanged (still in
+  /// radians); callers that care render the matching [_angleSymbol].
   double _convertAngle(double radians) =>
-      _angleMeta?.convert(radians) ?? radians * 180.0 / math.pi;
+      _angleMeta?.convert(radians) ?? radians;
 
   /// Convert from display angle unit back to radians (for CPA/API calls).
+  /// When metadata is missing the input is treated as already-radians.
   double _convertToRadians(double displayAngle) =>
-      _angleMeta?.convertToSI(displayAngle) ?? displayAngle * math.pi / 180.0;
+      _angleMeta?.convertToSI(displayAngle) ?? displayAngle;
 
-  /// The symbol for the user's angle unit (e.g., '°').
-  String get _angleSymbol => _angleMeta?.symbol ?? '°';
+  /// The symbol for the user's angle unit (e.g., '°'). Falls back to the
+  /// SI symbol 'rad' when no angle metadata is registered.
+  String get _angleSymbol => _angleMeta?.symbol ?? 'rad';
 
   // --------------- Computed nav data ---------------
 

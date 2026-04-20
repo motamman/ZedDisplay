@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import '../models/ais_favorite.dart';
 import '../models/cpa_alert_state.dart';
+import '../models/path_metadata.dart';
 import '../services/ais_favorites_service.dart';
 import '../services/dashboard_service.dart';
 import '../services/find_home_target_service.dart';
@@ -38,30 +39,16 @@ class AISVesselDetailSheet {
     final distMeta = store.getByCategory('distance');
     final lenMeta = store.getByCategory('length');
 
-    String fmtAngle(double? rad) {
-      if (rad == null) return '--';
-      if (cogMeta != null) return cogMeta.format(rad, decimals: 1);
-      return '${rad.toStringAsFixed(2)} rad';
-    }
-    String fmtSpeed(double? ms) {
-      if (ms == null) return '--';
-      if (sogMeta != null) return sogMeta.format(ms, decimals: 1);
-      return '${ms.toStringAsFixed(1)} m/s';
-    }
-    String fmtHeading(double? rad) {
-      if (rad == null) return '--';
-      if (hdgMeta != null) return hdgMeta.format(rad, decimals: 1);
-      return '${rad.toStringAsFixed(2)} rad';
-    }
-    String fmtDist(double? m) {
-      if (m == null) return '--';
-      final v = distMeta?.convert(m) ?? m;
-      return '${v.toStringAsFixed(2)} ${distMeta?.symbol ?? 'm'}';
-    }
-    String fmtLength(double meters) {
-      final v = lenMeta?.convert(meters) ?? meters;
-      return '${v.toStringAsFixed(1)} ${lenMeta?.symbol ?? 'm'}';
-    }
+    String fmtAngle(double? rad) =>
+        cogMeta.formatOrRaw(rad, decimals: 1, siSuffix: 'rad');
+    String fmtSpeed(double? ms) =>
+        sogMeta.formatOrRaw(ms, decimals: 1, siSuffix: 'm/s');
+    String fmtHeading(double? rad) =>
+        hdgMeta.formatOrRaw(rad, decimals: 1, siSuffix: 'rad');
+    String fmtDist(double? m) =>
+        distMeta.formatOrRaw(m, decimals: 2, siSuffix: 'm');
+    String fmtLength(double meters) =>
+        lenMeta.formatOrRaw(meters, decimals: 1, siSuffix: 'm');
 
     // CPA/TCPA
     double? bearing, distance, cpa, tcpa;
