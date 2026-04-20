@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:syncfusion_flutter_gauges/gauges.dart';
 import 'dart:math' as math;
 import 'dart:async';
+import '../config/app_colors.dart';
 import 'base_compass.dart';
 import 'route_info_panel.dart';
 import '../utils/angle_utils.dart';
@@ -260,7 +261,7 @@ class _AutopilotWidgetState extends State<AutopilotWidget> {
       needleStartWidth: 0,
       needleEndWidth: 10,
       needleColor: _isDraggingTarget
-          ? const Color(0xFFFFD600)
+          ? AppColors.warningYellow
           : widget.primaryColor,
       knobStyle: const KnobStyle(knobRadius: 0),
     ));
@@ -272,7 +273,7 @@ class _AutopilotWidgetState extends State<AutopilotWidget> {
       markerHeight: _isDraggingTarget ? 20 : 16,
       markerWidth: _isDraggingTarget ? 20 : 16,
       color: _isDraggingTarget
-          ? const Color(0xFFFFD600)
+          ? AppColors.warningYellow
           : widget.primaryColor,
       markerOffset: -5,
     ));
@@ -416,7 +417,7 @@ class _AutopilotWidgetState extends State<AutopilotWidget> {
       decoration: BoxDecoration(
         color: Colors.black.withValues(alpha: 0.8),
         borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: const Color(0xFFFFD600), width: 2),
+        border: Border.all(color: AppColors.warningYellow, width: 2),
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -438,7 +439,7 @@ class _AutopilotWidgetState extends State<AutopilotWidget> {
                 '${dragHeading.toStringAsFixed(0)}°',
                 style: const TextStyle(
                   fontSize: 16,
-                  color: Color(0xFFFFD600),
+                  color: AppColors.warningYellow,
                   fontWeight: FontWeight.bold,
                 ),
               ),
@@ -1287,7 +1288,7 @@ class _DragIndicatorPainter extends CustomPainter {
 
     // Draw the arc showing the change
     final arcPaint = Paint()
-      ..color = const Color(0xFFFFD600).withValues(alpha: 0.5)
+      ..color = AppColors.warningYellow.withValues(alpha: 0.5)
       ..style = PaintingStyle.stroke
       ..strokeWidth = 20
       ..strokeCap = StrokeCap.round;

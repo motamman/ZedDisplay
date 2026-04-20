@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:provider/provider.dart';
 import 'package:vibration/vibration.dart';
+import '../../config/app_colors.dart';
 import '../../models/path_metadata.dart';
 import '../../models/tool_config.dart';
 import '../../models/tool_definition.dart';
@@ -2080,13 +2081,13 @@ class _FindHomeToolState extends State<FindHomeTool> {
                             horizontal: 8, vertical: 4),
                         decoration: BoxDecoration(
                           color: _routeApEngaged
-                              ? const Color(0xFFFF1744).withValues(alpha: 0.3)
-                              : const Color(0xFF00E676).withValues(alpha: 0.3),
+                              ? AppColors.alarmRed.withValues(alpha: 0.3)
+                              : AppColors.successGreen.withValues(alpha: 0.3),
                           borderRadius: BorderRadius.circular(12),
                           border: Border.all(
                             color: _routeApEngaged
-                                ? const Color(0xFFFF1744)
-                                : const Color(0xFF00E676),
+                                ? AppColors.alarmRed
+                                : AppColors.successGreen,
                             width: 1,
                           ),
                         ),
@@ -2096,8 +2097,8 @@ class _FindHomeToolState extends State<FindHomeTool> {
                             fontSize: 10,
                             fontWeight: FontWeight.bold,
                             color: _routeApEngaged
-                                ? const Color(0xFFFF1744)
-                                : const Color(0xFF00E676),
+                                ? AppColors.alarmRed
+                                : AppColors.successGreen,
                           ),
                         ),
                       ),

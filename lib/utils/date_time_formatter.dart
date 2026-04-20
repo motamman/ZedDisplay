@@ -103,6 +103,49 @@ class DateTimeFormatter {
     return _monthsFull[time.month - 1];
   }
 
+  /// Format elapsed duration compactly: "42s", "5m", "3h".
+  ///
+  /// Used for "last seen" and "time since update" displays where the exact
+  /// unit doesn't matter, only magnitude. Rolls up at the 60-second and
+  /// 60-minute boundaries.
+  static String formatElapsedShort(DateTime timestamp, {DateTime? now}) {
+    final elapsed = (now ?? DateTime.now()).difference(timestamp);
+    if (elapsed.inSeconds < 60) return '${elapsed.inSeconds}s';
+    if (elapsed.inMinutes < 60) return '${elapsed.inMinutes}m';
+    return '${elapsed.inHours}h';
+  }
+
+  /// Format time including seconds: "15:45:23".
+  static String formatTimeWithSeconds(DateTime time) {
+    return '${time.hour.toString().padLeft(2, '0')}:'
+        '${time.minute.toString().padLeft(2, '0')}:'
+        '${time.second.toString().padLeft(2, '0')}';
+  }
+
+  /// Format a chat / file-list timestamp relative to "now":
+  /// - same day → `HH:MM`
+  /// - yesterday → `"Yesterday"` (or `"Yesterday HH:MM"` when
+  ///   [includeTimeForPastDays])
+  /// - older → `D/M` (or `D/M HH:MM` when [includeTimeForPastDays])
+  static String formatChatTimestamp(
+    DateTime time, {
+    DateTime? now,
+    bool includeTimeForPastDays = false,
+  }) {
+    final reference = now ?? DateTime.now();
+    final localTime = time.toLocal();
+    final hh = localTime.hour.toString().padLeft(2, '0');
+    final mm = localTime.minute.toString().padLeft(2, '0');
+    final diffDays = reference.difference(time).inDays;
+
+    if (diffDays == 0) return '$hh:$mm';
+    if (diffDays == 1) {
+      return includeTimeForPastDays ? 'Yesterday $hh:$mm' : 'Yesterday';
+    }
+    final dm = '${localTime.day}/${localTime.month}';
+    return includeTimeForPastDays ? '$dm $hh:$mm' : dm;
+  }
+
   /// Format relative day: "Today", "Tomorrow", "Yesterday", or day name
   static String formatRelativeDay(DateTime time, DateTime reference) {
     final timeDate = DateTime.utc(time.year, time.month, time.day);

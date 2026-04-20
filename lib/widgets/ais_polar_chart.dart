@@ -8,6 +8,8 @@ import 'dart:math' as math;
 import 'package:provider/provider.dart';
 import '../services/signalk_service.dart';
 import '../services/cpa_alert_service.dart';
+import '../utils/angle_utils.dart';
+import '../utils/date_time_formatter.dart';
 import '../utils/ship_type_utils.dart' as ship_type;
 import '../services/storage_service.dart';
 import '../services/ais_favorites_service.dart';
@@ -735,12 +737,12 @@ class _AISPolarChartState extends State<AISPolarChart>
 
       // Convert COG from radians to display units (degrees) via MetadataStore
       final cogDisplay = vessel.cogRad != null
-          ? ((cogMetadata?.convert(vessel.cogRad!) ?? (vessel.cogRad! * 180 / math.pi)) % 360)
+          ? ((cogMetadata?.convert(vessel.cogRad!) ?? AngleUtils.toDegrees(vessel.cogRad!)) % 360)
           : null;
 
       // Convert heading from radians to display units (degrees) via MetadataStore
       final headingDisplay = vessel.headingTrueRad != null
-          ? ((headingMetadata?.convert(vessel.headingTrueRad!) ?? (vessel.headingTrueRad! * 180 / math.pi)) % 360)
+          ? ((headingMetadata?.convert(vessel.headingTrueRad!) ?? AngleUtils.toDegrees(vessel.headingTrueRad!)) % 360)
           : null;
 
       // Determine freshness: plugin status or timestamp-based
@@ -2725,16 +2727,8 @@ class _AISPolarChartState extends State<AISPolarChart>
   }
 
   /// Format time since last update
-  String _formatTimeSince(DateTime timestamp) {
-    final elapsed = DateTime.now().difference(timestamp);
-    if (elapsed.inSeconds < 60) {
-      return '${elapsed.inSeconds}s';
-    } else if (elapsed.inMinutes < 60) {
-      return '${elapsed.inMinutes}m';
-    } else {
-      return '${elapsed.inHours}h';
-    }
-  }
+  String _formatTimeSince(DateTime timestamp) =>
+      DateTimeFormatter.formatElapsedShort(timestamp);
 
   /// Get vessel freshness color based on data age
   /// < 3 min: green (live), 3-10 min: orange (stale), > 10 min: red (old)

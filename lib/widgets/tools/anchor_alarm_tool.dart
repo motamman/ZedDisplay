@@ -13,6 +13,7 @@ import '../../services/alert_coordinator.dart';
 import '../../models/anchor_state.dart';
 import '../../models/alert_event.dart';
 import '../../models/path_metadata.dart';
+import '../../utils/angle_utils.dart';
 import '../../services/tool_registry.dart';
 import 'anchor_compass_overlay.dart';
 
@@ -336,7 +337,7 @@ class _AnchorAlarmToolState extends State<AnchorAlarmTool>
     if (magVarData?.value is num) {
       final magVarRaw = (magVarData!.value as num).toDouble();
       final metadata = widget.signalKService.metadataStore.get('navigation.magneticVariation');
-      magneticVariation = metadata?.convert(magVarRaw) ?? (magVarRaw * 180 / math.pi);
+      magneticVariation = metadata?.convert(magVarRaw) ?? AngleUtils.toDegrees(magVarRaw);
     }
 
     // Convert magnetic compass heading to true bearing

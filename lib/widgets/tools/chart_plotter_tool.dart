@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:webview_flutter/webview_flutter.dart';
+import '../../config/app_colors.dart';
 import '../../models/tool_config.dart';
 import '../../models/tool_definition.dart';
 import '../../services/signalk_service.dart';
@@ -690,7 +691,7 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
           return Container(
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
             decoration: const BoxDecoration(
-              color: Color(0xFF1E1E2E),
+              color: AppColors.cardBackgroundDark,
               borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
             ),
             child: Column(
@@ -878,7 +879,7 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
           snapSizes: const [0.2, 0.45],
           builder: (_, scrollController) => Container(
             decoration: const BoxDecoration(
-              color: Color(0xFF1E1E2E),
+              color: AppColors.cardBackgroundDark,
               borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
             ),
             child: Column(

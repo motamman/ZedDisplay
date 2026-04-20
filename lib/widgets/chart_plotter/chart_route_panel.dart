@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../config/app_colors.dart';
 import '../../services/signalk_service.dart';
 import '../../utils/cpa_utils.dart';
 
@@ -71,7 +72,7 @@ void showRouteManagerSheet(
       snapSizes: const [0.2, 0.45],
       builder: (_, scrollController) => Container(
         decoration: const BoxDecoration(
-          color: Color(0xFF1E1E2E),
+          color: AppColors.cardBackgroundDark,
           borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
         ),
         child: routeState.hasActiveRoute
@@ -111,7 +112,7 @@ void showWaypointEditDialog(
   showDialog(
     context: context,
     builder: (ctx) => AlertDialog(
-      backgroundColor: const Color(0xFF1E1E2E),
+      backgroundColor: AppColors.cardBackgroundDark,
       title: Text('Waypoint ${index + 1}', style: const TextStyle(color: Colors.white)),
       content: TextField(
         controller: controller,
@@ -170,7 +171,7 @@ void showAddWaypointDialog(
   showDialog(
     context: context,
     builder: (ctx) => AlertDialog(
-      backgroundColor: const Color(0xFF1E1E2E),
+      backgroundColor: AppColors.cardBackgroundDark,
       title: const Text('Add Waypoint', style: TextStyle(color: Colors.white)),
       content: TextField(
         controller: controller,
@@ -324,7 +325,7 @@ class _RouteListPanel extends StatelessWidget {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF1E1E2E),
+        backgroundColor: AppColors.cardBackgroundDark,
         title: const Text('Rename Route', style: TextStyle(color: Colors.white)),
         content: TextField(
           controller: controller,
@@ -362,7 +363,7 @@ class _RouteListPanel extends StatelessWidget {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF1E1E2E),
+        backgroundColor: AppColors.cardBackgroundDark,
         title: const Text('Delete Route', style: TextStyle(color: Colors.white)),
         content: Text(
           'Delete "$name"?\n\nThis cannot be undone.',

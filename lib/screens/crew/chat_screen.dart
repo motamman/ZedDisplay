@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../../utils/date_time_formatter.dart';
 import '../../models/crew_message.dart';
 import '../../services/messaging_service.dart';
 import '../../services/crew_service.dart';
@@ -403,21 +404,8 @@ class _MessageBubble extends StatelessWidget {
     }
   }
 
-  String _formatTime(DateTime time) {
-    final now = DateTime.now();
-    final localTime = time.toLocal();
-
-    if (now.difference(time).inDays == 0) {
-      // Today - show time only
-      return '${localTime.hour.toString().padLeft(2, '0')}:${localTime.minute.toString().padLeft(2, '0')}';
-    } else if (now.difference(time).inDays == 1) {
-      // Yesterday
-      return 'Yesterday ${localTime.hour.toString().padLeft(2, '0')}:${localTime.minute.toString().padLeft(2, '0')}';
-    } else {
-      // Older - show date
-      return '${localTime.day}/${localTime.month} ${localTime.hour.toString().padLeft(2, '0')}:${localTime.minute.toString().padLeft(2, '0')}';
-    }
-  }
+  String _formatTime(DateTime time) =>
+      DateTimeFormatter.formatChatTimestamp(time, includeTimeForPastDays: true);
 }
 
 /// Message input field

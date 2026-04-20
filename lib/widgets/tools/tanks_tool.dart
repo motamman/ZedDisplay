@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../config/app_colors.dart';
 import '../../models/tool_definition.dart';
 import '../../models/tool_config.dart';
 import '../../services/signalk_service.dart';
@@ -20,8 +21,8 @@ class TanksTool extends StatelessWidget {
   /// Colors for tank types by ID
   static const Map<String, Color> tankTypeColors = {
     'diesel': Color(0xFFE91E63), // Pink
-    'petrol': Color(0xFFFF5722), // Deep Orange
-    'gasoline': Color(0xFFFF5722), // Deep Orange (same as petrol)
+    'petrol': AppColors.warningOrange, // Deep Orange
+    'gasoline': AppColors.warningOrange, // Deep Orange (same as petrol)
     'propane': Color(0xFF2E7D32), // Dark Green
     'freshWater': Color(0xFF2196F3), // Blue
     'blackWater': Color(0xFF5D4037), // Brown

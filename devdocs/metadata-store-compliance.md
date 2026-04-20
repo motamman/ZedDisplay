@@ -60,6 +60,11 @@ Full phase plan and rationale: `~/.claude/plans/mellow-snacking-lerdorf.md`.
 | I | Hardcoded unit-symbol defaults removed from forecast widget chrome public APIs. Constructor params are `String?` (nullable, no defaults). Internal interpolation null-coalesces to empty | `lib/widgets/forecast_spinner.dart`, `lib/widgets/weatherflow_forecast.dart`, `lib/widgets/tools/forecast_spinner_tool.dart`, `lib/widgets/tools/weatherflow_forecast_tool.dart` |
 | J | Dedupe `_formatValue` across 7 tool widgets. Each helper now delegates to `MetadataFormatExtension.formatOrRaw`; no duplicate `metadata?.format() ?? raw.toStringAsFixed()` logic | `lib/widgets/tools/wind_compass_tool.dart`, `windsteer_tool.dart`, `compass_gauge_tool.dart`, `radial_gauge_tool.dart`, `linear_gauge_tool.dart`, `rpi_monitor_tool.dart`, `lib/widgets/chart_plotter/chart_hud.dart` |
 | K | `lib/config/service_constants.dart` introduced (`httpTimeout`, `shortHttpTimeout`, `longHttpTimeout`, `veryLongHttpTimeout`, debounce/UX-delay slots). 40 `.timeout(...)` call sites migrated across `signalk_service` (30), `auth_service` (4), `user_management_tool` (4), `device_access_manager_tool` (4), `weather_api_service` (1), `weather_api_spinner_configurator` (1). Post-migration grep confirms zero `.timeout(const Duration(...))` hits in `lib/` | `lib/config/service_constants.dart` (new), plus 6 migration sites |
+| L | `lib/config/navigation_constants.dart` introduced (`metersPerNauticalMile`, `metersPerStatuteMile`, `knotsPerMps`, `fullCircleDegrees`, `halfCircleDegrees`). Migrated the 7 call sites that had `1852.0` or `1852` literals: `ais_polar_chart_tool`, `track_simplifier`, `cpa_alert_state` (warn default), `route_info_panel` (both NM divisions), `cpa_alert_service` (meters→NM logging) | `lib/config/navigation_constants.dart` (new), plus 5 migration sites |
+| M | `lib/config/app_colors.dart` introduced (`cardBackgroundDark`, `alarmRed`, `alarmDarkRed`, `warningOrange`, `warningYellow`, `successGreen`, `infoBlue`). Migrated 11 files with duplicated hex codes | `lib/config/app_colors.dart` (new), plus 11 widget/service files |
+| N | Targeted cleanup. Migrated the 6 display-boundary fallback violations (`metadata?.convert(x) ?? x * 180 / math.pi`) to use `AngleUtils.toDegrees(x)` explicitly — `attitude_indicator_tool` (roll/pitch), `anchor_alarm_tool` (mag variation), `ais_polar_chart` (COG/heading), `anchor_alarm_service` (vessel heading). Remaining ~70 inline `* math.pi / 180` sites are painter-internal trig (canvas.rotate, compass tick math, haversine bearings) — classified as legitimate internal math per the plan's "chart math in radians → leave" rule. Not SoT violations; they don't participate in the user-preferred display pipeline | `lib/widgets/tools/attitude_indicator_tool.dart`, `lib/widgets/tools/anchor_alarm_tool.dart`, `lib/widgets/ais_polar_chart.dart`, `lib/services/anchor_alarm_service.dart` |
+| O | `DateTimeFormatter` gained `formatElapsedShort` (s/m/h), `formatTimeWithSeconds` (HH:MM:SS), `formatChatTimestamp` (today/yesterday/older, with optional time). Migrated 6 private helpers: `_formatTimeSince` in `ais_polar_chart` and `ais_vessel_detail_sheet`, `_formatTime` in `crew/file_list`, `system_monitor_tool`, `chat_screen` | `lib/utils/date_time_formatter.dart` plus 5 widget files |
+| A2 | **Flipped the null-metadata contract.** `MetadataStore.convert` / `convertToSI` now return `null` on missing metadata rather than echoing the input. `tryConvert` / `tryConvertToSI` kept as aliases for source compatibility. Only one in-tree caller (`historical_data.dart`) used the identity fallback, already guarded with `?? rawValue`. Test expectations updated accordingly | `lib/services/metadata_store.dart`, `test/services/metadata_store_test.dart` |
 
 ### Deferred
 
@@ -71,13 +76,8 @@ Full phase plan and rationale: `~/.claude/plans/mellow-snacking-lerdorf.md`.
 
 ### Remaining
 
-| Phase | Scope | Risk | Size |
-|---|---|---|---|
-| L | `NavigationConstants` module (meters/nm, compass constants) | Low | S |
-| M | `AppColors` semantic palette | Low | M |
-| N | Kill inline `* 180/pi` / `* pi/180` (classify trig vs display; migrate to `AngleUtils` where internal, MetadataStore where display-facing) | Medium | L |
-| O | Dedupe private `_formatTime` / `_formatTimeSince` (10 sites) into `DateTimeFormatter` | Low | M |
-| A2 | Flip `MetadataStore.convert` / `convertToSI` to return `null` on missing metadata (strict contract). Final compliance gate. Safe only after Phases B–J land and all consumers use `formatOrRaw` for permissive rendering | Low (at this stage) | S |
+Nothing pending apart from the deferred H2. The single-source-of-truth
+refactor is complete.
 
 ## Verification State
 

@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import '../config/app_colors.dart';
 import 'signalk_service.dart';
 import 'notification_navigation_service.dart';
 import '../models/crew_message.dart';
@@ -451,7 +452,7 @@ class NotificationService {
   (String title, Priority priority, Importance importance, Color color) _getNotificationSettings(String state) {
     switch (state.toLowerCase()) {
       case 'emergency':
-        return ('EMERGENCY', Priority.max, Importance.max, const Color(0xFFB71C1C)); // red.shade900
+        return ('EMERGENCY', Priority.max, Importance.max, AppColors.alarmDarkRed); // red.shade900
       case 'alarm':
         return ('ALARM', Priority.high, Importance.high, const Color(0xFFC62828)); // red.shade700
       case 'warn':
@@ -459,7 +460,7 @@ class NotificationService {
       case 'alert':
         return ('ALERT', Priority.defaultPriority, Importance.defaultImportance, const Color(0xFFFFB300)); // amber.shade700
       case 'normal':
-        return ('Notification', Priority.defaultPriority, Importance.defaultImportance, const Color(0xFF1976D2)); // blue.shade700
+        return ('Notification', Priority.defaultPriority, Importance.defaultImportance, AppColors.infoBlue); // blue.shade700
       case 'nominal':
         return ('All Systems Normal', Priority.low, Importance.low, const Color(0xFF388E3C)); // green.shade700
       default:
@@ -576,7 +577,7 @@ class NotificationService {
           message.content,
           Priority.max,
           Importance.max,
-          const Color(0xFFB71C1C), // red.shade900
+          AppColors.alarmDarkRed, // red.shade900
           true,
         );
       case MessageType.status:
@@ -585,7 +586,7 @@ class NotificationService {
           message.content,
           Priority.defaultPriority,
           Importance.defaultImportance,
-          const Color(0xFF1976D2), // blue.shade700
+          AppColors.infoBlue, // blue.shade700
           false,
         );
       case MessageType.text:
@@ -736,7 +737,7 @@ class NotificationService {
             : 'Voice intercom activity notifications',
         importance: isEmergency ? Importance.max : Importance.high,
         priority: isEmergency ? Priority.max : Priority.high,
-        color: isEmergency ? const Color(0xFFB71C1C) : const Color(0xFF1976D2),
+        color: isEmergency ? AppColors.alarmDarkRed : AppColors.infoBlue,
         playSound: true,
         enableVibration: true,
         ticker: '$transmitterName on $channelName',

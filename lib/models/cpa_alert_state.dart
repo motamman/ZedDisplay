@@ -1,4 +1,5 @@
 import 'dart:convert';
+import '../config/navigation_constants.dart';
 
 enum CpaAlertLevel {
   normal,
@@ -68,7 +69,7 @@ class CpaAlertConfig {
 
   const CpaAlertConfig({
     this.enabled = true,
-    this.warnThresholdMeters = 1852.0, // 1 nm
+    this.warnThresholdMeters = NavigationConstants.metersPerNauticalMile, // 1 nm
     this.alarmThresholdMeters = 926.0, // 0.5 nm
     this.tcpaThresholdSeconds = 1800.0, // 30 min
     this.alarmSound = 'foghorn',
@@ -92,7 +93,7 @@ class CpaAlertConfig {
     return CpaAlertConfig(
       enabled: json['enabled'] as bool? ?? true,
       warnThresholdMeters:
-          (json['warnThresholdMeters'] as num?)?.toDouble() ?? 1852.0,
+          (json['warnThresholdMeters'] as num?)?.toDouble() ?? NavigationConstants.metersPerNauticalMile,
       alarmThresholdMeters:
           (json['alarmThresholdMeters'] as num?)?.toDouble() ?? 926.0,
       tcpaThresholdSeconds:

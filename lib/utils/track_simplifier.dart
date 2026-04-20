@@ -1,4 +1,5 @@
 import 'package:latlong2/latlong.dart';
+import '../config/navigation_constants.dart';
 
 /// Course-delta track simplification for marine route creation.
 ///
@@ -60,4 +61,4 @@ double trackDistanceMeters(List<LatLng> points) {
 }
 
 /// Convert meters to nautical miles.
-double metersToNM(double meters) => meters / 1852.0;
+double metersToNM(double meters) => meters / NavigationConstants.metersPerNauticalMile;
