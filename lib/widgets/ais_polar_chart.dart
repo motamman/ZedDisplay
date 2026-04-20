@@ -43,7 +43,9 @@ class AISPolarChart extends StatefulWidget {
   final bool showProjectedPositions; // Show projected course lines
   final CpaAlertService? cpaAlertService;
   final ValueChanged<Map<String, dynamic>>? onCpaConfigChanged;
-  final double maxRangeNm; // Max display range in nautical miles (filters garbage AIS data)
+  /// Max display range in meters (SI). Vessels beyond this distance are
+  /// filtered from the chart to suppress garbage AIS data.
+  final double maxRangeMeters;
   final String vesselLookupService; // External lookup service key
   final bool initialShowMapView;
   final bool initialHideStale;
@@ -65,7 +67,7 @@ class AISPolarChart extends StatefulWidget {
     this.showProjectedPositions = true,
     this.cpaAlertService,
     this.onCpaConfigChanged,
-    this.maxRangeNm = 100.0,
+    this.maxRangeMeters = 185200.0, // 100 nm
     this.vesselLookupService = 'vesselfinder',
     this.initialShowMapView = false,
     this.initialHideStale = false,
@@ -731,9 +733,10 @@ class _AISPolarChartState extends State<AISPolarChart>
       final bearing = CpaUtils.calculateBearing(_ownLat!, _ownLon!, lat, lon);
       final distance = CpaUtils.calculateDistance(_ownLat!, _ownLon!, lat, lon);
 
-      // Filter out vessels beyond max range (garbage AIS data)
-      final maxRangeMeters = _displayToMeters(widget.maxRangeNm);
-      if (distance > maxRangeMeters) continue;
+      // Filter out vessels beyond max range (garbage AIS data).
+      // `maxRangeMeters <= 0` means "auto / fit all vessels" per the
+      // configurator's Auto dropdown option, so skip the filter entirely.
+      if (widget.maxRangeMeters > 0 && distance > widget.maxRangeMeters) continue;
 
       // Convert COG from radians to display units (degrees) via MetadataStore
       final cogDisplay = vessel.cogRad != null
@@ -1624,9 +1627,11 @@ class _AISPolarChartState extends State<AISPolarChart>
 
   void _persistCpaConfig(CpaAlertConfig config) {
     widget.onCpaConfigChanged?.call({
-      // 'cpaAlertsEnabled' intentionally NOT persisted — session-only toggle
-      'cpaWarnNm': _convertDistance(config.warnThresholdMeters),
-      'cpaAlarmNm': _convertDistance(config.alarmThresholdMeters),
+      // 'cpaAlertsEnabled' intentionally NOT persisted — session-only toggle.
+      // Thresholds persisted in SI; display-unit conversion happens at
+      // render time via MetadataStore.
+      'cpaWarnMeters': config.warnThresholdMeters,
+      'cpaAlarmMeters': config.alarmThresholdMeters,
       'cpaTcpaMinutes': config.tcpaThresholdSeconds / 60.0,
       'cpaAlarmSound': config.alarmSound,
       'cpaSendCrewAlert': config.sendCrewAlert,

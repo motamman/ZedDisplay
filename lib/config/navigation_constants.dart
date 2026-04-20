@@ -21,4 +21,31 @@ class NavigationConstants {
 
   /// Half-circle in degrees. Used for ±180° normalisation.
   static const int halfCircleDegrees = 180;
+
+  /// Read a persisted distance value in SI (meters) from a
+  /// `customProperties` map.
+  ///
+  /// Prefers the SI-keyed entry at [siKey]. Falls back to a legacy
+  /// display-unit-keyed entry at [legacyNmKey] (interpreted as nautical
+  /// miles and converted via [metersPerNauticalMile]). Finally returns
+  /// [defaultMeters] when neither key is present.
+  ///
+  /// This exists to migrate tool configs that historically stored
+  /// thresholds in display units (`*Nm`) to SI persistence (`*Meters`)
+  /// without losing user-saved values. Callers write only the SI key;
+  /// legacy `*Nm` entries get picked up on next read and effectively
+  /// converted the moment the user next saves that config through its UI.
+  static double readDistanceMeters(
+    Map<String, dynamic>? props, {
+    required String siKey,
+    required String legacyNmKey,
+    required double defaultMeters,
+  }) {
+    if (props == null) return defaultMeters;
+    final si = (props[siKey] as num?)?.toDouble();
+    if (si != null) return si;
+    final nm = (props[legacyNmKey] as num?)?.toDouble();
+    if (nm != null) return nm * metersPerNauticalMile;
+    return defaultMeters;
+  }
 }

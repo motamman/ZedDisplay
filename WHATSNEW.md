@@ -1,4 +1,48 @@
-# What's New in v0.6.0
+# What's New in v0.6.1
+
+## Release Notes (Google Play - max 500 chars)
+
+v0.6.1 Unit Consistency & Config Stability
+
+IMPROVED: Units render consistently across every widget — hardcoded unit assumptions replaced with the server's preferred units via MetadataStore.
+
+IMPROVED: CPA and max-range settings persist in SI (meters), so thresholds stay correct when switching between nautical miles, km, or miles.
+
+FIXED: Plugin-delivered symbols no longer drop at connect; first-frame jank reduced. Hemisphere letter now overrides sign in lat/lon entry.
+
+## Release Notes (App Store / TestFlight - max 4000 chars)
+
+### Single Source of Truth for Units (IMPROVED)
+- **MetadataStore Only** — All widget unit conversions flow exclusively through MetadataStore. The legacy ConversionUtils cache and its parallel tables are gone.
+- **Uniform Fallback Policy** — When the server hasn't delivered metadata for a path, widgets uniformly render the raw SI value with an SI suffix (e.g. `0.45 rad`, `5.2 m/s`) rather than silently applying a hardcoded conversion. The unit you see matches the value you're getting.
+- **Faster Formulas** — Each conversion formula compiles once to a cached expression instead of being re-parsed on every call. Meaningful performance win for chart plotter and many-path gauges.
+- **Plugin Symbol Ingest** — Plugin-delivered symbols routed through a dedicated non-polluting update API. Eliminates frame drops from per-delta metadata churn at connect.
+
+### CPA & Range Thresholds — SI Persistence (IMPROVED)
+- **Immune to Unit Switching** — AIS polar chart CPA warn/alarm thresholds and max range now persist as meters. Previously stored as nautical miles — values would be misinterpreted if you later switched the server's distance preference.
+- **Transparent Migration** — Existing configs auto-convert on load; no user action required. Next save writes SI and the legacy key fades out.
+
+### Weather Widgets Modernised (IMPROVED)
+- All three weather tools (Weather Spinner API, Forecast Spinner, WeatherFlow Forecast) now use MetadataStore with category-level fallback for unit conversions.
+- Hardcoded default symbols (`°F`, `kn`, `hPa`, etc.) removed from forecast widget chrome. Symbols flow strictly from MetadataStore.
+
+### Login & Preferences (IMPROVED)
+- **Correct Revert on Logout** — Logging out now properly reverts MetadataStore to server defaults. Previously the user's unit preset survived in memory until the next reconnect.
+- Preference application routes through SignalKService; the orphaned ConversionUtils preference cache is gone.
+
+### Bug Fixes (FIXED)
+- **Hemisphere Override in Lat/Lon Entry** — Typing `-47.6 N` now resolves to `+47.6` (letter overrides numeric sign).
+- **Silent Symbol Drops** — A meta delta carrying only a symbol change no longer gets discarded when existing metadata has a formula.
+- **Hidden Regex Fallback Removed** — Broken conversion formulas now fail cleanly instead of masking as "simple multiplication worked".
+
+### Internal
+- New constants modules (`ServiceConstants`, `NavigationConstants`, `AppColors`) centralise 60+ magic values.
+- `lib/utils/conversion_utils.dart` deleted entirely. 9 deprecated `WeatherApiForecast` getters removed. `_formatValue` helpers unified across 7 widgets via `formatOrRaw` extension.
+- Full 16-phase refactor plan: `devdocs/metadata-store-compliance.md`.
+
+---
+
+# Previous: v0.6.0
 
 ## Release Notes (Google Play - max 500 chars)
 
