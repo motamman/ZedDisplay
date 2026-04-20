@@ -7,6 +7,7 @@ import 'package:uuid/uuid.dart';
 import 'package:device_info_plus/device_info_plus.dart';
 import '../models/auth_token.dart';
 import '../models/access_request.dart';
+import '../config/service_constants.dart';
 import 'storage_service.dart';
 
 /// Service for handling SignalK authentication and access requests
@@ -83,7 +84,7 @@ class AuthService extends ChangeNotifier {
           'clientId': clientId,
           'description': deviceDescription,
         }),
-      ).timeout(const Duration(seconds: 10));
+      ).timeout(ServiceConstants.httpTimeout);
 
       if (kDebugMode) {
         print('Access request response: ${response.statusCode}');
@@ -172,7 +173,7 @@ class AuthService extends ChangeNotifier {
     try {
       final response = await http.get(
         Uri.parse(pollUrl),
-      ).timeout(const Duration(seconds: 10));
+      ).timeout(ServiceConstants.httpTimeout);
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body) as Map<String, dynamic>;
@@ -398,7 +399,7 @@ class AuthService extends ChangeNotifier {
           'username': username,
           'password': password,
         }),
-      ).timeout(const Duration(seconds: 10));
+      ).timeout(ServiceConstants.httpTimeout);
 
       if (kDebugMode) {
         print('User login response: ${response.statusCode}');
@@ -482,7 +483,7 @@ class AuthService extends ChangeNotifier {
           'Content-Type': 'application/json',
           'Authorization': 'Bearer ${token.token}',
         },
-      ).timeout(const Duration(seconds: 10));
+      ).timeout(ServiceConstants.httpTimeout);
 
       if (kDebugMode) {
         print('User logged out from server');

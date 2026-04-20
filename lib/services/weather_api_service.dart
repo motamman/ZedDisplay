@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import '../config/service_constants.dart';
 import 'signalk_service.dart';
 
 /// Response from SignalK Weather API forecasts/point endpoint
@@ -286,7 +287,7 @@ class WeatherApiService extends ChangeNotifier {
         headers: _signalKService.authToken != null
             ? {'Authorization': 'Bearer ${_signalKService.authToken!.token}'}
             : null,
-      ).timeout(const Duration(seconds: 30));
+      ).timeout(ServiceConstants.veryLongHttpTimeout);
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);

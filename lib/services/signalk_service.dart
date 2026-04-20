@@ -14,6 +14,7 @@ import 'interfaces/data_service.dart';
 import 'storage_service.dart';
 import 'metadata_store.dart';
 import '../models/path_metadata.dart';
+import '../config/service_constants.dart';
 import '../utils/nws_alert_utils.dart';
 import 'ais_vessel_registry.dart';
 import 'diagnostic_service.dart';
@@ -1096,7 +1097,7 @@ class SignalKService extends ChangeNotifier implements DataService {
       final response = await http.get(
         Uri.parse(url),
         headers: _getHeaders(),
-      ).timeout(const Duration(seconds: 10));
+      ).timeout(ServiceConstants.httpTimeout);
       _diagnosticService?.instrumentRestCall('GET', memBefore, _diagnosticRssKB());
 
       if (response.statusCode == 200) {
@@ -1122,7 +1123,7 @@ class SignalKService extends ChangeNotifier implements DataService {
       final response = await http.get(
         Uri.parse('$httpBaseUrl/signalk/v2/api/resources/$resourceType/$id'),
         headers: _getHeaders(),
-      ).timeout(const Duration(seconds: 10));
+      ).timeout(ServiceConstants.httpTimeout);
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
@@ -1148,7 +1149,7 @@ class SignalKService extends ChangeNotifier implements DataService {
         Uri.parse(url),
         headers: _getHeaders(),
         body: jsonEncode(data),
-      ).timeout(const Duration(seconds: 10));
+      ).timeout(ServiceConstants.httpTimeout);
       _diagnosticService?.instrumentRestCall('PUT', memBefore, _diagnosticRssKB());
 
       if (response.statusCode == 200 || response.statusCode == 201) {
@@ -1170,7 +1171,7 @@ class SignalKService extends ChangeNotifier implements DataService {
       final response = await http.delete(
         Uri.parse('$httpBaseUrl/signalk/v2/api/resources/$resourceType/$id'),
         headers: _getHeaders(),
-      ).timeout(const Duration(seconds: 10));
+      ).timeout(ServiceConstants.httpTimeout);
       _diagnosticService?.instrumentRestCall('DELETE', memBefore, _diagnosticRssKB());
 
       if (response.statusCode == 200 || response.statusCode == 204) {
@@ -1201,7 +1202,7 @@ class SignalKService extends ChangeNotifier implements DataService {
       final checkResponse = await http.get(
         Uri.parse('$httpBaseUrl/signalk/v2/api/resources/$resourceType'),
         headers: _getHeaders(),
-      ).timeout(const Duration(seconds: 5));
+      ).timeout(ServiceConstants.shortHttpTimeout);
 
       if (checkResponse.statusCode == 200) {
         // Resource type exists
@@ -1216,7 +1217,7 @@ class SignalKService extends ChangeNotifier implements DataService {
         body: jsonEncode({
           'description': description ?? 'ZedDisplay $resourceType',
         }),
-      ).timeout(const Duration(seconds: 10));
+      ).timeout(ServiceConstants.httpTimeout);
 
       if (createResponse.statusCode == 200 || createResponse.statusCode == 201) {
         _ensuredResourceTypes.add(resourceType);
@@ -1239,7 +1240,7 @@ class SignalKService extends ChangeNotifier implements DataService {
       Uri.parse(url),
       headers: _getHeaders(),
       body: body != null ? jsonEncode(body) : null,
-    ).timeout(const Duration(seconds: 10));
+    ).timeout(ServiceConstants.httpTimeout);
     _diagnosticService?.instrumentRestCall('POST', memBefore, _diagnosticRssKB());
     return response;
   }
@@ -1254,7 +1255,7 @@ class SignalKService extends ChangeNotifier implements DataService {
     final response = await http.get(
       Uri.parse(url),
       headers: _getHeaders(),
-    ).timeout(const Duration(seconds: 10));
+    ).timeout(ServiceConstants.httpTimeout);
     _diagnosticService?.instrumentRestCall('GET', memBefore, _diagnosticRssKB());
     return response;
   }
@@ -1270,7 +1271,7 @@ class SignalKService extends ChangeNotifier implements DataService {
       final response = await http.get(
         Uri.parse(url),
         headers: _getHeaders(),
-      ).timeout(const Duration(seconds: 10));
+      ).timeout(ServiceConstants.httpTimeout);
       _diagnosticService?.instrumentRestCall('GET', memBefore, _diagnosticRssKB());
       if (response.statusCode == 200) {
         return jsonDecode(response.body) as Map<String, dynamic>;
@@ -1293,7 +1294,7 @@ class SignalKService extends ChangeNotifier implements DataService {
           'reverse': reverse,
           'arrivalCircle': arrivalCircle,
         }),
-      ).timeout(const Duration(seconds: 10));
+      ).timeout(ServiceConstants.httpTimeout);
       _diagnosticService?.instrumentRestCall('PUT', memBefore, _diagnosticRssKB());
       return response.statusCode == 200;
     } catch (_) {}
@@ -1309,7 +1310,7 @@ class SignalKService extends ChangeNotifier implements DataService {
         Uri.parse(url),
         headers: _getHeaders(),
         body: jsonEncode({'value': index}),
-      ).timeout(const Duration(seconds: 10));
+      ).timeout(ServiceConstants.httpTimeout);
       _diagnosticService?.instrumentRestCall('PUT', memBefore, _diagnosticRssKB());
       return response.statusCode == 200;
     } catch (_) {}
@@ -1325,7 +1326,7 @@ class SignalKService extends ChangeNotifier implements DataService {
         Uri.parse(url),
         headers: _getHeaders(),
         body: '{}',
-      ).timeout(const Duration(seconds: 10));
+      ).timeout(ServiceConstants.httpTimeout);
       _diagnosticService?.instrumentRestCall('PUT', memBefore, _diagnosticRssKB());
       return response.statusCode == 200;
     } catch (_) {}
@@ -1340,7 +1341,7 @@ class SignalKService extends ChangeNotifier implements DataService {
       final response = await http.delete(
         Uri.parse(url),
         headers: _getHeaders(),
-      ).timeout(const Duration(seconds: 10));
+      ).timeout(ServiceConstants.httpTimeout);
       _diagnosticService?.instrumentRestCall('DELETE', memBefore, _diagnosticRssKB());
       return response.statusCode == 200 || response.statusCode == 204;
     } catch (_) {}
@@ -1378,7 +1379,7 @@ class SignalKService extends ChangeNotifier implements DataService {
       final response = await http.get(
         Uri.parse('$httpBaseUrl/signalk/v1/api/vessels/$_vesselRestPath/$urlPath'),
         headers: _getHeaders(),
-      ).timeout(const Duration(seconds: 10)); // Increased from 3s for busy servers
+      ).timeout(ServiceConstants.httpTimeout); // Increased from 3s for busy servers
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body) as Map<String, dynamic>;
@@ -1485,7 +1486,7 @@ class SignalKService extends ChangeNotifier implements DataService {
       final response = await http.get(
         Uri.parse('$httpBaseUrl/signalk/v1/api/self'),
         headers: _getHeaders(),
-      ).timeout(const Duration(seconds: 5));
+      ).timeout(ServiceConstants.shortHttpTimeout);
 
       if (response.statusCode == 200) {
         // Response is a JSON string like "vessels.urn:mrn:imo:mmsi:367780840"
@@ -1513,7 +1514,7 @@ class SignalKService extends ChangeNotifier implements DataService {
       final response = await http.get(
         Uri.parse('$httpBaseUrl/signalk/v1/api/vessels/$_vesselRestPath'),
         headers: _getHeaders(),
-      ).timeout(const Duration(seconds: 30)); // Increased from 10s for busy servers
+      ).timeout(ServiceConstants.veryLongHttpTimeout); // Increased from 10s for busy servers
 
       if (response.statusCode == 200) {
         return jsonDecode(response.body) as Map<String, dynamic>;
@@ -1538,7 +1539,7 @@ class SignalKService extends ChangeNotifier implements DataService {
       final response = await http.get(
         Uri.parse('$httpBaseUrl/skServer/availablePaths'),
         headers: _getHeaders(),
-      ).timeout(const Duration(seconds: 10));
+      ).timeout(ServiceConstants.httpTimeout);
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
@@ -1592,7 +1593,7 @@ class SignalKService extends ChangeNotifier implements DataService {
       final configResponse = await http.get(
         Uri.parse('$httpBaseUrl/signalk/v1/unitpreferences/config'),
         headers: _getHeaders(),
-      ).timeout(const Duration(seconds: 10));
+      ).timeout(ServiceConstants.httpTimeout);
 
       if (configResponse.statusCode == 200) {
         final data = jsonDecode(configResponse.body);
@@ -1617,7 +1618,7 @@ class SignalKService extends ChangeNotifier implements DataService {
       final presetResponse = await http.get(
         Uri.parse('$httpBaseUrl/signalk/v1/unitpreferences/presets/$presetName'),
         headers: _getHeaders(),
-      ).timeout(const Duration(seconds: 10));
+      ).timeout(ServiceConstants.httpTimeout);
 
       if (presetResponse.statusCode == 200) {
         final presetData = jsonDecode(presetResponse.body) as Map<String, dynamic>;
@@ -1647,7 +1648,7 @@ class SignalKService extends ChangeNotifier implements DataService {
       final response = await http.get(
         Uri.parse('$httpBaseUrl/signalk/v1/unitpreferences/active'),
         headers: _getHeaders(),
-      ).timeout(const Duration(seconds: 10));
+      ).timeout(ServiceConstants.httpTimeout);
 
       if (response.statusCode == 200) {
         return jsonDecode(response.body) as Map<String, dynamic>;
@@ -1927,7 +1928,7 @@ class SignalKService extends ChangeNotifier implements DataService {
       final response = await http.get(
         Uri.parse('$httpBaseUrl/signalk/v1/api/vessels/$restPath/$apiPath'),
         headers: _getHeaders(),
-      ).timeout(const Duration(seconds: 20)); // Increased from 5s for busy servers
+      ).timeout(ServiceConstants.longHttpTimeout); // Increased from 5s for busy servers
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body) as Map<String, dynamic>;
@@ -2503,19 +2504,19 @@ class _ConversionManager {
         http.get(
           Uri.parse('$httpBaseUrl/signalk/v1/unitpreferences/definitions'),
           headers: headers,
-        ).timeout(const Duration(seconds: 10)),
+        ).timeout(ServiceConstants.httpTimeout),
         http.get(
           Uri.parse('$httpBaseUrl/signalk/v1/unitpreferences/default-categories'),
           headers: headers,
-        ).timeout(const Duration(seconds: 10)),
+        ).timeout(ServiceConstants.httpTimeout),
         http.get(
           Uri.parse('$httpBaseUrl/signalk/v1/unitpreferences/config'),
           headers: headers,
-        ).timeout(const Duration(seconds: 10)),
+        ).timeout(ServiceConstants.httpTimeout),
         http.get(
           Uri.parse('$httpBaseUrl/signalk/v1/unitpreferences/categories'),
           headers: headers,
-        ).timeout(const Duration(seconds: 10)),
+        ).timeout(ServiceConstants.httpTimeout),
       ]);
 
       final definitionsResponse = results[0];
@@ -2551,7 +2552,7 @@ class _ConversionManager {
         final userResponse = await http.get(
           Uri.parse('$httpBaseUrl/signalk/v1/applicationData/user/unitpreferences/1.0.0'),
           headers: headers,
-        ).timeout(const Duration(seconds: 10));
+        ).timeout(ServiceConstants.httpTimeout);
 
         if (userResponse.statusCode == 200) {
           final userConfig = jsonDecode(userResponse.body) as Map<String, dynamic>;
@@ -2577,7 +2578,7 @@ class _ConversionManager {
           final presetResponse = await http.get(
             Uri.parse('$httpBaseUrl/signalk/v1/unitpreferences/presets/$_activePresetName'),
             headers: headers,
-          ).timeout(const Duration(seconds: 10));
+          ).timeout(ServiceConstants.httpTimeout);
 
           if (presetResponse.statusCode == 200) {
             final presetData = jsonDecode(presetResponse.body) as Map<String, dynamic>;
@@ -2759,7 +2760,7 @@ class _ConversionManager {
         Uri.parse('$httpBaseUrl/signalk/v1/unitpreferences/active'),
         headers: headers,
         body: body,
-      ).timeout(const Duration(seconds: 10));
+      ).timeout(ServiceConstants.httpTimeout);
 
       if (response.statusCode == 200) {
         // Update local cache
@@ -3064,7 +3065,7 @@ class _AISManager {
       final response = await http.get(
         Uri.parse(endpoint),
         headers: getHeaders(),
-      ).timeout(const Duration(seconds: 5));
+      ).timeout(ServiceConstants.shortHttpTimeout);
 
       if (response.statusCode == 200) {
         final vesselsData = jsonDecode(response.body) as Map<String, dynamic>;
@@ -3074,7 +3075,7 @@ class _AISManager {
           final selfResponse = await http.get(
             Uri.parse('$httpBaseUrl/signalk/v1/api/self'),
             headers: getHeaders(),
-          ).timeout(const Duration(seconds: 5));
+          ).timeout(ServiceConstants.shortHttpTimeout);
 
           if (selfResponse.statusCode == 200) {
             final selfRef = selfResponse.body.replaceAll('"', '').trim();

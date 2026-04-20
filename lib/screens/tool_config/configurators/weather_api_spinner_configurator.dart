@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import '../../../models/tool_config.dart';
 import '../../../models/tool.dart';
+import '../../../config/service_constants.dart';
 import '../../../services/signalk_service.dart';
 import '../base_tool_configurator.dart';
 
@@ -119,7 +120,7 @@ class WeatherApiSpinnerConfigurator extends ToolConfigurator {
         headers: signalKService.authToken != null
             ? {'Authorization': 'Bearer ${signalKService.authToken!.token}'}
             : null,
-      ).timeout(const Duration(seconds: 10));
+      ).timeout(ServiceConstants.httpTimeout);
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);

@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
 import '../../models/tool_definition.dart';
 import '../../models/tool_config.dart';
+import '../../config/service_constants.dart';
 import '../../services/signalk_service.dart';
 import '../../services/intercom_service.dart';
 import '../../services/tool_registry.dart';
@@ -166,7 +167,7 @@ class _UserManagementToolState extends State<UserManagementTool> {
       final response = await http.get(
         Uri.parse('$_baseUrl/skServer/security/users'),
         headers: _getHeaders(),
-      ).timeout(const Duration(seconds: 10));
+      ).timeout(ServiceConstants.httpTimeout);
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
@@ -236,7 +237,7 @@ class _UserManagementToolState extends State<UserManagementTool> {
           'password': password,
           'type': permission.name,
         }),
-      ).timeout(const Duration(seconds: 10));
+      ).timeout(ServiceConstants.httpTimeout);
 
       if (mounted) {
         if (response.statusCode == 200 || response.statusCode == 201) {
@@ -298,7 +299,7 @@ class _UserManagementToolState extends State<UserManagementTool> {
         Uri.parse('$_baseUrl/skServer/security/users/$userId'),
         headers: _getHeaders(),
         body: jsonEncode(body),
-      ).timeout(const Duration(seconds: 10));
+      ).timeout(ServiceConstants.httpTimeout);
 
       if (mounted) {
         if (response.statusCode == 200) {
@@ -372,7 +373,7 @@ class _UserManagementToolState extends State<UserManagementTool> {
       final response = await http.delete(
         Uri.parse('$_baseUrl/skServer/security/users/${user.userId}'),
         headers: _getHeaders(),
-      ).timeout(const Duration(seconds: 10));
+      ).timeout(ServiceConstants.httpTimeout);
 
       if (mounted) {
         if (response.statusCode == 200) {
