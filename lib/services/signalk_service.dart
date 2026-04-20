@@ -686,20 +686,21 @@ class SignalKService extends ChangeNotifier implements DataService {
                                        valueMap.containsKey('formatted');
 
               if (isUnitsPreference) {
-                // Units-preference format - extract converted values
+                // Units-preference format - extract the SI value and symbol.
                 final convertedValue = valueMap['converted'];
                 final originalValue = valueMap['original'];
-                final formattedString = valueMap['formatted'] as String?;
                 final symbolString = valueMap['symbol'] as String?;
 
-                // For numeric values, use converted number for charts/gauges
+                // For numeric values, prefer `converted` as the displayable
+                // scalar on `.value`. `.original` preserves SI for consumers
+                // that re-run their own MetadataStore conversion.
                 final numericValue = convertedValue is num ? convertedValue.toDouble() : null;
 
-                // Feed plugin-delivered symbol into MetadataStore so the store
-                // is the single read path. Skip when the store already knows
-                // the symbol for this path — otherwise we allocate and merge
-                // a PathMetadata on every delta (plugin frames arrive at 1-10
-                // Hz per path, which caused frame drops at connect time).
+                // Feed plugin-delivered symbol into MetadataStore — the
+                // single read path — skipping when the store already knows
+                // the symbol for this path. (Without this guard the merge
+                // allocates a PathMetadata per delta at 1-10 Hz per path,
+                // causing frame drops at connect time.)
                 if (symbolString != null && symbolString.isNotEmpty) {
                   final existing = _metadataStore.get(value.path);
                   if (existing == null || existing.symbol != symbolString) {
@@ -715,9 +716,6 @@ class SignalKService extends ChangeNotifier implements DataService {
                   value: numericValue ?? convertedValue ?? originalValue,
                   timestamp: updateValue.timestamp,
                   lastSeen: DateTime.now(),
-                  converted: numericValue,
-                  formatted: formattedString,
-                  symbol: symbolString,
                   original: originalValue,
                   source: source,
                 );
@@ -2364,12 +2362,6 @@ class _DataCacheManager {
       return (dataPoint!.value as num).toDouble();
     }
     return null;
-  }
-
-  /// Get converted numeric value (already in user's preferred units)
-  double? getConvertedValue(String path) {
-    final dataPoint = _latestData[path];
-    return dataPoint?.converted ?? (dataPoint?.value is num ? (dataPoint!.value as num).toDouble() : null);
   }
 
   /// Start periodic cache cleanup to prevent unbounded memory growth
