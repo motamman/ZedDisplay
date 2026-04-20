@@ -145,27 +145,44 @@ class PathMetadata {
     return valueStr;
   }
 
-  /// Evaluate a formula string with a given value.
-  /// Supports math expressions like "value * 1.94384" or "(value - 273.15) * 9/5 + 32"
-  double _evaluateFormula(String formula, double value) {
-    try {
-      // Replace 'value' with the actual numeric value
-      final expression = formula.replaceAll('value', value.toString());
+  /// Process-wide cache of compiled formula expressions.
+  ///
+  /// Keyed by the formula string so many [PathMetadata] instances that share
+  /// a formula (e.g. every speed path using `value * 1.94384`) share one
+  /// compiled expression. A `null` entry marks a formula that failed to
+  /// parse, preventing repeated attempts.
+  static final Map<String, Expression?> _formulaCache = {};
 
-      // Parse and evaluate
-      final parser = GrammarParser();
-      final exp = parser.parse(expression);
-      final cm = ContextModel();
-      return RealEvaluator(cm).evaluate(exp).toDouble();
-    } catch (e) {
-      // If parsing fails, try simple multiplication pattern
-      final match = RegExp(r'value\s*\*\s*([\d.]+)').firstMatch(formula);
-      if (match != null) {
-        final factor = double.tryParse(match.group(1)!);
-        if (factor != null) return value * factor;
+  /// Shared variable bound by [_evaluateFormula]. The compiled expression
+  /// references this variable; evaluation binds a numeric value to it via
+  /// the context model, avoiding the old "string-replace then re-parse"
+  /// cost on every call.
+  static final Variable _valueVar = Variable('value');
+
+  /// Evaluate a formula string with a given value.
+  ///
+  /// Compiles on first use (shared via [_formulaCache]); on subsequent
+  /// calls reuses the cached [Expression]. On parse failure, caches `null`
+  /// and throws so [convert]/[convertToSI] can return `null` to the caller.
+  double _evaluateFormula(String formula, double value) {
+    Expression? compiled;
+    if (_formulaCache.containsKey(formula)) {
+      compiled = _formulaCache[formula];
+    } else {
+      try {
+        compiled = GrammarParser().parse(formula);
+      } catch (_) {
+        compiled = null;
       }
-      rethrow;
+      _formulaCache[formula] = compiled;
     }
+
+    if (compiled == null) {
+      throw FormatException('Unparseable formula: $formula');
+    }
+
+    final cm = ContextModel()..bindVariable(_valueVar, Number(value));
+    return RealEvaluator(cm).evaluate(compiled).toDouble();
   }
 
   /// Serialize to JSON for caching.
@@ -208,5 +225,40 @@ class PathMetadata {
   String toString() {
     return 'PathMetadata(path: $path, category: $category, '
         'formula: $formula, symbol: $symbol)';
+  }
+}
+
+/// Null-safe formatting that encodes the app-wide "permissive" fallback
+/// policy: when metadata is missing, render the raw SI value with a
+/// best-guess SI suffix; when the value itself is null, render the
+/// placeholder. This collapses ~8 duplicated `_formatValue` helpers
+/// scattered across tool widgets.
+///
+/// Behavior:
+///
+/// | metadata | siValue | output                                         |
+/// |----------|---------|------------------------------------------------|
+/// | null     | null    | [placeholder] (default: "--")                  |
+/// | null     | x       | `x.toStringAsFixed(decimals) [siSuffix]`       |
+/// | non-null | null    | [placeholder]                                  |
+/// | non-null | x       | `metadata.format(x, decimals: decimals)`       |
+///
+/// [siSuffix] lets the caller hint the SI unit (e.g. "rad", "m/s", "m")
+/// when metadata is missing. When omitted, falls back to
+/// `metadata?.baseUnit` or an empty string.
+extension MetadataFormatExtension on PathMetadata? {
+  String formatOrRaw(
+    double? siValue, {
+    int decimals = 1,
+    String? siSuffix,
+    String placeholder = '--',
+  }) {
+    if (siValue == null) return placeholder;
+    final self = this;
+    if (self != null) return self.format(siValue, decimals: decimals);
+
+    final suffix = siSuffix ?? '';
+    if (suffix.isEmpty) return siValue.toStringAsFixed(decimals);
+    return '${siValue.toStringAsFixed(decimals)} $suffix';
   }
 }

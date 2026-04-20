@@ -104,6 +104,11 @@ class MetadataStore extends ChangeNotifier {
 
   /// Convert a value using the formula for a path.
   /// Returns the converted value, or the raw value if no conversion available.
+  ///
+  /// Identity fallback (returns `siValue` when metadata is missing) is
+  /// retained for backward compatibility. New callers should prefer
+  /// [tryConvert], which returns `null` on missing metadata so the caller
+  /// can decide the fallback policy explicitly.
   double? convert(String path, double siValue) {
     final metadata = _metadata[path];
     if (metadata == null) return siValue;
@@ -112,9 +117,30 @@ class MetadataStore extends ChangeNotifier {
 
   /// Convert a display value back to SI using the inverse formula.
   /// Returns the SI value, or the display value if no conversion available.
+  ///
+  /// Identity fallback retained for backward compatibility. New callers
+  /// should prefer [tryConvertToSI].
   double? convertToSI(String path, double displayValue) {
     final metadata = _metadata[path];
     if (metadata == null) return displayValue;
+    return metadata.convertToSI(displayValue);
+  }
+
+  /// Strict convert: returns `null` when no metadata is registered for [path],
+  /// distinguishing "no metadata" from "identity conversion". Use this when
+  /// the caller needs to apply an explicit fallback (e.g. show raw SI, show
+  /// "--", or skip rendering).
+  double? tryConvert(String path, double siValue) {
+    final metadata = _metadata[path];
+    if (metadata == null) return null;
+    return metadata.convert(siValue);
+  }
+
+  /// Strict inverse convert: returns `null` when no metadata is registered
+  /// for [path]. Companion to [tryConvert] for PUT / persistence paths.
+  double? tryConvertToSI(String path, double displayValue) {
+    final metadata = _metadata[path];
+    if (metadata == null) return null;
     return metadata.convertToSI(displayValue);
   }
 
