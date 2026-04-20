@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../config/navigation_constants.dart';
 import '../../../models/tool_config.dart';
 import '../../../models/tool.dart';
 import '../../../services/signalk_service.dart';
@@ -18,7 +19,12 @@ class PolarChartConfigurator extends ToolConfigurator {
 
   // Polar chart-specific state variables
   int historySeconds = 60; // For polar_radar_chart
-  double maxRangeNm = 5.0; // For ais_polar_chart
+
+  /// AIS polar chart maximum range in meters (SI). The dropdown presents
+  /// values in nautical miles (navigation standard) but persistence uses
+  /// SI so the config survives unit-preference changes.
+  double maxRangeMeters = 5.0 * NavigationConstants.metersPerNauticalMile;
+
   int updateIntervalSeconds = 10; // For ais_polar_chart (stored as seconds in UI, milliseconds in config)
   int pruneMinutes = 15; // For ais_polar_chart - minutes before vessel removed from display
   bool colorByShipType = true; // For ais_polar_chart - color vessels by AIS type
@@ -28,7 +34,7 @@ class PolarChartConfigurator extends ToolConfigurator {
   @override
   void reset() {
     historySeconds = 60;
-    maxRangeNm = 5.0;
+    maxRangeMeters = 5.0 * NavigationConstants.metersPerNauticalMile;
     updateIntervalSeconds = 10;
     pruneMinutes = 15;
     colorByShipType = true;
@@ -46,7 +52,12 @@ class PolarChartConfigurator extends ToolConfigurator {
     final style = tool.config.style;
     if (style.customProperties != null) {
       historySeconds = style.customProperties!['historySeconds'] as int? ?? 60;
-      maxRangeNm = (style.customProperties!['maxRangeNm'] as num?)?.toDouble() ?? 5.0;
+      maxRangeMeters = NavigationConstants.readDistanceMeters(
+        style.customProperties,
+        siKey: 'maxRangeMeters',
+        legacyNmKey: 'maxRangeNm',
+        defaultMeters: 5.0 * NavigationConstants.metersPerNauticalMile,
+      );
       pruneMinutes = style.customProperties!['pruneMinutes'] as int? ?? 15;
       colorByShipType = style.customProperties!['colorByShipType'] as bool? ?? true;
       showProjectedPositions = style.customProperties!['showProjectedPositions'] as bool? ?? true;
@@ -66,7 +77,7 @@ class PolarChartConfigurator extends ToolConfigurator {
     if (_toolTypeId == 'polar_radar_chart') {
       customProps['historySeconds'] = historySeconds;
     } else if (_toolTypeId == 'ais_polar_chart') {
-      customProps['maxRangeNm'] = maxRangeNm;
+      customProps['maxRangeMeters'] = maxRangeMeters;
       // Convert seconds to milliseconds for storage
       customProps['updateInterval'] = updateIntervalSeconds * 1000;
       customProps['pruneMinutes'] = pruneMinutes;
@@ -89,7 +100,7 @@ class PolarChartConfigurator extends ToolConfigurator {
       return 'History seconds must be at least 1';
     }
     if (_toolTypeId == 'ais_polar_chart') {
-      if (maxRangeNm < 0) {
+      if (maxRangeMeters < 0) {
         return 'Max range cannot be negative';
       }
       if (updateIntervalSeconds < 1) {
@@ -141,29 +152,37 @@ class PolarChartConfigurator extends ToolConfigurator {
                 ),
               ],
 
-              // AIS Polar Chart - Maximum Range
+              // AIS Polar Chart - Maximum Range.
+              // Dropdown options are keyed in meters (SI) so persistence is
+              // immune to later unit-preference changes, but labels stay in
+              // nautical miles — the navigation standard for AIS ranges.
               if (_toolTypeId == 'ais_polar_chart') ...[
-                DropdownButtonFormField<double>(
-                  decoration: const InputDecoration(
-                    labelText: 'Maximum Range',
-                    border: OutlineInputBorder(),
-                    helperText: 'Display vessels within this range (0 = auto)',
-                  ),
-                  initialValue: maxRangeNm,
-                  items: const [
-                    DropdownMenuItem(value: 0.0, child: Text('Auto (fit all vessels)')),
-                    DropdownMenuItem(value: 1.0, child: Text('1 nautical mile')),
-                    DropdownMenuItem(value: 2.0, child: Text('2 nautical miles')),
-                    DropdownMenuItem(value: 5.0, child: Text('5 nautical miles')),
-                    DropdownMenuItem(value: 10.0, child: Text('10 nautical miles')),
-                    DropdownMenuItem(value: 20.0, child: Text('20 nautical miles')),
-                  ],
-                  onChanged: (value) {
-                    if (value != null) {
-                      setState(() => maxRangeNm = value);
-                    }
-                  },
-                ),
+                Builder(builder: (_) {
+                  const nmOptions = [0.0, 1.0, 2.0, 5.0, 10.0, 20.0];
+                  final items = nmOptions.map((nm) {
+                    final meters = nm * NavigationConstants.metersPerNauticalMile;
+                    final label = nm == 0.0
+                        ? 'Auto (fit all vessels)'
+                        : nm == 1.0
+                            ? '1 nautical mile'
+                            : '${nm.toStringAsFixed(0)} nautical miles';
+                    return DropdownMenuItem(value: meters, child: Text(label));
+                  }).toList();
+                  return DropdownButtonFormField<double>(
+                    decoration: const InputDecoration(
+                      labelText: 'Maximum Range',
+                      border: OutlineInputBorder(),
+                      helperText: 'Display vessels within this range (0 = auto)',
+                    ),
+                    initialValue: maxRangeMeters,
+                    items: items,
+                    onChanged: (value) {
+                      if (value != null) {
+                        setState(() => maxRangeMeters = value);
+                      }
+                    },
+                  );
+                }),
                 const SizedBox(height: 16),
                 DropdownButtonFormField<int>(
                   decoration: const InputDecoration(

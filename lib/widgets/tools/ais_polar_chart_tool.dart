@@ -58,20 +58,33 @@ class _AISPolarChartToolState extends State<AISPolarChartTool> {
     _cpaAlertService!.onAlertTriggered = _onCpaAlertTriggered;
     _cpaAlertService!.onAlertDismissed = _onCpaAlertDismissed;
 
-    // Convert persisted display-unit values back to meters via MetadataStore
-    final distMeta = widget.signalKService.metadataStore.get('__category__.distance');
-    double toMeters(double displayValue) =>
-        distMeta?.convertToSI(displayValue) ?? displayValue * NavigationConstants.metersPerNauticalMile;
-
+    // Persisted thresholds live in SI now. [NavigationConstants.readDistanceMeters]
+    // transparently migrates legacy `*Nm` entries on read so existing configs
+    // keep working until the user next saves through the dialog.
     _cpaAlertService!.applyConfig(CpaAlertConfig(
       enabled: enabled,
-      warnThresholdMeters: toMeters((props['cpaWarnNm'] as num?)?.toDouble() ?? 1.0),
-      alarmThresholdMeters: toMeters((props['cpaAlarmNm'] as num?)?.toDouble() ?? 0.5),
+      warnThresholdMeters: NavigationConstants.readDistanceMeters(
+        props,
+        siKey: 'cpaWarnMeters',
+        legacyNmKey: 'cpaWarnNm',
+        defaultMeters: NavigationConstants.metersPerNauticalMile,
+      ),
+      alarmThresholdMeters: NavigationConstants.readDistanceMeters(
+        props,
+        siKey: 'cpaAlarmMeters',
+        legacyNmKey: 'cpaAlarmNm',
+        defaultMeters: NavigationConstants.metersPerNauticalMile / 2,
+      ),
       tcpaThresholdSeconds: ((props['cpaTcpaMinutes'] as num?)?.toDouble() ?? 30.0) * 60.0,
       alarmSound: props['cpaAlarmSound'] as String? ?? 'foghorn',
       cooldownSeconds: ((props['cpaCooldownMinutes'] as int?) ?? 5) * 60,
       sendCrewAlert: props['cpaSendCrewAlert'] as bool? ?? true,
-      maxRangeMeters: toMeters((props['maxRangeNm'] as num?)?.toDouble() ?? 100.0),
+      maxRangeMeters: NavigationConstants.readDistanceMeters(
+        props,
+        siKey: 'maxRangeMeters',
+        legacyNmKey: 'maxRangeNm',
+        defaultMeters: NavigationConstants.metersPerNauticalMile * 100,
+      ),
     ));
   }
 
@@ -148,7 +161,12 @@ class _AISPolarChartToolState extends State<AISPolarChartTool> {
     final pruneMinutes = widget.config.style.customProperties?['pruneMinutes'] as int? ?? 15;
     final colorByShipType = widget.config.style.customProperties?['colorByShipType'] as bool? ?? true;
     final showProjectedPositions = widget.config.style.customProperties?['showProjectedPositions'] as bool? ?? true;
-    final maxRangeNm = (widget.config.style.customProperties?['maxRangeNm'] as num?)?.toDouble() ?? 100.0;
+    final maxRangeMeters = NavigationConstants.readDistanceMeters(
+      widget.config.style.customProperties,
+      siKey: 'maxRangeMeters',
+      legacyNmKey: 'maxRangeNm',
+      defaultMeters: NavigationConstants.metersPerNauticalMile * 100,
+    );
     final vesselLookupService = widget.config.style.customProperties?['vesselLookupService'] as String? ?? 'vesselfinder';
 
     // Get paths from data sources (with defaults)
@@ -179,7 +197,7 @@ class _AISPolarChartToolState extends State<AISPolarChartTool> {
       pruneMinutes: pruneMinutes,
       colorByShipType: colorByShipType,
       showProjectedPositions: showProjectedPositions,
-      maxRangeNm: maxRangeNm,
+      maxRangeMeters: maxRangeMeters,
       vesselLookupService: vesselLookupService,
       cpaAlertService: _cpaAlertService,
       onCpaConfigChanged: _onCpaConfigChanged,
@@ -245,10 +263,10 @@ class AISPolarChartBuilder extends ToolBuilder {
           'pruneMinutes': 15,
           'colorByShipType': true,
           'showProjectedPositions': true,
-          'maxRangeNm': 100.0,
+          'maxRangeMeters': NavigationConstants.metersPerNauticalMile * 100, // 100 nm
           // cpaAlertsEnabled intentionally omitted — session-only toggle, always starts off
-          'cpaWarnNm': 1.0,
-          'cpaAlarmNm': 0.5,
+          'cpaWarnMeters': NavigationConstants.metersPerNauticalMile, // 1 nm
+          'cpaAlarmMeters': NavigationConstants.metersPerNauticalMile / 2, // 0.5 nm
           'cpaTcpaMinutes': 30.0,
           'cpaAlarmSound': 'foghorn',
           'cpaSendCrewAlert': true,

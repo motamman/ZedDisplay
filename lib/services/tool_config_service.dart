@@ -22,7 +22,7 @@ class ToolConfigService {
     required int chartMovingAverageWindow,
     required String chartTitle,
     required int polarHistorySeconds,
-    required double aisMaxRangeNm,
+    required double aisMaxRangeMeters,
     required int aisUpdateInterval,
     required int sliderDecimalPlaces,
     required double dropdownStepSize,
@@ -70,7 +70,7 @@ class ToolConfigService {
 
       case 'ais_polar_chart':
         return {
-          'maxRangeNm': aisMaxRangeNm,
+          'maxRangeMeters': aisMaxRangeMeters,
           'updateInterval': aisUpdateInterval * 1000, // Convert to milliseconds
           'showLabels': true,
           'showGrid': true,
@@ -154,7 +154,7 @@ class ToolConfigService {
     required int chartMovingAverageWindow,
     required String chartTitle,
     required int polarHistorySeconds,
-    required double aisMaxRangeNm,
+    required double aisMaxRangeMeters,
     required int aisUpdateInterval,
     required int sliderDecimalPlaces,
     required double dropdownStepSize,
@@ -185,7 +185,7 @@ class ToolConfigService {
       chartMovingAverageWindow: chartMovingAverageWindow,
       chartTitle: chartTitle,
       polarHistorySeconds: polarHistorySeconds,
-      aisMaxRangeNm: aisMaxRangeNm,
+      aisMaxRangeMeters: aisMaxRangeMeters,
       aisUpdateInterval: aisUpdateInterval,
       sliderDecimalPlaces: sliderDecimalPlaces,
       dropdownStepSize: dropdownStepSize,

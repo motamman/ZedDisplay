@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter_colorpicker/flutter_colorpicker.dart';
+import '../config/navigation_constants.dart';
 import '../models/tool_config.dart';
 import '../models/tool_definition.dart' show SlotDefinition, ToolDefinition;
 import '../models/tool.dart';
@@ -566,7 +567,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
       chartMovingAverageWindow: 5,
       chartTitle: '',
       polarHistorySeconds: 60,
-      aisMaxRangeNm: 5.0,
+      aisMaxRangeMeters: 5.0 * NavigationConstants.metersPerNauticalMile,
       aisUpdateInterval: 10,
       sliderDecimalPlaces: 1,
       dropdownStepSize: 10.0,
@@ -996,7 +997,7 @@ class _ToolConfigScreenState extends State<ToolConfigScreen> {
                               chartMovingAverageWindow: 5,
                               chartTitle: '',
                               polarHistorySeconds: 60,
-                              aisMaxRangeNm: 5.0,
+                              aisMaxRangeMeters: 5.0 * NavigationConstants.metersPerNauticalMile,
                               aisUpdateInterval: 10,
                               sliderDecimalPlaces: 1,
                               dropdownStepSize: 10.0,
