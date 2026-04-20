@@ -283,7 +283,7 @@ class DailyForecast {
 /// Hourly forecast entry
 class HourlyForecast {
   final int hour;
-  final double? temperature; // Already converted by ConversionUtils
+  final double? temperature; // Display-unit value (converted upstream)
   final double? feelsLike; // Already converted
   final String? conditions;
   final String? longDescription;
@@ -469,7 +469,7 @@ class HourlyForecast {
 
 /// WeatherFlow Forecast widget showing current conditions and hourly/daily forecast
 class WeatherFlowForecast extends StatefulWidget {
-  /// Current observations (already converted by ConversionUtils)
+  /// Current observations (display-unit values; converted upstream)
   final double? currentTemp;
   final double? currentHumidity;
   final double? currentPressure;
@@ -645,7 +645,7 @@ class _WeatherFlowForecastState extends State<WeatherFlowForecast> {
   }
 
   Widget _buildCurrentConditions(BuildContext context, bool isDark) {
-    // Values are already converted by ConversionUtils
+    // Values are already in display units (converted upstream).
     // Format rain display: "1h / today" or just one if other is null/zero
     String rainDisplay = '--';
     if (widget.rainLastHour != null || widget.rainToday != null) {

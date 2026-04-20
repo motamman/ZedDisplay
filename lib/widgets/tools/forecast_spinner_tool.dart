@@ -4,7 +4,6 @@ import '../../models/tool_config.dart';
 import '../../services/signalk_service.dart';
 import '../../services/tool_registry.dart';
 import '../../utils/color_extensions.dart';
-import '../../utils/conversion_utils.dart';
 import '../forecast_spinner.dart';
 import '../weatherflow_forecast.dart';
 
@@ -147,15 +146,15 @@ class ForecastSpinnerTool extends StatelessWidget {
     final forecasts = <HourlyForecast>[];
 
     for (int i = 0; i < count && i < 72; i++) {
-      final temp = ConversionUtils.getConvertedValue(signalKService, '$basePath.airTemperature.$i');
-      final feelsLike = ConversionUtils.getConvertedValue(signalKService, '$basePath.feelsLike.$i');
+      final temp = signalKService.getConvertedValue('$basePath.airTemperature.$i');
+      final feelsLike = signalKService.getConvertedValue('$basePath.feelsLike.$i');
       final conditions = _getStringValue('$basePath.conditions.$i');
       final icon = _getStringValue('$basePath.icon.$i');
-      final precipProb = ConversionUtils.getConvertedValue(signalKService, '$basePath.precipProbability.$i');
-      final humidity = ConversionUtils.getConvertedValue(signalKService, '$basePath.relativeHumidity.$i');
-      final pressure = ConversionUtils.getConvertedValue(signalKService, '$basePath.seaLevelPressure.$i');
-      final windSpeed = ConversionUtils.getConvertedValue(signalKService, '$basePath.windAvg.$i');
-      final windDirection = ConversionUtils.getConvertedValue(signalKService, '$basePath.windDirection.$i');
+      final precipProb = signalKService.getConvertedValue('$basePath.precipProbability.$i');
+      final humidity = signalKService.getConvertedValue('$basePath.relativeHumidity.$i');
+      final pressure = signalKService.getConvertedValue('$basePath.seaLevelPressure.$i');
+      final windSpeed = signalKService.getConvertedValue('$basePath.windAvg.$i');
+      final windDirection = signalKService.getConvertedValue('$basePath.windDirection.$i');
 
       // Only add if we have at least temperature or conditions
       if (temp != null || conditions != null) {
