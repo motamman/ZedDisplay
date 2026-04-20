@@ -6,7 +6,6 @@ import '../services/signalk_service.dart';
 import '../services/dashboard_service.dart';
 import '../services/storage_service.dart';
 import '../services/setup_service.dart';
-import '../utils/conversion_utils.dart';
 import 'dashboard_manager_screen.dart';
 import 'device_registration_screen.dart';
 
@@ -95,11 +94,9 @@ class _UserLoginScreenState extends State<UserLoginScreen> {
         await storageService.updateConnectionLastConnected(widget.connectionId!);
       }
 
-      // Fetch user's unit preferences and cache them
+      // Fetch user's unit preferences and cache them, then apply to MetadataStore.
       await signalKService.fetchUserUnitPreferences();
-
-      // Load user preferences into ConversionUtils
-      ConversionUtils.loadUserPreferences(signalKService);
+      signalKService.applyCachedUserPreferencesToMetadataStore();
 
       // Trigger dashboard subscription update
       if (dashboardService.currentLayout != null) {

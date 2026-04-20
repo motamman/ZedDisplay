@@ -696,14 +696,18 @@ class SignalKService extends ChangeNotifier implements DataService {
                 final numericValue = convertedValue is num ? convertedValue.toDouble() : null;
 
                 // Feed plugin-delivered symbol into MetadataStore so the store
-                // is the single read path. Merge semantics in updateFromMeta
-                // preserve any existing formula/category learned from sendMeta
-                // deltas or REST populateFromPreset.
+                // is the single read path. Skip when the store already knows
+                // the symbol for this path — otherwise we allocate and merge
+                // a PathMetadata on every delta (plugin frames arrive at 1-10
+                // Hz per path, which caused frame drops at connect time).
                 if (symbolString != null && symbolString.isNotEmpty) {
-                  _metadataStore.updateFromMeta(
-                    value.path,
-                    {'symbol': symbolString, 'units': symbolString},
-                  );
+                  final existing = _metadataStore.get(value.path);
+                  if (existing == null || existing.symbol != symbolString) {
+                    _metadataStore.updateFromMeta(
+                      value.path,
+                      {'symbol': symbolString, 'units': symbolString},
+                    );
+                  }
                 }
 
                 dataPoint = SignalKDataPoint(
@@ -1657,6 +1661,70 @@ class SignalKService extends ChangeNotifier implements DataService {
     return null;
   }
 
+  /// Whether a user-specific unit preset has been applied to MetadataStore
+  /// in this session. Flipped true by
+  /// [applyCachedUserPreferencesToMetadataStore]; reset by
+  /// [clearUserPreferencesFromMetadataStore] or on disconnect.
+  bool _userPreferencesApplied = false;
+  bool get hasUserPreferencesApplied => _userPreferencesApplied;
+
+  /// Apply the locally-cached user unit preset to [MetadataStore]. Callers
+  /// should invoke this after [fetchUserUnitPreferences] (or after a cached
+  /// session load) so category-level conversions reflect the user's choice
+  /// rather than the server default.
+  ///
+  /// No-op when there is no cached user preset, when auth type is not
+  /// [AuthType.user], or when the server metadata fetch hasn't completed
+  /// yet (category/unit definitions missing).
+  void applyCachedUserPreferencesToMetadataStore() {
+    final preset = getCachedUserUnitPreferences();
+    final presetName = getCachedUserPresetName();
+    if (preset == null || presetName == null) {
+      _userPreferencesApplied = false;
+      return;
+    }
+    final userCategories = preset['categories'] as Map<String, dynamic>?;
+    if (userCategories == null) {
+      _userPreferencesApplied = false;
+      return;
+    }
+    final defaults = _conversionManager.defaultCategories;
+    final unitDefs = _conversionManager.unitDefinitions;
+    if (defaults == null || unitDefs == null) {
+      // Connect-time metadata fetch hasn't populated the scaffolding yet.
+      // Caller can retry after the connection completes.
+      return;
+    }
+    _metadataStore.populateFromPreset(
+      defaultCategories: defaults,
+      presetDetails: userCategories,
+      unitDefinitions: unitDefs,
+      categoryToBaseUnit: _conversionManager.categoryToBaseUnit,
+    );
+    _userPreferencesApplied = true;
+    notifyListeners();
+  }
+
+  /// Revert MetadataStore to the server-default preset (if known) and clear
+  /// the [hasUserPreferencesApplied] flag. Called on user logout; the
+  /// navigation flow that follows typically triggers a reconnect, which
+  /// re-populates MetadataStore from scratch.
+  void clearUserPreferencesFromMetadataStore() {
+    _userPreferencesApplied = false;
+    final defaults = _conversionManager.defaultCategories;
+    final presetDetails = _conversionManager.presetDetails;
+    final unitDefs = _conversionManager.unitDefinitions;
+    if (defaults != null && presetDetails != null && unitDefs != null) {
+      _metadataStore.populateFromPreset(
+        defaultCategories: defaults,
+        presetDetails: presetDetails,
+        unitDefinitions: unitDefs,
+        categoryToBaseUnit: _conversionManager.categoryToBaseUnit,
+      );
+      notifyListeners();
+    }
+  }
+
   /// Get cached user unit preferences if available
   Map<String, dynamic>? getCachedUserUnitPreferences() {
     if (_authToken == null || _authToken!.authType != AuthType.user) {
@@ -2048,6 +2116,7 @@ class SignalKService extends ChangeNotifier implements DataService {
       _ensuredResourceTypes.clear();
       _displayUnitsCache.clear();
       _metadataStore.clear();
+      _userPreferencesApplied = false;
       _aisManager.registry.clear();
 
       if (kDebugMode) {

@@ -8,7 +8,6 @@ import '../services/storage_service.dart';
 import '../services/setup_service.dart';
 import '../models/server_connection.dart';
 import '../models/auth_token.dart';
-import '../utils/conversion_utils.dart';
 import 'dashboard_manager_screen.dart';
 import 'device_registration_screen.dart';
 import 'user_login_screen.dart';
@@ -101,10 +100,10 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
           _useSecure,
         );
 
-        // If user auth, load user preferences
+        // If user auth, load user preferences and apply to MetadataStore.
         if (savedToken.authType == AuthType.user) {
           await signalKService.fetchUserUnitPreferences();
-          ConversionUtils.loadUserPreferences(signalKService);
+          signalKService.applyCachedUserPreferencesToMetadataStore();
         }
 
         // Trigger dashboard subscription update (happens automatically in DashboardService)
