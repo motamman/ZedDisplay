@@ -1,0 +1,19 @@
+[
+  {
+    "objectClass": "WRECKS",
+    "geometryType": "point",
+    "attributes": {
+      "CATWRK": 2,
+      "QUASOU": "2",
+      "WATLEV": 3
+    }
+  },
+  {
+    "objectClass": "WRECKS",
+    "geometryType": "point",
+    "attributes": {
+      "CATWRK": 5,
+      "WATLEV": 2
+    }
+  }
+]

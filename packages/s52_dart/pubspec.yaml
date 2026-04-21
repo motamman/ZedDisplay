@@ -1,0 +1,14 @@
+name: s52_dart
+description: Pure-Dart S-52 chart symbology engine for S-57 electronic navigational charts. Renderer-agnostic.
+version: 0.1.0
+publish_to: 'none'
+
+environment:
+  # Matches the SDK floor recorded in pubspec.lock. Flutter 3.19+
+  # ships Dart >= 3.3; recent Flutter stable channels (which the app
+  # targets) ship >= 3.9, so this floor is safe.
+  sdk: '>=3.9.0 <4.0.0'
+
+dev_dependencies:
+  test: ^1.25.0
+  lints: ^5.0.0

@@ -1,0 +1,66 @@
+[
+  {
+    "objectClass": "DEPARE",
+    "geometryType": "area",
+    "attributes": {
+      "DRVAL1": 3.6,
+      "DRVAL2": 5.4
+    }
+  },
+  {
+    "objectClass": "DEPARE",
+    "geometryType": "area",
+    "attributes": {
+      "DRVAL1": 1.8,
+      "DRVAL2": 5.4
+    }
+  },
+  {
+    "objectClass": "DEPARE",
+    "geometryType": "area",
+    "attributes": {
+      "DRVAL1": -2.8,
+      "DRVAL2": 0
+    }
+  },
+  {
+    "objectClass": "DEPARE",
+    "geometryType": "area",
+    "attributes": {
+      "DRVAL1": 0,
+      "DRVAL2": 1.8
+    }
+  },
+  {
+    "objectClass": "DEPARE",
+    "geometryType": "area",
+    "attributes": {
+      "DRVAL1": 9.1,
+      "DRVAL2": 10.9
+    }
+  },
+  {
+    "objectClass": "DEPARE",
+    "geometryType": "area",
+    "attributes": {
+      "DRVAL1": 1.8,
+      "DRVAL2": 5.4
+    }
+  },
+  {
+    "objectClass": "DEPARE",
+    "geometryType": "area",
+    "attributes": {
+      "DRVAL1": 5.4,
+      "DRVAL2": 9.1
+    }
+  },
+  {
+    "objectClass": "DEPARE",
+    "geometryType": "area",
+    "attributes": {
+      "DRVAL1": 1.8,
+      "DRVAL2": 3.6
+    }
+  }
+]

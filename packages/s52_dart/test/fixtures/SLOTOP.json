@@ -1,0 +1,9 @@
+[
+  {
+    "objectClass": "SLOTOP",
+    "geometryType": "line",
+    "attributes": {
+      "CATSLO": 6
+    }
+  }
+]

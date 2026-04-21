@@ -1,0 +1,13 @@
+[
+  {
+    "objectClass": "OBSTRN",
+    "geometryType": "point",
+    "attributes": {
+      "EXPSOU": 1,
+      "QUASOU": "6",
+      "TECSOU": "6",
+      "VALSOU": 3.3,
+      "WATLEV": 3
+    }
+  }
+]

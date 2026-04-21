@@ -1,0 +1,37 @@
+[
+  {
+    "objectClass": "LNDRGN",
+    "geometryType": "area",
+    "attributes": {
+      "CATLND": "2"
+    }
+  },
+  {
+    "objectClass": "LNDRGN",
+    "geometryType": "area",
+    "attributes": {
+      "OBJNAM": "Leavitt Island"
+    }
+  },
+  {
+    "objectClass": "LNDRGN",
+    "geometryType": "area",
+    "attributes": {
+      "OBJNAM": "West Cundy Point"
+    }
+  },
+  {
+    "objectClass": "LNDRGN",
+    "geometryType": "area",
+    "attributes": {
+      "OBJNAM": "Fort Point"
+    }
+  },
+  {
+    "objectClass": "LNDRGN",
+    "geometryType": "area",
+    "attributes": {
+      "OBJNAM": "East Cundy Point"
+    }
+  }
+]

@@ -1,0 +1,18 @@
+[
+  {
+    "objectClass": "RESARE",
+    "geometryType": "area",
+    "attributes": {
+      "RESTRN": "16",
+      "TXTDSC": "US137BDB.TXT"
+    }
+  },
+  {
+    "objectClass": "RESARE",
+    "geometryType": "area",
+    "attributes": {
+      "RESTRN": "16",
+      "TXTDSC": "US137BEB.TXT"
+    }
+  }
+]

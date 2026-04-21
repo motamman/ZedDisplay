@@ -40,6 +40,9 @@ plugins:
   autopilot:
     name: "Autopilot Control"
     description: "Control autopilot heading and mode via SignalK"
+  signalk-charts-provider-simple:
+    name: "SignalK Charts Provider (Simple)"
+    description: "Serves S-57 electronic navigational charts as MVT vector tiles to the Chart Plotter"
 
 tools:
   historical_chart:
@@ -623,4 +626,88 @@ tools:
       - signalk-weatherflow
     required_plugins:
       - derived-data
+
+  chart_plotter_v3:
+    name: "Chart Plotter"
+    description: |
+      Native-paint interactive chart plotter with S-57 electronic
+      navigational charts, AIS traffic, route activation, measuring
+      ruler, and offline chart caching.
+
+      The chart is rendered directly by a Flutter `CustomPainter`
+      driven by `s52_dart` — no WebView, no JavaScript bridge. OSM
+      raster tiles provide the basemap; MVT vector tiles from the
+      SignalK charts plugin provide S-57 features styled with the
+      IHO S-52 Presentation Library symbology.
+
+      **Map controls (top-right column):**
+      - ![](icon:navigation) / ![](icon:navigation_outlined) Bow arrow — toggle heading-up vs north-up. Heading-up rotates the map so the vessel's bow is always screen-up; north-up keeps north at the top.
+      - ![](icon:my_location) / ![](icon:location_searching) Crosshair — "Snap to vessel" lock. When on, the map is glued to the vessel position; pan gestures are disabled (pinch-zoom and rotation still work). Tap to unlock free panning.
+      - ![](icon:layers) Stacked squares — open the chart-layer panel.
+      - ![](icon:route) Route path — open the route manager.
+      - ![](icon:download) Down arrow — open the offline chart download sheet.
+      - ![](icon:straighten) / ![](icon:straighten_outlined) Ruler — toggle the measuring ruler (two draggable endpoints that report distance + bearing).
+      - ![](icon:sailing) / ![](icon:sailing_outlined) Sail — toggle AIS traffic overlay.
+      - ![](icon:filter_alt) / ![](icon:filter_alt_outlined) Funnel — when AIS is on, filter to active targets only vs all.
+      - ![](icon:timeline) / ![](icon:linear_scale) Timeline — when AIS is on, toggle projected-track tails.
+
+      **Tap to identify features:**
+      - Tap any buoy, light, beacon, obstruction, wreck, landmark, or area edge to open the feature popover.
+      - Popover groups nearby features and sorts them by S-52 display priority; points beat lines beat polygons when both are in range.
+      - Popover is dismissed by tapping the map outside it, swiping it down, or tapping another feature.
+
+      **Chart layer panel:**
+      - ![](icon:map_outlined) Map — basemap source (OSM / CARTO / Stadia variants).
+      - ![](icon:layers) Layers — S-57 overlay source.
+      - ![](icon:drag_handle) Grip — drag to reorder stacked layers.
+      - ![](icon:close) X — remove a layer from the stack.
+      - ![](icon:add) Plus — add a new layer.
+      - Opacity slider per layer.
+
+      **Route manager:**
+      - ![](icon:route) Route list — tap to preview a server-stored route.
+      - ![](icon:play_arrow) Green play — activate the route forward.
+      - ![](icon:play_arrow) Red play — activate the route reversed.
+      - ![](icon:edit) Pencil — edit route (drag waypoints on the chart after activation).
+      - ![](icon:delete_outline) Trash — delete the route from the server.
+      - ![](icon:swap_horiz) Swap — reverse the currently-active route in place.
+      - ![](icon:stop_circle_outlined) Stop — deactivate the current route.
+      - ![](icon:near_me) Arrow — skip to a specific waypoint.
+      - Waypoint icons: ![](icon:flag) active / ![](icon:check_circle) past / ![](icon:circle_outlined) upcoming.
+
+      **HUD (bottom strip):**
+      - Live SOG, COG, DPT, DTW (distance to waypoint), BRG, XTE.
+      - ![](icon:skip_next) / ![](icon:fast_forward) Advance waypoint when on an active route.
+      - Freshness chip (bottom right) shows tile-cache state: Fresh / Aging / Stale / Uncached.
+
+      **Offline chart cache:**
+      - Download a region at selected zoom levels for off-grid use.
+      - Cache-first, background-refresh: served from disk when available; silently re-validated upstream.
+      - Freshness chip surfaces tile staleness at a glance.
+
+      **Auto-zoom (enabled while Snap-to-vessel is on):**
+      - At ≤ 0.3 m/s SOG, holds zoom as-is.
+      - While moving, if land is within a 15-minute look-ahead at current speed, tightens to nearest-land × 1.3 (min 300 m buffer).
+      - Otherwise a 30-minute look-ahead area. Camera fit clamped to zoom 10..16.
+
+      **Data flow:**
+      - Own-vessel position, heading, COG, SOG: `navigation.position`, `.headingTrue`, `.courseOverGroundTrue`, `.speedOverGround`.
+      - AIS targets via the SignalK AIS registry.
+      - Active route via the SignalK course API (`navigation.course.activeRoute` and related).
+      - S-57 vector tiles via `signalk-charts-provider-simple`.
+
+      **Credits:**
+      - IHO — S-52 Presentation Library and S-57 Object Catalogue (normative references).
+      - [OpenCPN](https://github.com/OpenCPN/OpenCPN) (GPL-2.0) — S-52 chart symbols, lookup tables, and colour tables. The bundled `chartsymbols.xml` and `rastersymbols-*.png` atlases derive from OpenCPN's `data/s57data/` artifacts; see `packages/s52_dart/LICENSE-NOTICES` and `devdocs/chart-plotter-v3-sprite-report.md`.
+      - [Freeboard-SK](https://github.com/SignalK/freeboard-sk) (Apache-2.0) — reference implementation whose CS-procedure structure (`DEPARE01`, `OBSTRN04`, `SOUNDG02`, etc.) was ported to Dart. See `packages/s52_dart/LICENSE-NOTICES`.
+      - [flutter_map](https://pub.dev/packages/flutter_map) — map viewport and interaction framework.
+      - [vector_tile](https://pub.dev/packages/vector_tile) — MVT protobuf decoder.
+      - [OpenStreetMap](https://www.openstreetmap.org/) and CARTO / Stadia — basemap tile sources (attributions show in their respective layers).
+      - [signalk-charts-provider-simple](https://github.com/SignalK/signalk-charts-provider-simple) — upstream MVT tile supply from SignalK server.
+    required_plugins:
+      - signalk-charts-provider-simple
+    optional_plugins:
+      - autopilot
+    data_sources:
+      - signalk
 

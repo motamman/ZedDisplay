@@ -1,0 +1,9 @@
+[
+  {
+    "objectClass": "DAMCON",
+    "geometryType": "line",
+    "attributes": {
+      "CATDAM": 2
+    }
+  }
+]

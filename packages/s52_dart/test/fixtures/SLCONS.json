@@ -1,0 +1,26 @@
+[
+  {
+    "objectClass": "SLCONS",
+    "geometryType": "line",
+    "attributes": {
+      "CATSLC": 4,
+      "WATLEV": 2
+    }
+  },
+  {
+    "objectClass": "SLCONS",
+    "geometryType": "point",
+    "attributes": {
+      "CATSLC": 12,
+      "WATLEV": 2
+    }
+  },
+  {
+    "objectClass": "SLCONS",
+    "geometryType": "line",
+    "attributes": {
+      "CATSLC": 8,
+      "WATLEV": 2
+    }
+  }
+]
