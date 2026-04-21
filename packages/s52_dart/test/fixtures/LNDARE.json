@@ -1,0 +1,58 @@
+[
+  {
+    "objectClass": "LNDARE",
+    "geometryType": "area",
+    "attributes": {
+      "OBJNAM": "Sebascodegan Island"
+    }
+  },
+  {
+    "objectClass": "LNDARE",
+    "geometryType": "area",
+    "attributes": {
+      "OBJNAM": "Bush Island"
+    }
+  },
+  {
+    "objectClass": "LNDARE",
+    "geometryType": "area",
+    "attributes": {
+      "OBJNAM": "Sebascodegan Island"
+    }
+  },
+  {
+    "objectClass": "LNDARE",
+    "geometryType": "area",
+    "attributes": {
+      "OBJNAM": "George Island"
+    }
+  },
+  {
+    "objectClass": "LNDARE",
+    "geometryType": "area",
+    "attributes": {
+      "OBJNAM": "Big Hen Island"
+    }
+  },
+  {
+    "objectClass": "LNDARE",
+    "geometryType": "area",
+    "attributes": {
+      "OBJNAM": "Yarmouth Island"
+    }
+  },
+  {
+    "objectClass": "LNDARE",
+    "geometryType": "area",
+    "attributes": {
+      "OBJNAM": "Flash Island"
+    }
+  },
+  {
+    "objectClass": "LNDARE",
+    "geometryType": "area",
+    "attributes": {
+      "OBJNAM": "Rogue Island"
+    }
+  }
+]

@@ -470,6 +470,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "8.2.2"
+  flutter_map_dragmarker:
+    dependency: "direct main"
+    description:
+      name: flutter_map_dragmarker
+      sha256: d73ca9e1c30b1a906a010053594f5957a5d1d8551d3d3ff1267a6f3ff88f4d26
+      url: "https://pub.dev"
+    source: hosted
+    version: "8.0.3"
   flutter_markdown:
     dependency: "direct main"
     description:
@@ -1072,6 +1080,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "2.1.0"
+  protobuf:
+    dependency: transitive
+    description:
+      name: protobuf
+      sha256: "75ec242d22e950bdcc79ee38dd520ce4ee0bc491d7fadc4ea47694604d22bf06"
+      url: "https://pub.dev"
+    source: hosted
+    version: "6.0.0"
   provider:
     dependency: "direct main"
     description:
@@ -1104,6 +1120,13 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "3.2.2"
+  s52_dart:
+    dependency: "direct main"
+    description:
+      path: "packages/s52_dart"
+      relative: true
+    source: path
+    version: "0.1.0"
   share_plus:
     dependency: "direct main"
     description:
@@ -1453,6 +1476,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "2.2.0"
+  vector_tile:
+    dependency: "direct main"
+    description:
+      name: vector_tile
+      sha256: "43e32cd8e4a1ceede6ad61fbce1ac0ecc84380b6e6fbee52883f08774b12576f"
+      url: "https://pub.dev"
+    source: hosted
+    version: "4.0.0"
   vibration:
     dependency: "direct main"
     description:

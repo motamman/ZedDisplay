@@ -1,0 +1,62 @@
+[
+  {
+    "objectClass": "SEAARE",
+    "geometryType": "area",
+    "attributes": {
+      "CATSEA": 5,
+      "OBJNAM": "Quahog Bay"
+    }
+  },
+  {
+    "objectClass": "SEAARE",
+    "geometryType": "area",
+    "attributes": {
+      "OBJNAM": "Ridley Cove"
+    }
+  },
+  {
+    "objectClass": "SEAARE",
+    "geometryType": "area",
+    "attributes": {
+      "OBJNAM": "Hen Cove"
+    }
+  },
+  {
+    "objectClass": "SEAARE",
+    "geometryType": "area",
+    "attributes": {
+      "OBJNAM": "Sandy Cove"
+    }
+  },
+  {
+    "objectClass": "SEAARE",
+    "geometryType": "area",
+    "attributes": {
+      "CATSEA": 53,
+      "OBJNAM": "New Meadows River"
+    }
+  },
+  {
+    "objectClass": "SEAARE",
+    "geometryType": "area",
+    "attributes": {
+      "OBJNAM": "Cundy Harbor"
+    }
+  },
+  {
+    "objectClass": "SEAARE",
+    "geometryType": "area",
+    "attributes": {
+      "CATSEA": 10,
+      "OBJNAM": "Cedar Ledges"
+    }
+  },
+  {
+    "objectClass": "SEAARE",
+    "geometryType": "area",
+    "attributes": {
+      "CATSEA": 5,
+      "OBJNAM": "Casco Bay"
+    }
+  }
+]

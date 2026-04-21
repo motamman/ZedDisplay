@@ -1,0 +1,23 @@
+[
+  {
+    "objectClass": "BOYLAT",
+    "geometryType": "point",
+    "attributes": {
+      "BOYSHP": 4,
+      "CATLAM": 1,
+      "COLOUR": "4",
+      "OBJNAM": "Fort Point Lighted Buoy 1"
+    }
+  },
+  {
+    "objectClass": "BOYLAT",
+    "geometryType": "point",
+    "attributes": {
+      "BOYSHP": 2,
+      "CATLAM": 1,
+      "COLOUR": "4",
+      "OBJNAM": "Rouge Island South Buoy 9",
+      "STATUS": "1"
+    }
+  }
+]

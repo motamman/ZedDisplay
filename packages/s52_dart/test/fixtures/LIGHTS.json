@@ -1,0 +1,14 @@
+[
+  {
+    "objectClass": "LIGHTS",
+    "geometryType": "point",
+    "attributes": {
+      "COLOUR": "4",
+      "EXCLIT": 4,
+      "LITCHR": 2,
+      "SIGGRP": "(1)",
+      "SIGPER": 4,
+      "SIGSEQ": "00.4+(03.6)"
+    }
+  }
+]

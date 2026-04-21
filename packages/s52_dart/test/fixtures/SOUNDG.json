@@ -1,0 +1,58 @@
+[
+  {
+    "objectClass": "SOUNDG",
+    "geometryType": "point",
+    "attributes": {
+      "DEPTH": 2.1
+    }
+  },
+  {
+    "objectClass": "SOUNDG",
+    "geometryType": "point",
+    "attributes": {
+      "DEPTH": 11.2
+    }
+  },
+  {
+    "objectClass": "SOUNDG",
+    "geometryType": "point",
+    "attributes": {
+      "DEPTH": 3
+    }
+  },
+  {
+    "objectClass": "SOUNDG",
+    "geometryType": "point",
+    "attributes": {
+      "DEPTH": 5.7
+    }
+  },
+  {
+    "objectClass": "SOUNDG",
+    "geometryType": "point",
+    "attributes": {
+      "DEPTH": 3.9
+    }
+  },
+  {
+    "objectClass": "SOUNDG",
+    "geometryType": "point",
+    "attributes": {
+      "DEPTH": 4.2
+    }
+  },
+  {
+    "objectClass": "SOUNDG",
+    "geometryType": "point",
+    "attributes": {
+      "DEPTH": 0.1
+    }
+  },
+  {
+    "objectClass": "SOUNDG",
+    "geometryType": "point",
+    "attributes": {
+      "DEPTH": 0.9
+    }
+  }
+]

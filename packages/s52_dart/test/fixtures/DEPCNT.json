@@ -1,0 +1,58 @@
+[
+  {
+    "objectClass": "DEPCNT",
+    "geometryType": "line",
+    "attributes": {
+      "VALDCO": 5.4
+    }
+  },
+  {
+    "objectClass": "DEPCNT",
+    "geometryType": "line",
+    "attributes": {
+      "VALDCO": 0
+    }
+  },
+  {
+    "objectClass": "DEPCNT",
+    "geometryType": "line",
+    "attributes": {
+      "VALDCO": 0
+    }
+  },
+  {
+    "objectClass": "DEPCNT",
+    "geometryType": "line",
+    "attributes": {
+      "VALDCO": 1.8
+    }
+  },
+  {
+    "objectClass": "DEPCNT",
+    "geometryType": "line",
+    "attributes": {
+      "VALDCO": 5.4
+    }
+  },
+  {
+    "objectClass": "DEPCNT",
+    "geometryType": "line",
+    "attributes": {
+      "VALDCO": 9.1
+    }
+  },
+  {
+    "objectClass": "DEPCNT",
+    "geometryType": "line",
+    "attributes": {
+      "VALDCO": 3.6
+    }
+  },
+  {
+    "objectClass": "DEPCNT",
+    "geometryType": "line",
+    "attributes": {
+      "VALDCO": 10.9
+    }
+  }
+]

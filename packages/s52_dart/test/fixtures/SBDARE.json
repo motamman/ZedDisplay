@@ -1,0 +1,39 @@
+[
+  {
+    "objectClass": "SBDARE",
+    "geometryType": "area",
+    "attributes": {
+      "NATSUR": "9",
+      "WATLEV": 4
+    }
+  },
+  {
+    "objectClass": "SBDARE",
+    "geometryType": "point",
+    "attributes": {
+      "NATQUA": "6"
+    }
+  },
+  {
+    "objectClass": "SBDARE",
+    "geometryType": "point",
+    "attributes": {
+      "NATSUR": "9"
+    }
+  },
+  {
+    "objectClass": "SBDARE",
+    "geometryType": "point",
+    "attributes": {
+      "NATSUR": "1"
+    }
+  },
+  {
+    "objectClass": "SBDARE",
+    "geometryType": "point",
+    "attributes": {
+      "NATQUA": "6",
+      "NATSUR": "1"
+    }
+  }
+]

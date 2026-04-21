@@ -1,0 +1,9 @@
+[
+  {
+    "objectClass": "BRIDGE",
+    "geometryType": "line",
+    "attributes": {
+      "CATBRG": "9"
+    }
+  }
+]
