@@ -72,13 +72,35 @@ class S52LineComplex extends S52Instruction {
   String toString() => 'S52LineComplex($patternName)';
 }
 
-/// `AC(CODE)` — fill an area polygon with the colour-table code.
+/// `AC(CODE[,TRANS])` — fill an area polygon with the colour-table
+/// code. Optional second arg is the S-52 transparency level (0–4),
+/// where 0 = opaque and each step subtracts ~25% alpha. Renderers map
+/// it to paint alpha — see [transparencyAlpha].
 class S52AreaColor extends S52Instruction {
-  const S52AreaColor({required this.colorCode, required super.raw});
+  const S52AreaColor({
+    required this.colorCode,
+    this.transparency = 0,
+    required super.raw,
+  });
   final String colorCode;
+  final int transparency;
+
+  /// Resolved alpha (0–255) for [transparency], following the S-52
+  /// PresLib mapping. Levels outside 0–4 clamp to opaque.
+  int get transparencyAlpha {
+    switch (transparency) {
+      case 1: return 191; // ~75% opaque
+      case 2: return 127; // ~50% opaque
+      case 3: return 63;  // ~25% opaque
+      case 4: return 0;   // fully transparent
+      default: return 255;
+    }
+  }
 
   @override
-  String toString() => 'S52AreaColor($colorCode)';
+  String toString() => transparency == 0
+      ? 'S52AreaColor($colorCode)'
+      : 'S52AreaColor($colorCode,$transparency)';
 }
 
 /// `AP(NAME)` — fill an area with a tiled pattern symbol.
@@ -226,7 +248,7 @@ class S52InstructionParser {
       case 'LC':
         return S52LineComplex(patternName: args.trim(), raw: chunk);
       case 'AC':
-        return S52AreaColor(colorCode: args.trim(), raw: chunk);
+        return _parseAreaColor(args, chunk);
       case 'AP':
         return S52AreaPattern(patternName: args.trim(), raw: chunk);
       case 'TX':
@@ -241,6 +263,23 @@ class S52InstructionParser {
       default:
         return S52UnknownInstruction(opcode: opcode, args: args, raw: chunk);
     }
+  }
+
+  static S52Instruction _parseAreaColor(String args, String raw) {
+    final parts = args.split(',').map((e) => e.trim()).toList();
+    if (parts.isEmpty || parts[0].isEmpty) {
+      return S52UnknownInstruction(opcode: 'AC', args: args, raw: raw);
+    }
+    final colorCode = parts[0];
+    int trans = 0;
+    if (parts.length >= 2) {
+      trans = int.tryParse(parts[1]) ?? 0;
+    }
+    return S52AreaColor(
+      colorCode: colorCode,
+      transparency: trans,
+      raw: raw,
+    );
   }
 
   static S52Instruction _parseLineStyle(String args, String raw) {

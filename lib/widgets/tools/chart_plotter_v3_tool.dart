@@ -728,6 +728,11 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
     // feature 3× (one per retained zoom).
     final activeZ = camera.zoom.round().clamp(9, 16);
     final hits = <_TappedFeature>[];
+    // Dedup signature → already-added flag. Same real-world feature can
+    // appear in N adjacent tiles (MVT splits long lines / large polygons
+    // at tile boundaries and re-emits the attributes per tile). Without
+    // this we'd see N identical entries in the popover.
+    final seenSig = <String>{};
     final tileMap = _tileManager?.tiles ?? const <S57TileKey, S57ParsedTile>{};
     for (final entry in tileMap.entries) {
       if (entry.key.z != activeZ) continue;
@@ -743,12 +748,14 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
             hitRadiusPx * hitRadiusPx) {
           continue;
         }
+        final sig = _featureSignature(f);
+        if (!seenSig.add(sig)) continue;
         hits.add(_TappedFeature(
           layer: f.objectClass,
           properties: Map.of(f.attributes),
           screenPos: closest,
           displayPriority: f.displayPriority,
-          isPoint: f.geometry.kind == S57GeomKind.point,
+          kind: f.geometry.kind,
         ));
       }
     }
@@ -776,7 +783,7 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
         if (!merged) {
           groups.add(_TapGroup(
             center: h.screenPos,
-            isPoint: true,
+            kind: h.kind,
             maxPriority: h.displayPriority,
             members: [h],
           ));
@@ -784,20 +791,24 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
       } else {
         groups.add(_TapGroup(
           center: h.screenPos,
-          isPoint: false,
+          kind: h.kind,
           maxPriority: h.displayPriority,
           members: [h],
         ));
       }
     }
 
-    // Winning group: highest display priority; points beat lines/areas
-    // on tiebreak. Mirrors chart_webview.dart:1109-1112.
+    // Winning group: geometry kind first (point > line > polygon),
+    // priority within the same kind. Areas like RESARE have higher
+    // S-52 displayPriority than buoys but cover the whole viewport, so
+    // a priority-first sort lets the area swallow every tap that lands
+    // anywhere inside it. Kind-first ensures the symbol the user
+    // actually aimed at always wins over the background area context.
     groups.sort((a, b) {
-      if (a.maxPriority != b.maxPriority) {
-        return b.maxPriority.compareTo(a.maxPriority);
-      }
-      return (b.isPoint ? 1 : 0).compareTo(a.isPoint ? 1 : 0);
+      final ra = _kindRank(a.kind);
+      final rb = _kindRank(b.kind);
+      if (ra != rb) return ra.compareTo(rb);
+      return b.maxPriority.compareTo(a.maxPriority);
     });
     final winner = groups.first;
 
@@ -867,31 +878,13 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
         }
         return best;
       case S57GeomKind.polygon:
-        // f.geometry.rings = List<List<List<LatLng>>>:
-        //   outer list  → separate polygons (multipolygon)
-        //   middle list → rings (outer + holes)
-        //   inner list  → vertices of one ring
-        for (final polygon in f.geometry.rings) {
-          if (polygon.isEmpty) continue;
-          final outer = polygon.first;
-          if (outer.length < 3) continue;
-          final outerProj =
-              outer.map(project).toList(growable: false);
-          if (!_pointInPolygon(tap, outerProj)) continue;
-          var insideHole = false;
-          for (var i = 1; i < polygon.length; i++) {
-            final hole = polygon[i];
-            if (hole.length < 3) continue;
-            final holeProj = hole.map(project).toList(growable: false);
-            if (_pointInPolygon(tap, holeProj)) {
-              insideHole = true;
-              break;
-            }
-          }
-          if (!insideHole) return tap;
-        }
-        // Outside every polygon — fall back to the closest edge point
-        // so a near-edge tap still registers within hitRadius.
+        // Edge-proximity only — interior taps do NOT count as hits.
+        // RESARE / regulation areas / large administrative polygons
+        // cover most of the visible water; treating "inside polygon"
+        // as a hit means every tap "hits" them and they crowd out
+        // every symbol the user actually meant. Users who want area
+        // info tap the visible boundary (or a contour line where the
+        // area is bounded by one).
         Offset? best;
         var bestDist2 = double.infinity;
         for (final polygon in f.geometry.rings) {
@@ -925,19 +918,28 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
     return Offset(a.dx + t * dx, a.dy + t * dy);
   }
 
-  /// Ray-casting point-in-polygon. Counts edges crossed by a horizontal
-  /// ray from `p` to +∞; odd ⇒ inside.
-  static bool _pointInPolygon(Offset p, List<Offset> ring) {
-    var inside = false;
-    for (var i = 0, j = ring.length - 1; i < ring.length; j = i++) {
-      final xi = ring[i].dx, yi = ring[i].dy;
-      final xj = ring[j].dx, yj = ring[j].dy;
-      if (((yi > p.dy) != (yj > p.dy)) &&
-          (p.dx < (xj - xi) * (p.dy - yi) / (yj - yi) + xi)) {
-        inside = !inside;
-      }
+  /// Stable identity for a feature across tile boundaries: same
+  /// real-world object emitted in N adjacent tiles always produces the
+  /// same string. Built from objectClass plus the sorted attribute set,
+  /// which is what the upstream MVT carries identically per tile copy.
+  static String _featureSignature(S57StyledFeature f) {
+    final parts = f.attributes.entries
+        .where((e) => e.value != null)
+        .map((e) => '${e.key}=${e.value}')
+        .toList()
+      ..sort();
+    return '${f.objectClass}|${parts.join('|')}';
+  }
+
+  static int _kindRank(S57GeomKind k) {
+    switch (k) {
+      case S57GeomKind.point:
+        return 0;
+      case S57GeomKind.line:
+        return 1;
+      case S57GeomKind.polygon:
+        return 2;
     }
-    return inside;
   }
 
   void _showFeatureSheet(List<_TappedFeature> members, LatLng tap) {
@@ -2009,8 +2011,12 @@ class _S57Painter extends CustomPainter {
           );
           canvas.drawImageRect(spriteImage, srcRect, dstRect, paint);
         }
-      } else if (instruction is S52LineStyle &&
-          f.geometry.kind == S57GeomKind.line) {
+      } else if (instruction is S52LineStyle) {
+        // S-52 uses LS() for both polyline geometries AND polygon
+        // outlines (e.g. RESARE's dashed magenta border, EXEZNE's
+        // patterned edge). Walk lines for line features, walk every
+        // ring for polygon features. Point features fall through —
+        // both collections are empty.
         final paint = Paint()
           ..color = _resolve(instruction.colorCode)
           ..strokeWidth = instruction.width.toDouble().clamp(1, 4)
@@ -2020,13 +2026,24 @@ class _S57Painter extends CustomPainter {
           final path = _linePath(line, project);
           canvas.drawPath(dash == null ? path : _dashPath(path, dash), paint);
         }
-      } else if (instruction is S52LineComplex &&
-          f.geometry.kind == S57GeomKind.line) {
+        for (final polygon in f.geometry.rings) {
+          for (final ring in polygon) {
+            final path = _linePath(ring, project);
+            canvas.drawPath(dash == null ? path : _dashPath(path, dash), paint);
+          }
+        }
+      } else if (instruction is S52LineComplex) {
+        // Same logic for complex (sprite-stamped) lines on both line
+        // and polygon outlines.
         _paintLineComplex(canvas, instruction.patternName, f, project);
       } else if (instruction is S52AreaColor &&
           f.geometry.kind == S57GeomKind.polygon) {
+        // S-52 AC(CODE,TRANS): TRANS is a 0–4 transparency level.
+        // 4 = fully transparent → skip the draw entirely.
+        if (instruction.transparency >= 4) continue;
+        final base = _resolve(instruction.colorCode);
         final paint = Paint()
-          ..color = _resolve(instruction.colorCode)
+          ..color = base.withAlpha(instruction.transparencyAlpha)
           ..style = PaintingStyle.fill;
         for (final polygon in f.geometry.rings) {
           canvas.drawPath(_polygonPath(polygon, project), paint);
@@ -2072,8 +2089,8 @@ class _S57Painter extends CustomPainter {
     if (stamp <= 0) return;
     final paint = Paint()..filterQuality = FilterQuality.low;
     final dstSize = Size(stamp, meta.height.toDouble());
-    for (final line in f.geometry.lines) {
-      final path = _linePath(line, project);
+
+    void stampAlong(ui.Path path) {
       for (final metric in path.computeMetrics()) {
         for (var d = 0.0; d < metric.length; d += stamp) {
           final tangent = metric.getTangentForOffset(d);
@@ -2089,6 +2106,18 @@ class _S57Painter extends CustomPainter {
           );
           canvas.restore();
         }
+      }
+    }
+
+    for (final line in f.geometry.lines) {
+      stampAlong(_linePath(line, project));
+    }
+    // Polygon outlines: stamp around every ring (outer + holes). S-52
+    // uses LC() on areas (e.g. NAVARE51 around fairways) the same way
+    // it uses LC() on linear navarea boundaries.
+    for (final polygon in f.geometry.rings) {
+      for (final ring in polygon) {
+        stampAlong(_linePath(ring, project));
       }
     }
   }
@@ -2528,26 +2557,28 @@ class _TappedFeature {
     required this.properties,
     required this.screenPos,
     required this.displayPriority,
-    required this.isPoint,
+    required this.kind,
   });
   final String layer;
   final Map<String, Object?> properties;
   final Offset screenPos;
   final int displayPriority;
-  final bool isPoint;
+  final S57GeomKind kind;
+  bool get isPoint => kind == S57GeomKind.point;
 }
 
 class _TapGroup {
   _TapGroup({
     required this.center,
-    required this.isPoint,
+    required this.kind,
     required this.maxPriority,
     required this.members,
   });
   final Offset center;
-  final bool isPoint;
+  final S57GeomKind kind;
   int maxPriority;
   final List<_TappedFeature> members;
+  bool get isPoint => kind == S57GeomKind.point;
 }
 
 /// Renders one grouped feature's attributes. All formatting rules
