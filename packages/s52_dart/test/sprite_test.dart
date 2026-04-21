@@ -91,7 +91,7 @@ void main() {
           width: 1,
           height: 1,
         ),
-        throwsUnsupportedError,
+        throwsA(isA<UnsupportedError>()),
       );
     });
   });

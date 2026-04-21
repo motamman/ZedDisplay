@@ -43,6 +43,12 @@ jobs:
       - name: Get fresh dependencies
         run: |
           flutter pub get
+          # Resolve s52_dart's own dev_dependencies (test, lints) so the
+          # analyzer can see `package:test/test.dart` etc. when it walks
+          # packages/s52_dart/test/*.dart. Without this, every test file
+          # in the workspace package shows hundreds of undefined-function
+          # errors during analyze.
+          (cd packages/s52_dart && dart pub get)
           echo "=== Analyzing ==="
           flutter analyze --no-fatal-infos || true
 

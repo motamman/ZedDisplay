@@ -43,6 +43,12 @@ jobs:
       - name: Get fresh dependencies
         run: |
           flutter pub get
+          # Resolve s52_dart's own dev_dependencies (test, lints) so the
+          # analyzer can see `package:test/test.dart` etc. when it walks
+          # packages/s52_dart/test/*.dart. Without this, every test file
+          # in the workspace package shows hundreds of undefined-function
+          # errors during analyze.
+          (cd packages/s52_dart && dart pub get)
           echo "=== Analyzing ==="
           flutter analyze --no-fatal-infos || true
 
@@ -83,12 +89,50 @@ jobs:
           echo "EOF" >> $GITHUB_OUTPUT
 
       - name: Upload to TestFlight
-        uses: apple-actions/upload-testflight-build@v3
-        with:
-          app-path: ${{ steps.find_ipa.outputs.IPA_PATH }}
-          issuer-id: ${{ secrets.APPSTORE_ISSUER_ID }}
-          api-key-id: ${{ secrets.APPSTORE_API_KEY_ID }}
-          api-private-key: ${{ secrets.APPSTORE_API_PRIVATE_KEY }}
+        env:
+          API_KEY_ID: ${{ secrets.APPSTORE_API_KEY_ID }}
+          API_ISSUER_ID: ${{ secrets.APPSTORE_ISSUER_ID }}
+          API_PRIVATE_KEY: ${{ secrets.APPSTORE_API_PRIVATE_KEY }}
+          IPA_PATH: ${{ steps.find_ipa.outputs.IPA_PATH }}
+        # Direct altool call instead of apple-actions/upload-testflight-build
+        # because that action treats an altool exit code of 0 as success even
+        # when altool itself printed an `ERROR:` line and Apple rejected the
+        # upload (e.g. "required agreement is missing or has expired"). Here
+        # we fail the step explicitly when altool reports any ERROR or when
+        # the exit code is non-zero.
+        run: |
+          set -uo pipefail
+          mkdir -p ~/.appstoreconnect/private_keys
+          KEY_FILE="$HOME/.appstoreconnect/private_keys/AuthKey_${API_KEY_ID}.p8"
+          printf '%s' "$API_PRIVATE_KEY" > "$KEY_FILE"
+          chmod 600 "$KEY_FILE"
+          trap 'rm -f "$KEY_FILE"' EXIT
+
+          set +e
+          OUTPUT=$(xcrun altool --upload-app \
+            --type ios \
+            --file "$IPA_PATH" \
+            --apiKey "$API_KEY_ID" \
+            --apiIssuer "$API_ISSUER_ID" \
+            --output-format xml 2>&1)
+          ALTOOL_EXIT=$?
+          set -e
+
+          echo "$OUTPUT"
+
+          if [ "$ALTOOL_EXIT" -ne 0 ]; then
+            echo "::error::altool exited with code $ALTOOL_EXIT"
+            exit "$ALTOOL_EXIT"
+          fi
+          if echo "$OUTPUT" | grep -qE '^[[:space:]]*[0-9-]+ +[0-9:.]+ +ERROR:'; then
+            echo "::error::altool reported an upload error (App Store Connect rejection)"
+            exit 1
+          fi
+          if echo "$OUTPUT" | grep -qE 'were not uploaded because they had problems'; then
+            echo "::error::altool reported package(s) not uploaded"
+            exit 1
+          fi
+          echo "TestFlight upload accepted by App Store Connect."
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
