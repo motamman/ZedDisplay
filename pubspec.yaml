@@ -53,6 +53,8 @@ dependencies:
   # Maps
   flutter_map: ^8.2.2
   latlong2: ^0.9.1
+  # MVT decoder for Chart Plotter V3 spike (s52_dart → flutter_map overlay).
+  vector_tile: ^4.0.0
 
   # Color picker
   flutter_colorpicker: ^1.1.0
@@ -115,6 +117,12 @@ dependencies:
 
   # Vibration patterns for Find Home haptic feedback
   vibration: ^3.1.8
+
+  # Local pure-Dart S-52 chart symbology engine. Feeds the Chart Plotter V2
+  # pipeline (renderer-agnostic drawing instructions). See
+  # packages/s52_dart/README.md.
+  s52_dart:
+    path: packages/s52_dart
 
 dev_dependencies:
   flutter_test:

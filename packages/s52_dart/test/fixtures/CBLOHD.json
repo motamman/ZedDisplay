@@ -1,0 +1,10 @@
+[
+  {
+    "objectClass": "CBLOHD",
+    "geometryType": "line",
+    "attributes": {
+      "CATCBL": 1,
+      "VERCLR": 8.8
+    }
+  }
+]

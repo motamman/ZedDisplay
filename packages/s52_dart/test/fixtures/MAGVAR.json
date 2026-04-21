@@ -1,0 +1,11 @@
+[
+  {
+    "objectClass": "MAGVAR",
+    "geometryType": "area",
+    "attributes": {
+      "RYRMGV": "2021",
+      "VALACM": 5,
+      "VALMAG": -16
+    }
+  }
+]

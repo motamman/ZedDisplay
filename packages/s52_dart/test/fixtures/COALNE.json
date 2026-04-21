@@ -1,0 +1,23 @@
+[
+  {
+    "objectClass": "COALNE",
+    "geometryType": "line",
+    "attributes": {
+      "CATCOA": 1
+    }
+  },
+  {
+    "objectClass": "COALNE",
+    "geometryType": "line",
+    "attributes": {
+      "CATCOA": 8
+    }
+  },
+  {
+    "objectClass": "COALNE",
+    "geometryType": "line",
+    "attributes": {
+      "CATCOA": 1
+    }
+  }
+]

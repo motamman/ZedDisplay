@@ -1,0 +1,48 @@
+[
+  {
+    "objectClass": "M",
+    "geometryType": "area",
+    "attributes": {
+      "CATZOC": 3,
+      "SUREND": "1949",
+      "SURSTA": "1940"
+    }
+  },
+  {
+    "objectClass": "M",
+    "geometryType": "area",
+    "attributes": {
+      "CATCOV": 1
+    }
+  },
+  {
+    "objectClass": "M",
+    "geometryType": "area",
+    "attributes": {
+      "TXTDSC": "US137BDA.TXT"
+    }
+  },
+  {
+    "objectClass": "M",
+    "geometryType": "area",
+    "attributes": {
+      "MARSYS": 2
+    }
+  },
+  {
+    "objectClass": "M",
+    "geometryType": "area",
+    "attributes": {
+      "CATZOC": 3,
+      "SUREND": "1949",
+      "SURSTA": "1940"
+    }
+  },
+  {
+    "objectClass": "M",
+    "geometryType": "area",
+    "attributes": {
+      "TXTDSC": "US137BEA.TXT"
+    }
+  }
+]

@@ -46,6 +46,7 @@ import '../widgets/tools/sun_moon_arc_tool.dart';
 import '../widgets/tools/historical_data_explorer_tool.dart';
 import '../widgets/tools/webview_tool.dart';
 import '../widgets/tools/chart_plotter_tool.dart';
+import '../widgets/tools/chart_plotter_v3_tool.dart';
 // windsteer_tool.dart and windsteer_demo_tool.dart are DEPRECATED — do not import or register.
 // Superseded by WindCompassTool (Oct 2025). See file headers for details.
 
@@ -188,5 +189,6 @@ class ToolRegistry {
     // windsteer and windsteer_demo DEPRECATED — superseded by wind_compass. Do not re-register.
     register('webview', WebViewToolBuilder());
     register('chart_plotter', ChartPlotterBuilder());
+    register('chart_plotter_v3', ChartPlotterV3Builder());
   }
 }

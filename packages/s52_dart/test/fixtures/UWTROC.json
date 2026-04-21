@@ -1,0 +1,10 @@
+[
+  {
+    "objectClass": "UWTROC",
+    "geometryType": "point",
+    "attributes": {
+      "QUASOU": "2",
+      "WATLEV": 4
+    }
+  }
+]

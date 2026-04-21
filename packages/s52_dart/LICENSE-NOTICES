@@ -1,0 +1,37 @@
+s52_dart
+========
+
+Copyright 2026 Maurice Tamman
+Released under the MIT License. See the repository root LICENSE for the
+full MIT text.
+
+Derivative Work Attribution
+---------------------------
+
+The structure and conditional symbology procedures (CS) in this package
+are derived from Freeboard-SK, an open-source chart plotter for
+SignalK. Freeboard-SK is licensed under the Apache License 2.0.
+
+Original source:
+  https://github.com/SignalK/freeboard-sk
+  src/app/modules/map/ol/lib/charts/s57.service.ts
+  src/app/modules/map/ol/lib/charts/s57Style.ts
+  src/app/modules/map/ol/lib/charts/vectorLayerStyleFactory.ts
+
+In accordance with Apache-2.0 §4(c), this NOTICE file preserves
+attribution to the original work. No Apache-2.0 source code is
+redistributed verbatim in this package; the derivative work is a
+translation to Dart and is reorganised for renderer-agnostic use.
+
+IHO S-52 / S-57
+---------------
+
+The International Hydrographic Organization (IHO) S-52 and S-57
+standards themselves are normative references. This package implements
+rendering behaviour specified by those standards. The IHO chart
+symbols, lookup tables, and colour tables shipped as compiled assets
+in the consuming application (ZedDisplay) derive from the OpenCPN
+chartsymbols.xml / rastersymbols-day.png artifacts, which are
+distributed under LGPL v2+ by the OpenCPN project. Those assets are
+data, not code; this package consumes them at runtime via the asset
+loader API and does not redistribute them.
