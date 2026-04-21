@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io' show gzip;
 import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui' as ui;
@@ -9,11 +8,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_map_dragmarker/flutter_map_dragmarker.dart';
-import 'package:http/http.dart' as http;
 import 'package:latlong2/latlong.dart';
 import 'package:provider/provider.dart';
 import 'package:s52_dart/s52_dart.dart';
-import 'package:vector_tile/vector_tile.dart' as vt;
 
 import '../../config/app_colors.dart';
 import '../../config/chart_constants.dart';
@@ -24,6 +21,7 @@ import '../../services/chart_download_manager.dart';
 import '../../services/chart_tile_cache_service.dart';
 import '../../services/chart_tile_server_service.dart';
 import '../../services/route_arrival_monitor.dart';
+import '../../services/s57_tile_manager.dart';
 import '../../services/signalk_service.dart';
 import '../../services/tool_registry.dart';
 import '../ais_vessel_detail_sheet.dart';
@@ -108,8 +106,7 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
   SpriteAtlas? _spriteAtlas;
   ui.Image? _spriteImage;
   String? _loadError;
-  final Map<_TileKey, _ParsedTile> _tileCache = {};
-  final Set<_TileKey> _inflight = {};
+  S57TileManager? _tileManager;
   final _mapController = MapController();
 
   // Route state — mirrors V1's field set so ChartRouteState /
@@ -125,7 +122,6 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
   RouteArrivalMonitor? _arrivalMonitor;
   StreamSubscription<RouteArrivalEvent>? _arrivalSub;
 
-  TileFreshness _viewportFreshness = TileFreshness.uncached;
 
   // Ruler state. Matches V1's model: two endpoints (red + blue) that
   // can each snap to the own vessel ('self') or an AIS vessel id, and
@@ -161,10 +157,6 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
   // Auto-zoom re-engages with auto-follow and disables on a user
   // pinch/scroll so the user can override without fighting us.
   bool _autoZoom = true;
-  // Bounding boxes of LNDARE polygons we've seen, used by auto-zoom
-  // to tighten the view when land is close. Populated as tiles parse.
-  final List<LatLngBounds> _landBounds = [];
-  final Set<_TileKey> _landIndexedTiles = {};
   LatLng? _tapHalo;
   // Set in FlutterMap's onMapReady. Anything that touches
   // `_mapController.camera` / `.move()` must short-circuit until
@@ -242,7 +234,13 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
     _routePollTimer?.cancel();
     _vesselTimer?.cancel();
     _stopArrivalMonitor();
+    _tileManager?.removeListener(_onTileManagerChanged);
+    _tileManager?.dispose();
     super.dispose();
+  }
+
+  void _onTileManagerChanged() {
+    if (mounted) setState(() {});
   }
 
   /// Arrival monitor wiring matches V1 (chart_plotter_tool.dart:463-494).
@@ -723,22 +721,34 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
     const groupRadiusPx = 30.0;
     final camera = _mapController.camera;
 
+    // Active-zoom-only hit-test. Cross-zoom retention keeps tiles at
+    // z±1 in the cache as fallback fill for the painter, but tapping
+    // should match what the user perceives as "the chart" — the active
+    // layer on top. Iterating all retained tiles would surface every
+    // feature 3× (one per retained zoom).
+    final activeZ = camera.zoom.round().clamp(9, 16);
     final hits = <_TappedFeature>[];
-    for (final tile in _tileCache.values) {
-      for (final f in tile.features) {
+    final tileMap = _tileManager?.tiles ?? const <S57TileKey, S57ParsedTile>{};
+    for (final entry in tileMap.entries) {
+      if (entry.key.z != activeZ) continue;
+      for (final f in entry.value.features) {
         if (!_clickableLayers.contains(f.objectClass)) continue;
-        final screenPos = _featureScreenPos(f, camera);
-        if (screenPos == null) continue;
-        if ((screenPos - tapScreen).distanceSquared >
+        // Closest point on the feature's actual geometry, not a
+        // degenerate first-vertex / midpoint stand-in. Lets taps
+        // anywhere along a contour line or inside a depth area
+        // register against the right feature.
+        final closest = _featureClosestPoint(f, tapScreen, camera);
+        if (closest == null) continue;
+        if ((closest - tapScreen).distanceSquared >
             hitRadiusPx * hitRadiusPx) {
           continue;
         }
         hits.add(_TappedFeature(
           layer: f.objectClass,
           properties: Map.of(f.attributes),
-          screenPos: screenPos,
+          screenPos: closest,
           displayPriority: f.displayPriority,
-          isPoint: f.geometry.kind == _GeomKind.point,
+          isPoint: f.geometry.kind == S57GeomKind.point,
         ));
       }
     }
@@ -811,28 +821,123 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
     _showFeatureSheet(winner.members, tap);
   }
 
-  Offset? _featureScreenPos(_StyledFeature f, MapCamera camera) {
+  /// Closest screen-space point on the feature's geometry to `tap`.
+  /// Used both for hit-testing (compare distance to a radius) and as
+  /// the popover group anchor. Returns null if the feature has no
+  /// usable geometry.
+  ///
+  ///   * Point: nearest of the feature's points to the tap.
+  ///   * Line: perpendicular foot on the nearest segment across all
+  ///     polylines.
+  ///   * Polygon: the tap itself when inside the outer ring (and not
+  ///     in a hole) — distance zero. Otherwise the closest edge point.
+  Offset? _featureClosestPoint(
+      S57StyledFeature f, Offset tap, MapCamera camera) {
     final origin = camera.pixelOrigin;
     Offset project(LatLng p) => camera.projectAtZoom(p) - origin;
     switch (f.geometry.kind) {
-      case _GeomKind.point:
-        if (f.geometry.points.isEmpty) return null;
-        return project(f.geometry.points.first);
-      case _GeomKind.line:
-        if (f.geometry.lines.isEmpty || f.geometry.lines.first.isEmpty) {
-          return null;
+      case S57GeomKind.point:
+        Offset? best;
+        var bestDist2 = double.infinity;
+        for (final p in f.geometry.points) {
+          final s = project(p);
+          final d2 = (s - tap).distanceSquared;
+          if (d2 < bestDist2) {
+            bestDist2 = d2;
+            best = s;
+          }
         }
-        // Midpoint of the first polyline is close enough for hit-test.
-        final line = f.geometry.lines.first;
-        return project(line[line.length ~/ 2]);
-      case _GeomKind.polygon:
-        if (f.geometry.rings.isEmpty ||
-            f.geometry.rings.first.isEmpty ||
-            f.geometry.rings.first.first.isEmpty) {
-          return null;
+        return best;
+      case S57GeomKind.line:
+        Offset? best;
+        var bestDist2 = double.infinity;
+        for (final line in f.geometry.lines) {
+          if (line.length < 2) continue;
+          var prev = project(line.first);
+          for (var i = 1; i < line.length; i++) {
+            final curr = project(line[i]);
+            final c = _closestPointOnSegment(tap, prev, curr);
+            final d2 = (c - tap).distanceSquared;
+            if (d2 < bestDist2) {
+              bestDist2 = d2;
+              best = c;
+            }
+            prev = curr;
+          }
         }
-        return project(f.geometry.rings.first.first.first);
+        return best;
+      case S57GeomKind.polygon:
+        // f.geometry.rings = List<List<List<LatLng>>>:
+        //   outer list  → separate polygons (multipolygon)
+        //   middle list → rings (outer + holes)
+        //   inner list  → vertices of one ring
+        for (final polygon in f.geometry.rings) {
+          if (polygon.isEmpty) continue;
+          final outer = polygon.first;
+          if (outer.length < 3) continue;
+          final outerProj =
+              outer.map(project).toList(growable: false);
+          if (!_pointInPolygon(tap, outerProj)) continue;
+          var insideHole = false;
+          for (var i = 1; i < polygon.length; i++) {
+            final hole = polygon[i];
+            if (hole.length < 3) continue;
+            final holeProj = hole.map(project).toList(growable: false);
+            if (_pointInPolygon(tap, holeProj)) {
+              insideHole = true;
+              break;
+            }
+          }
+          if (!insideHole) return tap;
+        }
+        // Outside every polygon — fall back to the closest edge point
+        // so a near-edge tap still registers within hitRadius.
+        Offset? best;
+        var bestDist2 = double.infinity;
+        for (final polygon in f.geometry.rings) {
+          for (final ring in polygon) {
+            if (ring.length < 2) continue;
+            var prev = project(ring.first);
+            for (var i = 1; i < ring.length; i++) {
+              final curr = project(ring[i]);
+              final c = _closestPointOnSegment(tap, prev, curr);
+              final d2 = (c - tap).distanceSquared;
+              if (d2 < bestDist2) {
+                bestDist2 = d2;
+                best = c;
+              }
+              prev = curr;
+            }
+          }
+        }
+        return best;
     }
+  }
+
+  static Offset _closestPointOnSegment(Offset p, Offset a, Offset b) {
+    final dx = b.dx - a.dx;
+    final dy = b.dy - a.dy;
+    final lenSq = dx * dx + dy * dy;
+    if (lenSq == 0) return a;
+    var t = ((p.dx - a.dx) * dx + (p.dy - a.dy) * dy) / lenSq;
+    if (t < 0) t = 0;
+    if (t > 1) t = 1;
+    return Offset(a.dx + t * dx, a.dy + t * dy);
+  }
+
+  /// Ray-casting point-in-polygon. Counts edges crossed by a horizontal
+  /// ray from `p` to +∞; odd ⇒ inside.
+  static bool _pointInPolygon(Offset p, List<Offset> ring) {
+    var inside = false;
+    for (var i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+      final xi = ring[i].dx, yi = ring[i].dy;
+      final xj = ring[j].dx, yj = ring[j].dy;
+      if (((yi > p.dy) != (yj > p.dy)) &&
+          (p.dx < (xj - xi) * (p.dy - yi) / (yj - yi) + xi)) {
+        inside = !inside;
+      }
+    }
+    return inside;
   }
 
   void _showFeatureSheet(List<_TappedFeature> members, LatLng tap) {
@@ -847,50 +952,67 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (sheetCtx) => DraggableScrollableSheet(
-        initialChildSize: 0.4,
-        maxChildSize: 0.85,
-        minChildSize: 0.2,
-        builder: (_, controller) => Container(
-          decoration: const BoxDecoration(
-            color: AppColors.cardBackgroundDark,
-            borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-                child: Row(
-                  children: [
-                    const Icon(Icons.place, color: Colors.white70, size: 18),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        '${tap.latitude.toStringAsFixed(5)}, '
-                        '${tap.longitude.toStringAsFixed(5)}',
-                        style: const TextStyle(
-                            color: Colors.white70, fontSize: 12),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const Divider(height: 1, color: Colors.white12),
-              Expanded(
-                child: ListView.builder(
-                  controller: controller,
-                  itemCount: members.length,
-                  itemBuilder: (_, i) => _FeatureCard(
-                    member: members[i],
-                    depth: depthMeta,
-                    height: heightMeta,
+      backgroundColor: AppColors.cardBackgroundDark,
+      barrierColor: Colors.transparent,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      // Constrain to ~half the screen so the map above stays tappable
+      // without the sheet trying to grow into it.
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.of(context).size.height * 0.5,
+      ),
+      builder: (sheetCtx) => SafeArea(
+        top: false,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Material drag handle — Flutter wires its own
+            // GestureDetector so swipe-down here flings the sheet to
+            // dismiss directly.
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 8),
+              child: SizedBox(
+                width: 40,
+                height: 4,
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: Colors.white24,
+                    borderRadius: BorderRadius.all(Radius.circular(2)),
                   ),
                 ),
               ),
-            ],
-          ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
+              child: Row(
+                children: [
+                  const Icon(Icons.place, color: Colors.white70, size: 18),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      '${tap.latitude.toStringAsFixed(5)}, '
+                      '${tap.longitude.toStringAsFixed(5)}',
+                      style: const TextStyle(
+                          color: Colors.white70, fontSize: 12),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const Divider(height: 1, color: Colors.white12),
+            Flexible(
+              child: ListView.builder(
+                shrinkWrap: true,
+                itemCount: members.length,
+                itemBuilder: (_, i) => _FeatureCard(
+                  member: members[i],
+                  depth: depthMeta,
+                  height: heightMeta,
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -974,17 +1096,34 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
           jsonDecode(spriteJsonRaw) as Map<String, dynamic>);
       final spriteImage = await _decodeImage(spritePngBytes);
       if (!mounted) return;
+      // Depth display unit + factor from the user's MetadataStore
+      // preset (CLAUDE.md SSOT). Falls back to metres × 1.0 if no
+      // depth metadata is registered yet (e.g. SignalK still
+      // connecting). Reactive updates after first build aren't
+      // wired — reload the chart to pick up a unit change.
+      final depthMeta =
+          widget.signalKService.metadataStore.getByCategory('depth');
+      final engine = S52StyleEngine(
+        lookups: lookups,
+        options: S52Options(
+          displayCategory: S52DisplayCategory.other,
+          depthUnit: depthMeta?.symbol ?? 'm',
+          depthConversionFactor: depthMeta?.convert(1.0) ?? 1.0,
+        ),
+        csProcedures: standardCsProcedures,
+      );
+      final manager = S57TileManager(
+        engine: engine,
+        urlBuilder: _buildTileUrl,
+        freshnessProbe: _probeViewportFreshness,
+      );
+      manager.addListener(_onTileManagerChanged);
       setState(() {
-        _engine = S52StyleEngine(
-          lookups: lookups,
-          options: const S52Options(
-            displayCategory: S52DisplayCategory.other,
-          ),
-          csProcedures: standardCsProcedures,
-        );
+        _engine = engine;
         _colorTable = colors;
         _spriteAtlas = sprites;
         _spriteImage = spriteImage;
+        _tileManager = manager;
       });
     } catch (e, st) {
       if (!mounted) return;
@@ -998,40 +1137,11 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
     return frame.image;
   }
 
-  Future<void> _ensureTile(_TileKey key) async {
-    if (_tileCache.containsKey(key) || _inflight.contains(key)) return;
-    final engine = _engine;
-    if (engine == null) return;
-    _inflight.add(key);
-    try {
-      final url = _tileUrl(key);
-      final resp = await http.get(Uri.parse(url));
-      if (resp.statusCode != 200) {
-        _tileCache[key] = _ParsedTile.empty();
-        return;
-      }
-      Uint8List bytes = resp.bodyBytes;
-      // Tiles may arrive gzipped; the decoder expects raw protobuf.
-      if (bytes.length >= 2 && bytes[0] == 0x1f && bytes[1] == 0x8b) {
-        bytes = Uint8List.fromList(gzip.decode(bytes));
-      }
-      final decoded = vt.VectorTile.fromBytes(bytes: bytes);
-      final parsed = _parse(decoded, engine, key);
-      _tileCache[key] = parsed;
-      _indexLandExtents(key, parsed);
-      if (mounted) setState(() {});
-    } catch (_) {
-      _tileCache[key] = _ParsedTile.empty();
-    } finally {
-      _inflight.remove(key);
-    }
-  }
-
-  /// Prefer the local cached proxy (cache-first, background-refresh)
-  /// when the shared tile server is running. Fall back to direct
-  /// upstream when it's not available — tests and dev environments
-  /// don't always have it wired.
-  String _tileUrl(_TileKey key) {
+  /// URL builder for the tile manager. Prefers the local cached proxy
+  /// (cache-first, background-refresh) when the shared tile server is
+  /// running. Falls back to direct upstream otherwise — tests and dev
+  /// environments don't always have the proxy wired.
+  String _buildTileUrl(S57TileKey key) {
     final chartId =
         (_firstEnabled('s57')?['id'] as String?) ?? '01CGD_ENCs';
     try {
@@ -1043,139 +1153,11 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
     return '${widget.signalKService.httpBaseUrl}/plugins/signalk-charts-provider-simple/$chartId/${key.z}/${key.x}/${key.y}';
   }
 
-  _ParsedTile _parse(vt.VectorTile tile, S52StyleEngine engine, _TileKey key) {
-    final out = <_StyledFeature>[];
-    for (final layer in tile.layers) {
-      for (final feature in layer.features) {
-        try {
-          feature.decodeGeometry();
-          feature.decodeProperties();
-        } catch (_) {
-          continue;
-        }
-        final attrs = <String, Object?>{};
-        feature.properties?.forEach((k, v) {
-          attrs[k] = v.dartStringValue ??
-              v.dartIntValue?.toInt() ??
-              v.dartDoubleValue ??
-              v.dartBoolValue;
-        });
-        // SCAMIN = minimum display scale denominator. The feature
-        // should only be drawn when the viewer's scale denominator is
-        // smaller (i.e. zoomed in further). Tile scale ≈ 559e6 / 2^z.
-        final scamin = attrs['SCAMIN'];
-        if (scamin is num) {
-          final tileScaleDenominator = 559082264.0 / (1 << key.z);
-          if (scamin.toDouble() < tileScaleDenominator) continue;
-        }
-        final geomType = _mapGeom(feature.geometryType);
-        if (geomType == null) continue;
-        final s52 = S52Feature(
-          objectClass: layer.name,
-          geometryType: geomType,
-          attributes: attrs,
-          layerName: layer.name,
-        );
-        final instructions = engine.styleFeature(s52);
-        if (instructions.isEmpty) continue;
-        final world = _geomToLatLng(feature, layer.extent, key);
-        if (world == null) continue;
-        // Look up displayPriority via the same table kind the engine
-        // used (simplified/lines/symbolisedBoundaries) so the feature
-        // popover can sort by S-52 priority the same way V1 does.
-        final lookupKind = switch (geomType) {
-          S52GeometryType.point => S52LookupTableKind.simplified,
-          S52GeometryType.line => S52LookupTableKind.lines,
-          S52GeometryType.area => S52LookupTableKind.symbolisedBoundaries,
-        };
-        final row = engine.lookups.bestMatch(
-          lookupKind,
-          layer.name,
-          geomType,
-          attrs,
-        );
-        out.add(_StyledFeature(
-          objectClass: layer.name,
-          geometry: world,
-          instructions: instructions,
-          attributes: attrs,
-          displayPriority: row?.displayPriority.code ?? 0,
-        ));
-      }
-    }
-    return _ParsedTile(features: out);
-  }
-
-  S52GeometryType? _mapGeom(vt.GeometryType? t) {
-    switch (t) {
-      case vt.GeometryType.Point:
-      case vt.GeometryType.MultiPoint:
-        return S52GeometryType.point;
-      case vt.GeometryType.LineString:
-      case vt.GeometryType.MultiLineString:
-        return S52GeometryType.line;
-      case vt.GeometryType.Polygon:
-      case vt.GeometryType.MultiPolygon:
-        return S52GeometryType.area;
-      default:
-        return null;
-    }
-  }
-
-  /// Convert tile-local MVT coordinates directly into `LatLng` using
-  /// the standard Web-Mercator projection. Storing features in LatLng
-  /// means the painter only needs one call per point
-  /// (`camera.latLngToScreenOffset`) with no intermediate math, and no
-  /// coupling between tile zoom and rendering.
-  _WorldGeometry? _geomToLatLng(
-      vt.VectorTileFeature feature, int extent, _TileKey key) {
-    final size = extent * (1 << key.z);
-    final x0 = extent * key.x;
-    final y0 = extent * key.y;
-
-    LatLng project(List<double> xy) {
-      final lon = (xy[0] + x0) * 360.0 / size - 180.0;
-      final y2 = 180.0 - (xy[1] + y0) * 360.0 / size;
-      final lat =
-          360.0 / math.pi * math.atan(math.exp(y2 * math.pi / 180.0)) - 90.0;
-      return LatLng(lat, lon);
-    }
-
-    switch (feature.geometryType) {
-      case vt.GeometryType.Point:
-        final g = feature.geometry as vt.GeometryPoint;
-        return _WorldGeometry.point(project(g.coordinates));
-      case vt.GeometryType.MultiPoint:
-        final g = feature.geometry as vt.GeometryMultiPoint;
-        return _WorldGeometry.multiPoint(
-            g.coordinates.map(project).toList(growable: false));
-      case vt.GeometryType.LineString:
-        final g = feature.geometry as vt.GeometryLineString;
-        return _WorldGeometry.line(
-            [g.coordinates.map(project).toList(growable: false)]);
-      case vt.GeometryType.MultiLineString:
-        final g = feature.geometry as vt.GeometryMultiLineString;
-        return _WorldGeometry.line(g.coordinates
-            .map((line) => line.map(project).toList(growable: false))
-            .toList(growable: false));
-      case vt.GeometryType.Polygon:
-        final g = feature.geometry as vt.GeometryPolygon;
-        return _WorldGeometry.polygon([
-          g.coordinates
-              .map((ring) => ring.map(project).toList(growable: false))
-              .toList(growable: false)
-        ]);
-      case vt.GeometryType.MultiPolygon:
-        final g = feature.geometry as vt.GeometryMultiPolygon;
-        final rings = (g.coordinates ?? [])
-            .map((poly) => poly
-                .map((ring) => ring.map(project).toList(growable: false))
-                .toList(growable: false))
-            .toList(growable: false);
-        return _WorldGeometry.polygon(rings);
-      default:
-        return null;
-    }
+  TileFreshness _probeViewportFreshness(
+      List<(int z, int x, int y)> viewportTiles) {
+    return context
+        .read<ChartTileCacheService>()
+        .getViewportFreshness(viewportTiles);
   }
 
   @override
@@ -1240,11 +1222,11 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
                     setState(() => _autoZoom = false);
                   }
                 }
-                _refreshTiles();
+                _tileManager?.scheduleRefresh(_mapController.camera);
               },
               onMapReady: () {
                 _mapReady = true;
-                _refreshTiles();
+                _tileManager?.refreshNow(_mapController.camera);
               },
               onTap: _onMapTap,
               onLongPress: _onMapLongPress,
@@ -1259,11 +1241,12 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
                     maxZoom: 19,
                   ),
                 ),
-              if (s57Layer != null)
+              if (s57Layer != null && _tileManager != null)
                 Opacity(
                   opacity: s57Opacity,
                   child: _S57OverlayLayer(
-                    tileCache: _tileCache,
+                    tileCache: _tileManager!.tiles,
+                    generation: _tileManager!.generation,
                     colorTable: _colorTable!,
                     spriteAtlas: _spriteAtlas!,
                     spriteImage: _spriteImage!,
@@ -1357,7 +1340,8 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
             bottom: _hudStyle == 'visual' ? 190 : (_hudStyle == 'text' ? 52 : 8),
             right: 8,
             child: _FreshnessChip(
-              freshness: _viewportFreshness,
+              freshness:
+                  _tileManager?.viewportFreshness ?? TileFreshness.uncached,
               connected: widget.signalKService.isConnected,
             ),
           ),
@@ -1831,70 +1815,16 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
     );
   }
 
-  void _refreshTiles() {
-    if (!_mapReady) return;
-    final camera = _mapController.camera;
-    final zInt = camera.zoom.round().clamp(9, 16);
-    final bounds = camera.visibleBounds;
-    final x0 = _lonToTileX(bounds.west, zInt);
-    final x1 = _lonToTileX(bounds.east, zInt);
-    final y0 = _latToTileY(bounds.north, zInt);
-    final y1 = _latToTileY(bounds.south, zInt);
-    // Clamp to a small window to avoid hammering the server during the
-    // spike; real viewport loading is a follow-up.
-    final maxTiles = 9;
-    int fetched = 0;
-    final viewportTiles = <(int, int, int)>[];
-    for (var x = x0; x <= x1 && fetched < maxTiles; x++) {
-      for (var y = y0; y <= y1 && fetched < maxTiles; y++) {
-        _ensureTile(_TileKey(zInt, x, y));
-        viewportTiles.add((zInt, x, y));
-        fetched++;
-      }
-    }
-    _refreshFreshness(viewportTiles);
-  }
-
-  /// Pull LNDARE polygon bounds out of a freshly parsed tile so the
-  /// auto-zoom code can find nearest land quickly. Mirrors V1's
-  /// `_landExtents` cache (chart_webview.dart populated during tile
-  /// styling). We dedupe by tile key so the list doesn't grow
-  /// unbounded on repeated fetches.
-  void _indexLandExtents(_TileKey key, _ParsedTile tile) {
-    if (_landIndexedTiles.contains(key)) return;
-    _landIndexedTiles.add(key);
-    for (final f in tile.features) {
-      if (f.objectClass != 'LNDARE') continue;
-      if (f.geometry.kind != _GeomKind.polygon) continue;
-      double? minLat, minLon, maxLat, maxLon;
-      for (final ring in f.geometry.rings) {
-        for (final poly in ring) {
-          for (final p in poly) {
-            minLat = minLat == null ? p.latitude : math.min(minLat, p.latitude);
-            minLon = minLon == null ? p.longitude : math.min(minLon, p.longitude);
-            maxLat = maxLat == null ? p.latitude : math.max(maxLat, p.latitude);
-            maxLon = maxLon == null ? p.longitude : math.max(maxLon, p.longitude);
-          }
-        }
-      }
-      if (minLat != null) {
-        _landBounds.add(LatLngBounds(
-          LatLng(minLat, minLon!),
-          LatLng(maxLat!, maxLon!),
-        ));
-      }
-    }
-  }
-
   /// Distance in metres from a point to the nearest land bounding box.
   /// Uses equirectangular approximation — good enough for a zoom
   /// heuristic at sub-degree scales.
   double _nearestLandMeters(double lat, double lon) {
-    if (_landBounds.isEmpty) return double.infinity;
+    final landBounds = _tileManager?.landBounds;
+    if (landBounds == null || landBounds.isEmpty) return double.infinity;
     final mPerDegLat = 111320.0;
     final mPerDegLon = 111320.0 * math.cos(lat * math.pi / 180);
     var best = double.infinity;
-    for (final b in _landBounds) {
+    for (final b in landBounds) {
       final dLat = math.max(
           0.0, math.max(b.south - lat, lat - b.north));
       final dLon = math.max(
@@ -1947,92 +1877,18 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
     );
   }
 
-  void _refreshFreshness(List<(int, int, int)> viewportTiles) {
-    try {
-      final cache = context.read<ChartTileCacheService>();
-      final f = cache.getViewportFreshness(viewportTiles);
-      if (f != _viewportFreshness && mounted) {
-        setState(() => _viewportFreshness = f);
-      }
-    } catch (_) {
-      // Cache service not registered in this context (tests); ignore.
-    }
-  }
-}
-
-int _lonToTileX(double lon, int z) =>
-    ((lon + 180.0) / 360.0 * (1 << z)).floor();
-
-int _latToTileY(double lat, int z) {
-  final rad = lat * math.pi / 180.0;
-  return ((1 - math.log(math.tan(rad) + 1 / math.cos(rad)) / math.pi) /
-          2 *
-          (1 << z))
-      .floor();
-}
-
-class _TileKey {
-  const _TileKey(this.z, this.x, this.y);
-  final int z;
-  final int x;
-  final int y;
-
-  @override
-  bool operator ==(Object other) =>
-      other is _TileKey && other.z == z && other.x == x && other.y == y;
-  @override
-  int get hashCode => Object.hash(z, x, y);
-}
-
-class _ParsedTile {
-  const _ParsedTile({required this.features});
-  factory _ParsedTile.empty() => const _ParsedTile(features: []);
-  final List<_StyledFeature> features;
-}
-
-class _StyledFeature {
-  const _StyledFeature({
-    required this.objectClass,
-    required this.geometry,
-    required this.instructions,
-    required this.attributes,
-    required this.displayPriority,
-  });
-  final String objectClass;
-  final _WorldGeometry geometry;
-  final List<S52Instruction> instructions;
-  final Map<String, Object?> attributes;
-  final int displayPriority;
-}
-
-enum _GeomKind { point, line, polygon }
-
-class _WorldGeometry {
-  const _WorldGeometry._(this.kind, this.points, this.lines, this.rings);
-
-  factory _WorldGeometry.point(LatLng p) =>
-      _WorldGeometry._(_GeomKind.point, [p], const [], const []);
-  factory _WorldGeometry.multiPoint(List<LatLng> ps) =>
-      _WorldGeometry._(_GeomKind.point, ps, const [], const []);
-  factory _WorldGeometry.line(List<List<LatLng>> ls) =>
-      _WorldGeometry._(_GeomKind.line, const [], ls, const []);
-  factory _WorldGeometry.polygon(List<List<List<LatLng>>> rs) =>
-      _WorldGeometry._(_GeomKind.polygon, const [], const [], rs);
-
-  final _GeomKind kind;
-  final List<LatLng> points;
-  final List<List<LatLng>> lines;
-  final List<List<List<LatLng>>> rings;
 }
 
 class _S57OverlayLayer extends StatelessWidget {
   const _S57OverlayLayer({
     required this.tileCache,
+    required this.generation,
     required this.colorTable,
     required this.spriteAtlas,
     required this.spriteImage,
   });
-  final Map<_TileKey, _ParsedTile> tileCache;
+  final Map<S57TileKey, S57ParsedTile> tileCache;
+  final int generation;
   final S52ColorTable colorTable;
   final SpriteAtlas spriteAtlas;
   final ui.Image spriteImage;
@@ -2045,6 +1901,7 @@ class _S57OverlayLayer extends StatelessWidget {
         painter: _S57Painter(
           camera: camera,
           tiles: tileCache,
+          generation: generation,
           colorTable: colorTable,
           spriteAtlas: spriteAtlas,
           spriteImage: spriteImage,
@@ -2059,12 +1916,17 @@ class _S57Painter extends CustomPainter {
   _S57Painter({
     required this.camera,
     required this.tiles,
+    required this.generation,
     required this.colorTable,
     required this.spriteAtlas,
     required this.spriteImage,
   });
   final MapCamera camera;
-  final Map<_TileKey, _ParsedTile> tiles;
+  final Map<S57TileKey, S57ParsedTile> tiles;
+  // Cache-mutation counter from the manager. Compared in shouldRepaint
+  // because `tiles` is a stable reference (the manager mutates in
+  // place), so reference comparison alone misses evictions.
+  final int generation;
   final S52ColorTable colorTable;
   final SpriteAtlas spriteAtlas;
   final ui.Image spriteImage;
@@ -2079,6 +1941,20 @@ class _S57Painter extends CustomPainter {
     final origin = camera.pixelOrigin;
     Offset project(LatLng p) => camera.projectAtZoom(p) - origin;
 
+    // Cross-zoom fallback ordering: tiles farther from the active zoom
+    // draw first (under), active-z tiles draw last (on top). Within the
+    // same z-distance, lower-z (less detail) draws under higher-z.
+    // This eliminates blank gaps during zoom transitions — adjacent-z
+    // tiles fill in until the active-z fetch arrives.
+    final activeZ = camera.zoom.round();
+    final sorted = tiles.entries.toList()
+      ..sort((a, b) {
+        final da = (a.key.z - activeZ).abs();
+        final db = (b.key.z - activeZ).abs();
+        if (da != db) return db.compareTo(da);
+        return a.key.z.compareTo(b.key.z);
+      });
+
     // Three passes by geometry kind — polygons (area fills + patterns)
     // on the bottom, lines in the middle, points on top. This
     // approximates S-52's priority bands (group1 areas → line symbols
@@ -2086,8 +1962,8 @@ class _S57Painter extends CustomPainter {
     // the engine. A finer-grained priority sort lives behind a later
     // task, once the lookup row's priority is threaded through.
     for (final kind in _paintOrder) {
-      for (final entry in tiles.values) {
-        for (final f in entry.features) {
+      for (final entry in sorted) {
+        for (final f in entry.value.features) {
           if (f.geometry.kind != kind) continue;
           _paintFeature(canvas, f, project);
         }
@@ -2096,15 +1972,15 @@ class _S57Painter extends CustomPainter {
   }
 
   static const _paintOrder = [
-    _GeomKind.polygon,
-    _GeomKind.line,
-    _GeomKind.point,
+    S57GeomKind.polygon,
+    S57GeomKind.line,
+    S57GeomKind.point,
   ];
 
   void _paintFeature(
-      Canvas canvas, _StyledFeature f, Offset Function(LatLng) project) {
+      Canvas canvas, S57StyledFeature f, Offset Function(LatLng) project) {
     for (final instruction in f.instructions) {
-      if (instruction is S52Symbol && f.geometry.kind == _GeomKind.point) {
+      if (instruction is S52Symbol && f.geometry.kind == S57GeomKind.point) {
         final meta = spriteAtlas.lookup(instruction.name);
         if (meta == null) {
           // Symbol not in atlas — fall back to a small CHBLK dot so
@@ -2134,7 +2010,7 @@ class _S57Painter extends CustomPainter {
           canvas.drawImageRect(spriteImage, srcRect, dstRect, paint);
         }
       } else if (instruction is S52LineStyle &&
-          f.geometry.kind == _GeomKind.line) {
+          f.geometry.kind == S57GeomKind.line) {
         final paint = Paint()
           ..color = _resolve(instruction.colorCode)
           ..strokeWidth = instruction.width.toDouble().clamp(1, 4)
@@ -2145,10 +2021,10 @@ class _S57Painter extends CustomPainter {
           canvas.drawPath(dash == null ? path : _dashPath(path, dash), paint);
         }
       } else if (instruction is S52LineComplex &&
-          f.geometry.kind == _GeomKind.line) {
+          f.geometry.kind == S57GeomKind.line) {
         _paintLineComplex(canvas, instruction.patternName, f, project);
       } else if (instruction is S52AreaColor &&
-          f.geometry.kind == _GeomKind.polygon) {
+          f.geometry.kind == S57GeomKind.polygon) {
         final paint = Paint()
           ..color = _resolve(instruction.colorCode)
           ..style = PaintingStyle.fill;
@@ -2156,75 +2032,21 @@ class _S57Painter extends CustomPainter {
           canvas.drawPath(_polygonPath(polygon, project), paint);
         }
       } else if (instruction is S52AreaPattern &&
-          f.geometry.kind == _GeomKind.polygon) {
+          f.geometry.kind == S57GeomKind.polygon) {
         _paintAreaPattern(canvas, instruction.patternName, f, project);
       } else if (instruction is S52TextLiteral &&
-          f.geometry.kind == _GeomKind.point) {
+          f.geometry.kind == S57GeomKind.point) {
+        // Computed labels from CS procedures — currently only SOUNDG02
+        // depth soundings. Kept on the canvas because soundings are
+        // core navigation info; everything else (object names,
+        // formatted descriptions) is suppressed below to declutter.
         _paintText(canvas, instruction.text, f.geometry.points, project);
-      } else if (instruction is S52Text &&
-          f.geometry.kind == _GeomKind.point) {
-        final value = f.attributes[instruction.attribute];
-        if (value != null) {
-          _paintText(canvas, value.toString(), f.geometry.points, project);
-        }
-      } else if (instruction is S52TextFormatted &&
-          f.geometry.kind == _GeomKind.point) {
-        final rendered = _formatText(instruction.format, instruction.args, f);
-        if (rendered != null) {
-          _paintText(canvas, rendered, f.geometry.points, project);
-        }
       }
+      // Suppressed — attribute-driven labels (S52Text, e.g. OBJNAM
+      // buoy/light names) and printf-formatted labels (S52TextFormatted)
+      // overwhelm the canvas without OL-style decluttering. Tap a
+      // feature to see these in the popover.
     }
-  }
-
-  /// Minimal printf-ish substitution for TE() format strings. S-52
-  /// supports full C printf; we cover the common cases used by the
-  /// bundled Freeboard lookups: `%s`, `%d`, `%f` and `%.Nf` / `%lf`
-  /// variants with optional width. Unknown specifiers pass through
-  /// the next attribute as a plain string. Returns null if the format
-  /// or attributes are malformed — the caller silently skips.
-  String? _formatText(
-      String format, List<String> args, _StyledFeature f) {
-    // `args` = [format, attr1, attr2, ..., positioning-fields...]. The
-    // number of `%` placeholders tells us how many attr slots to pull.
-    // Strip surrounding single quotes that the parser preserves.
-    String unquote(String s) =>
-        s.length >= 2 && s.startsWith("'") && s.endsWith("'")
-            ? s.substring(1, s.length - 1)
-            : s;
-    final fmt = unquote(format);
-    final placeholder = RegExp(r'%[-+ 0#]?(\d+)?(?:\.(\d+))?[lh]?([sdifox])');
-    final buffer = StringBuffer();
-    var cursor = 0;
-    var attrIndex = 1; // args[0] is format
-    for (final m in placeholder.allMatches(fmt)) {
-      buffer.write(fmt.substring(cursor, m.start));
-      if (attrIndex >= args.length) return null;
-      final attrName = unquote(args[attrIndex]);
-      attrIndex++;
-      final value = f.attributes[attrName];
-      if (value == null) return null;
-      final precision = m.group(2);
-      final kind = m.group(3);
-      String rendered;
-      if (kind == 'd' || kind == 'i') {
-        rendered =
-            (value is num ? value.toInt() : int.tryParse('$value') ?? 0)
-                .toString();
-      } else if (kind == 'f' || kind == 'lf') {
-        final n = value is num ? value.toDouble() : double.tryParse('$value');
-        if (n == null) return null;
-        rendered = precision == null
-            ? n.toString()
-            : n.toStringAsFixed(int.parse(precision));
-      } else {
-        rendered = value.toString();
-      }
-      buffer.write(rendered);
-      cursor = m.end;
-    }
-    buffer.write(fmt.substring(cursor));
-    return buffer.toString();
   }
 
   /// Stamp a sprite repeatedly along the line's polylines, rotated to
@@ -2235,7 +2057,7 @@ class _S57Painter extends CustomPainter {
   void _paintLineComplex(
     Canvas canvas,
     String patternName,
-    _StyledFeature f,
+    S57StyledFeature f,
     Offset Function(LatLng) project,
   ) {
     final meta = spriteAtlas.lookup(patternName);
@@ -2279,7 +2101,7 @@ class _S57Painter extends CustomPainter {
   void _paintAreaPattern(
     Canvas canvas,
     String patternName,
-    _StyledFeature f,
+    S57StyledFeature f,
     Offset Function(LatLng) project,
   ) {
     final meta = spriteAtlas.lookup(patternName);
@@ -2426,7 +2248,7 @@ class _S57Painter extends CustomPainter {
   @override
   bool shouldRepaint(covariant _S57Painter old) =>
       old.camera != camera ||
-      old.tiles != tiles ||
+      old.generation != generation ||
       old.colorTable != colorTable ||
       old.spriteAtlas != spriteAtlas ||
       old.spriteImage != spriteImage;

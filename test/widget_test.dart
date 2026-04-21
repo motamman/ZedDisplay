@@ -20,6 +20,9 @@ import 'package:zed_display/services/ais_favorites_service.dart';
 import 'package:zed_display/services/cpa_alert_service.dart';
 import 'package:zed_display/services/find_home_target_service.dart';
 import 'package:zed_display/services/dashboard_store_service.dart';
+import 'package:zed_display/services/chart_tile_cache_service.dart';
+import 'package:zed_display/services/chart_tile_server_service.dart';
+import 'package:zed_display/services/chart_download_manager.dart';
 
 void main() {
   late StorageService storageService;
@@ -41,6 +44,9 @@ void main() {
   late CpaAlertService cpaAlertService;
   late FindHomeTargetService findHomeTargetService;
   late DashboardStoreService dashboardStoreService;
+  late ChartTileCacheService chartTileCacheService;
+  late ChartTileServerService chartTileServerService;
+  late ChartDownloadManager chartDownloadManager;
 
   setUp(() async {
     // Initialize storage service for tests
@@ -128,6 +134,17 @@ void main() {
       dashboardService,
     );
     await setupService.initialize();
+
+    // Initialize chart tile cache + proxy + download manager. We
+    // construct them like main.dart but skip `tileServerService.start()`
+    // — opening a loopback socket inside the test runner is fragile and
+    // the widget under test doesn't need it to render.
+    chartTileCacheService = ChartTileCacheService();
+    await chartTileCacheService.initialize();
+    chartTileServerService =
+        ChartTileServerService(cacheService: chartTileCacheService);
+    chartDownloadManager =
+        ChartDownloadManager(cacheService: chartTileCacheService);
   });
 
   tearDown(() async {
@@ -156,6 +173,9 @@ void main() {
       cpaAlertService: cpaAlertService,
       findHomeTargetService: findHomeTargetService,
       dashboardStoreService: dashboardStoreService,
+      chartTileCacheService: chartTileCacheService,
+      chartTileServerService: chartTileServerService,
+      chartDownloadManager: chartDownloadManager,
     ));
 
     // Verify that the app launches
@@ -182,6 +202,9 @@ void main() {
       cpaAlertService: cpaAlertService,
       findHomeTargetService: findHomeTargetService,
       dashboardStoreService: dashboardStoreService,
+      chartTileCacheService: chartTileCacheService,
+      chartTileServerService: chartTileServerService,
+      chartDownloadManager: chartDownloadManager,
     ));
 
     // Verify services are initialized

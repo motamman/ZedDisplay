@@ -40,6 +40,10 @@
 - [ ] Weather Spinner (API) showing SI/imperial-raw units after Phase E2 migration — `_convertApi` fallback returns raw SI when MetadataStore has no entry for the provider-specific forecast paths. Likely needs REST `populateFromPreset` to cover `environment.outside.<provider>.forecast.hourly.*` paths, or `_getConversionPath` should build paths MetadataStore actually knows
 - [x] Fix Linux CI build: `flutter_scene` native asset build failure on GitHub Actions (may need pinned Flutter version or stale pubspec.lock cleanup after removing vector_map_tiles/vector_tile_renderer/maplibre_gl)
 - [ ] Chart Plotter V3: decide what features appear at what zoom levels. Three separate axes to tune: (1) S-52 display category (`DISPLAYBASE` / `STANDARD` / `OTHER`) — currently hardcoded to `OTHER`; expose as user toggle; (2) per-feature `SCAMAX` — complement to the `SCAMIN` filter now in place; (3) scale-dependent symbol sizing so sprites don't look oversized at low zoom / undersized at high zoom. Copy Freeboard's heuristics once painter work stabilises.
+- [ ] **NEXT SESSION — Chart Plotter V3**: declutter layers; select items to show at different zooms; respect the zoom level while zooming higher AND lower.
+- [ ] Chart plotter: check the depths show the metadata units for depth
+- [ ] Chart plotter: refine zooming and panning evictions and debouncing
+- [ ] Chart Plotter V3: wire a MetadataStore listener so depth unit changes apply without reloading the chart
 
 ## Widget Inventory — AIS Context Status
 
