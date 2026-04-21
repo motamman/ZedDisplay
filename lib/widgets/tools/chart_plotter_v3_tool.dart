@@ -1202,18 +1202,19 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
               initialZoom: _initialZoom,
               minZoom: 8,
               maxZoom: 16,
+              // Lock pan gestures while auto-follow is on — the map
+              // stays glued to the vessel. Pinch/scroll zoom and
+              // double-tap zoom remain enabled so the user can change
+              // scale around the vessel without disengaging follow.
+              // Tap the "snap to vessel" button to unlock.
+              interactionOptions: InteractionOptions(
+                flags: _autoFollow
+                    ? InteractiveFlag.all &
+                        ~(InteractiveFlag.drag |
+                            InteractiveFlag.flingAnimation)
+                    : InteractiveFlag.all,
+              ),
               onMapEvent: (e) {
-                // User-initiated drags/flings disable auto-follow.
-                // Programmatic moves (our own `move()` in follow mode)
-                // come in as MapEventSource.mapController and are ignored.
-                if (e is MapEventMoveStart ||
-                    e.source == MapEventSource.onDrag ||
-                    e.source == MapEventSource.flingAnimationController ||
-                    e.source == MapEventSource.doubleTapZoomAnimationController) {
-                  if (_autoFollow && mounted) {
-                    setState(() => _autoFollow = false);
-                  }
-                }
                 // User pinch/scroll zoom kills auto-zoom but leaves
                 // auto-follow intact (V1 chart_webview.dart:1271-1278).
                 if (e.source == MapEventSource.scrollWheel ||
@@ -1228,6 +1229,17 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
               },
               onMapReady: () {
                 _mapReady = true;
+                // Center on vessel immediately if we already have a
+                // fix from the 1 s vessel timer (which can run before
+                // the map finishes initializing). Avoids the brief
+                // flash of the hardcoded `_initialCenter` (LI Sound)
+                // that the camera starts on.
+                if (_ownLat != null && _ownLon != null) {
+                  _mapController.move(
+                    LatLng(_ownLat!, _ownLon!),
+                    _mapController.camera.zoom,
+                  );
+                }
                 _tileManager?.refreshNow(_mapController.camera);
               },
               onTap: _onMapTap,
