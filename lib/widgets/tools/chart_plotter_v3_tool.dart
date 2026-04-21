@@ -4053,7 +4053,7 @@ class _ErrorState extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
-              'Chart Plotter V3 failed to initialise',
+              'Chart Plotter failed to initialise',
               style: TextStyle(
                 color: AppColors.alarmRed,
                 fontWeight: FontWeight.bold,
@@ -4080,11 +4080,12 @@ class ChartPlotterV3Builder extends ToolBuilder {
   ToolDefinition getDefinition() {
     return ToolDefinition(
       id: 'chart_plotter_v3',
-      name: 'Chart Plotter V3 (spike)',
+      name: 'Chart Plotter',
       description:
-          'Throwaway spike: OSM basemap via flutter_map + S-57 overlay '
-          'rendered by s52_dart via Flutter CustomPainter. Proves the '
-          'native-paint pipeline end-to-end.',
+          'Interactive chart plotter with S-57 charts, AIS, route, and '
+          'nav data. Native-paint pipeline: OSM basemap via flutter_map '
+          'plus S-57 overlay rendered by s52_dart through a Flutter '
+          'CustomPainter.',
       category: ToolCategory.navigation,
       configSchema: ConfigSchema(
         allowsMinMax: false,

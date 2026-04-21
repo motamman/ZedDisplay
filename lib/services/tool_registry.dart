@@ -45,7 +45,8 @@ import '../widgets/tools/find_home_tool.dart';
 import '../widgets/tools/sun_moon_arc_tool.dart';
 import '../widgets/tools/historical_data_explorer_tool.dart';
 import '../widgets/tools/webview_tool.dart';
-import '../widgets/tools/chart_plotter_tool.dart';
+// chart_plotter_tool.dart (V1) — DEPRECATED, no longer registered.
+// Kept on disk for reference until V3 reaches feature parity.
 import '../widgets/tools/chart_plotter_v3_tool.dart';
 // windsteer_tool.dart and windsteer_demo_tool.dart are DEPRECATED — do not import or register.
 // Superseded by WindCompassTool (Oct 2025). See file headers for details.
@@ -188,7 +189,10 @@ class ToolRegistry {
     register('historical_data_explorer', HistoricalDataExplorerBuilder());
     // windsteer and windsteer_demo DEPRECATED — superseded by wind_compass. Do not re-register.
     register('webview', WebViewToolBuilder());
-    register('chart_plotter', ChartPlotterBuilder());
+    // chart_plotter (V1, WebView+OpenLayers) DEPRECATED — superseded
+    // by the native-paint chart_plotter_v3. Keep the import so existing
+    // persisted configs that reference the old id don't crash on
+    // dashboard load; new dashboards get the V3 tool only.
     register('chart_plotter_v3', ChartPlotterV3Builder());
   }
 }
