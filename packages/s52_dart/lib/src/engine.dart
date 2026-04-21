@@ -137,9 +137,9 @@ class S52StyleEngine {
   }
 
   /// Walk the parsed instruction list; when we hit a CS() instruction
-  /// that maps to a registered procedure, invoke it, parse its string
-  /// output, and splice the parsed instructions in place. Unmapped CS
-  /// references become `S52UnknownInstruction(opcode: 'CS-MISSING')`.
+  /// that maps to a registered procedure, invoke it and splice its
+  /// returned typed instructions in place. Unmapped CS references
+  /// become `S52UnknownInstruction(opcode: 'CS-MISSING')`.
   List<S52Instruction> _expandCs(
     List<S52Instruction> input,
     S52Feature feature,

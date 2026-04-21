@@ -76,7 +76,7 @@ Full research transcript is in the session; summarised table:
 
 OpenCPN ships under GPL-2.0. There is no separate LGPL exception for `data/s57data/`. A few relevant points:
 
-1. `packages/s52_dart/LICENSE-NOTICES` (this project) currently claims OpenCPN data is LGPL. That is **incorrect** and should be fixed.
+1. `packages/s52_dart/LICENSE-NOTICES` originally claimed OpenCPN data was LGPL. That was incorrect and was corrected to GPL-2.0 in this PR.
 
 2. Shipping the assets as runtime resources loaded by a Dart application likely qualifies as "mere aggregation" in the FSF's reading of GPL-2 §2, but this is a grey area — appellate courts have not consistently ruled on whether loading GPL data at runtime creates a derivative work. Safest legal posture: treat the chart-plotter-bound app as GPL-compatible and ship the OpenCPN notice + `COPYING.gplv2` alongside the atlas.
 
@@ -88,7 +88,7 @@ OpenCPN ships under GPL-2.0. There is no separate LGPL exception for `data/s57da
 
 Steps, in order:
 
-1. **Correct the license notice.** Update `packages/s52_dart/LICENSE-NOTICES` (the LGPL→GPL-2 correction for OpenCPN data).
+1. **Correct the license notice.** ~~Update `packages/s52_dart/LICENSE-NOTICES` (the LGPL→GPL-2 correction for OpenCPN data).~~ **Done in this PR.**
 
 2. **Vendor the source files.**
    - Copy `chartsymbols.xml` to `packages/s52_dart/third_party/opencpn/chartsymbols.xml`

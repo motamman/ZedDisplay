@@ -266,7 +266,12 @@ class LookupTable {
   /// Three-way compare of a feature attribute value [a] against a
   /// qualifier pattern [b]. Mirrors Freeboard's `propertyCompare`:
   ///
-  ///   * If `a` is a number, compare numerically against `parseInt(b)`.
+  ///   * If `a` is a number, parse `b` the way JavaScript's `parseInt`
+  ///     does — take the leading signed-integer prefix, ignore trailing
+  ///     non-digits. This matters for comma-list qualifier patterns
+  ///     like `"1,3"` (COLOUR), where `int.tryParse` would bail and
+  ///     refuse to match; JS would parse `1`. Preserving the parity
+  ///     keeps lookup selection identical to the upstream engine.
   ///   * Otherwise compare as strings.
   ///   * Non-comparable (e.g. null) → non-zero (no match).
   ///
@@ -275,13 +280,16 @@ class LookupTable {
   /// share the same semantics.
   static int propertyCompare(Object? a, String b) {
     if (a is num) {
-      final bInt = int.tryParse(b);
-      if (bInt == null) return -1;
+      final m = _leadingInt.firstMatch(b);
+      if (m == null) return -1;
+      final bInt = int.parse(m.group(0)!);
       return a.toInt() - bInt;
     }
     if (a is String) return a.compareTo(b);
     return -1;
   }
+
+  static final RegExp _leadingInt = RegExp(r'^-?\d+');
 
   /// Unmodifiable view of all rows.
   List<LookupRow> get rows => _rows;

@@ -150,6 +150,10 @@ void main() {
   tearDown(() async {
     // Clean up storage service after tests
     await storageService.clearAllData();
+    // Close Hive boxes opened by ChartTileCacheService.initialize()
+    // so they don't leak across tests or interfere with other Hive
+    // state in the next setUp.
+    chartTileCacheService.dispose();
   });
 
   testWidgets('App launches with splash screen', (WidgetTester tester) async {
