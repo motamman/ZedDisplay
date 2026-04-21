@@ -1,4 +1,39 @@
-# What's New in v0.6.1
+# What's New in v0.6.2
+
+## Release Notes (Google Play - max 500 chars)
+
+v0.6.2 Native Chart Plotter
+
+NEW: Chart plotter now renders S-57 ENC charts natively in Flutter (no WebView). Smoother panning, cleaner symbols, per-class visibility toggles to hide CATZOC zones, submarine transit lanes, or any of ~80 S-57 object classes. Edge-only tap-hit-test so buoys never lose to huge restricted areas. Snap-to-vessel lock. Depths in your preferred unit. Fixes several area classes that were rendering solid black.
+
+## Release Notes (App Store / TestFlight - max 4000 chars)
+
+### Native Chart Plotter (REWRITTEN)
+- **No More WebView** — The chart plotter now renders S-57 electronic nav charts directly in Flutter through a pure-Dart S-52 symbology engine (`s52_dart`) and a native `CustomPainter`. No JavaScript bridge, no OpenLayers, no headless browser. Panning is smoother, tile fetches are cheaper, and the whole widget lives inside the Flutter tree like every other tool.
+- **Per-S-57-Class Visibility Toggles** — New section in the chart plotter config with ~80 S-57 object classes grouped into 8 categories (Nav aids, Depths and hazards, Routing and traffic, Coastline and land, Regulated/administrative, Infrastructure, Administrative regions, Metadata). Each class has an on/off switch. Search by 6-letter code (`SUBTLN`) or plain-English label ("submarine transit lane"). Hide the high-clutter regulated-area outlines that NOAA charts pack into US waters.
+- **Snap-to-Vessel Lock** — When the snap-to-vessel button is engaged, pan gestures are disabled and the map stays glued to the vessel. Pinch-zoom and rotation still work around it. Tap the button to release for free panning.
+- **On-Load Vessel Centering** — The map centers on the vessel as soon as position is known at map-ready, skipping the brief flash of a default location.
+- **Depth Units from MetadataStore** — SOUNDG spot-sounding labels and depth contours now render in the user's preferred depth unit (m / ft / fathoms), pulled from the same MetadataStore the rest of the app uses.
+- **Better Tap Hit-Testing** — Tapping a buoy, beacon, light, or landmark now actually lands on that feature instead of losing to the giant restricted-area polygon covering the whole Sound. Geometry-kind-first sort (point > line > polygon), edge-only polygon hit-test, active-zoom-only filter, and cross-tile duplicate dedup.
+- **Cleaner Popover** — Rebuilt on plain `showModalBottomSheet` with drag-to-dismiss on the whole body and a transparent barrier so the map stays visible and tappable. Attribute-driven labels (buoy names, light characters) no longer crowd the canvas — tap the feature to read them.
+- **Offline Tile Cache** — Existing download-by-region feature still works; now with an explicit freshness chip (Fresh / Aging / Stale / Uncached).
+
+### Bug Fixes (FIXED)
+- **Solid Black Polygons** — A parser bug was turning `AC(CHGRF,3)` and other transparent-fill instructions into an unknown colour code that silently fell back to black. 80 lookup rows across 5 classes (`marfea`, `hrbfac`, `termnl`, `dnghlt`, `TSEZNE`) were rendering as solid black blobs. Parser now correctly splits colour code from transparency level and surfaces the transparency as paint alpha.
+- **Polygon Outlines Never Drew** — `LS(...)` and `LC(...)` instructions on area features were silently dropped. ~15 area classes (RESARE edges, EXEZNE, ADMARE, COSARE, HRBARE, various M_* metadata layers) now render their intended boundaries.
+- **Comma-List Qualifier Matching** — Attribute qualifiers like `COLOUR1,3` (red-and-green) weren't matching numeric feature values because `int.tryParse("1,3")` returned null. Now parses the leading integer prefix like JS `parseInt` — 464 qualifier rows in the production lookup table can match again.
+- **Failed Tile Fetches** — On 404/network errors, the painter now repaints correctly instead of potentially staying in a "loading" state.
+
+### Internal
+- New pure-Dart package `packages/s52_dart` (renderer-agnostic S-52 engine, 244 unit tests).
+- New `S57TileManager` service with viewport-aware tile caching, ±1-tile pre-fetch buffer, cross-zoom retention, 200 ms refresh throttle.
+- Legacy chart plotter (V1, WebView/OpenLayers) is deregistered; existing dashboards that reference the old id still load.
+- Full sprite-atlas gap analysis with an OpenCPN backfill plan: `devdocs/chart-plotter-v3-sprite-report.md`.
+- License attribution corrected: OpenCPN chart-symbol artefacts are GPL-2.0 (previously mis-labeled as LGPL). See `packages/s52_dart/LICENSE-NOTICES`.
+
+---
+
+# Previous: v0.6.1
 
 ## Release Notes (Google Play - max 500 chars)
 

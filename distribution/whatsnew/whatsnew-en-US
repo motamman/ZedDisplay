@@ -1,3 +1,3 @@
-v0.5.41 iOS Notification Fix
+v0.6.2 Native Chart Plotter
 
-FIXED: Local notifications now work correctly on iOS. Anchor alarms, crew messages, CPA alerts, and other notifications are now delivered on iOS devices. Previously, iOS was silently dropping all local notifications due to a missing delegate assignment.
+NEW: Chart plotter now renders S-57 ENC charts natively in Flutter (no WebView). Smoother panning, cleaner symbols, per-class visibility toggles to hide CATZOC zones, submarine transit lanes, or any of ~80 S-57 object classes. Edge-only tap-hit-test so buoys never lose to huge restricted areas. Snap-to-vessel lock. Depths in your preferred unit. Fixes several area classes that were rendering solid black.

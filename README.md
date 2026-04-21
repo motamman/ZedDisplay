@@ -213,19 +213,25 @@ A customizable SignalK marine dashboard and crew comms application to display re
     - Automatic waypoint arrival detection via RouteArrivalMonitor
     - Active route progress (waypoint index / total) shown in header
 
-- **Chart Plotter**: Full-featured chart plotter with S-57 vector chart rendering
-  - S-57 ENC vector tiles from SignalK chart provider with IHO S-52 symbology
+- **Chart Plotter**: Full-featured chart plotter with native Flutter S-57 rendering
+  - S-57 ENC vector tiles rendered through a pure-Dart S-52 symbology engine (`s52_dart`) straight into a Flutter `CustomPainter` — no WebView, no JavaScript bridge
+  - OSM basemap via `flutter_map` (CARTO Voyager default); stacked, reorderable chart layers with per-layer opacity
   - Own vessel marker with heading line and COG vector
-  - AIS targets with ship-type colors, nav-state icons, COG projections, and name labels
+  - AIS targets with ship-type colors, nav-state icons, COG projections
   - AIS controls: toggle on/off, active-only filter, projection path toggle
   - Active route overlay with directional waypoint arrows and active leg highlighting
   - Route management: list routes, activate forward/reverse, advance, skip, fast-forward to nearest
-  - Nav data HUD: SOG, COG, depth, DTW, BRG, XTE with MetadataStore unit display
+  - Nav data HUD: SOG, COG, depth, DTW, BRG, XTE — all values via MetadataStore for unit correctness
   - North-up / heading-up view modes with compass rose indicator
-  - Auto-follow with auto-zoom and land proximity override
-  - Metadata-aware depth rendering (server's preferred unit)
-  - Tap chart features for detailed property inspection
+  - **Snap-to-vessel lock**: when engaged, pan gestures are disabled so the map stays glued to the vessel; pinch-zoom and rotation still work around it
+  - Auto-zoom heuristic with land-proximity tightening when the vessel is moving
+  - Measuring ruler with two draggable endpoints reporting distance + bearing
+  - Tap a feature for the popover — proper geometry hit-test (point > line > polygon precedence, edge-only for areas so large restricted zones don't eclipse nearby buoys), active-zoom-only filter, cross-tile duplicate collapse, swipe-down or tap-outside to dismiss
+  - **Per-S-57-class visibility toggles** in the config: ~80 object classes across 8 grouped categories (nav aids, depths, routing, coastline, regulated areas, infrastructure, admin, metadata) with search by code or plain-English label — useful for hiding CATZOC zones, submarine transit lanes, restricted-area outlines, etc. that clutter US ENCs
+  - Offline chart cache (tile download by region, cache-first with background refresh, freshness chip shows tile staleness)
+  - Metadata-aware depth rendering (SOUNDG labels and depth contours in the user's preferred unit)
   - Requires signalk-charts-provider-simple plugin for S-57 chart tiles
+  - Upstream credits: IHO S-52 / S-57 standards (normative); [OpenCPN](https://github.com/OpenCPN/OpenCPN) (GPL-2.0) for the chart-symbol atlas and lookup tables; [Freeboard-SK](https://github.com/SignalK/freeboard-sk) (Apache-2.0) for the CS-procedure reference structure. See `packages/s52_dart/LICENSE-NOTICES` and `devdocs/chart-plotter-v3-sprite-report.md`.
 
 - **Position Display**: Current vessel position in configurable formats
   - Latitude/longitude display with multiple format options
