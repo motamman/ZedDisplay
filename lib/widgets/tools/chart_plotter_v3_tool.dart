@@ -181,6 +181,19 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
     return 10;
   }
 
+  /// S-57 object classes (e.g. `RESARE`, `SUBTLN`, `M_QUAL`) the user
+  /// has chosen to hide via the configurator. Features with a matching
+  /// `objectClass` are skipped in the painter so their geometry still
+  /// parses and lives in the cache (for future re-enable) but nothing
+  /// prints.
+  Set<String> get _hiddenClasses {
+    final raw = widget.config.style.customProperties?['hiddenClasses'];
+    if (raw is List) {
+      return raw.map((e) => e.toString()).toSet();
+    }
+    return const <String>{};
+  }
+
   @override
   void initState() {
     super.initState();
@@ -1264,6 +1277,7 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
                     colorTable: _colorTable!,
                     spriteAtlas: _spriteAtlas!,
                     spriteImage: _spriteImage!,
+                    hiddenClasses: _hiddenClasses,
                   ),
                 ),
               if (_tapHalo != null)
@@ -1900,12 +1914,14 @@ class _S57OverlayLayer extends StatelessWidget {
     required this.colorTable,
     required this.spriteAtlas,
     required this.spriteImage,
+    this.hiddenClasses = const <String>{},
   });
   final Map<S57TileKey, S57ParsedTile> tileCache;
   final int generation;
   final S52ColorTable colorTable;
   final SpriteAtlas spriteAtlas;
   final ui.Image spriteImage;
+  final Set<String> hiddenClasses;
 
   @override
   Widget build(BuildContext context) {
@@ -1919,6 +1935,7 @@ class _S57OverlayLayer extends StatelessWidget {
           colorTable: colorTable,
           spriteAtlas: spriteAtlas,
           spriteImage: spriteImage,
+          hiddenClasses: hiddenClasses,
         ),
         size: Size.infinite,
       ),
@@ -1934,6 +1951,7 @@ class _S57Painter extends CustomPainter {
     required this.colorTable,
     required this.spriteAtlas,
     required this.spriteImage,
+    this.hiddenClasses = const <String>{},
   });
   final MapCamera camera;
   final Map<S57TileKey, S57ParsedTile> tiles;
@@ -1944,6 +1962,10 @@ class _S57Painter extends CustomPainter {
   final S52ColorTable colorTable;
   final SpriteAtlas spriteAtlas;
   final ui.Image spriteImage;
+  // S-57 object classes the user has hidden via the configurator.
+  // Features whose `objectClass` is in this set are skipped in the
+  // draw pass — the geometry still lives in the parsed tile cache.
+  final Set<String> hiddenClasses;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -1979,6 +2001,7 @@ class _S57Painter extends CustomPainter {
       for (final entry in sorted) {
         for (final f in entry.value.features) {
           if (f.geometry.kind != kind) continue;
+          if (hiddenClasses.contains(f.objectClass)) continue;
           _paintFeature(canvas, f, project);
         }
       }
@@ -2292,7 +2315,9 @@ class _S57Painter extends CustomPainter {
       old.generation != generation ||
       old.colorTable != colorTable ||
       old.spriteAtlas != spriteAtlas ||
-      old.spriteImage != spriteImage;
+      old.spriteImage != spriteImage ||
+      old.hiddenClasses.length != hiddenClasses.length ||
+      !old.hiddenClasses.containsAll(hiddenClasses);
 }
 
 /// Paints the vessel's recent track. Matches V1's gradient-faded
@@ -4097,6 +4122,11 @@ class ChartPlotterV3Builder extends ToolBuilder {
         allowsUnitSelection: false,
         allowsVisibilityToggles: false,
         allowsTTL: false,
+        // No SignalK paths to configure — the chart plotter pulls its
+        // own-vessel and route data from fixed well-known paths via
+        // SignalKService. Hides the "Configure Data Sources" section in
+        // the config screen.
+        allowsDataSources: false,
       ),
       defaultWidth: 6,
       defaultHeight: 6,

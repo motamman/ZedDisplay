@@ -18,6 +18,7 @@ import 'configurators/find_home_configurator.dart';
 import 'configurators/sun_moon_arc_configurator.dart';
 import 'configurators/historical_data_explorer_configurator.dart';
 import 'configurators/chart_plotter_configurator.dart';
+import 'configurators/chart_plotter_v3_configurator.dart';
 
 /// Factory for creating tool-specific configurators
 ///
@@ -114,9 +115,13 @@ class ToolConfiguratorFactory {
       case 'historical_data_explorer':
         return HistoricalDataExplorerConfigurator();
 
-      // Chart Plotter
+      // Chart Plotter (V1, deprecated but kept for legacy configs)
       case 'chart_plotter':
         return ChartPlotterConfigurator();
+
+      // Chart Plotter (V3, native-paint)
+      case 'chart_plotter_v3':
+        return ChartPlotterV3Configurator();
 
       // No custom configurator - use default UI
       default:
@@ -160,6 +165,7 @@ class ToolConfiguratorFactory {
       'sun_moon_arc',
       'historical_data_explorer',
       'chart_plotter',
+      'chart_plotter_v3',
     ];
   }
 }
