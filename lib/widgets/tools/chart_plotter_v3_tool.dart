@@ -8,6 +8,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter_map/flutter_map.dart';
+import 'package:flutter_map_dragmarker/flutter_map_dragmarker.dart';
 import 'package:http/http.dart' as http;
 import 'package:latlong2/latlong.dart';
 import 'package:provider/provider.dart';
@@ -22,12 +23,14 @@ import '../../models/tool_definition.dart';
 import '../../services/chart_download_manager.dart';
 import '../../services/chart_tile_cache_service.dart';
 import '../../services/chart_tile_server_service.dart';
+import '../../services/route_arrival_monitor.dart';
 import '../../services/signalk_service.dart';
 import '../../services/tool_registry.dart';
 import '../ais_vessel_detail_sheet.dart';
 import '../chart_plotter/chart_hud.dart';
 import '../chart_plotter/chart_layer_panel.dart';
 import '../chart_plotter/chart_route_panel.dart';
+import '../countdown_confirmation_overlay.dart';
 
 /// Chart Plotter V3 — spike: proves the s52_dart → flutter_map pipeline.
 ///
@@ -117,19 +120,21 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
   List<String>? _waypointNames;
   int? _routePointIndex;
   int? _routePointTotal;
-  // `_routeReversed` tracked by the server via activeRoute.reverse; we
-  // don't paint direction yet, so no need to hold the flag locally.
+  bool _routeReversed = false;
   Timer? _routePollTimer;
+  RouteArrivalMonitor? _arrivalMonitor;
+  StreamSubscription<RouteArrivalEvent>? _arrivalSub;
 
   TileFreshness _viewportFreshness = TileFreshness.uncached;
 
-  // Ruler state — two draggable endpoints with derived distance +
-  // bearings. Positions default to a spread across the current
-  // viewport the first time the ruler is enabled so the handles are
-  // visible rather than stacked on the centre point.
+  // Ruler state. Matches V1's model: two endpoints (red + blue) that
+  // can each snap to the own vessel ('self') or an AIS vessel id, and
+  // reposition automatically when their snap target moves.
   bool _rulerVisible = false;
-  LatLng? _rulerA;
-  LatLng? _rulerB;
+  LatLng? _rulerRed;
+  LatLng? _rulerBlue;
+  String? _rulerRedSnap; // null | 'self' | vesselId
+  String? _rulerBlueSnap;
 
   // AIS display toggles + periodic refresh. We pull from
   // `aisVesselRegistry` instead of subscribing because the registry
@@ -148,15 +153,41 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
   double? _ownLon;
   double? _ownHeading; // radians
   double? _ownCog; // radians
+  double? _ownSog; // m/s
   Timer? _vesselTimer;
   bool _autoFollow = true;
+  int _lastVesselPushMs = 0;
+  int _lastAisPushMs = 0;
+  // Auto-zoom re-engages with auto-follow and disables on a user
+  // pinch/scroll so the user can override without fighting us.
+  bool _autoZoom = true;
+  // Bounding boxes of LNDARE polygons we've seen, used by auto-zoom
+  // to tighten the view when land is close. Populated as tiles parse.
+  final List<LatLngBounds> _landBounds = [];
+  final Set<_TileKey> _landIndexedTiles = {};
+  LatLng? _tapHalo;
+  // Set in FlutterMap's onMapReady. Anything that touches
+  // `_mapController.camera` / `.move()` must short-circuit until
+  // this flips, otherwise MapController throws "You need to have
+  // the FlutterMap widget rendered at least once".
+  bool _mapReady = false;
+  // 'north-up' keeps map north = screen top; 'heading-up' rotates
+  // the map so the boat's bow is always screen-up. Matches V1's two
+  // modes (chart_plotter_tool.dart:68).
+  String _viewMode = 'north-up';
 
   // Vessel trail — sliding window of recent positions with timestamps
-  // (epoch ms). V1 keeps 30 minutes; matching that here. Parallel
-  // lists rather than a struct to keep the painter's hot loop tight.
+  // (epoch ms). V1 defaults to 10 minutes (chart_plotter_tool.dart:
+  // 141-142) and reads the override from `customProperties.trailMinutes`.
+  // Trail appends are throttled to 2 s with a 5 m movement threshold.
   final List<LatLng> _trailPoints = [];
   final List<int> _trailTimestamps = [];
-  static const _trailMinutes = 30;
+  int _lastTrailPushMs = 0;
+  int get _trailMinutes {
+    final v = widget.config.style.customProperties?['trailMinutes'];
+    if (v is num) return v.toInt();
+    return 10;
+  }
 
   @override
   void initState() {
@@ -193,46 +224,156 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
       const Duration(seconds: 1),
       (_) => _refreshVessel(),
     );
+    // V1 subscribes the chart plotter to the AIS vessels endpoint on
+    // first connect. Without this the registry stays empty and no
+    // traffic ever paints, even on a server broadcasting AIS.
+    _ensureAisSubscribed();
+  }
+
+  bool _aisSubscribed = false;
+  void _ensureAisSubscribed() {
+    if (_aisSubscribed || !widget.signalKService.isConnected) return;
+    _aisSubscribed = true;
+    widget.signalKService.loadAndSubscribeAISVessels();
   }
 
   @override
   void dispose() {
     _routePollTimer?.cancel();
     _vesselTimer?.cancel();
+    _stopArrivalMonitor();
     super.dispose();
   }
 
+  /// Arrival monitor wiring matches V1 (chart_plotter_tool.dart:463-494).
+  /// On each arrival, V1 pops a countdown confirmation: the last
+  /// waypoint just reports; intermediate waypoints offer next-waypoint
+  /// auto-advance.
+  void _startArrivalMonitor() {
+    _stopArrivalMonitor();
+    _arrivalMonitor = RouteArrivalMonitor(signalKService: widget.signalKService);
+    _arrivalSub = _arrivalMonitor!.arrivalStream.listen(_onWaypointArrival);
+    _arrivalMonitor!.start();
+  }
+
+  void _stopArrivalMonitor() {
+    _arrivalSub?.cancel();
+    _arrivalSub = null;
+    _arrivalMonitor?.dispose();
+    _arrivalMonitor = null;
+  }
+
+  void _onWaypointArrival(RouteArrivalEvent event) {
+    if (!mounted || _routeCoords == null) return;
+    if (event.isLastWaypoint) {
+      showCountdownConfirmation(
+        context: context,
+        title: 'Final Waypoint Reached',
+        action: 'End Route',
+      );
+    } else {
+      showCountdownConfirmation(
+        context: context,
+        title:
+            'Waypoint ${event.pointIndex + 1}/${event.pointTotal} Reached',
+        action: 'Next Waypoint',
+      ).then((confirmed) {
+        if (confirmed == true) _advanceWaypoint();
+      });
+    }
+  }
+
+  Future<void> _advanceWaypoint() async {
+    final idx = _routePointIndex;
+    final total = _routePointTotal;
+    if (idx == null || total == null) return;
+    final nextIdx = idx + 1;
+    if (nextIdx >= total) return;
+    try {
+      await widget.signalKService.setActiveRoutePointIndex(nextIdx);
+      await _pollCourseAPI();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('Advance failed: $e')));
+      }
+    }
+  }
+
   void _refreshVessel() {
-    final posData = widget.signalKService.getValue('navigation.position');
-    if (posData?.value is! Map) return;
-    final pos = posData!.value as Map;
-    final lat = (pos['latitude'] as num?)?.toDouble();
-    final lon = (pos['longitude'] as num?)?.toDouble();
-    if (lat == null || lon == null) return;
+    // Piggy-back on the tick to retry subscribe; initState can run
+    // before the connection comes up, in which case the first call
+    // is a no-op and this finally fires on a later tick.
+    _ensureAisSubscribed();
+
     double? getNum(String path) {
       final d = widget.signalKService.getValue(path);
       return d?.value is num ? (d!.value as num).toDouble() : null;
     }
 
+    final posData = widget.signalKService.getValue('navigation.position');
+    double? lat, lon;
+    if (posData?.value is Map) {
+      final pos = posData!.value as Map;
+      lat = (pos['latitude'] as num?)?.toDouble();
+      lon = (pos['longitude'] as num?)?.toDouble();
+    }
     final heading = getNum('navigation.headingTrue');
     final cog = getNum('navigation.courseOverGroundTrue');
+    final sog = getNum('navigation.speedOverGround');
+
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
+    // AIS refresh is independent of own-vessel presence: a receive-
+    // only chartplotter (handheld with no GPS) still wants to see
+    // traffic. Only own-vessel state is gated on a valid fix below.
+    // Throttled to 1 s per V1 (chart_plotter_tool.dart:307-309).
+    if (_aisEnabled && mounted && nowMs - _lastAisPushMs >= 1000) {
+      _lastAisPushMs = nowMs;
+      setState(() {
+        _refreshAisVessels();
+        _refreshRulerSnaps();
+      });
+    }
+
+    if (lat == null || lon == null) return;
     final changed = lat != _ownLat ||
         lon != _ownLon ||
         heading != _ownHeading ||
-        cog != _ownCog;
+        cog != _ownCog ||
+        sog != _ownSog;
     if (!changed) return;
+    // Throttle vessel state updates to V1's 500 ms cadence
+    // (chart_plotter_tool.dart:297-299) so rapid WS deltas don't
+    // cause setState-per-delta churn.
+    if (nowMs - _lastVesselPushMs < 500) return;
+    _lastVesselPushMs = nowMs;
     if (mounted) {
       setState(() {
         _ownLat = lat;
         _ownLon = lon;
         _ownHeading = heading;
         _ownCog = cog;
-        _appendTrailPoint(lat, lon);
-        if (_aisEnabled) _refreshAisVessels();
+        _ownSog = sog;
+        _appendTrailPoint(lat!, lon!);
+        _refreshRulerSnaps();
       });
     }
-    if (_autoFollow) {
-      _mapController.move(LatLng(lat, lon), _mapController.camera.zoom);
+    if (_mapReady) {
+      // fitCamera handles centering when auto-zoom is on; only fall
+      // back to a bare move when auto-zoom is disabled by the user.
+      if (_autoFollow) {
+        if (_autoZoom) {
+          _applyAutoZoom();
+        } else {
+          _mapController.move(LatLng(lat, lon), _mapController.camera.zoom);
+        }
+      }
+      if (_viewMode == 'heading-up' && heading != null) {
+        final rotDeg = -heading * 180 / math.pi;
+        if ((rotDeg - _mapController.camera.rotation).abs() > 0.5) {
+          _mapController.rotate(rotDeg);
+        }
+      }
     }
   }
 
@@ -251,17 +392,77 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
       }
       final lat = v.latitude!;
       final lon = v.longitude!;
+      final sog = v.sogMs ?? 0.0;
+      final kind = _aisKindFor(v.navState, sog);
       out.add(_AisRenderable(
         id: v.vesselId,
         position: LatLng(lat, lon),
+        // Freeboard rotates by heading when known, otherwise COG. Zero
+        // is an acceptable fallback — the symbol stays upright.
         bearingRadians: v.headingTrueRad ?? v.cogRad ?? 0.0,
         name: v.name ?? '',
+        color: _aisShipTypeColor(v.aisShipType, v.aisClass),
+        alpha: _aisFreshnessAlpha(v.aisStatus, v.lastSeen),
+        stale: _aisIsStale(v.aisStatus, v.lastSeen),
+        kind: kind,
         projections: _aisShowPaths
-            ? _projectAhead(lat, lon, v.cogRad, v.sogMs ?? 0.0)
+            ? _projectAhead(lat, lon, v.cogRad, sog)
             : const [],
       ));
     }
     _aisVessels = out;
+  }
+
+  /// Ship-type / AIS-class palette — ported verbatim from V1's
+  /// `shipTypeColor` in chart_webview.dart so the two plotters render
+  /// the same traffic in the same colours.
+  Color _aisShipTypeColor(int? type, String? aisClass) {
+    if (type == null) {
+      return aisClass == 'A' ? const Color(0xFFBDBDBD) : const Color(0xFF9E9E9E);
+    }
+    if (type == 36) return const Color(0xFF9C27B0); // sailing
+    switch (type ~/ 10) {
+      case 1:
+      case 2:
+        return const Color(0xFF00BCD4); // fishing, towing
+      case 3:
+        return const Color(0xFFFFC107); // special craft
+      case 4:
+      case 5:
+        return const Color(0xFF009688); // HSC
+      case 6:
+        return const Color(0xFF2196F3); // passenger
+      case 7:
+        return const Color(0xFF388E3C); // cargo
+      case 8:
+        return const Color(0xFF795548); // tanker
+      default:
+        return const Color(0xFF9E9E9E);
+    }
+  }
+
+  double _aisFreshnessAlpha(String? status, DateTime? lastSeen) {
+    if (status == 'confirmed') return 1.0;
+    if (status == 'unconfirmed') return 0.5;
+    if (status == 'lost' || status == 'remove') return 0.2;
+    if (lastSeen == null) return 0.2;
+    final ageMin = DateTime.now().difference(lastSeen).inSeconds / 60.0;
+    if (ageMin < 3) return 1.0;
+    if (ageMin < 10) return 0.7;
+    return 0.3;
+  }
+
+  bool _aisIsStale(String? status, DateTime? lastSeen) {
+    if (status == 'lost' || status == 'remove') return true;
+    if (lastSeen == null) return true;
+    return DateTime.now().difference(lastSeen).inMinutes >= 10;
+  }
+
+  _AisKind _aisKindFor(String? navState, double sogMs) {
+    if (navState == 'moored') return _AisKind.moored;
+    if (navState == 'anchored') return _AisKind.anchored;
+    if (sogMs < 0.1) return _AisKind.slow;
+    return _AisKind.moving;
   }
 
   /// Great-circle projected positions at 30s / 1m / 15m / 30m.
@@ -291,11 +492,13 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
     return out;
   }
 
-  /// Append a trail point if the vessel has moved more than 5m since
-  /// the last sample, then trim anything older than the trail window.
-  /// Distance is approximated via equirectangular projection — cheap
-  /// and accurate enough for trail-point deduplication.
+  /// V1's trail rules, ported verbatim (chart_plotter_tool.dart:332-356):
+  ///   • push throttle: 2 000 ms between samples
+  ///   • movement threshold: <5 m (metres² < 25 via equirectangular)
+  ///   • retention: trailMinutes (default 10)
   void _appendTrailPoint(double lat, double lon) {
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
+    if (nowMs - _lastTrailPushMs < 2000) return;
     if (_trailPoints.isNotEmpty) {
       final last = _trailPoints.last;
       final dx = (lon - last.longitude) *
@@ -304,7 +507,7 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
       final dy = (lat - last.latitude) * 111320;
       if (dx * dx + dy * dy < 25) return; // <5m
     }
-    final nowMs = DateTime.now().millisecondsSinceEpoch;
+    _lastTrailPushMs = nowMs;
     _trailPoints.add(LatLng(lat, lon));
     _trailTimestamps.add(nowMs);
     final cutoff = nowMs - _trailMinutes * 60000;
@@ -324,18 +527,22 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
         final href = activeRoute['href'] as String?;
         final newIndex = activeRoute['pointIndex'] as int?;
         final newTotal = activeRoute['pointTotal'] as int?;
+        final newReversed = activeRoute['reverse'] == true;
         final hrefChanged = href != null && href != _activeRouteHref;
         if (hrefChanged) {
           _activeRouteHref = href;
           await _fetchRoute(href);
+          _startArrivalMonitor();
         }
         if (mounted) {
           setState(() {
             _routePointIndex = newIndex;
             _routePointTotal = newTotal;
+            _routeReversed = newReversed;
           });
         }
       } else if (_activeRouteHref != null) {
+        _stopArrivalMonitor();
         if (mounted) {
           setState(() {
             _activeRouteHref = null;
@@ -343,6 +550,7 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
             _waypointNames = null;
             _routePointIndex = null;
             _routePointTotal = null;
+            _routeReversed = false;
           });
         }
       }
@@ -438,9 +646,14 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
     await widget.signalKService.putResource('routes', routeId, routeData);
   }
 
-  /// Tap handler: waypoints first (small radius), then AIS vessels
-  /// (larger — sprites are bigger targets), fall through otherwise.
+  /// V1's tap routing priority (chart_webview.dart:1020-1138):
+  ///   1. Waypoint (small — precise hit radius ~14 px)
+  ///   2. AIS vessel (20 px — sprite target)
+  ///   3. S-57 feature (30 px, grouped within 30 px, priority-sorted)
+  /// Tap halo feedback is painted for 2 s regardless.
   void _onMapTap(TapPosition tapPosition, LatLng latLng) {
+    _showTapHalo(latLng);
+
     final camera = _mapController.camera;
     final tapScreen = camera.latLngToScreenOffset(latLng);
 
@@ -479,20 +692,224 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
             ownLat: _ownLat,
             ownLon: _ownLon,
             ownCogRad: _ownCog,
-            ownSogMs: widget.signalKService
-                    .getValue('navigation.speedOverGround')
-                    ?.value is num
-                ? (widget.signalKService
-                        .getValue('navigation.speedOverGround')!
-                        .value as num)
-                    .toDouble()
-                : null,
+            ownSogMs: _ownSog,
           );
           return;
         }
       }
     }
+
+    _showFeaturePopoverForTap(latLng, tapScreen);
   }
+
+  /// 2-second yellow tap halo, parity with V1 (chart_webview.dart:1020-1032).
+  void _showTapHalo(LatLng latLng) {
+    setState(() => _tapHalo = latLng);
+    Future.delayed(const Duration(seconds: 2), () {
+      if (mounted && _tapHalo == latLng) {
+        setState(() => _tapHalo = null);
+      }
+    });
+  }
+
+  /// Hit-test every parsed feature against the tap within a 30 px
+  /// tolerance. Clickable layers are the same 31-entry list V1 uses
+  /// (chart_webview.dart:1003-1015). Results are grouped by spatial
+  /// proximity (30 px), each group sorted by display priority and
+  /// geometry kind, then structures-before-equipment within the
+  /// winning group.
+  void _showFeaturePopoverForTap(LatLng tap, Offset tapScreen) {
+    const hitRadiusPx = 30.0;
+    const groupRadiusPx = 30.0;
+    final camera = _mapController.camera;
+
+    final hits = <_TappedFeature>[];
+    for (final tile in _tileCache.values) {
+      for (final f in tile.features) {
+        if (!_clickableLayers.contains(f.objectClass)) continue;
+        final screenPos = _featureScreenPos(f, camera);
+        if (screenPos == null) continue;
+        if ((screenPos - tapScreen).distanceSquared >
+            hitRadiusPx * hitRadiusPx) {
+          continue;
+        }
+        hits.add(_TappedFeature(
+          layer: f.objectClass,
+          properties: Map.of(f.attributes),
+          screenPos: screenPos,
+          displayPriority: f.displayPriority,
+          isPoint: f.geometry.kind == _GeomKind.point,
+        ));
+      }
+    }
+    if (hits.isEmpty) return;
+
+    // Group features within `groupRadiusPx` of each other. Points only
+    // — lines / areas get their own singleton groups because their
+    // centroid is harder to compute and V1 doesn't group them either.
+    final groups = <_TapGroup>[];
+    for (final h in hits) {
+      if (h.isPoint) {
+        var merged = false;
+        for (final g in groups) {
+          if (!g.isPoint) continue;
+          if ((h.screenPos - g.center).distanceSquared <=
+              groupRadiusPx * groupRadiusPx) {
+            g.members.add(h);
+            if (h.displayPriority > g.maxPriority) {
+              g.maxPriority = h.displayPriority;
+            }
+            merged = true;
+            break;
+          }
+        }
+        if (!merged) {
+          groups.add(_TapGroup(
+            center: h.screenPos,
+            isPoint: true,
+            maxPriority: h.displayPriority,
+            members: [h],
+          ));
+        }
+      } else {
+        groups.add(_TapGroup(
+          center: h.screenPos,
+          isPoint: false,
+          maxPriority: h.displayPriority,
+          members: [h],
+        ));
+      }
+    }
+
+    // Winning group: highest display priority; points beat lines/areas
+    // on tiebreak. Mirrors chart_webview.dart:1109-1112.
+    groups.sort((a, b) {
+      if (a.maxPriority != b.maxPriority) {
+        return b.maxPriority.compareTo(a.maxPriority);
+      }
+      return (b.isPoint ? 1 : 0).compareTo(a.isPoint ? 1 : 0);
+    });
+    final winner = groups.first;
+
+    // Structures first, equipment after (LIGHTS/FOGSIG/TOPMAR etc. are
+    // ancillary to the host buoy/beacon). chart_webview.dart:1115-1122.
+    const equipment = {
+      'LIGHTS',
+      'FOGSIG',
+      'TOPMAR',
+      'RTPBCN',
+      'RADSTA',
+      'RDOSTA',
+    };
+    winner.members.sort((a, b) {
+      final aEq = equipment.contains(a.layer) ? 1 : 0;
+      final bEq = equipment.contains(b.layer) ? 1 : 0;
+      if (aEq != bEq) return aEq.compareTo(bEq);
+      return b.displayPriority.compareTo(a.displayPriority);
+    });
+
+    _showFeatureSheet(winner.members, tap);
+  }
+
+  Offset? _featureScreenPos(_StyledFeature f, MapCamera camera) {
+    final origin = camera.pixelOrigin;
+    Offset project(LatLng p) => camera.projectAtZoom(p) - origin;
+    switch (f.geometry.kind) {
+      case _GeomKind.point:
+        if (f.geometry.points.isEmpty) return null;
+        return project(f.geometry.points.first);
+      case _GeomKind.line:
+        if (f.geometry.lines.isEmpty || f.geometry.lines.first.isEmpty) {
+          return null;
+        }
+        // Midpoint of the first polyline is close enough for hit-test.
+        final line = f.geometry.lines.first;
+        return project(line[line.length ~/ 2]);
+      case _GeomKind.polygon:
+        if (f.geometry.rings.isEmpty ||
+            f.geometry.rings.first.isEmpty ||
+            f.geometry.rings.first.first.isEmpty) {
+          return null;
+        }
+        return project(f.geometry.rings.first.first.first);
+    }
+  }
+
+  void _showFeatureSheet(List<_TappedFeature> members, LatLng tap) {
+    // Pass the PathMetadata objects straight down; the card uses
+    // `metadata.format(...)` / `metadata.convert(...)` per CLAUDE.md's
+    // SSOT rule. Falling back to raw SI + 'm' when no metadata is
+    // registered for the category.
+    final store = widget.signalKService.metadataStore;
+    final depthMeta = store.getByCategory('depth');
+    final heightMeta = store.getByCategory('height');
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetCtx) => DraggableScrollableSheet(
+        initialChildSize: 0.4,
+        maxChildSize: 0.85,
+        minChildSize: 0.2,
+        builder: (_, controller) => Container(
+          decoration: const BoxDecoration(
+            color: AppColors.cardBackgroundDark,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+                child: Row(
+                  children: [
+                    const Icon(Icons.place, color: Colors.white70, size: 18),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        '${tap.latitude.toStringAsFixed(5)}, '
+                        '${tap.longitude.toStringAsFixed(5)}',
+                        style: const TextStyle(
+                            color: Colors.white70, fontSize: 12),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const Divider(height: 1, color: Colors.white12),
+              Expanded(
+                child: ListView.builder(
+                  controller: controller,
+                  itemCount: members.length,
+                  itemBuilder: (_, i) => _FeatureCard(
+                    member: members[i],
+                    depth: depthMeta,
+                    height: heightMeta,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Same 31-entry clickable layer set as V1 (chart_webview.dart:1004-1015).
+  static const _clickableLayers = {
+    'LIGHTS',
+    'BOYLAT', 'BOYCAR', 'BOYISD', 'BOYSAW', 'BOYSPP',
+    'BCNLAT', 'BCNCAR', 'BCNISD', 'BCNSAW', 'BCNSPP', 'TOPMAR',
+    'RTPBCN', 'RDOSTA', 'RADSTA', 'FOGSIG', 'LITFLT', 'LITVES',
+    'OBSTRN', 'UWTROC', 'WRECKS',
+    'LNDMRK', 'SLCONS', 'BRIDGE', 'OFSPLF', 'PILBOP',
+    'CRANES', 'GATCON', 'MORFAC', 'BERTHS', 'HRBFAC', 'SMCFAC',
+    'CBLSUB', 'CBLOHD', 'PIPSOL', 'PIPOHD',
+    'CGUSTA', 'RSCSTA', 'SISTAT', 'SISTAW',
+    'DISMAR', 'CURENT', 'FSHFAC', 'CONVYR',
+    'RESARE', 'ACHARE',
+  };
 
   /// Long-press inserts a waypoint after the nearest existing one.
   /// Matches V1's UX: press where you want the new point to live.
@@ -601,6 +1018,7 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
       final decoded = vt.VectorTile.fromBytes(bytes: bytes);
       final parsed = _parse(decoded, engine, key);
       _tileCache[key] = parsed;
+      _indexLandExtents(key, parsed);
       if (mounted) setState(() {});
     } catch (_) {
       _tileCache[key] = _ParsedTile.empty();
@@ -662,10 +1080,26 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
         if (instructions.isEmpty) continue;
         final world = _geomToLatLng(feature, layer.extent, key);
         if (world == null) continue;
+        // Look up displayPriority via the same table kind the engine
+        // used (simplified/lines/symbolisedBoundaries) so the feature
+        // popover can sort by S-52 priority the same way V1 does.
+        final lookupKind = switch (geomType) {
+          S52GeometryType.point => S52LookupTableKind.simplified,
+          S52GeometryType.line => S52LookupTableKind.lines,
+          S52GeometryType.area => S52LookupTableKind.symbolisedBoundaries,
+        };
+        final row = engine.lookups.bestMatch(
+          lookupKind,
+          layer.name,
+          geomType,
+          attrs,
+        );
         out.add(_StyledFeature(
+          objectClass: layer.name,
           geometry: world,
           instructions: instructions,
           attributes: attrs,
+          displayPriority: row?.displayPriority.code ?? 0,
         ));
       }
     }
@@ -796,9 +1230,22 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
                     setState(() => _autoFollow = false);
                   }
                 }
+                // User pinch/scroll zoom kills auto-zoom but leaves
+                // auto-follow intact (V1 chart_webview.dart:1271-1278).
+                if (e.source == MapEventSource.scrollWheel ||
+                    e.source == MapEventSource.doubleTap ||
+                    e.source == MapEventSource.multiFingerGestureStart ||
+                    e.source == MapEventSource.onMultiFinger) {
+                  if (_autoZoom && mounted) {
+                    setState(() => _autoZoom = false);
+                  }
+                }
                 _refreshTiles();
               },
-              onMapReady: _refreshTiles,
+              onMapReady: () {
+                _mapReady = true;
+                _refreshTiles();
+              },
               onTap: _onMapTap,
               onLongPress: _onMapLongPress,
             ),
@@ -822,43 +1269,26 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
                     spriteImage: _spriteImage!,
                   ),
                 ),
+              if (_tapHalo != null)
+                _TapHaloLayer(point: _tapHalo!),
               if (_trailPoints.length >= 2)
                 _TrailOverlayLayer(
                   points: _trailPoints,
                   timestamps: _trailTimestamps,
                 ),
-              if (_rulerVisible && _rulerA != null && _rulerB != null) ...[
-                _RulerLineLayer(a: _rulerA!, b: _rulerB!),
-                MarkerLayer(
-                  markers: [
-                    Marker(
-                      point: _rulerA!,
-                      width: 32,
-                      height: 32,
-                      child: _RulerHandle(
-                        color: const Color(0xFFFF5252),
-                        onDrag: (ll) =>
-                            setState(() => _rulerA = ll),
-                      ),
-                    ),
-                    Marker(
-                      point: _rulerB!,
-                      width: 32,
-                      height: 32,
-                      child: _RulerHandle(
-                        color: const Color(0xFF4FC3F7),
-                        onDrag: (ll) =>
-                            setState(() => _rulerB = ll),
-                      ),
-                    ),
-                  ],
+              if (_rulerVisible &&
+                  _rulerRed != null &&
+                  _rulerBlue != null)
+                _RulerLayer(
+                  red: _rulerRed!,
+                  blue: _rulerBlue!,
+                  distance: _distanceMetadata(),
                 ),
-              ],
               if (_routeCoords != null)
                 _RouteOverlayLayer(
                   coords: _routeCoords!,
                   activeIndex: _routePointIndex,
-                  names: _waypointNames,
+                  reversed: _routeReversed,
                 ),
               if (_aisEnabled && _aisVessels.isNotEmpty)
                 _AisOverlayLayer(
@@ -869,17 +1299,43 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
                 _OwnVesselLayer(
                   lat: _ownLat!,
                   lon: _ownLon!,
-                  // Heading wins for bow direction; COG is the fallback
-                  // so sailboats without a compass still point sensibly.
-                  bearingRadians: _ownHeading ?? _ownCog ?? 0.0,
+                  headingRad: _ownHeading,
+                  cogRad: _ownCog,
+                  sogMs: _ownSog,
                 ),
-              const Scalebar(
-                alignment: Alignment.bottomLeft,
-                textStyle: TextStyle(color: Colors.white, fontSize: 12),
-                lineColor: Colors.white,
-                strokeWidth: 2,
-                padding: EdgeInsets.fromLTRB(8, 8, 8, 64),
-              ),
+              _MetadataScaleBar(distance: _distanceMetadata()),
+              // DragMarkers must be the LAST FlutterMap child. Later
+              // children sit on top in the Stack and get gesture
+              // priority — otherwise the overlays above (route, AIS,
+              // own-vessel, scale) swallow the hit test for the
+              // ruler endpoints.
+              if (_rulerVisible &&
+                  _rulerRed != null &&
+                  _rulerBlue != null)
+                DragMarkers(
+                  markers: [
+                    DragMarker(
+                      point: _rulerRed!,
+                      size: const Size(44, 44),
+                      rotateMarker: false,
+                      onDragUpdate: (details, latLng) =>
+                          _onRulerDrag('red', latLng),
+                      builder: (_, _, _) => _rulerHandleVisual(
+                        const Color(0xCCF44336),
+                      ),
+                    ),
+                    DragMarker(
+                      point: _rulerBlue!,
+                      size: const Size(44, 44),
+                      rotateMarker: false,
+                      onDragUpdate: (details, latLng) =>
+                          _onRulerDrag('blue', latLng),
+                      builder: (_, _, _) => _rulerHandleVisual(
+                        const Color(0xCC2196F3),
+                      ),
+                    ),
+                  ],
+                ),
             ],
           ),
           ChartPlotterHUD(
@@ -910,6 +1366,7 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
             right: 8,
             child: _MapControls(
               autoFollow: _autoFollow,
+              headingUp: _viewMode == 'heading-up',
               rulerVisible: _rulerVisible,
               aisEnabled: _aisEnabled,
               aisActiveOnly: _aisActiveOnly,
@@ -918,14 +1375,23 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
               onRoutes: () => _showRouteManager(context),
               onDownload: () => _showDownloadSheet(context),
               onToggleFollow: () {
-                setState(() => _autoFollow = !_autoFollow);
-                if (_autoFollow && _ownLat != null && _ownLon != null) {
+                // V1 re-engages auto-zoom whenever auto-follow turns
+                // back on (chart_webview.dart:1395).
+                setState(() {
+                  _autoFollow = !_autoFollow;
+                  if (_autoFollow) _autoZoom = true;
+                });
+                if (_autoFollow &&
+                    _mapReady &&
+                    _ownLat != null &&
+                    _ownLon != null) {
                   _mapController.move(
                     LatLng(_ownLat!, _ownLon!),
                     _mapController.camera.zoom,
                   );
                 }
               },
+              onToggleViewMode: _toggleViewMode,
               onToggleRuler: _toggleRuler,
               onToggleAis: () {
                 setState(() {
@@ -947,14 +1413,36 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
               },
             ),
           ),
-          if (_rulerVisible && _rulerA != null && _rulerB != null)
+          if (_rulerVisible && _rulerRed != null && _rulerBlue != null)
             Positioned(
               top: 8,
               left: 8,
               child: _RulerReadout(
                 signalKService: widget.signalKService,
-                a: _rulerA!,
-                b: _rulerB!,
+                a: _rulerRed!,
+                b: _rulerBlue!,
+              ),
+            ),
+          // V1 only shows the compass rose in heading-up mode (it's
+          // redundant in north-up where the whole chart already points
+          // north). Counter-rotates against the current heading so its
+          // internal N arrow stays aligned with the rotated map frame.
+          if (_viewMode == 'heading-up')
+            Positioned(
+              top: _rulerVisible ? 130 : 80,
+              left: 8,
+              child: Transform.rotate(
+                angle: -(_ownHeading ?? 0.0),
+                child: Container(
+                  width: 60,
+                  height: 60,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: Colors.black.withValues(alpha: 0.6),
+                    border: Border.all(color: Colors.white24),
+                  ),
+                  child: CustomPaint(painter: _CompassRosePainter()),
+                ),
               ),
             ),
         ],
@@ -978,21 +1466,122 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
     );
   }
 
-  /// Toggle the ruler overlay. First enable seeds the two endpoints
-  /// roughly 30% / 70% across the current viewport width so they're
-  /// immediately visible on either side of centre.
+  /// Flip between north-up and heading-up. In north-up we reset the
+  /// map rotation to 0; heading-up applies the current heading on the
+  /// next tick. Matches V1's one-shot behaviour (chart_plotter_tool.dart:
+  /// 364-368).
+  void _toggleViewMode() {
+    setState(() {
+      _viewMode = _viewMode == 'north-up' ? 'heading-up' : 'north-up';
+    });
+    if (_viewMode == 'north-up' && _mapReady) {
+      _mapController.rotate(0);
+    }
+  }
+
+  /// Toggle the ruler overlay. V1 seeds endpoints at `center ± 80px`
+  /// in screen pixels (chart_webview.dart:1930-1932). We match that so
+  /// the handles land where a user's thumbs would expect.
   void _toggleRuler() {
     setState(() {
       _rulerVisible = !_rulerVisible;
-      if (_rulerVisible && (_rulerA == null || _rulerB == null)) {
-        final bounds = _mapController.camera.visibleBounds;
-        final lat = bounds.center.latitude;
-        final lonSpan = bounds.east - bounds.west;
-        _rulerA = LatLng(lat, bounds.west + lonSpan * 0.3);
-        _rulerB = LatLng(lat, bounds.west + lonSpan * 0.7);
+      if (!_rulerVisible) {
+        _rulerRedSnap = null;
+        _rulerBlueSnap = null;
+        return;
+      }
+      if (_rulerRed == null || _rulerBlue == null) {
+        final camera = _mapController.camera;
+        final size = camera.size;
+        final centerScreen = Offset(size.width / 2, size.height / 2);
+        _rulerRed = camera.offsetToCrs(centerScreen - const Offset(80, 0));
+        _rulerBlue = camera.offsetToCrs(centerScreen + const Offset(80, 0));
       }
     });
   }
+
+  /// Pulled-out drag handler so snap logic can live alongside the
+  /// endpoint update. Snap candidates: the own-vessel marker (20px)
+  /// and any AIS vessel (20px) — matching V1's hitTolerance.
+  void _onRulerDrag(String end, LatLng raw) {
+    final camera = _mapController.camera;
+    final rawScreen = camera.latLngToScreenOffset(raw);
+    const snapRadiusSq = 20.0 * 20.0;
+    LatLng snapped = raw;
+    String? snapId;
+    if (_ownLat != null && _ownLon != null) {
+      final selfScreen =
+          camera.latLngToScreenOffset(LatLng(_ownLat!, _ownLon!));
+      if ((selfScreen - rawScreen).distanceSquared <= snapRadiusSq) {
+        snapped = LatLng(_ownLat!, _ownLon!);
+        snapId = 'self';
+      }
+    }
+    if (snapId == null) {
+      for (final v in _aisVessels) {
+        final s = camera.latLngToScreenOffset(v.position);
+        if ((s - rawScreen).distanceSquared <= snapRadiusSq) {
+          snapped = v.position;
+          snapId = v.id;
+          break;
+        }
+      }
+    }
+    setState(() {
+      if (end == 'red') {
+        _rulerRed = snapped;
+        _rulerRedSnap = snapId;
+      } else {
+        _rulerBlue = snapped;
+        _rulerBlueSnap = snapId;
+      }
+    });
+  }
+
+  /// Reposition snapped ruler endpoints when their target vessel
+  /// moves. Called from the vessel + AIS refresh paths.
+  void _refreshRulerSnaps() {
+    if (!_rulerVisible) return;
+    LatLng? targetFor(String? id) {
+      if (id == null) return null;
+      if (id == 'self' && _ownLat != null && _ownLon != null) {
+        return LatLng(_ownLat!, _ownLon!);
+      }
+      for (final v in _aisVessels) {
+        if (v.id == id) return v.position;
+      }
+      return null;
+    }
+
+    final newRed = targetFor(_rulerRedSnap);
+    final newBlue = targetFor(_rulerBlueSnap);
+    if (newRed != null && newRed != _rulerRed) _rulerRed = newRed;
+    if (newBlue != null && newBlue != _rulerBlue) _rulerBlue = newBlue;
+  }
+
+  /// Visual-only widget for the ruler endpoint. Matches V1's
+  /// 12 px circle with a 2 px white stroke, centred in a 44 px hit
+  /// box (the wider hit target is picked up by DragMarker's size).
+  Widget _rulerHandleVisual(Color fill) {
+    return Center(
+      child: Container(
+        width: 24,
+        height: 24,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: fill,
+          border: Border.all(color: Colors.white, width: 2),
+        ),
+      ),
+    );
+  }
+
+  /// Distance metadata (SI = metres). Consumers must use
+  /// `metadata.convert(m)` and `metadata.convertToSI(display)` per
+  /// the project's single-source-of-truth rule — no factor shortcuts,
+  /// since they silently break for non-linear formulas (e.g. °K → °F).
+  PathMetadata? _distanceMetadata() =>
+      widget.signalKService.metadataStore.getByCategory('distance');
 
   void _showDownloadSheet(BuildContext ctx) {
     ChartDownloadManager? downloadManager;
@@ -1243,6 +1832,7 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
   }
 
   void _refreshTiles() {
+    if (!_mapReady) return;
     final camera = _mapController.camera;
     final zInt = camera.zoom.round().clamp(9, 16);
     final bounds = camera.visibleBounds;
@@ -1263,6 +1853,98 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
       }
     }
     _refreshFreshness(viewportTiles);
+  }
+
+  /// Pull LNDARE polygon bounds out of a freshly parsed tile so the
+  /// auto-zoom code can find nearest land quickly. Mirrors V1's
+  /// `_landExtents` cache (chart_webview.dart populated during tile
+  /// styling). We dedupe by tile key so the list doesn't grow
+  /// unbounded on repeated fetches.
+  void _indexLandExtents(_TileKey key, _ParsedTile tile) {
+    if (_landIndexedTiles.contains(key)) return;
+    _landIndexedTiles.add(key);
+    for (final f in tile.features) {
+      if (f.objectClass != 'LNDARE') continue;
+      if (f.geometry.kind != _GeomKind.polygon) continue;
+      double? minLat, minLon, maxLat, maxLon;
+      for (final ring in f.geometry.rings) {
+        for (final poly in ring) {
+          for (final p in poly) {
+            minLat = minLat == null ? p.latitude : math.min(minLat, p.latitude);
+            minLon = minLon == null ? p.longitude : math.min(minLon, p.longitude);
+            maxLat = maxLat == null ? p.latitude : math.max(maxLat, p.latitude);
+            maxLon = maxLon == null ? p.longitude : math.max(maxLon, p.longitude);
+          }
+        }
+      }
+      if (minLat != null) {
+        _landBounds.add(LatLngBounds(
+          LatLng(minLat, minLon!),
+          LatLng(maxLat!, maxLon!),
+        ));
+      }
+    }
+  }
+
+  /// Distance in metres from a point to the nearest land bounding box.
+  /// Uses equirectangular approximation — good enough for a zoom
+  /// heuristic at sub-degree scales.
+  double _nearestLandMeters(double lat, double lon) {
+    if (_landBounds.isEmpty) return double.infinity;
+    final mPerDegLat = 111320.0;
+    final mPerDegLon = 111320.0 * math.cos(lat * math.pi / 180);
+    var best = double.infinity;
+    for (final b in _landBounds) {
+      final dLat = math.max(
+          0.0, math.max(b.south - lat, lat - b.north));
+      final dLon = math.max(
+          0.0, math.max(b.west - lon, lon - b.east));
+      final dx = dLon * mPerDegLon;
+      final dy = dLat * mPerDegLat;
+      final d = math.sqrt(dx * dx + dy * dy);
+      if (d < best) best = d;
+    }
+    return best;
+  }
+
+  /// V1's auto-zoom policy (chart_webview.dart:1345-1371). Only kicks
+  /// in when moving (>0.3 m/s) and auto-zoom is engaged. If land is
+  /// within 15 min at current speed, tightens to `nearestLand * 1.3`;
+  /// otherwise a 30-min look-ahead area. Camera fit clamped to 10..16.
+  void _applyAutoZoom() {
+    if (!_autoFollow || !_autoZoom || !_mapReady) return;
+    final sog = _ownSog ?? 0.0;
+    if (sog <= 0.3) return;
+    final lat = _ownLat;
+    final lon = _ownLon;
+    if (lat == null || lon == null) return;
+
+    double nearestLand = double.infinity;
+    if (sog > 0.5) {
+      nearestLand = _nearestLandMeters(lat, lon);
+    }
+    final landThreshold = sog * 900; // 15 min
+    double bufferDist;
+    if (nearestLand < landThreshold && nearestLand.isFinite) {
+      bufferDist = math.max(nearestLand * 1.3, 300);
+    } else {
+      bufferDist = math.max(sog * 1800, 500);
+    }
+
+    // Convert metres to lat/lon deltas so we can build a LatLngBounds.
+    final dLat = bufferDist / 111320.0;
+    final dLon = bufferDist / (111320.0 * math.cos(lat * math.pi / 180));
+    final bounds = LatLngBounds(
+      LatLng(lat - dLat, lon - dLon),
+      LatLng(lat + dLat, lon + dLon),
+    );
+    _mapController.fitCamera(
+      CameraFit.bounds(
+        bounds: bounds,
+        maxZoom: 16,
+        minZoom: 10,
+      ),
+    );
   }
 
   void _refreshFreshness(List<(int, int, int)> viewportTiles) {
@@ -1310,13 +1992,17 @@ class _ParsedTile {
 
 class _StyledFeature {
   const _StyledFeature({
+    required this.objectClass,
     required this.geometry,
     required this.instructions,
     required this.attributes,
+    required this.displayPriority,
   });
+  final String objectClass;
   final _WorldGeometry geometry;
   final List<S52Instruction> instructions;
   final Map<String, Object?> attributes;
+  final int displayPriority;
 }
 
 enum _GeomKind { point, line, polygon }
@@ -1746,9 +2432,11 @@ class _S57Painter extends CustomPainter {
       old.spriteImage != spriteImage;
 }
 
-/// Paints the vessel's recent track. Segments fade from opaque at the
-/// head (newest) to translucent at the tail (oldest) so the current
-/// direction of travel is obvious at a glance.
+/// Paints the vessel's recent track. Matches V1's gradient-faded
+/// 5-segment rendering (chart_webview.dart:1220-1249). Trail divides
+/// into up to 5 equal-length segments; segment alpha ramps from 0.15
+/// at the oldest to 0.8 at the newest. All segments are blue
+/// `rgba(33,150,243,α)` stroked at width 2 with dash 6-4.
 class _TrailOverlayLayer extends StatelessWidget {
   const _TrailOverlayLayer({required this.points, required this.timestamps});
   final List<LatLng> points;
@@ -1784,22 +2472,55 @@ class _TrailPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     if (points.length < 2) return;
     final origin = camera.pixelOrigin;
-    final newest = timestamps.last;
-    final oldest = timestamps.first;
-    final span = (newest - oldest).clamp(1, 1 << 31).toDouble();
-    for (var i = 1; i < points.length; i++) {
-      final a = camera.projectAtZoom(points[i - 1]) - origin;
-      final b = camera.projectAtZoom(points[i]) - origin;
-      // Alpha increases linearly with age → newer segments show
-      // brighter. Minimum 0.15 so the oldest still reads on screen.
-      final age = (newest - timestamps[i]) / span;
-      final alpha = (1.0 - age).clamp(0.15, 1.0);
-      final paint = Paint()
-        ..color = const Color(0xFFFF5252).withValues(alpha: alpha)
-        ..strokeWidth = 2
-        ..style = PaintingStyle.stroke;
-      canvas.drawLine(a, b, paint);
+    final screen = points
+        .map((p) => camera.projectAtZoom(p) - origin)
+        .toList(growable: false);
+
+    // V1 splits the polyline into `min(n-1, 5)` chunks. Each chunk's
+    // alpha = 0.15 + 0.65 * (i / (segCount - 1)) → 0.15 … 0.8.
+    final segCount = math.min(screen.length - 1, 5);
+    final segLen = (screen.length / segCount).floor();
+    for (var s = 0; s < segCount; s++) {
+      final start = s * segLen;
+      final end = s == segCount - 1 ? screen.length : (s + 1) * segLen + 1;
+      if (end - start < 2) continue;
+      final alpha = segCount == 1
+          ? 0.8
+          : 0.15 + 0.65 * (s / (segCount - 1));
+      final path = ui.Path()..moveTo(screen[start].dx, screen[start].dy);
+      for (var i = start + 1; i < end; i++) {
+        path.lineTo(screen[i].dx, screen[i].dy);
+      }
+      canvas.drawPath(
+        _dash(path, const [6, 4]),
+        Paint()
+          ..color = Color.fromRGBO(33, 150, 243, alpha)
+          ..strokeWidth = 2
+          ..style = PaintingStyle.stroke,
+      );
     }
+  }
+
+  ui.Path _dash(ui.Path source, List<double> intervals) {
+    final out = ui.Path();
+    for (final metric in source.computeMetrics()) {
+      double d = 0;
+      var on = true;
+      var i = 0;
+      while (d < metric.length) {
+        final next = d + intervals[i % intervals.length];
+        if (on) {
+          out.addPath(
+            metric.extractPath(d, next.clamp(0, metric.length)),
+            Offset.zero,
+          );
+        }
+        d = next;
+        on = !on;
+        i++;
+      }
+    }
+    return out;
   }
 
   @override
@@ -1808,6 +2529,507 @@ class _TrailPainter extends CustomPainter {
       old.points.length != points.length ||
       (points.isNotEmpty && old.points.last != points.last);
 }
+
+/// Scale bar matching V1's OpenLayers `ScaleLine` configuration
+/// (chart_webview.dart:992-998):
+///   `{ units: 'nautical'|'metric'|'imperial', bar: true, steps: 4,
+///      text: true, minWidth: 120 }`
+///
+/// That renders a 4-step checkered bar (alternating black/white
+/// segments with tick separators), a "0" label at the left and the
+/// total value+unit label at the right. Units come from
+/// MetadataStore's `distance` category via `convertToSI`/`format`
+/// per the SSOT rule — no factor multiplication.
+class _MetadataScaleBar extends StatelessWidget {
+  const _MetadataScaleBar({required this.distance});
+  final PathMetadata? distance;
+
+  // Candidate rounded display-unit totals. First segment has length
+  // total/steps, so we pick totals that divide by 4 cleanly where
+  // possible. V1's OL uses an internal table; this set covers the
+  // same magnitudes for metric / nautical / imperial preferences.
+  static const _niceTotals = <double>[
+    0.001, 0.002, 0.004, 0.01, 0.02, 0.04, 0.1, 0.2, 0.4,
+    1, 2, 4, 10, 20, 40, 100, 200, 400,
+    1000, 2000, 4000,
+  ];
+
+  static const _steps = 4;
+  static const _minWidth = 120.0; // matches OL's `minWidth: 120`
+
+  @override
+  Widget build(BuildContext context) {
+    final camera = MapCamera.of(context);
+    final center = camera.center;
+    const dist = Distance();
+    // px-per-metre at current zoom via a 1 km east offset.
+    final eastLatLng = dist.offset(center, 1000, 90);
+    final pxPerMetre =
+        (camera.projectAtZoom(eastLatLng).dx -
+                camera.projectAtZoom(center).dx)
+            .abs() /
+            1000.0;
+    if (pxPerMetre <= 0) return const SizedBox.shrink();
+
+    double displayToMetres(double display) =>
+        distance?.convertToSI(display) ?? display;
+
+    // Smallest total whose pixel width is ≥ minWidth. V1 renders the
+    // first candidate that clears minWidth; if none do (extremely
+    // zoomed-in), fall back to the largest available.
+    double chosenDisplay = _niceTotals.last;
+    double chosenMetres = displayToMetres(chosenDisplay);
+    for (final t in _niceTotals) {
+      final m = displayToMetres(t);
+      final px = m * pxPerMetre;
+      if (px >= _minWidth) {
+        chosenDisplay = t;
+        chosenMetres = m;
+        break;
+      }
+    }
+    final barWidthPx = chosenMetres * pxPerMetre;
+    if (!barWidthPx.isFinite || barWidthPx <= 0) {
+      return const SizedBox.shrink();
+    }
+
+    final decimals = chosenDisplay < 0.01
+        ? 3
+        : chosenDisplay < 1
+            ? 2
+            : 0;
+    final endLabel = distance?.format(chosenMetres, decimals: decimals) ??
+        '${chosenMetres.toStringAsFixed(decimals)} m';
+
+    return Align(
+      alignment: Alignment.bottomLeft,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(8, 8, 8, 64),
+        child: CustomPaint(
+          size: Size(barWidthPx + 40, 28),
+          painter: _StepBarPainter(
+            widthPx: barWidthPx,
+            steps: _steps,
+            endLabel: endLabel,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 4-step checkered scale bar. Alternating black + white rectangles
+/// with black outline and tick separators; "0" label at the left
+/// end, total+unit label at the right end. Labels have a dark
+/// shadow so they read against any basemap colour.
+class _StepBarPainter extends CustomPainter {
+  _StepBarPainter({
+    required this.widthPx,
+    required this.steps,
+    required this.endLabel,
+  });
+  final double widthPx;
+  final int steps;
+  final String endLabel;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    const barHeight = 6.0;
+    final barY = size.height - 14;
+    final segW = widthPx / steps;
+
+    final outlinePaint = Paint()
+      ..color = Colors.black
+      ..strokeWidth = 1
+      ..style = PaintingStyle.stroke;
+    final blackFill = Paint()..color = Colors.black;
+    final whiteFill = Paint()..color = Colors.white;
+
+    // Alternating filled segments — segment 0 black, 1 white, 2 black, 3 white.
+    for (var i = 0; i < steps; i++) {
+      final rect = Rect.fromLTWH(i * segW, barY, segW, barHeight);
+      canvas.drawRect(rect, i.isEven ? blackFill : whiteFill);
+    }
+    // Outline the full bar.
+    canvas.drawRect(
+      Rect.fromLTWH(0, barY, widthPx, barHeight),
+      outlinePaint,
+    );
+    // Tick marks above the bar at each segment boundary (inclusive).
+    for (var i = 0; i <= steps; i++) {
+      final x = i * segW;
+      canvas.drawLine(
+        Offset(x, barY - 4),
+        Offset(x, barY),
+        outlinePaint,
+      );
+    }
+
+    // "0" at the left, total label at the right — both sit above the
+    // bar, centred on their endpoint tick.
+    _drawLabel(canvas, '0', Offset(0, barY - 4));
+    _drawLabel(canvas, endLabel, Offset(widthPx, barY - 4));
+  }
+
+  void _drawLabel(Canvas canvas, String text, Offset tickTop) {
+    final painter = TextPainter(
+      text: TextSpan(
+        text: text,
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 11,
+          fontWeight: FontWeight.w600,
+          shadows: [Shadow(color: Color(0xE6000000), blurRadius: 2)],
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    painter.paint(
+      canvas,
+      Offset(
+        tickTop.dx - painter.width / 2,
+        tickTop.dy - painter.height - 2,
+      ),
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _StepBarPainter old) =>
+      old.widthPx != widthPx ||
+      old.steps != steps ||
+      old.endLabel != endLabel;
+}
+
+class _TappedFeature {
+  _TappedFeature({
+    required this.layer,
+    required this.properties,
+    required this.screenPos,
+    required this.displayPriority,
+    required this.isPoint,
+  });
+  final String layer;
+  final Map<String, Object?> properties;
+  final Offset screenPos;
+  final int displayPriority;
+  final bool isPoint;
+}
+
+class _TapGroup {
+  _TapGroup({
+    required this.center,
+    required this.isPoint,
+    required this.maxPriority,
+    required this.members,
+  });
+  final Offset center;
+  final bool isPoint;
+  int maxPriority;
+  final List<_TappedFeature> members;
+}
+
+/// Renders one grouped feature's attributes. All formatting rules
+/// are ported from V1 (chart_webview.dart:2216-2331):
+///   • Depth attrs (DEPTH/VALSOU/DRVAL1/DRVAL2/VALDCO) use depth
+///     metadata factor/unit — convert raw metres to user preference.
+///   • Height attrs (HEIGHT/VERLEN/HORLEN/HORWID) use height metadata.
+///   • SIGPER shown as seconds ("Xs" — V1 convention).
+///   • VALNMR shown in nautical miles ("X NM" — S-57 stores the
+///     value in NM directly per IHO spec, so no conversion needed).
+///   • CONRAD / CONVIS → "Yes" / "No".
+///   • COLOUR / WATLEV / CATOBS / CATWRK / BOYSHP / BCNSHP / CATLAM /
+///     CATCAM / CATLIT / LITCHR / CONDTN / STATUS / RESTRN / COLPAT /
+///     TOPSHP / CATSPM are code-decoded via lookup tables.
+///   • Attribute order matches V1's _displayOrder; unknown keys are
+///     skipped the same way V1 does.
+class _FeatureCard extends StatelessWidget {
+  const _FeatureCard({
+    required this.member,
+    required this.depth,
+    required this.height,
+  });
+  final _TappedFeature member;
+  final PathMetadata? depth;
+  final PathMetadata? height;
+
+  static const _depthKeys = {'DEPTH', 'VALSOU', 'DRVAL1', 'DRVAL2', 'VALDCO'};
+  static const _heightKeys = {'HEIGHT', 'VERLEN', 'HORLEN', 'HORWID'};
+
+  static const _displayOrder = [
+    'OBJNAM', 'NOBJNM', 'INFORM', 'NINFOM',
+    'DEPTH', 'VALSOU', 'DRVAL1', 'DRVAL2', 'VALDCO',
+    'CATWRK', 'CATOBS', 'WATLEV',
+    'CATLAM', 'CATCAM', 'CATSPM', 'BOYSHP', 'BCNSHP', 'TOPSHP',
+    'COLOUR', 'COLPAT', 'LITCHR', 'CATLIT', 'SIGPER', 'VALNMR',
+    'HEIGHT', 'RESTRN', 'CONDTN', 'STATUS', 'CONRAD', 'CONVIS',
+    'VERLEN', 'HORLEN', 'HORWID',
+  ];
+
+  static const _attributeLabels = <String, String>{
+    'OBJNAM': 'Name', 'NOBJNM': 'Local Name',
+    'INFORM': 'Information', 'NINFOM': 'Note',
+    'DEPTH': 'Depth', 'VALSOU': 'Depth',
+    'DRVAL1': 'Min Depth', 'DRVAL2': 'Max Depth',
+    'VALDCO': 'Contour Depth',
+    'CATWRK': 'Type', 'CATOBS': 'Type', 'WATLEV': 'Water Level',
+    'CATLAM': 'Lateral', 'CATCAM': 'Cardinal', 'CATSPM': 'Purpose',
+    'BOYSHP': 'Shape', 'BCNSHP': 'Shape', 'TOPSHP': 'Top Mark',
+    'COLOUR': 'Colour', 'COLPAT': 'Pattern',
+    'LITCHR': 'Character', 'CATLIT': 'Category',
+    'SIGPER': 'Period', 'VALNMR': 'Range',
+    'HEIGHT': 'Height', 'RESTRN': 'Restriction',
+    'CONDTN': 'Condition', 'STATUS': 'Status',
+    'CONRAD': 'Radar Conspicuous', 'CONVIS': 'Visually Conspicuous',
+    'VERLEN': 'Vertical Clearance',
+    'HORLEN': 'Length', 'HORWID': 'Width',
+  };
+
+  static const _objectClassNames = <String, String>{
+    'SOUNDG': 'Sounding', 'DEPCNT': 'Depth Contour', 'DEPARE': 'Depth Area',
+    'DRGARE': 'Dredged Area', 'COALNE': 'Coastline', 'LNDARE': 'Land Area',
+    'BUAARE': 'Built-up Area', 'LAKARE': 'Lake', 'RIVERS': 'River',
+    'CANALS': 'Canal', 'SEAARE': 'Sea Area',
+    'LIGHTS': 'Light', 'BOYLAT': 'Lateral Buoy',
+    'BOYCAR': 'Cardinal Buoy', 'BOYSAW': 'Safe Water Buoy',
+    'BOYSPP': 'Special Purpose Buoy', 'BOYISD': 'Isolated Danger Buoy',
+    'BCNLAT': 'Lateral Beacon', 'BCNCAR': 'Cardinal Beacon',
+    'BCNSPP': 'Special Purpose Beacon', 'BCNSAW': 'Safe Water Beacon',
+    'BCNISD': 'Isolated Danger Beacon',
+    'TOPMAR': 'Topmark', 'DAYMAR': 'Daymark',
+    'FOGSIG': 'Fog Signal', 'RTPBCN': 'Radar Transponder',
+    'RDOSTA': 'Radio Station', 'RADSTA': 'Radar Station',
+    'LITFLT': 'Light Float', 'LITVES': 'Light Vessel',
+    'WRECKS': 'Wreck', 'OBSTRN': 'Obstruction', 'UWTROC': 'Underwater Rock',
+    'LNDMRK': 'Landmark', 'SLCONS': 'Shoreline Construction',
+    'BRIDGE': 'Bridge', 'OFSPLF': 'Offshore Platform',
+    'PILBOP': 'Pilot Boarding Place', 'CRANES': 'Crane',
+    'MORFAC': 'Mooring Facility', 'BERTHS': 'Berth',
+    'HRBFAC': 'Harbour Facility', 'SMCFAC': 'Small Craft Facility',
+    'CBLSUB': 'Submarine Cable', 'CBLOHD': 'Overhead Cable',
+    'PIPSOL': 'Submarine Pipeline', 'PIPOHD': 'Overhead Pipeline',
+    'CGUSTA': 'Coast Guard Station', 'RSCSTA': 'Rescue Station',
+    'SISTAT': 'Signal Station', 'SISTAW': 'Storm Signal Station',
+    'DISMAR': 'Distance Mark', 'CURENT': 'Current',
+    'FSHFAC': 'Fishing Facility', 'ACHARE': 'Anchorage Area',
+    'RESARE': 'Restricted Area', 'FAIRWY': 'Fairway',
+    'TSSLPT': 'TSS Lane', 'TSSBND': 'TSS Boundary',
+    'NAVLNE': 'Navigation Line', 'RECTRC': 'Recommended Track',
+    'GATCON': 'Gate', 'CONVYR': 'Conveyor',
+    'PRDARE': 'Production Area', 'VEGATN': 'Vegetation',
+    'LNDRGN': 'Land Region', 'DMPGRD': 'Dumping Ground',
+    'CBLARE': 'Cable Area', 'SPLARE': 'Sea-plane Landing Area',
+  };
+
+  static const _decodeTables = <String, Map<String, String>>{
+    'COLOUR': {'1': 'White', '2': 'Black', '3': 'Red', '4': 'Green', '5': 'Blue', '6': 'Yellow', '7': 'Grey', '8': 'Brown', '9': 'Amber', '10': 'Violet', '11': 'Orange', '12': 'Magenta', '13': 'Pink'},
+    'WATLEV': {'1': 'Partly submerged', '2': 'Always dry', '3': 'Always under water', '4': 'Covers and uncovers', '5': 'Awash', '6': 'Subject to flooding', '7': 'Floating'},
+    'CATOBS': {'1': 'Snag/stump', '2': 'Wellhead', '3': 'Diffuser', '4': 'Crib', '5': 'Fish haven', '6': 'Foul area', '7': 'Foul ground', '8': 'Ice boom', '9': 'Ground tackle', '10': 'Boom'},
+    'CATWRK': {'1': 'Non-dangerous', '2': 'Dangerous', '3': 'Distributed remains', '4': 'Mast showing', '5': 'Hull showing'},
+    'BOYSHP': {'1': 'Conical (nun)', '2': 'Can (cylindrical)', '3': 'Spherical', '4': 'Pillar', '5': 'Spar', '6': 'Barrel', '7': 'Super-buoy', '8': 'Ice buoy'},
+    'BCNSHP': {'1': 'Stake/pole', '2': 'Withy', '3': 'Tower', '4': 'Lattice', '5': 'Pile', '6': 'Cairn', '7': 'Buoyant'},
+    'CATLAM': {'1': 'Port', '2': 'Starboard', '3': 'Preferred channel starboard', '4': 'Preferred channel port'},
+    'CATCAM': {'1': 'North', '2': 'East', '3': 'South', '4': 'West'},
+    'CATLIT': {'1': 'Directional', '4': 'Leading', '5': 'Aero', '6': 'Air obstruction', '7': 'Fog detector', '8': 'Flood', '9': 'Strip', '10': 'Subsidiary', '11': 'Spotlight', '12': 'Front', '13': 'Rear', '14': 'Lower', '15': 'Upper'},
+    'LITCHR': {'1': 'Fixed', '2': 'Flashing', '3': 'Long flashing', '4': 'Quick flashing', '5': 'Very quick flashing', '6': 'Ultra quick flashing', '7': 'Isophase', '8': 'Occulting', '9': 'Interrupted quick', '10': 'Interrupted very quick', '11': 'Morse code', '12': 'Fixed/flashing', '25': 'Quick + long flash', '26': 'VQ + long flash', '27': 'UQ + long flash', '28': 'Alternating', '29': 'Fixed & alternating flashing'},
+    'CONDTN': {'1': 'Under construction', '2': 'Ruined', '3': 'Under reclamation', '5': 'Planned'},
+    'STATUS': {'1': 'Permanent', '2': 'Occasional', '3': 'Recommended', '4': 'Not in use', '5': 'Intermittent', '6': 'Reserved', '7': 'Temporary', '8': 'Private', '9': 'Mandatory', '11': 'Extinguished', '12': 'Illuminated', '13': 'Historic', '14': 'Public', '15': 'Synchronized', '16': 'Watched', '17': 'Un-watched', '18': 'Doubtful'},
+    'RESTRN': {'1': 'Anchoring prohibited', '2': 'Anchoring restricted', '3': 'Fishing prohibited', '4': 'Fishing restricted', '5': 'Trawling prohibited', '6': 'Trawling restricted', '7': 'Entry prohibited', '8': 'Entry restricted', '9': 'Dredging prohibited', '10': 'Dredging restricted', '11': 'Diving prohibited', '12': 'Diving restricted', '13': 'No wake', '14': 'Area to be avoided', '27': 'Speed restricted'},
+    'COLPAT': {'1': 'Horizontal stripes', '2': 'Vertical stripes', '3': 'Diagonal stripes', '4': 'Squared', '5': 'Border stripes', '6': 'Single colour'},
+    'TOPSHP': {'1': 'Cone point up', '2': 'Cone point down', '3': 'Sphere', '4': 'Two spheres', '5': 'Cylinder', '6': 'Board', '7': 'X-shape', '8': 'Upright cross', '9': 'Cube point up', '10': 'Two cones point-to-point', '11': 'Two cones base-to-base', '12': 'Rhombus', '13': 'Two cones point up', '14': 'Two cones point down', '33': 'Flag'},
+    'CATSPM': {'1': 'Firing danger', '2': 'Target', '3': 'Marker ship', '4': 'Degaussing range', '5': 'Barge', '6': 'Cable', '7': 'Spoil ground', '8': 'Outfall', '9': 'ODAS', '10': 'Recording', '11': 'Seaplane anchorage', '12': 'Recreation zone', '13': 'Private', '14': 'Mooring', '15': 'LANBY', '16': 'Leading', '17': 'Measured distance', '18': 'Notice', '19': 'TSS', '20': 'No anchoring', '21': 'No berthing', '22': 'No overtaking', '23': 'No two-way traffic', '24': 'Reduced wake', '25': 'Speed limit', '26': 'Stop', '27': 'Warning', '28': 'Sound ship siren', '39': 'Environmental', '45': 'AIS', '51': 'No entry'},
+  };
+
+  String _format(String key, Object? val) {
+    if (val == null) return '';
+    final s = val.toString();
+    if (s.isEmpty) return '';
+    // Depth values arrive from S-57 in metres (SI). Use
+    // `metadata.format()` so the user's configured unit + precision
+    // wins, with the formula applied correctly (including any offset).
+    if (_depthKeys.contains(key)) {
+      final n = num.tryParse(s);
+      if (n == null) return s;
+      return depth?.format(n.toDouble(), decimals: 1) ??
+          '${n.toStringAsFixed(1)} m';
+    }
+    if (_heightKeys.contains(key)) {
+      final n = num.tryParse(s);
+      if (n == null) return s;
+      return height?.format(n.toDouble(), decimals: 1) ??
+          '${n.toStringAsFixed(1)} m';
+    }
+    // V1 hardcodes these next two. SIGPER is a signal period in
+    // seconds (no alt unit in the S-57 spec) and VALNMR is nominal
+    // visibility range in nautical miles per IHO S-57. Matching V1.
+    if (key == 'SIGPER') return '${s}s';
+    if (key == 'VALNMR') return '$s NM';
+    if (key == 'CONRAD' || key == 'CONVIS') return s == '1' ? 'Yes' : 'No';
+    final table = _decodeTables[key];
+    if (table != null) {
+      final parts = s.split(',').map((p) => table[p.trim()] ?? p.trim());
+      return parts.join(', ');
+    }
+    return s;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final props = member.properties;
+    final rows = <Widget>[
+      Text(
+        _objectClassNames[member.layer] ?? member.layer,
+        style: const TextStyle(
+          color: Colors.white,
+          fontWeight: FontWeight.bold,
+          fontSize: 14,
+        ),
+      ),
+      const SizedBox(height: 6),
+    ];
+    for (final key in _displayOrder) {
+      if (!props.containsKey(key)) continue;
+      final display = _format(key, props[key]);
+      if (display.isEmpty) continue;
+      final label = _attributeLabels[key] ?? key;
+      rows.add(Padding(
+        padding: const EdgeInsets.symmetric(vertical: 2),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SizedBox(
+              width: 100,
+              child: Text(label,
+                  style:
+                      const TextStyle(color: Colors.white54, fontSize: 13)),
+            ),
+            Expanded(
+              child: Text(display,
+                  style:
+                      const TextStyle(color: Colors.white, fontSize: 13)),
+            ),
+          ],
+        ),
+      ));
+    }
+    return Card(
+      color: const Color(0xFF2A2A3E),
+      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: rows,
+        ),
+      ),
+    );
+  }
+}
+
+class _TapHaloLayer extends StatelessWidget {
+  const _TapHaloLayer({required this.point});
+  final LatLng point;
+
+  @override
+  Widget build(BuildContext context) {
+    final camera = MapCamera.of(context);
+    return MobileLayerTransformer(
+      child: CustomPaint(
+        painter: _TapHaloPainter(camera: camera, point: point),
+        size: Size.infinite,
+      ),
+    );
+  }
+}
+
+class _TapHaloPainter extends CustomPainter {
+  _TapHaloPainter({required this.camera, required this.point});
+  final MapCamera camera;
+  final LatLng point;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final c = camera.projectAtZoom(point) - camera.pixelOrigin;
+    canvas.drawCircle(
+      c,
+      30,
+      Paint()
+        ..color = const Color(0x1AFFFF00)
+        ..style = PaintingStyle.fill,
+    );
+    canvas.drawCircle(
+      c,
+      30,
+      Paint()
+        ..color = const Color(0xCCFFFF00)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _TapHaloPainter old) =>
+      old.camera != camera || old.point != point;
+}
+
+/// Verbatim port of V1's `_CompassRosePainter`
+/// (chart_plotter_tool.dart:1440-1482). Red north arrow + label,
+/// faded south arrow, E/W cardinal tick marks.
+class _CompassRosePainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+    final r = size.width / 2 - 4;
+
+    final northPaint = Paint()
+      ..color = Colors.red
+      ..style = PaintingStyle.fill;
+    final northPath = ui.Path()
+      ..moveTo(center.dx, center.dy - r)
+      ..lineTo(center.dx - 5, center.dy - 2)
+      ..lineTo(center.dx + 5, center.dy - 2)
+      ..close();
+    canvas.drawPath(northPath, northPaint);
+
+    final southPaint = Paint()
+      ..color = Colors.white54
+      ..style = PaintingStyle.fill;
+    final southPath = ui.Path()
+      ..moveTo(center.dx, center.dy + r)
+      ..lineTo(center.dx - 5, center.dy + 2)
+      ..lineTo(center.dx + 5, center.dy + 2)
+      ..close();
+    canvas.drawPath(southPath, southPaint);
+
+    final tickPaint = Paint()
+      ..color = Colors.white54
+      ..strokeWidth = 1.5;
+    canvas.drawLine(Offset(center.dx + r, center.dy),
+        Offset(center.dx + r - 6, center.dy), tickPaint);
+    canvas.drawLine(Offset(center.dx - r, center.dy),
+        Offset(center.dx - r + 6, center.dy), tickPaint);
+
+    final textPainter = TextPainter(
+      text: const TextSpan(
+        text: 'N',
+        style: TextStyle(
+          color: Colors.red,
+          fontSize: 11,
+          fontWeight: FontWeight.bold,
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    textPainter.paint(
+      canvas,
+      Offset(center.dx - textPainter.width / 2, center.dy - r + 10),
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
+enum _AisKind { moving, slow, moored, anchored }
 
 /// Compact, painter-friendly snapshot of an AIS vessel. Only the
 /// fields the painter actually reads are kept so the per-frame hot
@@ -1818,12 +3040,20 @@ class _AisRenderable {
     required this.position,
     required this.bearingRadians,
     required this.name,
+    required this.color,
+    required this.alpha,
+    required this.stale,
+    required this.kind,
     required this.projections,
   });
   final String id;
   final LatLng position;
   final double bearingRadians;
   final String name;
+  final Color color;
+  final double alpha;
+  final bool stale;
+  final _AisKind kind;
   final List<LatLng> projections;
 }
 
@@ -1844,6 +3074,9 @@ class _AisOverlayLayer extends StatelessWidget {
           camera: camera,
           vessels: vessels,
           showPaths: showPaths,
+          // V1 hides labels below zoom 13 where the map is too zoomed
+          // out for names to be readable anyway; mirror that here.
+          showNames: camera.zoom >= 13,
         ),
         size: Size.infinite,
       ),
@@ -1856,146 +3089,486 @@ class _AisPainter extends CustomPainter {
     required this.camera,
     required this.vessels,
     required this.showPaths,
+    required this.showNames,
   });
   final MapCamera camera;
   final List<_AisRenderable> vessels;
   final bool showPaths;
+  final bool showNames;
+
+  // V1's vessel-arrow SVG shape (0..16 × 0..24) re-centred to the
+  // pivot at (8, 12) so rotation happens about the visual midpoint.
+  // Path in SVG coords:
+  //   M 8 1  L 2 19  L 5.5 16.5  L 8 21  L 10.5 16.5  L 14 19  Z
+  // Translated by (-8, -12):
+  static final _vesselPath = ui.Path()
+    ..moveTo(0, -11)
+    ..lineTo(-6, 7)
+    ..lineTo(-2.5, 4.5)
+    ..lineTo(0, 9)
+    ..lineTo(2.5, 4.5)
+    ..lineTo(6, 7)
+    ..close();
 
   @override
   void paint(Canvas canvas, Size size) {
     final origin = camera.pixelOrigin;
-    final trianglePath = ui.Path()
-      ..moveTo(0, -9)
-      ..lineTo(6, 8)
-      ..lineTo(0, 4)
-      ..lineTo(-6, 8)
-      ..close();
-    final fill = Paint()..color = const Color(0xFF4CAF50);
-    final stroke = Paint()
-      ..color = Colors.white
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.2;
-    final pathPaint = Paint()
-      ..color = Colors.white.withValues(alpha: 0.55)
-      ..strokeWidth = 1
-      ..style = PaintingStyle.stroke;
-
     for (final v in vessels) {
       if (showPaths && v.projections.isNotEmpty) {
-        final start = camera.projectAtZoom(v.position) - origin;
-        final path = ui.Path()..moveTo(start.dx, start.dy);
-        for (final p in v.projections) {
-          final s = camera.projectAtZoom(p) - origin;
-          path.lineTo(s.dx, s.dy);
-        }
-        canvas.drawPath(path, pathPaint);
-        for (final p in v.projections) {
-          canvas.drawCircle(
-              camera.projectAtZoom(p) - origin, 2, pathPaint);
-        }
+        _paintProjections(canvas, v, origin);
       }
-      final c = camera.projectAtZoom(v.position) - origin;
-      canvas.save();
-      canvas.translate(c.dx, c.dy);
-      canvas.rotate(v.bearingRadians);
-      canvas.drawPath(trianglePath, fill);
-      canvas.drawPath(trianglePath, stroke);
-      canvas.restore();
+      final center = camera.projectAtZoom(v.position) - origin;
+      switch (v.kind) {
+        case _AisKind.moving:
+          _paintMoving(canvas, v, center);
+          break;
+        case _AisKind.slow:
+          _paintSlow(canvas, v, center);
+          break;
+        case _AisKind.moored:
+          _paintMoored(canvas, v, center);
+          break;
+        case _AisKind.anchored:
+          _paintAnchored(canvas, v, center);
+          break;
+      }
+      if (v.stale) _paintStaleX(canvas, center);
+      if (showNames && v.name.isNotEmpty) {
+        _paintName(canvas, v, center);
+      }
     }
+  }
+
+  void _paintProjections(Canvas canvas, _AisRenderable v, Offset origin) {
+    final start = camera.projectAtZoom(v.position) - origin;
+    final dashPath = ui.Path()..moveTo(start.dx, start.dy);
+    for (final p in v.projections) {
+      final s = camera.projectAtZoom(p) - origin;
+      dashPath.lineTo(s.dx, s.dy);
+    }
+    final dashed = _dashOne(dashPath, const [4, 4]);
+    final lineColor = v.color.withValues(alpha: v.alpha * 0.6);
+    canvas.drawPath(
+      dashed,
+      Paint()
+        ..color = lineColor
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2,
+    );
+    // Dot sizes match V1's [3, 4, 6, 8] for 30s, 1m, 15m, 30m.
+    const dotR = [3.0, 4.0, 6.0, 8.0];
+    final dotFill = Paint()..color = v.color.withValues(alpha: v.alpha * 0.7);
+    final dotStroke = Paint()
+      ..color = Colors.black
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 0.5;
+    for (var i = 0; i < v.projections.length; i++) {
+      final p = camera.projectAtZoom(v.projections[i]) - origin;
+      final r = i < dotR.length ? dotR[i] : 4.0;
+      canvas.drawCircle(p, r, dotFill);
+      canvas.drawCircle(p, r, dotStroke);
+    }
+  }
+
+  // Reuses the outer-painter dash helper's idea in one place.
+  ui.Path _dashOne(ui.Path source, List<double> intervals) {
+    final out = ui.Path();
+    for (final metric in source.computeMetrics()) {
+      double d = 0;
+      var on = true;
+      var i = 0;
+      while (d < metric.length) {
+        final span = intervals[i % intervals.length];
+        final next = d + span;
+        if (on) {
+          out.addPath(
+            metric.extractPath(d, next.clamp(0, metric.length)),
+            Offset.zero,
+          );
+        }
+        d = next;
+        on = !on;
+        i++;
+      }
+    }
+    return out;
+  }
+
+  void _paintMoving(Canvas canvas, _AisRenderable v, Offset center) {
+    canvas.save();
+    canvas.translate(center.dx, center.dy);
+    canvas.rotate(v.bearingRadians);
+    // V1 applies a scale of 1.2 on the moving arrow for visibility.
+    canvas.scale(1.2);
+    canvas.drawPath(
+      _vesselPath,
+      Paint()..color = v.color.withValues(alpha: v.alpha),
+    );
+    canvas.drawPath(
+      _vesselPath,
+      Paint()
+        ..color = Colors.black.withValues(alpha: 0.6)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 0.8,
+    );
+    canvas.restore();
+  }
+
+  void _paintSlow(Canvas canvas, _AisRenderable v, Offset center) {
+    // V1 renders stationary vessels as a 5-radius circle.
+    canvas.drawCircle(
+      center,
+      5,
+      Paint()..color = v.color.withValues(alpha: v.alpha),
+    );
+    canvas.drawCircle(
+      center,
+      5,
+      Paint()
+        ..color = Colors.white
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.5,
+    );
+  }
+
+  void _paintMoored(Canvas canvas, _AisRenderable v, Offset center) {
+    // Mooring-buoy cue: filled disk with a horizontal blue band,
+    // grey rim. Simplified from V1's SVG — same visual language.
+    final disk = Paint()..color = v.color.withValues(alpha: v.alpha);
+    final rim = Paint()
+      ..color = const Color(0xFF666666)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1;
+    final band = Paint()..color = const Color(0xFF1565C0);
+    const r = 7.0;
+    canvas.drawCircle(center, r, disk);
+    canvas.save();
+    canvas.clipPath(ui.Path()..addOval(Rect.fromCircle(center: center, radius: r)));
+    canvas.drawRect(
+      Rect.fromLTWH(center.dx - r, center.dy - r * 0.24, r * 2, r * 0.48),
+      band,
+    );
+    canvas.restore();
+    canvas.drawCircle(center, r, rim);
+  }
+
+  void _paintAnchored(Canvas canvas, _AisRenderable v, Offset center) {
+    // V1 renders the Material Design anchor glyph sized 20×20 in the
+    // ship-type colour (chart_webview.dart:1173-1181, comment says
+    // "same as Icons.anchor in Flutter"). Use the icon font directly
+    // so we match the exact glyph without shipping a sprite.
+    final icon = Icons.anchor;
+    final painter = TextPainter(
+      text: TextSpan(
+        text: String.fromCharCode(icon.codePoint),
+        style: TextStyle(
+          fontFamily: icon.fontFamily,
+          package: icon.fontPackage,
+          fontSize: 20,
+          color: v.color.withValues(alpha: v.alpha),
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+    );
+    painter.layout();
+    painter.paint(
+      canvas,
+      Offset(center.dx - painter.width / 2, center.dy - painter.height / 2),
+    );
+  }
+
+  void _paintStaleX(Canvas canvas, Offset center) {
+    final paint = Paint()
+      ..color = const Color(0xCCFF0000)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.5;
+    const r = 7.0;
+    canvas.drawLine(
+      center.translate(-r, -r),
+      center.translate(r, r),
+      paint,
+    );
+    canvas.drawLine(
+      center.translate(-r, r),
+      center.translate(r, -r),
+      paint,
+    );
+  }
+
+  void _paintName(Canvas canvas, _AisRenderable v, Offset center) {
+    final painter = TextPainter(
+      text: TextSpan(
+        text: v.name,
+        style: TextStyle(
+          color: v.color.withValues(alpha: math.max(v.alpha, 0.8)),
+          fontSize: 11,
+          fontWeight: FontWeight.w500,
+          shadows: const [
+            Shadow(color: Color(0x80000000), blurRadius: 2),
+          ],
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+    );
+    painter.layout();
+    painter.paint(
+      canvas,
+      Offset(center.dx - painter.width / 2, center.dy - 18 - painter.height),
+    );
   }
 
   @override
   bool shouldRepaint(covariant _AisPainter old) =>
       old.camera != camera ||
       old.vessels != vessels ||
-      old.showPaths != showPaths;
+      old.showPaths != showPaths ||
+      old.showNames != showNames;
 }
 
-/// Simple draggable handle for the ruler endpoints. Converts pan
-/// deltas into LatLng via the map camera's screen→world projection.
-class _RulerHandle extends StatelessWidget {
-  const _RulerHandle({required this.color, required this.onDrag});
-  final Color color;
-  final ValueChanged<LatLng> onDrag;
 
-  @override
-  Widget build(BuildContext context) {
-    final camera = MapCamera.of(context);
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onPanUpdate: (d) {
-        // Convert screen delta to a new LatLng by inverse-projecting
-        // the current handle centre plus the delta. Uses camera's
-        // pixel projection for consistency with layer overlays.
-        const handleSize = Size(32, 32);
-        final localCenter = d.localPosition +
-            Offset(-handleSize.width / 2, -handleSize.height / 2);
-        // Actually `d.localPosition` is relative to the handle; we
-        // need a world-space delta. Easier route: use globalPosition
-        // mapped to the map viewport via `offsetToCrs`.
-        final ll = camera.offsetToCrs(d.globalPosition);
-        onDrag(ll);
-        // localCenter unused — keep the computation honest for future
-        // refinements; avoid unused-variable warning with a discard.
-        // ignore: unused_local_variable
-        final _ = localCenter;
-      },
-      child: Container(
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          color: color.withValues(alpha: 0.8),
-          border: Border.all(color: Colors.white, width: 2),
-        ),
-      ),
-    );
-  }
-}
-
-/// Draws a thin line between the two ruler endpoints. A dedicated
-/// painter makes sure the line sits *behind* the marker handles.
-class _RulerLineLayer extends StatelessWidget {
-  const _RulerLineLayer({required this.a, required this.b});
-  final LatLng a;
-  final LatLng b;
+/// Full-fidelity ruler renderer. Matches V1's on-map output:
+///   • Dashed red half-line (red → midpoint), `rgba(244,67,54,0.7)` w3 dash 8-4
+///   • Dashed blue half-line (midpoint → blue), `rgba(33,150,243,0.7)`
+///   • Perpendicular tick marks at "nice" intervals (3-10 per ruler)
+///   • Red bearing label at red endpoint (red→blue angle, offsetY -18)
+///   • Blue bearing label at blue endpoint (blue→red angle)
+///   • White distance label at midpoint (offsetY +16) with unit symbol
+class _RulerLayer extends StatelessWidget {
+  const _RulerLayer({
+    required this.red,
+    required this.blue,
+    required this.distance,
+  });
+  final LatLng red;
+  final LatLng blue;
+  final PathMetadata? distance;
 
   @override
   Widget build(BuildContext context) {
     final camera = MapCamera.of(context);
     return MobileLayerTransformer(
       child: CustomPaint(
-        painter: _RulerLinePainter(camera: camera, a: a, b: b),
+        painter: _RulerPainter(
+          camera: camera,
+          red: red,
+          blue: blue,
+          distance: distance,
+        ),
         size: Size.infinite,
       ),
     );
   }
 }
 
-class _RulerLinePainter extends CustomPainter {
-  _RulerLinePainter({required this.camera, required this.a, required this.b});
+class _RulerPainter extends CustomPainter {
+  _RulerPainter({
+    required this.camera,
+    required this.red,
+    required this.blue,
+    required this.distance,
+  });
   final MapCamera camera;
-  final LatLng a;
-  final LatLng b;
+  final LatLng red;
+  final LatLng blue;
+  final PathMetadata? distance;
+
+  // "Nice" display-unit step table. Mirrors chart_webview.dart:1814.
+  static const _niceCandidates = [
+    0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5,
+    1.0, 2.0, 5.0, 10.0, 25.0, 50.0, 100.0, 250.0, 500.0,
+  ];
+
+  double _niceInterval(double totalDisplay) {
+    for (final c in _niceCandidates) {
+      final ticks = totalDisplay / c;
+      if (ticks >= 3 && ticks <= 10) return c;
+    }
+    return totalDisplay / 5;
+  }
 
   @override
   void paint(Canvas canvas, Size size) {
     final origin = camera.pixelOrigin;
-    final pa = camera.projectAtZoom(a) - origin;
-    final pb = camera.projectAtZoom(b) - origin;
-    final paint = Paint()
-      ..color = Colors.white
-      ..strokeWidth = 2
-      ..style = PaintingStyle.stroke;
-    canvas.drawLine(pa, pb, paint);
+    final pRed = camera.projectAtZoom(red) - origin;
+    final pBlue = camera.projectAtZoom(blue) - origin;
+    final mid = Offset(
+      (pRed.dx + pBlue.dx) / 2,
+      (pRed.dy + pBlue.dy) / 2,
+    );
+
+    // Half-lines (dashed). V1 uses lineDash [8, 4] on stroke 3.
+    const redLineColor = Color(0xB3F44336); // alpha 0.7
+    const blueLineColor = Color(0xB32196F3);
+    final redPath = ui.Path()
+      ..moveTo(pRed.dx, pRed.dy)
+      ..lineTo(mid.dx, mid.dy);
+    final bluePath = ui.Path()
+      ..moveTo(mid.dx, mid.dy)
+      ..lineTo(pBlue.dx, pBlue.dy);
+    final dashed = [8.0, 4.0];
+    canvas.drawPath(
+      _dashPath(redPath, dashed),
+      Paint()
+        ..color = redLineColor
+        ..strokeWidth = 3
+        ..style = PaintingStyle.stroke,
+    );
+    canvas.drawPath(
+      _dashPath(bluePath, dashed),
+      Paint()
+        ..color = blueLineColor
+        ..strokeWidth = 3
+        ..style = PaintingStyle.stroke,
+    );
+
+    // Distance + bearings in WGS84 via haversine / great circle.
+    final distM = _haversine(red, blue);
+    final bearingRB = _bearing(red, blue);
+    final bearingBR = _bearing(blue, red);
+    // Display value via MetadataStore.convert — never assume a linear
+    // factor, because formulas may include offsets.
+    final distDisplay = distance?.convert(distM) ?? distM;
+
+    // Tick marks — perpendicular 16px (8 each side), up to 20 ticks.
+    final dx = pBlue.dx - pRed.dx;
+    final dy = pBlue.dy - pRed.dy;
+    final len = math.sqrt(dx * dx + dy * dy);
+    if (len > 0 && distDisplay > 0) {
+      final dirX = dx / len;
+      final dirY = dy / len;
+      final perpX = -dirY;
+      final perpY = dirX;
+      const tickHalf = 8.0;
+      final interval = _niceInterval(distDisplay);
+      final tickCount = (distDisplay / interval).floor();
+      final blackPaint = Paint()
+        ..color = const Color(0x99000000)
+        ..strokeWidth = 3
+        ..style = PaintingStyle.stroke;
+      final whitePaint = Paint()
+        ..color = Colors.white
+        ..strokeWidth = 1.5
+        ..style = PaintingStyle.stroke;
+      for (var i = 1; i <= tickCount && i <= 20; i++) {
+        final frac = (interval * i) / distDisplay;
+        if (frac >= 1) break;
+        final tx = pRed.dx + dx * frac;
+        final ty = pRed.dy + dy * frac;
+        final from = Offset(tx + perpX * tickHalf, ty + perpY * tickHalf);
+        final to = Offset(tx - perpX * tickHalf, ty - perpY * tickHalf);
+        canvas.drawLine(from, to, blackPaint);
+        canvas.drawLine(from, to, whitePaint);
+      }
+    }
+
+    // Bearing labels at endpoints, offsetY -18 (above the marker).
+    final bearingStyle = const TextStyle(
+      fontSize: 13,
+      fontWeight: FontWeight.w600,
+      shadows: [Shadow(color: Color(0xCC000000), blurRadius: 3)],
+    );
+    _drawLabel(
+      canvas,
+      pRed.translate(0, -18),
+      '${bearingRB.toStringAsFixed(1)}°',
+      bearingStyle.copyWith(color: const Color(0xFFF44336)),
+    );
+    _drawLabel(
+      canvas,
+      pBlue.translate(0, -18),
+      '${bearingBR.toStringAsFixed(1)}°',
+      bearingStyle.copyWith(color: const Color(0xFF2196F3)),
+    );
+
+    // Distance label at midpoint, offsetY +16 (below the centre).
+    // Precision varies with magnitude (V1 chart_webview.dart:1873).
+    final decimals = distDisplay < 1 ? 3 : (distDisplay < 10 ? 2 : 1);
+    final distLabel = distance?.format(distM, decimals: decimals) ??
+        '${distM.toStringAsFixed(decimals)} m';
+    _drawLabel(
+      canvas,
+      mid.translate(0, 16),
+      distLabel,
+      const TextStyle(
+        color: Colors.white,
+        fontSize: 13,
+        fontWeight: FontWeight.w600,
+        shadows: [Shadow(color: Color(0xCC000000), blurRadius: 3)],
+      ),
+    );
+  }
+
+  void _drawLabel(Canvas canvas, Offset anchor, String text, TextStyle style) {
+    final painter = TextPainter(
+      text: TextSpan(text: text, style: style),
+      textDirection: TextDirection.ltr,
+    );
+    painter.layout();
+    painter.paint(
+      canvas,
+      Offset(anchor.dx - painter.width / 2, anchor.dy - painter.height / 2),
+    );
+  }
+
+  ui.Path _dashPath(ui.Path source, List<double> intervals) {
+    final out = ui.Path();
+    for (final metric in source.computeMetrics()) {
+      double d = 0;
+      var on = true;
+      var i = 0;
+      while (d < metric.length) {
+        final next = d + intervals[i % intervals.length];
+        if (on) {
+          out.addPath(
+            metric.extractPath(d, next.clamp(0, metric.length)),
+            Offset.zero,
+          );
+        }
+        d = next;
+        on = !on;
+        i++;
+      }
+    }
+    return out;
+  }
+
+  double _haversine(LatLng a, LatLng b) {
+    const r = 6371000.0;
+    final lat1 = a.latitude * math.pi / 180;
+    final lat2 = b.latitude * math.pi / 180;
+    final dLat = (b.latitude - a.latitude) * math.pi / 180;
+    final dLon = (b.longitude - a.longitude) * math.pi / 180;
+    final h = math.sin(dLat / 2) * math.sin(dLat / 2) +
+        math.cos(lat1) *
+            math.cos(lat2) *
+            math.sin(dLon / 2) *
+            math.sin(dLon / 2);
+    return 2 * r * math.asin(math.min(1, math.sqrt(h)));
+  }
+
+  double _bearing(LatLng from, LatLng to) {
+    final la1 = from.latitude * math.pi / 180;
+    final la2 = to.latitude * math.pi / 180;
+    final dLon = (to.longitude - from.longitude) * math.pi / 180;
+    final y = math.sin(dLon) * math.cos(la2);
+    final x = math.cos(la1) * math.sin(la2) -
+        math.sin(la1) * math.cos(la2) * math.cos(dLon);
+    return (math.atan2(y, x) * 180 / math.pi + 360) % 360;
   }
 
   @override
-  bool shouldRepaint(covariant _RulerLinePainter old) =>
-      old.camera != camera || old.a != a || old.b != b;
+  bool shouldRepaint(covariant _RulerPainter old) =>
+      old.camera != camera ||
+      old.red != red ||
+      old.blue != blue ||
+      old.distance != distance;
 }
 
-/// Pill of distance + bearings between the ruler endpoints. Distance
-/// formats via MetadataStore so the units match the rest of the app's
-/// navigation HUD rather than hard-coding metres.
+/// Ruler info panel — matches V1's top-left overlay
+/// (chart_plotter_tool.dart:1311-1360). Layout: red painted dot +
+/// bearing Red→Blue on row one, blue dot + Blue→Red on row two,
+/// distance with unit symbol on row three (bold 15 px). Distance
+/// precision: <1 → 3 decimals, <10 → 2 decimals, else 1 decimal.
 class _RulerReadout extends StatelessWidget {
   const _RulerReadout({
     required this.signalKService,
@@ -2008,13 +3581,17 @@ class _RulerReadout extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final distance = const Distance().as(LengthUnit.Meter, a, b);
-    final bearingRed = _bearing(a, b);
-    final bearingBlue = _bearing(b, a);
-    final distMeta = signalKService.metadataStore
-        .getByCategory('shortDistance'); // matches V1 ruler unit hookup
-    final distLabel = distMeta.formatOrRaw(distance, decimals: 2,
-        siSuffix: 'm');
+    final distM = _haversine(a, b);
+    final bearingRed = _bearing(a, b); // red → blue
+    final bearingBlue = _bearing(b, a); // blue → red
+    final distMeta =
+        signalKService.metadataStore.getByCategory('distance');
+    final dist = distMeta?.convert(distM) ?? distM;
+    final distSym = distMeta?.symbol ?? 'm';
+    final distStr = dist < 1
+        ? dist.toStringAsFixed(3)
+        : (dist < 10 ? dist.toStringAsFixed(2) : dist.toStringAsFixed(1));
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
@@ -2025,21 +3602,71 @@ class _RulerReadout extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
-          Text(distLabel,
+          Row(mainAxisSize: MainAxisSize.min, children: [
+            Container(
+              width: 10,
+              height: 10,
+              decoration: const BoxDecoration(
+                color: Colors.red,
+                shape: BoxShape.circle,
+              ),
+            ),
+            const SizedBox(width: 6),
+            Text(
+              '${bearingRed.toStringAsFixed(1)}°',
               style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600)),
+                color: Colors.white,
+                fontSize: 13,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ]),
           const SizedBox(height: 2),
-          Text('🔴→🔵  ${bearingRed.toStringAsFixed(1)}°',
-              style:
-                  const TextStyle(color: Colors.white70, fontSize: 11)),
-          Text('🔵→🔴  ${bearingBlue.toStringAsFixed(1)}°',
-              style:
-                  const TextStyle(color: Colors.white70, fontSize: 11)),
+          Row(mainAxisSize: MainAxisSize.min, children: [
+            Container(
+              width: 10,
+              height: 10,
+              decoration: const BoxDecoration(
+                color: Colors.blue,
+                shape: BoxShape.circle,
+              ),
+            ),
+            const SizedBox(width: 6),
+            Text(
+              '${bearingBlue.toStringAsFixed(1)}°',
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 13,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ]),
+          const SizedBox(height: 4),
+          Text(
+            '$distStr $distSym',
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 15,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
         ],
       ),
     );
+  }
+
+  double _haversine(LatLng a, LatLng b) {
+    const r = 6371000.0;
+    final lat1 = a.latitude * math.pi / 180;
+    final lat2 = b.latitude * math.pi / 180;
+    final dLat = (b.latitude - a.latitude) * math.pi / 180;
+    final dLon = (b.longitude - a.longitude) * math.pi / 180;
+    final h = math.sin(dLat / 2) * math.sin(dLat / 2) +
+        math.cos(lat1) *
+            math.cos(lat2) *
+            math.sin(dLon / 2) *
+            math.sin(dLon / 2);
+    return 2 * r * math.asin(math.min(1, math.sqrt(h)));
   }
 
   double _bearing(LatLng from, LatLng to) {
@@ -2054,19 +3681,23 @@ class _RulerReadout extends StatelessWidget {
   }
 }
 
-/// Paints the own vessel as a directional arrow at its current
-/// position. Rotation is driven by true heading when available,
-/// falling back to COG (the common case for sailboats without a
-/// compass sensor).
+/// Paints the own vessel. Matches V1's composition (chart_webview.dart:
+/// 1285-1324): solid-blue heading line out 800 m, dashed-orange COG
+/// vector sized to a 3-minute projection, and the chevron marker at
+/// `#2196f3` × 0.9 alpha with a white outline, scaled 1.6×.
 class _OwnVesselLayer extends StatelessWidget {
   const _OwnVesselLayer({
     required this.lat,
     required this.lon,
-    required this.bearingRadians,
+    required this.headingRad,
+    required this.cogRad,
+    required this.sogMs,
   });
   final double lat;
   final double lon;
-  final double bearingRadians;
+  final double? headingRad;
+  final double? cogRad;
+  final double? sogMs;
 
   @override
   Widget build(BuildContext context) {
@@ -2076,7 +3707,9 @@ class _OwnVesselLayer extends StatelessWidget {
         painter: _OwnVesselPainter(
           camera: camera,
           position: LatLng(lat, lon),
-          bearingRadians: bearingRadians,
+          headingRad: headingRad,
+          cogRad: cogRad,
+          sogMs: sogMs,
         ),
         size: Size.infinite,
       ),
@@ -2088,61 +3721,151 @@ class _OwnVesselPainter extends CustomPainter {
   _OwnVesselPainter({
     required this.camera,
     required this.position,
-    required this.bearingRadians,
+    required this.headingRad,
+    required this.cogRad,
+    required this.sogMs,
   });
   final MapCamera camera;
   final LatLng position;
-  final double bearingRadians;
+  final double? headingRad;
+  final double? cogRad;
+  final double? sogMs;
+
+  // Exact SVG path from V1's `vesselSvgSrc` (chart_webview.dart:1152),
+  // recentred to (0,0) so rotate/scale pivot about the chevron midpoint.
+  //   Source: M 8 1 L 2 19 L 5.5 16.5 L 8 21 L 10.5 16.5 L 14 19 Z
+  //   (translated by -8, -12 → in painter-local space)
+  static final _chevronPath = ui.Path()
+    ..moveTo(0, -11)
+    ..lineTo(-6, 7)
+    ..lineTo(-2.5, 4.5)
+    ..lineTo(0, 9)
+    ..lineTo(2.5, 4.5)
+    ..lineTo(6, 7)
+    ..close();
 
   @override
   void paint(Canvas canvas, Size size) {
     final origin = camera.pixelOrigin;
     final center = camera.projectAtZoom(position) - origin;
+
+    // Heading line — solid blue, great-circle forward-projected 800 m.
+    if (headingRad != null) {
+      final end = _forward(position, headingRad!, 800);
+      final pe = camera.projectAtZoom(end) - origin;
+      canvas.drawLine(
+        center,
+        pe,
+        Paint()
+          ..color = const Color(0xB32196F3) // 0.7 alpha
+          ..strokeWidth = 2
+          ..style = PaintingStyle.stroke,
+      );
+    }
+
+    // COG vector — dashed orange, length = max(sog*180, 200) m so
+    // the arrow reaches a 3-minute lookahead or stays visible at rest.
+    if (cogRad != null && sogMs != null && sogMs! > 0.1) {
+      final len = math.max(sogMs! * 180.0, 200.0);
+      final end = _forward(position, cogRad!, len);
+      final pe = camera.projectAtZoom(end) - origin;
+      final path = ui.Path()
+        ..moveTo(center.dx, center.dy)
+        ..lineTo(pe.dx, pe.dy);
+      canvas.drawPath(
+        _dashed(path, const [8, 4]),
+        Paint()
+          ..color = const Color(0xCCFF9800) // 0.8 alpha
+          ..strokeWidth = 2
+          ..style = PaintingStyle.stroke,
+      );
+    }
+
+    // Chevron marker — blue fill, white outline, scale 1.6× like V1.
+    final rotation = headingRad ?? cogRad ?? 0.0;
     canvas.save();
     canvas.translate(center.dx, center.dy);
-    canvas.rotate(bearingRadians);
-
-    // Classic chart-plotter boat-arrow: tall isoceles triangle, bow
-    // pointing "up" (north in painter-local coords before rotation).
-    final path = ui.Path()
-      ..moveTo(0, -14)
-      ..lineTo(9, 10)
-      ..lineTo(0, 5)
-      ..lineTo(-9, 10)
-      ..close();
+    canvas.rotate(rotation);
+    canvas.scale(1.6);
     canvas.drawPath(
-      path,
-      Paint()..color = const Color(0xFFFF5252),
+      _chevronPath,
+      Paint()..color = const Color(0xE62196F3), // 0.9 alpha
     );
     canvas.drawPath(
-      path,
+      _chevronPath,
       Paint()
-        ..color = Colors.white
+        ..color = const Color(0xE6FFFFFF)
         ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.5,
+        ..strokeWidth = 0.8,
     );
     canvas.restore();
+  }
+
+  /// Great-circle forward projection — lat/lon + bearing (rad) + distance (m)
+  /// → new lat/lon. Same maths the AIS painter uses.
+  LatLng _forward(LatLng start, double bearingRad, double distM) {
+    final lat1 = start.latitude * math.pi / 180;
+    final lon1 = start.longitude * math.pi / 180;
+    final a = distM / 6371000.0;
+    final lat2 = math.asin(
+      math.sin(lat1) * math.cos(a) +
+          math.cos(lat1) * math.sin(a) * math.cos(bearingRad),
+    );
+    final lon2 = lon1 +
+        math.atan2(
+          math.sin(bearingRad) * math.sin(a) * math.cos(lat1),
+          math.cos(a) - math.sin(lat1) * math.sin(lat2),
+        );
+    return LatLng(lat2 * 180 / math.pi, lon2 * 180 / math.pi);
+  }
+
+  ui.Path _dashed(ui.Path source, List<double> intervals) {
+    final out = ui.Path();
+    for (final metric in source.computeMetrics()) {
+      double d = 0;
+      var on = true;
+      var i = 0;
+      while (d < metric.length) {
+        final next = d + intervals[i % intervals.length];
+        if (on) {
+          out.addPath(
+            metric.extractPath(d, next.clamp(0, metric.length)),
+            Offset.zero,
+          );
+        }
+        d = next;
+        on = !on;
+        i++;
+      }
+    }
+    return out;
   }
 
   @override
   bool shouldRepaint(covariant _OwnVesselPainter old) =>
       old.camera != camera ||
       old.position != position ||
-      old.bearingRadians != bearingRadians;
+      old.headingRad != headingRad ||
+      old.cogRad != cogRad ||
+      old.sogMs != sogMs;
 }
 
-/// Paints the active route — a coloured polyline with numbered
-/// waypoint circles. The current waypoint is highlighted. Lives on
-/// top of the S-57 overlay so it's always visible.
+/// Paints the active route in V1's colours + shapes (chart_webview.dart:
+/// 1546-1613). Base polyline green at 0.6 alpha width 3; a bright
+/// active-leg overlay (prev → next waypoint) at 0.95 alpha width 5;
+/// triangular waypoint markers pointing along the route direction,
+/// sized 12 for the next waypoint and 7 otherwise, with alpha rules
+/// 0.3 past / 0.95 next / 0.7 future. Only the next waypoint gets a
+/// white outline. `reversed` inverts what counts as past vs future.
 class _RouteOverlayLayer extends StatelessWidget {
   const _RouteOverlayLayer({
     required this.coords,
     required this.activeIndex,
-    required this.names,
+    required this.reversed,
   });
   final List<List<double>> coords;
   final int? activeIndex;
-  final List<String>? names;
+  final bool reversed;
 
   @override
   Widget build(BuildContext context) {
@@ -2153,6 +3876,7 @@ class _RouteOverlayLayer extends StatelessWidget {
           camera: camera,
           coords: coords,
           activeIndex: activeIndex,
+          reversed: reversed,
         ),
         size: Size.infinite,
       ),
@@ -2165,10 +3889,12 @@ class _RoutePainter extends CustomPainter {
     required this.camera,
     required this.coords,
     required this.activeIndex,
+    required this.reversed,
   });
   final MapCamera camera;
   final List<List<double>> coords;
   final int? activeIndex;
+  final bool reversed;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -2177,45 +3903,116 @@ class _RoutePainter extends CustomPainter {
     Offset project(List<double> lonLat) =>
         camera.projectAtZoom(LatLng(lonLat[1], lonLat[0])) - origin;
 
-    final line = Paint()
-      ..color = const Color(0xFF4FC3F7)
-      ..strokeWidth = 3
-      ..style = PaintingStyle.stroke;
-    final path = ui.Path();
-    for (var i = 0; i < coords.length; i++) {
-      final p = project(coords[i]);
-      if (i == 0) {
-        path.moveTo(p.dx, p.dy);
-      } else {
-        path.lineTo(p.dx, p.dy);
+    final points =
+        coords.map(project).toList(growable: false);
+
+    // Base polyline — faded green.
+    final basePath = ui.Path()..moveTo(points[0].dx, points[0].dy);
+    for (var i = 1; i < points.length; i++) {
+      basePath.lineTo(points[i].dx, points[i].dy);
+    }
+    canvas.drawPath(
+      basePath,
+      Paint()
+        ..color = const Color(0x994CAF50) // 0.6 alpha
+        ..strokeWidth = 3
+        ..style = PaintingStyle.stroke,
+    );
+
+    // Active leg overlay (prev → active waypoint). Direction-aware so
+    // reversed routes highlight the correct segment.
+    final ai = activeIndex;
+    if (ai != null) {
+      final prevIdx = reversed ? ai + 1 : ai - 1;
+      if (prevIdx >= 0 &&
+          prevIdx < points.length &&
+          ai >= 0 &&
+          ai < points.length) {
+        canvas.drawLine(
+          points[prevIdx],
+          points[ai],
+          Paint()
+            ..color = const Color(0xF24CAF50) // 0.95 alpha
+            ..strokeWidth = 5
+            ..style = PaintingStyle.stroke,
+        );
       }
     }
-    canvas.drawPath(path, line);
 
-    final waypoint = Paint()..color = const Color(0xFF4FC3F7);
-    final active = Paint()..color = const Color(0xFFFFC107);
-    final outline = Paint()
-      ..color = Colors.white
-      ..strokeWidth = 1.5
-      ..style = PaintingStyle.stroke;
-    for (var i = 0; i < coords.length; i++) {
-      final p = project(coords[i]);
-      final isActive = i == activeIndex;
-      canvas.drawCircle(p, isActive ? 8 : 5, isActive ? active : waypoint);
-      canvas.drawCircle(p, isActive ? 8 : 5, outline);
+    // Waypoint triangles — direction by next leg (or previous in reverse).
+    for (var i = 0; i < points.length; i++) {
+      final isNext = i == ai;
+      final isPast = ai != null && (reversed ? i > ai : i < ai);
+      final size = isNext ? 12.0 : 7.0;
+      final alpha = isPast ? 0.3 : (isNext ? 0.95 : 0.7);
+      // Rotation = atan2(dx, dy) of the next-step vector. dy is
+      // world-up in screen coords here (flutter_map projects y-down),
+      // but V1's OpenLayers uses the same convention relative to the
+      // camera transform applied by MobileLayerTransformer, so the
+      // same formula reproduces the pointing angle.
+      int toIdx;
+      if (reversed) {
+        toIdx = i > 0 ? i - 1 : i;
+      } else {
+        toIdx = i < points.length - 1 ? i + 1 : i;
+      }
+      final dx = points[toIdx].dx - points[i].dx;
+      final dy = points[toIdx].dy - points[i].dy;
+      final rot = (dx == 0 && dy == 0) ? 0.0 : math.atan2(dx, -dy);
+      final path = _triangle(size);
+      canvas.save();
+      canvas.translate(points[i].dx, points[i].dy);
+      canvas.rotate(rot);
+      canvas.drawPath(
+        path,
+        Paint()
+          ..color =
+              Color.fromRGBO(76, 175, 80, alpha), // rgba(76,175,80,alpha)
+      );
+      if (isNext) {
+        canvas.drawPath(
+          path,
+          Paint()
+            ..color = Colors.white
+            ..strokeWidth = 2
+            ..style = PaintingStyle.stroke,
+        );
+      }
+      canvas.restore();
     }
+  }
+
+  /// Equilateral triangle pointing up (bow along +y is toward the
+  /// next waypoint before rotation; V1 uses OpenLayers RegularShape
+  /// with points=3 which is the same equilateral).
+  ui.Path _triangle(double radius) {
+    final path = ui.Path();
+    for (var i = 0; i < 3; i++) {
+      final theta = -math.pi / 2 + i * 2 * math.pi / 3;
+      final x = radius * math.cos(theta);
+      final y = radius * math.sin(theta);
+      if (i == 0) {
+        path.moveTo(x, y);
+      } else {
+        path.lineTo(x, y);
+      }
+    }
+    path.close();
+    return path;
   }
 
   @override
   bool shouldRepaint(covariant _RoutePainter old) =>
       old.camera != camera ||
       old.coords != coords ||
-      old.activeIndex != activeIndex;
+      old.activeIndex != activeIndex ||
+      old.reversed != reversed;
 }
 
 class _MapControls extends StatelessWidget {
   const _MapControls({
     required this.autoFollow,
+    required this.headingUp,
     required this.rulerVisible,
     required this.aisEnabled,
     required this.aisActiveOnly,
@@ -2224,12 +4021,14 @@ class _MapControls extends StatelessWidget {
     required this.onRoutes,
     required this.onDownload,
     required this.onToggleFollow,
+    required this.onToggleViewMode,
     required this.onToggleRuler,
     required this.onToggleAis,
     required this.onToggleAisActive,
     required this.onToggleAisPaths,
   });
   final bool autoFollow;
+  final bool headingUp;
   final bool rulerVisible;
   final bool aisEnabled;
   final bool aisActiveOnly;
@@ -2238,6 +4037,7 @@ class _MapControls extends StatelessWidget {
   final VoidCallback onRoutes;
   final VoidCallback onDownload;
   final VoidCallback onToggleFollow;
+  final VoidCallback onToggleViewMode;
   final VoidCallback onToggleRuler;
   final VoidCallback onToggleAis;
   final VoidCallback onToggleAisActive;
@@ -2253,6 +4053,15 @@ class _MapControls extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
+          IconButton(
+            icon: Icon(
+              headingUp ? Icons.navigation : Icons.navigation_outlined,
+              color: Colors.white,
+              size: 20,
+            ),
+            tooltip: headingUp ? 'Heading-up' : 'North-up',
+            onPressed: onToggleViewMode,
+          ),
           IconButton(
             icon: Icon(
               autoFollow ? Icons.my_location : Icons.location_searching,

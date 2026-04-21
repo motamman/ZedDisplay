@@ -55,6 +55,11 @@ dependencies:
   latlong2: ^0.9.1
   # MVT decoder for Chart Plotter V3 spike (s52_dart → flutter_map overlay).
   vector_tile: ^4.0.0
+  # Draggable markers that actually beat flutter_map's gesture arena
+  # (ruler endpoints in Chart Plotter V3). Stock GestureDetector loses
+  # because flutter_map uses a GestureArenaTeam with ScaleGestureRecognizer
+  # as captain.
+  flutter_map_dragmarker: ^8.0.3
 
   # Color picker
   flutter_colorpicker: ^1.1.0
