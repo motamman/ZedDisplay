@@ -65,7 +65,7 @@ class S52StyleEngine {
   /// options' graphics-style / boundaries setting, which drives which
   /// [S52LookupTableKind] to consult.
   LookupRow? _resolveRow(S52Feature feature) {
-    final kind = _preferredTableKind(feature.geometryType);
+    final kind = preferredTableKind(feature.geometryType);
     return lookups.bestMatch(
       kind,
       feature.objectClass,
@@ -77,8 +77,10 @@ class S52StyleEngine {
   /// Picks the lookup-table variant appropriate for the current
   /// options, per IHO S-52 §5.3. Points follow the graphics-style
   /// setting; lines are always `LINES`; areas follow the boundaries
-  /// setting.
-  S52LookupTableKind _preferredTableKind(S52GeometryType geom) {
+  /// setting. Public so external callers that need to re-query the
+  /// same row (e.g. a tile manager computing popover priority) use
+  /// the exact kind the engine used for styling.
+  S52LookupTableKind preferredTableKind(S52GeometryType geom) {
     switch (geom) {
       case S52GeometryType.point:
         return options.graphicsStyle == S52GraphicsStyle.paper

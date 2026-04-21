@@ -227,6 +227,7 @@ class S57TileManager extends ChangeNotifier {
       if (window != null && !_inWindow(key, window)) return;
       if (resp.statusCode != 200) {
         _tileCache[key] = S57ParsedTile.empty();
+        _bumpAndNotify();
         return;
       }
       Uint8List bytes = resp.bodyBytes;
@@ -241,6 +242,7 @@ class S57TileManager extends ChangeNotifier {
       _bumpAndNotify();
     } catch (_) {
       _tileCache[key] = S57ParsedTile.empty();
+      _bumpAndNotify();
     } finally {
       _inflight.remove(key);
     }
@@ -284,15 +286,12 @@ class S57TileManager extends ChangeNotifier {
         final world = _geomToLatLng(feature, layer.extent, key);
         if (world == null) continue;
         // Look up displayPriority via the same table kind the engine
-        // used (simplified/lines/symbolisedBoundaries) so the feature
-        // popover can sort by S-52 priority the same way V1 does.
-        final lookupKind = switch (geomType) {
-          S52GeometryType.point => S52LookupTableKind.simplified,
-          S52GeometryType.line => S52LookupTableKind.lines,
-          S52GeometryType.area => S52LookupTableKind.symbolisedBoundaries,
-        };
+        // chose for styling. Delegating to engine.preferredTableKind
+        // so this stays in sync with options.graphicsStyle (paper vs
+        // simplified) and options.boundaries (plain vs symbolised) —
+        // hardcoding here would diverge if those options change.
         final row = engine.lookups.bestMatch(
-          lookupKind,
+          engine.preferredTableKind(geomType),
           layer.name,
           geomType,
           attrs,

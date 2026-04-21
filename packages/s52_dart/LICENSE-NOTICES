@@ -31,7 +31,12 @@ standards themselves are normative references. This package implements
 rendering behaviour specified by those standards. The IHO chart
 symbols, lookup tables, and colour tables shipped as compiled assets
 in the consuming application (ZedDisplay) derive from the OpenCPN
-chartsymbols.xml / rastersymbols-day.png artifacts, which are
-distributed under LGPL v2+ by the OpenCPN project. Those assets are
-data, not code; this package consumes them at runtime via the asset
-loader API and does not redistribute them.
+chartsymbols.xml / rastersymbols-day.png artifacts. OpenCPN's
+repository (including data/s57data/) is distributed under GPL-2.0;
+there is no LGPL carve-out for the data files. Those assets are data
+loaded at runtime, not code linked into this library, and this
+package does not redistribute them. The consuming application that
+bundles the assets is responsible for honouring GPL-2.0 attribution
+and source-availability requirements; see the OpenCPN project at
+https://github.com/OpenCPN/OpenCPN for the upstream licence text
+(COPYING.gplv2).
