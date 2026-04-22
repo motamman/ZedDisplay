@@ -132,16 +132,22 @@ class WeatherRoutePainter extends CustomPainter {
       points.length - 1,
       (i) {
         if (i == points.length - 2) return WeatherRouteLegKind.arrival;
-        // Waypoints list length can differ from coords length if the
-        // server simplified the geometry; fall through to motoring when
-        // we don't have a matching waypoint.
         if (i >= wps.length) return WeatherRouteLegKind.motoring;
         return legKindAt(wps, i);
       },
       growable: false,
     );
 
-    // 1) Route polyline — draw each segment with its own colour.
+    // Per-waypoint kind — forward-looking, matching route-planner.html's
+    // `next_*` style convention. Arrival kind on the last waypoint.
+    WeatherRouteLegKind kindAt(int i) {
+      if (i == points.length - 1) return WeatherRouteLegKind.arrival;
+      if (i < legKinds.length) return legKinds[i];
+      return WeatherRouteLegKind.motoring;
+    }
+
+    // 1) Route polyline — per-segment colour chosen by the departing
+    //    waypoint's leg kind.
     final linePaint = Paint()
       ..strokeWidth = 3
       ..style = PaintingStyle.stroke
@@ -152,22 +158,8 @@ class WeatherRoutePainter extends CustomPainter {
       canvas.drawLine(points[i], points[i + 1], linePaint);
     }
 
-    // 2) Inner leg rings — one per waypoint, coloured by the leg that
-    //    *arrives* at it. The start point has no arriving leg, so we
-    //    colour it by the departing leg instead.
-    final ringPaint = Paint()
-      ..strokeWidth = 2
-      ..style = PaintingStyle.stroke;
-    for (var i = 0; i < points.length; i++) {
-      final kind = i == 0
-          ? (legKinds.isNotEmpty ? legKinds.first : WeatherRouteLegKind.motoring)
-          : legKinds[math.min(i - 1, legKinds.length - 1)];
-      ringPaint.color = colorForLegKind(kind);
-      ringPaint.strokeWidth = (selectedIndex == i) ? 5 : 2;
-      canvas.drawCircle(points[i], innerRingRadius, ringPaint);
-    }
-
-    // 3) Selection halo — 28 px cyan fill + stroke, 22 px white inner ring.
+    // 2) Selection halo — under the waypoint decoration so the ring,
+    //    chevron, and wind arrow sit on top.
     final sel = selectedIndex;
     if (sel != null && sel >= 0 && sel < points.length) {
       final centre = points[sel];
@@ -192,38 +184,50 @@ class WeatherRoutePainter extends CustomPainter {
           ..strokeWidth = 2
           ..style = PaintingStyle.stroke,
       );
-
-      // Wind arrow at the selected waypoint, if we have wind data.
-      if (sel < wps.length) {
-        _paintWindArrow(canvas, centre, wps[sel]);
-        _paintVesselChevron(canvas, centre, wps[sel], legKindAt(wps, sel));
-      }
     }
 
-    // 4) Waypoint circles + labels — drawn last so they sit on top.
+    // 3) Waypoint decoration — for every waypoint, ring + vessel chevron
+    //    + wind arrow (matches route-planner.html). Start and End also
+    //    get a filled circle with an S / E label; intermediates do not.
+    final ringPaint = Paint()
+      ..strokeWidth = 2
+      ..style = PaintingStyle.stroke;
     for (var i = 0; i < points.length; i++) {
       final isStart = i == 0;
       final isEnd = i == points.length - 1;
-      final fill = isStart
-          ? WeatherRouteColors.startFill
-          : isEnd
-              ? WeatherRouteColors.endFill
-              : WeatherRouteColors.waypointFill;
-      canvas.drawCircle(
-        points[i],
-        waypointRadius,
-        Paint()..color = fill,
-      );
-      canvas.drawCircle(
-        points[i],
-        waypointRadius,
-        Paint()
-          ..color = WeatherRouteColors.markerStroke
-          ..strokeWidth = 2
-          ..style = PaintingStyle.stroke,
-      );
-      final label = isStart ? 'S' : (isEnd ? 'E' : 'W$i');
-      _paintLabel(canvas, points[i], label);
+      final kind = kindAt(i);
+      final colour = colorForLegKind(kind);
+
+      // Outer ring — stroke widens when selected.
+      ringPaint.color = colour;
+      ringPaint.strokeWidth = (selectedIndex == i) ? 5 : 2;
+      canvas.drawCircle(points[i], innerRingRadius, ringPaint);
+
+      // Vessel chevron and wind arrow at every waypoint, provided we
+      // have matching waypoint metadata (LineString geometry can be
+      // simplified to fewer points than waypoints in edge cases).
+      if (i < wps.length) {
+        _paintVesselChevron(canvas, points[i], wps[i], kind);
+        _paintWindArrow(canvas, points[i], wps[i]);
+      }
+
+      // Only Start / End get the filled circle + label; intermediates
+      // are ring-only so the chevron and wind arrow read cleanly.
+      if (isStart || isEnd) {
+        final fill = isStart
+            ? WeatherRouteColors.startFill
+            : WeatherRouteColors.endFill;
+        canvas.drawCircle(points[i], waypointRadius, Paint()..color = fill);
+        canvas.drawCircle(
+          points[i],
+          waypointRadius,
+          Paint()
+            ..color = WeatherRouteColors.markerStroke
+            ..strokeWidth = 2
+            ..style = PaintingStyle.stroke,
+        );
+        _paintLabel(canvas, points[i], isStart ? 'S' : 'E');
+      }
     }
   }
 
@@ -322,7 +326,7 @@ int? hitTestWeatherRouteWaypoint({
   required WeatherRouteResult result,
   required MapCamera camera,
   required LatLng tap,
-  double radius = WeatherRoutePainter.waypointRadius + 2,
+  double radius = WeatherRoutePainter.innerRingRadius + 2,
 }) {
   if (result.coords.isEmpty) return null;
   final origin = camera.pixelOrigin;

@@ -25,11 +25,16 @@ import '../../services/s57_tile_manager.dart';
 import '../../services/signalk_service.dart';
 import '../../services/tool_registry.dart';
 import '../../models/weather_route_request.dart';
+import '../../models/weather_route_result.dart';
+import '../../services/route_planner_auth_service.dart';
+import '../../services/weather_data_service.dart';
 import '../../services/weather_routing_service.dart';
 import '../ais_vessel_detail_sheet.dart';
 import '../chart_plotter/chart_hud.dart';
 import '../chart_plotter/chart_layer_panel.dart';
 import '../chart_plotter/chart_route_panel.dart';
+import '../chart_plotter/weather_data_overlays.dart';
+import '../chart_plotter/weather_routing_itinerary_card.dart';
 import '../chart_plotter/weather_routing_overlay.dart';
 import '../chart_plotter/weather_routing_panel.dart';
 import '../countdown_confirmation_overlay.dart';
@@ -206,6 +211,25 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
   WeatherRoutingService? _weatherRoutingService;
   int? _weatherRouteSelectedIdx;
 
+  // ===== Weather data overlays (wind / currents / heatmaps) =====
+  //
+  // One service per chart plotter so per-tool base-URL overrides are
+  // honoured. The service owns its own debouncers; this widget just
+  // tells it when the map camera moves and what layers are on.
+  // Toggles are ephemeral (match AIS / ruler patterns elsewhere in the
+  // tool) — initial state is read from customProperties.
+  WeatherDataService? _weatherDataService;
+  late bool _windBarbsOn = _boolProp('windBarbsOn');
+  late bool _currentsOn = _boolProp('currentsOn');
+  late bool _windHeatmapOn = _boolProp('windHeatmapOn');
+  late bool _currentHeatmapOn = _boolProp('currentHeatmapOn');
+  late bool _seaStateOn = _boolProp('seaStateOn');
+
+  bool _boolProp(String key) {
+    final v = widget.config.style.customProperties?[key];
+    return v is bool ? v : false;
+  }
+
   bool get _weatherRoutingEnabled {
     final v = widget.config.style.customProperties?['weatherRoutingEnabled'];
     return v is bool ? v : true;
@@ -282,11 +306,100 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
       _weatherRoutingService!.addListener(_onWeatherRoutingChanged);
     }
     _weatherRoutingService!.baseUrl = _routePlannerBaseUrl;
+
+    // Weather data service — lazily built on first dependency pass so
+    // we've got RoutePlannerAuthService from the Provider tree.
+    if (_weatherDataService == null) {
+      final auth = Provider.of<RoutePlannerAuthService>(context, listen: false);
+      _weatherDataService = WeatherDataService(auth)
+        ..baseUrl = _routePlannerBaseUrl
+        ..addListener(_onWeatherDataChanged);
+    } else {
+      _weatherDataService!.baseUrl = _routePlannerBaseUrl;
+    }
+  }
+
+  void _onWeatherDataChanged() {
+    if (!mounted) return;
+    setState(() {});
+  }
+
+  /// Builds an XYZ `TileLayer` for one of the raster weather endpoints
+  /// (`/wind-heatmap`, `/current-heatmap`, `/roughness`). The URL
+  /// template carries the current reference hour via `?t=…` — the
+  /// parent widget rebuilds when the service's hour flips, which
+  /// hands flutter_map a fresh template and flushes stale tiles.
+  Widget _weatherRasterTile(String path, int zoomFloor) {
+    final svc = _weatherDataService!;
+    final hour = svc.hourParam;
+    return TileLayer(
+      key: ValueKey('$path|$hour'),
+      urlTemplate: svc.heatmapUrlTemplate(path),
+      userAgentPackageName: 'org.zennora.zed_display',
+      minNativeZoom: zoomFloor,
+      maxNativeZoom: 16,
+      tileProvider: NetworkTileProvider(headers: svc.authHeaders),
+    );
+  }
+
+  /// Sync the weather-data service's reference time to whatever the
+  /// current selection / route / clock implies. Tile layers (raster)
+  /// and the tile-aware vector overlays watch the service directly,
+  /// so nothing else needs to happen here — no per-camera scheduling.
+  ///
+  /// Reference-time precedence: selected route waypoint's `time`
+  /// (scrubbing the field to that hour) → the planned departure → now.
+  void _syncWeatherReferenceTime() {
+    final svc = _weatherDataService;
+    if (svc == null) return;
+    DateTime? selectedTime;
+    final wrResult = _weatherRoutingService?.currentResult;
+    final sel = _weatherRouteSelectedIdx;
+    if (wrResult != null &&
+        sel != null &&
+        sel >= 0 &&
+        sel < wrResult.waypoints.length) {
+      selectedTime = wrResult.waypoints[sel].time;
+    }
+    final dep = _weatherRoutingService?.lastRequest?.departure;
+    svc.referenceTime = selectedTime ?? dep ?? DateTime.now();
+  }
+
+  /// Single entry point for updating the selected weather-route
+  /// waypoint. Clamps the index, pans the camera, and rescrubs the
+  /// wind / current layers to the waypoint's forecast time. Pass
+  /// `null` to clear the selection.
+  void _setSelectedWaypoint(int? idx) {
+    final result = _weatherRoutingService?.currentResult;
+    int? clamped;
+    if (idx != null && result != null && result.coords.isNotEmpty) {
+      clamped = idx.clamp(0, result.coords.length - 1);
+    }
+    if (_weatherRouteSelectedIdx != clamped) {
+      setState(() => _weatherRouteSelectedIdx = clamped);
+    }
+    if (clamped != null && result != null && _mapReady) {
+      final c = result.coords[clamped];
+      _mapController.move(LatLng(c[1], c[0]), _mapController.camera.zoom);
+    }
+    _syncWeatherReferenceTime();
   }
 
   void _onWeatherRoutingChanged() {
     if (!mounted) return;
+    // Drop a stale selection when the service clears its result — the
+    // floating popover and the overlay both derive their visibility
+    // from this flag, and nothing else nulls it.
+    final hasResult =
+        _weatherRoutingService?.currentResult?.isNotEmpty ?? false;
+    if (!hasResult && _weatherRouteSelectedIdx != null) {
+      _weatherRouteSelectedIdx = null;
+    }
     setState(() {});
+    // Reference time may have shifted (new route, different departure,
+    // or cleared selection) — push it into the data service. Tile
+    // layers self-fetch when the hour changes.
+    _syncWeatherReferenceTime();
   }
 
   bool _aisSubscribed = false;
@@ -304,6 +417,8 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
     _tileManager?.removeListener(_onTileManagerChanged);
     _tileManager?.dispose();
     _weatherRoutingService?.removeListener(_onWeatherRoutingChanged);
+    _weatherDataService?.removeListener(_onWeatherDataChanged);
+    _weatherDataService?.dispose();
     super.dispose();
   }
 
@@ -734,7 +849,7 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
         tap: latLng,
       );
       if (idx != null) {
-        setState(() => _weatherRouteSelectedIdx = idx);
+        _setSelectedWaypoint(idx);
         return;
       }
     }
@@ -1448,6 +1563,7 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
               },
               onMapReady: () {
                 _mapReady = true;
+                _syncWeatherReferenceTime();
                 // Center on vessel immediately if we already have a
                 // fix from the 1 s vessel timer (which can run before
                 // the map finishes initializing). Avoids the brief
@@ -1486,6 +1602,25 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
                     hiddenClasses: _hiddenClasses,
                   ),
                 ),
+              // Weather raster tiles sit under the vector overlays +
+              // route so they read as a background tint (matches web
+              // UI z-order: heatmap zIndex 6 vs wind/current 7-8).
+              // Each is an XYZ `TileLayer` keyed on the current hour
+              // so a waypoint-time scrub swaps URL templates and
+              // flutter_map refetches cleanly.
+              if (_windHeatmapOn && _weatherDataService != null)
+                _weatherRasterTile('/wind-heatmap',
+                    WeatherDataService.zoomFloorWindHeatmap),
+              if (_currentHeatmapOn && _weatherDataService != null)
+                _weatherRasterTile('/current-heatmap',
+                    WeatherDataService.zoomFloorCurrentHeatmap),
+              if (_seaStateOn && _weatherDataService != null)
+                _weatherRasterTile('/roughness',
+                    WeatherDataService.zoomFloorSeaState),
+              if (_currentsOn && _weatherDataService != null)
+                CurrentArrowsTileOverlay(service: _weatherDataService!),
+              if (_windBarbsOn && _weatherDataService != null)
+                WindBarbsTileOverlay(service: _weatherDataService!),
               if (_tapHalo != null)
                 _TapHaloLayer(point: _tapHalo!),
               if (_trailPoints.length >= 2)
@@ -1551,6 +1686,26 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
               if (i != null) _skipToWaypoint(i + 1);
             },
           ),
+          if (_weatherRoutingEnabled &&
+              _weatherRouteSelectedIdx != null &&
+              (_weatherRoutingService?.currentResult?.isNotEmpty ?? false))
+            Positioned(
+              left: 8,
+              right: 8,
+              bottom: _hudStyle == 'visual' ? 200 : (_hudStyle == 'text' ? 62 : 16),
+              child: _WeatherWaypointPopover(
+                result: _weatherRoutingService!.currentResult!,
+                selectedIndex: _weatherRouteSelectedIdx!,
+                onPrev: () =>
+                    _setSelectedWaypoint(_weatherRouteSelectedIdx! - 1),
+                onNext: () =>
+                    _setSelectedWaypoint(_weatherRouteSelectedIdx! + 1),
+                onFirst: () => _setSelectedWaypoint(0),
+                onLast: () => _setSelectedWaypoint(
+                    _weatherRoutingService!.currentResult!.coords.length - 1),
+                onClose: () => _setSelectedWaypoint(null),
+              ),
+            ),
           Positioned(
             bottom: _hudStyle == 'visual' ? 190 : (_hudStyle == 'text' ? 52 : 8),
             right: 8,
@@ -1684,13 +1839,7 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
   }
 
   void _focusWeatherRouteWaypoint(int index) {
-    final result = _weatherRoutingService?.currentResult;
-    if (result == null || index < 0 || index >= result.coords.length) return;
-    setState(() => _weatherRouteSelectedIdx = index);
-    final c = result.coords[index];
-    if (_mapReady) {
-      _mapController.move(LatLng(c[1], c[0]), _mapController.camera.zoom);
-    }
+    _setSelectedWaypoint(index);
   }
 
   /// Flip between north-up and heading-up. In north-up we reset the
@@ -2137,10 +2286,125 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
                     if (mounted) setState(() {});
                   },
                 ),
+                _weatherLayersSection(sbSetState),
                 const SizedBox(height: 16),
               ],
             ),
           ),
+        ),
+      ),
+    );
+  }
+
+  /// Weather overlay toggles (wind / currents / heatmaps / sea state).
+  /// Rendered inside the layer sheet. Tile layers self-fetch when the
+  /// camera moves or the reference hour flips, so a toggle is just a
+  /// state flip — flipping on adds the `TileLayer` / tile-aware vector
+  /// overlay to the Stack; flipping off removes it.
+  Widget _weatherLayersSection(void Function(VoidCallback) sheetSetState) {
+    void flip({
+      required bool current,
+      required void Function(bool) assign,
+    }) {
+      final next = !current;
+      sheetSetState(() => assign(next));
+      if (!mounted) return;
+      setState(() => assign(next));
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Padding(
+          padding: EdgeInsets.fromLTRB(16, 12, 16, 4),
+          child: Text(
+            'Weather Layers',
+            style: TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.bold,
+              fontSize: 14,
+            ),
+          ),
+        ),
+        _weatherLayerTile(
+          icon: Icons.air,
+          label: 'Wind barbs',
+          subtitle: 'ECMWF HRES — zoom ≥ 6',
+          value: _windBarbsOn,
+          onChanged: () => flip(
+            current: _windBarbsOn,
+            assign: (v) => _windBarbsOn = v,
+          ),
+        ),
+        _weatherLayerTile(
+          icon: Icons.waves,
+          label: 'Tidal currents',
+          subtitle: 'Zoom ≥ 11',
+          value: _currentsOn,
+          onChanged: () => flip(
+            current: _currentsOn,
+            assign: (v) => _currentsOn = v,
+          ),
+        ),
+        _weatherLayerTile(
+          icon: Icons.thermostat,
+          label: 'Wind speed heatmap',
+          subtitle: 'Zoom ≥ 5',
+          value: _windHeatmapOn,
+          onChanged: () => flip(
+            current: _windHeatmapOn,
+            assign: (v) => _windHeatmapOn = v,
+          ),
+        ),
+        _weatherLayerTile(
+          icon: Icons.water,
+          label: 'Current speed heatmap',
+          subtitle: 'Zoom ≥ 9',
+          value: _currentHeatmapOn,
+          onChanged: () => flip(
+            current: _currentHeatmapOn,
+            assign: (v) => _currentHeatmapOn = v,
+          ),
+        ),
+        _weatherLayerTile(
+          icon: Icons.warning_amber,
+          label: 'Sea state',
+          subtitle: 'Wind × current × swell — zoom ≥ 9',
+          value: _seaStateOn,
+          onChanged: () => flip(
+            current: _seaStateOn,
+            assign: (v) => _seaStateOn = v,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _weatherLayerTile({
+    required IconData icon,
+    required String label,
+    required String subtitle,
+    required bool value,
+    required VoidCallback onChanged,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
+      child: Card(
+        color: const Color(0xFF2A2A3E),
+        margin: EdgeInsets.zero,
+        child: ListTile(
+          dense: true,
+          leading: Icon(icon,
+              size: 18, color: value ? Colors.white70 : Colors.white24),
+          title: Text(label,
+              style: TextStyle(
+                color: value ? Colors.white : Colors.white38,
+                fontSize: 13,
+              )),
+          subtitle: Text(subtitle,
+              style:
+                  const TextStyle(color: Colors.white38, fontSize: 11)),
+          trailing: Switch(value: value, onChanged: (_) => onChanged()),
         ),
       ),
     );
@@ -4338,6 +4602,128 @@ class _MapControls extends StatelessWidget {
             ),
           ],
         ],
+      ),
+    );
+  }
+}
+
+/// Floating itinerary card that pops up when a weather-route
+/// waypoint is selected. Lets the user step through the route
+/// (first / prev / next / last) so the wind and current overlays
+/// scrub to each waypoint's forecast time. Reuses
+/// [WeatherRoutingItineraryCard] verbatim for the body so the visual
+/// language stays in sync with the Result tab.
+class _WeatherWaypointPopover extends StatelessWidget {
+  const _WeatherWaypointPopover({
+    required this.result,
+    required this.selectedIndex,
+    required this.onPrev,
+    required this.onNext,
+    required this.onFirst,
+    required this.onLast,
+    required this.onClose,
+  });
+
+  final WeatherRouteResult result;
+  final int selectedIndex;
+  final VoidCallback onPrev;
+  final VoidCallback onNext;
+  final VoidCallback onFirst;
+  final VoidCallback onLast;
+  final VoidCallback onClose;
+
+  @override
+  Widget build(BuildContext context) {
+    final total = result.coords.length;
+    final atFirst = selectedIndex <= 0;
+    final atLast = selectedIndex >= total - 1;
+    // Guard against selection pointing past the waypoints list (coords
+    // and waypoints can differ by one or two entries on simplified
+    // geometries).
+    final wpIdx = selectedIndex.clamp(0, result.waypoints.length - 1);
+    final waypoint = result.waypoints[wpIdx];
+    final kind = legKindAt(result.waypoints, wpIdx);
+
+    return Material(
+      color: Colors.transparent,
+      child: Container(
+        decoration: BoxDecoration(
+          color: AppColors.cardBackgroundDark,
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x88000000),
+              blurRadius: 12,
+              offset: Offset(0, 4),
+            ),
+          ],
+          border: Border.all(color: const Color(0xFF2A2A44)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Header — nav buttons.
+            Padding(
+              padding: const EdgeInsets.fromLTRB(4, 4, 4, 0),
+              child: Row(
+                children: [
+                  IconButton(
+                    tooltip: 'First waypoint',
+                    icon: const Icon(Icons.first_page,
+                        color: Colors.white70, size: 22),
+                    onPressed: atFirst ? null : onFirst,
+                  ),
+                  IconButton(
+                    tooltip: 'Previous waypoint',
+                    icon: const Icon(Icons.chevron_left,
+                        color: Colors.white70, size: 24),
+                    onPressed: atFirst ? null : onPrev,
+                  ),
+                  Expanded(
+                    child: Text(
+                      'Waypoint ${selectedIndex + 1} of $total',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 13,
+                        fontFamily: 'Menlo',
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'Next waypoint',
+                    icon: const Icon(Icons.chevron_right,
+                        color: Colors.white70, size: 24),
+                    onPressed: atLast ? null : onNext,
+                  ),
+                  IconButton(
+                    tooltip: 'Last waypoint',
+                    icon: const Icon(Icons.last_page,
+                        color: Colors.white70, size: 22),
+                    onPressed: atLast ? null : onLast,
+                  ),
+                  IconButton(
+                    tooltip: 'Close',
+                    icon: const Icon(Icons.close,
+                        color: Colors.white54, size: 20),
+                    onPressed: onClose,
+                  ),
+                ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+              child: WeatherRoutingItineraryCard(
+                index: wpIdx,
+                waypoint: waypoint,
+                kind: kind,
+                selected: true,
+                onTap: () {},
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

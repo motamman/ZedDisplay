@@ -215,6 +215,10 @@ class _ComposeTabState extends State<_ComposeTab> {
   late RouteMode _mode = widget.defaultMode;
   late DateTime _departure = DateTime.now();
   final _tokenCtrl = TextEditingController();
+  // When true, show the full token editor / Google sign-in block even
+  // though a token is already stored. Lets the user replace or remove
+  // a saved token.
+  bool _authExpanded = false;
 
   @override
   void initState() {
@@ -351,72 +355,10 @@ class _ComposeTabState extends State<_ComposeTab> {
         const SizedBox(height: 16),
         const Divider(color: Colors.white12),
         const SizedBox(height: 8),
-        _sectionLabel('Authentication'),
-        const Text(
-          'Paste a bearer token, or tap "Sign in with Google" to mint one.',
-          style: TextStyle(color: Colors.white54, fontSize: 12),
-        ),
-        const SizedBox(height: 8),
-        Row(
-          children: [
-            Expanded(
-              child: TextField(
-                controller: _tokenCtrl,
-                obscureText: true,
-                style: const TextStyle(color: Colors.white, fontFamily: 'Menlo'),
-                decoration: InputDecoration(
-                  hintText: auth.hasToken
-                      ? 'Token set — paste new to replace'
-                      : 'Bearer token',
-                  hintStyle: const TextStyle(color: Colors.white38),
-                  isDense: true,
-                  border: const OutlineInputBorder(),
-                  filled: true,
-                  fillColor: const Color(0xFF141424),
-                ),
-              ),
-            ),
-            const SizedBox(width: 8),
-            IconButton(
-              tooltip: 'Paste',
-              icon: const Icon(Icons.paste, color: Colors.white70),
-              onPressed: () async {
-                final data = await Clipboard.getData('text/plain');
-                if (data?.text != null) {
-                  _tokenCtrl.text = data!.text!.trim();
-                }
-              },
-            ),
-          ],
-        ),
-        const SizedBox(height: 8),
-        Row(
-          children: [
-            Expanded(
-              child: OutlinedButton.icon(
-                icon: const Icon(Icons.login),
-                label: const Text('Sign in with Google'),
-                onPressed: () async {
-                  final ok = await auth.signInWithGoogle(service.baseUrl);
-                  if (!ok && context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Could not open browser')),
-                    );
-                  }
-                },
-              ),
-            ),
-            const SizedBox(width: 8),
-            TextButton(
-              onPressed: _tokenCtrl.text.isEmpty && !auth.hasToken
-                  ? null
-                  : () async {
-                      await auth.setBearerToken(_tokenCtrl.text);
-                    },
-              child: const Text('Save token'),
-            ),
-          ],
-        ),
+        if (auth.hasToken && !_authExpanded)
+          _signedInRow(auth)
+        else
+          _authEditor(auth, service),
         const SizedBox(height: 24),
         ElevatedButton.icon(
           icon: const Icon(Icons.play_arrow),
@@ -472,6 +414,128 @@ class _ComposeTabState extends State<_ComposeTab> {
       polar: widget.defaultPolar,
     );
     await service.submitRoute(req);
+  }
+
+  Widget _signedInRow(RoutePlannerAuthService auth) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: const Color(0xFF14241A),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: const Color(0xFF2A4A30)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.verified_user,
+              color: Color(0xFF88DD88), size: 18),
+          const SizedBox(width: 8),
+          const Expanded(
+            child: Text(
+              'Signed in to the route planner',
+              style: TextStyle(color: Colors.white, fontSize: 13),
+            ),
+          ),
+          TextButton(
+            onPressed: () => setState(() => _authExpanded = true),
+            child: const Text('Change'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _authEditor(
+      RoutePlannerAuthService auth, WeatherRoutingService service) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _sectionLabel('Authentication'),
+        const Text(
+          'Paste a bearer token, or tap "Sign in with Google" to mint one.',
+          style: TextStyle(color: Colors.white54, fontSize: 12),
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Expanded(
+              child: TextField(
+                controller: _tokenCtrl,
+                obscureText: true,
+                style:
+                    const TextStyle(color: Colors.white, fontFamily: 'Menlo'),
+                decoration: InputDecoration(
+                  hintText: auth.hasToken
+                      ? 'Token set — paste new to replace'
+                      : 'Bearer token',
+                  hintStyle: const TextStyle(color: Colors.white38),
+                  isDense: true,
+                  border: const OutlineInputBorder(),
+                  filled: true,
+                  fillColor: const Color(0xFF141424),
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            IconButton(
+              tooltip: 'Paste',
+              icon: const Icon(Icons.paste, color: Colors.white70),
+              onPressed: () async {
+                final data = await Clipboard.getData('text/plain');
+                if (data?.text != null) {
+                  _tokenCtrl.text = data!.text!.trim();
+                }
+              },
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Expanded(
+              child: OutlinedButton.icon(
+                icon: const Icon(Icons.login),
+                label: const Text('Sign in with Google'),
+                onPressed: () async {
+                  final messenger = ScaffoldMessenger.of(context);
+                  final ok = await auth.signInWithGoogle(service.baseUrl);
+                  if (!ok) {
+                    messenger.showSnackBar(
+                      const SnackBar(content: Text('Could not open browser')),
+                    );
+                  }
+                },
+              ),
+            ),
+            const SizedBox(width: 8),
+            TextButton(
+              onPressed: _tokenCtrl.text.isEmpty && !auth.hasToken
+                  ? null
+                  : () async {
+                      await auth.setBearerToken(_tokenCtrl.text);
+                      if (!mounted) return;
+                      if (auth.hasToken) {
+                        setState(() => _authExpanded = false);
+                      }
+                    },
+              child: const Text('Save token'),
+            ),
+            if (auth.hasToken) ...[
+              const SizedBox(width: 4),
+              TextButton(
+                onPressed: () async {
+                  await auth.clear();
+                  _tokenCtrl.clear();
+                  if (!mounted) return;
+                  setState(() {});
+                },
+                child: const Text('Sign out',
+                    style: TextStyle(color: Color(0xFFFF8888))),
+              ),
+            ],
+          ],
+        ),
+      ],
+    );
   }
 
   Widget _sectionLabel(String text) => Padding(
@@ -726,7 +790,22 @@ class _ResultTab extends StatelessWidget {
       controller: scrollController,
       padding: const EdgeInsets.all(12),
       children: [
-        _StatSummary(result: result),
+        Row(
+          children: [
+            Expanded(child: _StatSummary(result: result)),
+            const SizedBox(width: 8),
+            OutlinedButton.icon(
+              icon: const Icon(Icons.layers_clear, size: 16),
+              label: const Text('Clear'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: const Color(0xFFFF8888),
+                side: const BorderSide(color: Color(0xFF553333)),
+                padding: const EdgeInsets.symmetric(horizontal: 10),
+              ),
+              onPressed: service.clearResult,
+            ),
+          ],
+        ),
         const SizedBox(height: 10),
         for (var i = 0; i < result.waypoints.length; i++)
           WeatherRoutingItineraryCard(
@@ -734,7 +813,13 @@ class _ResultTab extends StatelessWidget {
             waypoint: result.waypoints[i],
             kind: legKindAt(result.waypoints, i),
             selected: false,
-            onTap: () => onFocusWaypoint(i),
+            onTap: () {
+              onFocusWaypoint(i);
+              // Retreat the main sheet so only the floating chart
+              // popover remains over the map — user wants to scrub
+              // waypoints without the list overlapping the chart.
+              Navigator.of(context).maybePop();
+            },
           ),
       ],
     );
