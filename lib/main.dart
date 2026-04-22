@@ -38,6 +38,8 @@ import 'services/dashboard_store_service.dart';
 import 'services/chart_tile_cache_service.dart';
 import 'services/chart_tile_server_service.dart';
 import 'services/chart_download_manager.dart';
+import 'services/route_planner_auth_service.dart';
+import 'services/weather_routing_service.dart';
 import 'models/alert_event.dart' as alert_models;
 
 // Global app start time
@@ -216,6 +218,11 @@ void main() async {
   await chartTileServerService.start();
   final chartDownloadManager = ChartDownloadManager(cacheService: chartTileCacheService);
 
+  // Route planner auth + weather routing service (surfaces the router
+  // API inside the chart plotter)
+  final routePlannerAuthService = RoutePlannerAuthService(storageService);
+  final weatherRoutingService = WeatherRoutingService(routePlannerAuthService);
+
   runApp(ZedDisplayApp(
     storageService: storageService,
     signalKService: signalKService,
@@ -238,6 +245,8 @@ void main() async {
     chartTileCacheService: chartTileCacheService,
     chartTileServerService: chartTileServerService,
     chartDownloadManager: chartDownloadManager,
+    routePlannerAuthService: routePlannerAuthService,
+    weatherRoutingService: weatherRoutingService,
   ));
 }
 
@@ -263,6 +272,8 @@ class ZedDisplayApp extends StatefulWidget {
   final ChartTileCacheService chartTileCacheService;
   final ChartTileServerService chartTileServerService;
   final ChartDownloadManager chartDownloadManager;
+  final RoutePlannerAuthService routePlannerAuthService;
+  final WeatherRoutingService weatherRoutingService;
 
   const ZedDisplayApp({
     super.key,
@@ -287,6 +298,8 @@ class ZedDisplayApp extends StatefulWidget {
     required this.chartTileCacheService,
     required this.chartTileServerService,
     required this.chartDownloadManager,
+    required this.routePlannerAuthService,
+    required this.weatherRoutingService,
   });
 
   @override
@@ -548,6 +561,8 @@ class _ZedDisplayAppState extends State<ZedDisplayApp> with WidgetsBindingObserv
         ChangeNotifierProvider.value(value: widget.chartTileCacheService),
         ChangeNotifierProvider.value(value: widget.chartTileServerService),
         ChangeNotifierProvider.value(value: widget.chartDownloadManager),
+        ChangeNotifierProvider.value(value: widget.routePlannerAuthService),
+        ChangeNotifierProvider.value(value: widget.weatherRoutingService),
         Provider<NotificationNavigationService>.value(value: widget.notificationNavigationService),
       ],
       child: MaterialApp(

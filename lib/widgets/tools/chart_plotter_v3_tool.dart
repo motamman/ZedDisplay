@@ -24,10 +24,14 @@ import '../../services/route_arrival_monitor.dart';
 import '../../services/s57_tile_manager.dart';
 import '../../services/signalk_service.dart';
 import '../../services/tool_registry.dart';
+import '../../models/weather_route_request.dart';
+import '../../services/weather_routing_service.dart';
 import '../ais_vessel_detail_sheet.dart';
 import '../chart_plotter/chart_hud.dart';
 import '../chart_plotter/chart_layer_panel.dart';
 import '../chart_plotter/chart_route_panel.dart';
+import '../chart_plotter/weather_routing_overlay.dart';
+import '../chart_plotter/weather_routing_panel.dart';
 import '../countdown_confirmation_overlay.dart';
 
 /// Chart Plotter V3 — spike: proves the s52_dart → flutter_map pipeline.
@@ -194,6 +198,35 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
     return const <String>{};
   }
 
+  // ===== Weather routing =====
+  //
+  // Overlay is driven by [WeatherRoutingService] (ChangeNotifier, obtained
+  // via Provider). Selection index and "pick end-waypoint" state live here
+  // because they're UI-only: they don't belong in the service's model.
+  WeatherRoutingService? _weatherRoutingService;
+  int? _weatherRouteSelectedIdx;
+
+  bool get _weatherRoutingEnabled {
+    final v = widget.config.style.customProperties?['weatherRoutingEnabled'];
+    return v is bool ? v : true;
+  }
+
+  String get _routePlannerBaseUrl {
+    final v = widget.config.style.customProperties?['routePlannerBaseUrl'];
+    if (v is String && v.isNotEmpty) return v;
+    return 'https://router.zeddisplay.com';
+  }
+
+  RouteMode get _weatherRouteDefaultMode {
+    final v = widget.config.style.customProperties?['weatherRouteDefaultMode'];
+    return RouteMode.fromWire(v is String ? v : null);
+  }
+
+  String? get _weatherRoutePolar {
+    final v = widget.config.style.customProperties?['weatherRoutePolar'];
+    return (v is String && v.isNotEmpty) ? v : null;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -235,6 +268,27 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
     _ensureAisSubscribed();
   }
 
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Bind to the globally provided WeatherRoutingService — subscribe
+    // once per instance so we rebuild when the service notifies (status
+    // transitions, new log lines, route landed). Also push the config's
+    // baseUrl into the service so per-tool overrides are honoured.
+    final next = Provider.of<WeatherRoutingService>(context, listen: false);
+    if (!identical(next, _weatherRoutingService)) {
+      _weatherRoutingService?.removeListener(_onWeatherRoutingChanged);
+      _weatherRoutingService = next;
+      _weatherRoutingService!.addListener(_onWeatherRoutingChanged);
+    }
+    _weatherRoutingService!.baseUrl = _routePlannerBaseUrl;
+  }
+
+  void _onWeatherRoutingChanged() {
+    if (!mounted) return;
+    setState(() {});
+  }
+
   bool _aisSubscribed = false;
   void _ensureAisSubscribed() {
     if (_aisSubscribed || !widget.signalKService.isConnected) return;
@@ -249,6 +303,7 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
     _stopArrivalMonitor();
     _tileManager?.removeListener(_onTileManagerChanged);
     _tileManager?.dispose();
+    _weatherRoutingService?.removeListener(_onWeatherRoutingChanged);
     super.dispose();
   }
 
@@ -668,6 +723,22 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
     final camera = _mapController.camera;
     final tapScreen = camera.latLngToScreenOffset(latLng);
 
+    // Weather-route waypoints take priority when visible — they sit on
+    // top of the SignalK route overlay in the paint stack, so the tap
+    // order must match.
+    final wrResult = _weatherRoutingService?.currentResult;
+    if (_weatherRoutingEnabled && wrResult != null && wrResult.isNotEmpty) {
+      final idx = hitTestWeatherRouteWaypoint(
+        result: wrResult,
+        camera: camera,
+        tap: latLng,
+      );
+      if (idx != null) {
+        setState(() => _weatherRouteSelectedIdx = idx);
+        return;
+      }
+    }
+
     final coords = _routeCoords;
     if (coords != null) {
       const hitRadius = 14.0;
@@ -1051,6 +1122,141 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
   /// Long-press inserts a waypoint after the nearest existing one.
   /// Matches V1's UX: press where you want the new point to live.
   void _onMapLongPress(TapPosition tapPosition, LatLng latLng) {
+    final hasActiveRoute = _routeCoords != null && _routeCoords!.isNotEmpty;
+    final weatherOn = _weatherRoutingEnabled;
+
+    if (weatherOn && hasActiveRoute) {
+      // Both pathways apply — let the user disambiguate.
+      _showLongPressChooser(latLng);
+      return;
+    }
+    if (weatherOn) {
+      _dropOrMoveWeatherPin(latLng);
+      return;
+    }
+    if (hasActiveRoute) {
+      _addRouteWaypointAt(latLng);
+    }
+  }
+
+  /// Long-press actions when both the SignalK active-route and the
+  /// weather-routing feature want the gesture. Matches the bottom-sheet
+  /// idiom used by the Routes manager so the UX is consistent.
+  void _showLongPressChooser(LatLng latLng) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: AppColors.cardBackgroundDark,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.all(12),
+              child: Row(
+                children: [
+                  const Icon(Icons.place, color: Colors.white70, size: 18),
+                  const SizedBox(width: 8),
+                  Text(
+                    '${latLng.latitude.toStringAsFixed(5)}, '
+                    '${latLng.longitude.toStringAsFixed(5)}',
+                    style: const TextStyle(
+                      color: Colors.white70,
+                      fontFamily: 'Menlo',
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const Divider(height: 1, color: Colors.white12),
+            ListTile(
+              leading: const Icon(Icons.flight_takeoff,
+                  color: Color(0xFFFF9800)),
+              title: const Text('Weather routing pin',
+                  style: TextStyle(color: Colors.white)),
+              subtitle: Text(
+                _pinSubtitleFor(latLng),
+                style: const TextStyle(color: Colors.white54, fontSize: 12),
+              ),
+              onTap: () {
+                Navigator.of(ctx).pop();
+                _dropOrMoveWeatherPin(latLng);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.route, color: Colors.greenAccent),
+              title: const Text('Add waypoint to active route',
+                  style: TextStyle(color: Colors.white)),
+              onTap: () {
+                Navigator.of(ctx).pop();
+                _addRouteWaypointAt(latLng);
+              },
+            ),
+            const SizedBox(height: 4),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _pinSubtitleFor(LatLng latLng) {
+    final s = _weatherRoutingService?.plannedStart;
+    final e = _weatherRoutingService?.plannedEnd;
+    if (s == null) return 'Drops the start pin here';
+    if (e == null) return 'Drops the end pin here';
+    return 'Moves the nearer pin here';
+  }
+
+  /// Pin-placement logic: if start is missing, place it; else if end is
+  /// missing, place it; else move whichever of the two is closer on
+  /// screen to the new tap. Matches the UX described by the user.
+  void _dropOrMoveWeatherPin(LatLng latLng) {
+    final service = _weatherRoutingService;
+    if (service == null) return;
+    final next = LatLon(lat: latLng.latitude, lon: latLng.longitude);
+    if (service.plannedStart == null) {
+      service.plannedStart = next;
+      _showPinSnack('Start pin placed.');
+      return;
+    }
+    if (service.plannedEnd == null) {
+      service.plannedEnd = next;
+      _showPinSnack('End pin placed.');
+      return;
+    }
+    final camera = _mapController.camera;
+    final tapPx = camera.latLngToScreenOffset(latLng);
+    final sPx = camera.latLngToScreenOffset(
+        LatLng(service.plannedStart!.lat, service.plannedStart!.lon));
+    final ePx = camera.latLngToScreenOffset(
+        LatLng(service.plannedEnd!.lat, service.plannedEnd!.lon));
+    final dS = (sPx - tapPx).distanceSquared;
+    final dE = (ePx - tapPx).distanceSquared;
+    if (dS < dE) {
+      service.plannedStart = next;
+      _showPinSnack('Start pin moved.');
+    } else {
+      service.plannedEnd = next;
+      _showPinSnack('End pin moved.');
+    }
+  }
+
+  void _showPinSnack(String message) {
+    if (!mounted) return;
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    messenger?.hideCurrentSnackBar();
+    messenger?.showSnackBar(
+      SnackBar(
+        content: Text(message),
+        duration: const Duration(seconds: 2),
+      ),
+    );
+  }
+
+  void _addRouteWaypointAt(LatLng latLng) {
     final coords = _routeCoords;
     if (coords == null || coords.isEmpty) return;
     final camera = _mapController.camera;
@@ -1301,6 +1507,12 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
                   activeIndex: _routePointIndex,
                   reversed: _routeReversed,
                 ),
+              if (_weatherRoutingEnabled &&
+                  (_weatherRoutingService?.currentResult?.isNotEmpty ?? false))
+                WeatherRouteOverlayLayer(
+                  result: _weatherRoutingService!.currentResult!,
+                  selectedIndex: _weatherRouteSelectedIdx,
+                ),
               if (_aisEnabled && _aisVessels.isNotEmpty)
                 _AisOverlayLayer(
                   vessels: _aisVessels,
@@ -1319,34 +1531,9 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
               // children sit on top in the Stack and get gesture
               // priority — otherwise the overlays above (route, AIS,
               // own-vessel, scale) swallow the hit test for the
-              // ruler endpoints.
-              if (_rulerVisible &&
-                  _rulerRed != null &&
-                  _rulerBlue != null)
-                DragMarkers(
-                  markers: [
-                    DragMarker(
-                      point: _rulerRed!,
-                      size: const Size(44, 44),
-                      rotateMarker: false,
-                      onDragUpdate: (details, latLng) =>
-                          _onRulerDrag('red', latLng),
-                      builder: (_, _, _) => _rulerHandleVisual(
-                        const Color(0xCCF44336),
-                      ),
-                    ),
-                    DragMarker(
-                      point: _rulerBlue!,
-                      size: const Size(44, 44),
-                      rotateMarker: false,
-                      onDragUpdate: (details, latLng) =>
-                          _onRulerDrag('blue', latLng),
-                      builder: (_, _, _) => _rulerHandleVisual(
-                        const Color(0xCC2196F3),
-                      ),
-                    ),
-                  ],
-                ),
+              // ruler endpoints and weather-routing pins.
+              if (_buildDragMarkers().isNotEmpty)
+                DragMarkers(markers: _buildDragMarkers()),
             ],
           ),
           ChartPlotterHUD(
@@ -1423,6 +1610,12 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
                   _refreshAisVessels();
                 });
               },
+              weatherRoutingEnabled: _weatherRoutingEnabled,
+              weatherRouteActive:
+                  _weatherRoutingService?.currentResult?.isNotEmpty ?? false,
+              onWeatherRouting: _weatherRoutingEnabled
+                  ? () => _showWeatherRoutingSheet(context)
+                  : null,
             ),
           ),
           if (_rulerVisible && _rulerRed != null && _rulerBlue != null)
@@ -1476,6 +1669,28 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
       callbacks: _routeCallbacks,
       navPaths: _fallbackPaths,
     );
+  }
+
+  void _showWeatherRoutingSheet(BuildContext ctx) {
+    showWeatherRoutingSheet(
+      ctx,
+      vesselPosition: (_ownLat != null && _ownLon != null)
+          ? LatLon(lat: _ownLat!, lon: _ownLon!)
+          : null,
+      defaultMode: _weatherRouteDefaultMode,
+      defaultPolar: _weatherRoutePolar,
+      onFocusWaypoint: _focusWeatherRouteWaypoint,
+    );
+  }
+
+  void _focusWeatherRouteWaypoint(int index) {
+    final result = _weatherRoutingService?.currentResult;
+    if (result == null || index < 0 || index >= result.coords.length) return;
+    setState(() => _weatherRouteSelectedIdx = index);
+    final c = result.coords[index];
+    if (_mapReady) {
+      _mapController.move(LatLng(c[1], c[0]), _mapController.camera.zoom);
+    }
   }
 
   /// Flip between north-up and heading-up. In north-up we reset the
@@ -1583,6 +1798,94 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
           shape: BoxShape.circle,
           color: fill,
           border: Border.all(color: Colors.white, width: 2),
+        ),
+      ),
+    );
+  }
+
+  /// Single drag-marker builder for everything that can be dragged on
+  /// the chart (ruler endpoints, weather-routing pins). flutter_map
+  /// DragMarkers must live in a single widget that is the last child
+  /// of FlutterMap — otherwise overlays painted after it steal the
+  /// drag gesture.
+  List<DragMarker> _buildDragMarkers() {
+    final markers = <DragMarker>[];
+    if (_rulerVisible && _rulerRed != null && _rulerBlue != null) {
+      markers.add(DragMarker(
+        point: _rulerRed!,
+        size: const Size(44, 44),
+        rotateMarker: false,
+        onDragUpdate: (details, latLng) => _onRulerDrag('red', latLng),
+        builder: (_, _, _) => _rulerHandleVisual(const Color(0xCCF44336)),
+      ));
+      markers.add(DragMarker(
+        point: _rulerBlue!,
+        size: const Size(44, 44),
+        rotateMarker: false,
+        onDragUpdate: (details, latLng) => _onRulerDrag('blue', latLng),
+        builder: (_, _, _) => _rulerHandleVisual(const Color(0xCC2196F3)),
+      ));
+    }
+    final service = _weatherRoutingService;
+    if (_weatherRoutingEnabled && service != null) {
+      final s = service.plannedStart;
+      if (s != null) {
+        markers.add(DragMarker(
+          point: LatLng(s.lat, s.lon),
+          size: const Size(44, 44),
+          rotateMarker: false,
+          onDragEnd: (details, latLng) {
+            service.plannedStart =
+                LatLon(lat: latLng.latitude, lon: latLng.longitude);
+          },
+          builder: (_, _, _) => _weatherRoutePinVisual(
+              fill: const Color(0xFF4CAF50), label: 'S'),
+        ));
+      }
+      final e = service.plannedEnd;
+      if (e != null) {
+        markers.add(DragMarker(
+          point: LatLng(e.lat, e.lon),
+          size: const Size(44, 44),
+          rotateMarker: false,
+          onDragEnd: (details, latLng) {
+            service.plannedEnd =
+                LatLon(lat: latLng.latitude, lon: latLng.longitude);
+          },
+          builder: (_, _, _) => _weatherRoutePinVisual(
+              fill: const Color(0xFFF44336), label: 'E'),
+        ));
+      }
+    }
+    return markers;
+  }
+
+  Widget _weatherRoutePinVisual({required Color fill, required String label}) {
+    return Center(
+      child: Container(
+        width: 28,
+        height: 28,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: fill,
+          border: Border.all(color: Colors.white, width: 2),
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x66000000),
+              blurRadius: 4,
+              offset: Offset(0, 2),
+            ),
+          ],
+        ),
+        alignment: Alignment.center,
+        child: Text(
+          label,
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 12,
+            fontWeight: FontWeight.bold,
+            height: 1.0,
+          ),
         ),
       ),
     );
@@ -3916,6 +4219,9 @@ class _MapControls extends StatelessWidget {
     required this.onToggleAis,
     required this.onToggleAisActive,
     required this.onToggleAisPaths,
+    required this.weatherRoutingEnabled,
+    required this.weatherRouteActive,
+    required this.onWeatherRouting,
   });
   final bool autoFollow;
   final bool headingUp;
@@ -3932,6 +4238,9 @@ class _MapControls extends StatelessWidget {
   final VoidCallback onToggleAis;
   final VoidCallback onToggleAisActive;
   final VoidCallback onToggleAisPaths;
+  final bool weatherRoutingEnabled;
+  final bool weatherRouteActive;
+  final VoidCallback? onWeatherRouting;
 
   @override
   Widget build(BuildContext context) {
@@ -3971,6 +4280,18 @@ class _MapControls extends StatelessWidget {
             tooltip: 'Routes',
             onPressed: onRoutes,
           ),
+          if (weatherRoutingEnabled)
+            IconButton(
+              icon: Icon(
+                Icons.flight_takeoff,
+                color: weatherRouteActive
+                    ? const Color(0xFFFF9800)
+                    : Colors.white,
+                size: 20,
+              ),
+              tooltip: 'Weather routing',
+              onPressed: onWeatherRouting,
+            ),
           IconButton(
             icon: const Icon(Icons.download, color: Colors.white, size: 20),
             tooltip: 'Download charts',
