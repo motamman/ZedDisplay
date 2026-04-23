@@ -199,11 +199,11 @@ class _TileXY {
 /// on the left encode speed — pennant = 50 kt, full feather = 10 kt,
 /// half = 5 kt.
 class WindBarbsTileOverlay extends _WeatherVectorTileOverlay {
-  const WindBarbsTileOverlay({super.key, required super.service})
-      : super(
-          path: '/wind',
-          zoomFloor: WeatherDataService.zoomFloorWindBarbs,
-        );
+  const WindBarbsTileOverlay({
+    super.key,
+    required super.service,
+    super.zoomFloor = WeatherDataService.zoomFloorWindBarbs,
+  }) : super(path: '/wind');
 
   @override
   CustomPainter buildPainter(
@@ -308,11 +308,11 @@ class _WindBarbsPainter extends CustomPainter {
 // ═════════════════════════ Current arrows ═════════════════════════════
 
 class CurrentArrowsTileOverlay extends _WeatherVectorTileOverlay {
-  const CurrentArrowsTileOverlay({super.key, required super.service})
-      : super(
-          path: '/currents',
-          zoomFloor: WeatherDataService.zoomFloorCurrents,
-        );
+  const CurrentArrowsTileOverlay({
+    super.key,
+    required super.service,
+    super.zoomFloor = WeatherDataService.zoomFloorCurrents,
+  }) : super(path: '/currents');
 
   @override
   CustomPainter buildPainter(

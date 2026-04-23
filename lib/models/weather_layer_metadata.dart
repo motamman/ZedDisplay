@@ -30,6 +30,8 @@ class WeatherLayerMetadata {
     this.description,
     this.valueMin,
     this.valueMax,
+    this.minZoom,
+    this.maxZoom,
     this.serverTime,
     this.lastUpdate,
     this.refreshCadence,
@@ -42,6 +44,8 @@ class WeatherLayerMetadata {
   final String valueUnits;
   final double? valueMin;
   final double? valueMax;
+  final int? minZoom;
+  final int? maxZoom;
   final List<LegendStop> stops;
   final DateTime? serverTime;
   final DateTime? lastUpdate;
@@ -72,6 +76,8 @@ class WeatherLayerMetadata {
           '',
       valueMin: (valueRange['min'] as num?)?.toDouble(),
       valueMax: (valueRange['max'] as num?)?.toDouble(),
+      minZoom: (j['minzoom'] as num?)?.toInt(),
+      maxZoom: (j['maxzoom'] as num?)?.toInt(),
       stops: stops,
       serverTime: _parseTs(j['server_time']),
       lastUpdate: _parseTs(j['last_update']),

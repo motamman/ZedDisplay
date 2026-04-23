@@ -235,9 +235,45 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
   late bool _currentHeatmapOn = _boolProp('currentHeatmapOn');
   late bool _seaStateOn = _boolProp('seaStateOn');
 
+  // Per-layer user-picked minimum zoom (overrides metadata's default).
+  // Cleared on session end.
+  final Map<String, int> _userMinZoom = {};
+
+  // Per-layer "show legend on the chart itself" toggle.
+  final Map<String, bool> _legendOnMap = {};
+
   bool _boolProp(String key) {
     final v = widget.config.style.customProperties?[key];
     return v is bool ? v : false;
+  }
+
+  /// Effective minimum zoom for a weather layer, applied by `TileLayer`
+  /// (raster) or `zoomFloor` (vector). Precedence:
+  /// `_userMinZoom[path]` → `metadata.minZoom` → hardcoded fallback.
+  int _effectiveMinZoom(String metadataPath, int fallback) {
+    final user = _userMinZoom[metadataPath];
+    if (user != null) return user;
+    final md = _weatherDataService?.metadataFor(metadataPath);
+    return md?.minZoom ?? fallback;
+  }
+
+  /// Force only one raster heatmap on at a time. Picking any one
+  /// turns the other two off; vector layers (wind barbs, currents)
+  /// are independent and unaffected.
+  void _setExclusiveHeatmap(String selected) {
+    setState(() {
+      _windHeatmapOn = selected == 'wind';
+      _currentHeatmapOn = selected == 'current';
+      _seaStateOn = selected == 'seaState';
+    });
+  }
+
+  void _clearHeatmap() {
+    setState(() {
+      _windHeatmapOn = false;
+      _currentHeatmapOn = false;
+      _seaStateOn = false;
+    });
   }
 
   bool get _weatherRoutingEnabled {
@@ -341,16 +377,20 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
   /// `tile_layer.dart:502-514`) so bumping the nonce is the only way
   /// to force a refetch when the server's rendering changes within
   /// the same hour.
-  Widget _weatherRasterTile(String path, int zoomFloor) {
+  Widget _weatherRasterTile(String path, int fallbackZoomFloor) {
     final svc = _weatherDataService!;
     final template = svc.heatmapUrlTemplate(path);
-    debugPrint('[ChartPlotterV3] building TileLayer $path '
-        'nonce=${svc.cacheNonce} template=$template');
+    final effectiveFloor = _effectiveMinZoom(path, fallbackZoomFloor);
     return TileLayer(
-      key: ValueKey('$path|${svc.hourParam}|${svc.cacheNonce}'),
+      key: ValueKey(
+          '$path|${svc.hourParam}|${svc.cacheNonce}|$effectiveFloor'),
       urlTemplate: template,
       userAgentPackageName: 'org.zennora.zed_display',
-      minNativeZoom: zoomFloor,
+      // `minZoom` hides the layer below the user-configurable floor;
+      // `minNativeZoom` keeps flutter_map from asking for z<floor tiles
+      // (server returns 204 there).
+      minZoom: effectiveFloor.toDouble(),
+      minNativeZoom: effectiveFloor,
       maxNativeZoom: 16,
       tileProvider: NetworkTileProvider(headers: svc.authHeaders),
     );
@@ -1633,9 +1673,17 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
                 _weatherRasterTile('/roughness',
                     WeatherDataService.zoomFloorSeaState),
               if (_currentsOn && _weatherDataService != null)
-                CurrentArrowsTileOverlay(service: _weatherDataService!),
+                CurrentArrowsTileOverlay(
+                  service: _weatherDataService!,
+                  zoomFloor: _effectiveMinZoom(
+                      '/currents', WeatherDataService.zoomFloorCurrents),
+                ),
               if (_windBarbsOn && _weatherDataService != null)
-                WindBarbsTileOverlay(service: _weatherDataService!),
+                WindBarbsTileOverlay(
+                  service: _weatherDataService!,
+                  zoomFloor: _effectiveMinZoom(
+                      '/wind', WeatherDataService.zoomFloorWindBarbs),
+                ),
               if (_tapHalo != null)
                 _TapHaloLayer(point: _tapHalo!),
               if (_trailPoints.length >= 2)
@@ -1719,6 +1767,24 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
                 onLast: () => _setSelectedWaypoint(
                     _weatherRoutingService!.currentResult!.coords.length - 1),
                 onClose: () => _setSelectedWaypoint(null),
+              ),
+            ),
+          // On-map legend stack — renders compact cards near the
+          // bottom of the chart for every layer whose "On map" toggle
+          // is on AND that's currently visible at the effective zoom.
+          // Offset clears the scale bar (~y=64..92 from bottom) and
+          // the freshness chip (~y=52 text / 8 none). Visual HUD
+          // pushes the whole bottom block up so legends sit above it.
+          if (_weatherDataService != null && _mapReady)
+            Positioned(
+              left: 8,
+              right: 8,
+              bottom: _hudStyle == 'visual' ? 210 : 100,
+              child: _OnMapLegendStack(
+                service: _weatherDataService!,
+                entries: _onMapLegendEntries(),
+                mapController: _mapController,
+                initialZoom: _mapController.camera.zoom,
               ),
             ),
           Positioned(
@@ -2293,39 +2359,49 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
             padding: EdgeInsets.only(
               bottom: MediaQuery.of(sheetCtx).viewInsets.bottom,
             ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Padding(
-                  padding: EdgeInsets.fromLTRB(16, 12, 16, 4),
-                  child: Align(
-                    alignment: Alignment.centerLeft,
-                    child: Text(
-                      'Chart Layers',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 16,
+            // Cap the sheet to 85% of viewport; long layer lists with
+            // expanded legends + freshness + zoom + map toggle used to
+            // run off the bottom of the screen. Scroll inside the cap.
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                maxHeight: MediaQuery.sizeOf(sheetCtx).height * 0.85,
+              ),
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Padding(
+                      padding: EdgeInsets.fromLTRB(16, 12, 16, 4),
+                      child: Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          'Chart Layers',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 16,
+                          ),
+                        ),
                       ),
                     ),
-                  ),
+                    ChartLayerPanel(
+                      layers: _layers,
+                      signalKService: widget.signalKService,
+                      // Re-render the sheet immediately AND the V3 tool
+                      // so toggles take effect without closing the sheet.
+                      setState: (fn) {
+                        sbSetState(fn);
+                        if (mounted) setState(fn);
+                      },
+                      onLayersChanged: () {
+                        if (mounted) setState(() {});
+                      },
+                    ),
+                    _weatherLayersSection(sbSetState),
+                    const SizedBox(height: 16),
+                  ],
                 ),
-                ChartLayerPanel(
-                  layers: _layers,
-                  signalKService: widget.signalKService,
-                  // Re-render the sheet immediately AND the V3 tool so
-                  // toggles take effect without closing the sheet.
-                  setState: (fn) {
-                    sbSetState(fn);
-                    if (mounted) setState(fn);
-                  },
-                  onLayersChanged: () {
-                    if (mounted) setState(() {});
-                  },
-                ),
-                _weatherLayersSection(sbSetState),
-                const SizedBox(height: 16),
-              ],
+              ),
             ),
           ),
         ),
@@ -2390,6 +2466,7 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
           subtitle: 'ECMWF HRES — zoom ≥ 6',
           value: _windBarbsOn,
           metadataPath: '/wind',
+          sheetSetState: sheetSetState,
           onChanged: () => flip(
             current: _windBarbsOn,
             assign: (v) => _windBarbsOn = v,
@@ -2401,6 +2478,7 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
           subtitle: 'Zoom ≥ 11',
           value: _currentsOn,
           metadataPath: '/currents',
+          sheetSetState: sheetSetState,
           onChanged: () => flip(
             current: _currentsOn,
             assign: (v) => _currentsOn = v,
@@ -2412,10 +2490,15 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
           subtitle: 'Zoom ≥ 5',
           value: _windHeatmapOn,
           metadataPath: '/wind-heatmap',
-          onChanged: () => flip(
-            current: _windHeatmapOn,
-            assign: (v) => _windHeatmapOn = v,
-          ),
+          sheetSetState: sheetSetState,
+          onChanged: () {
+            if (_windHeatmapOn) {
+              _clearHeatmap();
+            } else {
+              _setExclusiveHeatmap('wind');
+            }
+            sheetSetState(() {});
+          },
         ),
         _weatherLayerTile(
           icon: Icons.water,
@@ -2423,10 +2506,15 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
           subtitle: 'Zoom ≥ 9',
           value: _currentHeatmapOn,
           metadataPath: '/current-heatmap',
-          onChanged: () => flip(
-            current: _currentHeatmapOn,
-            assign: (v) => _currentHeatmapOn = v,
-          ),
+          sheetSetState: sheetSetState,
+          onChanged: () {
+            if (_currentHeatmapOn) {
+              _clearHeatmap();
+            } else {
+              _setExclusiveHeatmap('current');
+            }
+            sheetSetState(() {});
+          },
         ),
         _weatherLayerTile(
           icon: Icons.warning_amber,
@@ -2434,10 +2522,15 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
           subtitle: 'Wind × current × swell — zoom ≥ 9',
           value: _seaStateOn,
           metadataPath: '/roughness',
-          onChanged: () => flip(
-            current: _seaStateOn,
-            assign: (v) => _seaStateOn = v,
-          ),
+          sheetSetState: sheetSetState,
+          onChanged: () {
+            if (_seaStateOn) {
+              _clearHeatmap();
+            } else {
+              _setExclusiveHeatmap('seaState');
+            }
+            sheetSetState(() {});
+          },
         ),
       ],
     );
@@ -2450,16 +2543,18 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
     required bool value,
     required VoidCallback onChanged,
     required String metadataPath,
+    required void Function(VoidCallback) sheetSetState,
   }) {
     final md = _weatherDataService?.metadataFor(metadataPath);
     // MetadataStore is the single source of truth for unit conversion
     // (see CLAUDE.md). Wind / current heatmaps and vector layers both
     // deal in speed; sea state is a dimensionless index with no
     // SignalK path. Null → legend falls back to SI values verbatim.
-    final signalKPath = _signalKPathForLayerPath(metadataPath);
-    final pathMd = signalKPath == null
-        ? null
-        : widget.signalKService.metadataStore.get(signalKPath);
+    final pathMd = _pathMetadataForLayer(metadataPath);
+
+    final fallbackFloor = _fallbackZoomFloorForLayer(metadataPath);
+    final currentMinZoom = _effectiveMinZoom(metadataPath, fallbackFloor);
+    final showOnMap = _legendOnMap[metadataPath] ?? false;
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
@@ -2490,10 +2585,55 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     _LegendBar(metadata: md, pathMetadata: pathMd),
-                    const SizedBox(height: 6),
-                    Align(
-                      alignment: Alignment.centerLeft,
-                      child: _LayerFreshnessChip(metadata: md),
+                    if (md.minZoom != null &&
+                        md.maxZoom != null &&
+                        md.maxZoom! > md.minZoom!) ...[
+                      const SizedBox(height: 8),
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: _LayerZoomDropdown(
+                          minZoom: md.minZoom!,
+                          maxZoom: md.maxZoom!,
+                          current: currentMinZoom.clamp(
+                              md.minZoom!, md.maxZoom!),
+                          onChanged: (z) {
+                            setState(() => _userMinZoom[metadataPath] = z);
+                            sheetSetState(() {});
+                          },
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Flexible(child: _LayerFreshnessChip(metadata: md)),
+                        const Spacer(),
+                        TextButton.icon(
+                          icon: Icon(
+                            showOnMap ? Icons.map : Icons.map_outlined,
+                            size: 16,
+                          ),
+                          label: Text(
+                            showOnMap ? 'On map ✓' : 'On map',
+                          ),
+                          style: TextButton.styleFrom(
+                            foregroundColor: showOnMap
+                                ? Colors.white
+                                : Colors.white54,
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 10, vertical: 4),
+                            minimumSize: Size.zero,
+                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            textStyle: const TextStyle(fontSize: 12),
+                          ),
+                          onPressed: () {
+                            setState(() {
+                              _legendOnMap[metadataPath] = !showOnMap;
+                            });
+                            sheetSetState(() {});
+                          },
+                        ),
+                      ],
                     ),
                   ],
                 ),
@@ -2502,6 +2642,56 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
         ),
       ),
     );
+  }
+
+  /// Snapshot of which layers want an on-map legend and the data each
+  /// needs to render. Consumed by `_OnMapLegendStack`. Only includes
+  /// layers the user has toggled ON *and* has flagged for map-legend
+  /// display; the stack itself does the final zoom-visibility check
+  /// (it needs the live `MapCamera`, which only exists inside the
+  /// FlutterMap subtree).
+  List<_OnMapLegendEntry> _onMapLegendEntries() {
+    final out = <_OnMapLegendEntry>[];
+    void consider(String path, bool layerOn) {
+      if (!layerOn) return;
+      if (_legendOnMap[path] != true) return;
+      final md = _weatherDataService?.metadataFor(path);
+      if (md == null) return;
+      final pathMd = _pathMetadataForLayer(path);
+      final effective = _effectiveMinZoom(
+          path, _fallbackZoomFloorForLayer(path));
+      out.add(_OnMapLegendEntry(
+        metadata: md,
+        pathMetadata: pathMd,
+        minZoom: effective,
+      ));
+    }
+
+    consider('/wind', _windBarbsOn);
+    consider('/currents', _currentsOn);
+    consider('/wind-heatmap', _windHeatmapOn);
+    consider('/current-heatmap', _currentHeatmapOn);
+    consider('/roughness', _seaStateOn);
+    return out;
+  }
+
+  /// Pre-metadata zoom floor per layer. Used as the final fallback
+  /// when the server hasn't populated `minzoom` (older routers).
+  static int _fallbackZoomFloorForLayer(String metadataPath) {
+    switch (metadataPath) {
+      case '/wind':
+        return WeatherDataService.zoomFloorWindBarbs;
+      case '/currents':
+        return WeatherDataService.zoomFloorCurrents;
+      case '/wind-heatmap':
+        return WeatherDataService.zoomFloorWindHeatmap;
+      case '/current-heatmap':
+        return WeatherDataService.zoomFloorCurrentHeatmap;
+      case '/roughness':
+        return WeatherDataService.zoomFloorSeaState;
+      default:
+        return 0;
+    }
   }
 
   /// Maps a weather-layer endpoint path to a representative SignalK
@@ -2521,6 +2711,40 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
       default:
         return null;
     }
+  }
+
+  /// Unit category per weather layer, used as the `getWithFallback`
+  /// fallback key when the path-specific `PathMetadata` hasn't been
+  /// populated in the store. Every weather-value category we deal in
+  /// is 'speed' today (m/s → kt/mph/km·h⁻¹); roughness has no category.
+  static String? _signalKCategoryForLayerPath(String metadataPath) {
+    switch (metadataPath) {
+      case '/wind':
+      case '/wind-heatmap':
+      case '/currents':
+      case '/current-heatmap':
+        return 'speed';
+      case '/roughness':
+      default:
+        return null;
+    }
+  }
+
+  /// Look up `PathMetadata` for a weather layer, preferring the exact
+  /// SignalK path but falling through to its category entry
+  /// (`__category__.<cat>`) when the path itself isn't populated —
+  /// which matches CLAUDE.md's rule that unit conversion MUST route
+  /// through `MetadataStore`, even for quantities the user's vessel
+  /// doesn't itself publish.
+  PathMetadata? _pathMetadataForLayer(String metadataPath) {
+    final path = _signalKPathForLayerPath(metadataPath);
+    final category = _signalKCategoryForLayerPath(metadataPath);
+    if (path == null) return null;
+    final store = widget.signalKService.metadataStore;
+    return store.getWithFallback(
+      path,
+      (_) => category,
+    );
   }
 
   /// Distance in metres from a point to the nearest land bounding box.
@@ -5056,6 +5280,159 @@ class _LayerFreshnessChip extends StatelessWidget {
 
   static String _truncate(String s, int max) =>
       s.length <= max ? s : '${s.substring(0, max - 1)}…';
+}
+
+/// One entry in the on-map legend stack. Snapshot of the data each
+/// `_LegendBar` needs; captured outside the FlutterMap subtree so the
+/// stack widget can live under `MapCamera.of(context)` without
+/// touching plotter state.
+class _OnMapLegendEntry {
+  const _OnMapLegendEntry({
+    required this.metadata,
+    required this.pathMetadata,
+    required this.minZoom,
+  });
+  final WeatherLayerMetadata metadata;
+  final PathMetadata? pathMetadata;
+  final int minZoom;
+}
+
+/// Vertically-stacked legends painted directly on the chart, above
+/// the HUD. Lives outside the `FlutterMap` subtree, so it subscribes
+/// to the `MapController`'s event stream itself to rebuild when the
+/// camera zoom crosses a layer's minimum-zoom threshold.
+class _OnMapLegendStack extends StatefulWidget {
+  const _OnMapLegendStack({
+    required this.service,
+    required this.entries,
+    required this.mapController,
+    required this.initialZoom,
+  });
+
+  final WeatherDataService service;
+  final List<_OnMapLegendEntry> entries;
+  final MapController mapController;
+  final double initialZoom;
+
+  @override
+  State<_OnMapLegendStack> createState() => _OnMapLegendStackState();
+}
+
+class _OnMapLegendStackState extends State<_OnMapLegendStack> {
+  late double _zoom = widget.initialZoom;
+  StreamSubscription<MapEvent>? _sub;
+
+  @override
+  void initState() {
+    super.initState();
+    _sub = widget.mapController.mapEventStream.listen((e) {
+      final z = e.camera.zoom;
+      if (z != _zoom && mounted) {
+        setState(() => _zoom = z);
+      }
+    });
+  }
+
+  @override
+  void didUpdateWidget(covariant _OnMapLegendStack old) {
+    super.didUpdateWidget(old);
+    if (old.mapController != widget.mapController) {
+      _sub?.cancel();
+      _sub = widget.mapController.mapEventStream.listen((e) {
+        final z = e.camera.zoom;
+        if (z != _zoom && mounted) {
+          setState(() => _zoom = z);
+        }
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _sub?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (widget.entries.isEmpty) return const SizedBox.shrink();
+    final visible = widget.entries
+        .where((e) => _zoom >= e.minZoom)
+        .toList(growable: false);
+    if (visible.isEmpty) return const SizedBox.shrink();
+    return IgnorePointer(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          for (final e in visible)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 6),
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.6),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: _LegendBar(
+                  metadata: e.metadata,
+                  pathMetadata: e.pathMetadata,
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Compact dropdown for picking the minimum zoom at which a weather
+/// layer appears. Range + default come from the server's metadata
+/// (`minzoom` / `maxzoom`). Styled to match the dark card surface.
+class _LayerZoomDropdown extends StatelessWidget {
+  const _LayerZoomDropdown({
+    required this.minZoom,
+    required this.maxZoom,
+    required this.current,
+    required this.onChanged,
+  });
+
+  final int minZoom;
+  final int maxZoom;
+  final int current;
+  final ValueChanged<int> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.35),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.white24),
+      ),
+      child: DropdownButtonHideUnderline(
+        child: DropdownButton<int>(
+          value: current,
+          isDense: true,
+          dropdownColor: const Color(0xFF2A2A3E),
+          iconSize: 16,
+          style: const TextStyle(color: Colors.white70, fontSize: 11),
+          items: [
+            for (var z = minZoom; z <= maxZoom; z++)
+              DropdownMenuItem(
+                value: z,
+                child: Text('z ≥ $z'),
+              ),
+          ],
+          onChanged: (v) {
+            if (v != null) onChanged(v);
+          },
+        ),
+      ),
+    );
+  }
 }
 
 class _ErrorState extends StatelessWidget {
