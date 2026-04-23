@@ -23,11 +23,13 @@ import '../../services/chart_tile_server_service.dart';
 import '../../services/route_arrival_monitor.dart';
 import '../../services/s57_tile_manager.dart';
 import '../../services/signalk_service.dart';
+import '../../services/storage_service.dart';
 import '../../services/tool_registry.dart';
 import '../../models/weather_layer_metadata.dart';
 import '../../models/weather_route_request.dart';
 import '../../models/weather_route_result.dart';
 import '../../services/route_planner_auth_service.dart';
+import '../../services/route_planner_boats_service.dart';
 import '../../services/weather_data_service.dart';
 import '../../services/weather_routing_service.dart';
 import '../ais_vessel_detail_sheet.dart';
@@ -266,6 +268,7 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
       _currentHeatmapOn = selected == 'current';
       _seaStateOn = selected == 'seaState';
     });
+    _persistLayerPrefs();
   }
 
   void _clearHeatmap() {
@@ -274,6 +277,69 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
       _currentHeatmapOn = false;
       _seaStateOn = false;
     });
+    _persistLayerPrefs();
+  }
+
+  // ---- Layer-preference persistence ----
+  //
+  // User-facing toggles — on/off, per-layer min zoom, per-layer on-map
+  // legend — are a user preference, not a per-tool-instance config.
+  // Stored in `StorageService.settings` under a single key so the
+  // state survives app restarts and hot restarts.
+  static const String _layerPrefsKey = 'chart_plotter_v3_layer_prefs';
+
+  void _persistLayerPrefs() {
+    try {
+      final storage = context.read<StorageService>();
+      final payload = jsonEncode({
+        'windBarbsOn': _windBarbsOn,
+        'currentsOn': _currentsOn,
+        'windHeatmapOn': _windHeatmapOn,
+        'currentHeatmapOn': _currentHeatmapOn,
+        'seaStateOn': _seaStateOn,
+        'userMinZoom': _userMinZoom,
+        'legendOnMap': _legendOnMap,
+      });
+      unawaited(storage.saveSetting(_layerPrefsKey, payload));
+    } catch (_) {
+      // StorageService may not be available in tests/headless.
+    }
+  }
+
+  void _loadLayerPrefs() {
+    try {
+      final storage = context.read<StorageService>();
+      final raw = storage.getSetting(_layerPrefsKey);
+      if (raw == null || raw.isEmpty) return;
+      final j = jsonDecode(raw);
+      if (j is! Map<String, dynamic>) return;
+      setState(() {
+        _windBarbsOn = (j['windBarbsOn'] as bool?) ?? _windBarbsOn;
+        _currentsOn = (j['currentsOn'] as bool?) ?? _currentsOn;
+        _windHeatmapOn = (j['windHeatmapOn'] as bool?) ?? _windHeatmapOn;
+        _currentHeatmapOn =
+            (j['currentHeatmapOn'] as bool?) ?? _currentHeatmapOn;
+        _seaStateOn = (j['seaStateOn'] as bool?) ?? _seaStateOn;
+        final mz = j['userMinZoom'];
+        if (mz is Map<String, dynamic>) {
+          _userMinZoom.clear();
+          for (final e in mz.entries) {
+            final v = (e.value as num?)?.toInt();
+            if (v != null) _userMinZoom[e.key] = v;
+          }
+        }
+        final lm = j['legendOnMap'];
+        if (lm is Map<String, dynamic>) {
+          _legendOnMap.clear();
+          for (final e in lm.entries) {
+            final v = e.value as bool?;
+            if (v != null) _legendOnMap[e.key] = v;
+          }
+        }
+      });
+    } catch (_) {
+      // Corrupt payload → ignore and keep defaults.
+    }
   }
 
   bool get _weatherRoutingEnabled {
@@ -360,8 +426,29 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
       _weatherDataService = WeatherDataService(auth)
         ..baseUrl = _routePlannerBaseUrl
         ..addListener(_onWeatherDataChanged);
+      // First dependency pass — now that `context.read<StorageService>()`
+      // is wired, restore the user's persisted layer preferences
+      // (which toggles were on, custom min-zooms, which legends on
+      // the map).
+      _loadLayerPrefs();
     } else {
       _weatherDataService!.baseUrl = _routePlannerBaseUrl;
+    }
+
+    // Boats service is the global Provider instance, but its baseUrl
+    // lives on the tool config (per-instance override). Push it on
+    // every dependency change so the caller's /boats list comes from
+    // the same router the tool is pointed at. First pass also primes
+    // the boat list so the Compose tab can resolve the persisted
+    // selected-boat id to a name/LOA before the picker is even opened.
+    final boatsService =
+        Provider.of<RoutePlannerBoatsService>(context, listen: false);
+    boatsService.baseUrl = _routePlannerBaseUrl;
+    if (boatsService.boats.isEmpty && !boatsService.loadingBoats) {
+      // Full server inventory + ownership oracle. Picker reads the
+      // full list; `_submit` uses ownership to pick between boat_id
+      // and explicit vessel+polar overrides.
+      unawaited(boatsService.refreshAllBoats());
     }
   }
 
@@ -2423,6 +2510,7 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
       sheetSetState(() => assign(next));
       if (!mounted) return;
       setState(() => assign(next));
+      _persistLayerPrefs();
     }
 
     return Column(
@@ -2599,6 +2687,7 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
                           onChanged: (z) {
                             setState(() => _userMinZoom[metadataPath] = z);
                             sheetSetState(() {});
+                            _persistLayerPrefs();
                           },
                         ),
                       ),
@@ -2631,6 +2720,7 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
                               _legendOnMap[metadataPath] = !showOnMap;
                             });
                             sheetSetState(() {});
+                            _persistLayerPrefs();
                           },
                         ),
                       ],

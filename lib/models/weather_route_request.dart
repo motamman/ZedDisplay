@@ -110,6 +110,7 @@ class WeatherRouteRequest {
     this.simplify,
     this.polar,
     this.vessel,
+    this.boatId,
   });
 
   final LatLon start;
@@ -127,6 +128,11 @@ class WeatherRouteRequest {
   final double? simplify;
   final String? polar;
   final VesselOverride? vessel;
+
+  /// Server-side boat id — when set, the router loads the caller's
+  /// saved boat and uses its dimensions + polar_path as defaults.
+  /// Explicit [vessel] / [polar] overrides still win.
+  final String? boatId;
 
   Map<String, dynamic> toJson() {
     final m = <String, dynamic>{
@@ -151,10 +157,15 @@ class WeatherRouteRequest {
     }
     if (simplify != null) m['simplify'] = simplify;
     if (polar != null && polar!.isNotEmpty) m['polar'] = polar;
-    if (vessel != null) {
-      final v = vessel!.toJson();
-      if (v.isNotEmpty) m['vessel'] = v;
+    // `boat_id` goes inside the `vessel` block per the API spec — the
+    // server resolves it before the compute slot is acquired, so
+    // explicit vessel override fields can still take precedence.
+    final vesselJson = <String, dynamic>{};
+    if (vessel != null) vesselJson.addAll(vessel!.toJson());
+    if (boatId != null && boatId!.isNotEmpty) {
+      vesselJson['boat_id'] = boatId;
     }
+    if (vesselJson.isNotEmpty) m['vessel'] = vesselJson;
     return m;
   }
 }

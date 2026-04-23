@@ -39,6 +39,7 @@ import 'services/chart_tile_cache_service.dart';
 import 'services/chart_tile_server_service.dart';
 import 'services/chart_download_manager.dart';
 import 'services/route_planner_auth_service.dart';
+import 'services/route_planner_boats_service.dart';
 import 'services/weather_routing_service.dart';
 import 'models/alert_event.dart' as alert_models;
 
@@ -222,6 +223,10 @@ void main() async {
   // API inside the chart plotter)
   final routePlannerAuthService = RoutePlannerAuthService(storageService);
   final weatherRoutingService = WeatherRoutingService(routePlannerAuthService);
+  final routePlannerBoatsService = RoutePlannerBoatsService(
+    auth: routePlannerAuthService,
+    storage: storageService,
+  );
 
   runApp(ZedDisplayApp(
     storageService: storageService,
@@ -247,6 +252,7 @@ void main() async {
     chartDownloadManager: chartDownloadManager,
     routePlannerAuthService: routePlannerAuthService,
     weatherRoutingService: weatherRoutingService,
+    routePlannerBoatsService: routePlannerBoatsService,
   ));
 }
 
@@ -274,6 +280,7 @@ class ZedDisplayApp extends StatefulWidget {
   final ChartDownloadManager chartDownloadManager;
   final RoutePlannerAuthService routePlannerAuthService;
   final WeatherRoutingService weatherRoutingService;
+  final RoutePlannerBoatsService routePlannerBoatsService;
 
   const ZedDisplayApp({
     super.key,
@@ -300,6 +307,7 @@ class ZedDisplayApp extends StatefulWidget {
     required this.chartDownloadManager,
     required this.routePlannerAuthService,
     required this.weatherRoutingService,
+    required this.routePlannerBoatsService,
   });
 
   @override
@@ -563,6 +571,7 @@ class _ZedDisplayAppState extends State<ZedDisplayApp> with WidgetsBindingObserv
         ChangeNotifierProvider.value(value: widget.chartDownloadManager),
         ChangeNotifierProvider.value(value: widget.routePlannerAuthService),
         ChangeNotifierProvider.value(value: widget.weatherRoutingService),
+        ChangeNotifierProvider.value(value: widget.routePlannerBoatsService),
         Provider<NotificationNavigationService>.value(value: widget.notificationNavigationService),
       ],
       child: MaterialApp(

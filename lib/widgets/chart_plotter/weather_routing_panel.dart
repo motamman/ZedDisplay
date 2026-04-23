@@ -3,10 +3,15 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../../config/app_colors.dart';
+import '../../models/boat.dart';
+import '../../models/path_metadata.dart';
 import '../../models/weather_route_request.dart';
 import '../../models/weather_route_result.dart';
 import '../../services/route_planner_auth_service.dart';
+import '../../services/route_planner_boats_service.dart';
+import '../../services/signalk_service.dart';
 import '../../services/weather_routing_service.dart';
+import 'boat_picker_sheet.dart';
 import 'weather_routing_itinerary_card.dart';
 import 'weather_routing_overlay.dart';
 
@@ -261,6 +266,7 @@ class _ComposeTabState extends State<_ComposeTab> {
   Widget build(BuildContext context) {
     final auth = context.watch<RoutePlannerAuthService>();
     final service = context.watch<WeatherRoutingService>();
+    final boats = context.watch<RoutePlannerBoatsService>();
 
     final effectiveStart = service.plannedStart ?? widget.vesselPosition;
     final usingVesselStart =
@@ -290,6 +296,15 @@ class _ComposeTabState extends State<_ComposeTab> {
               ),
             ],
           ),
+        ),
+        const SizedBox(height: 16),
+        _sectionLabel('Boat'),
+        _BoatRow(
+          boat: boats.selectedBoat,
+          onTap: () async {
+            await showBoatPickerSheet(context);
+            if (mounted) setState(() {});
+          },
         ),
         const SizedBox(height: 16),
         _sectionLabel('Start'),
@@ -401,17 +416,48 @@ class _ComposeTabState extends State<_ComposeTab> {
   Future<void> _submit(WeatherRoutingService service) async {
     // Commit any pasted-but-unsaved token before submitting.
     final auth = context.read<RoutePlannerAuthService>();
+    final boats = context.read<RoutePlannerBoatsService>();
     if (_tokenCtrl.text.trim().isNotEmpty &&
         _tokenCtrl.text.trim() != auth.token) {
       await auth.setBearerToken(_tokenCtrl.text.trim());
     }
     final start = service.plannedStart ?? widget.vesselPosition!;
+    final selected = boats.selectedBoat;
+
+    // Owned boats go via the `boat_id` shortcut — the server resolves
+    // dimensions + polar server-side. Foreign boats (from the shared
+    // inventory at /boats/all) can't use `boat_id` because the server
+    // 404s cross-owner references, so the client expands the boat's
+    // fields into explicit `polar` + `vessel` overrides.
+    String? boatId;
+    String? polarOverride = widget.defaultPolar;
+    VesselOverride? vesselOverride;
+    if (selected != null) {
+      if (boats.isOwnedByCaller(selected.id)) {
+        boatId = selected.id;
+      } else {
+        if (selected.polarPath != null &&
+            (polarOverride == null || polarOverride.isEmpty)) {
+          polarOverride = selected.polarPath;
+        }
+        vesselOverride = VesselOverride(
+          loa: selected.loaM,
+          beam: selected.beamM,
+          draught: selected.draughtM,
+          airDraft: selected.airDraftM,
+          motorSpeedMs: selected.motorSpeedMs,
+        );
+      }
+    }
+
     final req = WeatherRouteRequest(
       start: start,
       end: service.plannedEnd!,
       mode: _mode,
       departure: _departure,
-      polar: widget.defaultPolar,
+      polar: polarOverride,
+      vessel: vesselOverride,
+      boatId: boatId,
     );
     await service.submitRoute(req);
   }
@@ -602,6 +648,87 @@ class _PinAction {
   const _PinAction({required this.label, required this.onTap});
   final String label;
   final VoidCallback? onTap;
+}
+
+/// Compact row in the Compose tab showing the currently-selected boat
+/// (or a "none selected" placeholder). Tapping opens the
+/// `BoatPickerSheet`. LOA is formatted via `MetadataStore` so it
+/// matches the user's distance preference.
+class _BoatRow extends StatelessWidget {
+  const _BoatRow({required this.boat, required this.onTap});
+
+  final Boat? boat;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final lengthMd = context
+        .read<SignalKService>()
+        .metadataStore
+        .getWithFallback('design.length', (_) => 'length');
+    final b = boat;
+    final String title;
+    final String subtitle;
+    final IconData icon;
+    if (b == null) {
+      title = 'No boat selected';
+      subtitle = 'Tap to pick or add a boat';
+      icon = Icons.directions_boat_outlined;
+    } else {
+      title = b.name;
+      final parts = <String>[
+        b.type,
+        if (b.loaM != null) _fmtLength(b.loaM!, lengthMd),
+      ];
+      subtitle = parts.join(' · ');
+      icon = b.isSail ? Icons.sailing : Icons.directions_boat_filled;
+    }
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(6),
+      child: Container(
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          color: const Color(0xFF14142A),
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(color: const Color(0xFF2A2A44)),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, color: Colors.white54, size: 22),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(subtitle,
+                      style: const TextStyle(
+                          color: Colors.white54, fontSize: 12)),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            Text(b == null ? 'Pick' : 'Change',
+                style: const TextStyle(color: Color(0xFFAAAAFF))),
+          ],
+        ),
+      ),
+    );
+  }
+
+  static String _fmtLength(double si, PathMetadata? md) {
+    if (md != null) return 'LOA ${md.format(si, decimals: 1)}';
+    return 'LOA ${si.toStringAsFixed(1)} m';
+  }
 }
 
 // ================= Progress Tab =================
