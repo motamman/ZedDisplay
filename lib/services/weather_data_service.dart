@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_map/flutter_map.dart' show BuiltInMapCachingProvider;
 import 'package:http/http.dart' as http;
 
+import '../models/weather_layer_metadata.dart';
 import 'route_planner_auth_service.dart';
 
 /// One sample from the `/wind/{z}/{x}/{y}.json` or
@@ -58,9 +59,11 @@ class WeatherDataService extends ChangeNotifier {
         _cacheNonce = DateTime.now().millisecondsSinceEpoch;
         _vectorCache.clear();
         _vectorLru.clear();
+        unawaited(_fetchAllMetadata());
         notifyListeners();
       },
     );
+    unawaited(_fetchAllMetadata());
   }
 
   final RoutePlannerAuthService _auth;
@@ -74,7 +77,44 @@ class WeatherDataService extends ChangeNotifier {
     _baseUrl = trimmed;
     _vectorCache.clear();
     _vectorLru.clear();
+    _metadata.clear();
+    unawaited(_fetchAllMetadata());
     notifyListeners();
+  }
+
+  // ===== Per-layer metadata (legend + freshness) =====
+  //
+  // Keyed by layer path (e.g. `/wind`, `/roughness`). Populated
+  // asynchronously; tiles that don't yet have metadata simply hide
+  // their legend expansion until it lands.
+  static const List<String> _metadataPaths = [
+    '/wind',
+    '/currents',
+    '/wind-heatmap',
+    '/current-heatmap',
+    '/roughness',
+  ];
+  final Map<String, WeatherLayerMetadata> _metadata = {};
+  WeatherLayerMetadata? metadataFor(String path) => _metadata[path];
+
+  Future<void> _fetchAllMetadata() async {
+    await Future.wait(_metadataPaths.map(_fetchMetadata));
+    notifyListeners();
+  }
+
+  Future<void> _fetchMetadata(String path) async {
+    final uri = Uri.parse('$_baseUrl$path/metadata');
+    try {
+      final resp = await http
+          .get(uri, headers: _auth.authorisedHeaders())
+          .timeout(const Duration(seconds: 10));
+      if (resp.statusCode != 200) return;
+      final json = jsonDecode(resp.body);
+      if (json is! Map<String, dynamic>) return;
+      _metadata[path] = WeatherLayerMetadata.fromJson(json);
+    } catch (_) {
+      // Silent fail — the UI falls back to "no legend".
+    }
   }
 
   /// Monotonically-increasing nonce appended to every tile URL so a
@@ -109,6 +149,9 @@ class WeatherDataService extends ChangeNotifier {
     } catch (e) {
       debugPrint('[WeatherDataService] tile cache wipe failed: $e');
     }
+    // Pull fresh metadata too — server's `last_update` may have
+    // advanced since initial load.
+    unawaited(_fetchAllMetadata());
     debugPrint(
         '[WeatherDataService] next heatmap URL template: '
         '${heatmapUrlTemplate('/roughness')}');

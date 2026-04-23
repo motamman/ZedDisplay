@@ -24,6 +24,7 @@ import '../../services/route_arrival_monitor.dart';
 import '../../services/s57_tile_manager.dart';
 import '../../services/signalk_service.dart';
 import '../../services/tool_registry.dart';
+import '../../models/weather_layer_metadata.dart';
 import '../../models/weather_route_request.dart';
 import '../../models/weather_route_result.dart';
 import '../../services/route_planner_auth_service.dart';
@@ -2388,6 +2389,7 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
           label: 'Wind barbs',
           subtitle: 'ECMWF HRES — zoom ≥ 6',
           value: _windBarbsOn,
+          metadataPath: '/wind',
           onChanged: () => flip(
             current: _windBarbsOn,
             assign: (v) => _windBarbsOn = v,
@@ -2398,6 +2400,7 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
           label: 'Tidal currents',
           subtitle: 'Zoom ≥ 11',
           value: _currentsOn,
+          metadataPath: '/currents',
           onChanged: () => flip(
             current: _currentsOn,
             assign: (v) => _currentsOn = v,
@@ -2408,6 +2411,7 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
           label: 'Wind speed heatmap',
           subtitle: 'Zoom ≥ 5',
           value: _windHeatmapOn,
+          metadataPath: '/wind-heatmap',
           onChanged: () => flip(
             current: _windHeatmapOn,
             assign: (v) => _windHeatmapOn = v,
@@ -2418,6 +2422,7 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
           label: 'Current speed heatmap',
           subtitle: 'Zoom ≥ 9',
           value: _currentHeatmapOn,
+          metadataPath: '/current-heatmap',
           onChanged: () => flip(
             current: _currentHeatmapOn,
             assign: (v) => _currentHeatmapOn = v,
@@ -2428,6 +2433,7 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
           label: 'Sea state',
           subtitle: 'Wind × current × swell — zoom ≥ 9',
           value: _seaStateOn,
+          metadataPath: '/roughness',
           onChanged: () => flip(
             current: _seaStateOn,
             assign: (v) => _seaStateOn = v,
@@ -2443,28 +2449,78 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
     required String subtitle,
     required bool value,
     required VoidCallback onChanged,
+    required String metadataPath,
   }) {
+    final md = _weatherDataService?.metadataFor(metadataPath);
+    // MetadataStore is the single source of truth for unit conversion
+    // (see CLAUDE.md). Wind / current heatmaps and vector layers both
+    // deal in speed; sea state is a dimensionless index with no
+    // SignalK path. Null → legend falls back to SI values verbatim.
+    final signalKPath = _signalKPathForLayerPath(metadataPath);
+    final pathMd = signalKPath == null
+        ? null
+        : widget.signalKService.metadataStore.get(signalKPath);
+
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
       child: Card(
         color: const Color(0xFF2A2A3E),
         margin: EdgeInsets.zero,
-        child: ListTile(
-          dense: true,
-          leading: Icon(icon,
-              size: 18, color: value ? Colors.white70 : Colors.white24),
-          title: Text(label,
-              style: TextStyle(
-                color: value ? Colors.white : Colors.white38,
-                fontSize: 13,
-              )),
-          subtitle: Text(subtitle,
-              style:
-                  const TextStyle(color: Colors.white38, fontSize: 11)),
-          trailing: Switch(value: value, onChanged: (_) => onChanged()),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            ListTile(
+              dense: true,
+              leading: Icon(icon,
+                  size: 18, color: value ? Colors.white70 : Colors.white24),
+              title: Text(label,
+                  style: TextStyle(
+                    color: value ? Colors.white : Colors.white38,
+                    fontSize: 13,
+                  )),
+              subtitle: Text(subtitle,
+                  style:
+                      const TextStyle(color: Colors.white38, fontSize: 11)),
+              trailing: Switch(value: value, onChanged: (_) => onChanged()),
+            ),
+            if (value && md != null)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 12, 10),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    _LegendBar(metadata: md, pathMetadata: pathMd),
+                    const SizedBox(height: 6),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: _LayerFreshnessChip(metadata: md),
+                    ),
+                  ],
+                ),
+              ),
+          ],
         ),
       ),
     );
+  }
+
+  /// Maps a weather-layer endpoint path to a representative SignalK
+  /// path whose unit category matches. `MetadataStore.get(path)`
+  /// against that path applies the user's unit preference via
+  /// convert/format/symbol. Returns null for layers with no direct
+  /// SignalK analogue (e.g. roughness index).
+  static String? _signalKPathForLayerPath(String metadataPath) {
+    switch (metadataPath) {
+      case '/wind':
+      case '/wind-heatmap':
+        return 'environment.wind.speedTrue';
+      case '/currents':
+      case '/current-heatmap':
+        return 'environment.current.drift';
+      case '/roughness':
+      default:
+        return null;
+    }
   }
 
   /// Distance in metres from a point to the nearest land bounding box.
@@ -4834,6 +4890,172 @@ class _FreshnessChip extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Colour-ramp strip shown under each enabled weather-layer toggle.
+///
+/// The gradient is painted using the server's legend stop colours
+/// positioned by their SI value within `[valueMin, valueMax]`. Tick
+/// labels beneath the bar are built through `MetadataStore` so the
+/// text respects the user's unit preference (m/s → kt by default) —
+/// per CLAUDE.md's "MetadataStore is the single source of truth for
+/// conversions" rule. When `pathMetadata` is null (offline, no
+/// matching SignalK path, e.g. roughness index) we fall through to
+/// the server's SI values verbatim.
+class _LegendBar extends StatelessWidget {
+  const _LegendBar({required this.metadata, required this.pathMetadata});
+
+  final WeatherLayerMetadata metadata;
+  final PathMetadata? pathMetadata;
+
+  String _formatValue(double siValue) {
+    if (pathMetadata != null) {
+      return pathMetadata!.format(siValue, decimals: 1);
+    }
+    final units = metadata.valueUnits;
+    final v = siValue.toStringAsFixed(1);
+    return units.isEmpty ? v : '$v $units';
+  }
+
+  String _legendHeading() {
+    final serverTitle = metadata.legendTitle;
+    final symbol = pathMetadata?.symbol ?? metadata.valueUnits;
+    // Strip any trailing "(units)" from the server's title and
+    // re-append the symbol we actually used, so heading and tick
+    // labels agree.
+    final cleaned =
+        serverTitle.replaceAll(RegExp(r'\s*\([^)]*\)\s*$'), '').trim();
+    if (symbol.isEmpty) return cleaned;
+    return '$cleaned ($symbol)';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final stops = metadata.stops;
+    if (stops.length < 2) return const SizedBox.shrink();
+    final minValue = metadata.valueMin ?? stops.first.value;
+    final maxValue = metadata.valueMax ?? stops.last.value;
+    final span = (maxValue - minValue).abs();
+    final colors = stops.map((s) => s.color).toList(growable: false);
+    final stopsNorm = stops
+        .map((s) =>
+            span == 0 ? 0.0 : ((s.value - minValue) / span).clamp(0.0, 1.0))
+        .toList(growable: false);
+
+    // Pick up to three tick labels: first, mid, last.
+    final midIdx = stops.length ~/ 2;
+    final ticks = <LegendStop>[
+      stops.first,
+      if (stops.length >= 3) stops[midIdx],
+      stops.last,
+    ];
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(_legendHeading(),
+            style: const TextStyle(color: Colors.white70, fontSize: 11)),
+        const SizedBox(height: 4),
+        Container(
+          height: 12,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(3),
+            gradient: LinearGradient(
+              colors: colors,
+              stops: stopsNorm,
+            ),
+          ),
+        ),
+        const SizedBox(height: 3),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: ticks
+              .map(
+                (s) => Text(
+                  _formatValue(s.value),
+                  style: const TextStyle(
+                      color: Colors.white54,
+                      fontFamily: 'Menlo',
+                      fontSize: 10),
+                ),
+              )
+              .toList(),
+        ),
+      ],
+    );
+  }
+}
+
+/// Per-layer freshness pill, shaped like `_FreshnessChip` so the two
+/// read as the same visual language. Uses `last_update` when the
+/// server provides it; otherwise falls back to `server_time` as the
+/// age baseline, or to a grey chip with the `refresh_cadence` string
+/// when neither timestamp is available.
+class _LayerFreshnessChip extends StatelessWidget {
+  const _LayerFreshnessChip({required this.metadata});
+
+  final WeatherLayerMetadata metadata;
+
+  @override
+  Widget build(BuildContext context) {
+    final now = DateTime.now().toUtc();
+    final anchor = metadata.lastUpdate ?? metadata.serverTime;
+
+    final Color dotColor;
+    final String label;
+    if (metadata.lastUpdate == null) {
+      // No explicit update timestamp — show the cadence string.
+      dotColor = Colors.grey;
+      label = metadata.refreshCadence != null &&
+              metadata.refreshCadence!.isNotEmpty
+          ? 'Cadence: ${_truncate(metadata.refreshCadence!, 40)}'
+          : 'No update time';
+    } else {
+      final age = now.difference(anchor!);
+      if (age.inMinutes < 60) {
+        dotColor = Colors.green;
+        label = 'Fresh';
+      } else if (age.inHours < 6) {
+        dotColor = Colors.yellow;
+        label = '${age.inHours} h';
+      } else if (age.inHours < 24) {
+        dotColor = Colors.orange;
+        label = '${age.inHours} h';
+      } else {
+        dotColor = Colors.red;
+        label = 'Stale (${age.inDays} d)';
+      }
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.6),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 8,
+            height: 8,
+            decoration:
+                BoxDecoration(shape: BoxShape.circle, color: dotColor),
+          ),
+          const SizedBox(width: 4),
+          Flexible(
+            child: Text(label,
+                overflow: TextOverflow.ellipsis,
+                style:
+                    const TextStyle(color: Colors.white70, fontSize: 10)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  static String _truncate(String s, int max) =>
+      s.length <= max ? s : '${s.substring(0, max - 1)}…';
 }
 
 class _ErrorState extends StatelessWidget {
