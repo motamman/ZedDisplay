@@ -218,6 +218,10 @@ class _WindBarbsPainter extends CustomPainter {
   final MapCamera camera;
   final List<WeatherVectorPoint> barbs;
 
+  /// Matches `_windColor` in `routePlanning/ui/route-planner.html` —
+  /// same six-stop ramp, capped at `#C62828` for the gale+ bucket.
+  /// (The server heatmap LUT has an extra 50-kt stop but the web UI
+  /// doesn't and we keep parity with the planner.)
   static Color _colorFor(double kts) {
     if (kts < 5) return const Color(0xFF90CAF9);
     if (kts < 10) return const Color(0xFF4FC3F7);
@@ -323,6 +327,10 @@ class _CurrentsPainter extends CustomPainter {
   final MapCamera camera;
   final List<WeatherVectorPoint> currents;
 
+  /// Matches `_currentColor` in `routePlanning/ui/route-planner.html`:
+  /// four-bucket green → olive → orange → red ramp. Deliberately
+  /// different from the server's current-heatmap LUT — the web UI
+  /// uses this tighter palette for arrow glyphs and we follow it.
   static Color _colorFor(double kts) {
     if (kts < 0.5) return const Color(0xD900C88C);
     if (kts < 1.0) return const Color(0xD9B4B400);

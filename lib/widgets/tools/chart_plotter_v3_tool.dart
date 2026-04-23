@@ -39,6 +39,11 @@ import '../chart_plotter/weather_routing_overlay.dart';
 import '../chart_plotter/weather_routing_panel.dart';
 import '../countdown_confirmation_overlay.dart';
 
+/// Three mutually-exclusive chart orientation modes. Only `free` lets
+/// the user's two-finger rotation gesture spin the map; the other two
+/// lock or drive rotation from code.
+enum _ViewMode { northUp, headingUp, free }
+
 /// Chart Plotter V3 — spike: proves the s52_dart → flutter_map pipeline.
 ///
 /// Basemap: OSM raster. Overlay: one MVT tile fetched from the SignalK
@@ -172,10 +177,14 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
   // this flips, otherwise MapController throws "You need to have
   // the FlutterMap widget rendered at least once".
   bool _mapReady = false;
-  // 'north-up' keeps map north = screen top; 'heading-up' rotates
-  // the map so the boat's bow is always screen-up. Matches V1's two
-  // modes (chart_plotter_tool.dart:68).
-  String _viewMode = 'north-up';
+  // Three view modes:
+  //   - `northUp`: map locked with north at screen top; rotation
+  //     gestures are disabled.
+  //   - `headingUp`: map rotates to keep the bow at screen top;
+  //     rotation gestures are disabled (code drives the rotation).
+  //   - `free`: user can pinch-rotate the map freely; nothing forces
+  //     the rotation on each tick.
+  _ViewMode _viewMode = _ViewMode.northUp;
 
   // Vessel trail — sliding window of recent positions with timestamps
   // (epoch ms). V1 defaults to 10 minutes (chart_plotter_tool.dart:
@@ -326,15 +335,19 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
 
   /// Builds an XYZ `TileLayer` for one of the raster weather endpoints
   /// (`/wind-heatmap`, `/current-heatmap`, `/roughness`). The URL
-  /// template carries the current reference hour via `?t=…` — the
-  /// parent widget rebuilds when the service's hour flips, which
-  /// hands flutter_map a fresh template and flushes stale tiles.
+  /// template carries `?t=<hour>&v=<nonce>`. `flutter_map` keys its
+  /// in-widget tile cache strictly on `urlTemplate` (see
+  /// `tile_layer.dart:502-514`) so bumping the nonce is the only way
+  /// to force a refetch when the server's rendering changes within
+  /// the same hour.
   Widget _weatherRasterTile(String path, int zoomFloor) {
     final svc = _weatherDataService!;
-    final hour = svc.hourParam;
+    final template = svc.heatmapUrlTemplate(path);
+    debugPrint('[ChartPlotterV3] building TileLayer $path '
+        'nonce=${svc.cacheNonce} template=$template');
     return TileLayer(
-      key: ValueKey('$path|$hour'),
-      urlTemplate: svc.heatmapUrlTemplate(path),
+      key: ValueKey('$path|${svc.hourParam}|${svc.cacheNonce}'),
+      urlTemplate: template,
       userAgentPackageName: 'org.zennora.zed_display',
       minNativeZoom: zoomFloor,
       maxNativeZoom: 16,
@@ -549,7 +562,7 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
           _mapController.move(LatLng(lat, lon), _mapController.camera.zoom);
         }
       }
-      if (_viewMode == 'heading-up' && heading != null) {
+      if (_viewMode == _ViewMode.headingUp && heading != null) {
         final rotDeg = -heading * 180 / math.pi;
         if ((rotDeg - _mapController.camera.rotation).abs() > 0.5) {
           _mapController.rotate(rotDeg);
@@ -1541,12 +1554,13 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
               // double-tap zoom remain enabled so the user can change
               // scale around the vessel without disengaging follow.
               // Tap the "snap to vessel" button to unlock.
+              //
+              // Rotation gestures are only permitted in `free` mode.
+              // In `northUp` the rotation is pinned to 0; in
+              // `headingUp` it's driven from the heading tick, so
+              // user input would fight both.
               interactionOptions: InteractionOptions(
-                flags: _autoFollow
-                    ? InteractiveFlag.all &
-                        ~(InteractiveFlag.drag |
-                            InteractiveFlag.flingAnimation)
-                    : InteractiveFlag.all,
+                flags: _interactiveFlags(),
               ),
               onMapEvent: (e) {
                 // User pinch/scroll zoom kills auto-zoom but leaves
@@ -1720,7 +1734,7 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
             right: 8,
             child: _MapControls(
               autoFollow: _autoFollow,
-              headingUp: _viewMode == 'heading-up',
+              viewMode: _viewMode,
               rulerVisible: _rulerVisible,
               aisEnabled: _aisEnabled,
               aisActiveOnly: _aisActiveOnly,
@@ -1783,16 +1797,19 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
                 b: _rulerBlue!,
               ),
             ),
-          // V1 only shows the compass rose in heading-up mode (it's
-          // redundant in north-up where the whole chart already points
-          // north). Counter-rotates against the current heading so its
-          // internal N arrow stays aligned with the rotated map frame.
-          if (_viewMode == 'heading-up')
+          // Compass rose is redundant in `northUp` (the whole chart
+          // already points north). Shown in `headingUp` and `free`
+          // where the chart may be at any rotation. Counter-rotates
+          // against the current map rotation so its internal N arrow
+          // stays aligned with true north regardless of mode.
+          if (_viewMode != _ViewMode.northUp)
             Positioned(
               top: _rulerVisible ? 130 : 80,
               left: 8,
               child: Transform.rotate(
-                angle: -(_ownHeading ?? 0.0),
+                angle: _mapReady
+                    ? -_mapController.camera.rotationRad
+                    : -(_ownHeading ?? 0.0),
                 child: Container(
                   width: 60,
                   height: 60,
@@ -1842,17 +1859,36 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
     _setSelectedWaypoint(index);
   }
 
-  /// Flip between north-up and heading-up. In north-up we reset the
-  /// map rotation to 0; heading-up applies the current heading on the
-  /// next tick. Matches V1's one-shot behaviour (chart_plotter_tool.dart:
-  /// 364-368).
+  /// Cycle through the three view modes: `northUp` → `headingUp` →
+  /// `free` → `northUp`. `northUp` snaps rotation to 0; `headingUp`
+  /// leaves rotation alone here and the 1 s vessel tick applies the
+  /// current heading; `free` is hands-off — whatever rotation the
+  /// user sets via the two-finger gesture sticks.
   void _toggleViewMode() {
     setState(() {
-      _viewMode = _viewMode == 'north-up' ? 'heading-up' : 'north-up';
+      _viewMode = switch (_viewMode) {
+        _ViewMode.northUp => _ViewMode.headingUp,
+        _ViewMode.headingUp => _ViewMode.free,
+        _ViewMode.free => _ViewMode.northUp,
+      };
     });
-    if (_viewMode == 'north-up' && _mapReady) {
+    if (_viewMode == _ViewMode.northUp && _mapReady) {
       _mapController.rotate(0);
     }
+  }
+
+  /// Gesture flags for FlutterMap's `InteractionOptions`.
+  /// `drag` + `flingAnimation` are gated on auto-follow; `rotate` on
+  /// view mode.
+  int _interactiveFlags() {
+    var f = InteractiveFlag.all;
+    if (_autoFollow) {
+      f &= ~(InteractiveFlag.drag | InteractiveFlag.flingAnimation);
+    }
+    if (_viewMode != _ViewMode.free) {
+      f &= ~InteractiveFlag.rotate;
+    }
+    return f;
   }
 
   /// Toggle the ruler overlay. V1 seeds endpoints at `center ± 80px`
@@ -2315,15 +2351,36 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Padding(
-          padding: EdgeInsets.fromLTRB(16, 12, 16, 4),
-          child: Text(
-            'Weather Layers',
-            style: TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.bold,
-              fontSize: 14,
-            ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 8, 4),
+          child: Row(
+            children: [
+              const Expanded(
+                child: Text(
+                  'Weather Layers',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 14,
+                  ),
+                ),
+              ),
+              TextButton.icon(
+                icon: const Icon(Icons.refresh, size: 16),
+                label: const Text('Reload tiles'),
+                style: TextButton.styleFrom(
+                  foregroundColor: Colors.white70,
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                ),
+                onPressed: () async {
+                  debugPrint('[ChartPlotterV3] Reload tiles pressed; '
+                      'service=${_weatherDataService == null ? "null" : "ok"}');
+                  await _weatherDataService?.reloadTiles();
+                  if (!mounted) return;
+                  sheetSetState(() {});
+                },
+              ),
+            ],
           ),
         ),
         _weatherLayerTile(
@@ -4469,7 +4526,7 @@ class _RoutePainter extends CustomPainter {
 class _MapControls extends StatelessWidget {
   const _MapControls({
     required this.autoFollow,
-    required this.headingUp,
+    required this.viewMode,
     required this.rulerVisible,
     required this.aisEnabled,
     required this.aisActiveOnly,
@@ -4488,7 +4545,7 @@ class _MapControls extends StatelessWidget {
     required this.onWeatherRouting,
   });
   final bool autoFollow;
-  final bool headingUp;
+  final _ViewMode viewMode;
   final bool rulerVisible;
   final bool aisEnabled;
   final bool aisActiveOnly;
@@ -4518,11 +4575,19 @@ class _MapControls extends StatelessWidget {
         children: [
           IconButton(
             icon: Icon(
-              headingUp ? Icons.navigation : Icons.navigation_outlined,
+              switch (viewMode) {
+                _ViewMode.northUp => Icons.navigation_outlined,
+                _ViewMode.headingUp => Icons.navigation,
+                _ViewMode.free => Icons.threesixty,
+              },
               color: Colors.white,
               size: 20,
             ),
-            tooltip: headingUp ? 'Heading-up' : 'North-up',
+            tooltip: switch (viewMode) {
+              _ViewMode.northUp => 'North-up (tap for heading-up)',
+              _ViewMode.headingUp => 'Heading-up (tap for free)',
+              _ViewMode.free => 'Free rotation (tap for north-up)',
+            },
             onPressed: onToggleViewMode,
           ),
           IconButton(

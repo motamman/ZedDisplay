@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter_map/flutter_map.dart' show BuiltInMapCachingProvider;
 import 'package:http/http.dart' as http;
 
 import 'route_planner_auth_service.dart';
@@ -43,9 +44,27 @@ class WeatherVectorPoint {
 /// UTC hour for URL construction — all four endpoints require hour-
 /// truncated `t` and 400 otherwise.
 class WeatherDataService extends ChangeNotifier {
-  WeatherDataService(this._auth);
+  WeatherDataService(this._auth) {
+    // Match the server's own refresh cadence —
+    // `routePlanning/routing/settings.py:138` sets
+    // `wind_refresh_poll_seconds = 3 * 3600` and `:130` sets
+    // `stofs_refresh_poll_seconds = 3 * 3600`. The server polls for a
+    // new HRES cycle / STOFS run every 3 hours; without a matching
+    // client bump, past-hour tiles stay `immutable` for 24 h and we
+    // would serve the pre-refresh forecast forever.
+    _refreshTimer = Timer.periodic(
+      const Duration(hours: 3),
+      (_) {
+        _cacheNonce = DateTime.now().millisecondsSinceEpoch;
+        _vectorCache.clear();
+        _vectorLru.clear();
+        notifyListeners();
+      },
+    );
+  }
 
   final RoutePlannerAuthService _auth;
+  Timer? _refreshTimer;
 
   String _baseUrl = 'https://router.zeddisplay.com';
   String get baseUrl => _baseUrl;
@@ -55,6 +74,44 @@ class WeatherDataService extends ChangeNotifier {
     _baseUrl = trimmed;
     _vectorCache.clear();
     _vectorLru.clear();
+    notifyListeners();
+  }
+
+  /// Monotonically-increasing nonce appended to every tile URL so a
+  /// reload produces a new cache key. flutter_map also keeps an
+  /// on-disk cache (`BuiltInMapCachingProvider`, enabled by default in
+  /// `NetworkTileImageProvider`, keyed on URL, respects the server's
+  /// `Cache-Control: immutable` for 24 h) — that cache is wiped
+  /// separately in `reloadTiles()` below.
+  int _cacheNonce = DateTime.now().millisecondsSinceEpoch;
+  int get cacheNonce => _cacheNonce;
+
+  /// Hard wipe of every cache in the tile path:
+  ///   1. In-service vector LRU (mine).
+  ///   2. `BuiltInMapCachingProvider` singleton — destroys the worker
+  ///      AND deletes the on-disk `fm_cache` directory. Next tile
+  ///      request re-initialises a fresh, empty cache.
+  ///   3. Flutter's global `PaintingBinding.instance.imageCache` via
+  ///      a nonce bump + key swap — flutter_map's in-widget
+  ///      `_tileImageManager` keys decoded images on `ImageProvider`,
+  ///      which keys on URL, so a new URL is a miss.
+  Future<void> reloadTiles() async {
+    final oldNonce = _cacheNonce;
+    _cacheNonce = DateTime.now().millisecondsSinceEpoch;
+    _vectorCache.clear();
+    _vectorLru.clear();
+    debugPrint(
+        '[WeatherDataService] reloadTiles() called: nonce $oldNonce -> $_cacheNonce');
+    try {
+      await BuiltInMapCachingProvider.getOrCreateInstance()
+          .destroy(deleteCache: true);
+      debugPrint('[WeatherDataService] on-disk tile cache destroyed');
+    } catch (e) {
+      debugPrint('[WeatherDataService] tile cache wipe failed: $e');
+    }
+    debugPrint(
+        '[WeatherDataService] next heatmap URL template: '
+        '${heatmapUrlTemplate('/roughness')}');
     notifyListeners();
   }
 
@@ -84,12 +141,14 @@ class WeatherDataService extends ChangeNotifier {
     return '$yyyy-$mm-${dd}T$hh';
   }
 
-  /// URL template consumed by `TileLayer.urlTemplate`. `{z}`, `{x}`, and
-  /// `{y}` are substituted by flutter_map; `t=` is static for the
-  /// current reference hour (the layer gets a new template when the
-  /// hour flips so tiles for the old hour prune).
+  /// URL template consumed by `TileLayer.urlTemplate`. `{z}`, `{x}`,
+  /// and `{y}` are substituted by flutter_map. `t=` is the current
+  /// reference hour. `v=` is a cache-busting nonce — flutter_map's
+  /// in-widget cache keys on the full URL string, and the only way to
+  /// force a refetch when the server's rendering has changed (same
+  /// hour) is to make the template differ.
   String heatmapUrlTemplate(String path) =>
-      '$_baseUrl$path/{z}/{x}/{y}.png?t=$hourParam';
+      '$_baseUrl$path/{z}/{x}/{y}.png?t=$hourParam&v=$_cacheNonce';
 
   /// Headers that every tile request (raster and JSON) must carry.
   Map<String, String> get authHeaders => _auth.authorisedHeaders();
@@ -118,13 +177,14 @@ class WeatherDataService extends ChangeNotifier {
   Future<List<WeatherVectorPoint>?> fetchVectorTile(
       String path, int z, int x, int y) async {
     final hour = hourParam;
-    final key = '$path|$z|$x|$y|$hour';
+    final key = '$path|$z|$x|$y|$hour|$_cacheNonce';
     final cached = _vectorCache[key];
     if (cached != null) {
       _touchLru(key);
       return cached;
     }
-    final uri = Uri.parse('$_baseUrl$path/$z/$x/$y.json?t=$hour');
+    final uri = Uri.parse(
+        '$_baseUrl$path/$z/$x/$y.json?t=$hour&v=$_cacheNonce');
     try {
       final resp = await http
           .get(uri, headers: _auth.authorisedHeaders())
@@ -162,6 +222,7 @@ class WeatherDataService extends ChangeNotifier {
 
   @override
   void dispose() {
+    _refreshTimer?.cancel();
     _vectorCache.clear();
     _vectorLru.clear();
     super.dispose();
