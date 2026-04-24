@@ -1498,7 +1498,7 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
     }
     if (service.plannedEnd == null) {
       service.plannedEnd = next;
-      _showPinSnack('End pin placed.');
+      _openEndPinCompose();
       return;
     }
     final camera = _mapController.camera;
@@ -1514,8 +1514,17 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
       _showPinSnack('Start pin moved.');
     } else {
       service.plannedEnd = next;
-      _showPinSnack('End pin moved.');
+      _openEndPinCompose();
     }
+  }
+
+  /// Surface the standard End-pin compose popover (Compute / Clear /
+  /// Close). Used when the user drops or moves the End pin — replaces
+  /// the old transient snackbar so the path to "compute route" is
+  /// one tap from the chart gesture that placed the pin.
+  void _openEndPinCompose() {
+    if (!mounted) return;
+    setState(() => _endPinComposeOpen = true);
   }
 
   void _showPinSnack(String message) {
