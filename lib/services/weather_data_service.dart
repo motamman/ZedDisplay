@@ -232,9 +232,14 @@ class WeatherDataService extends ChangeNotifier {
       final resp = await http
           .get(uri, headers: _auth.authorisedHeaders())
           .timeout(const Duration(seconds: 15));
-      if (resp.statusCode != 200) return const [];
+      // Return null on any non-success / malformed-shape so the
+      // overlay treats it as a transient failure and retries on the
+      // next camera tick. Returning `const []` here would be
+      // indistinguishable from "tile is legitimately empty" and get
+      // memoized by the overlay's fingerprint.
+      if (resp.statusCode != 200) return null;
       final data = jsonDecode(resp.body);
-      if (data is! List) return const [];
+      if (data is! List) return null;
       final points = data
           .whereType<Map<String, dynamic>>()
           .map((m) => WeatherVectorPoint(

@@ -124,12 +124,23 @@ class _WeatherVectorTileOverlayState
     if (seq != _seq || !mounted) return;
 
     final merged = <WeatherVectorPoint>[];
+    var allOk = true;
     for (final r in results) {
-      if (r != null) merged.addAll(r);
+      if (r == null) {
+        allOk = false;
+      } else {
+        merged.addAll(r);
+      }
     }
-    _lastZoomBucket = z;
-    _lastHour = hour;
-    _lastTileKeys = tileKeys;
+    // Only commit the fingerprint when every tile fetch succeeded.
+    // Otherwise leave the last-known fingerprint so the next camera
+    // tick (or the debounced rebuild) retries the failed tiles
+    // instead of short-circuiting at the equality check above.
+    if (allOk) {
+      _lastZoomBucket = z;
+      _lastHour = hour;
+      _lastTileKeys = tileKeys;
+    }
     setState(() => _points = merged);
   }
 

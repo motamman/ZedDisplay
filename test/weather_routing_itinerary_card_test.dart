@@ -10,11 +10,10 @@ import 'package:zed_display/widgets/chart_plotter/weather_routing_overlay.dart';
 void main() {
   testWidgets('Itinerary card renders expected fields from real result',
       (WidgetTester tester) async {
-    final file = File(
-        '/Users/mauricetamman/routePlanning/data/routes/_interactive_route.geojson');
+    final file = File('test/fixtures/interactive_route.geojson');
     final json = jsonDecode(file.readAsStringSync()) as Map<String, dynamic>;
     final result = WeatherRouteResult.fromGeoJson(json);
-    expect(result.waypoints.length, greaterThan(0));
+    expect(result.waypoints.length, greaterThan(1));
     final wp = result.waypoints[1]; // a sailing waypoint
     await tester.pumpWidget(
       MaterialApp(

@@ -310,11 +310,17 @@ class WeatherRoutingService extends ChangeNotifier {
     }
   }
 
+  // Matches both LF and CRLF line endings. Servers that emit CRLF
+  // used to leave a trailing `\r` on every parsed value — `event`
+  // became `"status\r"` and missed every switch case; `_lastEventId`
+  // got poisoned the same way.
+  static final _sseLineSplit = RegExp(r'\r?\n');
+
   void _handleFrame(String frame) {
     String? event;
     final dataLines = <String>[];
     String? id;
-    for (final raw in frame.split('\n')) {
+    for (final raw in frame.split(_sseLineSplit)) {
       if (raw.isEmpty) continue;
       if (raw.startsWith(':')) continue; // comment
       final colon = raw.indexOf(':');

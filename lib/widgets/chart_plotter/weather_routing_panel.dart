@@ -260,6 +260,11 @@ class _ComposeTabState extends State<_ComposeTab> {
     super.initState();
     _tokenCtrl.text =
         context.read<RoutePlannerAuthService>().token ?? '';
+    // Rebuild when the token field changes so the "Save token" and
+    // submit buttons reflect the current text. Without this, the
+    // enabled-state captured at build time never updates after the
+    // user types or pastes.
+    _tokenCtrl.addListener(_onTokenChanged);
     _loadTolerances();
     if (widget.autoSubmit) {
       // Kick off a compute on first frame using the persisted
@@ -278,8 +283,13 @@ class _ComposeTabState extends State<_ComposeTab> {
 
   @override
   void dispose() {
+    _tokenCtrl.removeListener(_onTokenChanged);
     _tokenCtrl.dispose();
     super.dispose();
+  }
+
+  void _onTokenChanged() {
+    if (mounted) setState(() {});
   }
 
   void _loadTolerances() {

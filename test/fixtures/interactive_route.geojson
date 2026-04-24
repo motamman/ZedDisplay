@@ -1,0 +1,2454 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -72.157625,
+            41.282625
+          ],
+          [
+            -72.14948547606436,
+            41.28467329471035
+          ],
+          [
+            -72.136625,
+            41.28037500000001
+          ],
+          [
+            -72.134875,
+            41.28037500000001
+          ],
+          [
+            -72.13437499999999,
+            41.280125000000005
+          ],
+          [
+            -72.13312499999999,
+            41.280125000000005
+          ],
+          [
+            -72.10390283495516,
+            41.28600500745711
+          ],
+          [
+            -72.08759822411956,
+            41.26734040626633
+          ],
+          [
+            -72.0530143156501,
+            41.277232492013944
+          ],
+          [
+            -72.01768378602878,
+            41.29101320636275
+          ],
+          [
+            -71.99877576339111,
+            41.296780860508804
+          ],
+          [
+            -71.98764274345965,
+            41.29904716722327
+          ],
+          [
+            -71.98312499999999,
+            41.300625000000004
+          ],
+          [
+            -71.98237499999999,
+            41.300625000000004
+          ],
+          [
+            -71.98187499999999,
+            41.300875000000005
+          ],
+          [
+            -71.98112499999999,
+            41.300875000000005
+          ],
+          [
+            -71.98062499999999,
+            41.301125000000006
+          ],
+          [
+            -71.97987499999999,
+            41.301125000000006
+          ],
+          [
+            -71.97937499999999,
+            41.30137500000001
+          ],
+          [
+            -71.978375,
+            41.30137500000001
+          ],
+          [
+            -71.977875,
+            41.30162500000001
+          ],
+          [
+            -71.975375,
+            41.30162500000001
+          ],
+          [
+            -71.974875,
+            41.301875
+          ],
+          [
+            -71.97387499999999,
+            41.301875
+          ],
+          [
+            -71.95566012113815,
+            41.30804128347291
+          ],
+          [
+            -71.94778063106364,
+            41.30676607776335
+          ],
+          [
+            -71.9433386248002,
+            41.30229324555078
+          ],
+          [
+            -71.92887499999999,
+            41.302375000000005
+          ],
+          [
+            -71.92837499999999,
+            41.302125000000004
+          ],
+          [
+            -71.927375,
+            41.302125000000004
+          ],
+          [
+            -71.926875,
+            41.301875
+          ],
+          [
+            -71.91695644063643,
+            41.30172092685099
+          ],
+          [
+            -71.91085557182457,
+            41.301740053473345
+          ],
+          [
+            -71.911125,
+            41.301875
+          ],
+          [
+            -71.90262499999999,
+            41.301875
+          ],
+          [
+            -71.895625,
+            41.29837500000001
+          ],
+          [
+            -71.887875,
+            41.29837500000001
+          ],
+          [
+            -71.88737499999999,
+            41.29862500000001
+          ],
+          [
+            -71.887125,
+            41.29862500000001
+          ],
+          [
+            -71.88687499999999,
+            41.29862500000001
+          ],
+          [
+            -71.886625,
+            41.29862500000001
+          ],
+          [
+            -71.88637499999999,
+            41.29862500000001
+          ],
+          [
+            -71.88612499999999,
+            41.29862500000001
+          ],
+          [
+            -71.88562499999999,
+            41.29887500000001
+          ],
+          [
+            -71.87362499999999,
+            41.29887500000001
+          ],
+          [
+            -71.872625,
+            41.299375000000005
+          ],
+          [
+            -71.866125,
+            41.299375000000005
+          ],
+          [
+            -71.86462499999999,
+            41.29987500000001
+          ],
+          [
+            -71.85987499999999,
+            41.29987500000001
+          ],
+          [
+            -71.858875,
+            41.300375
+          ],
+          [
+            -71.83411831024776,
+            41.27345635052061
+          ],
+          [
+            -71.79218910280865,
+            41.28975047869052
+          ],
+          [
+            -71.75311955722314,
+            41.309435999831564
+          ],
+          [
+            -71.68128230873378,
+            41.3157101059432
+          ],
+          [
+            -71.64784426949299,
+            41.33617559638961
+          ],
+          [
+            -71.62032722570156,
+            41.33007731409866
+          ],
+          [
+            -71.60450441009287,
+            41.32627837126547
+          ],
+          [
+            -71.59556176874354,
+            41.32383500934963
+          ],
+          [
+            -71.593875,
+            41.323125000000005
+          ],
+          [
+            -71.57053526846738,
+            41.2996390190345
+          ],
+          [
+            -71.54680404660706,
+            41.27508168320881
+          ],
+          [
+            -71.51882645997793,
+            41.29213423931191
+          ],
+          [
+            -71.4927694346775,
+            41.31136939258729
+          ],
+          [
+            -71.47142429097936,
+            41.336577382899364
+          ],
+          [
+            -71.45268464467114,
+            41.36183362785328
+          ],
+          [
+            -71.39857331391646,
+            41.42399209533408
+          ],
+          [
+            -71.37289863553337,
+            41.452746031843944
+          ],
+          [
+            -71.37055959582185,
+            41.46045539736487
+          ],
+          [
+            -71.3604206255372,
+            41.46786288151604
+          ],
+          [
+            -71.356625,
+            41.470375000000004
+          ],
+          [
+            -71.351625,
+            41.47537500000001
+          ],
+          [
+            -71.35012499999999,
+            41.476125
+          ],
+          [
+            -71.348625,
+            41.47687500000001
+          ],
+          [
+            -71.34712499999999,
+            41.477625
+          ],
+          [
+            -71.345625,
+            41.47837500000001
+          ],
+          [
+            -71.34412499999999,
+            41.479125
+          ],
+          [
+            -71.342625,
+            41.47987500000001
+          ],
+          [
+            -71.34112499999999,
+            41.480625
+          ],
+          [
+            -71.339625,
+            41.48137500000001
+          ],
+          [
+            -71.339125,
+            41.48162500000001
+          ],
+          [
+            -71.338625,
+            41.48187500000001
+          ],
+          [
+            -71.33812499999999,
+            41.482125
+          ],
+          [
+            -71.331875,
+            41.482125
+          ],
+          [
+            -71.331375,
+            41.48187500000001
+          ]
+        ]
+      },
+      "properties": {
+        "total_distance_m": 90120.5,
+        "total_time_s": 25064.3,
+        "motoring_time_s": 11069.6,
+        "sailing_time_s": 13994.8,
+        "departure": "2026-04-18T18:00:00+00:00",
+        "arrival": "2026-04-19T00:57:44.339632+00:00",
+        "waypoint_count": 84
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -72.157625,
+          41.282625
+        ]
+      },
+      "properties": {
+        "lon": -72.157625,
+        "lat": 41.282625,
+        "time": "2026-04-18T18:00:00+00:00",
+        "sog_ms": 0,
+        "cog_deg": 0,
+        "depth_m": 10.0,
+        "mode": "start",
+        "wind_ms": 6.383,
+        "wind_dir_deg": 116.0
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -72.14948547606436,
+          41.28467329471035
+        ]
+      },
+      "properties": {
+        "lon": -72.149485,
+        "lat": 41.284673,
+        "time": "2026-04-18T18:03:00+00:00",
+        "sog_ms": 3.985,
+        "cog_deg": 71.5,
+        "depth_m": 8.0,
+        "mode": "sailing",
+        "twa_deg": 45.0,
+        "wind_ms": 6.383,
+        "wind_dir_deg": 116.0,
+        "current_ms": 0.0,
+        "current_u_ms": 0.0,
+        "current_v_ms": 0.0
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -72.136625,
+          41.28037500000001
+        ]
+      },
+      "properties": {
+        "lon": -72.136625,
+        "lat": 41.280375,
+        "time": "2026-04-18T18:09:20.616922+00:00",
+        "sog_ms": 3.09,
+        "cog_deg": 114.0,
+        "depth_m": null,
+        "mode": "motoring",
+        "wind_ms": 6.445,
+        "wind_dir_deg": 116.0
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -72.134875,
+          41.28037500000001
+        ]
+      },
+      "properties": {
+        "lon": -72.134875,
+        "lat": 41.280375,
+        "time": "2026-04-18T18:10:07.941682+00:00",
+        "sog_ms": 3.09,
+        "cog_deg": 90.0,
+        "depth_m": 5.0,
+        "mode": "motoring",
+        "wind_ms": 6.448,
+        "wind_dir_deg": 116.0
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -72.13437499999999,
+          41.280125000000005
+        ]
+      },
+      "properties": {
+        "lon": -72.134375,
+        "lat": 41.280125,
+        "time": "2026-04-18T18:10:24.182448+00:00",
+        "sog_ms": 3.09,
+        "cog_deg": 123.6,
+        "depth_m": 5.0,
+        "mode": "motoring",
+        "wind_ms": 6.452,
+        "wind_dir_deg": 116.0
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -72.13312499999999,
+          41.280125000000005
+        ]
+      },
+      "properties": {
+        "lon": -72.133125,
+        "lat": 41.280125,
+        "time": "2026-04-18T18:10:57.985978+00:00",
+        "sog_ms": 3.09,
+        "cog_deg": 90.0,
+        "depth_m": 5.0,
+        "mode": "motoring",
+        "wind_ms": 6.454,
+        "wind_dir_deg": 116.0
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -72.10390283495516,
+          41.28600500745711
+        ]
+      },
+      "properties": {
+        "lon": -72.103903,
+        "lat": 41.286005,
+        "time": "2026-04-18T18:22:12.461514+00:00",
+        "sog_ms": 3.748,
+        "cog_deg": 75.0,
+        "depth_m": 15.0,
+        "mode": "sailing",
+        "twa_deg": 41.0,
+        "wind_ms": 6.453,
+        "wind_dir_deg": 116.0,
+        "current_ms": 0.0,
+        "current_u_ms": 0.0,
+        "current_v_ms": 0.0
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -72.08759822411956,
+          41.26734040626633
+        ]
+      },
+      "properties": {
+        "lon": -72.087598,
+        "lat": 41.26734,
+        "time": "2026-04-18T18:33:26.937051+00:00",
+        "sog_ms": 3.852,
+        "cog_deg": 146.7,
+        "depth_m": 20.0,
+        "mode": "sailing",
+        "twa_deg": 40.0,
+        "wind_ms": 6.398,
+        "wind_dir_deg": 115.0,
+        "current_ms": 0.5712,
+        "current_dir_deg": 78.0,
+        "current_u_ms": 0.5597,
+        "current_v_ms": 0.1142
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -72.0530143156501,
+          41.277232492013944
+        ]
+      },
+      "properties": {
+        "lon": -72.053014,
+        "lat": 41.277232,
+        "time": "2026-04-18T18:44:41.412587+00:00",
+        "sog_ms": 4.798,
+        "cog_deg": 69.2,
+        "depth_m": 10.0,
+        "mode": "sailing",
+        "twa_deg": 48.0,
+        "wind_ms": 6.737,
+        "wind_dir_deg": 115.0,
+        "current_ms": 0.6316,
+        "current_dir_deg": 83.0,
+        "current_u_ms": 0.6272,
+        "current_v_ms": 0.0741
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -72.01768378602878,
+          41.29101320636275
+        ]
+      },
+      "properties": {
+        "lon": -72.017684,
+        "lat": 41.291013,
+        "time": "2026-04-18T18:55:55.888124+00:00",
+        "sog_ms": 4.931,
+        "cog_deg": 62.6,
+        "depth_m": 20.0,
+        "mode": "sailing",
+        "twa_deg": 55.0,
+        "wind_ms": 6.632,
+        "wind_dir_deg": 114.0,
+        "current_ms": 0.6435,
+        "current_dir_deg": 87.0,
+        "current_u_ms": 0.6426,
+        "current_v_ms": 0.0338
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -71.99877576339111,
+          41.296780860508804
+        ]
+      },
+      "properties": {
+        "lon": -71.998776,
+        "lat": 41.296781,
+        "time": "2026-04-18T19:02:02.320448+00:00",
+        "sog_ms": 4.653,
+        "cog_deg": 67.9,
+        "depth_m": 20.0,
+        "mode": "sailing",
+        "twa_deg": 47.0,
+        "wind_ms": 6.457,
+        "wind_dir_deg": 112.0,
+        "current_ms": 0.6058,
+        "current_dir_deg": 88.0,
+        "current_u_ms": 0.6054,
+        "current_v_ms": 0.0228
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -71.98764274345965,
+          41.29904716722327
+        ]
+      },
+      "properties": {
+        "lon": -71.987643,
+        "lat": 41.299047,
+        "time": "2026-04-18T19:06:26.727881+00:00",
+        "sog_ms": 3.644,
+        "cog_deg": 74.8,
+        "depth_m": 15.0,
+        "mode": "motoring",
+        "twa_deg": 39.0,
+        "wind_ms": 6.385,
+        "wind_dir_deg": 112.0,
+        "current_ms": 0.5714,
+        "current_dir_deg": 88.0,
+        "current_u_ms": 0.5709,
+        "current_v_ms": 0.0226
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -71.98312499999999,
+          41.300625000000004
+        ]
+      },
+      "properties": {
+        "lon": -71.983125,
+        "lat": 41.300625,
+        "time": "2026-04-18T19:08:39.865294+00:00",
+        "sog_ms": 3.467,
+        "cog_deg": 56.4,
+        "depth_m": 20.0,
+        "mode": "motoring",
+        "wind_ms": 6.277,
+        "wind_dir_deg": 111.0,
+        "current_ms": 0.417,
+        "current_dir_deg": 80.0,
+        "current_u_ms": 0.4105,
+        "current_v_ms": 0.0732
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -71.98237499999999,
+          41.300625000000004
+        ]
+      },
+      "properties": {
+        "lon": -71.982375,
+        "lat": 41.300625,
+        "time": "2026-04-18T19:08:57.743044+00:00",
+        "sog_ms": 3.508,
+        "cog_deg": 90.0,
+        "depth_m": 20.0,
+        "mode": "motoring",
+        "wind_ms": 6.275,
+        "wind_dir_deg": 111.0,
+        "current_ms": 0.4289,
+        "current_dir_deg": 80.0,
+        "current_u_ms": 0.4225,
+        "current_v_ms": 0.0738
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -71.98187499999999,
+          41.300875000000005
+        ]
+      },
+      "properties": {
+        "lon": -71.981875,
+        "lat": 41.300875,
+        "time": "2026-04-18T19:09:12.149842+00:00",
+        "sog_ms": 3.483,
+        "cog_deg": 56.4,
+        "depth_m": 20.0,
+        "mode": "motoring",
+        "wind_ms": 6.269,
+        "wind_dir_deg": 111.0,
+        "current_ms": 0.4343,
+        "current_dir_deg": 80.0,
+        "current_u_ms": 0.4278,
+        "current_v_ms": 0.0753
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -71.98112499999999,
+          41.300875000000005
+        ]
+      },
+      "properties": {
+        "lon": -71.981125,
+        "lat": 41.300875,
+        "time": "2026-04-18T19:09:29.940294+00:00",
+        "sog_ms": 3.526,
+        "cog_deg": 90.0,
+        "depth_m": 20.0,
+        "mode": "motoring",
+        "wind_ms": 6.267,
+        "wind_dir_deg": 110.0,
+        "current_ms": 0.446,
+        "current_dir_deg": 80.0,
+        "current_u_ms": 0.4394,
+        "current_v_ms": 0.0759
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -71.98062499999999,
+          41.301125000000006
+        ]
+      },
+      "properties": {
+        "lon": -71.980625,
+        "lat": 41.301125,
+        "time": "2026-04-18T19:09:44.283981+00:00",
+        "sog_ms": 3.498,
+        "cog_deg": 56.4,
+        "depth_m": 20.0,
+        "mode": "motoring",
+        "wind_ms": 6.262,
+        "wind_dir_deg": 110.0,
+        "current_ms": 0.4508,
+        "current_dir_deg": 80.0,
+        "current_u_ms": 0.4441,
+        "current_v_ms": 0.0775
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -71.97987499999999,
+          41.301125000000006
+        ]
+      },
+      "properties": {
+        "lon": -71.979875,
+        "lat": 41.301125,
+        "time": "2026-04-18T19:10:01.992629+00:00",
+        "sog_ms": 3.542,
+        "cog_deg": 90.0,
+        "depth_m": 20.0,
+        "mode": "motoring",
+        "wind_ms": 6.26,
+        "wind_dir_deg": 110.0,
+        "current_ms": 0.4591,
+        "current_dir_deg": 80.0,
+        "current_u_ms": 0.4524,
+        "current_v_ms": 0.0786
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -71.97937499999999,
+          41.30137500000001
+        ]
+      },
+      "properties": {
+        "lon": -71.979375,
+        "lat": 41.301375,
+        "time": "2026-04-18T19:10:16.286349+00:00",
+        "sog_ms": 3.51,
+        "cog_deg": 56.4,
+        "depth_m": 20.0,
+        "mode": "motoring",
+        "wind_ms": 6.254,
+        "wind_dir_deg": 110.0,
+        "current_ms": 0.4517,
+        "current_dir_deg": 80.0,
+        "current_u_ms": 0.4442,
+        "current_v_ms": 0.0817
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -71.978375,
+          41.30137500000001
+        ]
+      },
+      "properties": {
+        "lon": -71.978375,
+        "lat": 41.301375,
+        "time": "2026-04-18T19:10:39.946909+00:00",
+        "sog_ms": 3.527,
+        "cog_deg": 90.0,
+        "depth_m": 20.0,
+        "mode": "motoring",
+        "wind_ms": 6.252,
+        "wind_dir_deg": 110.0,
+        "current_ms": 0.4429,
+        "current_dir_deg": 79.0,
+        "current_u_ms": 0.4345,
+        "current_v_ms": 0.0858
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -71.977875,
+          41.30162500000001
+        ]
+      },
+      "properties": {
+        "lon": -71.977875,
+        "lat": 41.301625,
+        "time": "2026-04-18T19:10:54.285095+00:00",
+        "sog_ms": 3.499,
+        "cog_deg": 56.4,
+        "depth_m": 15.0,
+        "mode": "motoring",
+        "wind_ms": 6.246,
+        "wind_dir_deg": 110.0,
+        "current_ms": 0.4363,
+        "current_dir_deg": 78.0,
+        "current_u_ms": 0.4272,
+        "current_v_ms": 0.0885
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -71.975375,
+          41.30162500000001
+        ]
+      },
+      "properties": {
+        "lon": -71.975375,
+        "lat": 41.301625,
+        "time": "2026-04-18T19:11:53.838182+00:00",
+        "sog_ms": 3.496,
+        "cog_deg": 90.0,
+        "depth_m": 15.0,
+        "mode": "motoring",
+        "wind_ms": 6.24,
+        "wind_dir_deg": 110.0,
+        "current_ms": 0.4158,
+        "current_dir_deg": 76.0,
+        "current_u_ms": 0.404,
+        "current_v_ms": 0.0982
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -71.974875,
+          41.301875
+        ]
+      },
+      "properties": {
+        "lon": -71.974875,
+        "lat": 41.301875,
+        "time": "2026-04-18T19:12:08.252472+00:00",
+        "sog_ms": 3.481,
+        "cog_deg": 56.4,
+        "depth_m": 15.0,
+        "mode": "motoring",
+        "wind_ms": 6.234,
+        "wind_dir_deg": 110.0,
+        "current_ms": 0.4106,
+        "current_dir_deg": 76.0,
+        "current_u_ms": 0.3981,
+        "current_v_ms": 0.1005
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -71.97387499999999,
+          41.301875
+        ]
+      },
+      "properties": {
+        "lon": -71.973875,
+        "lat": 41.301875,
+        "time": "2026-04-18T19:12:32.223676+00:00",
+        "sog_ms": 3.481,
+        "cog_deg": 90.0,
+        "depth_m": 15.0,
+        "mode": "motoring",
+        "wind_ms": 6.231,
+        "wind_dir_deg": 110.0,
+        "current_ms": 0.4059,
+        "current_dir_deg": 75.0,
+        "current_u_ms": 0.392,
+        "current_v_ms": 0.1055
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -71.95566012113815,
+          41.30804128347291
+        ]
+      },
+      "properties": {
+        "lon": -71.95566,
+        "lat": 41.308041,
+        "time": "2026-04-18T19:18:56.788847+00:00",
+        "sog_ms": 4.317,
+        "cog_deg": 65.6,
+        "depth_m": 5.0,
+        "mode": "sailing",
+        "twa_deg": 45.0,
+        "wind_ms": 6.142,
+        "wind_dir_deg": 110.0,
+        "current_ms": 0.3989,
+        "current_dir_deg": 74.0,
+        "current_u_ms": 0.3829,
+        "current_v_ms": 0.112
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -71.94778063106364,
+          41.30676607776335
+        ]
+      },
+      "properties": {
+        "lon": -71.947781,
+        "lat": 41.306766,
+        "time": "2026-04-18T19:22:09.071432+00:00",
+        "sog_ms": 3.501,
+        "cog_deg": 102.2,
+        "depth_m": 2.0,
+        "mode": "motoring",
+        "twa_deg": 3.0,
+        "wind_ms": 6.064,
+        "wind_dir_deg": 109.0,
+        "current_ms": 0.4631,
+        "current_dir_deg": 77.0,
+        "current_u_ms": 0.4505,
+        "current_v_ms": 0.1072
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -71.9433386248002,
+          41.30229324555078
+        ]
+      },
+      "properties": {
+        "lon": -71.943339,
+        "lat": 41.302293,
+        "time": "2026-04-18T19:25:21.354018+00:00",
+        "sog_ms": 3.824,
+        "cog_deg": 143.3,
+        "depth_m": 15.0,
+        "mode": "sailing",
+        "twa_deg": 41.0,
+        "wind_ms": 6.066,
+        "wind_dir_deg": 109.0,
+        "current_ms": 0.4855,
+        "current_dir_deg": 83.0,
+        "current_u_ms": 0.4815,
+        "current_v_ms": 0.0616
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -71.92887499999999,
+          41.302375000000005
+        ]
+      },
+      "properties": {
+        "lon": -71.928875,
+        "lat": 41.302375,
+        "time": "2026-04-18T19:30:55.525668+00:00",
+        "sog_ms": 3.872,
+        "cog_deg": 90.0,
+        "depth_m": 10.0,
+        "mode": "motoring",
+        "wind_ms": 6.108,
+        "wind_dir_deg": 108.0,
+        "current_ms": 0.7908,
+        "current_dir_deg": 97.0,
+        "current_u_ms": 0.7843,
+        "current_v_ms": -0.1015
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -71.92837499999999,
+          41.302125000000004
+        ]
+      },
+      "properties": {
+        "lon": -71.928375,
+        "lat": 41.302125,
+        "time": "2026-04-18T19:31:08.731852+00:00",
+        "sog_ms": 3.799,
+        "cog_deg": 123.6,
+        "depth_m": 10.0,
+        "mode": "motoring",
+        "wind_ms": 6.111,
+        "wind_dir_deg": 108.0,
+        "current_ms": 0.8018,
+        "current_dir_deg": 98.0,
+        "current_u_ms": 0.7945,
+        "current_v_ms": -0.1075
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -71.927375,
+          41.302125000000004
+        ]
+      },
+      "properties": {
+        "lon": -71.927375,
+        "lat": 41.302125,
+        "time": "2026-04-18T19:31:30.218589+00:00",
+        "sog_ms": 3.891,
+        "cog_deg": 90.0,
+        "depth_m": 10.0,
+        "mode": "motoring",
+        "wind_ms": 6.108,
+        "wind_dir_deg": 108.0,
+        "current_ms": 0.8095,
+        "current_dir_deg": 97.0,
+        "current_u_ms": 0.803,
+        "current_v_ms": -0.1021
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -71.926875,
+          41.301875
+        ]
+      },
+      "properties": {
+        "lon": -71.926875,
+        "lat": 41.301875,
+        "time": "2026-04-18T19:31:43.369720+00:00",
+        "sog_ms": 3.815,
+        "cog_deg": 123.6,
+        "depth_m": 10.0,
+        "mode": "motoring",
+        "wind_ms": 6.111,
+        "wind_dir_deg": 108.0,
+        "current_ms": 0.8209,
+        "current_dir_deg": 98.0,
+        "current_u_ms": 0.8136,
+        "current_v_ms": -0.1089
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -71.91695644063643,
+          41.30172092685099
+        ]
+      },
+      "properties": {
+        "lon": -71.916956,
+        "lat": 41.301721,
+        "time": "2026-04-18T19:35:15.424322+00:00",
+        "sog_ms": 3.908,
+        "cog_deg": 91.4,
+        "depth_m": 15.0,
+        "mode": "motoring",
+        "twa_deg": 18.0,
+        "wind_ms": 6.089,
+        "wind_dir_deg": 108.0,
+        "current_ms": 0.8224,
+        "current_dir_deg": 97.0,
+        "current_u_ms": 0.8169,
+        "current_v_ms": -0.0952
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -71.91085557182457,
+          41.301740053473345
+        ]
+      },
+      "properties": {
+        "lon": -71.910856,
+        "lat": 41.30174,
+        "time": "2026-04-18T19:37:28.842103+00:00",
+        "sog_ms": 3.82,
+        "cog_deg": 89.8,
+        "depth_m": 10.0,
+        "mode": "motoring",
+        "twa_deg": 20.0,
+        "wind_ms": 6.069,
+        "wind_dir_deg": 108.0,
+        "current_ms": 0.7376,
+        "current_dir_deg": 97.0,
+        "current_u_ms": 0.7317,
+        "current_v_ms": -0.0926
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -71.911125,
+          41.301875
+        ]
+      },
+      "properties": {
+        "lon": -71.911125,
+        "lat": 41.301875,
+        "time": "2026-04-18T19:37:37.596176+00:00",
+        "sog_ms": 3.09,
+        "cog_deg": 303.7,
+        "depth_m": null,
+        "mode": "motoring",
+        "wind_ms": 6.071,
+        "wind_dir_deg": 108.0
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -71.90262499999999,
+          41.301875
+        ]
+      },
+      "properties": {
+        "lon": -71.902625,
+        "lat": 41.301875,
+        "time": "2026-04-18T19:41:01.571714+00:00",
+        "sog_ms": 3.419,
+        "cog_deg": 90.0,
+        "depth_m": 15.0,
+        "mode": "motoring",
+        "wind_ms": 6.049,
+        "wind_dir_deg": 107.0,
+        "current_ms": 0.3744,
+        "current_dir_deg": 120.0,
+        "current_u_ms": 0.3252,
+        "current_v_ms": -0.1854
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -71.895625,
+          41.29837500000001
+        ]
+      },
+      "properties": {
+        "lon": -71.895625,
+        "lat": 41.298375,
+        "time": "2026-04-18T19:44:24.962324+00:00",
+        "sog_ms": 3.451,
+        "cog_deg": 123.6,
+        "depth_m": 15.0,
+        "mode": "motoring",
+        "wind_ms": 6.089,
+        "wind_dir_deg": 107.0,
+        "current_ms": 0.3608,
+        "current_dir_deg": 121.0,
+        "current_u_ms": 0.3085,
+        "current_v_ms": -0.1872
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -71.887875,
+          41.29837500000001
+        ]
+      },
+      "properties": {
+        "lon": -71.887875,
+        "lat": 41.298375,
+        "time": "2026-04-18T19:47:35.998495+00:00",
+        "sog_ms": 3.373,
+        "cog_deg": 90.0,
+        "depth_m": 10.0,
+        "mode": "motoring",
+        "wind_ms": 6.069,
+        "wind_dir_deg": 107.0,
+        "current_ms": 0.3228,
+        "current_dir_deg": 120.0,
+        "current_u_ms": 0.2793,
+        "current_v_ms": -0.1618
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -71.88737499999999,
+          41.29862500000001
+        ]
+      },
+      "properties": {
+        "lon": -71.887375,
+        "lat": 41.298625,
+        "time": "2026-04-18T19:47:51.518715+00:00",
+        "sog_ms": 3.233,
+        "cog_deg": 56.4,
+        "depth_m": 10.0,
+        "mode": "motoring",
+        "wind_ms": 6.063,
+        "wind_dir_deg": 107.0,
+        "current_ms": 0.3166,
+        "current_dir_deg": 120.0,
+        "current_u_ms": 0.2728,
+        "current_v_ms": -0.1607
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -71.887125,
+          41.29862500000001
+        ]
+      },
+      "properties": {
+        "lon": -71.887125,
+        "lat": 41.298625,
+        "time": "2026-04-18T19:47:57.729221+00:00",
+        "sog_ms": 3.363,
+        "cog_deg": 90.0,
+        "depth_m": 10.0,
+        "mode": "motoring",
+        "wind_ms": 6.062,
+        "wind_dir_deg": 107.0,
+        "current_ms": 0.3144,
+        "current_dir_deg": 121.0,
+        "current_u_ms": 0.2709,
+        "current_v_ms": -0.1597
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -71.88687499999999,
+          41.29862500000001
+        ]
+      },
+      "properties": {
+        "lon": -71.886875,
+        "lat": 41.298625,
+        "time": "2026-04-18T19:48:03.943277+00:00",
+        "sog_ms": 3.361,
+        "cog_deg": 90.0,
+        "depth_m": 10.0,
+        "mode": "motoring",
+        "wind_ms": 6.061,
+        "wind_dir_deg": 107.0,
+        "current_ms": 0.3123,
+        "current_dir_deg": 121.0,
+        "current_u_ms": 0.269,
+        "current_v_ms": -0.1587
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -71.886625,
+          41.29862500000001
+        ]
+      },
+      "properties": {
+        "lon": -71.886625,
+        "lat": 41.298625,
+        "time": "2026-04-18T19:48:10.160886+00:00",
+        "sog_ms": 3.359,
+        "cog_deg": 90.0,
+        "depth_m": 10.0,
+        "mode": "motoring",
+        "wind_ms": 6.061,
+        "wind_dir_deg": 107.0,
+        "current_ms": 0.3101,
+        "current_dir_deg": 121.0,
+        "current_u_ms": 0.267,
+        "current_v_ms": -0.1577
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -71.88637499999999,
+          41.29862500000001
+        ]
+      },
+      "properties": {
+        "lon": -71.886375,
+        "lat": 41.298625,
+        "time": "2026-04-18T19:48:16.382053+00:00",
+        "sog_ms": 3.357,
+        "cog_deg": 90.0,
+        "depth_m": 10.0,
+        "mode": "motoring",
+        "wind_ms": 6.06,
+        "wind_dir_deg": 107.0,
+        "current_ms": 0.308,
+        "current_dir_deg": 121.0,
+        "current_u_ms": 0.2651,
+        "current_v_ms": -0.1567
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -71.88612499999999,
+          41.29862500000001
+        ]
+      },
+      "properties": {
+        "lon": -71.886125,
+        "lat": 41.298625,
+        "time": "2026-04-18T19:48:22.606782+00:00",
+        "sog_ms": 3.355,
+        "cog_deg": 90.0,
+        "depth_m": 10.0,
+        "mode": "motoring",
+        "wind_ms": 6.059,
+        "wind_dir_deg": 107.0,
+        "current_ms": 0.3058,
+        "current_dir_deg": 121.0,
+        "current_u_ms": 0.2632,
+        "current_v_ms": -0.1557
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -71.88562499999999,
+          41.29887500000001
+        ]
+      },
+      "properties": {
+        "lon": -71.885625,
+        "lat": 41.298875,
+        "time": "2026-04-18T19:48:38.175154+00:00",
+        "sog_ms": 3.223,
+        "cog_deg": 56.4,
+        "depth_m": 10.0,
+        "mode": "motoring",
+        "wind_ms": 6.054,
+        "wind_dir_deg": 107.0,
+        "current_ms": 0.2991,
+        "current_dir_deg": 121.0,
+        "current_u_ms": 0.256,
+        "current_v_ms": -0.1547
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -71.87362499999999,
+          41.29887500000001
+        ]
+      },
+      "properties": {
+        "lon": -71.873625,
+        "lat": 41.298875,
+        "time": "2026-04-18T19:53:39.619935+00:00",
+        "sog_ms": 3.352,
+        "cog_deg": 90.0,
+        "depth_m": 10.0,
+        "mode": "motoring",
+        "wind_ms": 6.021,
+        "wind_dir_deg": 106.0,
+        "current_ms": 0.2893,
+        "current_dir_deg": 114.0,
+        "current_u_ms": 0.2639,
+        "current_v_ms": -0.1185
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -71.872625,
+          41.299375000000005
+        ]
+      },
+      "properties": {
+        "lon": -71.872625,
+        "lat": 41.299375,
+        "time": "2026-04-18T19:54:10.550943+00:00",
+        "sog_ms": 3.244,
+        "cog_deg": 56.4,
+        "depth_m": 10.0,
+        "mode": "motoring",
+        "wind_ms": 6.009,
+        "wind_dir_deg": 106.0,
+        "current_ms": 0.2922,
+        "current_dir_deg": 114.0,
+        "current_u_ms": 0.2663,
+        "current_v_ms": -0.1203
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -71.866125,
+          41.299375000000005
+        ]
+      },
+      "properties": {
+        "lon": -71.866125,
+        "lat": 41.299375,
+        "time": "2026-04-18T19:56:50.704609+00:00",
+        "sog_ms": 3.431,
+        "cog_deg": 90.0,
+        "depth_m": 10.0,
+        "mode": "motoring",
+        "wind_ms": 5.991,
+        "wind_dir_deg": 106.0,
+        "current_ms": 0.3563,
+        "current_dir_deg": 105.0,
+        "current_u_ms": 0.3441,
+        "current_v_ms": -0.0923
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -71.86462499999999,
+          41.29987500000001
+        ]
+      },
+      "properties": {
+        "lon": -71.864625,
+        "lat": 41.299875,
+        "time": "2026-04-18T19:57:32.954714+00:00",
+        "sog_ms": 3.339,
+        "cog_deg": 56.4,
+        "depth_m": 10.0,
+        "mode": "motoring",
+        "wind_ms": 5.979,
+        "wind_dir_deg": 106.0,
+        "current_ms": 0.3681,
+        "current_dir_deg": 103.0,
+        "current_u_ms": 0.3589,
+        "current_v_ms": -0.0817
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -71.85987499999999,
+          41.29987500000001
+        ]
+      },
+      "properties": {
+        "lon": -71.859875,
+        "lat": 41.299875,
+        "time": "2026-04-18T19:59:26.937392+00:00",
+        "sog_ms": 3.514,
+        "cog_deg": 90.0,
+        "depth_m": 5.0,
+        "mode": "motoring",
+        "wind_ms": 5.966,
+        "wind_dir_deg": 106.0,
+        "current_ms": 0.4274,
+        "current_dir_deg": 97.0,
+        "current_u_ms": 0.4243,
+        "current_v_ms": -0.0508
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -71.858875,
+          41.300375
+        ]
+      },
+      "properties": {
+        "lon": -71.858875,
+        "lat": 41.300375,
+        "time": "2026-04-18T19:59:56.341243+00:00",
+        "sog_ms": 3.41,
+        "cog_deg": 56.4,
+        "depth_m": 5.0,
+        "mode": "motoring",
+        "wind_ms": 5.954,
+        "wind_dir_deg": 106.0,
+        "current_ms": 0.4075,
+        "current_dir_deg": 96.0,
+        "current_u_ms": 0.4049,
+        "current_v_ms": -0.0452
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -71.83411831024776,
+          41.27345635052061
+        ]
+      },
+      "properties": {
+        "lon": -71.834118,
+        "lat": 41.273456,
+        "time": "2026-04-18T20:14:56.341243+00:00",
+        "sog_ms": 4.043,
+        "cog_deg": 145.3,
+        "depth_m": 30.0,
+        "mode": "sailing",
+        "twa_deg": 44.0,
+        "wind_ms": 5.954,
+        "wind_dir_deg": 106.0,
+        "current_ms": 0.4075,
+        "current_dir_deg": 96.0,
+        "current_u_ms": 0.4049,
+        "current_v_ms": -0.0452
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -71.79218910280865,
+          41.28975047869052
+        ]
+      },
+      "properties": {
+        "lon": -71.792189,
+        "lat": 41.28975,
+        "time": "2026-04-18T20:29:56.341243+00:00",
+        "sog_ms": 4.534,
+        "cog_deg": 62.6,
+        "depth_m": 20.0,
+        "mode": "sailing",
+        "twa_deg": 47.0,
+        "wind_ms": 6.327,
+        "wind_dir_deg": 107.0,
+        "current_ms": 0.5298,
+        "current_dir_deg": 83.0,
+        "current_u_ms": 0.5261,
+        "current_v_ms": 0.0625
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -71.75311955722314,
+          41.309435999831564
+        ]
+      },
+      "properties": {
+        "lon": -71.75312,
+        "lat": 41.309436,
+        "time": "2026-04-18T20:44:56.341243+00:00",
+        "sog_ms": 4.366,
+        "cog_deg": 56.1,
+        "depth_m": 20.0,
+        "mode": "sailing",
+        "twa_deg": 50.0,
+        "wind_ms": 5.928,
+        "wind_dir_deg": 105.0,
+        "current_ms": 0.3332,
+        "current_dir_deg": 76.0,
+        "current_u_ms": 0.3231,
+        "current_v_ms": 0.0813
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -71.68128230873378,
+          41.3157101059432
+        ]
+      },
+      "properties": {
+        "lon": -71.681282,
+        "lat": 41.31571,
+        "time": "2026-04-18T21:14:56.341243+00:00",
+        "sog_ms": 3.364,
+        "cog_deg": 83.2,
+        "depth_m": 15.0,
+        "mode": "motoring",
+        "twa_deg": 17.0,
+        "wind_ms": 5.344,
+        "wind_dir_deg": 101.0,
+        "current_ms": 0.2744,
+        "current_dir_deg": 81.0,
+        "current_u_ms": 0.2707,
+        "current_v_ms": 0.0444
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -71.64784426949299,
+          41.33617559638961
+        ]
+      },
+      "properties": {
+        "lon": -71.647844,
+        "lat": 41.336176,
+        "time": "2026-04-18T21:29:56.341243+00:00",
+        "sog_ms": 4.002,
+        "cog_deg": 50.8,
+        "depth_m": 10.0,
+        "mode": "sailing",
+        "twa_deg": 49.0,
+        "wind_ms": 5.16,
+        "wind_dir_deg": 99.0,
+        "current_ms": 0.2148,
+        "current_dir_deg": 65.0,
+        "current_u_ms": 0.1951,
+        "current_v_ms": 0.0899
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -71.62032722570156,
+          41.33007731409866
+        ]
+      },
+      "properties": {
+        "lon": -71.620327,
+        "lat": 41.330077,
+        "time": "2026-04-18T21:42:20.596911+00:00",
+        "sog_ms": 3.219,
+        "cog_deg": 106.4,
+        "depth_m": 15.0,
+        "mode": "motoring",
+        "twa_deg": 12.0,
+        "wind_ms": 4.753,
+        "wind_dir_deg": 96.0,
+        "current_ms": 0.1499,
+        "current_dir_deg": 76.0,
+        "current_u_ms": 0.1456,
+        "current_v_ms": 0.0356
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -71.60450441009287,
+          41.32627837126547
+        ]
+      },
+      "properties": {
+        "lon": -71.604504,
+        "lat": 41.326278,
+        "time": "2026-04-18T21:49:28.580517+00:00",
+        "sog_ms": 3.241,
+        "cog_deg": 107.7,
+        "depth_m": 20.0,
+        "mode": "motoring",
+        "twa_deg": 14.0,
+        "wind_ms": 4.736,
+        "wind_dir_deg": 96.0,
+        "current_ms": 0.1737,
+        "current_dir_deg": 79.0,
+        "current_u_ms": 0.1705,
+        "current_v_ms": 0.0336
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -71.59556176874354,
+          41.32383500934963
+        ]
+      },
+      "properties": {
+        "lon": -71.595562,
+        "lat": 41.323835,
+        "time": "2026-04-18T21:53:35.111731+00:00",
+        "sog_ms": 3.223,
+        "cog_deg": 110.0,
+        "depth_m": 15.0,
+        "mode": "motoring",
+        "twa_deg": 16.0,
+        "wind_ms": 4.728,
+        "wind_dir_deg": 95.0,
+        "current_ms": 0.1587,
+        "current_dir_deg": 78.0,
+        "current_u_ms": 0.1551,
+        "current_v_ms": 0.0332
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -71.593875,
+          41.323125000000005
+        ]
+      },
+      "properties": {
+        "lon": -71.593875,
+        "lat": 41.323125,
+        "time": "2026-04-18T21:54:27.368462+00:00",
+        "sog_ms": 3.09,
+        "cog_deg": 119.3,
+        "depth_m": null,
+        "mode": "motoring",
+        "wind_ms": 4.728,
+        "wind_dir_deg": 95.0
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -71.57053526846738,
+          41.2996390190345
+        ]
+      },
+      "properties": {
+        "lon": -71.570535,
+        "lat": 41.299639,
+        "time": "2026-04-18T22:09:27.368462+00:00",
+        "sog_ms": 3.621,
+        "cog_deg": 143.3,
+        "depth_m": 30.0,
+        "mode": "sailing",
+        "twa_deg": 50.0,
+        "wind_ms": 4.728,
+        "wind_dir_deg": 95.0,
+        "current_ms": 0.1155,
+        "current_dir_deg": 72.0,
+        "current_u_ms": 0.11,
+        "current_v_ms": 0.0355
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -71.54680404660706,
+          41.27508168320881
+        ]
+      },
+      "properties": {
+        "lon": -71.546804,
+        "lat": 41.275082,
+        "time": "2026-04-18T22:24:27.368462+00:00",
+        "sog_ms": 3.75,
+        "cog_deg": 144.0,
+        "depth_m": 30.0,
+        "mode": "sailing",
+        "twa_deg": 50.0,
+        "wind_ms": 4.898,
+        "wind_dir_deg": 95.0,
+        "current_ms": 0.0875,
+        "current_dir_deg": 97.0,
+        "current_u_ms": 0.0868,
+        "current_v_ms": -0.0108
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -71.51882645997793,
+          41.29213423931191
+        ]
+      },
+      "properties": {
+        "lon": -71.518826,
+        "lat": 41.292134,
+        "time": "2026-04-18T22:39:27.368462+00:00",
+        "sog_ms": 3.46,
+        "cog_deg": 50.9,
+        "depth_m": 30.0,
+        "mode": "sailing",
+        "twa_deg": 44.0,
+        "wind_ms": 5.055,
+        "wind_dir_deg": 94.0,
+        "current_ms": 0.0793,
+        "current_dir_deg": 96.0,
+        "current_u_ms": 0.0789,
+        "current_v_ms": -0.0083
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -71.4927694346775,
+          41.31136939258729
+        ]
+      },
+      "properties": {
+        "lon": -71.492769,
+        "lat": 41.311369,
+        "time": "2026-04-18T22:54:27.368462+00:00",
+        "sog_ms": 3.391,
+        "cog_deg": 45.5,
+        "depth_m": 20.0,
+        "mode": "sailing",
+        "twa_deg": 47.0,
+        "wind_ms": 4.729,
+        "wind_dir_deg": 92.0,
+        "current_ms": 0.0311,
+        "current_dir_deg": 115.0,
+        "current_u_ms": 0.0283,
+        "current_v_ms": -0.013
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -71.47142429097936,
+          41.336577382899364
+        ]
+      },
+      "properties": {
+        "lon": -71.471424,
+        "lat": 41.336577,
+        "time": "2026-04-18T23:09:27.368462+00:00",
+        "sog_ms": 3.691,
+        "cog_deg": 32.4,
+        "depth_m": 10.0,
+        "mode": "sailing",
+        "twa_deg": 57.0,
+        "wind_ms": 4.412,
+        "wind_dir_deg": 90.0,
+        "current_ms": 0.0639,
+        "current_dir_deg": 226.0,
+        "current_u_ms": -0.0458,
+        "current_v_ms": -0.0446
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -71.45268464467114,
+          41.36183362785328
+        ]
+      },
+      "properties": {
+        "lon": -71.452685,
+        "lat": 41.361834,
+        "time": "2026-04-18T23:24:27.368462+00:00",
+        "sog_ms": 3.572,
+        "cog_deg": 29.1,
+        "depth_m": 20.0,
+        "mode": "sailing",
+        "twa_deg": 58.0,
+        "wind_ms": 4.085,
+        "wind_dir_deg": 88.0,
+        "current_ms": 0.092,
+        "current_dir_deg": 247.0,
+        "current_u_ms": -0.0847,
+        "current_v_ms": -0.036
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -71.39857331391646,
+          41.42399209533408
+        ]
+      },
+      "properties": {
+        "lon": -71.398573,
+        "lat": 41.423992,
+        "time": "2026-04-19T00:09:27.368462+00:00",
+        "sog_ms": 3.063,
+        "cog_deg": 33.3,
+        "depth_m": 20.0,
+        "mode": "motoring",
+        "twa_deg": 50.0,
+        "wind_ms": 3.398,
+        "wind_dir_deg": 84.0,
+        "current_ms": 0.0401,
+        "current_dir_deg": 262.0,
+        "current_u_ms": -0.0396,
+        "current_v_ms": -0.0057
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -71.37289863553337,
+          41.452746031843944
+        ]
+      },
+      "properties": {
+        "lon": -71.372899,
+        "lat": 41.452746,
+        "time": "2026-04-19T00:30:14.995122+00:00",
+        "sog_ms": 3.111,
+        "cog_deg": 34.1,
+        "depth_m": 20.0,
+        "mode": "motoring",
+        "twa_deg": 49.0,
+        "wind_ms": 3.053,
+        "wind_dir_deg": 83.0,
+        "current_ms": 0.0285,
+        "current_dir_deg": 351.0,
+        "current_u_ms": -0.0045,
+        "current_v_ms": 0.0281
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -71.37055959582185,
+          41.46045539736487
+        ]
+      },
+      "properties": {
+        "lon": -71.37056,
+        "lat": 41.460455,
+        "time": "2026-04-19T00:34:48.590523+00:00",
+        "sog_ms": 3.213,
+        "cog_deg": 12.8,
+        "depth_m": 30.0,
+        "mode": "sailing",
+        "twa_deg": 70.0,
+        "wind_ms": 2.966,
+        "wind_dir_deg": 83.0,
+        "current_ms": 0.1087,
+        "current_dir_deg": 13.0,
+        "current_u_ms": 0.0242,
+        "current_v_ms": 0.106
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -71.3604206255372,
+          41.46786288151604
+        ]
+      },
+      "properties": {
+        "lon": -71.360421,
+        "lat": 41.467863,
+        "time": "2026-04-19T00:41:04.138972+00:00",
+        "sog_ms": 3.142,
+        "cog_deg": 45.7,
+        "depth_m": 30.0,
+        "mode": "motoring",
+        "twa_deg": 36.0,
+        "wind_ms": 2.9,
+        "wind_dir_deg": 83.0,
+        "current_ms": 0.0657,
+        "current_dir_deg": 8.0,
+        "current_u_ms": 0.0094,
+        "current_v_ms": 0.065
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -71.356625,
+          41.470375000000004
+        ]
+      },
+      "properties": {
+        "lon": -71.356625,
+        "lat": 41.470375,
+        "time": "2026-04-19T00:43:20.692801+00:00",
+        "sog_ms": 3.09,
+        "cog_deg": 48.5,
+        "depth_m": null,
+        "mode": "motoring",
+        "wind_ms": 2.834,
+        "wind_dir_deg": 82.0
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -71.351625,
+          41.47537500000001
+        ]
+      },
+      "properties": {
+        "lon": -71.351625,
+        "lat": 41.475375,
+        "time": "2026-04-19T00:47:10.612285+00:00",
+        "sog_ms": 3.018,
+        "cog_deg": 36.8,
+        "depth_m": 30.0,
+        "mode": "motoring",
+        "wind_ms": 2.799,
+        "wind_dir_deg": 82.0,
+        "current_ms": 0.0959,
+        "current_dir_deg": 174.0,
+        "current_u_ms": 0.0094,
+        "current_v_ms": -0.0954
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -71.35012499999999,
+          41.476125
+        ]
+      },
+      "properties": {
+        "lon": -71.350125,
+        "lat": 41.476125,
+        "time": "2026-04-19T00:48:00.052700+00:00",
+        "sog_ms": 3.027,
+        "cog_deg": 56.3,
+        "depth_m": 30.0,
+        "mode": "motoring",
+        "wind_ms": 2.795,
+        "wind_dir_deg": 82.0,
+        "current_ms": 0.1166,
+        "current_dir_deg": 179.0,
+        "current_u_ms": 0.0024,
+        "current_v_ms": -0.1165
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -71.348625,
+          41.47687500000001
+        ]
+      },
+      "properties": {
+        "lon": -71.348625,
+        "lat": 41.476875,
+        "time": "2026-04-19T00:48:49.679080+00:00",
+        "sog_ms": 3.027,
+        "cog_deg": 56.3,
+        "depth_m": 30.0,
+        "mode": "motoring",
+        "wind_ms": 2.791,
+        "wind_dir_deg": 82.0,
+        "current_ms": 0.1007,
+        "current_dir_deg": 184.0,
+        "current_u_ms": -0.0079,
+        "current_v_ms": -0.1004
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -71.34712499999999,
+          41.477625
+        ]
+      },
+      "properties": {
+        "lon": -71.347125,
+        "lat": 41.477625,
+        "time": "2026-04-19T00:49:39.289195+00:00",
+        "sog_ms": 3.029,
+        "cog_deg": 56.3,
+        "depth_m": 30.0,
+        "mode": "motoring",
+        "wind_ms": 2.786,
+        "wind_dir_deg": 82.0,
+        "current_ms": 0.083,
+        "current_dir_deg": 192.0,
+        "current_u_ms": -0.0178,
+        "current_v_ms": -0.081
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -71.345625,
+          41.47837500000001
+        ]
+      },
+      "properties": {
+        "lon": -71.345625,
+        "lat": 41.478375,
+        "time": "2026-04-19T00:50:28.845217+00:00",
+        "sog_ms": 3.033,
+        "cog_deg": 56.3,
+        "depth_m": 30.0,
+        "mode": "motoring",
+        "wind_ms": 2.782,
+        "wind_dir_deg": 82.0,
+        "current_ms": 0.0654,
+        "current_dir_deg": 203.0,
+        "current_u_ms": -0.026,
+        "current_v_ms": -0.06
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -71.34412499999999,
+          41.479125
+        ]
+      },
+      "properties": {
+        "lon": -71.344125,
+        "lat": 41.479125,
+        "time": "2026-04-19T00:51:18.307895+00:00",
+        "sog_ms": 3.04,
+        "cog_deg": 56.3,
+        "depth_m": 30.0,
+        "mode": "motoring",
+        "wind_ms": 2.778,
+        "wind_dir_deg": 82.0,
+        "current_ms": 0.0494,
+        "current_dir_deg": 221.0,
+        "current_u_ms": -0.0323,
+        "current_v_ms": -0.0374
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -71.342625,
+          41.47987500000001
+        ]
+      },
+      "properties": {
+        "lon": -71.342625,
+        "lat": 41.479875,
+        "time": "2026-04-19T00:52:07.638423+00:00",
+        "sog_ms": 3.049,
+        "cog_deg": 56.3,
+        "depth_m": 20.0,
+        "mode": "motoring",
+        "wind_ms": 2.774,
+        "wind_dir_deg": 82.0,
+        "current_ms": 0.0391,
+        "current_dir_deg": 250.0,
+        "current_u_ms": -0.0368,
+        "current_v_ms": -0.0132
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -71.34112499999999,
+          41.480625
+        ]
+      },
+      "properties": {
+        "lon": -71.341125,
+        "lat": 41.480625,
+        "time": "2026-04-19T00:52:56.908268+00:00",
+        "sog_ms": 3.041,
+        "cog_deg": 56.3,
+        "depth_m": 15.0,
+        "mode": "motoring",
+        "wind_ms": 2.77,
+        "wind_dir_deg": 82.0,
+        "current_ms": 0.054,
+        "current_dir_deg": 264.0,
+        "current_u_ms": -0.0537,
+        "current_v_ms": -0.0056
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -71.339625,
+          41.48137500000001
+        ]
+      },
+      "properties": {
+        "lon": -71.339625,
+        "lat": 41.481375,
+        "time": "2026-04-19T00:53:46.272028+00:00",
+        "sog_ms": 3.044,
+        "cog_deg": 56.3,
+        "depth_m": 5.0,
+        "mode": "motoring",
+        "wind_ms": 2.766,
+        "wind_dir_deg": 82.0,
+        "current_ms": 0.0581,
+        "current_dir_deg": 276.0,
+        "current_u_ms": -0.0578,
+        "current_v_ms": 0.0059
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -71.339125,
+          41.48162500000001
+        ]
+      },
+      "properties": {
+        "lon": -71.339125,
+        "lat": 41.481625,
+        "time": "2026-04-19T00:54:02.716410+00:00",
+        "sog_ms": 3.045,
+        "cog_deg": 56.3,
+        "depth_m": 5.0,
+        "mode": "motoring",
+        "wind_ms": 2.764,
+        "wind_dir_deg": 82.0,
+        "current_ms": 0.0581,
+        "current_dir_deg": 277.0,
+        "current_u_ms": -0.0576,
+        "current_v_ms": 0.007
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -71.338625,
+          41.48187500000001
+        ]
+      },
+      "properties": {
+        "lon": -71.338625,
+        "lat": 41.481875,
+        "time": "2026-04-19T00:54:19.156859+00:00",
+        "sog_ms": 3.046,
+        "cog_deg": 56.3,
+        "depth_m": 5.0,
+        "mode": "motoring",
+        "wind_ms": 2.763,
+        "wind_dir_deg": 82.0,
+        "current_ms": 0.058,
+        "current_dir_deg": 278.0,
+        "current_u_ms": -0.0574,
+        "current_v_ms": 0.008
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -71.33812499999999,
+          41.482125
+        ]
+      },
+      "properties": {
+        "lon": -71.338125,
+        "lat": 41.482125,
+        "time": "2026-04-19T00:54:35.593292+00:00",
+        "sog_ms": 3.047,
+        "cog_deg": 56.3,
+        "depth_m": 5.0,
+        "mode": "motoring",
+        "wind_ms": 2.762,
+        "wind_dir_deg": 82.0,
+        "current_ms": 0.0579,
+        "current_dir_deg": 279.0,
+        "current_u_ms": -0.0572,
+        "current_v_ms": 0.009
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -71.331875,
+          41.482125
+        ]
+      },
+      "properties": {
+        "lon": -71.331875,
+        "lat": 41.482125,
+        "time": "2026-04-19T00:57:27.773611+00:00",
+        "sog_ms": 3.015,
+        "cog_deg": 90.0,
+        "depth_m": 10.0,
+        "mode": "motoring",
+        "wind_ms": 2.763,
+        "wind_dir_deg": 82.0,
+        "current_ms": 0.0762,
+        "current_dir_deg": 276.0,
+        "current_u_ms": -0.0759,
+        "current_v_ms": 0.0073
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -71.331375,
+          41.48187500000001
+        ]
+      },
+      "properties": {
+        "lon": -71.331375,
+        "lat": 41.481875,
+        "time": "2026-04-19T00:57:44.339632+00:00",
+        "sog_ms": 3.023,
+        "cog_deg": 123.7,
+        "depth_m": 10.0,
+        "mode": "motoring",
+        "wind_ms": 2.764,
+        "wind_dir_deg": 82.0,
+        "current_ms": 0.0869,
+        "current_dir_deg": 271.0,
+        "current_u_ms": -0.0869,
+        "current_v_ms": 0.0022
+      }
+    }
+  ]
+}
