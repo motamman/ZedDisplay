@@ -38,6 +38,7 @@ void showWeatherRoutingSheet(
   required RouteMode defaultMode,
   required String? defaultPolar,
   required WeatherRoutingWaypointFocus onFocusWaypoint,
+  bool autoSubmit = false,
 }) {
   showModalBottomSheet(
     context: context,
@@ -59,6 +60,7 @@ void showWeatherRoutingSheet(
         defaultMode: defaultMode,
         defaultPolar: defaultPolar,
         onFocusWaypoint: onFocusWaypoint,
+        autoSubmit: autoSubmit,
       ),
     ),
   );
@@ -71,6 +73,7 @@ class _WeatherRoutingSheet extends StatefulWidget {
     required this.defaultMode,
     required this.defaultPolar,
     required this.onFocusWaypoint,
+    this.autoSubmit = false,
   });
 
   final ScrollController scrollController;
@@ -78,6 +81,7 @@ class _WeatherRoutingSheet extends StatefulWidget {
   final RouteMode defaultMode;
   final String? defaultPolar;
   final WeatherRoutingWaypointFocus onFocusWaypoint;
+  final bool autoSubmit;
 
   @override
   State<_WeatherRoutingSheet> createState() => _WeatherRoutingSheetState();
@@ -190,6 +194,7 @@ class _WeatherRoutingSheetState extends State<_WeatherRoutingSheet>
                   vesselPosition: widget.vesselPosition,
                   defaultMode: widget.defaultMode,
                   defaultPolar: widget.defaultPolar,
+                  autoSubmit: widget.autoSubmit,
                 ),
                 _ProgressTab(scrollController: widget.scrollController),
                 _ResultTab(
@@ -213,12 +218,14 @@ class _ComposeTab extends StatefulWidget {
     required this.vesselPosition,
     required this.defaultMode,
     required this.defaultPolar,
+    this.autoSubmit = false,
   });
 
   final ScrollController scrollController;
   final LatLon? vesselPosition;
   final RouteMode defaultMode;
   final String? defaultPolar;
+  final bool autoSubmit;
 
   @override
   State<_ComposeTab> createState() => _ComposeTabState();
@@ -254,6 +261,19 @@ class _ComposeTabState extends State<_ComposeTab> {
     _tokenCtrl.text =
         context.read<RoutePlannerAuthService>().token ?? '';
     _loadTolerances();
+    if (widget.autoSubmit) {
+      // Kick off a compute on first frame using the persisted
+      // tolerances + last-selected boat. The sheet's status listener
+      // switches to the Progress tab as soon as the job is `running`.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        final service = context.read<WeatherRoutingService>();
+        if (service.plannedEnd == null) return;
+        final start = service.plannedStart ?? widget.vesselPosition;
+        if (start == null) return;
+        _submit(service);
+      });
+    }
   }
 
   @override

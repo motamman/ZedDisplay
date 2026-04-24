@@ -222,6 +222,10 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
   // because they're UI-only: they don't belong in the service's model.
   WeatherRoutingService? _weatherRoutingService;
   int? _weatherRouteSelectedIdx;
+  // Pre-compute End-pin tap state: when true and no current route, show
+  // a floating "Compute route" card. Cleared automatically when a
+  // result arrives or when the user dismisses it.
+  bool _endPinComposeOpen = false;
 
   // ===== Weather data overlays (wind / currents / heatmaps) =====
   //
@@ -1361,6 +1365,13 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
   }
 
   /// Same 31-entry clickable layer set as V1 (chart_webview.dart:1004-1015).
+  // RESARE (Restricted Area) and ACHARE (Anchorage Area) are
+  // deliberately excluded. Their dashed boundaries tile the chart so
+  // densely that any tap sits within hit radius of an edge, which
+  // means the area sheet ends up swallowing taps the user aimed at
+  // real symbols sitting nearby. Users who want area detail can zoom
+  // in until the boundary is the obvious target, but that UX belongs
+  // behind a future "area info" toggle, not the generic tap.
   static const _clickableLayers = {
     'LIGHTS',
     'BOYLAT', 'BOYCAR', 'BOYISD', 'BOYSAW', 'BOYSPP',
@@ -1372,7 +1383,6 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
     'CBLSUB', 'CBLOHD', 'PIPSOL', 'PIPOHD',
     'CGUSTA', 'RSCSTA', 'SISTAT', 'SISTAW',
     'DISMAR', 'CURENT', 'FSHFAC', 'CONVYR',
-    'RESARE', 'ACHARE',
   };
 
   /// Long-press inserts a waypoint after the nearest existing one.
@@ -1836,6 +1846,26 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
               if (i != null) _skipToWaypoint(i + 1);
             },
           ),
+          // On-map legend stack — renders compact cards near the
+          // bottom of the chart for every layer whose "On map" toggle
+          // is on AND that's currently visible at the effective zoom.
+          // Offset clears the scale bar (~y=64..92 from bottom) and
+          // the freshness chip (~y=52 text / 8 none). Visual HUD
+          // pushes the whole bottom block up so legends sit above it.
+          if (_weatherDataService != null && _mapReady)
+            Positioned(
+              left: 8,
+              right: 8,
+              bottom: _hudStyle == 'visual' ? 210 : 100,
+              child: _OnMapLegendStack(
+                service: _weatherDataService!,
+                entries: _onMapLegendEntries(),
+                mapController: _mapController,
+                initialZoom: _mapController.camera.zoom,
+              ),
+            ),
+          // Waypoint popover sits AFTER the legend stack in Stack
+          // order so it always paints on top of the legends.
           if (_weatherRoutingEnabled &&
               _weatherRouteSelectedIdx != null &&
               (_weatherRoutingService?.currentResult?.isNotEmpty ?? false))
@@ -1854,24 +1884,36 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
                 onLast: () => _setSelectedWaypoint(
                     _weatherRoutingService!.currentResult!.coords.length - 1),
                 onClose: () => _setSelectedWaypoint(null),
+                onClearRoute: () {
+                  _setSelectedWaypoint(null);
+                  _weatherRoutingService?.clearResult();
+                },
               ),
             ),
-          // On-map legend stack — renders compact cards near the
-          // bottom of the chart for every layer whose "On map" toggle
-          // is on AND that's currently visible at the effective zoom.
-          // Offset clears the scale bar (~y=64..92 from bottom) and
-          // the freshness chip (~y=52 text / 8 none). Visual HUD
-          // pushes the whole bottom block up so legends sit above it.
-          if (_weatherDataService != null && _mapReady)
+          // Pre-compute End-pin popover. Only renders when no route
+          // exists (so it doesn't compete with the waypoint card) and
+          // the user has tapped the End pin.
+          if (_weatherRoutingEnabled &&
+              _endPinComposeOpen &&
+              _weatherRoutingService != null &&
+              _weatherRoutingService!.plannedEnd != null &&
+              (_weatherRoutingService?.currentResult == null ||
+                  _weatherRoutingService!.currentResult!.isEmpty))
             Positioned(
               left: 8,
               right: 8,
-              bottom: _hudStyle == 'visual' ? 210 : 100,
-              child: _OnMapLegendStack(
-                service: _weatherDataService!,
-                entries: _onMapLegendEntries(),
-                mapController: _mapController,
-                initialZoom: _mapController.camera.zoom,
+              bottom: _hudStyle == 'visual' ? 200 : (_hudStyle == 'text' ? 62 : 16),
+              child: _EndPinComposePopover(
+                onCompute: () {
+                  setState(() => _endPinComposeOpen = false);
+                  _showWeatherRoutingSheet(context, autoSubmit: true);
+                },
+                onClearRoute: () {
+                  setState(() => _endPinComposeOpen = false);
+                  _weatherRoutingService?.clearResult();
+                },
+                onClose: () =>
+                    setState(() => _endPinComposeOpen = false),
               ),
             ),
           Positioned(
@@ -1997,7 +2039,7 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
     );
   }
 
-  void _showWeatherRoutingSheet(BuildContext ctx) {
+  void _showWeatherRoutingSheet(BuildContext ctx, {bool autoSubmit = false}) {
     showWeatherRoutingSheet(
       ctx,
       vesselPosition: (_ownLat != null && _ownLon != null)
@@ -2006,7 +2048,23 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
       defaultMode: _weatherRouteDefaultMode,
       defaultPolar: _weatherRoutePolar,
       onFocusWaypoint: _focusWeatherRouteWaypoint,
+      autoSubmit: autoSubmit,
     );
+  }
+
+  /// End-pin tap handler. Only meaningful when no route is currently
+  /// computed — otherwise the post-compute waypoint popover (opened
+  /// via map-tap hit-test) already owns this location.
+  void _onEndPinTap() {
+    final svc = _weatherRoutingService;
+    if (svc == null) return;
+    if (svc.currentResult != null && svc.currentResult!.isNotEmpty) {
+      // Route exists: don't show the compose popover. The user can
+      // tap the End waypoint ring (same location) to get the waypoint
+      // card, or clear the route first.
+      return;
+    }
+    setState(() => _endPinComposeOpen = !_endPinComposeOpen);
   }
 
   void _focusWeatherRouteWaypoint(int index) {
@@ -2173,9 +2231,18 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
           point: LatLng(s.lat, s.lon),
           size: const Size(44, 44),
           rotateMarker: false,
-          onDragEnd: (details, latLng) {
+          // Live-follow drag like the ruler handles. Moving the start
+          // invalidates any computed result, so clear it — the user is
+          // about to recompute against a different leg.
+          onDragUpdate: (details, latLng) {
             service.plannedStart =
                 LatLon(lat: latLng.latitude, lon: latLng.longitude);
+          },
+          onDragEnd: (details, latLng) {
+            if (service.currentResult != null) {
+              _setSelectedWaypoint(null);
+              service.clearResult();
+            }
           },
           builder: (_, _, _) => _weatherRoutePinVisual(
               fill: const Color(0xFF4CAF50), label: 'S'),
@@ -2187,10 +2254,17 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
           point: LatLng(e.lat, e.lon),
           size: const Size(44, 44),
           rotateMarker: false,
-          onDragEnd: (details, latLng) {
+          onDragUpdate: (details, latLng) {
             service.plannedEnd =
                 LatLon(lat: latLng.latitude, lon: latLng.longitude);
           },
+          onDragEnd: (details, latLng) {
+            if (service.currentResult != null) {
+              _setSelectedWaypoint(null);
+              service.clearResult();
+            }
+          },
+          onTap: (_) => _onEndPinTap(),
           builder: (_, _, _) => _weatherRoutePinVisual(
               fill: const Color(0xFFF44336), label: 'E'),
         ));
@@ -5057,6 +5131,7 @@ class _WeatherWaypointPopover extends StatelessWidget {
     required this.onFirst,
     required this.onLast,
     required this.onClose,
+    required this.onClearRoute,
   });
 
   final WeatherRouteResult result;
@@ -5066,6 +5141,7 @@ class _WeatherWaypointPopover extends StatelessWidget {
   final VoidCallback onFirst;
   final VoidCallback onLast;
   final VoidCallback onClose;
+  final VoidCallback onClearRoute;
 
   @override
   Widget build(BuildContext context) {
@@ -5157,7 +5233,134 @@ class _WeatherWaypointPopover extends StatelessWidget {
                 onTap: () {},
               ),
             ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: onClearRoute,
+                      icon: const Icon(Icons.delete_outline,
+                          color: Colors.redAccent, size: 16),
+                      label: const Text(
+                        'Clear route',
+                        style: TextStyle(
+                          color: Colors.redAccent,
+                          fontSize: 12,
+                        ),
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        side: const BorderSide(color: Colors.redAccent),
+                        padding: const EdgeInsets.symmetric(vertical: 6),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Pre-compute floating card shown when the user taps the End pin
+/// with no route yet computed. Offers a direct "Compute route" action
+/// and a "Clear route" escape hatch that mirrors the post-compute
+/// waypoint popover.
+class _EndPinComposePopover extends StatelessWidget {
+  const _EndPinComposePopover({
+    required this.onCompute,
+    required this.onClearRoute,
+    required this.onClose,
+  });
+
+  final VoidCallback onCompute;
+  final VoidCallback onClearRoute;
+  final VoidCallback onClose;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: Container(
+        decoration: BoxDecoration(
+          color: AppColors.cardBackgroundDark,
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x88000000),
+              blurRadius: 12,
+              offset: Offset(0, 4),
+            ),
+          ],
+          border: Border.all(color: const Color(0xFF2A2A44)),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 8, 4, 12),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                children: [
+                  const Icon(Icons.flag, color: Color(0xFFF44336), size: 18),
+                  const SizedBox(width: 8),
+                  const Expanded(
+                    child: Text(
+                      'End waypoint',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'Close',
+                    icon: const Icon(Icons.close,
+                        color: Colors.white54, size: 20),
+                    onPressed: onClose,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: FilledButton.icon(
+                        onPressed: onCompute,
+                        icon: const Icon(Icons.play_arrow, size: 18),
+                        label: const Text('Compute route'),
+                        style: FilledButton.styleFrom(
+                          backgroundColor: AppColors.infoBlue,
+                          padding: const EdgeInsets.symmetric(vertical: 10),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    OutlinedButton.icon(
+                      onPressed: onClearRoute,
+                      icon: const Icon(Icons.delete_outline,
+                          color: Colors.redAccent, size: 16),
+                      label: const Text(
+                        'Clear',
+                        style: TextStyle(color: Colors.redAccent, fontSize: 12),
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        side: const BorderSide(color: Colors.redAccent),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 10),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -5222,13 +5425,22 @@ class _LegendBar extends StatelessWidget {
   final WeatherLayerMetadata metadata;
   final PathMetadata? pathMetadata;
 
+  // The server labels unitless scales (e.g. roughness index) as
+  // "dimensionless". That word reads as noise next to the number, so
+  // we treat it the same as no unit and drop it from heading + ticks.
+  static bool _isUnitless(String? s) {
+    if (s == null) return true;
+    final t = s.trim();
+    return t.isEmpty || t.toLowerCase() == 'dimensionless';
+  }
+
   String _formatValue(double siValue) {
-    if (pathMetadata != null) {
+    if (pathMetadata != null && !_isUnitless(pathMetadata!.symbol)) {
       return pathMetadata!.format(siValue, decimals: 1);
     }
-    final units = metadata.valueUnits;
     final v = siValue.toStringAsFixed(1);
-    return units.isEmpty ? v : '$v $units';
+    final units = metadata.valueUnits;
+    return _isUnitless(units) ? v : '$v $units';
   }
 
   String _legendHeading() {
@@ -5239,7 +5451,7 @@ class _LegendBar extends StatelessWidget {
     // labels agree.
     final cleaned =
         serverTitle.replaceAll(RegExp(r'\s*\([^)]*\)\s*$'), '').trim();
-    if (symbol.isEmpty) return cleaned;
+    if (_isUnitless(symbol)) return cleaned;
     return '$cleaned ($symbol)';
   }
 
