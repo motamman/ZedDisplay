@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -10,6 +13,7 @@ import '../../models/weather_route_result.dart';
 import '../../services/route_planner_auth_service.dart';
 import '../../services/route_planner_boats_service.dart';
 import '../../services/signalk_service.dart';
+import '../../services/storage_service.dart';
 import '../../services/weather_routing_service.dart';
 import 'boat_picker_sheet.dart';
 import 'weather_routing_itinerary_card.dart';
@@ -42,9 +46,13 @@ void showWeatherRoutingSheet(
     builder: (sheetCtx) => DraggableScrollableSheet(
       initialChildSize: 0.55,
       maxChildSize: 0.92,
-      minChildSize: 0.25,
+      // `minChildSize` low + `shouldCloseOnMinExtent: true` makes
+      // dragging the sheet all the way down dismiss it, matching
+      // standard bottom-sheet UX.
+      minChildSize: 0.15,
       snap: true,
-      snapSizes: const [0.25, 0.55, 0.92],
+      snapSizes: const [0.55, 0.92],
+      shouldCloseOnMinExtent: true,
       builder: (_, scrollController) => _WeatherRoutingSheet(
         scrollController: scrollController,
         vesselPosition: vesselPosition,
@@ -225,17 +233,74 @@ class _ComposeTabState extends State<_ComposeTab> {
   // a saved token.
   bool _authExpanded = false;
 
+  // Routing tolerances — ranges + defaults mirror the web UI at
+  // `routePlanning/ui/route-planner.html`. Values here are in the
+  // display units shown on the slider labels (kts, min, m, cells);
+  // conversion to SI happens once at submit time.
+  double _sailThreshKts = 5.0;     // 0..10, step 0.5 — sail-only
+  double _tackPenaltyS = 30;       // 0..120, step 5 — sail-only
+  double _isoStepMin = 15;         // 5..60, step 5
+  int _landBufferCells = 24;       // 1..100, step 1
+  double _underKeelClearanceM = 0.5; // 0..3, step 0.1
+  double _shoreStepM = 10;         // 5..200, step 5
+  double _simplifyM = 10;          // 0..100, step 5
+  bool _advancedOpen = false;
+
+  static const String _prefsKey = 'weather_routing_tolerances';
+
   @override
   void initState() {
     super.initState();
     _tokenCtrl.text =
         context.read<RoutePlannerAuthService>().token ?? '';
+    _loadTolerances();
   }
 
   @override
   void dispose() {
     _tokenCtrl.dispose();
     super.dispose();
+  }
+
+  void _loadTolerances() {
+    try {
+      final raw = context.read<StorageService>().getSetting(_prefsKey);
+      if (raw == null || raw.isEmpty) return;
+      final j = jsonDecode(raw);
+      if (j is! Map<String, dynamic>) return;
+      setState(() {
+        _sailThreshKts =
+            (j['sailThreshKts'] as num?)?.toDouble() ?? _sailThreshKts;
+        _tackPenaltyS =
+            (j['tackPenaltyS'] as num?)?.toDouble() ?? _tackPenaltyS;
+        _isoStepMin =
+            (j['isoStepMin'] as num?)?.toDouble() ?? _isoStepMin;
+        _landBufferCells =
+            (j['landBufferCells'] as num?)?.toInt() ?? _landBufferCells;
+        _underKeelClearanceM =
+            (j['underKeelClearanceM'] as num?)?.toDouble() ??
+                _underKeelClearanceM;
+        _shoreStepM =
+            (j['shoreStepM'] as num?)?.toDouble() ?? _shoreStepM;
+        _simplifyM = (j['simplifyM'] as num?)?.toDouble() ?? _simplifyM;
+      });
+    } catch (_) {/* ignore */}
+  }
+
+  void _saveTolerances() {
+    try {
+      final storage = context.read<StorageService>();
+      final payload = jsonEncode({
+        'sailThreshKts': _sailThreshKts,
+        'tackPenaltyS': _tackPenaltyS,
+        'isoStepMin': _isoStepMin,
+        'landBufferCells': _landBufferCells,
+        'underKeelClearanceM': _underKeelClearanceM,
+        'shoreStepM': _shoreStepM,
+        'simplifyM': _simplifyM,
+      });
+      unawaited(storage.saveSetting(_prefsKey, payload));
+    } catch (_) {/* ignore */}
   }
 
   Future<void> _pickDeparture() async {
@@ -367,6 +432,8 @@ class _ComposeTabState extends State<_ComposeTab> {
             onPressed: _pickDeparture,
           ),
         ),
+        const SizedBox(height: 12),
+        _advancedSection(),
         const SizedBox(height: 16),
         const Divider(color: Colors.white12),
         const SizedBox(height: 8),
@@ -450,6 +517,9 @@ class _ComposeTabState extends State<_ComposeTab> {
       }
     }
 
+    // Tolerances — converted from display units to SI on the way out.
+    // `ow_step` isn't user-tunable per the web UI; server default kicks
+    // in when we leave it null.
     final req = WeatherRouteRequest(
       start: start,
       end: service.plannedEnd!,
@@ -458,6 +528,13 @@ class _ComposeTabState extends State<_ComposeTab> {
       polar: polarOverride,
       vessel: vesselOverride,
       boatId: boatId,
+      sailThresh: _sailThreshKts * 0.514444,       // kts → m/s
+      tackPenalty: _tackPenaltyS,                  // s
+      isoStep: _isoStepMin * 60.0,                 // min → s
+      landBuffer: _landBufferCells,                // cells
+      underKeelClearance: _underKeelClearanceM,    // m
+      shoreStep: _shoreStepM,                      // m
+      simplify: _simplifyM,                        // m
     );
     await service.submitRoute(req);
   }
@@ -581,6 +658,168 @@ class _ComposeTabState extends State<_ComposeTab> {
           ],
         ),
       ],
+    );
+  }
+
+  /// Collapsible "Advanced" section with the seven per-request
+  /// routing tolerances. Sliders only — matches the web UI's range
+  /// picker at `routePlanning/ui/route-planner.html:251-310`.
+  /// Values persist client-side via `StorageService`; they're sent
+  /// as top-level fields on `POST /route`, not stored on the server.
+  Widget _advancedSection() {
+    final isSail = _mode != RouteMode.motor;
+    return Theme(
+      data: Theme.of(context).copyWith(
+        dividerColor: Colors.transparent,
+      ),
+      child: ExpansionTile(
+        tilePadding: EdgeInsets.zero,
+        initiallyExpanded: _advancedOpen,
+        onExpansionChanged: (v) => setState(() => _advancedOpen = v),
+        title: const Text(
+          'Advanced',
+          style: TextStyle(
+            color: Colors.white70,
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+            letterSpacing: 0.5,
+          ),
+        ),
+        iconColor: Colors.white54,
+        collapsedIconColor: Colors.white54,
+        childrenPadding: const EdgeInsets.only(bottom: 8),
+        children: [
+          if (isSail) ...[
+            _slider(
+              label: 'Min sail speed',
+              value: _sailThreshKts,
+              min: 0,
+              max: 10,
+              divisions: 20,
+              unit: 'kts',
+              decimals: 1,
+              onChanged: (v) => setState(() => _sailThreshKts = v),
+            ),
+            _slider(
+              label: 'Tack penalty',
+              value: _tackPenaltyS,
+              min: 0,
+              max: 120,
+              divisions: 24,
+              unit: 's',
+              decimals: 0,
+              onChanged: (v) => setState(() => _tackPenaltyS = v),
+            ),
+          ],
+          _slider(
+            label: 'Isochrone step',
+            value: _isoStepMin,
+            min: 5,
+            max: 60,
+            divisions: 11,
+            unit: 'min',
+            decimals: 0,
+            onChanged: (v) => setState(() => _isoStepMin = v),
+          ),
+          _slider(
+            label: 'Land buffer',
+            value: _landBufferCells.toDouble(),
+            min: 1,
+            max: 100,
+            divisions: 99,
+            unit: 'cells',
+            decimals: 0,
+            onChanged: (v) =>
+                setState(() => _landBufferCells = v.round()),
+          ),
+          _slider(
+            label: 'Under-keel clearance',
+            value: _underKeelClearanceM,
+            min: 0,
+            max: 3,
+            divisions: 30,
+            unit: 'm',
+            decimals: 1,
+            onChanged: (v) => setState(() => _underKeelClearanceM = v),
+          ),
+          _slider(
+            label: 'Shore step',
+            value: _shoreStepM,
+            min: 5,
+            max: 200,
+            divisions: 39,
+            unit: 'm',
+            decimals: 0,
+            onChanged: (v) => setState(() => _shoreStepM = v),
+          ),
+          _slider(
+            label: 'Simplify',
+            value: _simplifyM,
+            min: 0,
+            max: 100,
+            divisions: 20,
+            unit: 'm',
+            decimals: 0,
+            onChanged: (v) => setState(() => _simplifyM = v),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _slider({
+    required String label,
+    required double value,
+    required double min,
+    required double max,
+    required int divisions,
+    required String unit,
+    required int decimals,
+    required ValueChanged<double> onChanged,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  label,
+                  style: const TextStyle(
+                      color: Colors.white70, fontSize: 12),
+                ),
+              ),
+              Text(
+                '${value.toStringAsFixed(decimals)} $unit',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 12,
+                  fontFamily: 'Menlo',
+                ),
+              ),
+            ],
+          ),
+          SliderTheme(
+            data: SliderTheme.of(context).copyWith(
+              trackHeight: 2,
+              thumbShape:
+                  const RoundSliderThumbShape(enabledThumbRadius: 7),
+              overlayShape:
+                  const RoundSliderOverlayShape(overlayRadius: 14),
+            ),
+            child: Slider(
+              value: value.clamp(min, max),
+              min: min,
+              max: max,
+              divisions: divisions,
+              onChanged: onChanged,
+              onChangeEnd: (_) => _saveTolerances(),
+            ),
+          ),
+        ],
+      ),
     );
   }
 

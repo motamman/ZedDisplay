@@ -30,17 +30,33 @@ class WeatherRouteColors {
   static const windArrow = Color(0xFF1565C0);
 }
 
-/// Classifies a waypoint's incoming leg so the painter (and itinerary
-/// card) can colour it. Mirrors the logic at route-planner.html:505-510.
+/// Classifies the leg **departing** a waypoint so each waypoint is
+/// coloured by the tack it's about to start, not the tack that just
+/// ended at it.
+///
+/// Matches `route-planner.html:505-510`'s `next_*` convention:
+/// waypoint i's "next cog/wind" are the values sampled at waypoint
+/// i+1 (the course the vessel is taking to reach i+1, and the wind
+/// there). This is how the web UI colours the on-map waypoint ring
+/// and the itinerary-card accent. The server rarely populates
+/// `outgoing_cog_deg`, so using wp[i]'s own fields would collapse to
+/// the arriving leg — producing the "turning from port to starboard
+/// is shown as port" glitch.
 enum WeatherRouteLegKind { starboardTack, portTack, motoring, arrival }
 
 WeatherRouteLegKind legKindAt(List<WeatherRouteWaypoint> wps, int i) {
   if (i < 0 || i >= wps.length) return WeatherRouteLegKind.motoring;
   if (i == wps.length - 1) return WeatherRouteLegKind.arrival;
   final wp = wps[i];
-  if (wp.isMotoring) return WeatherRouteLegKind.motoring;
-  final cog = wp.cogDeg;
-  final wind = wp.windDirDeg;
+  final next = wps[i + 1];
+  if (next.isMotoring) return WeatherRouteLegKind.motoring;
+  // COG for the leg wp→next: prefer wp's own `outgoing_cog_deg` when
+  // the server provides it; otherwise use next's `cog_deg` (= the
+  // incoming bearing at next, which is the same physical leg).
+  // Wind: sampled at `next` per the web UI's `next_wind` semantics,
+  // with wp's wind as a safety fallback.
+  final cog = wp.outgoingCogDeg ?? next.cogDeg;
+  final wind = next.windDirDeg ?? wp.windDirDeg;
   if (cog == null || wind == null) return WeatherRouteLegKind.motoring;
   final rel = ((cog - wind) % 360 + 360) % 360;
   return rel <= 180
@@ -126,15 +142,15 @@ class WeatherRoutePainter extends CustomPainter {
     final points = coords.map(project).toList(growable: false);
 
     // Precompute a leg kind per segment. Segment i goes from point[i] to
-    // point[i+1]; we colour it using the leg kind of the starting waypoint
-    // (or the arrival colour for the final segment).
+    // point[i+1]; each segment is coloured by the tack of the leg
+    // departing point[i], matching route-planner.html's per-segment
+    // style function. The final waypoint's ring gets the arrival colour
+    // via `kindAt` below — the segment itself keeps its tack colour.
     final legKinds = List<WeatherRouteLegKind>.generate(
       points.length - 1,
-      (i) {
-        if (i == points.length - 2) return WeatherRouteLegKind.arrival;
-        if (i >= wps.length) return WeatherRouteLegKind.motoring;
-        return legKindAt(wps, i);
-      },
+      (i) => (i >= wps.length - 1)
+          ? WeatherRouteLegKind.motoring
+          : legKindAt(wps, i),
       growable: false,
     );
 
@@ -207,7 +223,16 @@ class WeatherRoutePainter extends CustomPainter {
       // have matching waypoint metadata (LineString geometry can be
       // simplified to fewer points than waypoints in edge cases).
       if (i < wps.length) {
-        _paintVesselChevron(canvas, points[i], wps[i], kind);
+        // Chevron points along the OUTGOING leg (where the vessel is
+        // about to go), not the incoming leg. Server's `cog_deg` at
+        // wps[i+1] is the haversine bearing from wps[i] → wps[i+1],
+        // which IS the outgoing direction from wps[i]. For the last
+        // waypoint (no outgoing leg) fall back to its own cog so the
+        // arrival marker still points sensibly.
+        final outgoingCog = (i + 1 < wps.length)
+            ? wps[i + 1].cogDeg
+            : wps[i].cogDeg;
+        _paintVesselChevron(canvas, points[i], outgoingCog, kind);
         _paintWindArrow(canvas, points[i], wps[i]);
       }
 
@@ -282,10 +307,9 @@ class WeatherRoutePainter extends CustomPainter {
   void _paintVesselChevron(
     Canvas canvas,
     Offset centre,
-    WeatherRouteWaypoint wp,
+    double? cogDeg,
     WeatherRouteLegKind kind,
   ) {
-    final cogDeg = wp.outgoingCogDeg ?? wp.cogDeg;
     if (cogDeg == null) return;
     final rot = _deg2screenRad(cogDeg);
     canvas.save();

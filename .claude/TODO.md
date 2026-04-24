@@ -44,6 +44,7 @@
 - [ ] Chart plotter: check the depths show the metadata units for depth
 - [ ] Chart plotter: refine zooming and panning evictions and debouncing
 - [ ] Chart Plotter V3: wire a MetadataStore listener so depth unit changes apply without reloading the chart
+- [ ] 59 packages have newer versions incompatible with dependency constraints. Try `flutter pub outdated` for more information.
 
 ## Widget Inventory — AIS Context Status
 
