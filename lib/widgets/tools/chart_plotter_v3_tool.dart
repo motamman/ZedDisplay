@@ -3830,12 +3830,49 @@ class _FeatureCard extends StatelessWidget {
     return s;
   }
 
+  /// Picks the card title: prefer a real name (OBJNAM > NOBJNM) so
+  /// named objects like "New London Ledge Light" read as the primary
+  /// identity; fall back to the class display name for unnamed ones.
+  /// Returns `(title, keyUsedAsTitle)` so the row loop can skip the
+  /// attribute it promoted.
+  ({String title, String? usedKey}) _pickTitle(Map<String, Object?> props) {
+    for (final key in const ['OBJNAM', 'NOBJNM']) {
+      final formatted = _format(key, props[key]);
+      if (formatted.isNotEmpty) return (title: formatted, usedKey: key);
+    }
+    return (
+      title: _objectClassNames[member.layer] ?? member.layer,
+      usedKey: null,
+    );
+  }
+
+  Widget _propertyRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 100,
+            child: Text(label,
+                style: const TextStyle(color: Colors.white54, fontSize: 13)),
+          ),
+          Expanded(
+            child: Text(value,
+                style: const TextStyle(color: Colors.white, fontSize: 13)),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final props = member.properties;
+    final titlePick = _pickTitle(props);
     final rows = <Widget>[
       Text(
-        _objectClassNames[member.layer] ?? member.layer,
+        titlePick.title,
         style: const TextStyle(
           color: Colors.white,
           fontWeight: FontWeight.bold,
@@ -3844,30 +3881,21 @@ class _FeatureCard extends StatelessWidget {
       ),
       const SizedBox(height: 6),
     ];
+    // If the title came from a name attribute, surface the S-57
+    // class as an "Object" row so the reader still knows what kind
+    // of feature this is. "Object" avoids collision with CATWRK /
+    // CATOBS which already use the "Type" label.
+    if (titlePick.usedKey != null) {
+      final className = _objectClassNames[member.layer] ?? member.layer;
+      rows.add(_propertyRow('Object', className));
+    }
     for (final key in _displayOrder) {
+      if (key == titlePick.usedKey) continue;
       if (!props.containsKey(key)) continue;
       final display = _format(key, props[key]);
       if (display.isEmpty) continue;
       final label = _attributeLabels[key] ?? key;
-      rows.add(Padding(
-        padding: const EdgeInsets.symmetric(vertical: 2),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            SizedBox(
-              width: 100,
-              child: Text(label,
-                  style:
-                      const TextStyle(color: Colors.white54, fontSize: 13)),
-            ),
-            Expanded(
-              child: Text(display,
-                  style:
-                      const TextStyle(color: Colors.white, fontSize: 13)),
-            ),
-          ],
-        ),
-      ));
+      rows.add(_propertyRow(label, display));
     }
     return Card(
       color: const Color(0xFF2A2A3E),
