@@ -1309,10 +1309,12 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
-      // Constrain to ~half the screen so the map above stays tappable
-      // without the sheet trying to grow into it.
+      // Constrain so the map above stays tappable. Portrait keeps the
+      // familiar half-screen; landscape is tight on vertical real
+      // estate, so the sheet caps at 1/5 of the viewport and the
+      // inner ListView takes care of scrolling.
       constraints: BoxConstraints(
-        maxHeight: MediaQuery.of(context).size.height * 0.5,
+        maxHeight: _popoverMaxHeight(context),
       ),
       builder: (sheetCtx) => SafeArea(
         top: false,
@@ -2522,25 +2524,46 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
   void _showLayerSheet(BuildContext ctx) {
     showModalBottomSheet(
       context: ctx,
-      backgroundColor: AppColors.cardBackgroundDark,
+      backgroundColor: Colors.transparent,
       isScrollControlled: true,
-      builder: (sheetCtx) => StatefulBuilder(
-        builder: (sbCtx, sbSetState) => SafeArea(
-          child: Padding(
-            padding: EdgeInsets.only(
-              bottom: MediaQuery.of(sheetCtx).viewInsets.bottom,
+      // DraggableScrollableSheet lets the user flick the sheet all the
+      // way down to dismiss it, matching the Weather Routing sheet.
+      // `shouldCloseOnMinExtent: true` pairs with a low `minChildSize`
+      // so releasing past the bottom snap triggers pop().
+      builder: (sheetCtx) => DraggableScrollableSheet(
+        initialChildSize: 0.75,
+        maxChildSize: 0.92,
+        minChildSize: 0.15,
+        snap: true,
+        snapSizes: const [0.75, 0.92],
+        shouldCloseOnMinExtent: true,
+        builder: (_, scrollController) => StatefulBuilder(
+          builder: (sbCtx, sbSetState) => Container(
+            decoration: const BoxDecoration(
+              color: AppColors.cardBackgroundDark,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
             ),
-            // Cap the sheet to 85% of viewport; long layer lists with
-            // expanded legends + freshness + zoom + map toggle used to
-            // run off the bottom of the screen. Scroll inside the cap.
-            child: ConstrainedBox(
-              constraints: BoxConstraints(
-                maxHeight: MediaQuery.sizeOf(sheetCtx).height * 0.85,
-              ),
-              child: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
+            child: SafeArea(
+              top: false,
+              child: Padding(
+                padding: EdgeInsets.only(
+                  bottom: MediaQuery.of(sheetCtx).viewInsets.bottom,
+                ),
+                child: ListView(
+                  controller: scrollController,
                   children: [
+                    // Handle — visual affordance for the drag gesture.
+                    Center(
+                      child: Container(
+                        width: 40,
+                        height: 4,
+                        margin: const EdgeInsets.only(top: 8, bottom: 4),
+                        decoration: BoxDecoration(
+                          color: Colors.white24,
+                          borderRadius: BorderRadius.circular(2),
+                        ),
+                      ),
+                    ),
                     const Padding(
                       padding: EdgeInsets.fromLTRB(16, 12, 16, 4),
                       child: Align(
@@ -3971,6 +3994,16 @@ class _FeatureCard extends StatelessWidget {
   }
 }
 
+/// Shared popover height cap. In landscape the vertical real estate
+/// is tight — bottom-anchored sheets and waypoint/end-pin popovers
+/// should never cover more than 1/5 of the screen so the map above
+/// stays usable. In portrait we keep the roomier half-screen feel.
+double _popoverMaxHeight(BuildContext context) {
+  final size = MediaQuery.sizeOf(context);
+  final landscape = size.width > size.height;
+  return size.height * (landscape ? 0.2 : 0.5);
+}
+
 class _TapHaloLayer extends StatelessWidget {
   const _TapHaloLayer({required this.point});
   final LatLng point;
@@ -5258,7 +5291,9 @@ class _WeatherWaypointPopover extends StatelessWidget {
 
     return Material(
       color: Colors.transparent,
-      child: Container(
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxHeight: _popoverMaxHeight(context)),
+        child: Container(
         decoration: BoxDecoration(
           color: AppColors.cardBackgroundDark,
           borderRadius: BorderRadius.circular(16),
@@ -5271,7 +5306,8 @@ class _WeatherWaypointPopover extends StatelessWidget {
           ],
           border: Border.all(color: const Color(0xFF2A2A44)),
         ),
-        child: Column(
+        child: SingleChildScrollView(
+          child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             // Header — nav buttons.
@@ -5360,6 +5396,8 @@ class _WeatherWaypointPopover extends StatelessWidget {
               ),
             ),
           ],
+          ),
+        ),
         ),
       ),
     );
@@ -5385,7 +5423,9 @@ class _EndPinComposePopover extends StatelessWidget {
   Widget build(BuildContext context) {
     return Material(
       color: Colors.transparent,
-      child: Container(
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxHeight: _popoverMaxHeight(context)),
+        child: Container(
         decoration: BoxDecoration(
           color: AppColors.cardBackgroundDark,
           borderRadius: BorderRadius.circular(16),
@@ -5398,6 +5438,7 @@ class _EndPinComposePopover extends StatelessWidget {
           ],
           border: Border.all(color: const Color(0xFF2A2A44)),
         ),
+        child: SingleChildScrollView(
         child: Padding(
           padding: const EdgeInsets.fromLTRB(12, 8, 4, 12),
           child: Column(
@@ -5462,6 +5503,8 @@ class _EndPinComposePopover extends StatelessWidget {
               ),
             ],
           ),
+        ),
+        ),
         ),
       ),
     );

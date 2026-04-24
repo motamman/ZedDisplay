@@ -16,7 +16,12 @@ class WeatherRouteColors {
 
   static const starboardTack = Color(0xFF2E7D32);
   static const portTack = Color(0xFFD32F2F);
-  static const motoring = Color(0xFF000000);
+  // Amber `#FFCC44` matches the web UI (`color = '#fc4'` in
+  // route-planner.html:1059) and the MOTORING badge foreground in
+  // WeatherRoutingItineraryCard._badgeColors, so the chart leg,
+  // waypoint ring, chevron and card accent all render in the same
+  // colour — mirroring how starboard/port sailing is styled.
+  static const motoring = Color(0xFFFFCC44);
   static const arrival = Color(0xFF8888FF);
 
   static const startFill = Color(0xFF4CAF50);
