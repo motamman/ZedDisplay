@@ -143,6 +143,12 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
   // Ruler state. Matches V1's model: two endpoints (red + blue) that
   // can each snap to the own vessel ('self') or an AIS vessel id, and
   // reposition automatically when their snap target moves.
+  // Manual declutter toggle. When true, forces sounding-label
+  // decimation at every zoom; when false, the painter still applies
+  // the zoom > 11 auto-cutoff so closely-packed labels are thinned
+  // at high detail without the user having to press anything.
+  bool _declutter = false;
+
   bool _rulerVisible = false;
   LatLng? _rulerRed;
   LatLng? _rulerBlue;
@@ -1752,6 +1758,7 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
                     spriteAtlas: _spriteAtlas!,
                     spriteImage: _spriteImage!,
                     hiddenClasses: _hiddenClasses,
+                    declutter: _declutter,
                   ),
                 ),
               // Weather raster tiles sit under the vector overlays +
@@ -1932,6 +1939,7 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
               autoFollow: _autoFollow,
               viewMode: _viewMode,
               rulerVisible: _rulerVisible,
+              declutter: _declutter,
               aisEnabled: _aisEnabled,
               aisActiveOnly: _aisActiveOnly,
               aisShowPaths: _aisShowPaths,
@@ -1957,6 +1965,8 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
               },
               onToggleViewMode: _toggleViewMode,
               onToggleRuler: _toggleRuler,
+              onToggleDeclutter: () =>
+                  setState(() => _declutter = !_declutter),
               onToggleAis: () {
                 setState(() {
                   _aisEnabled = !_aisEnabled;
@@ -2983,6 +2993,7 @@ class _S57OverlayLayer extends StatelessWidget {
     required this.spriteAtlas,
     required this.spriteImage,
     this.hiddenClasses = const <String>{},
+    this.declutter = false,
   });
   final Map<S57TileKey, S57ParsedTile> tileCache;
   final int generation;
@@ -2990,6 +3001,7 @@ class _S57OverlayLayer extends StatelessWidget {
   final SpriteAtlas spriteAtlas;
   final ui.Image spriteImage;
   final Set<String> hiddenClasses;
+  final bool declutter;
 
   @override
   Widget build(BuildContext context) {
@@ -3004,6 +3016,7 @@ class _S57OverlayLayer extends StatelessWidget {
           spriteAtlas: spriteAtlas,
           spriteImage: spriteImage,
           hiddenClasses: hiddenClasses,
+          declutter: declutter,
         ),
         size: Size.infinite,
       ),
@@ -3020,6 +3033,7 @@ class _S57Painter extends CustomPainter {
     required this.spriteAtlas,
     required this.spriteImage,
     this.hiddenClasses = const <String>{},
+    this.declutter = false,
   });
   final MapCamera camera;
   final Map<S57TileKey, S57ParsedTile> tiles;
@@ -3034,6 +3048,10 @@ class _S57Painter extends CustomPainter {
   // Features whose `objectClass` is in this set are skipped in the
   // draw pass — the geometry still lives in the parsed tile cache.
   final Set<String> hiddenClasses;
+  // User-forced declutter. When true, sounding-label decimation runs
+  // at every zoom; otherwise the auto-cutoff at zoom > 11 still
+  // fires.
+  final bool declutter;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -3059,6 +3077,14 @@ class _S57Painter extends CustomPainter {
         return a.key.z.compareTo(b.key.z);
       });
 
+    // Sounding declutter state — reset every frame. At z > 11 the
+    // server emits densely-packed spot soundings; we keep only one
+    // label per ~40 px screen radius so the chart stays readable.
+    // Below z=12 the natural density is manageable, so we skip the
+    // filter and draw every sounding as before.
+    _drawnSoundings.clear();
+    _soundingDeclutterActive = declutter || camera.zoom > 11;
+
     // Three passes by geometry kind — polygons (area fills + patterns)
     // on the bottom, lines in the middle, points on top. This
     // approximates S-52's priority bands (group1 areas → line symbols
@@ -3075,6 +3101,14 @@ class _S57Painter extends CustomPainter {
       }
     }
   }
+
+  // Drawn-sounding positions in screen-pixel space, populated during
+  // a single paint pass. Mutated as we walk SOUNDG features to skip
+  // any whose anchor sits within `_soundingMinSpacing` of an already-
+  // placed label.
+  final List<Offset> _drawnSoundings = [];
+  bool _soundingDeclutterActive = false;
+  static const double _soundingMinSpacing = 40.0;
 
   static const _paintOrder = [
     S57GeomKind.polygon,
@@ -3160,7 +3194,32 @@ class _S57Painter extends CustomPainter {
         // depth soundings. Kept on the canvas because soundings are
         // core navigation info; everything else (object names,
         // formatted descriptions) is suppressed below to declutter.
-        _paintText(canvas, instruction.text, f.geometry.points, project);
+        if (f.objectClass == 'SOUNDG' && _soundingDeclutterActive) {
+          // Declutter: keep only soundings whose anchor sits at least
+          // `_soundingMinSpacing` pixels from every already-placed
+          // label. First-come-first-served within the current paint
+          // pass; the tile sort order above already prioritises the
+          // active-zoom tiles last, so their labels win ties.
+          final anchors = <LatLng>[];
+          for (final p in f.geometry.points) {
+            final s = project(p);
+            var ok = true;
+            for (final q in _drawnSoundings) {
+              if ((s - q).distanceSquared <
+                  _soundingMinSpacing * _soundingMinSpacing) {
+                ok = false;
+                break;
+              }
+            }
+            if (!ok) continue;
+            _drawnSoundings.add(s);
+            anchors.add(p);
+          }
+          if (anchors.isEmpty) continue;
+          _paintText(canvas, instruction.text, anchors, project);
+        } else {
+          _paintText(canvas, instruction.text, f.geometry.points, project);
+        }
       }
       // Suppressed — attribute-driven labels (S52Text, e.g. OBJNAM
       // buoy/light names) and printf-formatted labels (S52TextFormatted)
@@ -3384,6 +3443,7 @@ class _S57Painter extends CustomPainter {
       old.colorTable != colorTable ||
       old.spriteAtlas != spriteAtlas ||
       old.spriteImage != spriteImage ||
+      old.declutter != declutter ||
       old.hiddenClasses.length != hiddenClasses.length ||
       !old.hiddenClasses.containsAll(hiddenClasses);
 }
@@ -5000,6 +5060,7 @@ class _MapControls extends StatelessWidget {
     required this.autoFollow,
     required this.viewMode,
     required this.rulerVisible,
+    required this.declutter,
     required this.aisEnabled,
     required this.aisActiveOnly,
     required this.aisShowPaths,
@@ -5009,6 +5070,7 @@ class _MapControls extends StatelessWidget {
     required this.onToggleFollow,
     required this.onToggleViewMode,
     required this.onToggleRuler,
+    required this.onToggleDeclutter,
     required this.onToggleAis,
     required this.onToggleAisActive,
     required this.onToggleAisPaths,
@@ -5019,6 +5081,7 @@ class _MapControls extends StatelessWidget {
   final bool autoFollow;
   final _ViewMode viewMode;
   final bool rulerVisible;
+  final bool declutter;
   final bool aisEnabled;
   final bool aisActiveOnly;
   final bool aisShowPaths;
@@ -5028,6 +5091,7 @@ class _MapControls extends StatelessWidget {
   final VoidCallback onToggleFollow;
   final VoidCallback onToggleViewMode;
   final VoidCallback onToggleRuler;
+  final VoidCallback onToggleDeclutter;
   final VoidCallback onToggleAis;
   final VoidCallback onToggleAisActive;
   final VoidCallback onToggleAisPaths;
@@ -5106,6 +5170,15 @@ class _MapControls extends StatelessWidget {
             ),
             tooltip: rulerVisible ? 'Hide ruler' : 'Show ruler',
             onPressed: onToggleRuler,
+          ),
+          IconButton(
+            icon: Icon(
+              declutter ? Icons.filter_list : Icons.filter_list_off,
+              color: Colors.white,
+              size: 20,
+            ),
+            tooltip: declutter ? 'Declutter on' : 'Declutter off',
+            onPressed: onToggleDeclutter,
           ),
           IconButton(
             icon: Icon(
