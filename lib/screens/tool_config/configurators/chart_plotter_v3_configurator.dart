@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../models/tool_config.dart';
 import '../../../models/tool.dart';
+import '../../../models/weather_route_request.dart';
 import '../../../services/chart_tile_cache_service.dart';
 import '../../../services/signalk_service.dart';
 import '../../../widgets/chart_plotter/chart_layer_panel.dart';
@@ -30,6 +31,12 @@ class ChartPlotterV3Configurator extends ToolConfigurator {
   String cacheRefresh = 'stale';
   Set<String> hiddenClasses = <String>{};
 
+  // Weather routing.
+  bool weatherRoutingEnabled = true;
+  String routePlannerBaseUrl = 'https://router.zeddisplay.com';
+  RouteMode weatherRouteDefaultMode = RouteMode.sailMax;
+  String weatherRoutePolar = '';
+
   @override
   void reset() {
     layers = [
@@ -43,6 +50,10 @@ class ChartPlotterV3Configurator extends ToolConfigurator {
     hudPosition = 'bottom';
     cacheRefresh = 'stale';
     hiddenClasses = <String>{};
+    weatherRoutingEnabled = true;
+    routePlannerBaseUrl = 'https://router.zeddisplay.com';
+    weatherRouteDefaultMode = RouteMode.sailMax;
+    weatherRoutePolar = '';
   }
 
   @override
@@ -75,6 +86,12 @@ class ChartPlotterV3Configurator extends ToolConfigurator {
     } else {
       hiddenClasses = <String>{};
     }
+    weatherRoutingEnabled = props['weatherRoutingEnabled'] as bool? ?? true;
+    routePlannerBaseUrl = props['routePlannerBaseUrl'] as String? ??
+        'https://router.zeddisplay.com';
+    weatherRouteDefaultMode =
+        RouteMode.fromWire(props['weatherRouteDefaultMode'] as String?);
+    weatherRoutePolar = props['weatherRoutePolar'] as String? ?? '';
   }
 
   @override
@@ -91,6 +108,10 @@ class ChartPlotterV3Configurator extends ToolConfigurator {
           'hudPosition': hudPosition,
           'cacheRefresh': cacheRefresh,
           'hiddenClasses': hiddenClasses.toList()..sort(),
+          'weatherRoutingEnabled': weatherRoutingEnabled,
+          'routePlannerBaseUrl': routePlannerBaseUrl,
+          'weatherRouteDefaultMode': weatherRouteDefaultMode.wire,
+          'weatherRoutePolar': weatherRoutePolar,
         },
       ),
     );
@@ -254,6 +275,71 @@ class ChartPlotterV3Configurator extends ToolConfigurator {
                   ],
                 );
               }),
+
+              const SizedBox(height: 16),
+              const Divider(),
+              const SizedBox(height: 16),
+
+              // Weather Routing.
+              Text('Weather Routing',
+                  style: Theme.of(context).textTheme.titleSmall),
+              const SizedBox(height: 4),
+              const Text(
+                'Connects to the route-planner API for weather-optimal routes. '
+                'Paste a bearer token in the compose panel after signing in.',
+                style: TextStyle(color: Colors.grey, fontSize: 12),
+              ),
+              const SizedBox(height: 8),
+              SwitchListTile(
+                title: const Text('Enable weather routing'),
+                subtitle: const Text(
+                    'Shows the toolbar button and draws computed routes'),
+                value: weatherRoutingEnabled,
+                onChanged: (v) => setState(() => weatherRoutingEnabled = v),
+              ),
+              if (weatherRoutingEnabled) ...[
+                TextFormField(
+                  initialValue: routePlannerBaseUrl,
+                  decoration: const InputDecoration(
+                    labelText: 'API URL',
+                    hintText: 'https://router.zeddisplay.com',
+                    isDense: true,
+                  ),
+                  onChanged: (v) =>
+                      setState(() => routePlannerBaseUrl = v.trim()),
+                ),
+                const SizedBox(height: 12),
+                const Text('Default routing mode',
+                    style: TextStyle(fontSize: 12, color: Colors.grey)),
+                const SizedBox(height: 4),
+                SegmentedButton<RouteMode>(
+                  segments: const [
+                    ButtonSegment(
+                        value: RouteMode.sailMax,
+                        label: Text('Sail max')),
+                    ButtonSegment(
+                        value: RouteMode.fastest,
+                        label: Text('Fastest')),
+                    ButtonSegment(
+                        value: RouteMode.motor,
+                        label: Text('Motor')),
+                  ],
+                  selected: {weatherRouteDefaultMode},
+                  onSelectionChanged: (v) =>
+                      setState(() => weatherRouteDefaultMode = v.first),
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  initialValue: weatherRoutePolar,
+                  decoration: const InputDecoration(
+                    labelText: 'Polar file (optional)',
+                    hintText: 'e.g. catalina36.csv',
+                    isDense: true,
+                  ),
+                  onChanged: (v) =>
+                      setState(() => weatherRoutePolar = v.trim()),
+                ),
+              ],
 
               const SizedBox(height: 16),
               const Divider(),

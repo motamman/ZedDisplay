@@ -23,6 +23,9 @@ import 'package:zed_display/services/dashboard_store_service.dart';
 import 'package:zed_display/services/chart_tile_cache_service.dart';
 import 'package:zed_display/services/chart_tile_server_service.dart';
 import 'package:zed_display/services/chart_download_manager.dart';
+import 'package:zed_display/services/route_planner_auth_service.dart';
+import 'package:zed_display/services/route_planner_boats_service.dart';
+import 'package:zed_display/services/weather_routing_service.dart';
 
 void main() {
   late StorageService storageService;
@@ -47,6 +50,9 @@ void main() {
   late ChartTileCacheService chartTileCacheService;
   late ChartTileServerService chartTileServerService;
   late ChartDownloadManager chartDownloadManager;
+  late RoutePlannerAuthService routePlannerAuthService;
+  late WeatherRoutingService weatherRoutingService;
+  late RoutePlannerBoatsService routePlannerBoatsService;
 
   setUp(() async {
     // Initialize storage service for tests
@@ -145,6 +151,14 @@ void main() {
         ChartTileServerService(cacheService: chartTileCacheService);
     chartDownloadManager =
         ChartDownloadManager(cacheService: chartTileCacheService);
+
+    // Route planner auth + weather routing (no network in tests)
+    routePlannerAuthService = RoutePlannerAuthService(storageService);
+    weatherRoutingService = WeatherRoutingService(routePlannerAuthService);
+    routePlannerBoatsService = RoutePlannerBoatsService(
+      auth: routePlannerAuthService,
+      storage: storageService,
+    );
   });
 
   tearDown(() async {
@@ -180,6 +194,9 @@ void main() {
       chartTileCacheService: chartTileCacheService,
       chartTileServerService: chartTileServerService,
       chartDownloadManager: chartDownloadManager,
+      routePlannerAuthService: routePlannerAuthService,
+      weatherRoutingService: weatherRoutingService,
+      routePlannerBoatsService: routePlannerBoatsService,
     ));
 
     // Verify that the app launches
@@ -209,6 +226,9 @@ void main() {
       chartTileCacheService: chartTileCacheService,
       chartTileServerService: chartTileServerService,
       chartDownloadManager: chartDownloadManager,
+      routePlannerAuthService: routePlannerAuthService,
+      weatherRoutingService: weatherRoutingService,
+      routePlannerBoatsService: routePlannerBoatsService,
     ));
 
     // Verify services are initialized

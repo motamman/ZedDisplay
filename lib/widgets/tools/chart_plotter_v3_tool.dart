@@ -23,12 +23,29 @@ import '../../services/chart_tile_server_service.dart';
 import '../../services/route_arrival_monitor.dart';
 import '../../services/s57_tile_manager.dart';
 import '../../services/signalk_service.dart';
+import '../../services/storage_service.dart';
 import '../../services/tool_registry.dart';
+import '../../models/weather_layer_metadata.dart';
+import '../../models/weather_route_request.dart';
+import '../../models/weather_route_result.dart';
+import '../../services/route_planner_auth_service.dart';
+import '../../services/route_planner_boats_service.dart';
+import '../../services/weather_data_service.dart';
+import '../../services/weather_routing_service.dart';
 import '../ais_vessel_detail_sheet.dart';
 import '../chart_plotter/chart_hud.dart';
 import '../chart_plotter/chart_layer_panel.dart';
 import '../chart_plotter/chart_route_panel.dart';
+import '../chart_plotter/weather_data_overlays.dart';
+import '../chart_plotter/weather_routing_itinerary_card.dart';
+import '../chart_plotter/weather_routing_overlay.dart';
+import '../chart_plotter/weather_routing_panel.dart';
 import '../countdown_confirmation_overlay.dart';
+
+/// Three mutually-exclusive chart orientation modes. Only `free` lets
+/// the user's two-finger rotation gesture spin the map; the other two
+/// lock or drive rotation from code.
+enum _ViewMode { northUp, headingUp, free }
 
 /// Chart Plotter V3 — spike: proves the s52_dart → flutter_map pipeline.
 ///
@@ -126,6 +143,12 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
   // Ruler state. Matches V1's model: two endpoints (red + blue) that
   // can each snap to the own vessel ('self') or an AIS vessel id, and
   // reposition automatically when their snap target moves.
+  // Manual declutter toggle. When true, forces sounding-label
+  // decimation at every zoom; when false, the painter still applies
+  // the zoom > 11 auto-cutoff so closely-packed labels are thinned
+  // at high detail without the user having to press anything.
+  bool _declutter = false;
+
   bool _rulerVisible = false;
   LatLng? _rulerRed;
   LatLng? _rulerBlue;
@@ -163,10 +186,14 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
   // this flips, otherwise MapController throws "You need to have
   // the FlutterMap widget rendered at least once".
   bool _mapReady = false;
-  // 'north-up' keeps map north = screen top; 'heading-up' rotates
-  // the map so the boat's bow is always screen-up. Matches V1's two
-  // modes (chart_plotter_tool.dart:68).
-  String _viewMode = 'north-up';
+  // Three view modes:
+  //   - `northUp`: map locked with north at screen top; rotation
+  //     gestures are disabled.
+  //   - `headingUp`: map rotates to keep the bow at screen top;
+  //     rotation gestures are disabled (code drives the rotation).
+  //   - `free`: user can pinch-rotate the map freely; nothing forces
+  //     the rotation on each tick.
+  _ViewMode _viewMode = _ViewMode.northUp;
 
   // Vessel trail — sliding window of recent positions with timestamps
   // (epoch ms). V1 defaults to 10 minutes (chart_plotter_tool.dart:
@@ -192,6 +219,158 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
       return raw.map((e) => e.toString()).toSet();
     }
     return const <String>{};
+  }
+
+  // ===== Weather routing =====
+  //
+  // Overlay is driven by [WeatherRoutingService] (ChangeNotifier, obtained
+  // via Provider). Selection index and "pick end-waypoint" state live here
+  // because they're UI-only: they don't belong in the service's model.
+  WeatherRoutingService? _weatherRoutingService;
+  int? _weatherRouteSelectedIdx;
+  // Pre-compute End-pin tap state: when true and no current route, show
+  // a floating "Compute route" card. Cleared automatically when a
+  // result arrives or when the user dismisses it.
+  bool _endPinComposeOpen = false;
+
+  // ===== Weather data overlays (wind / currents / heatmaps) =====
+  //
+  // One service per chart plotter so per-tool base-URL overrides are
+  // honoured. The service owns its own debouncers; this widget just
+  // tells it when the map camera moves and what layers are on.
+  // Toggles are ephemeral (match AIS / ruler patterns elsewhere in the
+  // tool) — initial state is read from customProperties.
+  WeatherDataService? _weatherDataService;
+  late bool _windBarbsOn = _boolProp('windBarbsOn');
+  late bool _currentsOn = _boolProp('currentsOn');
+  late bool _windHeatmapOn = _boolProp('windHeatmapOn');
+  late bool _currentHeatmapOn = _boolProp('currentHeatmapOn');
+  late bool _seaStateOn = _boolProp('seaStateOn');
+
+  // Per-layer user-picked minimum zoom (overrides metadata's default).
+  // Cleared on session end.
+  final Map<String, int> _userMinZoom = {};
+
+  // Per-layer "show legend on the chart itself" toggle.
+  final Map<String, bool> _legendOnMap = {};
+
+  bool _boolProp(String key) {
+    final v = widget.config.style.customProperties?[key];
+    return v is bool ? v : false;
+  }
+
+  /// Effective minimum zoom for a weather layer, applied by `TileLayer`
+  /// (raster) or `zoomFloor` (vector). Precedence:
+  /// `_userMinZoom[path]` → `metadata.minZoom` → hardcoded fallback.
+  int _effectiveMinZoom(String metadataPath, int fallback) {
+    final user = _userMinZoom[metadataPath];
+    if (user != null) return user;
+    final md = _weatherDataService?.metadataFor(metadataPath);
+    return md?.minZoom ?? fallback;
+  }
+
+  /// Force only one raster heatmap on at a time. Picking any one
+  /// turns the other two off; vector layers (wind barbs, currents)
+  /// are independent and unaffected.
+  void _setExclusiveHeatmap(String selected) {
+    setState(() {
+      _windHeatmapOn = selected == 'wind';
+      _currentHeatmapOn = selected == 'current';
+      _seaStateOn = selected == 'seaState';
+    });
+    _persistLayerPrefs();
+  }
+
+  void _clearHeatmap() {
+    setState(() {
+      _windHeatmapOn = false;
+      _currentHeatmapOn = false;
+      _seaStateOn = false;
+    });
+    _persistLayerPrefs();
+  }
+
+  // ---- Layer-preference persistence ----
+  //
+  // User-facing toggles — on/off, per-layer min zoom, per-layer on-map
+  // legend — are a user preference, not a per-tool-instance config.
+  // Stored in `StorageService.settings` under a single key so the
+  // state survives app restarts and hot restarts.
+  static const String _layerPrefsKey = 'chart_plotter_v3_layer_prefs';
+
+  void _persistLayerPrefs() {
+    try {
+      final storage = context.read<StorageService>();
+      final payload = jsonEncode({
+        'windBarbsOn': _windBarbsOn,
+        'currentsOn': _currentsOn,
+        'windHeatmapOn': _windHeatmapOn,
+        'currentHeatmapOn': _currentHeatmapOn,
+        'seaStateOn': _seaStateOn,
+        'userMinZoom': _userMinZoom,
+        'legendOnMap': _legendOnMap,
+      });
+      unawaited(storage.saveSetting(_layerPrefsKey, payload));
+    } catch (_) {
+      // StorageService may not be available in tests/headless.
+    }
+  }
+
+  void _loadLayerPrefs() {
+    try {
+      final storage = context.read<StorageService>();
+      final raw = storage.getSetting(_layerPrefsKey);
+      if (raw == null || raw.isEmpty) return;
+      final j = jsonDecode(raw);
+      if (j is! Map<String, dynamic>) return;
+      setState(() {
+        _windBarbsOn = (j['windBarbsOn'] as bool?) ?? _windBarbsOn;
+        _currentsOn = (j['currentsOn'] as bool?) ?? _currentsOn;
+        _windHeatmapOn = (j['windHeatmapOn'] as bool?) ?? _windHeatmapOn;
+        _currentHeatmapOn =
+            (j['currentHeatmapOn'] as bool?) ?? _currentHeatmapOn;
+        _seaStateOn = (j['seaStateOn'] as bool?) ?? _seaStateOn;
+        final mz = j['userMinZoom'];
+        if (mz is Map<String, dynamic>) {
+          _userMinZoom.clear();
+          for (final e in mz.entries) {
+            final v = (e.value as num?)?.toInt();
+            if (v != null) _userMinZoom[e.key] = v;
+          }
+        }
+        final lm = j['legendOnMap'];
+        if (lm is Map<String, dynamic>) {
+          _legendOnMap.clear();
+          for (final e in lm.entries) {
+            final v = e.value as bool?;
+            if (v != null) _legendOnMap[e.key] = v;
+          }
+        }
+      });
+    } catch (_) {
+      // Corrupt payload → ignore and keep defaults.
+    }
+  }
+
+  bool get _weatherRoutingEnabled {
+    final v = widget.config.style.customProperties?['weatherRoutingEnabled'];
+    return v is bool ? v : true;
+  }
+
+  String get _routePlannerBaseUrl {
+    final v = widget.config.style.customProperties?['routePlannerBaseUrl'];
+    if (v is String && v.isNotEmpty) return v;
+    return 'https://router.zeddisplay.com';
+  }
+
+  RouteMode get _weatherRouteDefaultMode {
+    final v = widget.config.style.customProperties?['weatherRouteDefaultMode'];
+    return RouteMode.fromWire(v is String ? v : null);
+  }
+
+  String? get _weatherRoutePolar {
+    final v = widget.config.style.customProperties?['weatherRoutePolar'];
+    return (v is String && v.isNotEmpty) ? v : null;
   }
 
   @override
@@ -235,6 +414,145 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
     _ensureAisSubscribed();
   }
 
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Bind to the globally provided WeatherRoutingService — subscribe
+    // once per instance so we rebuild when the service notifies (status
+    // transitions, new log lines, route landed). Also push the config's
+    // baseUrl into the service so per-tool overrides are honoured.
+    final next = Provider.of<WeatherRoutingService>(context, listen: false);
+    if (!identical(next, _weatherRoutingService)) {
+      _weatherRoutingService?.removeListener(_onWeatherRoutingChanged);
+      _weatherRoutingService = next;
+      _weatherRoutingService!.addListener(_onWeatherRoutingChanged);
+    }
+    _weatherRoutingService!.baseUrl = _routePlannerBaseUrl;
+
+    // Weather data service — lazily built on first dependency pass so
+    // we've got RoutePlannerAuthService from the Provider tree.
+    if (_weatherDataService == null) {
+      final auth = Provider.of<RoutePlannerAuthService>(context, listen: false);
+      _weatherDataService = WeatherDataService(auth)
+        ..baseUrl = _routePlannerBaseUrl
+        ..addListener(_onWeatherDataChanged);
+      // First dependency pass — now that `context.read<StorageService>()`
+      // is wired, restore the user's persisted layer preferences
+      // (which toggles were on, custom min-zooms, which legends on
+      // the map).
+      _loadLayerPrefs();
+    } else {
+      _weatherDataService!.baseUrl = _routePlannerBaseUrl;
+    }
+
+    // Boats service is the global Provider instance, but its baseUrl
+    // lives on the tool config (per-instance override). Push it on
+    // every dependency change so the caller's /boats list comes from
+    // the same router the tool is pointed at. First pass also primes
+    // the boat list so the Compose tab can resolve the persisted
+    // selected-boat id to a name/LOA before the picker is even opened.
+    final boatsService =
+        Provider.of<RoutePlannerBoatsService>(context, listen: false);
+    boatsService.baseUrl = _routePlannerBaseUrl;
+    if (boatsService.boats.isEmpty && !boatsService.loadingBoats) {
+      // Full server inventory + ownership oracle. Picker reads the
+      // full list; `_submit` uses ownership to pick between boat_id
+      // and explicit vessel+polar overrides.
+      unawaited(boatsService.refreshAllBoats());
+    }
+  }
+
+  void _onWeatherDataChanged() {
+    if (!mounted) return;
+    setState(() {});
+  }
+
+  /// Builds an XYZ `TileLayer` for one of the raster weather endpoints
+  /// (`/wind-heatmap`, `/current-heatmap`, `/roughness`). The URL
+  /// template carries `?t=<hour>&v=<nonce>`. `flutter_map` keys its
+  /// in-widget tile cache strictly on `urlTemplate` (see
+  /// `tile_layer.dart:502-514`) so bumping the nonce is the only way
+  /// to force a refetch when the server's rendering changes within
+  /// the same hour.
+  Widget _weatherRasterTile(String path, int fallbackZoomFloor) {
+    final svc = _weatherDataService!;
+    final template = svc.heatmapUrlTemplate(path);
+    final effectiveFloor = _effectiveMinZoom(path, fallbackZoomFloor);
+    return TileLayer(
+      key: ValueKey(
+          '$path|${svc.hourParam}|${svc.cacheNonce}|$effectiveFloor'),
+      urlTemplate: template,
+      userAgentPackageName: 'org.zennora.zed_display',
+      // `minZoom` hides the layer below the user-configurable floor;
+      // `minNativeZoom` keeps flutter_map from asking for z<floor tiles
+      // (server returns 204 there).
+      minZoom: effectiveFloor.toDouble(),
+      minNativeZoom: effectiveFloor,
+      maxNativeZoom: 16,
+      tileProvider: NetworkTileProvider(headers: svc.authHeaders),
+    );
+  }
+
+  /// Sync the weather-data service's reference time to whatever the
+  /// current selection / route / clock implies. Tile layers (raster)
+  /// and the tile-aware vector overlays watch the service directly,
+  /// so nothing else needs to happen here — no per-camera scheduling.
+  ///
+  /// Reference-time precedence: selected route waypoint's `time`
+  /// (scrubbing the field to that hour) → the planned departure → now.
+  void _syncWeatherReferenceTime() {
+    final svc = _weatherDataService;
+    if (svc == null) return;
+    DateTime? selectedTime;
+    final wrResult = _weatherRoutingService?.currentResult;
+    final sel = _weatherRouteSelectedIdx;
+    if (wrResult != null &&
+        sel != null &&
+        sel >= 0 &&
+        sel < wrResult.waypoints.length) {
+      selectedTime = wrResult.waypoints[sel].time;
+    }
+    final dep = _weatherRoutingService?.lastRequest?.departure;
+    svc.referenceTime = selectedTime ?? dep ?? DateTime.now();
+  }
+
+  /// Single entry point for updating the selected weather-route
+  /// waypoint. Clamps the index, pans the camera, and rescrubs the
+  /// wind / current layers to the waypoint's forecast time. Pass
+  /// `null` to clear the selection.
+  void _setSelectedWaypoint(int? idx) {
+    final result = _weatherRoutingService?.currentResult;
+    int? clamped;
+    if (idx != null && result != null && result.coords.isNotEmpty) {
+      clamped = idx.clamp(0, result.coords.length - 1);
+    }
+    if (_weatherRouteSelectedIdx != clamped) {
+      setState(() => _weatherRouteSelectedIdx = clamped);
+    }
+    if (clamped != null && result != null && _mapReady) {
+      final c = result.coords[clamped];
+      _mapController.move(LatLng(c[1], c[0]), _mapController.camera.zoom);
+    }
+    _syncWeatherReferenceTime();
+  }
+
+  void _onWeatherRoutingChanged() {
+    if (!mounted) return;
+    // Drop a stale selection when the service clears its result — the
+    // floating popover and the overlay both derive their visibility
+    // from this flag, and nothing else nulls it.
+    final hasResult =
+        _weatherRoutingService?.currentResult?.isNotEmpty ?? false;
+    if (!hasResult && _weatherRouteSelectedIdx != null) {
+      _weatherRouteSelectedIdx = null;
+    }
+    setState(() {});
+    // Reference time may have shifted (new route, different departure,
+    // or cleared selection) — push it into the data service. Tile
+    // layers self-fetch when the hour changes.
+    _syncWeatherReferenceTime();
+  }
+
   bool _aisSubscribed = false;
   void _ensureAisSubscribed() {
     if (_aisSubscribed || !widget.signalKService.isConnected) return;
@@ -249,6 +567,9 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
     _stopArrivalMonitor();
     _tileManager?.removeListener(_onTileManagerChanged);
     _tileManager?.dispose();
+    _weatherRoutingService?.removeListener(_onWeatherRoutingChanged);
+    _weatherDataService?.removeListener(_onWeatherDataChanged);
+    _weatherDataService?.dispose();
     super.dispose();
   }
 
@@ -379,7 +700,7 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
           _mapController.move(LatLng(lat, lon), _mapController.camera.zoom);
         }
       }
-      if (_viewMode == 'heading-up' && heading != null) {
+      if (_viewMode == _ViewMode.headingUp && heading != null) {
         final rotDeg = -heading * 180 / math.pi;
         if ((rotDeg - _mapController.camera.rotation).abs() > 0.5) {
           _mapController.rotate(rotDeg);
@@ -667,6 +988,22 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
 
     final camera = _mapController.camera;
     final tapScreen = camera.latLngToScreenOffset(latLng);
+
+    // Weather-route waypoints take priority when visible — they sit on
+    // top of the SignalK route overlay in the paint stack, so the tap
+    // order must match.
+    final wrResult = _weatherRoutingService?.currentResult;
+    if (_weatherRoutingEnabled && wrResult != null && wrResult.isNotEmpty) {
+      final idx = hitTestWeatherRouteWaypoint(
+        result: wrResult,
+        camera: camera,
+        tap: latLng,
+      );
+      if (idx != null) {
+        _setSelectedWaypoint(idx);
+        return;
+      }
+    }
 
     final coords = _routeCoords;
     if (coords != null) {
@@ -972,10 +1309,12 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
-      // Constrain to ~half the screen so the map above stays tappable
-      // without the sheet trying to grow into it.
+      // Constrain so the map above stays tappable. Portrait keeps the
+      // familiar half-screen; landscape is tight on vertical real
+      // estate, so the sheet caps at 1/5 of the viewport and the
+      // inner ListView takes care of scrolling.
       constraints: BoxConstraints(
-        maxHeight: MediaQuery.of(context).size.height * 0.5,
+        maxHeight: _popoverMaxHeight(context),
       ),
       builder: (sheetCtx) => SafeArea(
         top: false,
@@ -1034,6 +1373,13 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
   }
 
   /// Same 31-entry clickable layer set as V1 (chart_webview.dart:1004-1015).
+  // RESARE (Restricted Area) and ACHARE (Anchorage Area) are
+  // deliberately excluded. Their dashed boundaries tile the chart so
+  // densely that any tap sits within hit radius of an edge, which
+  // means the area sheet ends up swallowing taps the user aimed at
+  // real symbols sitting nearby. Users who want area detail can zoom
+  // in until the boundary is the obvious target, but that UX belongs
+  // behind a future "area info" toggle, not the generic tap.
   static const _clickableLayers = {
     'LIGHTS',
     'BOYLAT', 'BOYCAR', 'BOYISD', 'BOYSAW', 'BOYSPP',
@@ -1045,12 +1391,155 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
     'CBLSUB', 'CBLOHD', 'PIPSOL', 'PIPOHD',
     'CGUSTA', 'RSCSTA', 'SISTAT', 'SISTAW',
     'DISMAR', 'CURENT', 'FSHFAC', 'CONVYR',
-    'RESARE', 'ACHARE',
   };
 
   /// Long-press inserts a waypoint after the nearest existing one.
   /// Matches V1's UX: press where you want the new point to live.
   void _onMapLongPress(TapPosition tapPosition, LatLng latLng) {
+    final hasActiveRoute = _routeCoords != null && _routeCoords!.isNotEmpty;
+    final weatherOn = _weatherRoutingEnabled;
+
+    if (weatherOn && hasActiveRoute) {
+      // Both pathways apply — let the user disambiguate.
+      _showLongPressChooser(latLng);
+      return;
+    }
+    if (weatherOn) {
+      _dropOrMoveWeatherPin(latLng);
+      return;
+    }
+    if (hasActiveRoute) {
+      _addRouteWaypointAt(latLng);
+    }
+  }
+
+  /// Long-press actions when both the SignalK active-route and the
+  /// weather-routing feature want the gesture. Matches the bottom-sheet
+  /// idiom used by the Routes manager so the UX is consistent.
+  void _showLongPressChooser(LatLng latLng) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: AppColors.cardBackgroundDark,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.all(12),
+              child: Row(
+                children: [
+                  const Icon(Icons.place, color: Colors.white70, size: 18),
+                  const SizedBox(width: 8),
+                  Text(
+                    '${latLng.latitude.toStringAsFixed(5)}, '
+                    '${latLng.longitude.toStringAsFixed(5)}',
+                    style: const TextStyle(
+                      color: Colors.white70,
+                      fontFamily: 'Menlo',
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const Divider(height: 1, color: Colors.white12),
+            ListTile(
+              leading: const Icon(Icons.flight_takeoff,
+                  color: Color(0xFFFF9800)),
+              title: const Text('Weather routing pin',
+                  style: TextStyle(color: Colors.white)),
+              subtitle: Text(
+                _pinSubtitleFor(latLng),
+                style: const TextStyle(color: Colors.white54, fontSize: 12),
+              ),
+              onTap: () {
+                Navigator.of(ctx).pop();
+                _dropOrMoveWeatherPin(latLng);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.route, color: Colors.greenAccent),
+              title: const Text('Add waypoint to active route',
+                  style: TextStyle(color: Colors.white)),
+              onTap: () {
+                Navigator.of(ctx).pop();
+                _addRouteWaypointAt(latLng);
+              },
+            ),
+            const SizedBox(height: 4),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _pinSubtitleFor(LatLng latLng) {
+    final s = _weatherRoutingService?.plannedStart;
+    final e = _weatherRoutingService?.plannedEnd;
+    if (s == null) return 'Drops the start pin here';
+    if (e == null) return 'Drops the end pin here';
+    return 'Moves the nearer pin here';
+  }
+
+  /// Pin-placement logic: if start is missing, place it; else if end is
+  /// missing, place it; else move whichever of the two is closer on
+  /// screen to the new tap. Matches the UX described by the user.
+  void _dropOrMoveWeatherPin(LatLng latLng) {
+    final service = _weatherRoutingService;
+    if (service == null) return;
+    final next = LatLon(lat: latLng.latitude, lon: latLng.longitude);
+    if (service.plannedStart == null) {
+      service.plannedStart = next;
+      _showPinSnack('Start pin placed.');
+      return;
+    }
+    if (service.plannedEnd == null) {
+      service.plannedEnd = next;
+      _openEndPinCompose();
+      return;
+    }
+    final camera = _mapController.camera;
+    final tapPx = camera.latLngToScreenOffset(latLng);
+    final sPx = camera.latLngToScreenOffset(
+        LatLng(service.plannedStart!.lat, service.plannedStart!.lon));
+    final ePx = camera.latLngToScreenOffset(
+        LatLng(service.plannedEnd!.lat, service.plannedEnd!.lon));
+    final dS = (sPx - tapPx).distanceSquared;
+    final dE = (ePx - tapPx).distanceSquared;
+    if (dS < dE) {
+      service.plannedStart = next;
+      _showPinSnack('Start pin moved.');
+    } else {
+      service.plannedEnd = next;
+      _openEndPinCompose();
+    }
+  }
+
+  /// Surface the standard End-pin compose popover (Compute / Clear /
+  /// Close). Used when the user drops or moves the End pin — replaces
+  /// the old transient snackbar so the path to "compute route" is
+  /// one tap from the chart gesture that placed the pin.
+  void _openEndPinCompose() {
+    if (!mounted) return;
+    setState(() => _endPinComposeOpen = true);
+  }
+
+  void _showPinSnack(String message) {
+    if (!mounted) return;
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    messenger?.hideCurrentSnackBar();
+    messenger?.showSnackBar(
+      SnackBar(
+        content: Text(message),
+        duration: const Duration(seconds: 2),
+      ),
+    );
+  }
+
+  void _addRouteWaypointAt(LatLng latLng) {
     final coords = _routeCoords;
     if (coords == null || coords.isEmpty) return;
     final camera = _mapController.camera;
@@ -1220,12 +1709,13 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
               // double-tap zoom remain enabled so the user can change
               // scale around the vessel without disengaging follow.
               // Tap the "snap to vessel" button to unlock.
+              //
+              // Rotation gestures are only permitted in `free` mode.
+              // In `northUp` the rotation is pinned to 0; in
+              // `headingUp` it's driven from the heading tick, so
+              // user input would fight both.
               interactionOptions: InteractionOptions(
-                flags: _autoFollow
-                    ? InteractiveFlag.all &
-                        ~(InteractiveFlag.drag |
-                            InteractiveFlag.flingAnimation)
-                    : InteractiveFlag.all,
+                flags: _interactiveFlags(),
               ),
               onMapEvent: (e) {
                 // User pinch/scroll zoom kills auto-zoom but leaves
@@ -1242,6 +1732,7 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
               },
               onMapReady: () {
                 _mapReady = true;
+                _syncWeatherReferenceTime();
                 // Center on vessel immediately if we already have a
                 // fix from the 1 s vessel timer (which can run before
                 // the map finishes initializing). Avoids the brief
@@ -1278,7 +1769,35 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
                     spriteAtlas: _spriteAtlas!,
                     spriteImage: _spriteImage!,
                     hiddenClasses: _hiddenClasses,
+                    declutter: _declutter,
                   ),
+                ),
+              // Weather raster tiles sit under the vector overlays +
+              // route so they read as a background tint (matches web
+              // UI z-order: heatmap zIndex 6 vs wind/current 7-8).
+              // Each is an XYZ `TileLayer` keyed on the current hour
+              // so a waypoint-time scrub swaps URL templates and
+              // flutter_map refetches cleanly.
+              if (_windHeatmapOn && _weatherDataService != null)
+                _weatherRasterTile('/wind-heatmap',
+                    WeatherDataService.zoomFloorWindHeatmap),
+              if (_currentHeatmapOn && _weatherDataService != null)
+                _weatherRasterTile('/current-heatmap',
+                    WeatherDataService.zoomFloorCurrentHeatmap),
+              if (_seaStateOn && _weatherDataService != null)
+                _weatherRasterTile('/roughness',
+                    WeatherDataService.zoomFloorSeaState),
+              if (_currentsOn && _weatherDataService != null)
+                CurrentArrowsTileOverlay(
+                  service: _weatherDataService!,
+                  zoomFloor: _effectiveMinZoom(
+                      '/currents', WeatherDataService.zoomFloorCurrents),
+                ),
+              if (_windBarbsOn && _weatherDataService != null)
+                WindBarbsTileOverlay(
+                  service: _weatherDataService!,
+                  zoomFloor: _effectiveMinZoom(
+                      '/wind', WeatherDataService.zoomFloorWindBarbs),
                 ),
               if (_tapHalo != null)
                 _TapHaloLayer(point: _tapHalo!),
@@ -1301,6 +1820,12 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
                   activeIndex: _routePointIndex,
                   reversed: _routeReversed,
                 ),
+              if (_weatherRoutingEnabled &&
+                  (_weatherRoutingService?.currentResult?.isNotEmpty ?? false))
+                WeatherRouteOverlayLayer(
+                  result: _weatherRoutingService!.currentResult!,
+                  selectedIndex: _weatherRouteSelectedIdx,
+                ),
               if (_aisEnabled && _aisVessels.isNotEmpty)
                 _AisOverlayLayer(
                   vessels: _aisVessels,
@@ -1319,34 +1844,9 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
               // children sit on top in the Stack and get gesture
               // priority — otherwise the overlays above (route, AIS,
               // own-vessel, scale) swallow the hit test for the
-              // ruler endpoints.
-              if (_rulerVisible &&
-                  _rulerRed != null &&
-                  _rulerBlue != null)
-                DragMarkers(
-                  markers: [
-                    DragMarker(
-                      point: _rulerRed!,
-                      size: const Size(44, 44),
-                      rotateMarker: false,
-                      onDragUpdate: (details, latLng) =>
-                          _onRulerDrag('red', latLng),
-                      builder: (_, _, _) => _rulerHandleVisual(
-                        const Color(0xCCF44336),
-                      ),
-                    ),
-                    DragMarker(
-                      point: _rulerBlue!,
-                      size: const Size(44, 44),
-                      rotateMarker: false,
-                      onDragUpdate: (details, latLng) =>
-                          _onRulerDrag('blue', latLng),
-                      builder: (_, _, _) => _rulerHandleVisual(
-                        const Color(0xCC2196F3),
-                      ),
-                    ),
-                  ],
-                ),
+              // ruler endpoints and weather-routing pins.
+              if (_buildDragMarkers().isNotEmpty)
+                DragMarkers(markers: _buildDragMarkers()),
             ],
           ),
           ChartPlotterHUD(
@@ -1364,6 +1864,76 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
               if (i != null) _skipToWaypoint(i + 1);
             },
           ),
+          // On-map legend stack — renders compact cards near the
+          // bottom of the chart for every layer whose "On map" toggle
+          // is on AND that's currently visible at the effective zoom.
+          // Offset clears the scale bar (~y=64..92 from bottom) and
+          // the freshness chip (~y=52 text / 8 none). Visual HUD
+          // pushes the whole bottom block up so legends sit above it.
+          if (_weatherDataService != null && _mapReady)
+            Positioned(
+              left: 8,
+              right: 8,
+              bottom: _hudStyle == 'visual' ? 210 : 100,
+              child: _OnMapLegendStack(
+                service: _weatherDataService!,
+                entries: _onMapLegendEntries(),
+                mapController: _mapController,
+                initialZoom: _mapController.camera.zoom,
+              ),
+            ),
+          // Waypoint popover sits AFTER the legend stack in Stack
+          // order so it always paints on top of the legends.
+          if (_weatherRoutingEnabled &&
+              _weatherRouteSelectedIdx != null &&
+              (_weatherRoutingService?.currentResult?.isNotEmpty ?? false))
+            Positioned(
+              left: 8,
+              right: 8,
+              bottom: _hudStyle == 'visual' ? 200 : (_hudStyle == 'text' ? 62 : 16),
+              child: _WeatherWaypointPopover(
+                result: _weatherRoutingService!.currentResult!,
+                selectedIndex: _weatherRouteSelectedIdx!,
+                onPrev: () =>
+                    _setSelectedWaypoint(_weatherRouteSelectedIdx! - 1),
+                onNext: () =>
+                    _setSelectedWaypoint(_weatherRouteSelectedIdx! + 1),
+                onFirst: () => _setSelectedWaypoint(0),
+                onLast: () => _setSelectedWaypoint(
+                    _weatherRoutingService!.currentResult!.coords.length - 1),
+                onClose: () => _setSelectedWaypoint(null),
+                onClearRoute: () {
+                  _setSelectedWaypoint(null);
+                  _weatherRoutingService?.clearResult();
+                },
+              ),
+            ),
+          // Pre-compute End-pin popover. Only renders when no route
+          // exists (so it doesn't compete with the waypoint card) and
+          // the user has tapped the End pin.
+          if (_weatherRoutingEnabled &&
+              _endPinComposeOpen &&
+              _weatherRoutingService != null &&
+              _weatherRoutingService!.plannedEnd != null &&
+              (_weatherRoutingService?.currentResult == null ||
+                  _weatherRoutingService!.currentResult!.isEmpty))
+            Positioned(
+              left: 8,
+              right: 8,
+              bottom: _hudStyle == 'visual' ? 200 : (_hudStyle == 'text' ? 62 : 16),
+              child: _EndPinComposePopover(
+                onCompute: () {
+                  setState(() => _endPinComposeOpen = false);
+                  _showWeatherRoutingSheet(context, autoSubmit: true);
+                },
+                onClearRoute: () {
+                  setState(() => _endPinComposeOpen = false);
+                  _weatherRoutingService?.clearResult();
+                },
+                onClose: () =>
+                    setState(() => _endPinComposeOpen = false),
+              ),
+            ),
           Positioned(
             bottom: _hudStyle == 'visual' ? 190 : (_hudStyle == 'text' ? 52 : 8),
             right: 8,
@@ -1378,8 +1948,9 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
             right: 8,
             child: _MapControls(
               autoFollow: _autoFollow,
-              headingUp: _viewMode == 'heading-up',
+              viewMode: _viewMode,
               rulerVisible: _rulerVisible,
+              declutter: _declutter,
               aisEnabled: _aisEnabled,
               aisActiveOnly: _aisActiveOnly,
               aisShowPaths: _aisShowPaths,
@@ -1405,6 +1976,8 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
               },
               onToggleViewMode: _toggleViewMode,
               onToggleRuler: _toggleRuler,
+              onToggleDeclutter: () =>
+                  setState(() => _declutter = !_declutter),
               onToggleAis: () {
                 setState(() {
                   _aisEnabled = !_aisEnabled;
@@ -1423,6 +1996,12 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
                   _refreshAisVessels();
                 });
               },
+              weatherRoutingEnabled: _weatherRoutingEnabled,
+              weatherRouteActive:
+                  _weatherRoutingService?.currentResult?.isNotEmpty ?? false,
+              onWeatherRouting: _weatherRoutingEnabled
+                  ? () => _showWeatherRoutingSheet(context)
+                  : null,
             ),
           ),
           if (_rulerVisible && _rulerRed != null && _rulerBlue != null)
@@ -1435,16 +2014,19 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
                 b: _rulerBlue!,
               ),
             ),
-          // V1 only shows the compass rose in heading-up mode (it's
-          // redundant in north-up where the whole chart already points
-          // north). Counter-rotates against the current heading so its
-          // internal N arrow stays aligned with the rotated map frame.
-          if (_viewMode == 'heading-up')
+          // Compass rose is redundant in `northUp` (the whole chart
+          // already points north). Shown in `headingUp` and `free`
+          // where the chart may be at any rotation. Counter-rotates
+          // against the current map rotation so its internal N arrow
+          // stays aligned with true north regardless of mode.
+          if (_viewMode != _ViewMode.northUp)
             Positioned(
               top: _rulerVisible ? 130 : 80,
               left: 8,
               child: Transform.rotate(
-                angle: -(_ownHeading ?? 0.0),
+                angle: _mapReady
+                    ? -_mapController.camera.rotationRad
+                    : -(_ownHeading ?? 0.0),
                 child: Container(
                   width: 60,
                   height: 60,
@@ -1478,17 +2060,68 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
     );
   }
 
-  /// Flip between north-up and heading-up. In north-up we reset the
-  /// map rotation to 0; heading-up applies the current heading on the
-  /// next tick. Matches V1's one-shot behaviour (chart_plotter_tool.dart:
-  /// 364-368).
+  void _showWeatherRoutingSheet(BuildContext ctx, {bool autoSubmit = false}) {
+    showWeatherRoutingSheet(
+      ctx,
+      vesselPosition: (_ownLat != null && _ownLon != null)
+          ? LatLon(lat: _ownLat!, lon: _ownLon!)
+          : null,
+      defaultMode: _weatherRouteDefaultMode,
+      defaultPolar: _weatherRoutePolar,
+      onFocusWaypoint: _focusWeatherRouteWaypoint,
+      autoSubmit: autoSubmit,
+    );
+  }
+
+  /// End-pin tap handler. Only meaningful when no route is currently
+  /// computed — otherwise the post-compute waypoint popover (opened
+  /// via map-tap hit-test) already owns this location.
+  void _onEndPinTap() {
+    final svc = _weatherRoutingService;
+    if (svc == null) return;
+    if (svc.currentResult != null && svc.currentResult!.isNotEmpty) {
+      // Route exists: don't show the compose popover. The user can
+      // tap the End waypoint ring (same location) to get the waypoint
+      // card, or clear the route first.
+      return;
+    }
+    setState(() => _endPinComposeOpen = !_endPinComposeOpen);
+  }
+
+  void _focusWeatherRouteWaypoint(int index) {
+    _setSelectedWaypoint(index);
+  }
+
+  /// Cycle through the three view modes: `northUp` → `headingUp` →
+  /// `free` → `northUp`. `northUp` snaps rotation to 0; `headingUp`
+  /// leaves rotation alone here and the 1 s vessel tick applies the
+  /// current heading; `free` is hands-off — whatever rotation the
+  /// user sets via the two-finger gesture sticks.
   void _toggleViewMode() {
     setState(() {
-      _viewMode = _viewMode == 'north-up' ? 'heading-up' : 'north-up';
+      _viewMode = switch (_viewMode) {
+        _ViewMode.northUp => _ViewMode.headingUp,
+        _ViewMode.headingUp => _ViewMode.free,
+        _ViewMode.free => _ViewMode.northUp,
+      };
     });
-    if (_viewMode == 'north-up' && _mapReady) {
+    if (_viewMode == _ViewMode.northUp && _mapReady) {
       _mapController.rotate(0);
     }
+  }
+
+  /// Gesture flags for FlutterMap's `InteractionOptions`.
+  /// `drag` + `flingAnimation` are gated on auto-follow; `rotate` on
+  /// view mode.
+  int _interactiveFlags() {
+    var f = InteractiveFlag.all;
+    if (_autoFollow) {
+      f &= ~(InteractiveFlag.drag | InteractiveFlag.flingAnimation);
+    }
+    if (_viewMode != _ViewMode.free) {
+      f &= ~InteractiveFlag.rotate;
+    }
+    return f;
   }
 
   /// Toggle the ruler overlay. V1 seeds endpoints at `center ± 80px`
@@ -1583,6 +2216,110 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
           shape: BoxShape.circle,
           color: fill,
           border: Border.all(color: Colors.white, width: 2),
+        ),
+      ),
+    );
+  }
+
+  /// Single drag-marker builder for everything that can be dragged on
+  /// the chart (ruler endpoints, weather-routing pins). flutter_map
+  /// DragMarkers must live in a single widget that is the last child
+  /// of FlutterMap — otherwise overlays painted after it steal the
+  /// drag gesture.
+  List<DragMarker> _buildDragMarkers() {
+    final markers = <DragMarker>[];
+    if (_rulerVisible && _rulerRed != null && _rulerBlue != null) {
+      markers.add(DragMarker(
+        point: _rulerRed!,
+        size: const Size(44, 44),
+        rotateMarker: false,
+        onDragUpdate: (details, latLng) => _onRulerDrag('red', latLng),
+        builder: (_, _, _) => _rulerHandleVisual(const Color(0xCCF44336)),
+      ));
+      markers.add(DragMarker(
+        point: _rulerBlue!,
+        size: const Size(44, 44),
+        rotateMarker: false,
+        onDragUpdate: (details, latLng) => _onRulerDrag('blue', latLng),
+        builder: (_, _, _) => _rulerHandleVisual(const Color(0xCC2196F3)),
+      ));
+    }
+    final service = _weatherRoutingService;
+    if (_weatherRoutingEnabled && service != null) {
+      final s = service.plannedStart;
+      if (s != null) {
+        markers.add(DragMarker(
+          point: LatLng(s.lat, s.lon),
+          size: const Size(44, 44),
+          rotateMarker: false,
+          // Live-follow drag like the ruler handles. Moving the start
+          // invalidates any computed result, so clear it — the user is
+          // about to recompute against a different leg.
+          onDragUpdate: (details, latLng) {
+            service.plannedStart =
+                LatLon(lat: latLng.latitude, lon: latLng.longitude);
+          },
+          onDragEnd: (details, latLng) {
+            if (service.currentResult != null) {
+              _setSelectedWaypoint(null);
+              service.clearResult();
+            }
+          },
+          builder: (_, _, _) => _weatherRoutePinVisual(
+              fill: const Color(0xFF4CAF50), label: 'S'),
+        ));
+      }
+      final e = service.plannedEnd;
+      if (e != null) {
+        markers.add(DragMarker(
+          point: LatLng(e.lat, e.lon),
+          size: const Size(44, 44),
+          rotateMarker: false,
+          onDragUpdate: (details, latLng) {
+            service.plannedEnd =
+                LatLon(lat: latLng.latitude, lon: latLng.longitude);
+          },
+          onDragEnd: (details, latLng) {
+            if (service.currentResult != null) {
+              _setSelectedWaypoint(null);
+              service.clearResult();
+            }
+          },
+          onTap: (_) => _onEndPinTap(),
+          builder: (_, _, _) => _weatherRoutePinVisual(
+              fill: const Color(0xFFF44336), label: 'E'),
+        ));
+      }
+    }
+    return markers;
+  }
+
+  Widget _weatherRoutePinVisual({required Color fill, required String label}) {
+    return Center(
+      child: Container(
+        width: 28,
+        height: 28,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: fill,
+          border: Border.all(color: Colors.white, width: 2),
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x66000000),
+              blurRadius: 4,
+              offset: Offset(0, 2),
+            ),
+          ],
+        ),
+        alignment: Alignment.center,
+        child: Text(
+          label,
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 12,
+            fontWeight: FontWeight.bold,
+            height: 1.0,
+          ),
         ),
       ),
     );
@@ -1796,50 +2533,423 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
   void _showLayerSheet(BuildContext ctx) {
     showModalBottomSheet(
       context: ctx,
-      backgroundColor: AppColors.cardBackgroundDark,
+      backgroundColor: Colors.transparent,
       isScrollControlled: true,
-      builder: (sheetCtx) => StatefulBuilder(
-        builder: (sbCtx, sbSetState) => SafeArea(
-          child: Padding(
-            padding: EdgeInsets.only(
-              bottom: MediaQuery.of(sheetCtx).viewInsets.bottom,
+      // DraggableScrollableSheet lets the user flick the sheet all the
+      // way down to dismiss it, matching the Weather Routing sheet.
+      // `shouldCloseOnMinExtent: true` pairs with a low `minChildSize`
+      // so releasing past the bottom snap triggers pop().
+      builder: (sheetCtx) => DraggableScrollableSheet(
+        initialChildSize: 0.75,
+        maxChildSize: 0.92,
+        minChildSize: 0.15,
+        snap: true,
+        snapSizes: const [0.75, 0.92],
+        shouldCloseOnMinExtent: true,
+        builder: (_, scrollController) => StatefulBuilder(
+          builder: (sbCtx, sbSetState) => Container(
+            decoration: const BoxDecoration(
+              color: AppColors.cardBackgroundDark,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
             ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Padding(
-                  padding: EdgeInsets.fromLTRB(16, 12, 16, 4),
-                  child: Align(
-                    alignment: Alignment.centerLeft,
-                    child: Text(
-                      'Chart Layers',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 16,
+            child: SafeArea(
+              top: false,
+              child: Padding(
+                padding: EdgeInsets.only(
+                  bottom: MediaQuery.of(sheetCtx).viewInsets.bottom,
+                ),
+                child: ListView(
+                  controller: scrollController,
+                  children: [
+                    // Handle — visual affordance for the drag gesture.
+                    Center(
+                      child: Container(
+                        width: 40,
+                        height: 4,
+                        margin: const EdgeInsets.only(top: 8, bottom: 4),
+                        decoration: BoxDecoration(
+                          color: Colors.white24,
+                          borderRadius: BorderRadius.circular(2),
+                        ),
                       ),
                     ),
-                  ),
+                    const Padding(
+                      padding: EdgeInsets.fromLTRB(16, 12, 16, 4),
+                      child: Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          'Chart Layers',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 16,
+                          ),
+                        ),
+                      ),
+                    ),
+                    ChartLayerPanel(
+                      layers: _layers,
+                      signalKService: widget.signalKService,
+                      // Re-render the sheet immediately AND the V3 tool
+                      // so toggles take effect without closing the sheet.
+                      setState: (fn) {
+                        sbSetState(fn);
+                        if (mounted) setState(fn);
+                      },
+                      onLayersChanged: () {
+                        if (mounted) setState(() {});
+                      },
+                    ),
+                    _weatherLayersSection(sbSetState),
+                    const SizedBox(height: 16),
+                  ],
                 ),
-                ChartLayerPanel(
-                  layers: _layers,
-                  signalKService: widget.signalKService,
-                  // Re-render the sheet immediately AND the V3 tool so
-                  // toggles take effect without closing the sheet.
-                  setState: (fn) {
-                    sbSetState(fn);
-                    if (mounted) setState(fn);
-                  },
-                  onLayersChanged: () {
-                    if (mounted) setState(() {});
-                  },
-                ),
-                const SizedBox(height: 16),
-              ],
+              ),
             ),
           ),
         ),
       ),
+    );
+  }
+
+  /// Weather overlay toggles (wind / currents / heatmaps / sea state).
+  /// Rendered inside the layer sheet. Tile layers self-fetch when the
+  /// camera moves or the reference hour flips, so a toggle is just a
+  /// state flip — flipping on adds the `TileLayer` / tile-aware vector
+  /// overlay to the Stack; flipping off removes it.
+  Widget _weatherLayersSection(void Function(VoidCallback) sheetSetState) {
+    void flip({
+      required bool current,
+      required void Function(bool) assign,
+    }) {
+      final next = !current;
+      sheetSetState(() => assign(next));
+      if (!mounted) return;
+      setState(() => assign(next));
+      _persistLayerPrefs();
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 8, 4),
+          child: Row(
+            children: [
+              const Expanded(
+                child: Text(
+                  'Weather Layers',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 14,
+                  ),
+                ),
+              ),
+              TextButton.icon(
+                icon: const Icon(Icons.refresh, size: 16),
+                label: const Text('Reload tiles'),
+                style: TextButton.styleFrom(
+                  foregroundColor: Colors.white70,
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                ),
+                onPressed: () async {
+                  debugPrint('[ChartPlotterV3] Reload tiles pressed; '
+                      'service=${_weatherDataService == null ? "null" : "ok"}');
+                  await _weatherDataService?.reloadTiles();
+                  if (!mounted) return;
+                  sheetSetState(() {});
+                },
+              ),
+            ],
+          ),
+        ),
+        _weatherLayerTile(
+          icon: Icons.air,
+          label: 'Wind barbs',
+          subtitle: 'ECMWF HRES — zoom ≥ 6',
+          value: _windBarbsOn,
+          metadataPath: '/wind',
+          sheetSetState: sheetSetState,
+          onChanged: () => flip(
+            current: _windBarbsOn,
+            assign: (v) => _windBarbsOn = v,
+          ),
+        ),
+        _weatherLayerTile(
+          icon: Icons.waves,
+          label: 'Tidal currents',
+          subtitle: 'Zoom ≥ 11',
+          value: _currentsOn,
+          metadataPath: '/currents',
+          sheetSetState: sheetSetState,
+          onChanged: () => flip(
+            current: _currentsOn,
+            assign: (v) => _currentsOn = v,
+          ),
+        ),
+        _weatherLayerTile(
+          icon: Icons.thermostat,
+          label: 'Wind speed heatmap',
+          subtitle: 'Zoom ≥ 5',
+          value: _windHeatmapOn,
+          metadataPath: '/wind-heatmap',
+          sheetSetState: sheetSetState,
+          onChanged: () {
+            if (_windHeatmapOn) {
+              _clearHeatmap();
+            } else {
+              _setExclusiveHeatmap('wind');
+            }
+            sheetSetState(() {});
+          },
+        ),
+        _weatherLayerTile(
+          icon: Icons.water,
+          label: 'Current speed heatmap',
+          subtitle: 'Zoom ≥ 9',
+          value: _currentHeatmapOn,
+          metadataPath: '/current-heatmap',
+          sheetSetState: sheetSetState,
+          onChanged: () {
+            if (_currentHeatmapOn) {
+              _clearHeatmap();
+            } else {
+              _setExclusiveHeatmap('current');
+            }
+            sheetSetState(() {});
+          },
+        ),
+        _weatherLayerTile(
+          icon: Icons.warning_amber,
+          label: 'Sea state',
+          subtitle: 'Wind × current × swell — zoom ≥ 9',
+          value: _seaStateOn,
+          metadataPath: '/roughness',
+          sheetSetState: sheetSetState,
+          onChanged: () {
+            if (_seaStateOn) {
+              _clearHeatmap();
+            } else {
+              _setExclusiveHeatmap('seaState');
+            }
+            sheetSetState(() {});
+          },
+        ),
+      ],
+    );
+  }
+
+  Widget _weatherLayerTile({
+    required IconData icon,
+    required String label,
+    required String subtitle,
+    required bool value,
+    required VoidCallback onChanged,
+    required String metadataPath,
+    required void Function(VoidCallback) sheetSetState,
+  }) {
+    final md = _weatherDataService?.metadataFor(metadataPath);
+    // MetadataStore is the single source of truth for unit conversion
+    // (see CLAUDE.md). Wind / current heatmaps and vector layers both
+    // deal in speed; sea state is a dimensionless index with no
+    // SignalK path. Null → legend falls back to SI values verbatim.
+    final pathMd = _pathMetadataForLayer(metadataPath);
+
+    final fallbackFloor = _fallbackZoomFloorForLayer(metadataPath);
+    final currentMinZoom = _effectiveMinZoom(metadataPath, fallbackFloor);
+    final showOnMap = _legendOnMap[metadataPath] ?? false;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
+      child: Card(
+        color: const Color(0xFF2A2A3E),
+        margin: EdgeInsets.zero,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            ListTile(
+              dense: true,
+              leading: Icon(icon,
+                  size: 18, color: value ? Colors.white70 : Colors.white24),
+              title: Text(label,
+                  style: TextStyle(
+                    color: value ? Colors.white : Colors.white38,
+                    fontSize: 13,
+                  )),
+              subtitle: Text(subtitle,
+                  style:
+                      const TextStyle(color: Colors.white38, fontSize: 11)),
+              trailing: Switch(value: value, onChanged: (_) => onChanged()),
+            ),
+            if (value && md != null)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 12, 10),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    _LegendBar(metadata: md, pathMetadata: pathMd),
+                    if (md.minZoom != null &&
+                        md.maxZoom != null &&
+                        md.maxZoom! > md.minZoom!) ...[
+                      const SizedBox(height: 8),
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: _LayerZoomDropdown(
+                          minZoom: md.minZoom!,
+                          maxZoom: md.maxZoom!,
+                          current: currentMinZoom.clamp(
+                              md.minZoom!, md.maxZoom!),
+                          onChanged: (z) {
+                            setState(() => _userMinZoom[metadataPath] = z);
+                            sheetSetState(() {});
+                            _persistLayerPrefs();
+                          },
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Flexible(child: _LayerFreshnessChip(metadata: md)),
+                        const Spacer(),
+                        TextButton.icon(
+                          icon: Icon(
+                            showOnMap ? Icons.map : Icons.map_outlined,
+                            size: 16,
+                          ),
+                          label: Text(
+                            showOnMap ? 'On map ✓' : 'On map',
+                          ),
+                          style: TextButton.styleFrom(
+                            foregroundColor: showOnMap
+                                ? Colors.white
+                                : Colors.white54,
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 10, vertical: 4),
+                            minimumSize: Size.zero,
+                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            textStyle: const TextStyle(fontSize: 12),
+                          ),
+                          onPressed: () {
+                            setState(() {
+                              _legendOnMap[metadataPath] = !showOnMap;
+                            });
+                            sheetSetState(() {});
+                            _persistLayerPrefs();
+                          },
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Snapshot of which layers want an on-map legend and the data each
+  /// needs to render. Consumed by `_OnMapLegendStack`. Only includes
+  /// layers the user has toggled ON *and* has flagged for map-legend
+  /// display; the stack itself does the final zoom-visibility check
+  /// (it needs the live `MapCamera`, which only exists inside the
+  /// FlutterMap subtree).
+  List<_OnMapLegendEntry> _onMapLegendEntries() {
+    final out = <_OnMapLegendEntry>[];
+    void consider(String path, bool layerOn) {
+      if (!layerOn) return;
+      if (_legendOnMap[path] != true) return;
+      final md = _weatherDataService?.metadataFor(path);
+      if (md == null) return;
+      final pathMd = _pathMetadataForLayer(path);
+      final effective = _effectiveMinZoom(
+          path, _fallbackZoomFloorForLayer(path));
+      out.add(_OnMapLegendEntry(
+        metadata: md,
+        pathMetadata: pathMd,
+        minZoom: effective,
+      ));
+    }
+
+    consider('/wind', _windBarbsOn);
+    consider('/currents', _currentsOn);
+    consider('/wind-heatmap', _windHeatmapOn);
+    consider('/current-heatmap', _currentHeatmapOn);
+    consider('/roughness', _seaStateOn);
+    return out;
+  }
+
+  /// Pre-metadata zoom floor per layer. Used as the final fallback
+  /// when the server hasn't populated `minzoom` (older routers).
+  static int _fallbackZoomFloorForLayer(String metadataPath) {
+    switch (metadataPath) {
+      case '/wind':
+        return WeatherDataService.zoomFloorWindBarbs;
+      case '/currents':
+        return WeatherDataService.zoomFloorCurrents;
+      case '/wind-heatmap':
+        return WeatherDataService.zoomFloorWindHeatmap;
+      case '/current-heatmap':
+        return WeatherDataService.zoomFloorCurrentHeatmap;
+      case '/roughness':
+        return WeatherDataService.zoomFloorSeaState;
+      default:
+        return 0;
+    }
+  }
+
+  /// Maps a weather-layer endpoint path to a representative SignalK
+  /// path whose unit category matches. `MetadataStore.get(path)`
+  /// against that path applies the user's unit preference via
+  /// convert/format/symbol. Returns null for layers with no direct
+  /// SignalK analogue (e.g. roughness index).
+  static String? _signalKPathForLayerPath(String metadataPath) {
+    switch (metadataPath) {
+      case '/wind':
+      case '/wind-heatmap':
+        return 'environment.wind.speedTrue';
+      case '/currents':
+      case '/current-heatmap':
+        return 'environment.current.drift';
+      case '/roughness':
+      default:
+        return null;
+    }
+  }
+
+  /// Unit category per weather layer, used as the `getWithFallback`
+  /// fallback key when the path-specific `PathMetadata` hasn't been
+  /// populated in the store. Every weather-value category we deal in
+  /// is 'speed' today (m/s → kt/mph/km·h⁻¹); roughness has no category.
+  static String? _signalKCategoryForLayerPath(String metadataPath) {
+    switch (metadataPath) {
+      case '/wind':
+      case '/wind-heatmap':
+      case '/currents':
+      case '/current-heatmap':
+        return 'speed';
+      case '/roughness':
+      default:
+        return null;
+    }
+  }
+
+  /// Look up `PathMetadata` for a weather layer, preferring the exact
+  /// SignalK path but falling through to its category entry
+  /// (`__category__.<cat>`) when the path itself isn't populated —
+  /// which matches CLAUDE.md's rule that unit conversion MUST route
+  /// through `MetadataStore`, even for quantities the user's vessel
+  /// doesn't itself publish.
+  PathMetadata? _pathMetadataForLayer(String metadataPath) {
+    final path = _signalKPathForLayerPath(metadataPath);
+    final category = _signalKCategoryForLayerPath(metadataPath);
+    if (path == null) return null;
+    final store = widget.signalKService.metadataStore;
+    return store.getWithFallback(
+      path,
+      (_) => category,
     );
   }
 
@@ -1915,6 +3025,7 @@ class _S57OverlayLayer extends StatelessWidget {
     required this.spriteAtlas,
     required this.spriteImage,
     this.hiddenClasses = const <String>{},
+    this.declutter = false,
   });
   final Map<S57TileKey, S57ParsedTile> tileCache;
   final int generation;
@@ -1922,6 +3033,7 @@ class _S57OverlayLayer extends StatelessWidget {
   final SpriteAtlas spriteAtlas;
   final ui.Image spriteImage;
   final Set<String> hiddenClasses;
+  final bool declutter;
 
   @override
   Widget build(BuildContext context) {
@@ -1936,6 +3048,7 @@ class _S57OverlayLayer extends StatelessWidget {
           spriteAtlas: spriteAtlas,
           spriteImage: spriteImage,
           hiddenClasses: hiddenClasses,
+          declutter: declutter,
         ),
         size: Size.infinite,
       ),
@@ -1952,6 +3065,7 @@ class _S57Painter extends CustomPainter {
     required this.spriteAtlas,
     required this.spriteImage,
     this.hiddenClasses = const <String>{},
+    this.declutter = false,
   });
   final MapCamera camera;
   final Map<S57TileKey, S57ParsedTile> tiles;
@@ -1966,6 +3080,10 @@ class _S57Painter extends CustomPainter {
   // Features whose `objectClass` is in this set are skipped in the
   // draw pass — the geometry still lives in the parsed tile cache.
   final Set<String> hiddenClasses;
+  // User-forced declutter. When true, sounding-label decimation runs
+  // at every zoom; otherwise the auto-cutoff at zoom > 11 still
+  // fires.
+  final bool declutter;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -1991,6 +3109,14 @@ class _S57Painter extends CustomPainter {
         return a.key.z.compareTo(b.key.z);
       });
 
+    // Sounding declutter state — reset every frame. At z > 11 the
+    // server emits densely-packed spot soundings; we keep only one
+    // label per ~40 px screen radius so the chart stays readable.
+    // Below z=12 the natural density is manageable, so we skip the
+    // filter and draw every sounding as before.
+    _drawnSoundings.clear();
+    _soundingDeclutterActive = declutter || camera.zoom > 11;
+
     // Three passes by geometry kind — polygons (area fills + patterns)
     // on the bottom, lines in the middle, points on top. This
     // approximates S-52's priority bands (group1 areas → line symbols
@@ -2007,6 +3133,14 @@ class _S57Painter extends CustomPainter {
       }
     }
   }
+
+  // Drawn-sounding positions in screen-pixel space, populated during
+  // a single paint pass. Mutated as we walk SOUNDG features to skip
+  // any whose anchor sits within `_soundingMinSpacing` of an already-
+  // placed label.
+  final List<Offset> _drawnSoundings = [];
+  bool _soundingDeclutterActive = false;
+  static const double _soundingMinSpacing = 40.0;
 
   static const _paintOrder = [
     S57GeomKind.polygon,
@@ -2092,7 +3226,32 @@ class _S57Painter extends CustomPainter {
         // depth soundings. Kept on the canvas because soundings are
         // core navigation info; everything else (object names,
         // formatted descriptions) is suppressed below to declutter.
-        _paintText(canvas, instruction.text, f.geometry.points, project);
+        if (f.objectClass == 'SOUNDG' && _soundingDeclutterActive) {
+          // Declutter: keep only soundings whose anchor sits at least
+          // `_soundingMinSpacing` pixels from every already-placed
+          // label. First-come-first-served within the current paint
+          // pass; the tile sort order above already prioritises the
+          // active-zoom tiles last, so their labels win ties.
+          final anchors = <LatLng>[];
+          for (final p in f.geometry.points) {
+            final s = project(p);
+            var ok = true;
+            for (final q in _drawnSoundings) {
+              if ((s - q).distanceSquared <
+                  _soundingMinSpacing * _soundingMinSpacing) {
+                ok = false;
+                break;
+              }
+            }
+            if (!ok) continue;
+            _drawnSoundings.add(s);
+            anchors.add(p);
+          }
+          if (anchors.isEmpty) continue;
+          _paintText(canvas, instruction.text, anchors, project);
+        } else {
+          _paintText(canvas, instruction.text, f.geometry.points, project);
+        }
       }
       // Suppressed — attribute-driven labels (S52Text, e.g. OBJNAM
       // buoy/light names) and printf-formatted labels (S52TextFormatted)
@@ -2316,6 +3475,7 @@ class _S57Painter extends CustomPainter {
       old.colorTable != colorTable ||
       old.spriteAtlas != spriteAtlas ||
       old.spriteImage != spriteImage ||
+      old.declutter != declutter ||
       old.hiddenClasses.length != hiddenClasses.length ||
       !old.hiddenClasses.containsAll(hiddenClasses);
 }
@@ -2762,12 +3922,49 @@ class _FeatureCard extends StatelessWidget {
     return s;
   }
 
+  /// Picks the card title: prefer a real name (OBJNAM > NOBJNM) so
+  /// named objects like "New London Ledge Light" read as the primary
+  /// identity; fall back to the class display name for unnamed ones.
+  /// Returns `(title, keyUsedAsTitle)` so the row loop can skip the
+  /// attribute it promoted.
+  ({String title, String? usedKey}) _pickTitle(Map<String, Object?> props) {
+    for (final key in const ['OBJNAM', 'NOBJNM']) {
+      final formatted = _format(key, props[key]);
+      if (formatted.isNotEmpty) return (title: formatted, usedKey: key);
+    }
+    return (
+      title: _objectClassNames[member.layer] ?? member.layer,
+      usedKey: null,
+    );
+  }
+
+  Widget _propertyRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 100,
+            child: Text(label,
+                style: const TextStyle(color: Colors.white54, fontSize: 13)),
+          ),
+          Expanded(
+            child: Text(value,
+                style: const TextStyle(color: Colors.white, fontSize: 13)),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final props = member.properties;
+    final titlePick = _pickTitle(props);
     final rows = <Widget>[
       Text(
-        _objectClassNames[member.layer] ?? member.layer,
+        titlePick.title,
         style: const TextStyle(
           color: Colors.white,
           fontWeight: FontWeight.bold,
@@ -2776,30 +3973,21 @@ class _FeatureCard extends StatelessWidget {
       ),
       const SizedBox(height: 6),
     ];
+    // If the title came from a name attribute, surface the S-57
+    // class as an "Object" row so the reader still knows what kind
+    // of feature this is. "Object" avoids collision with CATWRK /
+    // CATOBS which already use the "Type" label.
+    if (titlePick.usedKey != null) {
+      final className = _objectClassNames[member.layer] ?? member.layer;
+      rows.add(_propertyRow('Object', className));
+    }
     for (final key in _displayOrder) {
+      if (key == titlePick.usedKey) continue;
       if (!props.containsKey(key)) continue;
       final display = _format(key, props[key]);
       if (display.isEmpty) continue;
       final label = _attributeLabels[key] ?? key;
-      rows.add(Padding(
-        padding: const EdgeInsets.symmetric(vertical: 2),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            SizedBox(
-              width: 100,
-              child: Text(label,
-                  style:
-                      const TextStyle(color: Colors.white54, fontSize: 13)),
-            ),
-            Expanded(
-              child: Text(display,
-                  style:
-                      const TextStyle(color: Colors.white, fontSize: 13)),
-            ),
-          ],
-        ),
-      ));
+      rows.add(_propertyRow(label, display));
     }
     return Card(
       color: const Color(0xFF2A2A3E),
@@ -2813,6 +4001,16 @@ class _FeatureCard extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Shared popover height cap. In landscape the vertical real estate
+/// is tight — bottom-anchored sheets and waypoint/end-pin popovers
+/// should never cover more than 1/5 of the screen so the map above
+/// stays usable. In portrait we keep the roomier half-screen feel.
+double _popoverMaxHeight(BuildContext context) {
+  final size = MediaQuery.sizeOf(context);
+  final landscape = size.width > size.height;
+  return size.height * (landscape ? 0.2 : 0.5);
 }
 
 class _TapHaloLayer extends StatelessWidget {
@@ -3902,8 +5100,9 @@ class _RoutePainter extends CustomPainter {
 class _MapControls extends StatelessWidget {
   const _MapControls({
     required this.autoFollow,
-    required this.headingUp,
+    required this.viewMode,
     required this.rulerVisible,
+    required this.declutter,
     required this.aisEnabled,
     required this.aisActiveOnly,
     required this.aisShowPaths,
@@ -3913,13 +5112,18 @@ class _MapControls extends StatelessWidget {
     required this.onToggleFollow,
     required this.onToggleViewMode,
     required this.onToggleRuler,
+    required this.onToggleDeclutter,
     required this.onToggleAis,
     required this.onToggleAisActive,
     required this.onToggleAisPaths,
+    required this.weatherRoutingEnabled,
+    required this.weatherRouteActive,
+    required this.onWeatherRouting,
   });
   final bool autoFollow;
-  final bool headingUp;
+  final _ViewMode viewMode;
   final bool rulerVisible;
+  final bool declutter;
   final bool aisEnabled;
   final bool aisActiveOnly;
   final bool aisShowPaths;
@@ -3929,9 +5133,13 @@ class _MapControls extends StatelessWidget {
   final VoidCallback onToggleFollow;
   final VoidCallback onToggleViewMode;
   final VoidCallback onToggleRuler;
+  final VoidCallback onToggleDeclutter;
   final VoidCallback onToggleAis;
   final VoidCallback onToggleAisActive;
   final VoidCallback onToggleAisPaths;
+  final bool weatherRoutingEnabled;
+  final bool weatherRouteActive;
+  final VoidCallback? onWeatherRouting;
 
   @override
   Widget build(BuildContext context) {
@@ -3945,11 +5153,19 @@ class _MapControls extends StatelessWidget {
         children: [
           IconButton(
             icon: Icon(
-              headingUp ? Icons.navigation : Icons.navigation_outlined,
+              switch (viewMode) {
+                _ViewMode.northUp => Icons.navigation_outlined,
+                _ViewMode.headingUp => Icons.navigation,
+                _ViewMode.free => Icons.threesixty,
+              },
               color: Colors.white,
               size: 20,
             ),
-            tooltip: headingUp ? 'Heading-up' : 'North-up',
+            tooltip: switch (viewMode) {
+              _ViewMode.northUp => 'North-up (tap for heading-up)',
+              _ViewMode.headingUp => 'Heading-up (tap for free)',
+              _ViewMode.free => 'Free rotation (tap for north-up)',
+            },
             onPressed: onToggleViewMode,
           ),
           IconButton(
@@ -3971,6 +5187,18 @@ class _MapControls extends StatelessWidget {
             tooltip: 'Routes',
             onPressed: onRoutes,
           ),
+          if (weatherRoutingEnabled)
+            IconButton(
+              icon: Icon(
+                Icons.flight_takeoff,
+                color: weatherRouteActive
+                    ? const Color(0xFFFF9800)
+                    : Colors.white,
+                size: 20,
+              ),
+              tooltip: 'Weather routing',
+              onPressed: onWeatherRouting,
+            ),
           IconButton(
             icon: const Icon(Icons.download, color: Colors.white, size: 20),
             tooltip: 'Download charts',
@@ -3984,6 +5212,15 @@ class _MapControls extends StatelessWidget {
             ),
             tooltip: rulerVisible ? 'Hide ruler' : 'Show ruler',
             onPressed: onToggleRuler,
+          ),
+          IconButton(
+            icon: Icon(
+              declutter ? Icons.filter_list : Icons.filter_list_off,
+              color: Colors.white,
+              size: 20,
+            ),
+            tooltip: declutter ? 'Declutter on' : 'Declutter off',
+            onPressed: onToggleDeclutter,
           ),
           IconButton(
             icon: Icon(
@@ -4017,6 +5254,267 @@ class _MapControls extends StatelessWidget {
             ),
           ],
         ],
+      ),
+    );
+  }
+}
+
+/// Floating itinerary card that pops up when a weather-route
+/// waypoint is selected. Lets the user step through the route
+/// (first / prev / next / last) so the wind and current overlays
+/// scrub to each waypoint's forecast time. Reuses
+/// [WeatherRoutingItineraryCard] verbatim for the body so the visual
+/// language stays in sync with the Result tab.
+class _WeatherWaypointPopover extends StatelessWidget {
+  const _WeatherWaypointPopover({
+    required this.result,
+    required this.selectedIndex,
+    required this.onPrev,
+    required this.onNext,
+    required this.onFirst,
+    required this.onLast,
+    required this.onClose,
+    required this.onClearRoute,
+  });
+
+  final WeatherRouteResult result;
+  final int selectedIndex;
+  final VoidCallback onPrev;
+  final VoidCallback onNext;
+  final VoidCallback onFirst;
+  final VoidCallback onLast;
+  final VoidCallback onClose;
+  final VoidCallback onClearRoute;
+
+  @override
+  Widget build(BuildContext context) {
+    final total = result.coords.length;
+    final atFirst = selectedIndex <= 0;
+    final atLast = selectedIndex >= total - 1;
+    // Guard against selection pointing past the waypoints list (coords
+    // and waypoints can differ by one or two entries on simplified
+    // geometries).
+    final wpIdx = selectedIndex.clamp(0, result.waypoints.length - 1);
+    final waypoint = result.waypoints[wpIdx];
+    final kind = legKindAt(result.waypoints, wpIdx);
+
+    return Material(
+      color: Colors.transparent,
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxHeight: _popoverMaxHeight(context)),
+        child: Container(
+        decoration: BoxDecoration(
+          color: AppColors.cardBackgroundDark,
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x88000000),
+              blurRadius: 12,
+              offset: Offset(0, 4),
+            ),
+          ],
+          border: Border.all(color: const Color(0xFF2A2A44)),
+        ),
+        child: SingleChildScrollView(
+          child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Header — nav buttons.
+            Padding(
+              padding: const EdgeInsets.fromLTRB(4, 4, 4, 0),
+              child: Row(
+                children: [
+                  IconButton(
+                    tooltip: 'First waypoint',
+                    icon: const Icon(Icons.first_page,
+                        color: Colors.white70, size: 22),
+                    onPressed: atFirst ? null : onFirst,
+                  ),
+                  IconButton(
+                    tooltip: 'Previous waypoint',
+                    icon: const Icon(Icons.chevron_left,
+                        color: Colors.white70, size: 24),
+                    onPressed: atFirst ? null : onPrev,
+                  ),
+                  Expanded(
+                    child: Text(
+                      'Waypoint ${selectedIndex + 1} of $total',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 13,
+                        fontFamily: 'Menlo',
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'Next waypoint',
+                    icon: const Icon(Icons.chevron_right,
+                        color: Colors.white70, size: 24),
+                    onPressed: atLast ? null : onNext,
+                  ),
+                  IconButton(
+                    tooltip: 'Last waypoint',
+                    icon: const Icon(Icons.last_page,
+                        color: Colors.white70, size: 22),
+                    onPressed: atLast ? null : onLast,
+                  ),
+                  IconButton(
+                    tooltip: 'Close',
+                    icon: const Icon(Icons.close,
+                        color: Colors.white54, size: 20),
+                    onPressed: onClose,
+                  ),
+                ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+              child: WeatherRoutingItineraryCard(
+                index: wpIdx,
+                waypoint: waypoint,
+                kind: kind,
+                selected: true,
+                onTap: () {},
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: onClearRoute,
+                      icon: const Icon(Icons.delete_outline,
+                          color: Colors.redAccent, size: 16),
+                      label: const Text(
+                        'Clear route',
+                        style: TextStyle(
+                          color: Colors.redAccent,
+                          fontSize: 12,
+                        ),
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        side: const BorderSide(color: Colors.redAccent),
+                        padding: const EdgeInsets.symmetric(vertical: 6),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+          ),
+        ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Pre-compute floating card shown when the user taps the End pin
+/// with no route yet computed. Offers a direct "Compute route" action
+/// and a "Clear route" escape hatch that mirrors the post-compute
+/// waypoint popover.
+class _EndPinComposePopover extends StatelessWidget {
+  const _EndPinComposePopover({
+    required this.onCompute,
+    required this.onClearRoute,
+    required this.onClose,
+  });
+
+  final VoidCallback onCompute;
+  final VoidCallback onClearRoute;
+  final VoidCallback onClose;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxHeight: _popoverMaxHeight(context)),
+        child: Container(
+        decoration: BoxDecoration(
+          color: AppColors.cardBackgroundDark,
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x88000000),
+              blurRadius: 12,
+              offset: Offset(0, 4),
+            ),
+          ],
+          border: Border.all(color: const Color(0xFF2A2A44)),
+        ),
+        child: SingleChildScrollView(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 8, 4, 12),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                children: [
+                  const Icon(Icons.flag, color: Color(0xFFF44336), size: 18),
+                  const SizedBox(width: 8),
+                  const Expanded(
+                    child: Text(
+                      'End waypoint',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'Close',
+                    icon: const Icon(Icons.close,
+                        color: Colors.white54, size: 20),
+                    onPressed: onClose,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: FilledButton.icon(
+                        onPressed: onCompute,
+                        icon: const Icon(Icons.play_arrow, size: 18),
+                        label: const Text('Compute route'),
+                        style: FilledButton.styleFrom(
+                          backgroundColor: AppColors.infoBlue,
+                          padding: const EdgeInsets.symmetric(vertical: 10),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    OutlinedButton.icon(
+                      onPressed: onClearRoute,
+                      icon: const Icon(Icons.delete_outline,
+                          color: Colors.redAccent, size: 16),
+                      label: const Text(
+                        'Clear',
+                        style: TextStyle(color: Colors.redAccent, fontSize: 12),
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        side: const BorderSide(color: Colors.redAccent),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 10),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+        ),
+        ),
       ),
     );
   }
@@ -4059,6 +5557,334 @@ class _FreshnessChip extends StatelessWidget {
           Text(label,
               style: const TextStyle(color: Colors.white70, fontSize: 10)),
         ],
+      ),
+    );
+  }
+}
+
+/// Colour-ramp strip shown under each enabled weather-layer toggle.
+///
+/// The gradient is painted using the server's legend stop colours
+/// positioned by their SI value within `[valueMin, valueMax]`. Tick
+/// labels beneath the bar are built through `MetadataStore` so the
+/// text respects the user's unit preference (m/s → kt by default) —
+/// per CLAUDE.md's "MetadataStore is the single source of truth for
+/// conversions" rule. When `pathMetadata` is null (offline, no
+/// matching SignalK path, e.g. roughness index) we fall through to
+/// the server's SI values verbatim.
+class _LegendBar extends StatelessWidget {
+  const _LegendBar({required this.metadata, required this.pathMetadata});
+
+  final WeatherLayerMetadata metadata;
+  final PathMetadata? pathMetadata;
+
+  // The server labels unitless scales (e.g. roughness index) as
+  // "dimensionless". That word reads as noise next to the number, so
+  // we treat it the same as no unit and drop it from heading + ticks.
+  static bool _isUnitless(String? s) {
+    if (s == null) return true;
+    final t = s.trim();
+    return t.isEmpty || t.toLowerCase() == 'dimensionless';
+  }
+
+  String _formatValue(double siValue) {
+    if (pathMetadata != null && !_isUnitless(pathMetadata!.symbol)) {
+      return pathMetadata!.format(siValue, decimals: 1);
+    }
+    final v = siValue.toStringAsFixed(1);
+    final units = metadata.valueUnits;
+    return _isUnitless(units) ? v : '$v $units';
+  }
+
+  String _legendHeading() {
+    final serverTitle = metadata.legendTitle;
+    final symbol = pathMetadata?.symbol ?? metadata.valueUnits;
+    // Strip any trailing "(units)" from the server's title and
+    // re-append the symbol we actually used, so heading and tick
+    // labels agree.
+    final cleaned =
+        serverTitle.replaceAll(RegExp(r'\s*\([^)]*\)\s*$'), '').trim();
+    if (_isUnitless(symbol)) return cleaned;
+    return '$cleaned ($symbol)';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final stops = metadata.stops;
+    if (stops.length < 2) return const SizedBox.shrink();
+    final minValue = metadata.valueMin ?? stops.first.value;
+    final maxValue = metadata.valueMax ?? stops.last.value;
+    final span = (maxValue - minValue).abs();
+    final colors = stops.map((s) => s.color).toList(growable: false);
+    final stopsNorm = stops
+        .map((s) =>
+            span == 0 ? 0.0 : ((s.value - minValue) / span).clamp(0.0, 1.0))
+        .toList(growable: false);
+
+    // Pick up to three tick labels: first, mid, last.
+    final midIdx = stops.length ~/ 2;
+    final ticks = <LegendStop>[
+      stops.first,
+      if (stops.length >= 3) stops[midIdx],
+      stops.last,
+    ];
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(_legendHeading(),
+            style: const TextStyle(color: Colors.white70, fontSize: 11)),
+        const SizedBox(height: 4),
+        Container(
+          height: 12,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(3),
+            gradient: LinearGradient(
+              colors: colors,
+              stops: stopsNorm,
+            ),
+          ),
+        ),
+        const SizedBox(height: 3),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: ticks
+              .map(
+                (s) => Text(
+                  _formatValue(s.value),
+                  style: const TextStyle(
+                      color: Colors.white54,
+                      fontFamily: 'Menlo',
+                      fontSize: 10),
+                ),
+              )
+              .toList(),
+        ),
+      ],
+    );
+  }
+}
+
+/// Per-layer freshness pill, shaped like `_FreshnessChip` so the two
+/// read as the same visual language. Uses `last_update` when the
+/// server provides it; otherwise falls back to `server_time` as the
+/// age baseline, or to a grey chip with the `refresh_cadence` string
+/// when neither timestamp is available.
+class _LayerFreshnessChip extends StatelessWidget {
+  const _LayerFreshnessChip({required this.metadata});
+
+  final WeatherLayerMetadata metadata;
+
+  @override
+  Widget build(BuildContext context) {
+    final now = DateTime.now().toUtc();
+    final anchor = metadata.lastUpdate ?? metadata.serverTime;
+
+    final Color dotColor;
+    final String label;
+    if (metadata.lastUpdate == null) {
+      // No explicit update timestamp — show the cadence string.
+      dotColor = Colors.grey;
+      label = metadata.refreshCadence != null &&
+              metadata.refreshCadence!.isNotEmpty
+          ? 'Cadence: ${_truncate(metadata.refreshCadence!, 40)}'
+          : 'No update time';
+    } else {
+      final age = now.difference(anchor!);
+      if (age.inMinutes < 60) {
+        dotColor = Colors.green;
+        label = 'Fresh';
+      } else if (age.inHours < 6) {
+        dotColor = Colors.yellow;
+        label = '${age.inHours} h';
+      } else if (age.inHours < 24) {
+        dotColor = Colors.orange;
+        label = '${age.inHours} h';
+      } else {
+        dotColor = Colors.red;
+        label = 'Stale (${age.inDays} d)';
+      }
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.6),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 8,
+            height: 8,
+            decoration:
+                BoxDecoration(shape: BoxShape.circle, color: dotColor),
+          ),
+          const SizedBox(width: 4),
+          Flexible(
+            child: Text(label,
+                overflow: TextOverflow.ellipsis,
+                style:
+                    const TextStyle(color: Colors.white70, fontSize: 10)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  static String _truncate(String s, int max) =>
+      s.length <= max ? s : '${s.substring(0, max - 1)}…';
+}
+
+/// One entry in the on-map legend stack. Snapshot of the data each
+/// `_LegendBar` needs; captured outside the FlutterMap subtree so the
+/// stack widget can live under `MapCamera.of(context)` without
+/// touching plotter state.
+class _OnMapLegendEntry {
+  const _OnMapLegendEntry({
+    required this.metadata,
+    required this.pathMetadata,
+    required this.minZoom,
+  });
+  final WeatherLayerMetadata metadata;
+  final PathMetadata? pathMetadata;
+  final int minZoom;
+}
+
+/// Vertically-stacked legends painted directly on the chart, above
+/// the HUD. Lives outside the `FlutterMap` subtree, so it subscribes
+/// to the `MapController`'s event stream itself to rebuild when the
+/// camera zoom crosses a layer's minimum-zoom threshold.
+class _OnMapLegendStack extends StatefulWidget {
+  const _OnMapLegendStack({
+    required this.service,
+    required this.entries,
+    required this.mapController,
+    required this.initialZoom,
+  });
+
+  final WeatherDataService service;
+  final List<_OnMapLegendEntry> entries;
+  final MapController mapController;
+  final double initialZoom;
+
+  @override
+  State<_OnMapLegendStack> createState() => _OnMapLegendStackState();
+}
+
+class _OnMapLegendStackState extends State<_OnMapLegendStack> {
+  late double _zoom = widget.initialZoom;
+  StreamSubscription<MapEvent>? _sub;
+
+  @override
+  void initState() {
+    super.initState();
+    _sub = widget.mapController.mapEventStream.listen((e) {
+      final z = e.camera.zoom;
+      if (z != _zoom && mounted) {
+        setState(() => _zoom = z);
+      }
+    });
+  }
+
+  @override
+  void didUpdateWidget(covariant _OnMapLegendStack old) {
+    super.didUpdateWidget(old);
+    if (old.mapController != widget.mapController) {
+      _sub?.cancel();
+      _sub = widget.mapController.mapEventStream.listen((e) {
+        final z = e.camera.zoom;
+        if (z != _zoom && mounted) {
+          setState(() => _zoom = z);
+        }
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _sub?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (widget.entries.isEmpty) return const SizedBox.shrink();
+    final visible = widget.entries
+        .where((e) => _zoom >= e.minZoom)
+        .toList(growable: false);
+    if (visible.isEmpty) return const SizedBox.shrink();
+    return IgnorePointer(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          for (final e in visible)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 6),
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.6),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: _LegendBar(
+                  metadata: e.metadata,
+                  pathMetadata: e.pathMetadata,
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Compact dropdown for picking the minimum zoom at which a weather
+/// layer appears. Range + default come from the server's metadata
+/// (`minzoom` / `maxzoom`). Styled to match the dark card surface.
+class _LayerZoomDropdown extends StatelessWidget {
+  const _LayerZoomDropdown({
+    required this.minZoom,
+    required this.maxZoom,
+    required this.current,
+    required this.onChanged,
+  });
+
+  final int minZoom;
+  final int maxZoom;
+  final int current;
+  final ValueChanged<int> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.35),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.white24),
+      ),
+      child: DropdownButtonHideUnderline(
+        child: DropdownButton<int>(
+          value: current,
+          isDense: true,
+          dropdownColor: const Color(0xFF2A2A3E),
+          iconSize: 16,
+          style: const TextStyle(color: Colors.white70, fontSize: 11),
+          items: [
+            for (var z = minZoom; z <= maxZoom; z++)
+              DropdownMenuItem(
+                value: z,
+                child: Text('z ≥ $z'),
+              ),
+          ],
+          onChanged: (v) {
+            if (v != null) onChanged(v);
+          },
+        ),
       ),
     );
   }
