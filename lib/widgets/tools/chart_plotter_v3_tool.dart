@@ -231,7 +231,7 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
   // Pre-compute End-pin tap state: when true and no current route, show
   // a floating "Compute route" card. Cleared automatically when a
   // result arrives or when the user dismisses it.
-  bool _endPinComposeOpen = false;
+  bool _composePopoverOpen = false;
 
   // ===== Weather data overlays (wind / currents / heatmaps) =====
   //
@@ -1401,6 +1401,11 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
     final hasActiveRoute = _routeCoords != null && _routeCoords!.isNotEmpty;
     final weatherOn = _weatherRoutingEnabled;
 
+    // If a computed weather route exists and the press lands near its
+    // polyline, promote that point to a via — mirrors the web UI's
+    // long-press at `route-planner.html:2369-2442`.
+    if (weatherOn && _tryPromoteWeatherRoutePoint(latLng)) return;
+
     if (weatherOn && hasActiveRoute) {
       // Both pathways apply — let the user disambiguate.
       _showLongPressChooser(latLng);
@@ -1413,6 +1418,39 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
     if (hasActiveRoute) {
       _addRouteWaypointAt(latLng);
     }
+  }
+
+  /// Hit-test the currently computed weather-route polyline for a
+  /// long-press; if a vertex is within 12 px of the press, add it as a
+  /// via and surface a snack. Returns true when the press was consumed
+  /// so the caller doesn't fall through to other long-press behaviours.
+  /// Hit radius matches the user-facing tolerance the chart already
+  /// uses for the nav-route waypoint insert.
+  bool _tryPromoteWeatherRoutePoint(LatLng latLng) {
+    final service = _weatherRoutingService;
+    final result = service?.currentResult;
+    if (service == null || result == null || result.coords.isEmpty) {
+      return false;
+    }
+    const hitRadiusSq = 12.0 * 12.0;
+    final camera = _mapController.camera;
+    final tapPx = camera.latLngToScreenOffset(latLng);
+    var bestDistSq = double.infinity;
+    int? bestIdx;
+    for (var i = 0; i < result.coords.length; i++) {
+      final c = result.coords[i];
+      final wp = camera.latLngToScreenOffset(LatLng(c[1], c[0]));
+      final d = (wp - tapPx).distanceSquared;
+      if (d < bestDistSq) {
+        bestDistSq = d;
+        bestIdx = i;
+      }
+    }
+    if (bestIdx == null || bestDistSq > hitRadiusSq) return false;
+    final c = result.coords[bestIdx];
+    service.addVia(LatLon(lat: c[1], lon: c[0]));
+    _showPinSnack('Pinned via waypoint W${service.plannedVias.length}.');
+    return true;
   }
 
   /// Long-press actions when both the SignalK active-route and the
@@ -1489,6 +1527,13 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
   /// Pin-placement logic: if start is missing, place it; else if end is
   /// missing, place it; else move whichever of the two is closer on
   /// screen to the new tap. Matches the UX described by the user.
+  ///
+  /// Click-3+ behaviour (mirrors the route-planner web UI at
+  /// `route-planner.html:2501-2509`): when both pins are placed and no
+  /// route has been computed yet, promote the current End to an
+  /// intermediate "via" waypoint and use the new tap as the new End.
+  /// Once a route exists, fall through to nearer-pin-move so the user
+  /// can still relocate either endpoint.
   void _dropOrMoveWeatherPin(LatLng latLng) {
     final service = _weatherRoutingService;
     if (service == null) return;
@@ -1500,7 +1545,17 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
     }
     if (service.plannedEnd == null) {
       service.plannedEnd = next;
-      _openEndPinCompose();
+      _openComposePopover();
+      return;
+    }
+    final hasResult =
+        service.currentResult != null && service.currentResult!.isNotEmpty;
+    if (!hasResult) {
+      // Both pins set, no compute yet → promote current End to a via,
+      // make this tap the new End.
+      service.addVia(service.plannedEnd!);
+      service.plannedEnd = next;
+      _openComposePopover();
       return;
     }
     final camera = _mapController.camera;
@@ -1513,10 +1568,10 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
     final dE = (ePx - tapPx).distanceSquared;
     if (dS < dE) {
       service.plannedStart = next;
-      _showPinSnack('Start pin moved.');
+      _openComposePopover();
     } else {
       service.plannedEnd = next;
-      _openEndPinCompose();
+      _openComposePopover();
     }
   }
 
@@ -1524,9 +1579,9 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
   /// Close). Used when the user drops or moves the End pin — replaces
   /// the old transient snackbar so the path to "compute route" is
   /// one tap from the chart gesture that placed the pin.
-  void _openEndPinCompose() {
+  void _openComposePopover() {
     if (!mounted) return;
-    setState(() => _endPinComposeOpen = true);
+    setState(() => _composePopoverOpen = true);
   }
 
   void _showPinSnack(String message) {
@@ -1928,7 +1983,7 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
           // exists (so it doesn't compete with the waypoint card) and
           // the user has tapped the End pin.
           if (_weatherRoutingEnabled &&
-              _endPinComposeOpen &&
+              _composePopoverOpen &&
               _weatherRoutingService != null &&
               _weatherRoutingService!.plannedEnd != null &&
               (_weatherRoutingService?.currentResult == null ||
@@ -1937,17 +1992,17 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
               left: 8,
               right: 8,
               bottom: _hudStyle == 'visual' ? 200 : (_hudStyle == 'text' ? 62 : 16),
-              child: _EndPinComposePopover(
+              child: _ComposePopover(
                 onCompute: () {
-                  setState(() => _endPinComposeOpen = false);
+                  setState(() => _composePopoverOpen = false);
                   _showWeatherRoutingSheet(context, autoSubmit: true);
                 },
                 onClearRoute: () {
-                  setState(() => _endPinComposeOpen = false);
+                  setState(() => _composePopoverOpen = false);
                   _weatherRoutingService?.clearResult();
                 },
                 onClose: () =>
-                    setState(() => _endPinComposeOpen = false),
+                    setState(() => _composePopoverOpen = false),
               ),
             ),
           Positioned(
@@ -2085,7 +2140,40 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
       defaultMode: _weatherRouteDefaultMode,
       defaultPolar: _weatherRoutePolar,
       onFocusWaypoint: _focusWeatherRouteWaypoint,
+      onFitToRoute: _fitWeatherRoute,
       autoSubmit: autoSubmit,
+    );
+  }
+
+  /// Fit the chart camera to the current weather-route polyline.
+  /// Called when the user taps a row in the Recent tab so they land
+  /// on the route they just loaded. Auto-follow stays as-is — the
+  /// next vessel tick will re-pan only if the user has it enabled,
+  /// matching the existing waypoint-focus behaviour.
+  void _fitWeatherRoute() {
+    final result = _weatherRoutingService?.currentResult;
+    if (result == null || result.coords.isEmpty || !_mapReady) return;
+    double minLat = double.infinity, maxLat = -double.infinity;
+    double minLon = double.infinity, maxLon = -double.infinity;
+    for (final c in result.coords) {
+      final lon = c[0];
+      final lat = c[1];
+      if (lat < minLat) minLat = lat;
+      if (lat > maxLat) maxLat = lat;
+      if (lon < minLon) minLon = lon;
+      if (lon > maxLon) maxLon = lon;
+    }
+    if (!minLat.isFinite || !minLon.isFinite) return;
+    final bounds = LatLngBounds(
+      LatLng(minLat, minLon),
+      LatLng(maxLat, maxLon),
+    );
+    _mapController.fitCamera(
+      CameraFit.bounds(
+        bounds: bounds,
+        padding: const EdgeInsets.all(48),
+        maxZoom: 15,
+      ),
     );
   }
 
@@ -2101,7 +2189,18 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
       // card, or clear the route first.
       return;
     }
-    setState(() => _endPinComposeOpen = !_endPinComposeOpen);
+    setState(() => _composePopoverOpen = !_composePopoverOpen);
+  }
+
+  /// Start-pin tap. Mirrors [_onEndPinTap] — only meaningful when an
+  /// End pin exists and no route is computed, so the user has a clear
+  /// "Compute" path one tap from the pin they just placed/moved.
+  void _onStartPinTap() {
+    final svc = _weatherRoutingService;
+    if (svc == null) return;
+    if (svc.plannedEnd == null) return;
+    if (svc.currentResult != null && svc.currentResult!.isNotEmpty) return;
+    setState(() => _composePopoverOpen = !_composePopoverOpen);
   }
 
   void _focusWeatherRouteWaypoint(int index) {
@@ -2281,6 +2380,7 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
               service.clearResult();
             }
           },
+          onTap: (_) => _onStartPinTap(),
           builder: (_, _, _) => _weatherRoutePinVisual(
               fill: const Color(0xFF4CAF50), label: 'S'),
         ));
@@ -2304,6 +2404,32 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
           onTap: (_) => _onEndPinTap(),
           builder: (_, _, _) => _weatherRoutePinVisual(
               fill: const Color(0xFFF44336), label: 'E'),
+        ));
+      }
+      // Intermediate "via" waypoints — orange `W{i+1}` pins. Drag clears
+      // any computed result so the request can be re-submitted.
+      final vias = service.plannedVias;
+      for (var i = 0; i < vias.length; i++) {
+        final v = vias[i];
+        final viaIndex = i; // capture for closures
+        markers.add(DragMarker(
+          point: LatLng(v.lat, v.lon),
+          size: const Size(44, 44),
+          rotateMarker: false,
+          onDragUpdate: (details, latLng) {
+            service.moveVia(
+              viaIndex,
+              LatLon(lat: latLng.latitude, lon: latLng.longitude),
+            );
+          },
+          onDragEnd: (details, latLng) {
+            if (service.currentResult != null) {
+              _setSelectedWaypoint(null);
+              service.clearResult();
+            }
+          },
+          builder: (_, _, _) => _weatherRoutePinVisual(
+              fill: const Color(0xFFFF9800), label: 'W${viaIndex + 1}'),
         ));
       }
     }
@@ -5483,8 +5609,8 @@ class _WeatherWaypointPopover extends StatelessWidget {
 /// with no route yet computed. Offers a direct "Compute route" action
 /// and a "Clear route" escape hatch that mirrors the post-compute
 /// waypoint popover.
-class _EndPinComposePopover extends StatelessWidget {
-  const _EndPinComposePopover({
+class _ComposePopover extends StatelessWidget {
+  const _ComposePopover({
     required this.onCompute,
     required this.onClearRoute,
     required this.onClose,
@@ -5522,11 +5648,12 @@ class _EndPinComposePopover extends StatelessWidget {
             children: [
               Row(
                 children: [
-                  const Icon(Icons.flag, color: Color(0xFFF44336), size: 18),
+                  const Icon(Icons.play_arrow,
+                      color: AppColors.infoBlue, size: 18),
                   const SizedBox(width: 8),
                   const Expanded(
                     child: Text(
-                      'End waypoint',
+                      'Route',
                       style: TextStyle(
                         color: Colors.white,
                         fontSize: 13,

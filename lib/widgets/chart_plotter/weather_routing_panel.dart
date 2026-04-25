@@ -29,6 +29,9 @@ typedef WeatherRoutingWaypointFocus = void Function(int index);
 /// - [defaultPolar] — persisted in V3's `customProperties`
 /// - [onFocusWaypoint] — pans the chart to a waypoint when the user
 ///   selects a card
+/// - [onFitToRoute] — fits the chart camera to the current route's
+///   bounding box. Used after a Recent-tab tap so the user lands on
+///   the route they just chose.
 ///
 /// Planned start/end pins are read from [WeatherRoutingService] so that
 /// the chart's long-press + drag-marker UX stays in sync with the panel.
@@ -38,6 +41,7 @@ void showWeatherRoutingSheet(
   required RouteMode defaultMode,
   required String? defaultPolar,
   required WeatherRoutingWaypointFocus onFocusWaypoint,
+  VoidCallback? onFitToRoute,
   bool autoSubmit = false,
 }) {
   showModalBottomSheet(
@@ -60,6 +64,7 @@ void showWeatherRoutingSheet(
         defaultMode: defaultMode,
         defaultPolar: defaultPolar,
         onFocusWaypoint: onFocusWaypoint,
+        onFitToRoute: onFitToRoute,
         autoSubmit: autoSubmit,
       ),
     ),
@@ -73,6 +78,7 @@ class _WeatherRoutingSheet extends StatefulWidget {
     required this.defaultMode,
     required this.defaultPolar,
     required this.onFocusWaypoint,
+    this.onFitToRoute,
     this.autoSubmit = false,
   });
 
@@ -81,6 +87,7 @@ class _WeatherRoutingSheet extends StatefulWidget {
   final RouteMode defaultMode;
   final String? defaultPolar;
   final WeatherRoutingWaypointFocus onFocusWaypoint;
+  final VoidCallback? onFitToRoute;
   final bool autoSubmit;
 
   @override
@@ -95,13 +102,21 @@ class _WeatherRoutingSheetState extends State<_WeatherRoutingSheet>
   // BuildContext is deactivated and `context.read` throws
   // "Looking up a deactivated widget's ancestor is unsafe."
   WeatherRoutingService? _service;
+  // Tab auto-flip is *transition*-driven, not state-driven: we only move
+  // the user when the status enum actually changes. Without this, every
+  // unrelated `notifyListeners` (e.g. recent-routes refresh, log line
+  // append) would re-fire the auto-switch and yank the user back —
+  // making it impossible to dwell on Recent or Compose while a result
+  // is loaded.
+  WeatherRoutingStatus? _lastSeenStatus;
 
   @override
   void initState() {
     super.initState();
-    _tabs = TabController(length: 3, vsync: this);
+    _tabs = TabController(length: 4, vsync: this);
     final service = context.read<WeatherRoutingService>();
     _service = service;
+    _lastSeenStatus = service.status;
     service.addListener(_onServiceChanged);
     _maybeSelectTabForStatus(service.status);
   }
@@ -118,7 +133,10 @@ class _WeatherRoutingSheetState extends State<_WeatherRoutingSheet>
     if (!mounted) return;
     final service = _service;
     if (service == null) return;
-    _maybeSelectTabForStatus(service.status);
+    final next = service.status;
+    if (next == _lastSeenStatus) return;
+    _lastSeenStatus = next;
+    _maybeSelectTabForStatus(next);
   }
 
   void _maybeSelectTabForStatus(WeatherRoutingStatus status) {
@@ -183,6 +201,7 @@ class _WeatherRoutingSheetState extends State<_WeatherRoutingSheet>
               Tab(text: 'Compose'),
               Tab(text: 'Progress'),
               Tab(text: 'Result'),
+              Tab(text: 'Recent'),
             ],
           ),
           Expanded(
@@ -200,6 +219,13 @@ class _WeatherRoutingSheetState extends State<_WeatherRoutingSheet>
                 _ResultTab(
                   scrollController: widget.scrollController,
                   onFocusWaypoint: widget.onFocusWaypoint,
+                ),
+                _RecentTab(
+                  scrollController: widget.scrollController,
+                  onFitToRoute: widget.onFitToRoute,
+                  onLoaded: () {
+                    if (_tabs.index != 2) _tabs.animateTo(2);
+                  },
                 ),
               ],
             ),
@@ -436,6 +462,12 @@ class _ComposeTabState extends State<_ComposeTab> {
                   onTap: () => service.plannedEnd = null,
                 ),
         ),
+        if (service.plannedVias.isNotEmpty) ...[
+          const SizedBox(height: 12),
+          _sectionLabel('Waypoints'),
+          for (var i = 0; i < service.plannedVias.length; i++)
+            _viaRow(service, i),
+        ],
         const SizedBox(height: 16),
         _sectionLabel('Routing mode'),
         SegmentedButton<RouteMode>(
@@ -553,6 +585,7 @@ class _ComposeTabState extends State<_ComposeTab> {
     final req = WeatherRouteRequest(
       start: start,
       end: service.plannedEnd!,
+      waypoints: service.plannedVias,
       mode: _mode,
       departure: _departure,
       polar: polarOverride,
@@ -903,6 +936,51 @@ class _ComposeTabState extends State<_ComposeTab> {
         if (secondary != null)
           TextButton(onPressed: secondary.onTap, child: Text(secondary.label)),
       ],
+    );
+  }
+
+  Widget _viaRow(WeatherRoutingService service, int i) {
+    final v = service.plannedVias[i];
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Row(
+        children: [
+          Container(
+            width: 22,
+            height: 22,
+            alignment: Alignment.center,
+            decoration: const BoxDecoration(
+              color: Color(0xFFFF9800),
+              shape: BoxShape.circle,
+            ),
+            child: Text(
+              'W${i + 1}',
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 9,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              '${v.lat.toStringAsFixed(5)}, ${v.lon.toStringAsFixed(5)}',
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 13,
+                fontFamily: 'Menlo',
+              ),
+            ),
+          ),
+          IconButton(
+            tooltip: 'Remove waypoint',
+            visualDensity: VisualDensity.compact,
+            icon: const Icon(Icons.close, color: Colors.redAccent, size: 18),
+            onPressed: () => service.removeVia(i),
+          ),
+        ],
+      ),
     );
   }
 
@@ -1293,5 +1371,202 @@ class _StatSummary extends StatelessWidget {
         children: parts,
       ),
     );
+  }
+}
+
+// ================= Recent Tab =================
+
+/// Lists the caller's 5 most recent server-side completed routes.
+/// Tapping a row hydrates the route as the current result and flips
+/// the parent sheet to the Result tab.
+class _RecentTab extends StatefulWidget {
+  const _RecentTab({
+    required this.scrollController,
+    required this.onLoaded,
+    this.onFitToRoute,
+  });
+
+  final ScrollController scrollController;
+
+  /// Called after a recent route is hydrated. The parent sheet uses
+  /// this to switch its TabController to the Result tab.
+  final VoidCallback onLoaded;
+
+  /// Optional — fits the host chart's camera to the just-loaded
+  /// route's bounding box.
+  final VoidCallback? onFitToRoute;
+
+  @override
+  State<_RecentTab> createState() => _RecentTabState();
+}
+
+class _RecentTabState extends State<_RecentTab> {
+  bool _refreshing = false;
+  String? _loadingJobId;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _refresh();
+    });
+  }
+
+  Future<void> _refresh() async {
+    if (_refreshing) return;
+    setState(() => _refreshing = true);
+    try {
+      await context.read<WeatherRoutingService>().refreshRecentRoutes();
+    } finally {
+      if (mounted) setState(() => _refreshing = false);
+    }
+  }
+
+  Future<void> _load(WeatherRoutingService service, String jobId) async {
+    setState(() => _loadingJobId = jobId);
+    try {
+      await service.loadRecentRoute(jobId);
+      if (!mounted) return;
+      // Fit before switching tabs — currentResult is now populated, so
+      // the chart can compute bounds. Tab switch is purely visual and
+      // doesn't depend on the map state.
+      widget.onFitToRoute?.call();
+      widget.onLoaded();
+    } finally {
+      if (mounted) setState(() => _loadingJobId = null);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final service = context.watch<WeatherRoutingService>();
+    final auth = context.watch<RoutePlannerAuthService>();
+    final jobs = service.recentJobs;
+
+    if (!auth.hasToken) {
+      return const Padding(
+        padding: EdgeInsets.all(24),
+        child: Text(
+          'Sign in to the route planner to see recent routes.',
+          style: TextStyle(color: Colors.white70),
+        ),
+      );
+    }
+
+    return RefreshIndicator(
+      onRefresh: _refresh,
+      child: ListView(
+        controller: widget.scrollController,
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+        children: [
+          if (_refreshing)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 12),
+              child: Center(
+                child: SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+              ),
+            )
+          else if (jobs.isEmpty)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 24),
+              child: Text(
+                'No recent routes.',
+                style: TextStyle(color: Colors.white54),
+              ),
+            ),
+          for (final job in jobs) _row(context, service, job),
+        ],
+      ),
+    );
+  }
+
+  Widget _row(BuildContext context, WeatherRoutingService service,
+      WeatherRecentJob job) {
+    final loading = _loadingJobId == job.jobId;
+    final signalKService = context.read<SignalKService>();
+    final distMeta =
+        signalKService.metadataStore.getByCategory('distance');
+    final summary = job.summary;
+    final pieces = <String>[];
+    if (summary?.totalDistanceM != null) {
+      final dist = summary!.totalDistanceM!;
+      pieces.add(distMeta != null
+          ? distMeta.format(dist, decimals: 1)
+          : '${dist.toStringAsFixed(0)} m');
+    }
+    if (summary?.totalTimeS != null) {
+      pieces.add(_formatDuration(summary!.totalTimeS!));
+    }
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Material(
+        color: const Color(0xFF14142A),
+        borderRadius: BorderRadius.circular(8),
+        child: InkWell(
+          onTap: loading ? null : () => _load(service, job.jobId),
+          borderRadius: BorderRadius.circular(8),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(12, 10, 8, 10),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        _relativeTime(job.createdAt),
+                        style: const TextStyle(
+                            color: Colors.white, fontSize: 14),
+                      ),
+                      if (pieces.isNotEmpty) ...[
+                        const SizedBox(height: 2),
+                        Text(
+                          pieces.join('  ·  '),
+                          style: const TextStyle(
+                              color: Colors.white60, fontSize: 12),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                if (loading)
+                  const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                else
+                  const Icon(Icons.chevron_right, color: Colors.white54),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  static String _relativeTime(DateTime when) {
+    final delta = DateTime.now().difference(when);
+    if (delta.inMinutes < 1) return 'Just now';
+    if (delta.inMinutes < 60) return '${delta.inMinutes} min ago';
+    if (delta.inHours < 24) return '${delta.inHours} h ago';
+    if (delta.inDays < 7) return '${delta.inDays} d ago';
+    final l = when.toLocal();
+    return '${l.year}-${l.month.toString().padLeft(2, '0')}-'
+        '${l.day.toString().padLeft(2, '0')}';
+  }
+
+  static String _formatDuration(double seconds) {
+    final s = seconds.round();
+    final h = s ~/ 3600;
+    final m = (s % 3600) ~/ 60;
+    if (h > 0) return '${h}h ${m}m';
+    return '${m}m';
   }
 }
