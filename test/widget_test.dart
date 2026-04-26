@@ -154,7 +154,8 @@ void main() {
 
     // Route planner auth + weather routing (no network in tests)
     routePlannerAuthService = RoutePlannerAuthService(storageService);
-    weatherRoutingService = WeatherRoutingService(routePlannerAuthService);
+    weatherRoutingService =
+        WeatherRoutingService(routePlannerAuthService, storageService);
     routePlannerBoatsService = RoutePlannerBoatsService(
       auth: routePlannerAuthService,
       storage: storageService,
