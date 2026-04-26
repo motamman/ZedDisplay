@@ -1489,6 +1489,11 @@ class _RecentTabState extends State<_RecentTab> {
   Widget _row(BuildContext context, WeatherRoutingService service,
       WeatherRecentJob job) {
     final loading = _loadingJobId == job.jobId;
+    // Service refuses `loadRecentRoute` while a job is in flight to
+    // avoid the live SSE stream clobbering the recent-route result a
+    // few frames later. Disable the row tap so the user gets visual
+    // feedback rather than a silent no-op.
+    final disabled = service.isBusy;
     final signalKService = context.read<SignalKService>();
     final distMeta =
         signalKService.metadataStore.getByCategory('distance');
@@ -1505,45 +1510,50 @@ class _RecentTabState extends State<_RecentTab> {
     }
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Material(
-        color: const Color(0xFF14142A),
-        borderRadius: BorderRadius.circular(8),
-        child: InkWell(
-          onTap: loading ? null : () => _load(service, job.jobId),
+      child: Opacity(
+        opacity: disabled ? 0.5 : 1.0,
+        child: Material(
+          color: const Color(0xFF14142A),
           borderRadius: BorderRadius.circular(8),
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(12, 10, 8, 10),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        _relativeTime(job.createdAt),
-                        style: const TextStyle(
-                            color: Colors.white, fontSize: 14),
-                      ),
-                      if (pieces.isNotEmpty) ...[
-                        const SizedBox(height: 2),
+          child: InkWell(
+            onTap: (loading || disabled)
+                ? null
+                : () => _load(service, job.jobId),
+            borderRadius: BorderRadius.circular(8),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(12, 10, 8, 10),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
                         Text(
-                          pieces.join('  ·  '),
+                          _relativeTime(job.createdAt),
                           style: const TextStyle(
-                              color: Colors.white60, fontSize: 12),
+                              color: Colors.white, fontSize: 14),
                         ),
+                        if (pieces.isNotEmpty) ...[
+                          const SizedBox(height: 2),
+                          Text(
+                            pieces.join('  ·  '),
+                            style: const TextStyle(
+                                color: Colors.white60, fontSize: 12),
+                          ),
+                        ],
                       ],
-                    ],
+                    ),
                   ),
-                ),
-                if (loading)
-                  const SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                else
-                  const Icon(Icons.chevron_right, color: Colors.white54),
-              ],
+                  if (loading)
+                    const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  else
+                    const Icon(Icons.chevron_right, color: Colors.white54),
+                ],
+              ),
             ),
           ),
         ),

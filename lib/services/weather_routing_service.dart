@@ -393,11 +393,29 @@ class WeatherRoutingService extends ChangeNotifier
           if (kDebugMode) {
             debugPrint('SSE stream error: $e');
           }
+          // Null the subscription/client *before* the backoff timer is
+          // scheduled. Without this, `didChangeAppLifecycleState`'s
+          // `_sseSub == null` fast-path can never fire during the
+          // backoff window (or after retries are exhausted), and a
+          // user resuming from background would silently fail to
+          // reconnect.
+          _sseSub = null;
+          _sseClient?.close();
+          _sseClient = null;
           _scheduleSseReconnect(e);
         },
         onDone: () {
-          // Server closed the stream — terminal event already handled
-          // in _handleFrame, nothing else to do.
+          // The server closed the stream. If the close came after a
+          // terminal frame, status is already done/error/cancelled and
+          // `_scheduleSseReconnect` is a no-op. If the close came mid-
+          // route (proxy idle timeout, Wi-Fi flap), kick the reconnect
+          // ladder so we don't sit forever with stale state.
+          _sseSub = null;
+          _sseClient?.close();
+          _sseClient = null;
+          if (isBusy && _currentJobId == jobId) {
+            _scheduleSseReconnect('stream closed before completion');
+          }
         },
         cancelOnError: true,
       );
@@ -579,6 +597,12 @@ class WeatherRoutingService extends ChangeNotifier
       _appendLog(
           'Stream lost — gave up after $_sseMaxReconnectAttempts retries.',
           WeatherRoutingLogKind.error);
+      // Tear down so a future lifecycle resume (or
+      // `tryReattachActiveJob` on next launch) sees `_sseSub == null`
+      // and can have another go. Active-job blob stays on disk on
+      // purpose: the server's TTL is the right authority for whether
+      // the job is still recoverable.
+      unawaited(_teardownSse());
       return;
     }
     final attempt = _sseReconnectAttempts + 1;
@@ -762,9 +786,23 @@ class WeatherRoutingService extends ChangeNotifier
   }
 
   /// Fetch one finished job's full GeoJSON and hydrate it as the
-  /// current result, so the panel's Results tab and the on-map
-  /// overlay re-render. Status stays `idle` — this isn't a live job.
+  /// current result so the Results tab and the on-map overlay
+  /// re-render. Sets `_status` to `done` to reflect the loaded
+  /// completed result — this isn't a live in-flight job, but the
+  /// UI is otherwise indistinguishable from one that just finished.
+  ///
+  /// Refuses to run when [isBusy] — clobbering an in-flight job's
+  /// state would let the live SSE stream race ahead and overwrite
+  /// the recent-route result a few frames later. Caller must cancel
+  /// or finish the live job first.
   Future<void> loadRecentRoute(String jobId) async {
+    if (isBusy) {
+      _appendLog(
+          'Refusing to load recent route while a job is in flight.',
+          WeatherRoutingLogKind.error);
+      notifyListeners();
+      return;
+    }
     try {
       final uri = Uri.parse('$_baseUrl/api/v1/routes/$jobId/result');
       final resp = await http
@@ -777,6 +815,11 @@ class WeatherRoutingService extends ChangeNotifier
         return;
       }
       final m = jsonDecode(resp.body) as Map<String, dynamic>;
+      // Belt-and-braces: drop any persisted resume blob from a prior
+      // session, and tear down a stray SSE subscription if one is
+      // somehow still alive even though `isBusy` returned false.
+      _clearActiveJob();
+      await _teardownSse();
       _currentResult = WeatherRouteResult.fromGeoJson(m);
       _currentJobId = jobId;
       _status = WeatherRoutingStatus.done;

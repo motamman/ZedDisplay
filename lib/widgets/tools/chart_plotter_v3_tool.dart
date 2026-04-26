@@ -1575,10 +1575,12 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
     }
   }
 
-  /// Surface the standard End-pin compose popover (Compute / Clear /
-  /// Close). Used when the user drops or moves the End pin — replaces
-  /// the old transient snackbar so the path to "compute route" is
-  /// one tap from the chart gesture that placed the pin.
+  /// Surface the floating "Route" popover (Compute / Clear / Close).
+  /// Triggered by Start- or End-pin tap, and by long-press placement /
+  /// move of either pin once both are set. Replaces the old transient
+  /// snackbar so the path to "compute route" is one tap from the chart
+  /// gesture that placed the pin. Render is gated by `plannedEnd` and
+  /// the absence of a computed result — see the Stack at line ~1930.
   void _openComposePopover() {
     if (!mounted) return;
     setState(() => _composePopoverOpen = true);
@@ -1692,8 +1694,21 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
     }
   }
 
+  /// Signature of the depth metadata we last rebuilt against — just
+  /// the user-visible bits (symbol + formula). MetadataStore notifies
+  /// many times during connect for paths we don't care about; without
+  /// this guard, every notification triggered a full chart repaint.
+  String? _lastDepthMetaSig;
+
   void _onMetadataStoreChanged() {
-    if (mounted) setState(() {});
+    if (!mounted) return;
+    final store = widget.signalKService.metadataStore;
+    final depth = store.get('environment.depth.belowTransducer') ??
+        store.getByCategory('depth');
+    final sig = depth == null ? null : '${depth.symbol}|${depth.formula}';
+    if (sig == _lastDepthMetaSig) return;
+    _lastDepthMetaSig = sig;
+    setState(() {});
   }
 
   Future<ui.Image> _decodeImage(Uint8List bytes) async {
