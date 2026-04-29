@@ -2552,7 +2552,7 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
             }
           },
           builder: (_, _, _) => _weatherRoutePinVisual(
-              fill: const Color(0xFFFF9800), label: 'W${viaIndex + 1}'),
+              fill: const Color(0xFFFF9800), label: ''),
         ));
       }
     }
@@ -5660,6 +5660,9 @@ class _WeatherWaypointPopover extends StatelessWidget {
               child: WeatherRoutingItineraryCard(
                 index: wpIdx,
                 waypoint: waypoint,
+                next: wpIdx + 1 < result.waypoints.length
+                    ? result.waypoints[wpIdx + 1]
+                    : null,
                 kind: kind,
                 selected: true,
                 onTap: () {},

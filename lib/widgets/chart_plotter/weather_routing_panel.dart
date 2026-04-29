@@ -20,6 +20,17 @@ import 'weather_routing_overlay.dart';
 
 typedef WeatherRoutingWaypointFocus = void Function(int index);
 
+/// Format a duration in seconds as `Hh Mm` (or `Mm` when under an hour).
+/// Time arithmetic (s ↔ min ↔ h) is universal; this is a display-format
+/// choice, not a unit conversion. Used by `_StatSummary` and the
+/// `_RecentTab` row.
+String _formatHhMm(double seconds) {
+  final s = seconds.round();
+  final h = s ~/ 3600;
+  final m = (s % 3600) ~/ 60;
+  return h > 0 ? '${h}h ${m}m' : '${m}m';
+}
+
 /// Shows the weather routing sheet. The caller provides:
 /// - [vesselPosition] — current own-vessel position. Used as the start
 ///   fallback when no explicit start pin is placed, and as the "Use
@@ -261,9 +272,10 @@ class _ComposeTabState extends State<_ComposeTab> {
   late DateTime _departure = DateTime.now();
 
   // Routing tolerances — ranges + defaults mirror the web UI at
-  // `routePlanning/ui/route-planner.html`. Values here are in the
-  // display units shown on the slider labels (kts, min, m, cells);
-  // conversion to SI happens once at submit time.
+  // `routePlanning/ui/route-planner.html`. Sail-threshold is stored
+  // in display units (kts) and converted to SI at submit; depth-class
+  // tolerances are stored in SI metres and rendered through
+  // MetadataStore so the user sees their preferred unit (m vs ft).
   double _sailThreshKts = 5.0;     // 0..10, step 0.5 — sail-only
   double _tackPenaltyS = 30;       // 0..120, step 5 — sail-only
   double _isoStepMin = 15;         // 5..60, step 5
@@ -624,6 +636,21 @@ class _ComposeTabState extends State<_ComposeTab> {
   /// as top-level fields on `POST /route`, not stored on the server.
   Widget _advancedSection() {
     final isSail = _mode != RouteMode.motor;
+    // MetadataStore drives every unit-bearing slider's display label.
+    // Speed sliders (sail threshold) use the user's speed preset
+    // (kt vs km/h vs mph). Depth sliders (under-keel) and short-distance
+    // sliders (shore step, simplify) use the depth preset (m vs ft).
+    // Depth-class sliders (under-keel, shore step, simplify) format
+    // their SI metres through MetadataStore using the canonical
+    // pattern. The sail-threshold slider is stored in kts and uses
+    // its own `unit:'kts'` arg — no metadata lookup needed.
+    final store = context.read<SignalKService>().metadataStore;
+    final depthMd = store.get('environment.depth.belowSurface')
+        ?? store.getByCategory('depth');
+    String fmtDepth1(double si) => depthMd.formatOrRaw(
+        si, decimals: 1, siSuffix: 'm');
+    String fmtDepth0(double si) => depthMd.formatOrRaw(
+        si, decimals: 0, siSuffix: 'm');
     return Theme(
       data: Theme.of(context).copyWith(
         dividerColor: Colors.transparent,
@@ -694,8 +721,8 @@ class _ComposeTabState extends State<_ComposeTab> {
             min: 0,
             max: 3,
             divisions: 30,
-            unit: 'm',
             decimals: 1,
+            formatter: fmtDepth1,
             onChanged: (v) => setState(() => _underKeelClearanceM = v),
           ),
           _slider(
@@ -704,8 +731,8 @@ class _ComposeTabState extends State<_ComposeTab> {
             min: 5,
             max: 200,
             divisions: 39,
-            unit: 'm',
             decimals: 0,
+            formatter: fmtDepth0,
             onChanged: (v) => setState(() => _shoreStepM = v),
           ),
           _slider(
@@ -714,8 +741,8 @@ class _ComposeTabState extends State<_ComposeTab> {
             min: 0,
             max: 100,
             divisions: 20,
-            unit: 'm',
             decimals: 0,
+            formatter: fmtDepth0,
             onChanged: (v) => setState(() => _simplifyM = v),
           ),
         ],
@@ -729,10 +756,16 @@ class _ComposeTabState extends State<_ComposeTab> {
     required double min,
     required double max,
     required int divisions,
-    required String unit,
     required int decimals,
     required ValueChanged<double> onChanged,
+    String? unit,
+    String Function(double si)? formatter,
   }) {
+    assert(unit != null || formatter != null,
+        '_slider needs either a unit (universal-unit case) or a formatter (metadata-routed case)');
+    final displayed = formatter != null
+        ? formatter(value)
+        : '${value.toStringAsFixed(decimals)} $unit';
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 2),
       child: Column(
@@ -748,7 +781,7 @@ class _ComposeTabState extends State<_ComposeTab> {
                 ),
               ),
               Text(
-                '${value.toStringAsFixed(decimals)} $unit',
+                displayed,
                 style: const TextStyle(
                   color: Colors.white,
                   fontSize: 12,
@@ -967,6 +1000,8 @@ class _BoatRow extends StatelessWidget {
 
   static String _fmtLength(double si, PathMetadata? md) {
     if (md != null) return 'LOA ${md.format(si, decimals: 1)}';
+    // No metadata — show the raw SI value labelled with its SI unit
+    // (meters). Labelling SI as SI is honest, not a display preference.
     return 'LOA ${si.toStringAsFixed(1)} m';
   }
 }
@@ -1178,6 +1213,9 @@ class _ResultTab extends StatelessWidget {
           WeatherRoutingItineraryCard(
             index: i,
             waypoint: result.waypoints[i],
+            next: i + 1 < result.waypoints.length
+                ? result.waypoints[i + 1]
+                : null,
             kind: legKindAt(result.waypoints, i),
             selected: false,
             onTap: () {
@@ -1211,37 +1249,37 @@ class _StatSummary extends StatelessWidget {
       fontWeight: FontWeight.bold,
     );
 
+    // Distance via canonical MetadataStore pattern. Time uses a
+    // shared `Hh Mm` formatter — no project category exists for time
+    // and `s↔min↔h` arithmetic is universal, not a user-preference
+    // unit choice.
+    final distMd = context
+        .read<SignalKService>()
+        .metadataStore
+        .getByCategory('distance');
+
     if (s.totalDistanceM != null) {
       add(TextSpan(
         style: boldStyle,
-        text: '${(s.totalDistanceM! / metersPerNm).toStringAsFixed(1)} nm',
+        text: distMd.formatOrRaw(s.totalDistanceM!, decimals: 1, siSuffix: 'm'),
       ));
     }
     if (s.totalTimeS != null) {
       add(TextSpan(style: labelStyle, children: [
         const TextSpan(text: '  |  '),
-        TextSpan(
-          style: valueStyle,
-          text: '${(s.totalTimeS! / 3600).toStringAsFixed(1)} h',
-        ),
+        TextSpan(style: valueStyle, text: _formatHhMm(s.totalTimeS!)),
       ]));
     }
     if (s.sailingTimeS != null) {
       add(TextSpan(style: labelStyle, children: [
         const TextSpan(text: '  |  Sail '),
-        TextSpan(
-          style: valueStyle,
-          text: '${(s.sailingTimeS! / 3600).toStringAsFixed(1)} h',
-        ),
+        TextSpan(style: valueStyle, text: _formatHhMm(s.sailingTimeS!)),
       ]));
     }
     if (s.motoringTimeS != null) {
       add(TextSpan(style: labelStyle, children: [
         const TextSpan(text: '  |  Motor '),
-        TextSpan(
-          style: valueStyle,
-          text: '${(s.motoringTimeS! / 3600).toStringAsFixed(1)} h',
-        ),
+        TextSpan(style: valueStyle, text: _formatHhMm(s.motoringTimeS!)),
       ]));
     }
     add(TextSpan(style: labelStyle, children: [
@@ -1394,13 +1432,11 @@ class _RecentTabState extends State<_RecentTab> {
     final summary = job.summary;
     final pieces = <String>[];
     if (summary?.totalDistanceM != null) {
-      final dist = summary!.totalDistanceM!;
-      pieces.add(distMd != null
-          ? distMd.format(dist, decimals: 1)
-          : '${dist.toStringAsFixed(0)} m');
+      pieces.add(distMd.formatOrRaw(
+          summary!.totalDistanceM!, decimals: 1, siSuffix: 'm'));
     }
     if (summary?.totalTimeS != null) {
-      pieces.add(_formatDuration(summary!.totalTimeS!));
+      pieces.add(_formatHhMm(summary!.totalTimeS!));
     }
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
@@ -1466,11 +1502,4 @@ class _RecentTabState extends State<_RecentTab> {
         '${l.day.toString().padLeft(2, '0')}';
   }
 
-  static String _formatDuration(double seconds) {
-    final s = seconds.round();
-    final h = s ~/ 3600;
-    final m = (s % 3600) ~/ 60;
-    if (h > 0) return '${h}h ${m}m';
-    return '${m}m';
-  }
 }
