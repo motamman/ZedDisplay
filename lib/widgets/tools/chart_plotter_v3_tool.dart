@@ -79,20 +79,43 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
   static const _initialZoom = 12.0;
 
   /// Stacked layer definition — `{type: base|s57, id, enabled, opacity}`.
-  /// Same shape ChartLayerPanel mutates. For the V3 MVP we honour the
-  /// first enabled base layer as the rendered basemap, and the first
-  /// enabled s57 layer as the chart source, applying their opacities
-  /// to each draw. Richer stacking comes later if V1 parity demands it.
+  /// Same shape ChartLayerPanel mutates. The basemap is the first
+  /// enabled `base` entry; every enabled `s57` entry is drawn on top,
+  /// fanned out per chart by the tile manager and merged in render
+  /// order by S-52 displayPriority. The s57 entries are seeded from
+  /// `signalKService.getResources('charts')` at first dependency pass —
+  /// the hardcoded base entry below is the only static seed.
   final List<Map<String, dynamic>> _layers = [
     {'type': 'base', 'id': 'carto_voyager', 'enabled': true, 'opacity': 1.0},
-    {'type': 's57', 'id': '01CGD_ENCs', 'enabled': true, 'opacity': 1.0},
   ];
+  // True once the SignalK chart catalog has been folded into `_layers`.
+  // We only seed once per mount so user toggles aren't clobbered if a
+  // later refresh re-fires.
+  bool _layersSeededFromCatalog = false;
+  // Cache the discovered chart catalog so the painter / tile manager
+  // can look up bounds when the layer panel changes.
+  List<ChartDescriptor> _chartCatalog = const [];
 
   Map<String, dynamic>? _firstEnabled(String type) {
     for (final l in _layers) {
       if (l['type'] == type && (l['enabled'] as bool? ?? true)) return l;
     }
     return null;
+  }
+
+  /// Set of chart ids the user currently has toggled on. Used by the
+  /// painter and tap hit-test to filter merged tile features without
+  /// touching the manager — toggle is therefore instant and free of
+  /// network refetches.
+  Set<String> get _enabledChartIds {
+    final out = <String>{};
+    for (final l in _layers) {
+      if (l['type'] != 's57') continue;
+      if (l['enabled'] as bool? ?? true) {
+        out.add(l['id'] as String);
+      }
+    }
+    return out;
   }
 
   // Default SignalK paths driving the HUD. Mirrors V1's
@@ -174,7 +197,14 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
   double? _ownCog; // radians
   double? _ownSog; // m/s
   Timer? _vesselTimer;
-  bool _autoFollow = true;
+  // Follow-vessel off by default — the map recenters once on first fix
+  // (see `_didInitialCenter` below) and otherwise stays where the user
+  // panned it unless they explicitly opt into continuous follow.
+  bool _autoFollow = false;
+  /// Set once on the first GPS fix so the map centers on the device's
+  /// position when the chart plotter first opens. After the initial
+  /// center, further tracking is opt-in via `_autoFollow`.
+  bool _didInitialCenter = false;
   int _lastVesselPushMs = 0;
   int _lastAisPushMs = 0;
   // Auto-zoom re-engages with auto-follow and disables on a user
@@ -231,7 +261,7 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
   // Pre-compute End-pin tap state: when true and no current route, show
   // a floating "Compute route" card. Cleared automatically when a
   // result arrives or when the user dismisses it.
-  bool _endPinComposeOpen = false;
+  bool _composePopoverOpen = false;
 
   // ===== Weather data overlays (wind / currents / heatmaps) =====
   //
@@ -691,6 +721,12 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
       });
     }
     if (_mapReady) {
+      // One-shot initial center on the first fix. After this the user
+      // can opt into continuous follow via the control-bar toggle.
+      if (!_didInitialCenter) {
+        _didInitialCenter = true;
+        _mapController.move(LatLng(lat, lon), _mapController.camera.zoom);
+      }
       // fitCamera handles centering when auto-zoom is on; only fall
       // back to a bare move when auto-zoom is disabled by the user.
       if (_autoFollow) {
@@ -1084,10 +1120,12 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
     // this we'd see N identical entries in the popover.
     final seenSig = <String>{};
     final tileMap = _tileManager?.tiles ?? const <S57TileKey, S57ParsedTile>{};
+    final enabledChartIds = _enabledChartIds;
     for (final entry in tileMap.entries) {
       if (entry.key.z != activeZ) continue;
       for (final f in entry.value.features) {
         if (!_clickableLayers.contains(f.objectClass)) continue;
+        if (!enabledChartIds.contains(f.chartId)) continue;
         // Closest point on the feature's actual geometry, not a
         // degenerate first-vertex / midpoint stand-in. Lets taps
         // anywhere along a contour line or inside a depth area
@@ -1399,6 +1437,11 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
     final hasActiveRoute = _routeCoords != null && _routeCoords!.isNotEmpty;
     final weatherOn = _weatherRoutingEnabled;
 
+    // If a computed weather route exists and the press lands near its
+    // polyline, promote that point to a via — mirrors the web UI's
+    // long-press at `route-planner.html:2369-2442`.
+    if (weatherOn && _tryPromoteWeatherRoutePoint(latLng)) return;
+
     if (weatherOn && hasActiveRoute) {
       // Both pathways apply — let the user disambiguate.
       _showLongPressChooser(latLng);
@@ -1411,6 +1454,37 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
     if (hasActiveRoute) {
       _addRouteWaypointAt(latLng);
     }
+  }
+
+  /// Hit-test the currently computed weather-route polyline for a
+  /// long-press; if a vertex is within 12 px of the press, add it as a
+  /// via and surface a snack. Returns true when the press was consumed
+  /// so the caller doesn't fall through to other long-press behaviours.
+  bool _tryPromoteWeatherRoutePoint(LatLng latLng) {
+    final service = _weatherRoutingService;
+    final result = service?.currentResult;
+    if (service == null || result == null || result.coords.isEmpty) {
+      return false;
+    }
+    const hitRadiusSq = 12.0 * 12.0;
+    final camera = _mapController.camera;
+    final tapPx = camera.latLngToScreenOffset(latLng);
+    var bestDistSq = double.infinity;
+    int? bestIdx;
+    for (var i = 0; i < result.coords.length; i++) {
+      final c = result.coords[i];
+      final wp = camera.latLngToScreenOffset(LatLng(c[1], c[0]));
+      final d = (wp - tapPx).distanceSquared;
+      if (d < bestDistSq) {
+        bestDistSq = d;
+        bestIdx = i;
+      }
+    }
+    if (bestIdx == null || bestDistSq > hitRadiusSq) return false;
+    final c = result.coords[bestIdx];
+    service.addVia(LatLon(lat: c[1], lon: c[0]));
+    _showPinSnack('Pinned via waypoint W${service.plannedVias.length}.');
+    return true;
   }
 
   /// Long-press actions when both the SignalK active-route and the
@@ -1487,6 +1561,13 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
   /// Pin-placement logic: if start is missing, place it; else if end is
   /// missing, place it; else move whichever of the two is closer on
   /// screen to the new tap. Matches the UX described by the user.
+  ///
+  /// Click-3+ behaviour (mirrors the route-planner web UI at
+  /// `route-planner.html:2501-2509`): when both pins are placed and no
+  /// route has been computed yet, promote the current End to an
+  /// intermediate "via" waypoint and use the new tap as the new End.
+  /// Once a route exists, fall through to nearer-pin-move so the user
+  /// can still relocate either endpoint.
   void _dropOrMoveWeatherPin(LatLng latLng) {
     final service = _weatherRoutingService;
     if (service == null) return;
@@ -1498,7 +1579,17 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
     }
     if (service.plannedEnd == null) {
       service.plannedEnd = next;
-      _openEndPinCompose();
+      _openComposePopover();
+      return;
+    }
+    final hasResult =
+        service.currentResult != null && service.currentResult!.isNotEmpty;
+    if (!hasResult) {
+      // Both pins set, no compute yet → promote current End to a via,
+      // make this tap the new End.
+      service.addVia(service.plannedEnd!);
+      service.plannedEnd = next;
+      _openComposePopover();
       return;
     }
     final camera = _mapController.camera;
@@ -1511,20 +1602,22 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
     final dE = (ePx - tapPx).distanceSquared;
     if (dS < dE) {
       service.plannedStart = next;
-      _showPinSnack('Start pin moved.');
+      _openComposePopover();
     } else {
       service.plannedEnd = next;
-      _openEndPinCompose();
+      _openComposePopover();
     }
   }
 
-  /// Surface the standard End-pin compose popover (Compute / Clear /
-  /// Close). Used when the user drops or moves the End pin — replaces
-  /// the old transient snackbar so the path to "compute route" is
-  /// one tap from the chart gesture that placed the pin.
-  void _openEndPinCompose() {
+  /// Surface the floating "Route" popover (Compute / Clear / Close).
+  /// Triggered by Start- or End-pin tap, and by long-press placement /
+  /// move of either pin once both are set. Replaces the old transient
+  /// snackbar so the path to "compute route" is one tap from the chart
+  /// gesture that placed the pin. Render is gated by `plannedEnd` and
+  /// the absence of a computed result.
+  void _openComposePopover() {
     if (!mounted) return;
-    setState(() => _endPinComposeOpen = true);
+    setState(() => _composePopoverOpen = true);
   }
 
   void _showPinSnack(String message) {
@@ -1618,7 +1711,7 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
       );
       final manager = S57TileManager(
         engine: engine,
-        urlBuilder: _buildTileUrl,
+        urlBuilderForChart: _buildTileUrlForChart,
         freshnessProbe: _probeViewportFreshness,
       );
       manager.addListener(_onTileManagerChanged);
@@ -1629,10 +1722,113 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
         _spriteImage = spriteImage;
         _tileManager = manager;
       });
+      // Manager starts with no charts. Kick off the SignalK catalog
+      // fetch and seed `_layers` ∩ catalog into the manager. Safe even
+      // if the fetch is empty: empty intersection means no tile fetches
+      // until the catalog arrives.
+      unawaited(_seedChartsFromSignalK());
     } catch (e, st) {
       if (!mounted) return;
       setState(() => _loadError = '$e\n$st');
     }
+  }
+
+  /// One-shot fetch of the chart catalog from SignalK
+  /// (`getResources('charts')`). Folds discovered charts into `_layers`
+  /// (one-shot via `_layersSeededFromCatalog`) and pushes the descriptor
+  /// list to the tile manager so per-chart fan-out can begin.
+  Future<void> _seedChartsFromSignalK() async {
+    try {
+      final raw = await widget.signalKService.getResources('charts');
+      final descriptors = <ChartDescriptor>[];
+      for (final entry in raw.entries) {
+        final id = entry.key;
+        final data = entry.value;
+        if (data is! Map) continue;
+        final bounds = data['bounds'];
+        // SignalK's chart resource shape varies: bounds may be either a
+        // map `{w,s,e,n}` or a 4-element list `[w,s,e,n]`. Tolerate both.
+        double? w, s, e, n;
+        if (bounds is Map) {
+          w = (bounds['west'] as num?)?.toDouble() ??
+              (bounds['w'] as num?)?.toDouble();
+          s = (bounds['south'] as num?)?.toDouble() ??
+              (bounds['s'] as num?)?.toDouble();
+          e = (bounds['east'] as num?)?.toDouble() ??
+              (bounds['e'] as num?)?.toDouble();
+          n = (bounds['north'] as num?)?.toDouble() ??
+              (bounds['n'] as num?)?.toDouble();
+        } else if (bounds is List && bounds.length >= 4) {
+          w = (bounds[0] as num?)?.toDouble();
+          s = (bounds[1] as num?)?.toDouble();
+          e = (bounds[2] as num?)?.toDouble();
+          n = (bounds[3] as num?)?.toDouble();
+        }
+        // No bounds — fall back to "world" so the manager doesn't skip
+        // every tile. The painter's chartId filter still keeps disabled
+        // charts from rendering, so over-fetch is the worst case here.
+        w ??= -180.0;
+        s ??= -85.0;
+        e ??= 180.0;
+        n ??= 85.0;
+        final minZ = (data['minzoom'] as num?)?.toInt() ??
+            (data['minZoom'] as num?)?.toInt() ??
+            0;
+        final maxZ = (data['maxzoom'] as num?)?.toInt() ??
+            (data['maxZoom'] as num?)?.toInt() ??
+            22;
+        descriptors.add(ChartDescriptor(
+          id: id,
+          west: w,
+          south: s,
+          east: e,
+          north: n,
+          minZoom: minZ,
+          maxZoom: maxZ,
+        ));
+      }
+      if (!mounted) return;
+      _chartCatalog = descriptors;
+      // First-time seed: every discovered chart enabled at full opacity.
+      if (!_layersSeededFromCatalog) {
+        final existingS57Ids = <String>{
+          for (final l in _layers)
+            if (l['type'] == 's57') l['id'] as String,
+        };
+        for (final c in descriptors) {
+          if (existingS57Ids.contains(c.id)) continue;
+          _layers.add({
+            'type': 's57',
+            'id': c.id,
+            'enabled': true,
+            'opacity': 1.0,
+          });
+        }
+        _layersSeededFromCatalog = true;
+      }
+      _pushManagerCharts();
+      setState(() {});
+    } catch (_) {/* best effort — chart catalog may not be available */}
+  }
+
+  /// Pushes the currently-wired s57 layer set to the tile manager,
+  /// intersected with the discovered catalog so the manager only fans
+  /// out to charts that actually exist on the server. Called after
+  /// catalog refreshes AND after panel mutations (add/remove) — this
+  /// is what stops the manager from fetching tiles for layers the
+  /// user removed via the panel.
+  void _pushManagerCharts() {
+    final manager = _tileManager;
+    if (manager == null) return;
+    final byId = {for (final c in _chartCatalog) c.id: c};
+    final out = <ChartDescriptor>[];
+    for (final l in _layers) {
+      if (l['type'] != 's57') continue;
+      final id = l['id'] as String;
+      final desc = byId[id];
+      if (desc != null) out.add(desc);
+    }
+    manager.setCharts(out);
   }
 
   Future<ui.Image> _decodeImage(Uint8List bytes) async {
@@ -1641,13 +1837,12 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
     return frame.image;
   }
 
-  /// URL builder for the tile manager. Prefers the local cached proxy
-  /// (cache-first, background-refresh) when the shared tile server is
-  /// running. Falls back to direct upstream otherwise — tests and dev
-  /// environments don't always have the proxy wired.
-  String _buildTileUrl(S57TileKey key) {
-    final chartId =
-        (_firstEnabled('s57')?['id'] as String?) ?? '01CGD_ENCs';
+  /// URL builder for the tile manager's per-chart fan-out. Prefers
+  /// the local cached proxy (cache-first, background-refresh) when
+  /// the shared tile server is running. Falls back to direct upstream
+  /// otherwise — tests and dev environments don't always have the
+  /// proxy wired.
+  String _buildTileUrlForChart(String chartId, S57TileKey key) {
     try {
       final server = context.read<ChartTileServerService>();
       if (server.isRunning) {
@@ -1769,6 +1964,7 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
                     spriteAtlas: _spriteAtlas!,
                     spriteImage: _spriteImage!,
                     hiddenClasses: _hiddenClasses,
+                    enabledChartIds: _enabledChartIds,
                     declutter: _declutter,
                   ),
                 ),
@@ -1912,7 +2108,7 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
           // exists (so it doesn't compete with the waypoint card) and
           // the user has tapped the End pin.
           if (_weatherRoutingEnabled &&
-              _endPinComposeOpen &&
+              _composePopoverOpen &&
               _weatherRoutingService != null &&
               _weatherRoutingService!.plannedEnd != null &&
               (_weatherRoutingService?.currentResult == null ||
@@ -1921,17 +2117,17 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
               left: 8,
               right: 8,
               bottom: _hudStyle == 'visual' ? 200 : (_hudStyle == 'text' ? 62 : 16),
-              child: _EndPinComposePopover(
+              child: _ComposePopover(
                 onCompute: () {
-                  setState(() => _endPinComposeOpen = false);
+                  setState(() => _composePopoverOpen = false);
                   _showWeatherRoutingSheet(context, autoSubmit: true);
                 },
                 onClearRoute: () {
-                  setState(() => _endPinComposeOpen = false);
+                  setState(() => _composePopoverOpen = false);
                   _weatherRoutingService?.clearResult();
                 },
                 onClose: () =>
-                    setState(() => _endPinComposeOpen = false),
+                    setState(() => _composePopoverOpen = false),
               ),
             ),
           Positioned(
@@ -2069,7 +2265,38 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
       defaultMode: _weatherRouteDefaultMode,
       defaultPolar: _weatherRoutePolar,
       onFocusWaypoint: _focusWeatherRouteWaypoint,
+      onFitToRoute: _fitWeatherRoute,
       autoSubmit: autoSubmit,
+    );
+  }
+
+  /// Fit the chart camera to the current weather-route polyline.
+  /// Called when the user taps a row in the Recent tab so they land
+  /// on the route they just loaded.
+  void _fitWeatherRoute() {
+    final result = _weatherRoutingService?.currentResult;
+    if (result == null || result.coords.isEmpty || !_mapReady) return;
+    double minLat = double.infinity, maxLat = -double.infinity;
+    double minLon = double.infinity, maxLon = -double.infinity;
+    for (final c in result.coords) {
+      final lon = c[0];
+      final lat = c[1];
+      if (lat < minLat) minLat = lat;
+      if (lat > maxLat) maxLat = lat;
+      if (lon < minLon) minLon = lon;
+      if (lon > maxLon) maxLon = lon;
+    }
+    if (!minLat.isFinite || !minLon.isFinite) return;
+    final bounds = LatLngBounds(
+      LatLng(minLat, minLon),
+      LatLng(maxLat, maxLon),
+    );
+    _mapController.fitCamera(
+      CameraFit.bounds(
+        bounds: bounds,
+        padding: const EdgeInsets.all(48),
+        maxZoom: 15,
+      ),
     );
   }
 
@@ -2085,7 +2312,18 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
       // card, or clear the route first.
       return;
     }
-    setState(() => _endPinComposeOpen = !_endPinComposeOpen);
+    setState(() => _composePopoverOpen = !_composePopoverOpen);
+  }
+
+  /// Start-pin tap. Mirrors [_onEndPinTap] — only meaningful when an
+  /// End pin exists and no route is computed, so the user has a clear
+  /// "Compute" path one tap from the pin they just placed/moved.
+  void _onStartPinTap() {
+    final svc = _weatherRoutingService;
+    if (svc == null) return;
+    if (svc.plannedEnd == null) return;
+    if (svc.currentResult != null && svc.currentResult!.isNotEmpty) return;
+    setState(() => _composePopoverOpen = !_composePopoverOpen);
   }
 
   void _focusWeatherRouteWaypoint(int index) {
@@ -2265,6 +2503,7 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
               service.clearResult();
             }
           },
+          onTap: (_) => _onStartPinTap(),
           builder: (_, _, _) => _weatherRoutePinVisual(
               fill: const Color(0xFF4CAF50), label: 'S'),
         ));
@@ -2288,6 +2527,32 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
           onTap: (_) => _onEndPinTap(),
           builder: (_, _, _) => _weatherRoutePinVisual(
               fill: const Color(0xFFF44336), label: 'E'),
+        ));
+      }
+      // Intermediate "via" waypoints — orange `W{i+1}` pins. Drag clears
+      // any computed result so the request can be re-submitted.
+      final vias = service.plannedVias;
+      for (var i = 0; i < vias.length; i++) {
+        final v = vias[i];
+        final viaIndex = i;
+        markers.add(DragMarker(
+          point: LatLng(v.lat, v.lon),
+          size: const Size(44, 44),
+          rotateMarker: false,
+          onDragUpdate: (details, latLng) {
+            service.moveVia(
+              viaIndex,
+              LatLon(lat: latLng.latitude, lon: latLng.longitude),
+            );
+          },
+          onDragEnd: (details, latLng) {
+            if (service.currentResult != null) {
+              _setSelectedWaypoint(null);
+              service.clearResult();
+            }
+          },
+          builder: (_, _, _) => _weatherRoutePinVisual(
+              fill: const Color(0xFFFF9800), label: 'W${viaIndex + 1}'),
         ));
       }
     }
@@ -2597,7 +2862,14 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
                         if (mounted) setState(fn);
                       },
                       onLayersChanged: () {
-                        if (mounted) setState(() {});
+                        if (!mounted) return;
+                        // Drop manager fetches for any chart removed
+                        // from the panel; pick up newly-added ones on
+                        // the next viewport refresh. Painter rebuilds
+                        // off the same setState since `_enabledChartIds`
+                        // is recomputed from `_layers` per build.
+                        _pushManagerCharts();
+                        setState(() {});
                       },
                     ),
                     _weatherLayersSection(sbSetState),
@@ -3025,6 +3297,7 @@ class _S57OverlayLayer extends StatelessWidget {
     required this.spriteAtlas,
     required this.spriteImage,
     this.hiddenClasses = const <String>{},
+    this.enabledChartIds = const <String>{},
     this.declutter = false,
   });
   final Map<S57TileKey, S57ParsedTile> tileCache;
@@ -3033,6 +3306,11 @@ class _S57OverlayLayer extends StatelessWidget {
   final SpriteAtlas spriteAtlas;
   final ui.Image spriteImage;
   final Set<String> hiddenClasses;
+  /// Chart ids the user currently has enabled in the layer panel.
+  /// Features whose `chartId` is not in this set are skipped at paint
+  /// time — toggling a chart on/off has no fetch cost because the
+  /// manager keeps fetched contributions in cache regardless.
+  final Set<String> enabledChartIds;
   final bool declutter;
 
   @override
@@ -3048,6 +3326,7 @@ class _S57OverlayLayer extends StatelessWidget {
           spriteAtlas: spriteAtlas,
           spriteImage: spriteImage,
           hiddenClasses: hiddenClasses,
+          enabledChartIds: enabledChartIds,
           declutter: declutter,
         ),
         size: Size.infinite,
@@ -3065,6 +3344,7 @@ class _S57Painter extends CustomPainter {
     required this.spriteAtlas,
     required this.spriteImage,
     this.hiddenClasses = const <String>{},
+    this.enabledChartIds = const <String>{},
     this.declutter = false,
   });
   final MapCamera camera;
@@ -3080,6 +3360,9 @@ class _S57Painter extends CustomPainter {
   // Features whose `objectClass` is in this set are skipped in the
   // draw pass — the geometry still lives in the parsed tile cache.
   final Set<String> hiddenClasses;
+  // Chart ids the user has enabled in the layer panel. Features whose
+  // `chartId` is not in this set are skipped — toggle is instant.
+  final Set<String> enabledChartIds;
   // User-forced declutter. When true, sounding-label decimation runs
   // at every zoom; otherwise the auto-cutoff at zoom > 11 still
   // fires.
@@ -3128,6 +3411,7 @@ class _S57Painter extends CustomPainter {
         for (final f in entry.value.features) {
           if (f.geometry.kind != kind) continue;
           if (hiddenClasses.contains(f.objectClass)) continue;
+          if (!enabledChartIds.contains(f.chartId)) continue;
           _paintFeature(canvas, f, project);
         }
       }
@@ -3477,7 +3761,9 @@ class _S57Painter extends CustomPainter {
       old.spriteImage != spriteImage ||
       old.declutter != declutter ||
       old.hiddenClasses.length != hiddenClasses.length ||
-      !old.hiddenClasses.containsAll(hiddenClasses);
+      !old.hiddenClasses.containsAll(hiddenClasses) ||
+      old.enabledChartIds.length != enabledChartIds.length ||
+      !old.enabledChartIds.containsAll(enabledChartIds);
 }
 
 /// Paints the vessel's recent track. Matches V1's gradient-faded
@@ -5413,12 +5699,12 @@ class _WeatherWaypointPopover extends StatelessWidget {
   }
 }
 
-/// Pre-compute floating card shown when the user taps the End pin
-/// with no route yet computed. Offers a direct "Compute route" action
-/// and a "Clear route" escape hatch that mirrors the post-compute
-/// waypoint popover.
-class _EndPinComposePopover extends StatelessWidget {
-  const _EndPinComposePopover({
+/// Pre-compute floating card shown when the user taps a Start or End
+/// pin with no route yet computed. Offers a direct "Compute route"
+/// action and a "Clear route" escape hatch that mirrors the
+/// post-compute waypoint popover.
+class _ComposePopover extends StatelessWidget {
+  const _ComposePopover({
     required this.onCompute,
     required this.onClearRoute,
     required this.onClose,
@@ -5456,11 +5742,12 @@ class _EndPinComposePopover extends StatelessWidget {
             children: [
               Row(
                 children: [
-                  const Icon(Icons.flag, color: Color(0xFFF44336), size: 18),
+                  const Icon(Icons.play_arrow,
+                      color: AppColors.infoBlue, size: 18),
                   const SizedBox(width: 8),
                   const Expanded(
                     child: Text(
-                      'End waypoint',
+                      'Route',
                       style: TextStyle(
                         color: Colors.white,
                         fontSize: 13,

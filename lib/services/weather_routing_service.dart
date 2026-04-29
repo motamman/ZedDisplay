@@ -2,12 +2,14 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
 import 'package:http/http.dart' as http;
 
 import '../config/service_constants.dart';
 import '../models/weather_route_request.dart';
 import '../models/weather_route_result.dart';
 import 'route_planner_auth_service.dart';
+import 'storage_service.dart';
 
 /// Lifecycle of a compute job. Mirrors the server's JobStatus vocabulary
 /// (`routes.py` + `jobs.py`) plus a local `idle` state for "no job in flight".
@@ -31,6 +33,28 @@ class WeatherRoutingLogLine {
 
 enum WeatherRoutingLogKind { log, error, done, status }
 
+/// One row in the "Recent routes" list — a thin projection of the
+/// server's `GET /api/v1/routes` response. We only carry the fields
+/// the UI needs to render a tap-to-load row; full GeoJSON is fetched
+/// on demand via [WeatherRoutingService.loadRecentRoute].
+class WeatherRecentJob {
+  const WeatherRecentJob({
+    required this.jobId,
+    required this.status,
+    required this.createdAt,
+    this.summary,
+  });
+
+  final String jobId;
+  final String status;
+  final DateTime createdAt;
+
+  /// Server-side summary stats when the job is `done`. Populated by
+  /// `GET /api/v1/routes/{id}` since the list endpoint may not include
+  /// the full summary block.
+  final WeatherRouteSummary? summary;
+}
+
 /// Submits, tracks, and streams a weather-routing compute job.
 ///
 /// Exposed as a `ChangeNotifier` so panel tabs / the chart overlay can
@@ -38,10 +62,17 @@ enum WeatherRoutingLogKind { log, error, done, status }
 /// sheet being dismissed, meaning the user can navigate away from the
 /// chart and come back to a still-streaming job. Pattern modelled on
 /// [WeatherApiService] — `_isLoading` / `_errorMessage` + `notifyListeners`.
-class WeatherRoutingService extends ChangeNotifier {
-  WeatherRoutingService(this._auth);
+class WeatherRoutingService extends ChangeNotifier
+    with WidgetsBindingObserver {
+  WeatherRoutingService(this._auth, this._storage) {
+    WidgetsBinding.instance.addObserver(this);
+  }
 
   final RoutePlannerAuthService _auth;
+  final StorageService _storage;
+
+  /// Hive key for the "active job" blob — see [_persistActiveJob].
+  static const String _activeJobKey = 'weather_routing_active_job';
 
   // ===== Configuration (set per-submission from tool config) =====
   String _baseUrl = 'https://router.zeddisplay.com';
@@ -77,9 +108,12 @@ class WeatherRoutingService extends ChangeNotifier {
   }
 
   void clearPlannedPins() {
-    if (_plannedStart == null && _plannedEnd == null) return;
+    final hadPins = _plannedStart != null || _plannedEnd != null;
+    final hadVias = _plannedVias.isNotEmpty;
+    if (!hadPins && !hadVias) return;
     _plannedStart = null;
     _plannedEnd = null;
+    _plannedVias.clear();
     notifyListeners();
   }
 
@@ -88,6 +122,41 @@ class WeatherRoutingService extends ChangeNotifier {
     if (a == null || b == null) return false;
     return a.lat == b.lat && a.lon == b.lon;
   }
+
+  // ===== Intermediate "via" waypoints =====
+  //
+  // Mirrors the route-planner web UI's `waypointCoords` array. The
+  // server happily accepts these in [WeatherRouteRequest.waypoints]
+  // and switches to `compute_multi_leg_route` when present.
+  final List<LatLon> _plannedVias = [];
+  List<LatLon> get plannedVias => List.unmodifiable(_plannedVias);
+
+  void addVia(LatLon p) {
+    _plannedVias.add(p);
+    notifyListeners();
+  }
+
+  void moveVia(int index, LatLon p) {
+    if (index < 0 || index >= _plannedVias.length) return;
+    _plannedVias[index] = p;
+    notifyListeners();
+  }
+
+  void removeVia(int index) {
+    if (index < 0 || index >= _plannedVias.length) return;
+    _plannedVias.removeAt(index);
+    notifyListeners();
+  }
+
+  void clearVias() {
+    if (_plannedVias.isEmpty) return;
+    _plannedVias.clear();
+    notifyListeners();
+  }
+
+  // ===== Recent routes =====
+  List<WeatherRecentJob> _recentJobs = const [];
+  List<WeatherRecentJob> get recentJobs => _recentJobs;
 
   // ===== Live job state =====
   WeatherRoutingStatus _status = WeatherRoutingStatus.idle;
@@ -117,6 +186,17 @@ class WeatherRoutingService extends ChangeNotifier {
   StreamSubscription<String>? _sseSub;
   String? _lastEventId;
 
+  /// SSE reconnection state. Long routes hit mobile Wi-Fi flaps / cell
+  /// handoffs / proxy idle-timeouts all the time; without this the app
+  /// would just silently stop receiving events even when the backend is
+  /// still working. Bounded to [sseReconnectWindow] so we never loop
+  /// forever on a truly dead job.
+  static const Duration sseReconnectWindow = Duration(minutes: 5);
+  static const List<int> _sseBackoffSeconds = [1, 2, 5, 15, 30];
+  int _sseAttempt = 0;
+  DateTime? _sseDeadline;
+  Timer? _sseReconnectTimer;
+
   bool get isBusy =>
       _status == WeatherRoutingStatus.submitting ||
       _status == WeatherRoutingStatus.queued ||
@@ -145,6 +225,10 @@ class WeatherRoutingService extends ChangeNotifier {
     _lastEventId = null;
     _lastRequest = request;
     _submittedAt = DateTime.now();
+    _sseAttempt = 0;
+    _sseDeadline = DateTime.now().add(sseReconnectWindow);
+    _sseReconnectTimer?.cancel();
+    _sseReconnectTimer = null;
     notifyListeners();
 
     try {
@@ -181,6 +265,7 @@ class WeatherRoutingService extends ChangeNotifier {
       }
 
       _appendLog('Submitted job ${_currentJobId!}.', WeatherRoutingLogKind.status);
+      _persistActiveJob();
       unawaited(_listenToEvents(_currentJobId!));
     } on TimeoutException {
       _status = WeatherRoutingStatus.error;
@@ -209,6 +294,7 @@ class WeatherRoutingService extends ChangeNotifier {
     if (_status != WeatherRoutingStatus.done) {
       _status = WeatherRoutingStatus.cancelled;
     }
+    _clearActiveJob();
     notifyListeners();
   }
 
@@ -219,6 +305,7 @@ class WeatherRoutingService extends ChangeNotifier {
     _currentJobId = null;
     _status = WeatherRoutingStatus.idle;
     _errorMessage = null;
+    _clearActiveJob();
     notifyListeners();
   }
 
@@ -237,9 +324,27 @@ class WeatherRoutingService extends ChangeNotifier {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _sseReconnectTimer?.cancel();
+    _sseReconnectTimer = null;
     _sseSub?.cancel();
     _sseClient?.close();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed) return;
+    // The OS may have suspended the TCP socket while backgrounded, so the
+    // SSE stream is silently dead. If we still think the job is alive,
+    // kick the existing reconnect ladder — it'll probe `/result` first
+    // before re-opening the stream, so a job that finished while we
+    // were asleep lands cleanly without needing a fresh stream.
+    if (_currentJobId != null && isBusy && _sseSub == null) {
+      _appendLog('App resumed — reconnecting stream.',
+          WeatherRoutingLogKind.status);
+      _scheduleSseReconnect(_currentJobId!, 'app resumed from background');
+    }
   }
 
   // ---------- SSE ----------
@@ -292,13 +397,30 @@ class WeatherRoutingService extends ChangeNotifier {
           if (kDebugMode) {
             debugPrint('SSE stream error: $e');
           }
-          // Silently swallow: if the connection dropped before `done`,
-          // the UI still shows the last known status. A future
-          // enhancement could auto-reconnect via _lastEventId here.
+          // Null the subscription/client *before* the backoff timer is
+          // scheduled. Without this, `didChangeAppLifecycleState`'s
+          // `_sseSub == null` fast-path can never fire during the
+          // backoff window, and a user resuming from background would
+          // silently fail to reconnect. `_scheduleSseReconnect` calls
+          // `_teardownSse()` again, but that's belt-and-braces —
+          // double-cancelling is harmless.
+          _sseSub = null;
+          _sseClient?.close();
+          _sseClient = null;
+          _scheduleSseReconnect(jobId, 'stream error: $e');
         },
         onDone: () {
-          // Server closed the stream — terminal event already handled
-          // in _handleFrame, nothing else to do.
+          // If the server closed after a terminal event we're already
+          // idle/done/cancelled/error and this is a no-op. Otherwise the
+          // stream dropped mid-route — reconnect. Null the subscription
+          // first so the lifecycle fast-path can fire during the
+          // backoff window.
+          _sseSub = null;
+          _sseClient?.close();
+          _sseClient = null;
+          if (!_isTerminal(_status) && _currentJobId == jobId) {
+            _scheduleSseReconnect(jobId, 'stream closed before completion');
+          }
         },
         cancelOnError: true,
       );
@@ -340,7 +462,10 @@ class WeatherRoutingService extends ChangeNotifier {
           break;
       }
     }
-    if (id != null && id.isNotEmpty) _lastEventId = id;
+    if (id != null && id.isNotEmpty) {
+      _lastEventId = id;
+      _persistActiveJob();
+    }
     if (event == null && dataLines.isEmpty) return;
 
     final data = dataLines.join('\n');
@@ -414,6 +539,7 @@ class WeatherRoutingService extends ChangeNotifier {
         }
       } catch (_) {/* result already null — fetch via /result below */}
     }
+    _clearActiveJob();
     notifyListeners();
     // Fall back to a direct /result fetch if no route came through SSE.
     if (_currentResult == null && _currentJobId != null) {
@@ -431,9 +557,88 @@ class WeatherRoutingService extends ChangeNotifier {
     } catch (_) {/* leave as raw */}
     _errorMessage = message;
     _appendLog(message, WeatherRoutingLogKind.error);
+    _clearActiveJob();
     notifyListeners();
     _teardownSse();
   }
+
+  /// Schedule a backoff-delayed SSE reconnect and, on wake-up, first
+  /// probe `/result` — if the job already finished while we were
+  /// disconnected, we're done regardless of whether SSE comes back.
+  void _scheduleSseReconnect(String jobId, String reason) {
+    if (_isTerminal(_status)) return;
+    if (_currentJobId != jobId) return;
+    final deadline = _sseDeadline;
+    if (deadline != null && DateTime.now().isAfter(deadline)) {
+      _status = WeatherRoutingStatus.error;
+      _errorMessage =
+          'Lost connection and did not recover within ${sseReconnectWindow.inMinutes} min.';
+      _appendLog(_errorMessage!, WeatherRoutingLogKind.error);
+      _clearActiveJob();
+      notifyListeners();
+      _teardownSse();
+      return;
+    }
+
+    _teardownSse();
+    final idx = _sseAttempt < _sseBackoffSeconds.length
+        ? _sseAttempt
+        : _sseBackoffSeconds.length - 1;
+    final delay = Duration(seconds: _sseBackoffSeconds[idx]);
+    _sseAttempt++;
+    _appendLog(
+      'SSE $reason — retrying in ${delay.inSeconds}s (attempt $_sseAttempt)',
+      WeatherRoutingLogKind.status,
+    );
+
+    _sseReconnectTimer?.cancel();
+    _sseReconnectTimer = Timer(delay, () async {
+      _sseReconnectTimer = null;
+      if (_isTerminal(_status)) return;
+      if (_currentJobId != jobId) return;
+      // Probe the result endpoint first — if the job finished on the
+      // server we'll pick it up here without waiting for SSE to
+      // reconnect at all.
+      final finalized = await _probeResultAndFinalize(jobId);
+      if (finalized) return;
+      if (_isTerminal(_status)) return;
+      if (_currentJobId != jobId) return;
+      unawaited(_listenToEvents(jobId));
+    });
+  }
+
+  /// Probe `/result` for a finished job. Returns true when the job is
+  /// done and [_currentResult] has been set; false when not-yet-done
+  /// (server returns 4xx/5xx for pending jobs) or on any fetch error.
+  Future<bool> _probeResultAndFinalize(String jobId) async {
+    try {
+      final uri = Uri.parse('$_baseUrl/api/v1/routes/$jobId/result');
+      final resp = await http
+          .get(uri, headers: _auth.authorisedHeaders())
+          .timeout(ServiceConstants.longHttpTimeout);
+      if (resp.statusCode != 200) return false;
+      final m = jsonDecode(resp.body) as Map<String, dynamic>;
+      _currentResult = WeatherRouteResult.fromGeoJson(m);
+      _status = WeatherRoutingStatus.done;
+      _appendLog(
+        'Recovered result via /result fallback (SSE had dropped).',
+        WeatherRoutingLogKind.done,
+      );
+      _clearActiveJob();
+      notifyListeners();
+      _sseReconnectTimer?.cancel();
+      _sseReconnectTimer = null;
+      _teardownSse();
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  static bool _isTerminal(WeatherRoutingStatus s) =>
+      s == WeatherRoutingStatus.done ||
+      s == WeatherRoutingStatus.error ||
+      s == WeatherRoutingStatus.cancelled;
 
   Future<void> _fetchResultFallback(String jobId) async {
     try {
@@ -455,6 +660,8 @@ class WeatherRoutingService extends ChangeNotifier {
   }
 
   Future<void> _teardownSse() async {
+    _sseReconnectTimer?.cancel();
+    _sseReconnectTimer = null;
     await _sseSub?.cancel();
     _sseSub = null;
     _sseClient?.close();
@@ -491,5 +698,221 @@ class WeatherRoutingService extends ChangeNotifier {
   static String _shortBody(String body) {
     if (body.length <= 200) return body;
     return '${body.substring(0, 200)}…';
+  }
+
+  // ---------- Recent routes ----------
+
+  /// Fetch the caller's recent jobs from `GET /api/v1/routes`, filter
+  /// to `status == "done"`, and keep the top 5. Surfaces them via
+  /// [recentJobs] so the panel's "Recent" tab can render them.
+  Future<void> refreshRecentRoutes() async {
+    if (!_auth.hasToken) return;
+    try {
+      final uri = Uri.parse('$_baseUrl/api/v1/routes?limit=20');
+      final resp = await http
+          .get(uri, headers: _auth.authorisedHeaders())
+          .timeout(ServiceConstants.shortHttpTimeout);
+      if (resp.statusCode != 200) return;
+      final body = jsonDecode(resp.body);
+      // Server may shape this as `{items: [...]}` or as a bare list.
+      final List rawItems = body is List
+          ? body
+          : (body is Map<String, dynamic>
+              ? (body['items'] as List? ?? const [])
+              : const []);
+      final parsed = <WeatherRecentJob>[];
+      for (final item in rawItems) {
+        if (item is! Map<String, dynamic>) continue;
+        final status = (item['status'] as String?) ?? '';
+        if (status != 'done') continue;
+        final jobId = (item['job_id'] as String?) ?? '';
+        if (jobId.isEmpty) continue;
+        final createdAtIso = item['created_at'] as String?;
+        final createdAt = createdAtIso != null
+            ? (DateTime.tryParse(createdAtIso)?.toLocal() ?? DateTime.now())
+            : DateTime.now();
+        WeatherRouteSummary? summary;
+        final summaryMap = item['summary'];
+        if (summaryMap is Map<String, dynamic>) {
+          summary = WeatherRouteSummary.fromProperties(summaryMap);
+        }
+        parsed.add(WeatherRecentJob(
+          jobId: jobId,
+          status: status,
+          createdAt: createdAt,
+          summary: summary,
+        ));
+        if (parsed.length >= 5) break;
+      }
+      _recentJobs = List.unmodifiable(parsed);
+      notifyListeners();
+    } catch (_) {/* best effort */}
+  }
+
+  /// Fetch one finished job's full GeoJSON and hydrate it as the
+  /// current result so the Results tab and the on-map overlay
+  /// re-render. Sets `_status` to `done` to reflect the loaded
+  /// completed result — this isn't a live in-flight job, but the
+  /// UI is otherwise indistinguishable from one that just finished.
+  ///
+  /// Refuses to run when [isBusy] — clobbering an in-flight job's
+  /// state would let the live SSE stream race ahead and overwrite
+  /// the recent-route result a few frames later. Caller must cancel
+  /// or finish the live job first.
+  Future<void> loadRecentRoute(String jobId) async {
+    if (isBusy) {
+      _appendLog(
+          'Refusing to load recent route while a job is in flight.',
+          WeatherRoutingLogKind.error);
+      notifyListeners();
+      return;
+    }
+    try {
+      final uri = Uri.parse('$_baseUrl/api/v1/routes/$jobId/result');
+      final resp = await http
+          .get(uri, headers: _auth.authorisedHeaders())
+          .timeout(ServiceConstants.longHttpTimeout);
+      if (resp.statusCode != 200) {
+        _appendLog('Failed to load recent route: HTTP ${resp.statusCode}',
+            WeatherRoutingLogKind.error);
+        notifyListeners();
+        return;
+      }
+      final m = jsonDecode(resp.body) as Map<String, dynamic>;
+      // Belt-and-braces: drop any persisted resume blob from a prior
+      // session, and tear down a stray SSE subscription if one is
+      // somehow still alive even though `isBusy` returned false.
+      _clearActiveJob();
+      await _teardownSse();
+      _currentResult = WeatherRouteResult.fromGeoJson(m);
+      _currentJobId = jobId;
+      _status = WeatherRoutingStatus.done;
+      _errorMessage = null;
+      notifyListeners();
+    } catch (e) {
+      _appendLog('Load recent route error: $e', WeatherRoutingLogKind.error);
+      notifyListeners();
+    }
+  }
+
+  // ---------- Persisted active job (cold-start resume) ----------
+
+  /// Persist the in-flight job's `job_id` + last seen event id so a
+  /// fresh app launch (or a lifecycle resume after hours of sleep)
+  /// can reattach via [tryReattachActiveJob]. Cheap to call on every
+  /// SSE frame — just a small Hive `put`.
+  void _persistActiveJob() {
+    final id = _currentJobId;
+    if (id == null) return;
+    try {
+      final payload = jsonEncode({
+        'job_id': id,
+        'last_event_id': _lastEventId,
+        'submitted_at': _submittedAt?.toUtc().toIso8601String(),
+      });
+      unawaited(_storage.saveSetting(_activeJobKey, payload));
+    } catch (_) {/* best effort */}
+  }
+
+  void _clearActiveJob() {
+    try {
+      unawaited(_storage.deleteSetting(_activeJobKey));
+    } catch (_) {/* best effort */}
+  }
+
+  /// Look for a persisted in-flight job from a previous session and
+  /// reattach to it. Called from `main.dart` once the auth token has
+  /// loaded. No-op when nothing is stored, the server has TTL'd the
+  /// job, or we lack a token.
+  Future<void> tryReattachActiveJob() async {
+    final raw = _storage.getSetting(_activeJobKey);
+    if (raw == null || raw.isEmpty) return;
+    if (!_auth.hasToken) return;
+
+    Map<String, dynamic> blob;
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map<String, dynamic>) {
+        _clearActiveJob();
+        return;
+      }
+      blob = decoded;
+    } catch (_) {
+      _clearActiveJob();
+      return;
+    }
+
+    final jobId = blob['job_id'] as String?;
+    if (jobId == null || jobId.isEmpty) {
+      _clearActiveJob();
+      return;
+    }
+    final lastEventId = blob['last_event_id'] as String?;
+    final submittedAtIso = blob['submitted_at'] as String?;
+    final submittedAt =
+        submittedAtIso != null ? DateTime.tryParse(submittedAtIso) : null;
+
+    final WeatherRoutingStatus? remoteStatus;
+    try {
+      final uri = Uri.parse('$_baseUrl/api/v1/routes/$jobId');
+      final resp = await http
+          .get(uri, headers: _auth.authorisedHeaders())
+          .timeout(ServiceConstants.shortHttpTimeout);
+      if (resp.statusCode == 404) {
+        _clearActiveJob();
+        return;
+      }
+      if (resp.statusCode != 200) {
+        // Transient — leave the blob in place so a later boot can retry.
+        return;
+      }
+      final m = jsonDecode(resp.body) as Map<String, dynamic>;
+      remoteStatus = _parseStatus(m['status'] as String?);
+    } catch (_) {
+      // Network down at boot — leave the blob; lifecycle resume will
+      // pick it up later when the user has connectivity again.
+      return;
+    }
+
+    if (remoteStatus == null) {
+      _clearActiveJob();
+      return;
+    }
+
+    _currentJobId = jobId;
+    _lastEventId = lastEventId;
+    _submittedAt = submittedAt;
+    _status = remoteStatus;
+    // Re-seed the SSE reconnect window so a session that was already
+    // mid-route doesn't start with the previous attempt's exhausted
+    // backoff state.
+    _sseAttempt = 0;
+    _sseDeadline = DateTime.now().add(sseReconnectWindow);
+    notifyListeners();
+
+    switch (remoteStatus) {
+      case WeatherRoutingStatus.done:
+        _appendLog('Job $jobId already finished — fetching result.',
+            WeatherRoutingLogKind.status);
+        await _fetchResultFallback(jobId);
+        _clearActiveJob();
+        break;
+      case WeatherRoutingStatus.queued:
+      case WeatherRoutingStatus.running:
+        _appendLog('Resuming job $jobId from previous session.',
+            WeatherRoutingLogKind.status);
+        unawaited(_listenToEvents(jobId));
+        break;
+      case WeatherRoutingStatus.error:
+      case WeatherRoutingStatus.cancelled:
+        _appendLog('Previous job $jobId ended as ${remoteStatus.name}.',
+            WeatherRoutingLogKind.status);
+        _clearActiveJob();
+        break;
+      case WeatherRoutingStatus.idle:
+      case WeatherRoutingStatus.submitting:
+        _clearActiveJob();
+        break;
+    }
   }
 }

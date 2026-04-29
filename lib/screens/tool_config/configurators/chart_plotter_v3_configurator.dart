@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../../../models/tool_config.dart';
 import '../../../models/tool.dart';
 import '../../../models/weather_route_request.dart';
 import '../../../services/chart_tile_cache_service.dart';
+import '../../../services/route_planner_auth_service.dart';
 import '../../../services/signalk_service.dart';
 import '../../../widgets/chart_plotter/chart_layer_panel.dart';
 import '../base_tool_configurator.dart';
@@ -285,8 +287,7 @@ class ChartPlotterV3Configurator extends ToolConfigurator {
                   style: Theme.of(context).textTheme.titleSmall),
               const SizedBox(height: 4),
               const Text(
-                'Connects to the route-planner API for weather-optimal routes. '
-                'Paste a bearer token in the compose panel after signing in.',
+                'Connects to the route-planner API for weather-optimal routes.',
                 style: TextStyle(color: Colors.grey, fontSize: 12),
               ),
               const SizedBox(height: 8),
@@ -339,6 +340,8 @@ class ChartPlotterV3Configurator extends ToolConfigurator {
                   onChanged: (v) =>
                       setState(() => weatherRoutePolar = v.trim()),
                 ),
+                const SizedBox(height: 12),
+                _BearerTokenSection(baseUrl: routePlannerBaseUrl),
               ],
 
               const SizedBox(height: 16),
@@ -663,4 +666,131 @@ class _ClassEntry {
   const _ClassEntry(this.code, this.label);
   final String code;
   final String label;
+}
+
+/// Token entry for the route-planner API. Reads/writes the shared
+/// [RoutePlannerAuthService] directly — token is global, not per-tool.
+class _BearerTokenSection extends StatefulWidget {
+  const _BearerTokenSection({required this.baseUrl});
+  final String baseUrl;
+
+  @override
+  State<_BearerTokenSection> createState() => _BearerTokenSectionState();
+}
+
+class _BearerTokenSectionState extends State<_BearerTokenSection> {
+  final _ctrl = TextEditingController();
+  bool _dirty = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl.text = context.read<RoutePlannerAuthService>().token ?? '';
+    _ctrl.addListener(() {
+      final next = _ctrl.text != (context.read<RoutePlannerAuthService>().token ?? '');
+      if (next != _dirty) setState(() => _dirty = next);
+    });
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final auth = context.watch<RoutePlannerAuthService>();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            const Text('Bearer token',
+                style: TextStyle(color: Colors.grey, fontSize: 12)),
+            const Spacer(),
+            if (auth.hasToken)
+              const Padding(
+                padding: EdgeInsets.only(right: 4),
+                child: Icon(Icons.verified_user,
+                    color: Color(0xFF88DD88), size: 14),
+              ),
+          ],
+        ),
+        const SizedBox(height: 4),
+        Row(
+          children: [
+            Expanded(
+              child: TextField(
+                controller: _ctrl,
+                obscureText: true,
+                style: const TextStyle(fontFamily: 'Menlo'),
+                decoration: InputDecoration(
+                  hintText: auth.hasToken
+                      ? 'Token set — paste new to replace'
+                      : 'Paste bearer token',
+                  isDense: true,
+                  border: const OutlineInputBorder(),
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            IconButton(
+              tooltip: 'Paste',
+              icon: const Icon(Icons.paste, size: 18),
+              onPressed: () async {
+                final data = await Clipboard.getData('text/plain');
+                final t = data?.text?.trim();
+                if (t != null && t.isNotEmpty) _ctrl.text = t;
+              },
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Expanded(
+              child: OutlinedButton.icon(
+                icon: const Icon(Icons.login, size: 18),
+                label: const Text('Sign in with Google'),
+                onPressed: () async {
+                  final messenger = ScaffoldMessenger.of(context);
+                  final ok = await auth.signInWithGoogle(widget.baseUrl);
+                  if (!ok) {
+                    messenger.showSnackBar(
+                      const SnackBar(content: Text('Could not open browser')),
+                    );
+                  }
+                },
+              ),
+            ),
+            const SizedBox(width: 8),
+            TextButton(
+              onPressed: (_ctrl.text.isEmpty && !auth.hasToken) || !_dirty
+                  ? null
+                  : () async {
+                      await auth.setBearerToken(_ctrl.text);
+                      if (!mounted) return;
+                      setState(() => _dirty = false);
+                    },
+              child: const Text('Save'),
+            ),
+            if (auth.hasToken) ...[
+              const SizedBox(width: 4),
+              TextButton(
+                onPressed: () async {
+                  await auth.clear();
+                  _ctrl.clear();
+                  if (!mounted) return;
+                  setState(() => _dirty = false);
+                },
+                child: const Text('Sign out',
+                    style: TextStyle(color: Color(0xFFFF8888))),
+              ),
+            ],
+          ],
+        ),
+      ],
+    );
+  }
 }

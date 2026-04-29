@@ -222,7 +222,12 @@ void main() async {
   // Route planner auth + weather routing service (surfaces the router
   // API inside the chart plotter)
   final routePlannerAuthService = RoutePlannerAuthService(storageService);
-  final weatherRoutingService = WeatherRoutingService(routePlannerAuthService);
+  final weatherRoutingService =
+      WeatherRoutingService(routePlannerAuthService, storageService);
+  // Reattach to any in-flight job from a previous session. Best-effort:
+  // no-op when nothing is stored, the server has TTL'd the job, or the
+  // user has no token yet.
+  unawaited(weatherRoutingService.tryReattachActiveJob());
   final routePlannerBoatsService = RoutePlannerBoatsService(
     auth: routePlannerAuthService,
     storage: storageService,
