@@ -82,18 +82,23 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
   /// Same shape ChartLayerPanel mutates. The basemap is the first
   /// enabled `base` entry; every enabled `s57` entry is drawn on top,
   /// fanned out per chart by the tile manager and merged in render
-  /// order by S-52 displayPriority. The s57 entries are seeded from
-  /// `signalKService.getResources('charts')` at first dependency pass —
-  /// the hardcoded base entry below is the only static seed.
+  /// order by S-52 displayPriority. The s57 starter entry mirrors V1's
+  /// default. Additional charts are added by the user via the layer
+  /// panel's add picker (`chart_layer_panel.dart` calls
+  /// `signalKService.getResources('charts')` for that menu); we do
+  /// NOT auto-enable every catalog entry — the catalog can list
+  /// charts that no installed provider plugin actually serves tiles
+  /// for, which causes 404 floods.
   final List<Map<String, dynamic>> _layers = [
     {'type': 'base', 'id': 'carto_voyager', 'enabled': true, 'opacity': 1.0},
+    {'type': 's57', 'id': '01CGD_ENCs', 'enabled': true, 'opacity': 1.0},
   ];
-  // True once the SignalK chart catalog has been folded into `_layers`.
-  // We only seed once per mount so user toggles aren't clobbered if a
-  // later refresh re-fires.
-  bool _layersSeededFromCatalog = false;
-  // Cache the discovered chart catalog so the painter / tile manager
-  // can look up bounds when the layer panel changes.
+  // Cache the discovered chart catalog so `_pushManagerCharts` can
+  // look up bounds + URL templates by chartId. Refreshed from
+  // `signalKService.getResources('charts')` at mount and on every
+  // layer-panel mutation. Each entry's `urlTemplate` is forwarded to
+  // `ChartTileServerService` so the proxy resolves the right upstream
+  // per chartId.
   List<ChartDescriptor> _chartCatalog = const [];
 
   Map<String, dynamic>? _firstEnabled(String type) {
@@ -1726,28 +1731,42 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
       // fetch and seed `_layers` ∩ catalog into the manager. Safe even
       // if the fetch is empty: empty intersection means no tile fetches
       // until the catalog arrives.
-      unawaited(_seedChartsFromSignalK());
+      unawaited(_refreshChartCatalog());
     } catch (e, st) {
       if (!mounted) return;
       setState(() => _loadError = '$e\n$st');
     }
   }
 
-  /// One-shot fetch of the chart catalog from SignalK
-  /// (`getResources('charts')`). Folds discovered charts into `_layers`
-  /// (one-shot via `_layersSeededFromCatalog`) and pushes the descriptor
-  /// list to the tile manager so per-chart fan-out can begin.
-  Future<void> _seedChartsFromSignalK() async {
+  /// Refresh the chart catalog from
+  /// `signalKService.getResources('charts')` and push the per-chart
+  /// upstream URL templates to the local tile-cache proxy. Does NOT
+  /// modify `_layers` — the user opts into charts via the layer
+  /// panel picker (matches V1 / Freeboard's model). Safe to call at
+  /// mount and on every panel mutation.
+  ///
+  /// Each chart resource carries its own `url` field per the SignalK
+  /// charts spec (`server-api/src/resourcetypes.ts:Chart`) — different
+  /// provider plugins (`signalk-charts-provider-simple`,
+  /// `signalk-charts`, …) register different URL templates. We capture
+  /// each template into the descriptor's `urlTemplate` and hand the
+  /// id→template map to the proxy so it forwards each chartId to the
+  /// correct upstream.
+  Future<void> _refreshChartCatalog() async {
     try {
       final raw = await widget.signalKService.getResources('charts');
       final descriptors = <ChartDescriptor>[];
+      final urlTemplates = <String, String>{};
       for (final entry in raw.entries) {
         final id = entry.key;
         final data = entry.value;
         if (data is! Map) continue;
         final bounds = data['bounds'];
-        // SignalK's chart resource shape varies: bounds may be either a
-        // map `{w,s,e,n}` or a 4-element list `[w,s,e,n]`. Tolerate both.
+        // SignalK's chart resource bounds shape varies between
+        // providers: map `{west,south,east,north}` (or `{w,s,e,n}`),
+        // or a 4-element list `[w,s,e,n]`, or — per the official
+        // `Chart` interface — `[[west,south],[east,north]]`. Tolerate
+        // all three.
         double? w, s, e, n;
         if (bounds is Map) {
           w = (bounds['west'] as num?)?.toDouble() ??
@@ -1758,15 +1777,27 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
               (bounds['e'] as num?)?.toDouble();
           n = (bounds['north'] as num?)?.toDouble() ??
               (bounds['n'] as num?)?.toDouble();
-        } else if (bounds is List && bounds.length >= 4) {
+        } else if (bounds is List && bounds.length >= 4 &&
+            bounds.first is num) {
           w = (bounds[0] as num?)?.toDouble();
           s = (bounds[1] as num?)?.toDouble();
           e = (bounds[2] as num?)?.toDouble();
           n = (bounds[3] as num?)?.toDouble();
+        } else if (bounds is List && bounds.length >= 2 &&
+            bounds.first is List) {
+          // Official corner-pairs form: [[w,s],[e,n]].
+          final sw = bounds[0] as List;
+          final ne = bounds[1] as List;
+          if (sw.length >= 2 && ne.length >= 2) {
+            w = (sw[0] as num?)?.toDouble();
+            s = (sw[1] as num?)?.toDouble();
+            e = (ne[0] as num?)?.toDouble();
+            n = (ne[1] as num?)?.toDouble();
+          }
         }
-        // No bounds — fall back to "world" so the manager doesn't skip
-        // every tile. The painter's chartId filter still keeps disabled
-        // charts from rendering, so over-fetch is the worst case here.
+        // No bounds — fall back to "world" so the manager doesn't
+        // skip every tile. The user's add-picker is the gating
+        // surface; once they enable a chart, we always try to fetch.
         w ??= -180.0;
         s ??= -85.0;
         e ??= 180.0;
@@ -1777,6 +1808,7 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
         final maxZ = (data['maxzoom'] as num?)?.toInt() ??
             (data['maxZoom'] as num?)?.toInt() ??
             22;
+        final urlTemplate = data['url'] as String?;
         descriptors.add(ChartDescriptor(
           id: id,
           west: w,
@@ -1785,27 +1817,22 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
           north: n,
           minZoom: minZ,
           maxZoom: maxZ,
+          urlTemplate: urlTemplate,
         ));
+        if (urlTemplate != null && urlTemplate.isNotEmpty) {
+          urlTemplates[id] = urlTemplate;
+        }
       }
       if (!mounted) return;
       _chartCatalog = descriptors;
-      // First-time seed: every discovered chart enabled at full opacity.
-      if (!_layersSeededFromCatalog) {
-        final existingS57Ids = <String>{
-          for (final l in _layers)
-            if (l['type'] == 's57') l['id'] as String,
-        };
-        for (final c in descriptors) {
-          if (existingS57Ids.contains(c.id)) continue;
-          _layers.add({
-            'type': 's57',
-            'id': c.id,
-            'enabled': true,
-            'opacity': 1.0,
-          });
-        }
-        _layersSeededFromCatalog = true;
-      }
+      // Push URL templates to the local cache proxy so it can forward
+      // each chartId to the right upstream. Best-effort: a missing
+      // proxy in tests just means tile fetches fall back to direct.
+      try {
+        context
+            .read<ChartTileServerService>()
+            .setChartUpstreamTemplates(urlTemplates);
+      } catch (_) {/* proxy unavailable */}
       _pushManagerCharts();
       setState(() {});
     } catch (_) {/* best effort — chart catalog may not be available */}
@@ -1824,6 +1851,9 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
     final out = <ChartDescriptor>[];
     for (final l in _layers) {
       if (l['type'] != 's57') continue;
+      // Disabled charts must NOT enter the manager's fetch list — the
+      // painter alone can't suppress fetches once they're scheduled.
+      if (!(l['enabled'] as bool? ?? true)) continue;
       final id = l['id'] as String;
       final desc = byId[id];
       if (desc != null) out.add(desc);
@@ -2863,13 +2893,15 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
                       },
                       onLayersChanged: () {
                         if (!mounted) return;
-                        // Drop manager fetches for any chart removed
-                        // from the panel; pick up newly-added ones on
-                        // the next viewport refresh. Painter rebuilds
-                        // off the same setState since `_enabledChartIds`
-                        // is recomputed from `_layers` per build.
-                        _pushManagerCharts();
-                        setState(() {});
+                        // Re-fetch the chart catalog so any chart the
+                        // user just added via the picker gets its URL
+                        // template captured into `_chartCatalog` AND
+                        // pushed to the proxy registry. The refresh
+                        // also calls `_pushManagerCharts()` internally
+                        // (which honours the new enabled-state and
+                        // drops fetches for charts the user just
+                        // toggled off).
+                        unawaited(_refreshChartCatalog());
                       },
                     ),
                     _weatherLayersSection(sbSetState),

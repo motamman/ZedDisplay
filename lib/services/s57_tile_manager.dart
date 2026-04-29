@@ -13,9 +13,16 @@ import 'chart_tile_cache_service.dart';
 
 enum S57GeomKind { point, line, polygon }
 
-/// One chart's published bounds + zoom range. Built by the V3 tool
-/// from `signalKService.getResources('charts')` and handed to the
-/// tile manager via [S57TileManager.setCharts].
+/// One chart's published bounds + zoom range + tile URL template.
+/// Built by the V3 tool from `signalKService.getResources('charts')`
+/// and handed to the tile manager via [S57TileManager.setCharts].
+///
+/// `urlTemplate` is the canonical SignalK chart `url` field — each
+/// provider plugin (signalk-charts-provider-simple, signalk-charts,
+/// etc.) registers its own template per chart. Substitution is
+/// `{z}`/`{x}`/`{y}` per OpenLayers convention. The V3 tool forwards
+/// this map to `ChartTileServerService.setChartUpstreamTemplates` so
+/// the local cache proxy can resolve the right upstream per chartId.
 class ChartDescriptor {
   const ChartDescriptor({
     required this.id,
@@ -25,6 +32,7 @@ class ChartDescriptor {
     required this.north,
     required this.minZoom,
     required this.maxZoom,
+    this.urlTemplate,
   });
 
   final String id;
@@ -34,6 +42,7 @@ class ChartDescriptor {
   final double north;
   final int minZoom;
   final int maxZoom;
+  final String? urlTemplate;
 
   bool intersectsTile(int z, int x, int y) {
     if (z < minZoom || z > maxZoom) return false;
