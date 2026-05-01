@@ -1,6 +1,11 @@
-import 'package:flutter/material.dart';
+import 'dart:math' as math;
 
+import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+
+import '../../models/path_metadata.dart';
 import '../../models/weather_route_result.dart';
+import '../../services/signalk_service.dart';
 import 'weather_routing_overlay.dart';
 
 /// Single itinerary leg card, matching the dark-theme card rendered by
@@ -13,6 +18,7 @@ class WeatherRoutingItineraryCard extends StatelessWidget {
     super.key,
     required this.index,
     required this.waypoint,
+    required this.next,
     required this.kind,
     required this.selected,
     required this.onTap,
@@ -20,6 +26,15 @@ class WeatherRoutingItineraryCard extends StatelessWidget {
 
   final int index;
   final WeatherRouteWaypoint waypoint;
+  /// The waypoint at index+1, or null on the last waypoint. Forward-looking
+  /// fields (SOG/COG/Wind/TWA/Current) are sampled from `next` so the card
+  /// describes the leg the vessel is *about to start*, matching the
+  /// outgoing-leg `kind` accent. Time / Waves / Depth / Coords stay at
+  /// `waypoint` (those are point samples, not leg-attributed). On the last
+  /// waypoint `next` is null and forward-looking fields fall back to
+  /// `waypoint`'s own values (= arrival conditions), which is the right
+  /// reading for the ARRIVAL card.
+  final WeatherRouteWaypoint? next;
   final WeatherRouteLegKind kind;
   final bool selected;
   final VoidCallback onTap;
@@ -38,6 +53,31 @@ class WeatherRoutingItineraryCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Every numeric value routes through MetadataStore via the
+    // project's canonical pattern: `store.get(path) ??
+    // store.getByCategory(category)` + `formatOrRaw(value, decimals:
+    // N, siSuffix: 'X')`. `get(path)` already does the categoryLookup
+    // chain via the server's findCategoryForPath; `?? getByCategory`
+    // is the last-ditch "any entry of this kind" fallback for paths
+    // the server doesn't publish (the route-planner waypoint case).
+    // Categories ('speed', 'depth', 'angle', 'height') are the ones
+    // actually used elsewhere in this codebase — invented names like
+    // 'shortHeight' or 'duration' don't exist in the server's
+    // _defaultCategories vocabulary and silently return null.
+    final store = context.read<SignalKService>().metadataStore;
+    final speedMd = store.get('navigation.speedOverGround')
+        ?? store.getByCategory('speed');
+    final depthMd = store.get('environment.depth.belowSurface')
+        ?? store.getByCategory('depth');
+    final waveMd = store.get('environment.water.waves.height')
+        ?? store.getByCategory('height');
+    final angleMd = store.get('navigation.courseOverGroundTrue')
+        ?? store.getByCategory('angle');
+    // No 'duration' / 'time' category exists in this codebase. Direct
+    // path lookup may still hit if the server publishes it via meta
+    // delta; otherwise formatOrRaw falls back to the SI suffix.
+    final periodMd = store.get('environment.water.waves.period');
+
     final accent = colorForLegKind(kind);
     final bg = selected ? _tintedBg(kind) : _bgColor;
     final borderColor = selected ? accent : _borderColor;
@@ -71,7 +111,7 @@ class WeatherRoutingItineraryCard extends StatelessWidget {
                       children: [
                         _head(),
                         const SizedBox(height: 4),
-                        _grid(),
+                        _grid(speedMd, depthMd, waveMd, angleMd, periodMd),
                         const SizedBox(height: 3),
                         Text(
                           '${waypoint.lat.toStringAsFixed(4)}, ${waypoint.lon.toStringAsFixed(4)}',
@@ -155,41 +195,62 @@ class WeatherRoutingItineraryCard extends StatelessWidget {
     );
   }
 
-  Widget _grid() {
+  Widget _grid(PathMetadata? speedMd, PathMetadata? depthMd,
+      PathMetadata? waveMd, PathMetadata? angleMd, PathMetadata? periodMd) {
     final kvs = <(String, String, Color?)>[];
+    // `fwd` = the waypoint at the *end* of the upcoming leg (i.e. wp[i+1]).
+    // For the last waypoint there is no upcoming leg — fall back to wp[i]
+    // itself so the ARRIVAL card still has data (representing the conditions
+    // the vessel arrives in).
+    final fwd = next ?? waypoint;
 
-    // Speed Over Ground — knots.
-    if (waypoint.sogMs != null) {
-      kvs.add(('SOG', '${(waypoint.sogMs! / _msPerKt).toStringAsFixed(1)} kt', null));
-    }
-    // Course Over Ground.
-    if (waypoint.cogDeg != null) {
-      kvs.add(('COG',
-          '${_cardinal(waypoint.cogDeg!)} ${waypoint.cogDeg!.round()}°', null));
-    }
-    // Wind.
-    if (waypoint.windMs != null && waypoint.windDirDeg != null) {
-      final spd = (waypoint.windMs! / _msPerKt).round();
-      final dir = waypoint.windDirDeg!.round();
-      final pos = waypoint.twaDeg != null
-          ? ' · ${_pointOfSail(waypoint.twaDeg!)}'
-          : '';
-      kvs.add(('Wind',
-          '$spd kt from ${_cardinal(waypoint.windDirDeg!)} ($dir°)$pos',
+    // Route-planner ships angles in degrees; SignalK angle metadata
+    // expects SI radians. Convert at the call site so the metadata
+    // formula and symbol apply correctly (e.g. user with degrees preset
+    // sees degrees, with mils preset sees mils).
+    double degToRad(double d) => d * math.pi / 180.0;
+
+    // Speed Over Ground — forward-looking.
+    if (fwd.sogMs != null) {
+      kvs.add(('SOG',
+          speedMd.formatOrRaw(fwd.sogMs!, decimals: 1, siSuffix: 'm/s'),
           null));
     }
-    // TWA.
-    if (waypoint.twaDeg != null) {
-      kvs.add(('TWA', '${waypoint.twaDeg!.round()}°', null));
+    // Course Over Ground — forward-looking. Cardinal label is sector,
+    // independent of the user's display unit.
+    if (fwd.cogDeg != null) {
+      kvs.add(('COG',
+          '${_cardinal(fwd.cogDeg!)} ${angleMd.formatOrRaw(degToRad(fwd.cogDeg!), decimals: 0, siSuffix: 'rad')}',
+          null));
     }
-    // Current (only when > 0.05 m/s ≈ 0.1 kt, matching the web UI).
-    if (waypoint.currentMs != null &&
-        waypoint.currentMs! > 0.05 &&
-        waypoint.currentDirDeg != null) {
-      final setDir = waypoint.currentDirDeg!;
+    // Wind — speed and direction both via metadata.
+    if (fwd.windMs != null && fwd.windDirDeg != null) {
+      final spd = speedMd.formatOrRaw(fwd.windMs!, decimals: 0, siSuffix: 'm/s');
+      final dir = angleMd.formatOrRaw(degToRad(fwd.windDirDeg!), decimals: 0, siSuffix: 'rad');
+      final pos = fwd.twaDeg != null
+          ? ' · ${_pointOfSail(fwd.twaDeg!)}'
+          : '';
+      kvs.add(('Wind',
+          '$spd from ${_cardinal(fwd.windDirDeg!)} ($dir)$pos',
+          null));
+    }
+    // TWA — forward-looking.
+    if (fwd.twaDeg != null) {
+      kvs.add(('TWA',
+          angleMd.formatOrRaw(degToRad(fwd.twaDeg!), decimals: 0, siSuffix: 'rad'),
+          null));
+    }
+    // Current — forward-looking. Speed and direction both via metadata;
+    // fair/foul classification compares current set against the
+    // forward-looking COG so the relation describes the upcoming leg.
+    if (fwd.currentMs != null &&
+        fwd.currentMs! > 0.05 &&
+        fwd.currentDirDeg != null) {
+      final setDir = fwd.currentDirDeg!;
       final cardinal = _cardinal(setDir);
-      final spd = (waypoint.currentMs! / _msPerKt).toStringAsFixed(2);
-      final relation = _currentRelation(waypoint.cogDeg, setDir);
+      final spd = speedMd.formatOrRaw(fwd.currentMs!, decimals: 2, siSuffix: 'm/s');
+      final dir = angleMd.formatOrRaw(degToRad(setDir), decimals: 0, siSuffix: 'rad');
+      final relation = _currentRelation(fwd.cogDeg, setDir);
       Color? colour;
       switch (relation) {
         case 'fair':
@@ -203,23 +264,32 @@ class WeatherRoutingItineraryCard extends StatelessWidget {
           break;
       }
       kvs.add(('Current',
-          '$spd kt from $cardinal (${setDir.round()}°) · $relation',
+          '$spd from $cardinal ($dir) · $relation',
           colour));
     }
-    // Waves.
+    // Waves — sampled AT the waypoint. SWH via own wave-height metadata
+    // (not aliased to depth: a user can prefer different display units
+    // for each). Period uses path lookup only — no project category.
+    // Direction goes through angle metadata like every other compass
+    // bearing in the card.
     if (waypoint.swhM != null) {
-      final parts = <String>['${waypoint.swhM!.toStringAsFixed(1)} m'];
+      final parts = <String>[
+        waveMd.formatOrRaw(waypoint.swhM!, decimals: 1, siSuffix: 'm'),
+      ];
       if (waypoint.mwpS != null) {
-        parts.add('${waypoint.mwpS!.round()} s');
+        parts.add(periodMd.formatOrRaw(waypoint.mwpS!, decimals: 0, siSuffix: 's'));
       }
       if (waypoint.mwdDeg != null) {
-        parts.add('from ${_cardinal(waypoint.mwdDeg!)} ${waypoint.mwdDeg!.round()}°');
+        parts.add(
+            'from ${_cardinal(waypoint.mwdDeg!)} ${angleMd.formatOrRaw(degToRad(waypoint.mwdDeg!), decimals: 0, siSuffix: 'rad')}');
       }
       kvs.add(('Waves', parts.join(' · '), null));
     }
-    // Depth.
+    // Depth — sampled AT the waypoint.
     if (waypoint.depthM != null) {
-      kvs.add(('Depth', '${waypoint.depthM!.toStringAsFixed(1)} m', null));
+      kvs.add(('Depth',
+          depthMd.formatOrRaw(waypoint.depthM!, decimals: 1, siSuffix: 'm'),
+          null));
     }
 
     if (kvs.isEmpty) {
@@ -300,7 +370,6 @@ class WeatherRoutingItineraryCard extends StatelessWidget {
 
 // ---------- helpers shared with the compose/result tabs ----------
 
-const double _msPerKt = 0.51444;
 const _cardinals = [
   'N', 'NNE', 'NE', 'ENE',
   'E', 'ESE', 'SE', 'SSE',
@@ -337,8 +406,3 @@ String _currentRelation(double? cogDeg, double setDeg) {
   if (rel > 120) return 'foul';
   return 'cross';
 }
-
-/// Shared utility exposed to the result tab so its stat summary can reuse
-/// the same unit conversion as the cards.
-double msToKt(double ms) => ms / _msPerKt;
-const double metersPerNm = 1852.0;

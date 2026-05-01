@@ -57,7 +57,10 @@ class ChartLayerPanel extends StatelessWidget {
         final name = type == 'base' ? (baseMapNames[id] ?? id) : id;
 
         return Card(
-          key: ValueKey('$type:$id:$index'),
+          // Stable key: $type:$id uniquely identifies a layer row within
+          // the list. Including $index here would break reorder element
+          // reuse (keys would shift with every move).
+          key: ValueKey('$type:$id'),
           color: const Color(0xFF2A2A3E),
           margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
           child: Column(children: [

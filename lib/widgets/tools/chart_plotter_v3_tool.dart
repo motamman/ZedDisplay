@@ -79,20 +79,48 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
   static const _initialZoom = 12.0;
 
   /// Stacked layer definition — `{type: base|s57, id, enabled, opacity}`.
-  /// Same shape ChartLayerPanel mutates. For the V3 MVP we honour the
-  /// first enabled base layer as the rendered basemap, and the first
-  /// enabled s57 layer as the chart source, applying their opacities
-  /// to each draw. Richer stacking comes later if V1 parity demands it.
+  /// Same shape ChartLayerPanel mutates. The basemap is the first
+  /// enabled `base` entry; every enabled `s57` entry is drawn on top,
+  /// fanned out per chart by the tile manager and merged in render
+  /// order by S-52 displayPriority. The s57 starter entry mirrors V1's
+  /// default. Additional charts are added by the user via the layer
+  /// panel's add picker (`chart_layer_panel.dart` calls
+  /// `signalKService.getResources('charts')` for that menu); we do
+  /// NOT auto-enable every catalog entry — the catalog can list
+  /// charts that no installed provider plugin actually serves tiles
+  /// for, which causes 404 floods.
   final List<Map<String, dynamic>> _layers = [
     {'type': 'base', 'id': 'carto_voyager', 'enabled': true, 'opacity': 1.0},
     {'type': 's57', 'id': '01CGD_ENCs', 'enabled': true, 'opacity': 1.0},
   ];
+  // Cache the discovered chart catalog so `_pushManagerCharts` can
+  // look up bounds + URL templates by chartId. Refreshed from
+  // `signalKService.getResources('charts')` at mount and on every
+  // layer-panel mutation. Each entry's `urlTemplate` is forwarded to
+  // `ChartTileServerService` so the proxy resolves the right upstream
+  // per chartId.
+  List<ChartDescriptor> _chartCatalog = const [];
 
   Map<String, dynamic>? _firstEnabled(String type) {
     for (final l in _layers) {
       if (l['type'] == type && (l['enabled'] as bool? ?? true)) return l;
     }
     return null;
+  }
+
+  /// Set of chart ids the user currently has toggled on. Used by the
+  /// painter and tap hit-test to filter merged tile features without
+  /// touching the manager — toggle is therefore instant and free of
+  /// network refetches.
+  Set<String> get _enabledChartIds {
+    final out = <String>{};
+    for (final l in _layers) {
+      if (l['type'] != 's57') continue;
+      if (l['enabled'] as bool? ?? true) {
+        out.add(l['id'] as String);
+      }
+    }
+    return out;
   }
 
   // Default SignalK paths driving the HUD. Mirrors V1's
@@ -174,7 +202,14 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
   double? _ownCog; // radians
   double? _ownSog; // m/s
   Timer? _vesselTimer;
-  bool _autoFollow = true;
+  // Follow-vessel off by default — the map recenters once on first fix
+  // (see `_didInitialCenter` below) and otherwise stays where the user
+  // panned it unless they explicitly opt into continuous follow.
+  bool _autoFollow = false;
+  /// Set once on the first GPS fix so the map centers on the device's
+  /// position when the chart plotter first opens. After the initial
+  /// center, further tracking is opt-in via `_autoFollow`.
+  bool _didInitialCenter = false;
   int _lastVesselPushMs = 0;
   int _lastAisPushMs = 0;
   // Auto-zoom re-engages with auto-follow and disables on a user
@@ -693,6 +728,12 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
       });
     }
     if (_mapReady) {
+      // One-shot initial center on the first fix. After this the user
+      // can opt into continuous follow via the control-bar toggle.
+      if (!_didInitialCenter) {
+        _didInitialCenter = true;
+        _mapController.move(LatLng(lat, lon), _mapController.camera.zoom);
+      }
       // fitCamera handles centering when auto-zoom is on; only fall
       // back to a bare move when auto-zoom is disabled by the user.
       if (_autoFollow) {
@@ -1086,10 +1127,12 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
     // this we'd see N identical entries in the popover.
     final seenSig = <String>{};
     final tileMap = _tileManager?.tiles ?? const <S57TileKey, S57ParsedTile>{};
+    final enabledChartIds = _enabledChartIds;
     for (final entry in tileMap.entries) {
       if (entry.key.z != activeZ) continue;
       for (final f in entry.value.features) {
         if (!_clickableLayers.contains(f.objectClass)) continue;
+        if (!enabledChartIds.contains(f.chartId)) continue;
         // Closest point on the feature's actual geometry, not a
         // degenerate first-vertex / midpoint stand-in. Lets taps
         // anywhere along a contour line or inside a depth area
@@ -1671,7 +1714,7 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
       );
       final manager = S57TileManager(
         engine: engine,
-        urlBuilder: _buildTileUrl,
+        urlBuilderForChart: _buildTileUrlForChart,
         freshnessProbe: _probeViewportFreshness,
       );
       manager.addListener(_onTileManagerChanged);
@@ -1682,6 +1725,11 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
         _spriteImage = spriteImage;
         _tileManager = manager;
       });
+      // Manager starts with no charts. Kick off the SignalK catalog
+      // fetch and seed `_layers` ∩ catalog into the manager. Safe even
+      // if the fetch is empty: empty intersection means no tile fetches
+      // until the catalog arrives.
+      unawaited(_refreshChartCatalog());
       // Repaint when depth-unit preference changes so SOUNDG labels
       // re-format with the new metadata. The painter looks up the
       // PathMetadata fresh on every frame; we just need to trigger
@@ -1692,6 +1740,129 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
       if (!mounted) return;
       setState(() => _loadError = '$e\n$st');
     }
+  }
+
+  /// Refresh the chart catalog from
+  /// `signalKService.getResources('charts')` and push the per-chart
+  /// upstream URL templates to the local tile-cache proxy. Does NOT
+  /// modify `_layers` — the user opts into charts via the layer
+  /// panel picker (matches V1 / Freeboard's model). Safe to call at
+  /// mount and on every panel mutation.
+  ///
+  /// Each chart resource carries its own `url` field per the SignalK
+  /// charts spec (`server-api/src/resourcetypes.ts:Chart`) — different
+  /// provider plugins (`signalk-charts-provider-simple`,
+  /// `signalk-charts`, …) register different URL templates. We capture
+  /// each template into the descriptor's `urlTemplate` and hand the
+  /// id→template map to the proxy so it forwards each chartId to the
+  /// correct upstream.
+  Future<void> _refreshChartCatalog() async {
+    try {
+      final raw = await widget.signalKService.getResources('charts');
+      final descriptors = <ChartDescriptor>[];
+      final urlTemplates = <String, String>{};
+      for (final entry in raw.entries) {
+        final id = entry.key;
+        final data = entry.value;
+        if (data is! Map) continue;
+        final bounds = data['bounds'];
+        // SignalK's chart resource bounds shape varies between
+        // providers: map `{west,south,east,north}` (or `{w,s,e,n}`),
+        // or a 4-element list `[w,s,e,n]`, or — per the official
+        // `Chart` interface — `[[west,south],[east,north]]`. Tolerate
+        // all three.
+        double? w, s, e, n;
+        if (bounds is Map) {
+          w = (bounds['west'] as num?)?.toDouble() ??
+              (bounds['w'] as num?)?.toDouble();
+          s = (bounds['south'] as num?)?.toDouble() ??
+              (bounds['s'] as num?)?.toDouble();
+          e = (bounds['east'] as num?)?.toDouble() ??
+              (bounds['e'] as num?)?.toDouble();
+          n = (bounds['north'] as num?)?.toDouble() ??
+              (bounds['n'] as num?)?.toDouble();
+        } else if (bounds is List && bounds.length >= 4 &&
+            bounds.first is num) {
+          w = (bounds[0] as num?)?.toDouble();
+          s = (bounds[1] as num?)?.toDouble();
+          e = (bounds[2] as num?)?.toDouble();
+          n = (bounds[3] as num?)?.toDouble();
+        } else if (bounds is List && bounds.length >= 2 &&
+            bounds.first is List) {
+          // Official corner-pairs form: [[w,s],[e,n]].
+          final sw = bounds[0] as List;
+          final ne = bounds[1] as List;
+          if (sw.length >= 2 && ne.length >= 2) {
+            w = (sw[0] as num?)?.toDouble();
+            s = (sw[1] as num?)?.toDouble();
+            e = (ne[0] as num?)?.toDouble();
+            n = (ne[1] as num?)?.toDouble();
+          }
+        }
+        // No bounds — fall back to "world" so the manager doesn't
+        // skip every tile. The user's add-picker is the gating
+        // surface; once they enable a chart, we always try to fetch.
+        w ??= -180.0;
+        s ??= -85.0;
+        e ??= 180.0;
+        n ??= 85.0;
+        final minZ = (data['minzoom'] as num?)?.toInt() ??
+            (data['minZoom'] as num?)?.toInt() ??
+            0;
+        final maxZ = (data['maxzoom'] as num?)?.toInt() ??
+            (data['maxZoom'] as num?)?.toInt() ??
+            22;
+        final urlTemplate = data['url'] as String?;
+        descriptors.add(ChartDescriptor(
+          id: id,
+          west: w,
+          south: s,
+          east: e,
+          north: n,
+          minZoom: minZ,
+          maxZoom: maxZ,
+          urlTemplate: urlTemplate,
+        ));
+        if (urlTemplate != null && urlTemplate.isNotEmpty) {
+          urlTemplates[id] = urlTemplate;
+        }
+      }
+      if (!mounted) return;
+      _chartCatalog = descriptors;
+      // Push URL templates to the local cache proxy so it can forward
+      // each chartId to the right upstream. Best-effort: a missing
+      // proxy in tests just means tile fetches fall back to direct.
+      try {
+        context
+            .read<ChartTileServerService>()
+            .setChartUpstreamTemplates(urlTemplates);
+      } catch (_) {/* proxy unavailable */}
+      _pushManagerCharts();
+      setState(() {});
+    } catch (_) {/* best effort — chart catalog may not be available */}
+  }
+
+  /// Pushes the currently-wired s57 layer set to the tile manager,
+  /// intersected with the discovered catalog so the manager only fans
+  /// out to charts that actually exist on the server. Called after
+  /// catalog refreshes AND after panel mutations (add/remove) — this
+  /// is what stops the manager from fetching tiles for layers the
+  /// user removed via the panel.
+  void _pushManagerCharts() {
+    final manager = _tileManager;
+    if (manager == null) return;
+    final byId = {for (final c in _chartCatalog) c.id: c};
+    final out = <ChartDescriptor>[];
+    for (final l in _layers) {
+      if (l['type'] != 's57') continue;
+      // Disabled charts must NOT enter the manager's fetch list — the
+      // painter alone can't suppress fetches once they're scheduled.
+      if (!(l['enabled'] as bool? ?? true)) continue;
+      final id = l['id'] as String;
+      final desc = byId[id];
+      if (desc != null) out.add(desc);
+    }
+    manager.setCharts(out);
   }
 
   /// Signature of the depth metadata we last rebuilt against — just
@@ -1717,13 +1888,12 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
     return frame.image;
   }
 
-  /// URL builder for the tile manager. Prefers the local cached proxy
-  /// (cache-first, background-refresh) when the shared tile server is
-  /// running. Falls back to direct upstream otherwise — tests and dev
-  /// environments don't always have the proxy wired.
-  String _buildTileUrl(S57TileKey key) {
-    final chartId =
-        (_firstEnabled('s57')?['id'] as String?) ?? '01CGD_ENCs';
+  /// URL builder for the tile manager's per-chart fan-out. Prefers
+  /// the local cached proxy (cache-first, background-refresh) when
+  /// the shared tile server is running. Falls back to direct upstream
+  /// otherwise — tests and dev environments don't always have the
+  /// proxy wired.
+  String _buildTileUrlForChart(String chartId, S57TileKey key) {
     try {
       final server = context.read<ChartTileServerService>();
       if (server.isRunning) {
@@ -1845,6 +2015,7 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
                     spriteAtlas: _spriteAtlas!,
                     spriteImage: _spriteImage!,
                     hiddenClasses: _hiddenClasses,
+                    enabledChartIds: _enabledChartIds,
                     declutter: _declutter,
                     // Path-first, category fallback — same lookup the
                     // HUD uses at chart_hud.dart:125. Vessels normally
@@ -2754,7 +2925,16 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
                         if (mounted) setState(fn);
                       },
                       onLayersChanged: () {
-                        if (mounted) setState(() {});
+                        if (!mounted) return;
+                        // Re-fetch the chart catalog so any chart the
+                        // user just added via the picker gets its URL
+                        // template captured into `_chartCatalog` AND
+                        // pushed to the proxy registry. The refresh
+                        // also calls `_pushManagerCharts()` internally
+                        // (which honours the new enabled-state and
+                        // drops fetches for charts the user just
+                        // toggled off).
+                        unawaited(_refreshChartCatalog());
                       },
                     ),
                     _weatherLayersSection(sbSetState),
@@ -3182,6 +3362,7 @@ class _S57OverlayLayer extends StatelessWidget {
     required this.spriteAtlas,
     required this.spriteImage,
     this.hiddenClasses = const <String>{},
+    this.enabledChartIds = const <String>{},
     this.declutter = false,
     this.depthMetadata,
   });
@@ -3191,6 +3372,11 @@ class _S57OverlayLayer extends StatelessWidget {
   final SpriteAtlas spriteAtlas;
   final ui.Image spriteImage;
   final Set<String> hiddenClasses;
+  /// Chart ids the user currently has enabled in the layer panel.
+  /// Features whose `chartId` is not in this set are skipped at paint
+  /// time — toggling a chart on/off has no fetch cost because the
+  /// manager keeps fetched contributions in cache regardless.
+  final Set<String> enabledChartIds;
   final bool declutter;
   // Routed straight through to the painter so SOUNDG depth labels
   // can be formatted via MetadataStore at paint time. Null until
@@ -3211,6 +3397,7 @@ class _S57OverlayLayer extends StatelessWidget {
           spriteAtlas: spriteAtlas,
           spriteImage: spriteImage,
           hiddenClasses: hiddenClasses,
+          enabledChartIds: enabledChartIds,
           declutter: declutter,
           depthMetadata: depthMetadata,
         ),
@@ -3229,6 +3416,7 @@ class _S57Painter extends CustomPainter {
     required this.spriteAtlas,
     required this.spriteImage,
     this.hiddenClasses = const <String>{},
+    this.enabledChartIds = const <String>{},
     this.declutter = false,
     this.depthMetadata,
   });
@@ -3245,6 +3433,9 @@ class _S57Painter extends CustomPainter {
   // Features whose `objectClass` is in this set are skipped in the
   // draw pass — the geometry still lives in the parsed tile cache.
   final Set<String> hiddenClasses;
+  // Chart ids the user has enabled in the layer panel. Features whose
+  // `chartId` is not in this set are skipped — toggle is instant.
+  final Set<String> enabledChartIds;
   // User-forced declutter. When true, sounding-label decimation runs
   // at every zoom; otherwise the auto-cutoff at zoom > 11 still
   // fires.
@@ -3299,6 +3490,7 @@ class _S57Painter extends CustomPainter {
         for (final f in entry.value.features) {
           if (f.geometry.kind != kind) continue;
           if (hiddenClasses.contains(f.objectClass)) continue;
+          if (!enabledChartIds.contains(f.chartId)) continue;
           _paintFeature(canvas, f, project);
         }
       }
@@ -3684,7 +3876,9 @@ class _S57Painter extends CustomPainter {
       old.declutter != declutter ||
       old.depthMetadata != depthMetadata ||
       old.hiddenClasses.length != hiddenClasses.length ||
-      !old.hiddenClasses.containsAll(hiddenClasses);
+      !old.hiddenClasses.containsAll(hiddenClasses) ||
+      old.enabledChartIds.length != enabledChartIds.length ||
+      !old.enabledChartIds.containsAll(enabledChartIds);
 }
 
 /// Paints the vessel's recent track. Matches V1's gradient-faded
@@ -5581,6 +5775,9 @@ class _WeatherWaypointPopover extends StatelessWidget {
               child: WeatherRoutingItineraryCard(
                 index: wpIdx,
                 waypoint: waypoint,
+                next: wpIdx + 1 < result.waypoints.length
+                    ? result.waypoints[wpIdx + 1]
+                    : null,
                 kind: kind,
                 selected: true,
                 onTap: () {},
@@ -5620,10 +5817,10 @@ class _WeatherWaypointPopover extends StatelessWidget {
   }
 }
 
-/// Pre-compute floating card shown when the user taps the End pin
-/// with no route yet computed. Offers a direct "Compute route" action
-/// and a "Clear route" escape hatch that mirrors the post-compute
-/// waypoint popover.
+/// Pre-compute floating card shown when the user taps a Start or End
+/// pin with no route yet computed. Offers a direct "Compute route"
+/// action and a "Clear route" escape hatch that mirrors the
+/// post-compute waypoint popover.
 class _ComposePopover extends StatelessWidget {
   const _ComposePopover({
     required this.onCompute,

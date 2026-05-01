@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../../config/app_colors.dart';
@@ -20,6 +19,17 @@ import 'weather_routing_itinerary_card.dart';
 import 'weather_routing_overlay.dart';
 
 typedef WeatherRoutingWaypointFocus = void Function(int index);
+
+/// Format a duration in seconds as `Hh Mm` (or `Mm` when under an hour).
+/// Time arithmetic (s ↔ min ↔ h) is universal; this is a display-format
+/// choice, not a unit conversion. Used by `_StatSummary` and the
+/// `_RecentTab` row.
+String _formatHhMm(double seconds) {
+  final s = seconds.round();
+  final h = s ~/ 3600;
+  final m = (s % 3600) ~/ 60;
+  return h > 0 ? '${h}h ${m}m' : '${m}m';
+}
 
 /// Shows the weather routing sheet. The caller provides:
 /// - [vesselPosition] — current own-vessel position. Used as the start
@@ -260,16 +270,12 @@ class _ComposeTab extends StatefulWidget {
 class _ComposeTabState extends State<_ComposeTab> {
   late RouteMode _mode = widget.defaultMode;
   late DateTime _departure = DateTime.now();
-  final _tokenCtrl = TextEditingController();
-  // When true, show the full token editor / Google sign-in block even
-  // though a token is already stored. Lets the user replace or remove
-  // a saved token.
-  bool _authExpanded = false;
 
   // Routing tolerances — ranges + defaults mirror the web UI at
-  // `routePlanning/ui/route-planner.html`. Values here are in the
-  // display units shown on the slider labels (kts, min, m, cells);
-  // conversion to SI happens once at submit time.
+  // `routePlanning/ui/route-planner.html`. Sail-threshold is stored
+  // in display units (kts) and converted to SI at submit; depth-class
+  // tolerances are stored in SI metres and rendered through
+  // MetadataStore so the user sees their preferred unit (m vs ft).
   double _sailThreshKts = 5.0;     // 0..10, step 0.5 — sail-only
   double _tackPenaltyS = 30;       // 0..120, step 5 — sail-only
   double _isoStepMin = 15;         // 5..60, step 5
@@ -284,13 +290,6 @@ class _ComposeTabState extends State<_ComposeTab> {
   @override
   void initState() {
     super.initState();
-    _tokenCtrl.text =
-        context.read<RoutePlannerAuthService>().token ?? '';
-    // Rebuild when the token field changes so the "Save token" and
-    // submit buttons reflect the current text. Without this, the
-    // enabled-state captured at build time never updates after the
-    // user types or pastes.
-    _tokenCtrl.addListener(_onTokenChanged);
     _loadTolerances();
     if (widget.autoSubmit) {
       // Kick off a compute on first frame using the persisted
@@ -305,17 +304,6 @@ class _ComposeTabState extends State<_ComposeTab> {
         _submit(service);
       });
     }
-  }
-
-  @override
-  void dispose() {
-    _tokenCtrl.removeListener(_onTokenChanged);
-    _tokenCtrl.dispose();
-    super.dispose();
-  }
-
-  void _onTokenChanged() {
-    if (mounted) setState(() {});
   }
 
   void _loadTolerances() {
@@ -499,10 +487,7 @@ class _ComposeTabState extends State<_ComposeTab> {
         const SizedBox(height: 16),
         const Divider(color: Colors.white12),
         const SizedBox(height: 8),
-        if (auth.hasToken && !_authExpanded)
-          _signedInRow(auth)
-        else
-          _authEditor(auth, service),
+        _authStatus(auth),
         const SizedBox(height: 24),
         ElevatedButton.icon(
           icon: const Icon(Icons.play_arrow),
@@ -538,17 +523,17 @@ class _ComposeTabState extends State<_ComposeTab> {
     if (service.isBusy) return false;
     final effectiveStart = service.plannedStart ?? widget.vesselPosition;
     if (effectiveStart == null || service.plannedEnd == null) return false;
-    if (!auth.hasToken && _tokenCtrl.text.trim().isEmpty) return false;
+    if (!auth.hasToken) return false;
     return true;
   }
 
   Future<void> _submit(WeatherRoutingService service) async {
-    // Commit any pasted-but-unsaved token before submitting.
     final auth = context.read<RoutePlannerAuthService>();
     final boats = context.read<RoutePlannerBoatsService>();
-    if (_tokenCtrl.text.trim().isNotEmpty &&
-        _tokenCtrl.text.trim() != auth.token) {
-      await auth.setBearerToken(_tokenCtrl.text.trim());
+    if (!auth.hasToken) {
+      // Cannot submit without a token; the status chip directs the user
+      // to the chart plotter settings.
+      return;
     }
     final start = service.plannedStart ?? widget.vesselPosition!;
     final selected = boats.selectedBoat;
@@ -602,125 +587,45 @@ class _ComposeTabState extends State<_ComposeTab> {
     await service.submitRoute(req);
   }
 
-  Widget _signedInRow(RoutePlannerAuthService auth) {
+  /// Compact auth status chip. Token entry itself lives in the chart
+  /// plotter tool config — see the Bearer token field on the Chart
+  /// Plotter V3 configurator. Rendering here is informational only so
+  /// the user knows whether a submit will work.
+  Widget _authStatus(RoutePlannerAuthService auth) {
+    final signedIn = auth.hasToken;
+    final bg = signedIn
+        ? const Color(0xFF14241A)
+        : const Color(0xFF2A2416);
+    final border = signedIn
+        ? const Color(0xFF2A4A30)
+        : const Color(0xFF6A5A24);
+    final icon = signedIn
+        ? const Icon(Icons.verified_user,
+            color: Color(0xFF88DD88), size: 18)
+        : const Icon(Icons.warning_amber,
+            color: Color(0xFFFFD080), size: 18);
+    final text = signedIn
+        ? 'Authenticated'
+        : 'No token — set it in chart plotter settings → Bearer token';
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       decoration: BoxDecoration(
-        color: const Color(0xFF14241A),
+        color: bg,
         borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: const Color(0xFF2A4A30)),
+        border: Border.all(color: border),
       ),
       child: Row(
         children: [
-          const Icon(Icons.verified_user,
-              color: Color(0xFF88DD88), size: 18),
+          icon,
           const SizedBox(width: 8),
-          const Expanded(
+          Expanded(
             child: Text(
-              'Signed in to the route planner',
-              style: TextStyle(color: Colors.white, fontSize: 13),
+              text,
+              style: const TextStyle(color: Colors.white, fontSize: 13),
             ),
-          ),
-          TextButton(
-            onPressed: () => setState(() => _authExpanded = true),
-            child: const Text('Change'),
           ),
         ],
       ),
-    );
-  }
-
-  Widget _authEditor(
-      RoutePlannerAuthService auth, WeatherRoutingService service) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _sectionLabel('Authentication'),
-        const Text(
-          'Paste a bearer token, or tap "Sign in with Google" to mint one.',
-          style: TextStyle(color: Colors.white54, fontSize: 12),
-        ),
-        const SizedBox(height: 8),
-        Row(
-          children: [
-            Expanded(
-              child: TextField(
-                controller: _tokenCtrl,
-                obscureText: true,
-                style:
-                    const TextStyle(color: Colors.white, fontFamily: 'Menlo'),
-                decoration: InputDecoration(
-                  hintText: auth.hasToken
-                      ? 'Token set — paste new to replace'
-                      : 'Bearer token',
-                  hintStyle: const TextStyle(color: Colors.white38),
-                  isDense: true,
-                  border: const OutlineInputBorder(),
-                  filled: true,
-                  fillColor: const Color(0xFF141424),
-                ),
-              ),
-            ),
-            const SizedBox(width: 8),
-            IconButton(
-              tooltip: 'Paste',
-              icon: const Icon(Icons.paste, color: Colors.white70),
-              onPressed: () async {
-                final data = await Clipboard.getData('text/plain');
-                if (data?.text != null) {
-                  _tokenCtrl.text = data!.text!.trim();
-                }
-              },
-            ),
-          ],
-        ),
-        const SizedBox(height: 8),
-        Row(
-          children: [
-            Expanded(
-              child: OutlinedButton.icon(
-                icon: const Icon(Icons.login),
-                label: const Text('Sign in with Google'),
-                onPressed: () async {
-                  final messenger = ScaffoldMessenger.of(context);
-                  final ok = await auth.signInWithGoogle(service.baseUrl);
-                  if (!ok) {
-                    messenger.showSnackBar(
-                      const SnackBar(content: Text('Could not open browser')),
-                    );
-                  }
-                },
-              ),
-            ),
-            const SizedBox(width: 8),
-            TextButton(
-              onPressed: _tokenCtrl.text.isEmpty && !auth.hasToken
-                  ? null
-                  : () async {
-                      await auth.setBearerToken(_tokenCtrl.text);
-                      if (!mounted) return;
-                      if (auth.hasToken) {
-                        setState(() => _authExpanded = false);
-                      }
-                    },
-              child: const Text('Save token'),
-            ),
-            if (auth.hasToken) ...[
-              const SizedBox(width: 4),
-              TextButton(
-                onPressed: () async {
-                  await auth.clear();
-                  _tokenCtrl.clear();
-                  if (!mounted) return;
-                  setState(() {});
-                },
-                child: const Text('Sign out',
-                    style: TextStyle(color: Color(0xFFFF8888))),
-              ),
-            ],
-          ],
-        ),
-      ],
     );
   }
 
@@ -731,6 +636,21 @@ class _ComposeTabState extends State<_ComposeTab> {
   /// as top-level fields on `POST /route`, not stored on the server.
   Widget _advancedSection() {
     final isSail = _mode != RouteMode.motor;
+    // MetadataStore drives every unit-bearing slider's display label.
+    // Speed sliders (sail threshold) use the user's speed preset
+    // (kt vs km/h vs mph). Depth sliders (under-keel) and short-distance
+    // sliders (shore step, simplify) use the depth preset (m vs ft).
+    // Depth-class sliders (under-keel, shore step, simplify) format
+    // their SI metres through MetadataStore using the canonical
+    // pattern. The sail-threshold slider is stored in kts and uses
+    // its own `unit:'kts'` arg — no metadata lookup needed.
+    final store = context.read<SignalKService>().metadataStore;
+    final depthMd = store.get('environment.depth.belowSurface')
+        ?? store.getByCategory('depth');
+    String fmtDepth1(double si) => depthMd.formatOrRaw(
+        si, decimals: 1, siSuffix: 'm');
+    String fmtDepth0(double si) => depthMd.formatOrRaw(
+        si, decimals: 0, siSuffix: 'm');
     return Theme(
       data: Theme.of(context).copyWith(
         dividerColor: Colors.transparent,
@@ -801,8 +721,8 @@ class _ComposeTabState extends State<_ComposeTab> {
             min: 0,
             max: 3,
             divisions: 30,
-            unit: 'm',
             decimals: 1,
+            formatter: fmtDepth1,
             onChanged: (v) => setState(() => _underKeelClearanceM = v),
           ),
           _slider(
@@ -811,8 +731,8 @@ class _ComposeTabState extends State<_ComposeTab> {
             min: 5,
             max: 200,
             divisions: 39,
-            unit: 'm',
             decimals: 0,
+            formatter: fmtDepth0,
             onChanged: (v) => setState(() => _shoreStepM = v),
           ),
           _slider(
@@ -821,8 +741,8 @@ class _ComposeTabState extends State<_ComposeTab> {
             min: 0,
             max: 100,
             divisions: 20,
-            unit: 'm',
             decimals: 0,
+            formatter: fmtDepth0,
             onChanged: (v) => setState(() => _simplifyM = v),
           ),
         ],
@@ -836,10 +756,16 @@ class _ComposeTabState extends State<_ComposeTab> {
     required double min,
     required double max,
     required int divisions,
-    required String unit,
     required int decimals,
     required ValueChanged<double> onChanged,
+    String? unit,
+    String Function(double si)? formatter,
   }) {
+    assert(unit != null || formatter != null,
+        '_slider needs either a unit (universal-unit case) or a formatter (metadata-routed case)');
+    final displayed = formatter != null
+        ? formatter(value)
+        : '${value.toStringAsFixed(decimals)} $unit';
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 2),
       child: Column(
@@ -855,7 +781,7 @@ class _ComposeTabState extends State<_ComposeTab> {
                 ),
               ),
               Text(
-                '${value.toStringAsFixed(decimals)} $unit',
+                displayed,
                 style: const TextStyle(
                   color: Colors.white,
                   fontSize: 12,
@@ -880,6 +806,51 @@ class _ComposeTabState extends State<_ComposeTab> {
               onChanged: onChanged,
               onChangeEnd: (_) => _saveTolerances(),
             ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _viaRow(WeatherRoutingService service, int i) {
+    final v = service.plannedVias[i];
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Row(
+        children: [
+          Container(
+            width: 22,
+            height: 22,
+            alignment: Alignment.center,
+            decoration: const BoxDecoration(
+              color: Color(0xFFFF9800),
+              shape: BoxShape.circle,
+            ),
+            child: Text(
+              'W${i + 1}',
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 9,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              '${v.lat.toStringAsFixed(5)}, ${v.lon.toStringAsFixed(5)}',
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 13,
+                fontFamily: 'Menlo',
+              ),
+            ),
+          ),
+          IconButton(
+            tooltip: 'Remove waypoint',
+            visualDensity: VisualDensity.compact,
+            icon: const Icon(Icons.close, color: Colors.redAccent, size: 18),
+            onPressed: () => service.removeVia(i),
           ),
         ],
       ),
@@ -936,51 +907,6 @@ class _ComposeTabState extends State<_ComposeTab> {
         if (secondary != null)
           TextButton(onPressed: secondary.onTap, child: Text(secondary.label)),
       ],
-    );
-  }
-
-  Widget _viaRow(WeatherRoutingService service, int i) {
-    final v = service.plannedVias[i];
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 2),
-      child: Row(
-        children: [
-          Container(
-            width: 22,
-            height: 22,
-            alignment: Alignment.center,
-            decoration: const BoxDecoration(
-              color: Color(0xFFFF9800),
-              shape: BoxShape.circle,
-            ),
-            child: Text(
-              'W${i + 1}',
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 9,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              '${v.lat.toStringAsFixed(5)}, ${v.lon.toStringAsFixed(5)}',
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 13,
-                fontFamily: 'Menlo',
-              ),
-            ),
-          ),
-          IconButton(
-            tooltip: 'Remove waypoint',
-            visualDensity: VisualDensity.compact,
-            icon: const Icon(Icons.close, color: Colors.redAccent, size: 18),
-            onPressed: () => service.removeVia(i),
-          ),
-        ],
-      ),
     );
   }
 
@@ -1074,6 +1000,8 @@ class _BoatRow extends StatelessWidget {
 
   static String _fmtLength(double si, PathMetadata? md) {
     if (md != null) return 'LOA ${md.format(si, decimals: 1)}';
+    // No metadata — show the raw SI value labelled with its SI unit
+    // (meters). Labelling SI as SI is honest, not a display preference.
     return 'LOA ${si.toStringAsFixed(1)} m';
   }
 }
@@ -1285,6 +1213,9 @@ class _ResultTab extends StatelessWidget {
           WeatherRoutingItineraryCard(
             index: i,
             waypoint: result.waypoints[i],
+            next: i + 1 < result.waypoints.length
+                ? result.waypoints[i + 1]
+                : null,
             kind: legKindAt(result.waypoints, i),
             selected: false,
             onTap: () {
@@ -1318,37 +1249,37 @@ class _StatSummary extends StatelessWidget {
       fontWeight: FontWeight.bold,
     );
 
+    // Distance via canonical MetadataStore pattern. Time uses a
+    // shared `Hh Mm` formatter — no project category exists for time
+    // and `s↔min↔h` arithmetic is universal, not a user-preference
+    // unit choice.
+    final distMd = context
+        .read<SignalKService>()
+        .metadataStore
+        .getByCategory('distance');
+
     if (s.totalDistanceM != null) {
       add(TextSpan(
         style: boldStyle,
-        text: '${(s.totalDistanceM! / metersPerNm).toStringAsFixed(1)} nm',
+        text: distMd.formatOrRaw(s.totalDistanceM!, decimals: 1, siSuffix: 'm'),
       ));
     }
     if (s.totalTimeS != null) {
       add(TextSpan(style: labelStyle, children: [
         const TextSpan(text: '  |  '),
-        TextSpan(
-          style: valueStyle,
-          text: '${(s.totalTimeS! / 3600).toStringAsFixed(1)} h',
-        ),
+        TextSpan(style: valueStyle, text: _formatHhMm(s.totalTimeS!)),
       ]));
     }
     if (s.sailingTimeS != null) {
       add(TextSpan(style: labelStyle, children: [
         const TextSpan(text: '  |  Sail '),
-        TextSpan(
-          style: valueStyle,
-          text: '${(s.sailingTimeS! / 3600).toStringAsFixed(1)} h',
-        ),
+        TextSpan(style: valueStyle, text: _formatHhMm(s.sailingTimeS!)),
       ]));
     }
     if (s.motoringTimeS != null) {
       add(TextSpan(style: labelStyle, children: [
         const TextSpan(text: '  |  Motor '),
-        TextSpan(
-          style: valueStyle,
-          text: '${(s.motoringTimeS! / 3600).toStringAsFixed(1)} h',
-        ),
+        TextSpan(style: valueStyle, text: _formatHhMm(s.motoringTimeS!)),
       ]));
     }
     add(TextSpan(style: labelStyle, children: [
@@ -1494,19 +1425,18 @@ class _RecentTabState extends State<_RecentTab> {
     // few frames later. Disable the row tap so the user gets visual
     // feedback rather than a silent no-op.
     final disabled = service.isBusy;
-    final signalKService = context.read<SignalKService>();
-    final distMeta =
-        signalKService.metadataStore.getByCategory('distance');
+    final distMd = context
+        .read<SignalKService>()
+        .metadataStore
+        .getByCategory('distance');
     final summary = job.summary;
     final pieces = <String>[];
     if (summary?.totalDistanceM != null) {
-      final dist = summary!.totalDistanceM!;
-      pieces.add(distMeta != null
-          ? distMeta.format(dist, decimals: 1)
-          : '${dist.toStringAsFixed(0)} m');
+      pieces.add(distMd.formatOrRaw(
+          summary!.totalDistanceM!, decimals: 1, siSuffix: 'm'));
     }
     if (summary?.totalTimeS != null) {
-      pieces.add(_formatDuration(summary!.totalTimeS!));
+      pieces.add(_formatHhMm(summary!.totalTimeS!));
     }
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
@@ -1572,11 +1502,4 @@ class _RecentTabState extends State<_RecentTab> {
         '${l.day.toString().padLeft(2, '0')}';
   }
 
-  static String _formatDuration(double seconds) {
-    final s = seconds.round();
-    final h = s ~/ 3600;
-    final m = (s % 3600) ~/ 60;
-    if (h > 0) return '${h}h ${m}m';
-    return '${m}m';
-  }
 }
