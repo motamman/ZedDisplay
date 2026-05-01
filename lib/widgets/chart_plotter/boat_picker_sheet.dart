@@ -31,10 +31,17 @@ class _BoatPickerSheet extends StatefulWidget {
 
 class _BoatPickerSheetState extends State<_BoatPickerSheet> {
   bool _refreshed = false;
+  final TextEditingController _filterCtrl = TextEditingController();
+  String _filter = '';
 
   @override
   void initState() {
     super.initState();
+    _filterCtrl.addListener(() {
+      final next = _filterCtrl.text.trim().toLowerCase();
+      if (next == _filter) return;
+      setState(() => _filter = next);
+    });
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!_refreshed && mounted) {
         _refreshed = true;
@@ -44,6 +51,12 @@ class _BoatPickerSheetState extends State<_BoatPickerSheet> {
         context.read<RoutePlannerBoatsService>().refreshAllBoats();
       }
     });
+  }
+
+  @override
+  void dispose() {
+    _filterCtrl.dispose();
+    super.dispose();
   }
 
   Future<void> _addFromSearch() async {
@@ -142,6 +155,37 @@ class _BoatPickerSheetState extends State<_BoatPickerSheet> {
                   style: const TextStyle(color: Color(0xFFFF8888)),
                 ),
               ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
+              child: TextField(
+                controller: _filterCtrl,
+                style: const TextStyle(color: Colors.white, fontSize: 13),
+                decoration: InputDecoration(
+                  isDense: true,
+                  hintText: 'Filter boats and polars',
+                  hintStyle: const TextStyle(color: Colors.white38),
+                  prefixIcon: const Icon(Icons.search,
+                      color: Colors.white54, size: 18),
+                  suffixIcon: _filter.isEmpty
+                      ? null
+                      : IconButton(
+                          icon: const Icon(Icons.close,
+                              color: Colors.white54, size: 16),
+                          onPressed: () => _filterCtrl.clear(),
+                          tooltip: 'Clear filter',
+                          visualDensity: VisualDensity.compact,
+                        ),
+                  filled: true,
+                  fillColor: const Color(0xFF14142A),
+                  contentPadding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    borderSide: BorderSide.none,
+                  ),
+                ),
+              ),
+            ),
             Flexible(child: _list(svc, lengthMd)),
             const Divider(color: Colors.white12, height: 1),
             Padding(
@@ -186,14 +230,29 @@ class _BoatPickerSheetState extends State<_BoatPickerSheet> {
         child: Center(child: CircularProgressIndicator()),
       );
     }
-    final savedBoats = svc.boats;
-    final orphans = svc.orphanedPolars;
-    if (savedBoats.isEmpty && orphans.isEmpty) {
+    final allSaved = svc.boats;
+    final allOrphans = svc.orphanedPolars;
+    final savedBoats =
+        _filter.isEmpty ? allSaved : allSaved.where(_boatMatches).toList();
+    final orphans = _filter.isEmpty
+        ? allOrphans
+        : allOrphans.where(_polarMatches).toList();
+    if (allSaved.isEmpty && allOrphans.isEmpty) {
       return const Padding(
         padding: EdgeInsets.all(24),
         child: Text(
           'No boats or polars available.',
           style: TextStyle(color: Colors.white54),
+          textAlign: TextAlign.center,
+        ),
+      );
+    }
+    if (savedBoats.isEmpty && orphans.isEmpty) {
+      return Padding(
+        padding: const EdgeInsets.all(24),
+        child: Text(
+          'No matches for "${_filterCtrl.text}".',
+          style: const TextStyle(color: Colors.white54),
           textAlign: TextAlign.center,
         ),
       );
@@ -213,6 +272,16 @@ class _BoatPickerSheetState extends State<_BoatPickerSheet> {
         ],
       ],
     );
+  }
+
+  bool _boatMatches(Boat b) {
+    final hay = '${b.name} ${b.type}'.toLowerCase();
+    return hay.contains(_filter);
+  }
+
+  bool _polarMatches(PolarEntry p) {
+    final hay = '${p.label} ${p.name} ${p.source}'.toLowerCase();
+    return hay.contains(_filter);
   }
 
   Widget _savedBoatTile(

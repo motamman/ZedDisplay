@@ -222,7 +222,13 @@ void main() async {
   // Route planner auth + weather routing service (surfaces the router
   // API inside the chart plotter)
   final routePlannerAuthService = RoutePlannerAuthService(storageService);
-  final weatherRoutingService = WeatherRoutingService(routePlannerAuthService);
+  final weatherRoutingService =
+      WeatherRoutingService(routePlannerAuthService, storageService);
+  // Resume any in-flight job from a previous session. Auth has loaded
+  // its token synchronously in the constructor, so calling this now is
+  // safe — the SSE reconnect uses Last-Event-ID to replay anything we
+  // missed. Fire-and-forget; failures are logged inside the service.
+  unawaited(weatherRoutingService.tryReattachActiveJob());
   final routePlannerBoatsService = RoutePlannerBoatsService(
     auth: routePlannerAuthService,
     storage: storageService,
