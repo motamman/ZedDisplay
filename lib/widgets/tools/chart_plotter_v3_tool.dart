@@ -600,6 +600,8 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
     _routePollTimer?.cancel();
     _vesselTimer?.cancel();
     _stopArrivalMonitor();
+    widget.signalKService.metadataStore
+        .removeListener(_onMetadataStoreChanged);
     _tileManager?.removeListener(_onTileManagerChanged);
     _tileManager?.dispose();
     _weatherRoutingService?.removeListener(_onWeatherRoutingChanged);
@@ -1465,6 +1467,8 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
   /// long-press; if a vertex is within 12 px of the press, add it as a
   /// via and surface a snack. Returns true when the press was consumed
   /// so the caller doesn't fall through to other long-press behaviours.
+  /// Hit radius matches the user-facing tolerance the chart already
+  /// uses for the nav-route waypoint insert.
   bool _tryPromoteWeatherRoutePoint(LatLng latLng) {
     final service = _weatherRoutingService;
     final result = service?.currentResult;
@@ -1619,7 +1623,7 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
   /// move of either pin once both are set. Replaces the old transient
   /// snackbar so the path to "compute route" is one tap from the chart
   /// gesture that placed the pin. Render is gated by `plannedEnd` and
-  /// the absence of a computed result.
+  /// the absence of a computed result — see the Stack at line ~1930.
   void _openComposePopover() {
     if (!mounted) return;
     setState(() => _composePopoverOpen = true);
@@ -1698,20 +1702,14 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
           jsonDecode(spriteJsonRaw) as Map<String, dynamic>);
       final spriteImage = await _decodeImage(spritePngBytes);
       if (!mounted) return;
-      // Depth display unit + factor from the user's MetadataStore
-      // preset (CLAUDE.md SSOT). Falls back to metres × 1.0 if no
-      // depth metadata is registered yet (e.g. SignalK still
-      // connecting). Reactive updates after first build aren't
-      // wired — reload the chart to pick up a unit change.
-      final depthMeta =
-          widget.signalKService.metadataStore.getByCategory('depth');
+      // Engine is constructed with default depth options (metres,
+      // factor 1.0). Per CLAUDE.md the SOUNDG label rendering routes
+      // through MetadataStore.format() at paint time — see
+      // `_S57Painter._paintFeature` — so we deliberately don't push
+      // user units into the s52_dart options here.
       final engine = S52StyleEngine(
         lookups: lookups,
-        options: S52Options(
-          displayCategory: S52DisplayCategory.other,
-          depthUnit: depthMeta?.symbol ?? 'm',
-          depthConversionFactor: depthMeta?.convert(1.0) ?? 1.0,
-        ),
+        options: const S52Options(displayCategory: S52DisplayCategory.other),
         csProcedures: standardCsProcedures,
       );
       final manager = S57TileManager(
@@ -1732,6 +1730,12 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
       // if the fetch is empty: empty intersection means no tile fetches
       // until the catalog arrives.
       unawaited(_refreshChartCatalog());
+      // Repaint when depth-unit preference changes so SOUNDG labels
+      // re-format with the new metadata. The painter looks up the
+      // PathMetadata fresh on every frame; we just need to trigger
+      // a rebuild.
+      widget.signalKService.metadataStore
+          .addListener(_onMetadataStoreChanged);
     } catch (e, st) {
       if (!mounted) return;
       setState(() => _loadError = '$e\n$st');
@@ -1859,6 +1863,23 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
       if (desc != null) out.add(desc);
     }
     manager.setCharts(out);
+  }
+
+  /// Signature of the depth metadata we last rebuilt against — just
+  /// the user-visible bits (symbol + formula). MetadataStore notifies
+  /// many times during connect for paths we don't care about; without
+  /// this guard, every notification triggered a full chart repaint.
+  String? _lastDepthMetaSig;
+
+  void _onMetadataStoreChanged() {
+    if (!mounted) return;
+    final store = widget.signalKService.metadataStore;
+    final depth = store.get('environment.depth.belowTransducer') ??
+        store.getByCategory('depth');
+    final sig = depth == null ? null : '${depth.symbol}|${depth.formula}';
+    if (sig == _lastDepthMetaSig) return;
+    _lastDepthMetaSig = sig;
+    setState(() {});
   }
 
   Future<ui.Image> _decodeImage(Uint8List bytes) async {
@@ -1996,6 +2017,16 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
                     hiddenClasses: _hiddenClasses,
                     enabledChartIds: _enabledChartIds,
                     declutter: _declutter,
+                    // Path-first, category fallback — same lookup the
+                    // HUD uses at chart_hud.dart:125. Vessels normally
+                    // populate `environment.depth.belowTransducer`
+                    // with displayUnits; `getByCategory` only fires
+                    // when the user has a category-level preset but
+                    // no per-path metadata yet.
+                    depthMetadata: widget.signalKService.metadataStore
+                            .get('environment.depth.belowTransducer') ??
+                        widget.signalKService.metadataStore
+                            .getByCategory('depth'),
                   ),
                 ),
               // Weather raster tiles sit under the vector overlays +
@@ -2302,7 +2333,9 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
 
   /// Fit the chart camera to the current weather-route polyline.
   /// Called when the user taps a row in the Recent tab so they land
-  /// on the route they just loaded.
+  /// on the route they just loaded. Auto-follow stays as-is — the
+  /// next vessel tick will re-pan only if the user has it enabled,
+  /// matching the existing waypoint-focus behaviour.
   void _fitWeatherRoute() {
     final result = _weatherRoutingService?.currentResult;
     if (result == null || result.coords.isEmpty || !_mapReady) return;
@@ -2564,7 +2597,7 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
       final vias = service.plannedVias;
       for (var i = 0; i < vias.length; i++) {
         final v = vias[i];
-        final viaIndex = i;
+        final viaIndex = i; // capture for closures
         markers.add(DragMarker(
           point: LatLng(v.lat, v.lon),
           size: const Size(44, 44),
@@ -2582,7 +2615,7 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
             }
           },
           builder: (_, _, _) => _weatherRoutePinVisual(
-              fill: const Color(0xFFFF9800), label: ''),
+              fill: const Color(0xFFFF9800), label: 'W${viaIndex + 1}'),
         ));
       }
     }
@@ -3331,6 +3364,7 @@ class _S57OverlayLayer extends StatelessWidget {
     this.hiddenClasses = const <String>{},
     this.enabledChartIds = const <String>{},
     this.declutter = false,
+    this.depthMetadata,
   });
   final Map<S57TileKey, S57ParsedTile> tileCache;
   final int generation;
@@ -3344,6 +3378,11 @@ class _S57OverlayLayer extends StatelessWidget {
   /// manager keeps fetched contributions in cache regardless.
   final Set<String> enabledChartIds;
   final bool declutter;
+  // Routed straight through to the painter so SOUNDG depth labels
+  // can be formatted via MetadataStore at paint time. Null until
+  // SignalK populates the unit-preference store; painter falls back
+  // to raw metres in that case.
+  final PathMetadata? depthMetadata;
 
   @override
   Widget build(BuildContext context) {
@@ -3360,6 +3399,7 @@ class _S57OverlayLayer extends StatelessWidget {
           hiddenClasses: hiddenClasses,
           enabledChartIds: enabledChartIds,
           declutter: declutter,
+          depthMetadata: depthMetadata,
         ),
         size: Size.infinite,
       ),
@@ -3378,6 +3418,7 @@ class _S57Painter extends CustomPainter {
     this.hiddenClasses = const <String>{},
     this.enabledChartIds = const <String>{},
     this.declutter = false,
+    this.depthMetadata,
   });
   final MapCamera camera;
   final Map<S57TileKey, S57ParsedTile> tiles;
@@ -3399,6 +3440,12 @@ class _S57Painter extends CustomPainter {
   // at every zoom; otherwise the auto-cutoff at zoom > 11 still
   // fires.
   final bool declutter;
+  // PathMetadata for the user's depth unit preference. SOUNDG label
+  // text is formatted through this so the chart honours the same
+  // m/ft/fa preset as the rest of the app (CLAUDE.md SSOT). Null
+  // when MetadataStore has no depth entry yet — painter falls back
+  // to raw metres rounded to integer.
+  final PathMetadata? depthMetadata;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -3542,6 +3589,26 @@ class _S57Painter extends CustomPainter {
         // depth soundings. Kept on the canvas because soundings are
         // core navigation info; everything else (object names,
         // formatted descriptions) is suppressed below to declutter.
+        //
+        // For SOUNDG we re-format the depth at paint time via
+        // MetadataStore (per CLAUDE.md: never do manual conversions
+        // in widgets, never bake unit assumptions into a sub-library).
+        // The engine's `instruction.text` is metres rounded — we
+        // ignore it and read the raw DEPTH/VALSOU attribute, in
+        // metres, then call `metadata.format(...)` so the user's
+        // m/ft/fa preset wins. Other text literals (none today, but
+        // the engine may emit them later for object names etc.) pass
+        // through unchanged.
+        String displayText = instruction.text;
+        if (f.objectClass == 'SOUNDG') {
+          final depthM = _readDepthMetres(f.attributes);
+          if (depthM == null) continue;
+          // Convert via MetadataStore (CLAUDE.md SSOT) but drop the
+          // unit symbol — chart soundings are bare numbers; the unit
+          // belongs in the chart legend, not on every sprite.
+          final display = depthMetadata?.convert(depthM) ?? depthM;
+          displayText = display.toStringAsFixed(0);
+        }
         if (f.objectClass == 'SOUNDG' && _soundingDeclutterActive) {
           // Declutter: keep only soundings whose anchor sits at least
           // `_soundingMinSpacing` pixels from every already-placed
@@ -3564,9 +3631,9 @@ class _S57Painter extends CustomPainter {
             anchors.add(p);
           }
           if (anchors.isEmpty) continue;
-          _paintText(canvas, instruction.text, anchors, project);
+          _paintText(canvas, displayText, anchors, project);
         } else {
-          _paintText(canvas, instruction.text, f.geometry.points, project);
+          _paintText(canvas, displayText, f.geometry.points, project);
         }
       }
       // Suppressed — attribute-driven labels (S52Text, e.g. OBJNAM
@@ -3784,6 +3851,21 @@ class _S57Painter extends CustomPainter {
     return Color(c.toArgb32());
   }
 
+  /// Pulls the raw depth in metres from a SOUNDG feature's attribute
+  /// map. Mirrors what s52_dart's `soundg02` procedure does (DEPTH
+  /// preferred, VALSOU as fallback) but stays in SI so the painter
+  /// can hand it to MetadataStore for unit conversion / formatting.
+  static double? _readDepthMetres(Map<String, Object?> attrs) {
+    for (final key in const ['DEPTH', 'VALSOU']) {
+      final raw = attrs[key];
+      if (raw == null) continue;
+      if (raw is num) return raw.toDouble();
+      final n = num.tryParse(raw.toString());
+      if (n != null) return n.toDouble();
+    }
+    return null;
+  }
+
   @override
   bool shouldRepaint(covariant _S57Painter old) =>
       old.camera != camera ||
@@ -3792,6 +3874,7 @@ class _S57Painter extends CustomPainter {
       old.spriteAtlas != spriteAtlas ||
       old.spriteImage != spriteImage ||
       old.declutter != declutter ||
+      old.depthMetadata != depthMetadata ||
       old.hiddenClasses.length != hiddenClasses.length ||
       !old.hiddenClasses.containsAll(hiddenClasses) ||
       old.enabledChartIds.length != enabledChartIds.length ||

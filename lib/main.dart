@@ -224,9 +224,10 @@ void main() async {
   final routePlannerAuthService = RoutePlannerAuthService(storageService);
   final weatherRoutingService =
       WeatherRoutingService(routePlannerAuthService, storageService);
-  // Reattach to any in-flight job from a previous session. Best-effort:
-  // no-op when nothing is stored, the server has TTL'd the job, or the
-  // user has no token yet.
+  // Resume any in-flight job from a previous session. Auth has loaded
+  // its token synchronously in the constructor, so calling this now is
+  // safe — the SSE reconnect uses Last-Event-ID to replay anything we
+  // missed. Fire-and-forget; failures are logged inside the service.
   unawaited(weatherRoutingService.tryReattachActiveJob());
   final routePlannerBoatsService = RoutePlannerBoatsService(
     auth: routePlannerAuthService,
