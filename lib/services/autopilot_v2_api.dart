@@ -142,8 +142,12 @@ class AutopilotV2Api {
     final referenceDeg = currentHeadingDeg ?? 0.0;
     double delta = headingDeg - referenceDeg;
     // Normalize to -180..+180
-    while (delta > 180) delta -= 360;
-    while (delta < -180) delta += 360;
+    while (delta > 180) {
+      delta -= 360;
+    }
+    while (delta < -180) {
+      delta += 360;
+    }
 
     final deltaInt = delta.round();
     if (deltaInt == 0) return;
