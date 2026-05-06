@@ -89,6 +89,11 @@ dependencies:
   # WebView for embedding web pages
   webview_flutter: ^4.11.2
 
+  # System-browser OAuth flow (Custom Tab on Android,
+  # ASWebAuthenticationSession on iOS). Used by RoutePlannerAuthService
+  # so Google's "Use secure browsers" policy doesn't 403 the sign-in.
+  flutter_web_auth_2: ^4.1.0
+
   # System monitoring
   device_info_plus: ^12.3.0
 

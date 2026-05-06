@@ -719,22 +719,41 @@ class _BearerTokenSectionState extends State<_BearerTokenSection> {
   @override
   Widget build(BuildContext context) {
     final auth = context.watch<RoutePlannerAuthService>();
+    // Once signed in, the only thing the user needs is a way out —
+    // hide the manual-paste field and the Sign-in / Save buttons so
+    // the configurator doesn't feel like a half-completed form.
+    // Pasting a different token isn't a real use case once OAuth
+    // works; if the user wants to replace the token they Sign out
+    // and Sign in again, which goes through the in-app flow.
+    if (auth.hasToken) {
+      return Row(
+        children: [
+          const Icon(Icons.verified_user,
+              color: Color(0xFF88DD88), size: 14),
+          const SizedBox(width: 4),
+          const Text('Signed in',
+              style: TextStyle(
+                  color: Color(0xFF88DD88), fontSize: 12)),
+          const Spacer(),
+          TextButton(
+            onPressed: () async {
+              await auth.clear();
+              _ctrl.clear();
+              if (!mounted) return;
+              setState(() => _dirty = false);
+            },
+            child: const Text('Sign out',
+                style: TextStyle(color: Color(0xFFFF8888))),
+          ),
+        ],
+      );
+    }
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          children: [
-            const Text('Bearer token',
-                style: TextStyle(color: Colors.grey, fontSize: 12)),
-            const Spacer(),
-            if (auth.hasToken)
-              const Padding(
-                padding: EdgeInsets.only(right: 4),
-                child: Icon(Icons.verified_user,
-                    color: Color(0xFF88DD88), size: 14),
-              ),
-          ],
-        ),
+        const Text('Bearer token',
+            style: TextStyle(color: Colors.grey, fontSize: 12)),
         const SizedBox(height: 4),
         Row(
           children: [
@@ -743,12 +762,10 @@ class _BearerTokenSectionState extends State<_BearerTokenSection> {
                 controller: _ctrl,
                 obscureText: true,
                 style: const TextStyle(fontFamily: 'Menlo'),
-                decoration: InputDecoration(
-                  hintText: auth.hasToken
-                      ? 'Token set — paste new to replace'
-                      : 'Paste bearer token',
+                decoration: const InputDecoration(
+                  hintText: 'Paste bearer token',
                   isDense: true,
-                  border: const OutlineInputBorder(),
+                  border: OutlineInputBorder(),
                 ),
               ),
             ),
@@ -773,10 +790,26 @@ class _BearerTokenSectionState extends State<_BearerTokenSection> {
                 label: const Text('Sign in with Google'),
                 onPressed: () async {
                   final messenger = ScaffoldMessenger.of(context);
-                  final ok = await auth.signInWithGoogle(widget.baseUrl);
-                  if (!ok) {
+                  // signInWithGoogle owns the system-browser flow,
+                  // captures the token from the deep-link callback,
+                  // and persists it. Configurator just surfaces the
+                  // outcome — the build flips to the signed-in
+                  // branch above as soon as setBearerToken fires
+                  // notifyListeners.
+                  final result = await auth.signInWithGoogle(widget.baseUrl);
+                  if (!mounted) return;
+                  if (result.ok) {
                     messenger.showSnackBar(
-                      const SnackBar(content: Text('Could not open browser')),
+                      const SnackBar(content: Text('Signed in')),
+                    );
+                  } else if (result.error != null) {
+                    // flutter_web_auth_2 throws on user-cancel too;
+                    // for now we treat every non-success the same —
+                    // a quiet snackbar is better than a silent no-op.
+                    messenger.showSnackBar(
+                      SnackBar(
+                        content: Text('Sign-in failed: ${result.error}'),
+                      ),
                     );
                   }
                 },
@@ -784,7 +817,7 @@ class _BearerTokenSectionState extends State<_BearerTokenSection> {
             ),
             const SizedBox(width: 8),
             TextButton(
-              onPressed: (_ctrl.text.isEmpty && !auth.hasToken) || !_dirty
+              onPressed: _ctrl.text.isEmpty || !_dirty
                   ? null
                   : () async {
                       await auth.setBearerToken(_ctrl.text);
@@ -793,19 +826,6 @@ class _BearerTokenSectionState extends State<_BearerTokenSection> {
                     },
               child: const Text('Save'),
             ),
-            if (auth.hasToken) ...[
-              const SizedBox(width: 4),
-              TextButton(
-                onPressed: () async {
-                  await auth.clear();
-                  _ctrl.clear();
-                  if (!mounted) return;
-                  setState(() => _dirty = false);
-                },
-                child: const Text('Sign out',
-                    style: TextStyle(color: Color(0xFFFF8888))),
-              ),
-            ],
           ],
         ),
       ],

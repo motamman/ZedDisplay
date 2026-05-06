@@ -66,6 +66,23 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<!-- Custom URL scheme for the route-planner Google sign-in flow.
+	     The router server redirects to zeddisplay://auth-callback?token=…
+	     after a successful OAuth; ASWebAuthenticationSession picks that
+	     URL up and hands it back to flutter_web_auth_2. -->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLName</key>
+			<string>sv.zennora.zeddisplaysignalk.auth</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>zeddisplay</string>
+			</array>
+		</dict>
+	</array>
 	<!-- Location permission for Find Home dinghy navigation -->
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>ZedDisplay needs your location to navigate back to your anchored vessel</string>

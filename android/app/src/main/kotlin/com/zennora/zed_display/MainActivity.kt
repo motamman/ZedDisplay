@@ -50,6 +50,20 @@ class MainActivity : FlutterActivity() {
                     result.success(sharedFileContent)
                     sharedFileContent = null // Clear after reading
                 }
+                "bringToFront" -> {
+                    // Used after a Custom Tabs OAuth flow returns its
+                    // deep-link result: Chrome's task remains parked on
+                    // its last URL until something displaces it.
+                    // REORDER_TO_FRONT pulls our existing MainActivity
+                    // back to the top of its task without recreating
+                    // it; SINGLE_TOP avoids spawning a duplicate.
+                    val launch = Intent(this, MainActivity::class.java).apply {
+                        addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
+                        addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                    }
+                    startActivity(launch)
+                    result.success(null)
+                }
                 else -> result.notImplemented()
             }
         }
