@@ -81,12 +81,23 @@ class RoutePlannerChartsService extends ChangeNotifier {
 
   final RoutePlannerAuthService _auth;
 
+  // Bumped every time `baseUrl` flips. An in-flight `refresh()` reads
+  // the epoch at start; if it changes before the response lands, the
+  // refresh discards the result rather than repopulating state that
+  // belongs to the old server.
+  int _catalogEpoch = 0;
+
   String _baseUrl = 'https://router.zeddisplay.com';
   String get baseUrl => _baseUrl;
   set baseUrl(String v) {
     final trimmed = v.trim().replaceAll(RegExp(r'/+$'), '');
     if (trimmed == _baseUrl) return;
     _baseUrl = trimmed;
+    _catalogEpoch++;
+    // Drop the loading flag too — the in-flight request from the old
+    // server is now orphaned, and we want the next `refresh()` to fire
+    // immediately rather than wait for the abandoned one to finish.
+    _loading = false;
     // Catalog and any prior error message belong to the old server —
     // drop both so listeners that re-seed off the catalog (chart
     // plotter's `_layersSeededFromCatalog`) and snackbars driven by
@@ -114,13 +125,19 @@ class RoutePlannerChartsService extends ChangeNotifier {
 
   Future<void> refresh() async {
     if (_loading) return;
+    final epoch = _catalogEpoch;
+    final requestBaseUrl = _baseUrl;
     _loading = true;
     notifyListeners();
     try {
-      final uri = Uri.parse('$_baseUrl/charts');
+      final uri = Uri.parse('$requestBaseUrl/charts');
       final resp = await http
           .get(uri, headers: _auth.authorisedHeaders())
           .timeout(ServiceConstants.shortHttpTimeout);
+      // Drop the response if the user flipped `baseUrl` while we were
+      // awaiting — writing this catalog back would clobber the cleared
+      // state intended for the new server.
+      if (epoch != _catalogEpoch) return;
       if (resp.statusCode != 200) {
         _lastError = 'GET /charts failed: HTTP ${resp.statusCode}';
         return;
@@ -147,10 +164,20 @@ class RoutePlannerChartsService extends ChangeNotifier {
       _chartById = {for (final c in parsed) c.id: c};
       _lastError = null;
     } catch (e) {
-      _lastError = 'GET /charts error: $e';
+      // Same epoch guard for errors — a network failure against the
+      // old server shouldn't surface as a snackbar after the user
+      // already moved on to a new one.
+      if (epoch == _catalogEpoch) {
+        _lastError = 'GET /charts error: $e';
+      }
     } finally {
-      _loading = false;
-      notifyListeners();
+      // Only release the loading flag if we still own the request.
+      // The setter already cleared it on epoch flip, and a stale
+      // refresh has no business toggling state for the new server.
+      if (epoch == _catalogEpoch) {
+        _loading = false;
+        notifyListeners();
+      }
     }
   }
 

@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
+import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter_map/flutter_map.dart';
@@ -2121,69 +2122,80 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
       final descriptors = <ChartDescriptor>[];
       final urlTemplates = <String, String>{};
       for (final entry in raw.entries) {
-        final id = entry.key;
-        final data = entry.value;
-        if (data is! Map) continue;
-        final bounds = data['bounds'];
-        // SignalK's chart resource bounds shape varies between
-        // providers: map `{west,south,east,north}` (or `{w,s,e,n}`),
-        // or a 4-element list `[w,s,e,n]`, or — per the official
-        // `Chart` interface — `[[west,south],[east,north]]`. Tolerate
-        // all three.
-        double? w, s, e, n;
-        if (bounds is Map) {
-          w = (bounds['west'] as num?)?.toDouble() ??
-              (bounds['w'] as num?)?.toDouble();
-          s = (bounds['south'] as num?)?.toDouble() ??
-              (bounds['s'] as num?)?.toDouble();
-          e = (bounds['east'] as num?)?.toDouble() ??
-              (bounds['e'] as num?)?.toDouble();
-          n = (bounds['north'] as num?)?.toDouble() ??
-              (bounds['n'] as num?)?.toDouble();
-        } else if (bounds is List && bounds.length >= 4 &&
-            bounds.first is num) {
-          w = (bounds[0] as num?)?.toDouble();
-          s = (bounds[1] as num?)?.toDouble();
-          e = (bounds[2] as num?)?.toDouble();
-          n = (bounds[3] as num?)?.toDouble();
-        } else if (bounds is List && bounds.length >= 2 &&
-            bounds.first is List) {
-          // Official corner-pairs form: [[w,s],[e,n]].
-          final sw = bounds[0] as List;
-          final ne = bounds[1] as List;
-          if (sw.length >= 2 && ne.length >= 2) {
-            w = (sw[0] as num?)?.toDouble();
-            s = (sw[1] as num?)?.toDouble();
-            e = (ne[0] as num?)?.toDouble();
-            n = (ne[1] as num?)?.toDouble();
+        // Per-entry try so one chart with an unexpected shape (bad
+        // bounds, non-numeric zoom, etc.) doesn't drop the rest of
+        // the catalog from the panel.
+        try {
+          final id = entry.key;
+          final data = entry.value;
+          if (data is! Map) continue;
+          final bounds = data['bounds'];
+          // SignalK's chart resource bounds shape varies between
+          // providers: map `{west,south,east,north}` (or `{w,s,e,n}`),
+          // or a 4-element list `[w,s,e,n]`, or — per the official
+          // `Chart` interface — `[[west,south],[east,north]]`. Tolerate
+          // all three.
+          double? w, s, e, n;
+          if (bounds is Map) {
+            w = (bounds['west'] as num?)?.toDouble() ??
+                (bounds['w'] as num?)?.toDouble();
+            s = (bounds['south'] as num?)?.toDouble() ??
+                (bounds['s'] as num?)?.toDouble();
+            e = (bounds['east'] as num?)?.toDouble() ??
+                (bounds['e'] as num?)?.toDouble();
+            n = (bounds['north'] as num?)?.toDouble() ??
+                (bounds['n'] as num?)?.toDouble();
+          } else if (bounds is List && bounds.length >= 4 &&
+              bounds.first is num) {
+            w = (bounds[0] as num?)?.toDouble();
+            s = (bounds[1] as num?)?.toDouble();
+            e = (bounds[2] as num?)?.toDouble();
+            n = (bounds[3] as num?)?.toDouble();
+          } else if (bounds is List &&
+              bounds.length >= 2 &&
+              bounds[0] is List &&
+              bounds[1] is List) {
+            // Official corner-pairs form: [[w,s],[e,n]].
+            final sw = bounds[0] as List;
+            final ne = bounds[1] as List;
+            if (sw.length >= 2 && ne.length >= 2) {
+              w = (sw[0] as num?)?.toDouble();
+              s = (sw[1] as num?)?.toDouble();
+              e = (ne[0] as num?)?.toDouble();
+              n = (ne[1] as num?)?.toDouble();
+            }
           }
-        }
-        // No bounds — fall back to "world" so the manager doesn't
-        // skip every tile. The user's add-picker is the gating
-        // surface; once they enable a chart, we always try to fetch.
-        w ??= -180.0;
-        s ??= -85.0;
-        e ??= 180.0;
-        n ??= 85.0;
-        final minZ = (data['minzoom'] as num?)?.toInt() ??
-            (data['minZoom'] as num?)?.toInt() ??
-            0;
-        final maxZ = (data['maxzoom'] as num?)?.toInt() ??
-            (data['maxZoom'] as num?)?.toInt() ??
-            22;
-        final urlTemplate = data['url'] as String?;
-        descriptors.add(ChartDescriptor(
-          id: id,
-          west: w,
-          south: s,
-          east: e,
-          north: n,
-          minZoom: minZ,
-          maxZoom: maxZ,
-          urlTemplate: urlTemplate,
-        ));
-        if (urlTemplate != null && urlTemplate.isNotEmpty) {
-          urlTemplates[id] = urlTemplate;
+          // No bounds — fall back to "world" so the manager doesn't
+          // skip every tile. The user's add-picker is the gating
+          // surface; once they enable a chart, we always try to fetch.
+          w ??= -180.0;
+          s ??= -85.0;
+          e ??= 180.0;
+          n ??= 85.0;
+          final minZ = (data['minzoom'] as num?)?.toInt() ??
+              (data['minZoom'] as num?)?.toInt() ??
+              0;
+          final maxZ = (data['maxzoom'] as num?)?.toInt() ??
+              (data['maxZoom'] as num?)?.toInt() ??
+              22;
+          final urlTemplate = data['url'] as String?;
+          descriptors.add(ChartDescriptor(
+            id: id,
+            west: w,
+            south: s,
+            east: e,
+            north: n,
+            minZoom: minZ,
+            maxZoom: maxZ,
+            urlTemplate: urlTemplate,
+          ));
+          if (urlTemplate != null && urlTemplate.isNotEmpty) {
+            urlTemplates[id] = urlTemplate;
+          }
+        } catch (e) {
+          if (kDebugMode) {
+            debugPrint('Skipping malformed chart entry ${entry.key}: $e');
+          }
         }
       }
       if (!mounted) return;
@@ -2302,10 +2314,15 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
   /// path is the last-resort fallback for charts whose catalog entry
   /// somehow lacks a template.
   String _buildTileUrlForChart(String chartId, S57TileKey key) {
+    // Most chart ids are alphanumeric (`01CGD_ENCs`) so encoding is a
+    // no-op. Defensive against future ids carrying `/` `?` `#` or
+    // spaces — those would otherwise either split the path or trip the
+    // URL parser downstream.
+    final safeId = Uri.encodeComponent(chartId);
     try {
       final server = context.read<ChartTileServerService>();
       if (server.isRunning) {
-        return 'http://localhost:${server.port}/tiles/$chartId/${key.z}/${key.x}/${key.y}';
+        return 'http://localhost:${server.port}/tiles/$safeId/${key.z}/${key.x}/${key.y}';
       }
     } catch (_) {}
     String? template;
@@ -2326,7 +2343,7 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
           .resolve(filled)
           .toString();
     }
-    return '${widget.signalKService.httpBaseUrl}/plugins/signalk-charts-provider-simple/$chartId/${key.z}/${key.x}/${key.y}';
+    return '${widget.signalKService.httpBaseUrl}/plugins/signalk-charts-provider-simple/$safeId/${key.z}/${key.x}/${key.y}';
   }
 
   TileFreshness _probeViewportFreshness(
@@ -3931,7 +3948,17 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
         if (md == null || md.symbol == null) return null;
         final symbol = md.symbol!;
         return (
-          format: (si) => md.format(si * 3600.0, decimals: 1),
+          // `md.format` would return e.g. "0.5 mm" — losing the rate
+          // suffix that the legend heading promises. Convert manually
+          // and re-suffix with `/h` so the tick label matches the
+          // heading the user is reading off.
+          format: (si) {
+            final converted = md.convert(si * 3600.0);
+            if (converted == null) {
+              return (si * 3600.0).toStringAsFixed(1);
+            }
+            return '${converted.toStringAsFixed(1)} $symbol/h';
+          },
           symbol: '$symbol/h',
         );
       default:

@@ -988,9 +988,10 @@ async function initMap() {
       zoom: 14,
     }),
     // Keep attribution control on — OpenStreetMap / OpenSeaMap usage
-    // policies require visible tile-source credit on the map.
+    // policies require visible tile-source credit on the map. The
+    // default control set already includes Zoom + Rotate + Attribution,
+    // so we only `extend` with the ScaleLine that V1 added.
     controls: ol.control.defaults.defaults().extend([
-      new ol.control.Zoom(),
       new ol.control.ScaleLine({
         units: 'nautical',
         bar: true,
