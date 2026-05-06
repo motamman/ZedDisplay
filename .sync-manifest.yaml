@@ -1,0 +1,88 @@
+# Sister-repo sync manifest. Used by `tool/sync_status.dart` to flag
+# drift between this repo and its sister app. Solo-dev "drift radar" —
+# it does NOT port changes for you; it tells you what's diverged so
+# you can decide whether to port.
+#
+# `sister_repo` is the absolute path on disk to the other repo. If you
+# move the sister repo, update this path. If you share this manifest
+# with someone else they'll have to override locally.
+#
+# Each `pairs` entry has:
+#   - `this`:   file path relative to THIS repo (the one you're in)
+#   - `sister`: file path relative to the sister repo. Omit when the
+#               file name is identical — that's the common case.
+#
+# Add or drop pairs as widgets get added, deprecated, or extracted
+# into a shared `packages/` later. Comments inline are encouraged.
+#
+# NOTE: this is the SignalK-side manifest. Its mirror in the
+# OpenMeteo repo flips the `weather_forecast.dart` ↔
+# `weatherflow_forecast.dart` rows. Keep both in sync as widgets
+# get added.
+
+sister_repo: /Users/mauricetamman/ZedDisplay-OpenMeteo
+
+pairs:
+  # ---- Chart plotter — main tool + every shared sub-widget ----
+  # Note: chart_plotter_v3_tool.dart, chart_hud.dart, and
+  # chart_layer_panel.dart are where the OpenMeteo side has actively
+  # diverged the most (tracker, weather player, layer-panel refactor).
+  # Drift here is expected — manifest catches it; you decide what to
+  # port.
+  - this: lib/widgets/tools/chart_plotter_v3_tool.dart
+  - this: lib/widgets/chart_plotter/chart_hud.dart
+  - this: lib/widgets/chart_plotter/chart_layer_panel.dart
+  - this: lib/widgets/chart_plotter/chart_route_panel.dart
+  - this: lib/widgets/chart_plotter/weather_data_overlays.dart
+  - this: lib/widgets/chart_plotter/weather_routing_overlay.dart
+  - this: lib/widgets/chart_plotter/weather_routing_panel.dart
+  - this: lib/widgets/chart_plotter/weather_routing_itinerary_card.dart
+  - this: lib/widgets/chart_plotter/boat_editor_sheet.dart
+  - this: lib/widgets/chart_plotter/boat_picker_sheet.dart
+  - this: lib/widgets/chart_plotter/polar_generator_sheet.dart
+  - this: lib/widgets/chart_plotter/sailboatdata_search_sheet.dart
+
+  # ---- Forecast spinner ----
+  - this: lib/widgets/forecast_spinner.dart
+  - this: lib/widgets/tools/weather_api_spinner_tool.dart
+
+  # ---- Weather forecast (paired across renamed files) ----
+  - this: lib/widgets/weatherflow_forecast.dart
+    sister: lib/widgets/weather_forecast.dart
+  - this: lib/widgets/tools/weatherflow_forecast_tool.dart
+    sister: lib/widgets/tools/weather_forecast_tool.dart
+
+  # ---- Sun / moon arc ----
+  - this: lib/widgets/sun_moon_arc.dart
+  - this: lib/widgets/tools/sun_moon_arc_tool.dart
+
+  # ---- Other paired UI ----
+  - this: lib/widgets/compass_gauge.dart
+  - this: lib/widgets/countdown_confirmation_overlay.dart
+  - this: lib/widgets/tools/weather_alerts_tool.dart
+  - this: lib/widgets/map_attribution.dart
+
+  # ---- Shared-backend services ----
+  # These talk to the same backends on both apps (router.zeddisplay.com
+  # for the route planner, the SignalK chart-resource API for tile
+  # templates, etc.). Drift here is the kind that's invisible until a
+  # protocol bug bites — keep the radar on it.
+  - this: lib/services/weather_routing_service.dart
+  - this: lib/services/weather_data_service.dart
+  - this: lib/services/route_planner_auth_service.dart
+  - this: lib/services/route_planner_boats_service.dart
+  - this: lib/services/route_planner_charts_service.dart
+  - this: lib/services/route_arrival_monitor.dart
+  - this: lib/services/chart_tile_cache_service.dart
+  - this: lib/services/chart_tile_server_service.dart
+  - this: lib/services/chart_download_manager.dart
+  - this: lib/services/s57_tile_manager.dart
+
+  # ---- Shared models ----
+  # Bit-for-bit identical class shapes. Wire-format compat depends on
+  # these staying aligned; track them so a one-side schema bump doesn't
+  # silently break the other.
+  - this: lib/models/path_metadata.dart
+  - this: lib/models/weather_layer_metadata.dart
+  - this: lib/models/weather_route_request.dart
+  - this: lib/models/weather_route_result.dart

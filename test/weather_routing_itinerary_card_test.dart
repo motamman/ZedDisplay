@@ -13,8 +13,9 @@ void main() {
     final file = File('test/fixtures/interactive_route.geojson');
     final json = jsonDecode(file.readAsStringSync()) as Map<String, dynamic>;
     final result = WeatherRouteResult.fromGeoJson(json);
-    expect(result.waypoints.length, greaterThan(1));
+    expect(result.waypoints.length, greaterThan(2));
     final wp = result.waypoints[1]; // a sailing waypoint
+    final next = result.waypoints[2];
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
@@ -24,6 +25,7 @@ void main() {
             child: WeatherRoutingItineraryCard(
               index: 1,
               waypoint: wp,
+              next: next,
               kind: legKindAt(result.waypoints, 1),
               selected: false,
               onTap: () {},

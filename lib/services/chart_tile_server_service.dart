@@ -24,6 +24,21 @@ class ChartTileServerService extends ChangeNotifier {
   String? _authToken;
   TileFreshness _refreshThreshold = TileFreshness.stale;
 
+  /// Per-chart upstream tile URL templates, keyed by chartId. The
+  /// V3 chart plotter populates this from each chart resource's `url`
+  /// field after `getResources('charts')` returns. A template may be
+  /// absolute (`http(s)://…`) or server-relative (e.g.
+  /// `/plugins/signalk-charts-provider-simple/01CGD_ENCs/{z}/{x}/{y}`).
+  /// Substitution is `{z}`/`{x}`/`{y}` per OpenLayers `XYZ` /
+  /// `VectorTileSource` convention — same shape Freeboard hands
+  /// straight to its OL sources.
+  ///
+  /// Charts with no registered template fall back to the legacy V1
+  /// path (`signalk-charts-provider-simple/{chartId}/...`) so the V1
+  /// chart plotter — which pre-dates this registry — keeps working
+  /// for its hardcoded `01CGD_ENCs`.
+  Map<String, String> _chartUpstreamTemplates = const {};
+
   bool get isRunning => _server != null;
   int get port => _port;
 
@@ -37,6 +52,43 @@ class ChartTileServerService extends ChangeNotifier {
     _upstreamBaseUrl = upstreamBaseUrl;
     _authToken = authToken;
     _refreshThreshold = refreshThreshold;
+  }
+
+  /// Replace the per-chart upstream URL template registry. Pass an
+  /// empty map to revert to legacy hardcoded-path behaviour (V1 mode).
+  /// Called by the V3 tool after each `getResources('charts')` round
+  /// trip.
+  void setChartUpstreamTemplates(Map<String, String> templates) {
+    _chartUpstreamTemplates = Map.unmodifiable(templates);
+  }
+
+  /// Build the upstream tile URL for [chartId] at (z, x, y).
+  /// - Looks up the per-chart template; if absent, falls back to the
+  ///   legacy `signalk-charts-provider-simple` hardcoded path.
+  /// - Substitutes `{z}` / `{x}` / `{y}` (OL convention).
+  /// - Resolves server-relative templates (no scheme) against
+  ///   `_upstreamBaseUrl`.
+  String? _upstreamUrl(String chartId, int z, int x, int y) {
+    final template = _chartUpstreamTemplates[chartId];
+    if (template != null) {
+      final substituted = template
+          .replaceAll('{z}', '$z')
+          .replaceAll('{x}', '$x')
+          .replaceAll('{y}', '$y');
+      if (substituted.startsWith('http://') ||
+          substituted.startsWith('https://')) {
+        return substituted;
+      }
+      final base = _upstreamBaseUrl;
+      if (base == null) return null;
+      return substituted.startsWith('/')
+          ? '$base$substituted'
+          : '$base/$substituted';
+    }
+    // Legacy fallback — only useful when the chart happens to live at
+    // the well-known signalk-charts-provider-simple path.
+    if (_upstreamBaseUrl == null) return null;
+    return '$_upstreamBaseUrl/plugins/signalk-charts-provider-simple/$chartId/$z/$x/$y';
   }
 
   /// Start the local tile proxy server.
@@ -147,11 +199,10 @@ class ChartTileServerService extends ChangeNotifier {
     }
 
     // 2. Fetch upstream
-    if (_upstreamBaseUrl == null) {
+    final url = _upstreamUrl(chartId, z, x, y);
+    if (url == null) {
       return Response.notFound('No upstream configured and tile not cached');
     }
-
-    final url = '$_upstreamBaseUrl/plugins/signalk-charts-provider-simple/$chartId/$z/$x/$y';
     try {
       final response = await http.get(
         Uri.parse(url),
@@ -180,7 +231,8 @@ class ChartTileServerService extends ChangeNotifier {
   /// Re-fetch a tile in the background. If bytes match, just reset timestamp.
   /// If different, write the new tile data.
   void _backgroundRefresh(int z, int x, int y, String chartId, Uint8List cachedBytes) {
-    final url = '$_upstreamBaseUrl/plugins/signalk-charts-provider-simple/$chartId/$z/$x/$y';
+    final url = _upstreamUrl(chartId, z, x, y);
+    if (url == null) return;
     http.get(
       Uri.parse(url),
       headers: {

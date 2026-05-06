@@ -8,6 +8,7 @@ import 'package:syncfusion_flutter_charts/charts.dart';
 import '../../models/tool_config.dart';
 import '../../models/tool_definition.dart';
 import '../../services/signalk_service.dart';
+import '../map_attribution.dart';
 import '../../services/anchor_alarm_service.dart';
 import '../../services/alert_coordinator.dart';
 import '../../models/anchor_state.dart';
@@ -648,6 +649,7 @@ class _AnchorAlarmToolState extends State<AnchorAlarmTool>
                         ),
                     ],
                   ),
+                  const MapAttribution(osm: true, openSeaMap: true),
                 ],
               ),
               // View controls

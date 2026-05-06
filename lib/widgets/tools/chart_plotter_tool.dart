@@ -909,7 +909,6 @@ class _ChartPlotterToolState extends State<ChartPlotterTool>
                     controller: scrollController,
                     child: ChartLayerPanel(
                       layers: _layers,
-                      signalKService: widget.signalKService,
                       setState: setSheetState,
                       onLayersChanged: _pushLayers,
                     ),

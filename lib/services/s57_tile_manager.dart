@@ -13,6 +13,56 @@ import 'chart_tile_cache_service.dart';
 
 enum S57GeomKind { point, line, polygon }
 
+/// One chart's published bounds + zoom range + tile URL template.
+/// Built by the V3 tool from `signalKService.getResources('charts')`
+/// and handed to the tile manager via [S57TileManager.setCharts].
+///
+/// `urlTemplate` is the canonical SignalK chart `url` field — each
+/// provider plugin (signalk-charts-provider-simple, signalk-charts,
+/// etc.) registers its own template per chart. Substitution is
+/// `{z}`/`{x}`/`{y}` per OpenLayers convention. The V3 tool forwards
+/// this map to `ChartTileServerService.setChartUpstreamTemplates` so
+/// the local cache proxy can resolve the right upstream per chartId.
+class ChartDescriptor {
+  const ChartDescriptor({
+    required this.id,
+    required this.west,
+    required this.south,
+    required this.east,
+    required this.north,
+    required this.minZoom,
+    required this.maxZoom,
+    this.urlTemplate,
+  });
+
+  final String id;
+  final double west;
+  final double south;
+  final double east;
+  final double north;
+  final int minZoom;
+  final int maxZoom;
+  final String? urlTemplate;
+
+  bool intersectsTile(int z, int x, int y) {
+    if (z < minZoom || z > maxZoom) return false;
+    final n = 1 << z;
+    final tileWest = x * 360.0 / n - 180.0;
+    final tileEast = (x + 1) * 360.0 / n - 180.0;
+    final tileNorth = _tileYToLat(y, n);
+    final tileSouth = _tileYToLat(y + 1, n);
+    return tileEast >= west &&
+        tileWest <= east &&
+        tileNorth >= south &&
+        tileSouth <= north;
+  }
+
+  static double _tileYToLat(int y, int n) {
+    final m = math.pi * (1 - 2 * y / n);
+    return math.atan((math.exp(m) - math.exp(-m)) / 2) * 180.0 / math.pi;
+  }
+}
+
 class S57TileKey {
   const S57TileKey(this.z, this.x, this.y);
   final int z;
@@ -52,12 +102,17 @@ class S57StyledFeature {
     required this.instructions,
     required this.attributes,
     required this.displayPriority,
+    required this.chartId,
   });
   final String objectClass;
   final S57WorldGeometry geometry;
   final List<S52Instruction> instructions;
   final Map<String, Object?> attributes;
   final int displayPriority;
+  /// Originating chart file (matches the id from
+  /// `signalKService.getResources('charts')`). Painter filters by this
+  /// to honour the user's per-chart on/off toggle without refetching.
+  final String chartId;
 }
 
 class S57ParsedTile {
@@ -75,16 +130,47 @@ class S57ParsedTile {
 class S57TileManager extends ChangeNotifier {
   S57TileManager({
     required this.engine,
-    required this.urlBuilder,
+    required this.urlBuilderForChart,
+    List<ChartDescriptor> charts = const [],
+    this.headersBuilder,
     this.freshnessProbe,
     this.refreshInterval = const Duration(milliseconds: 200),
     this.minZoom = 9,
     this.maxZoom = 16,
     this.maxTilesPerRefresh = 128,
-  });
+  }) : _charts = charts;
 
   final S52StyleEngine engine;
-  final String Function(S57TileKey key) urlBuilder;
+  /// Builds the upstream URL for one chart's view of a tile. Called
+  /// once per (chart, tile) on fan-out — the manager fetches every
+  /// chart whose bounds intersect the tile in parallel and merges the
+  /// resulting features into the tile cache. Switching to per-chart
+  /// URLs (vs. the old dispatched single-URL `/tiles/{z}/{x}/{y}`) is
+  /// what avoids the rectangular cuts at chart boundaries.
+  final String Function(String chartId, S57TileKey key) urlBuilderForChart;
+
+  /// Charts the manager knows about. Pass ALL charts wired in the
+  /// layer panel here — enabled and disabled — so that an enable/disable
+  /// toggle doesn't evict cached features. Charts that disappear from
+  /// the next [setCharts] list are treated as true removals (deleted
+  /// from the panel) and have their cached contributions dropped.
+  ///
+  /// Whether each chart is currently fetched from the network is
+  /// controlled separately via [setActiveCharts]. Whether each chart's
+  /// features get rendered is owned by the painter (`enabledChartIds`).
+  List<ChartDescriptor> _charts;
+  List<ChartDescriptor> get charts => _charts;
+
+  /// Subset of [_charts] eligible for new tile fetches. `null` means
+  /// no filter — every chart is fetchable (default). Set this to the
+  /// currently-enabled chart ids to stop new fetches for disabled
+  /// charts; their cached features stay put so toggle-on is instant.
+  Set<String>? _activeChartIds;
+
+  /// Optional per-request header builder — used to inject
+  /// `Authorization: Bearer <token>` when fetching tiles directly
+  /// from an authenticated upstream (no local proxy in the chain).
+  final Map<String, String> Function()? headersBuilder;
   final TileFreshness Function(List<(int z, int x, int y)>)? freshnessProbe;
   /// Minimum gap between viewport refreshes. Acts as a leading-edge
   /// throttle: the first event after the gap fires immediately so
@@ -95,13 +181,29 @@ class S57TileManager extends ChangeNotifier {
   final int maxZoom;
   final int maxTilesPerRefresh;
 
+  /// Merged + sorted view across charts — what painters consume. The
+  /// per-chart sub-cache below is the source of truth; this is kept
+  /// in sync via [_rebuildMerged] on every fan-out arrival.
   final Map<S57TileKey, S57ParsedTile> _tileCache = {};
-  final Set<S57TileKey> _inflight = {};
+  /// Per-chart parsed features per tile. `_tileCacheByChart[key][chartId]`
+  /// is the single chart's contribution; the merge in [_tileCache]
+  /// concatenates these and sorts by displayPriority so cross-chart
+  /// z-order matches what S52 expects (a chart-A lighthouse symbol
+  /// renders above a chart-B area even if A's fetch arrived first).
+  final Map<S57TileKey, Map<String, S57ParsedTile>> _tileCacheByChart = {};
+  /// Tracks (chartId, tileKey) pairs currently being fetched. Per-chart
+  /// rather than per-tile so two chart fan-outs into the same tile do
+  /// not collapse into a single in-flight slot.
+  final Set<(String, S57TileKey)> _inflight = {};
   // Bounding boxes of LNDARE polygons. Used by the auto-zoom heuristic
   // to tighten the view when land is close. Survives tile eviction:
   // once we've seen land here, we don't need to re-parse to remember.
   final List<LatLngBounds> _landBounds = [];
-  final Set<S57TileKey> _landIndexedTiles = {};
+  // Dedupe by `(tile, chartId)` rather than tile alone — under per-chart
+  // fan-out the first arrival would otherwise mark a tile indexed and
+  // every later chart's `LNDARE` polygons would silently skip the
+  // index, leaving auto-zoom blind to shoreline near chart seams.
+  final Set<(S57TileKey, String)> _landIndexedTiles = {};
   // Current viewport tile window (zoom + ±1 buffer). Tiles outside
   // this window are evicted on each refresh; in-flight fetches whose
   // window has shifted are discarded post-await rather than briefly
@@ -191,6 +293,7 @@ class S57TileManager extends ChangeNotifier {
     _activeWindow = window;
     final sizeBefore = _tileCache.length;
     _tileCache.removeWhere((k, _) => !_overlapsWindow(k, window));
+    _tileCacheByChart.removeWhere((k, _) => !_overlapsWindow(k, window));
     final evicted = _tileCache.length != sizeBefore;
 
     int fetched = 0;
@@ -213,12 +316,56 @@ class S57TileManager extends ChangeNotifier {
     if (evicted) _bumpAndNotify();
   }
 
-  Future<void> _ensureTile(S57TileKey key) async {
-    if (_tileCache.containsKey(key) || _inflight.contains(key)) return;
-    _inflight.add(key);
+  /// Fan out per chart: for every chart whose bounds intersect the
+  /// requested tile, kick off an independent fetch. The merged tile in
+  /// [_tileCache] is rebuilt as each chart's response arrives, so the
+  /// painter starts rendering features as soon as the first chart
+  /// completes instead of waiting for the slowest. Charts whose bounds
+  /// don't touch (z,x,y) are skipped — keeps the per-chart endpoint
+  /// from 404-flooding when the viewport sits outside one chart's
+  /// coverage.
+  void _ensureTile(S57TileKey key) {
+    final perChart = _tileCacheByChart.putIfAbsent(key, () => {});
+    final active = _activeChartIds;
+    bool kickedAny = false;
+    for (final chart in _charts) {
+      if (active != null && !active.contains(chart.id)) continue;
+      if (!chart.intersectsTile(key.z, key.x, key.y)) continue;
+      if (perChart.containsKey(chart.id)) continue;
+      final slot = (chart.id, key);
+      if (_inflight.contains(slot)) continue;
+      _inflight.add(slot);
+      kickedAny = true;
+      unawaited(_fetchChartTile(chart.id, key, perChart));
+    }
+    // Tile sits outside every chart's bounds — record an empty merged
+    // entry so the painter doesn't keep asking and the eviction loop
+    // sees a key to track.
+    if (!kickedAny && perChart.isEmpty && !_tileCache.containsKey(key)) {
+      _tileCache[key] = S57ParsedTile.empty();
+    }
+  }
+
+  Future<void> _fetchChartTile(
+    String chartId,
+    S57TileKey key,
+    Map<String, S57ParsedTile> perChart,
+  ) async {
     try {
-      final url = urlBuilder(key);
-      final resp = await http.get(Uri.parse(url));
+      final url = urlBuilderForChart(chartId, key);
+      final headers = headersBuilder?.call() ?? const <String, String>{};
+      if (kDebugMode) {
+        debugPrint(
+          '[S57TileManager] GET $url  '
+          'auth=${headers.containsKey('Authorization') ? 'Bearer[${(headers['Authorization']!.length - 7)}c]' : 'NONE'}',
+        );
+      }
+      final resp = await http.get(Uri.parse(url), headers: headers);
+      if (kDebugMode) {
+        debugPrint(
+          '[S57TileManager] ← ${resp.statusCode} ${resp.bodyBytes.length}B  $url',
+        );
+      }
       // Window may have shifted while we waited — drop late arrivals
       // from outside the current viewport rather than caching them
       // (which would race the next eviction and briefly paint stale).
@@ -226,7 +373,8 @@ class S57TileManager extends ChangeNotifier {
       if (_disposed) return;
       if (window != null && !_inWindow(key, window)) return;
       if (resp.statusCode != 200) {
-        _tileCache[key] = S57ParsedTile.empty();
+        perChart[chartId] = S57ParsedTile.empty();
+        _rebuildMerged(key);
         _bumpAndNotify();
         return;
       }
@@ -236,19 +384,42 @@ class S57TileManager extends ChangeNotifier {
         bytes = Uint8List.fromList(gzip.decode(bytes));
       }
       final decoded = vt.VectorTile.fromBytes(bytes: bytes);
-      final parsed = _parse(decoded, key);
-      _tileCache[key] = parsed;
-      _indexLandExtents(key, parsed);
+      final parsed = _parse(decoded, key, chartId);
+      perChart[chartId] = parsed;
+      _indexLandExtents(key, chartId, parsed);
+      _rebuildMerged(key);
       _bumpAndNotify();
     } catch (_) {
-      _tileCache[key] = S57ParsedTile.empty();
+      perChart[chartId] = S57ParsedTile.empty();
+      _rebuildMerged(key);
       _bumpAndNotify();
     } finally {
-      _inflight.remove(key);
+      _inflight.remove((chartId, key));
     }
   }
 
-  S57ParsedTile _parse(vt.VectorTile tile, S57TileKey key) {
+  /// Concatenate every chart's contribution for [key] and sort by
+  /// `displayPriority` so cross-chart z-order matches what S52 expects
+  /// (a high-priority symbol from one chart paints above a low-priority
+  /// area from another regardless of fan-out arrival order). Dart's
+  /// `List.sort` is not guaranteed stable, so features at the same
+  /// priority may swap relative order across rebuilds — fine for S52
+  /// since equal-priority features are visually interchangeable.
+  void _rebuildMerged(S57TileKey key) {
+    final perChart = _tileCacheByChart[key];
+    if (perChart == null || perChart.isEmpty) {
+      _tileCache[key] = S57ParsedTile.empty();
+      return;
+    }
+    final all = <S57StyledFeature>[];
+    for (final pt in perChart.values) {
+      all.addAll(pt.features);
+    }
+    all.sort((a, b) => a.displayPriority.compareTo(b.displayPriority));
+    _tileCache[key] = S57ParsedTile(features: all);
+  }
+
+  S57ParsedTile _parse(vt.VectorTile tile, S57TileKey key, String chartId) {
     final out = <S57StyledFeature>[];
     for (final layer in tile.layers) {
       for (final feature in layer.features) {
@@ -302,6 +473,7 @@ class S57TileManager extends ChangeNotifier {
           instructions: instructions,
           attributes: attrs,
           displayPriority: row?.displayPriority.code ?? 0,
+          chartId: chartId,
         ));
       }
     }
@@ -379,9 +551,10 @@ class S57TileManager extends ChangeNotifier {
     }
   }
 
-  void _indexLandExtents(S57TileKey key, S57ParsedTile tile) {
-    if (_landIndexedTiles.contains(key)) return;
-    _landIndexedTiles.add(key);
+  void _indexLandExtents(S57TileKey key, String chartId, S57ParsedTile tile) {
+    final slot = (key, chartId);
+    if (_landIndexedTiles.contains(slot)) return;
+    _landIndexedTiles.add(slot);
     for (final f in tile.features) {
       if (f.objectClass != 'LNDARE') continue;
       if (f.geometry.kind != S57GeomKind.polygon) continue;
@@ -423,12 +596,55 @@ class S57TileManager extends ChangeNotifier {
   /// out from under us.
   void clearCache() {
     _tileCache.clear();
+    _tileCacheByChart.clear();
     _inflight.clear();
     _landBounds.clear();
     _landIndexedTiles.clear();
     _activeWindow = null;
     _viewportFreshness = TileFreshness.uncached;
     _bumpAndNotify();
+  }
+
+  /// Replace the full chart set the manager knows about. Pass every
+  /// chart wired in the layer panel — enabled or disabled — so that an
+  /// enable/disable toggle leaves cached features in place. Charts
+  /// that disappear from this list are treated as deleted and have
+  /// their cached contributions dropped from every tile.
+  ///
+  /// Use [setActiveCharts] to control which charts are eligible for
+  /// new fetches; the painter owns the visual filter via
+  /// `enabledChartIds`.
+  void setCharts(List<ChartDescriptor> next) {
+    final nextIds = next.map((c) => c.id).toSet();
+    final removed = _charts.where((c) => !nextIds.contains(c.id)).toList();
+    _charts = next;
+    if (removed.isEmpty) {
+      _bumpAndNotify();
+      return;
+    }
+    for (final perChart in _tileCacheByChart.values) {
+      for (final r in removed) {
+        perChart.remove(r.id);
+      }
+    }
+    for (final key in _tileCacheByChart.keys.toList()) {
+      _rebuildMerged(key);
+    }
+    _bumpAndNotify();
+  }
+
+  /// Restrict tile fetches to the given chart ids. Charts in [_charts]
+  /// but not in [ids] keep their cached features (so re-enabling is
+  /// instant) but stop accruing new tiles. Pass `null` to clear the
+  /// filter and let every chart fetch.
+  void setActiveCharts(Set<String>? ids) {
+    final next = ids == null ? null : Set<String>.from(ids);
+    final prev = _activeChartIds;
+    if (next == null && prev == null) return;
+    if (next != null && prev != null && setEquals(next, prev)) return;
+    _activeChartIds = next;
+    // Newly-active charts will pick up tiles on the next viewport
+    // refresh — no need to bump cache state here.
   }
 
   bool _inWindow(S57TileKey k, ({int z, int x0, int x1, int y0, int y1}) w) =>

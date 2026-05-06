@@ -156,31 +156,37 @@ class _CountdownConfirmationOverlayState
 /// Helper function to show countdown confirmation dialog
 ///
 /// Returns true if confirmed, false if canceled or timed out.
+///
+/// Back-button note: `barrierDismissible: false` blocks tap-outside but
+/// does NOT block the Android system back button, which would pop the
+/// dialog without routing through onConfirm/onCancel. We therefore
+/// rely on `showDialog`'s own return value (the arg passed to
+/// `Navigator.pop(context, ...)`) rather than an external Completer,
+/// and wrap the overlay in a `PopScope` that treats an unhandled pop
+/// as a cancel.
 Future<bool> showCountdownConfirmation({
   required BuildContext context,
   required String title,
   required String action,
   int countdownSeconds = 5,
 }) async {
-  final completer = Completer<bool>();
-
-  showDialog(
+  final result = await showDialog<bool>(
     context: context,
     barrierDismissible: false,
-    builder: (context) => CountdownConfirmationOverlay(
-      title: title,
-      action: action,
-      countdownSeconds: countdownSeconds,
-      onConfirm: () {
-        Navigator.of(context).pop();
-        completer.complete(true);
+    builder: (context) => PopScope<bool>(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) return;
+        Navigator.of(context).pop(false);
       },
-      onCancel: () {
-        Navigator.of(context).pop();
-        completer.complete(false);
-      },
+      child: CountdownConfirmationOverlay(
+        title: title,
+        action: action,
+        countdownSeconds: countdownSeconds,
+        onConfirm: () => Navigator.of(context).pop(true),
+        onCancel: () => Navigator.of(context).pop(false),
+      ),
     ),
   );
-
-  return completer.future;
+  return result ?? false;
 }

@@ -8,6 +8,7 @@ import 'dart:math' as math;
 import 'package:provider/provider.dart';
 import '../services/signalk_service.dart';
 import '../services/cpa_alert_service.dart';
+import 'map_attribution.dart';
 import '../utils/angle_utils.dart';
 import '../utils/date_time_formatter.dart';
 import '../utils/ship_type_utils.dart' as ship_type;
@@ -2071,6 +2072,7 @@ class _AISPolarChartState extends State<AISPolarChart>
               }),
           ],
         ),
+        const MapAttribution(osm: true, openSeaMap: true),
       ],
     );
   }

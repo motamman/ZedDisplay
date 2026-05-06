@@ -75,6 +75,8 @@ class WeatherRouteWaypoint {
     this.mwdDeg,
     this.leg,
     this.role,
+    this.legDistanceM,
+    this.legTimeS,
   });
 
   final double lat;
@@ -97,6 +99,21 @@ class WeatherRouteWaypoint {
   final double? mwdDeg;
   final String? leg;
   final String? role; // 'via' for user-specified, else null
+
+  /// Distance of the leg DEPARTING this waypoint (this → next), in
+  /// metres. Server-rounded to 0.1 m. Null on the arrival waypoint
+  /// (no next leg). Authoritative — clients should not re-derive
+  /// from haversine. Pairs with [legTimeS].
+  final double? legDistanceM;
+
+  /// Duration of the leg DEPARTING this waypoint (this → next), in
+  /// seconds. Server-rounded to 0.1 s. Null on the arrival waypoint
+  /// (no next leg). Reflects the route timing — for sailing legs
+  /// this includes the polar-derived speed under wind/current at
+  /// the leg's start time, so `legDistanceM / legTimeS` is the
+  /// effective leg SOG (which can differ from `sogMs`, which is
+  /// the SOG ARRIVING at this waypoint).
+  final double? legTimeS;
 
   bool get isSailing => mode == 'sailing';
   bool get isMotoring => mode == 'motoring';
@@ -136,6 +153,8 @@ class WeatherRouteWaypoint {
       mwdDeg: (p['mwd_deg'] as num?)?.toDouble(),
       leg: p['leg'] as String?,
       role: p['role'] as String?,
+      legDistanceM: (p['leg_distance_m'] as num?)?.toDouble(),
+      legTimeS: (p['leg_time_s'] as num?)?.toDouble(),
     );
   }
 }

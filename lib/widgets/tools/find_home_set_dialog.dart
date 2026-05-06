@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart' hide Path;
+import '../map_attribution.dart';
 
 /// Format lat/lon as degrees decimal minutes: "47°36.352'N 122°19.876'W"
 String formatDDM(double lat, double lon) {
@@ -309,6 +310,7 @@ class _FindHomeSetDialogState extends State<FindHomeSetDialog> {
                               ),
                           ],
                         ),
+                      const MapAttribution(osm: true, openSeaMap: true),
                     ],
                   ),
                 ),

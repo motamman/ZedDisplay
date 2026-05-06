@@ -30,7 +30,7 @@ void main() {
 
     test('no depth attribute at all → empty output', () {
       const options = S52Options();
-      final f = S52Feature(
+      const f = S52Feature(
         objectClass: 'SOUNDG',
         geometryType: S52GeometryType.point,
       );
