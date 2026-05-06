@@ -121,18 +121,21 @@ class RoutePlannerBoatsService extends ChangeNotifier {
       _ownedBoatIds
         ..clear()
         ..addAll(_allBoats.map((b) => b.id));
+      // Drop stale selection if the saved id no longer exists. Only
+      // run after a successful fetch — otherwise a failed request
+      // (offline, auth not ready, 5xx) would clear a valid persisted
+      // selection because `every` is vacuously true on an empty list.
+      if (_selectedBoatId != null &&
+          _allBoats.every((b) => b.id != _selectedBoatId)) {
+        _selectedBoatId = null;
+        unawaited(_storage.deleteSetting(_selectedBoatIdKey));
+      }
     }
     if (polarList != null) {
       _polars = polarList
           .whereType<Map<String, dynamic>>()
           .map(PolarEntry.fromJson)
           .toList(growable: false);
-    }
-    // Drop stale selection if the saved id no longer exists.
-    if (_selectedBoatId != null &&
-        _allBoats.every((b) => b.id != _selectedBoatId)) {
-      _selectedBoatId = null;
-      unawaited(_storage.deleteSetting(_selectedBoatIdKey));
     }
     _loadingBoats = false;
     notifyListeners();

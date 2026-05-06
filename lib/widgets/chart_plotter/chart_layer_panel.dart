@@ -49,7 +49,7 @@ class ChartLayerPanel extends StatelessWidget {
         final layer = layers[index];
         final type = layer['type'] as String;
         final id = layer['id'] as String;
-        final enabled = layer['enabled'] as bool? ?? true;
+        final enabled = layer['enabled'] as bool? ?? false;
         final opacity = (layer['opacity'] as num?)?.toDouble() ?? 1.0;
 
         // Built-in name + icon per type. Names for base maps come

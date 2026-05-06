@@ -87,6 +87,11 @@ class WeatherRoutingItineraryCard extends StatelessWidget {
     // path lookup may still hit if the server publishes it via meta
     // delta; otherwise formatOrRaw falls back to the SI suffix.
     final periodMd = store?.get('environment.water.waves.period');
+    // Distance preference (nm / mi / km / m) for the per-leg distance
+    // value. `total_distance_m` on the LineString summary uses the
+    // same metadata in the result tab — keeping the per-leg value
+    // consistent with the totals.
+    final distanceMd = store?.getByCategory('distance');
 
     final accent = colorForLegKind(kind);
     final bg = selected ? _tintedBg(kind) : _bgColor;
@@ -121,7 +126,8 @@ class WeatherRoutingItineraryCard extends StatelessWidget {
                       children: [
                         _head(),
                         const SizedBox(height: 4),
-                        _grid(speedMd, depthMd, waveMd, angleMd, periodMd),
+                        _grid(speedMd, depthMd, waveMd, angleMd, periodMd,
+                            distanceMd),
                         const SizedBox(height: 3),
                         Text(
                           '${waypoint.lat.toStringAsFixed(4)}, ${waypoint.lon.toStringAsFixed(4)}',
@@ -206,8 +212,26 @@ class WeatherRoutingItineraryCard extends StatelessWidget {
   }
 
   Widget _grid(PathMetadata? speedMd, PathMetadata? depthMd,
-      PathMetadata? waveMd, PathMetadata? angleMd, PathMetadata? periodMd) {
+      PathMetadata? waveMd, PathMetadata? angleMd, PathMetadata? periodMd,
+      PathMetadata? distanceMd) {
     final kvs = <(String, String, Color?)>[];
+
+    // Per-leg distance + time describing the leg DEPARTING this
+    // waypoint (this → next). Server-supplied via
+    // `properties.leg_distance_m` / `leg_time_s` so we don't re-
+    // derive from haversine — the value reflects route timing
+    // (polar speed under per-step wind/current), not pure great-
+    // circle math. Both fields are absent on the arrival waypoint;
+    // skip the kv entry there.
+    if (waypoint.legDistanceM != null && waypoint.legTimeS != null) {
+      final dist = distanceMd
+          .formatOrRaw(waypoint.legDistanceM!, decimals: 1, siSuffix: 'm');
+      final secs = waypoint.legTimeS!.round();
+      final h = secs ~/ 3600;
+      final m = (secs % 3600) ~/ 60;
+      final time = '$h:${m.toString().padLeft(2, '0')}';
+      kvs.add(('Leg', '$dist · $time', null));
+    }
     // `fwd` = the waypoint at the *end* of the upcoming leg (i.e. wp[i+1]).
     // For the last waypoint there is no upcoming leg — fall back to wp[i]
     // itself so the ARRIVAL card still has data (representing the conditions

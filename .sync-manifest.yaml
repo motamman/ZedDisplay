@@ -60,3 +60,29 @@ pairs:
   - this: lib/widgets/compass_gauge.dart
   - this: lib/widgets/countdown_confirmation_overlay.dart
   - this: lib/widgets/tools/weather_alerts_tool.dart
+  - this: lib/widgets/map_attribution.dart
+
+  # ---- Shared-backend services ----
+  # These talk to the same backends on both apps (router.zeddisplay.com
+  # for the route planner, the SignalK chart-resource API for tile
+  # templates, etc.). Drift here is the kind that's invisible until a
+  # protocol bug bites — keep the radar on it.
+  - this: lib/services/weather_routing_service.dart
+  - this: lib/services/weather_data_service.dart
+  - this: lib/services/route_planner_auth_service.dart
+  - this: lib/services/route_planner_boats_service.dart
+  - this: lib/services/route_planner_charts_service.dart
+  - this: lib/services/route_arrival_monitor.dart
+  - this: lib/services/chart_tile_cache_service.dart
+  - this: lib/services/chart_tile_server_service.dart
+  - this: lib/services/chart_download_manager.dart
+  - this: lib/services/s57_tile_manager.dart
+
+  # ---- Shared models ----
+  # Bit-for-bit identical class shapes. Wire-format compat depends on
+  # these staying aligned; track them so a one-side schema bump doesn't
+  # silently break the other.
+  - this: lib/models/path_metadata.dart
+  - this: lib/models/weather_layer_metadata.dart
+  - this: lib/models/weather_route_request.dart
+  - this: lib/models/weather_route_result.dart
