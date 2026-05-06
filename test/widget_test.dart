@@ -25,6 +25,7 @@ import 'package:zed_display/services/chart_tile_server_service.dart';
 import 'package:zed_display/services/chart_download_manager.dart';
 import 'package:zed_display/services/route_planner_auth_service.dart';
 import 'package:zed_display/services/route_planner_boats_service.dart';
+import 'package:zed_display/services/route_planner_charts_service.dart';
 import 'package:zed_display/services/weather_routing_service.dart';
 
 void main() {
@@ -53,6 +54,7 @@ void main() {
   late RoutePlannerAuthService routePlannerAuthService;
   late WeatherRoutingService weatherRoutingService;
   late RoutePlannerBoatsService routePlannerBoatsService;
+  late RoutePlannerChartsService routePlannerChartsService;
 
   setUp(() async {
     // Initialize storage service for tests
@@ -160,6 +162,8 @@ void main() {
       auth: routePlannerAuthService,
       storage: storageService,
     );
+    routePlannerChartsService =
+        RoutePlannerChartsService(auth: routePlannerAuthService);
   });
 
   tearDown(() async {
@@ -198,6 +202,7 @@ void main() {
       routePlannerAuthService: routePlannerAuthService,
       weatherRoutingService: weatherRoutingService,
       routePlannerBoatsService: routePlannerBoatsService,
+      routePlannerChartsService: routePlannerChartsService,
     ));
 
     // Verify that the app launches
@@ -230,6 +235,7 @@ void main() {
       routePlannerAuthService: routePlannerAuthService,
       weatherRoutingService: weatherRoutingService,
       routePlannerBoatsService: routePlannerBoatsService,
+      routePlannerChartsService: routePlannerChartsService,
     ));
 
     // Verify services are initialized

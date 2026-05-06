@@ -199,7 +199,11 @@ class S57TileManager extends ChangeNotifier {
   // to tighten the view when land is close. Survives tile eviction:
   // once we've seen land here, we don't need to re-parse to remember.
   final List<LatLngBounds> _landBounds = [];
-  final Set<S57TileKey> _landIndexedTiles = {};
+  // Dedupe by `(tile, chartId)` rather than tile alone — under per-chart
+  // fan-out the first arrival would otherwise mark a tile indexed and
+  // every later chart's `LNDARE` polygons would silently skip the
+  // index, leaving auto-zoom blind to shoreline near chart seams.
+  final Set<(S57TileKey, String)> _landIndexedTiles = {};
   // Current viewport tile window (zoom + ±1 buffer). Tiles outside
   // this window are evicted on each refresh; in-flight fetches whose
   // window has shifted are discarded post-await rather than briefly
@@ -382,7 +386,7 @@ class S57TileManager extends ChangeNotifier {
       final decoded = vt.VectorTile.fromBytes(bytes: bytes);
       final parsed = _parse(decoded, key, chartId);
       perChart[chartId] = parsed;
-      _indexLandExtents(key, parsed);
+      _indexLandExtents(key, chartId, parsed);
       _rebuildMerged(key);
       _bumpAndNotify();
     } catch (_) {
@@ -547,9 +551,10 @@ class S57TileManager extends ChangeNotifier {
     }
   }
 
-  void _indexLandExtents(S57TileKey key, S57ParsedTile tile) {
-    if (_landIndexedTiles.contains(key)) return;
-    _landIndexedTiles.add(key);
+  void _indexLandExtents(S57TileKey key, String chartId, S57ParsedTile tile) {
+    final slot = (key, chartId);
+    if (_landIndexedTiles.contains(slot)) return;
+    _landIndexedTiles.add(slot);
     for (final f in tile.features) {
       if (f.objectClass != 'LNDARE') continue;
       if (f.geometry.kind != S57GeomKind.polygon) continue;

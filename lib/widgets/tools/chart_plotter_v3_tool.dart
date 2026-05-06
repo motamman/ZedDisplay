@@ -41,6 +41,7 @@ import '../chart_plotter/weather_routing_itinerary_card.dart';
 import '../chart_plotter/weather_routing_overlay.dart';
 import '../chart_plotter/weather_routing_panel.dart';
 import '../countdown_confirmation_overlay.dart';
+import '../map_attribution.dart';
 
 /// Three mutually-exclusive chart orientation modes. Only `free` lets
 /// the user's two-finger rotation gesture spin the map; the other two
@@ -192,6 +193,21 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
     }
     return out;
   }
+
+  bool _isLayerEnabled(String id, {required String type}) {
+    for (final l in _layers) {
+      if (l['type'] == type &&
+          l['id'] == id &&
+          (l['enabled'] as bool? ?? true)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  bool _anyOsmOrOpenSeaMapEnabled() =>
+      _isLayerEnabled('openstreetmap', type: 'base') ||
+      _isLayerEnabled('openseamap', type: 'overlay');
 
   // Default SignalK paths driving the HUD. Mirrors V1's
   // `_fallbackPaths` so the HUD formats values identically whether
@@ -2050,6 +2066,14 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
       final manager = S57TileManager(
         engine: engine,
         urlBuilderForChart: _buildTileUrlForChart,
+        // The proxy path injects auth itself, but the no-proxy fallback
+        // talks directly to the SignalK server — that path needs the
+        // bearer token or authenticated installs 401.
+        headersBuilder: () {
+          final token = widget.signalKService.authToken?.token;
+          if (token == null || token.isEmpty) return const <String, String>{};
+          return {'Authorization': 'Bearer $token'};
+        },
         freshnessProbe: _probeViewportFreshness,
       );
       manager.addListener(_onTileManagerChanged);
@@ -2240,6 +2264,10 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
     }
     manager.setCharts(present);
     manager.setActiveCharts(active);
+    // Without this kick, a chart that the user just added or re-enabled
+    // stays blank until they pan/zoom — `setCharts`/`setActiveCharts`
+    // only update manager state, they don't fetch.
+    if (_mapReady) manager.refreshNow(_mapController.camera);
   }
 
   /// Signature of the depth metadata we last rebuilt against — just
@@ -2267,9 +2295,12 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
 
   /// URL builder for the tile manager's per-chart fan-out. Prefers
   /// the local cached proxy (cache-first, background-refresh) when
-  /// the shared tile server is running. Falls back to direct upstream
-  /// otherwise — tests and dev environments don't always have the
-  /// proxy wired.
+  /// the shared tile server is running. Falls back to the chart's
+  /// own `urlTemplate` (captured by [_refreshChartCatalog] from the
+  /// SignalK charts resource) so non-default providers work without
+  /// the proxy. The legacy hardcoded `signalk-charts-provider-simple`
+  /// path is the last-resort fallback for charts whose catalog entry
+  /// somehow lacks a template.
   String _buildTileUrlForChart(String chartId, S57TileKey key) {
     try {
       final server = context.read<ChartTileServerService>();
@@ -2277,6 +2308,24 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
         return 'http://localhost:${server.port}/tiles/$chartId/${key.z}/${key.x}/${key.y}';
       }
     } catch (_) {}
+    String? template;
+    for (final c in _chartCatalog) {
+      if (c.id == chartId) {
+        template = c.urlTemplate;
+        break;
+      }
+    }
+    if (template != null && template.isNotEmpty) {
+      final filled = template
+          .replaceAll('{z}', '${key.z}')
+          .replaceAll('{x}', '${key.x}')
+          .replaceAll('{y}', '${key.y}');
+      // Server-relative templates resolve against the SignalK base.
+      // Absolute URLs come back from `Uri.resolve` unchanged.
+      return Uri.parse(widget.signalKService.httpBaseUrl)
+          .resolve(filled)
+          .toString();
+    }
     return '${widget.signalKService.httpBaseUrl}/plugins/signalk-charts-provider-simple/$chartId/${key.z}/${key.x}/${key.y}';
   }
 
@@ -2502,6 +2551,16 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
               // ruler endpoints and weather-routing pins.
               if (_buildDragMarkers().isNotEmpty)
                 DragMarkers(markers: _buildDragMarkers()),
+              // Tile-provider attribution (OSM / OpenSeaMap usage policies
+              // require visible credit). Painted in the bottom-right
+              // corner — outside the drag-marker hit zones — so it stays
+              // tappable without intercepting chart gestures.
+              if (_anyOsmOrOpenSeaMapEnabled())
+                MapAttribution(
+                  osm: _isLayerEnabled('openstreetmap', type: 'base'),
+                  openSeaMap:
+                      _isLayerEnabled('openseamap', type: 'overlay'),
+                ),
             ],
           ),
           ChartPlotterHUD(
@@ -3794,8 +3853,9 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
       case '/current-heatmap':
         return 'speed';
       case '/wave-heatmap':
-      case '/depth':
         return 'height';
+      case '/depth':
+        return 'depth';
       case '/precip-heatmap':
         return 'rainfall';
       case '/temperature':

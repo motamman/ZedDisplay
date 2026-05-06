@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 
 import '../../models/path_metadata.dart';
 import '../../models/weather_route_result.dart';
+import '../../services/metadata_store.dart';
 import '../../services/signalk_service.dart';
 import 'weather_routing_overlay.dart';
 
@@ -64,19 +65,28 @@ class WeatherRoutingItineraryCard extends StatelessWidget {
     // actually used elsewhere in this codebase — invented names like
     // 'shortHeight' or 'duration' don't exist in the server's
     // _defaultCategories vocabulary and silently return null.
-    final store = context.read<SignalKService>().metadataStore;
-    final speedMd = store.get('navigation.speedOverGround')
-        ?? store.getByCategory('speed');
-    final depthMd = store.get('environment.depth.belowSurface')
-        ?? store.getByCategory('depth');
-    final waveMd = store.get('environment.water.waves.height')
-        ?? store.getByCategory('height');
-    final angleMd = store.get('navigation.courseOverGroundTrue')
-        ?? store.getByCategory('angle');
+    // Provider lookup is best-effort: widget tests can pump this card
+    // without a SignalKService ancestor, in which case we want the
+    // raw-SI fallback path in `formatOrRaw` rather than an exception
+    // before the card ever paints. `provider` throws on lookup miss
+    // rather than returning null, so a try/catch is the cleanest way
+    // to model "available but optional".
+    MetadataStore? store;
+    try {
+      store = context.read<SignalKService>().metadataStore;
+    } catch (_) {/* no Provider ancestor — fall through to raw SI */}
+    final speedMd = store?.get('navigation.speedOverGround')
+        ?? store?.getByCategory('speed');
+    final depthMd = store?.get('environment.depth.belowSurface')
+        ?? store?.getByCategory('depth');
+    final waveMd = store?.get('environment.water.waves.height')
+        ?? store?.getByCategory('height');
+    final angleMd = store?.get('navigation.courseOverGroundTrue')
+        ?? store?.getByCategory('angle');
     // No 'duration' / 'time' category exists in this codebase. Direct
     // path lookup may still hit if the server publishes it via meta
     // delta; otherwise formatOrRaw falls back to the SI suffix.
-    final periodMd = store.get('environment.water.waves.period');
+    final periodMd = store?.get('environment.water.waves.period');
 
     final accent = colorForLegKind(kind);
     final bg = selected ? _tintedBg(kind) : _bgColor;

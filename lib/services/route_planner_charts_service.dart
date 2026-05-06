@@ -50,7 +50,10 @@ class ChartDescriptor {
   }
 
   factory ChartDescriptor.fromJson(Map<String, dynamic> j) {
-    final b = j['bounds'] as Map<String, dynamic>;
+    final b = j['bounds'];
+    if (b is! Map) {
+      throw FormatException('ChartDescriptor missing bounds map: ${j['id']}');
+    }
     return ChartDescriptor(
       id: j['id'] as String,
       west: (b['west'] as num).toDouble(),
@@ -89,12 +92,14 @@ class RoutePlannerChartsService extends ChangeNotifier {
     // plotter's `_layersSeededFromCatalog`) and snackbars driven by
     // `lastError` see clean state for the next refresh.
     _charts = const [];
+    _chartById = const {};
     _lastError = null;
     notifyListeners();
   }
 
   List<ChartDescriptor> _charts = const [];
   List<ChartDescriptor> get charts => _charts;
+  Map<String, ChartDescriptor> _chartById = const {};
 
   bool _loading = false;
   bool get loading => _loading;
@@ -125,10 +130,21 @@ class RoutePlannerChartsService extends ChangeNotifier {
         _lastError = 'GET /charts: expected JSON list';
         return;
       }
-      _charts = j
-          .whereType<Map<String, dynamic>>()
-          .map(ChartDescriptor.fromJson)
-          .toList(growable: false);
+      // Skip malformed entries individually rather than failing the
+      // whole catalog — one router config typo shouldn't blank every
+      // s57 layer in the panel.
+      final parsed = <ChartDescriptor>[];
+      for (final entry in j.whereType<Map<String, dynamic>>()) {
+        try {
+          parsed.add(ChartDescriptor.fromJson(entry));
+        } catch (e) {
+          if (kDebugMode) {
+            debugPrint('Skipping malformed chart entry: $e');
+          }
+        }
+      }
+      _charts = List.unmodifiable(parsed);
+      _chartById = {for (final c in parsed) c.id: c};
       _lastError = null;
     } catch (e) {
       _lastError = 'GET /charts error: $e';
@@ -138,10 +154,5 @@ class RoutePlannerChartsService extends ChangeNotifier {
     }
   }
 
-  ChartDescriptor? byId(String id) {
-    for (final c in _charts) {
-      if (c.id == id) return c;
-    }
-    return null;
-  }
+  ChartDescriptor? byId(String id) => _chartById[id];
 }

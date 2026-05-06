@@ -987,7 +987,9 @@ async function initMap() {
       center: ol.proj.fromLonLat([-74.01, 40.67]),
       zoom: 14,
     }),
-    controls: ol.control.defaults.defaults({ attribution: false }).extend([
+    // Keep attribution control on — OpenStreetMap / OpenSeaMap usage
+    // policies require visible tile-source credit on the map.
+    controls: ol.control.defaults.defaults().extend([
       new ol.control.Zoom(),
       new ol.control.ScaleLine({
         units: 'nautical',
