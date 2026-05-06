@@ -1,0 +1,1 @@
+../../ZedDisplay-OpenMeteo/tool/sync_status.dart

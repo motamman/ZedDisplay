@@ -1842,27 +1842,28 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
     } catch (_) {/* best effort — chart catalog may not be available */}
   }
 
-  /// Pushes the currently-wired s57 layer set to the tile manager,
-  /// intersected with the discovered catalog so the manager only fans
-  /// out to charts that actually exist on the server. Called after
-  /// catalog refreshes AND after panel mutations (add/remove) — this
-  /// is what stops the manager from fetching tiles for layers the
-  /// user removed via the panel.
+  /// Pushes the currently-wired s57 layer set to the tile manager.
+  /// Sends two views: the full set (enabled + disabled) as the cache-
+  /// keeper list, and the enabled subset as the active fetch list.
+  /// This way toggling a chart off keeps its cached features alive so
+  /// toggling it back on is instant, while still preventing wasted
+  /// fetches for disabled charts.
   void _pushManagerCharts() {
     final manager = _tileManager;
     if (manager == null) return;
     final byId = {for (final c in _chartCatalog) c.id: c};
-    final out = <ChartDescriptor>[];
+    final present = <ChartDescriptor>[];
+    final active = <String>{};
     for (final l in _layers) {
       if (l['type'] != 's57') continue;
-      // Disabled charts must NOT enter the manager's fetch list — the
-      // painter alone can't suppress fetches once they're scheduled.
-      if (!(l['enabled'] as bool? ?? true)) continue;
       final id = l['id'] as String;
       final desc = byId[id];
-      if (desc != null) out.add(desc);
+      if (desc == null) continue;
+      present.add(desc);
+      if (l['enabled'] as bool? ?? true) active.add(id);
     }
-    manager.setCharts(out);
+    manager.setCharts(present);
+    manager.setActiveCharts(active);
   }
 
   /// Signature of the depth metadata we last rebuilt against — just
@@ -2926,15 +2927,22 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
                       },
                       onLayersChanged: () {
                         if (!mounted) return;
-                        // Re-fetch the chart catalog so any chart the
-                        // user just added via the picker gets its URL
-                        // template captured into `_chartCatalog` AND
-                        // pushed to the proxy registry. The refresh
-                        // also calls `_pushManagerCharts()` internally
-                        // (which honours the new enabled-state and
-                        // drops fetches for charts the user just
-                        // toggled off).
-                        unawaited(_refreshChartCatalog());
+                        // `onLayersChanged` fires for every panel event
+                        // including opacity slider ticks and enable
+                        // toggles. Only re-fetch the catalog when we
+                        // see an s57 layer whose id isn't yet captured
+                        // in `_chartCatalog` (i.e. the user just added
+                        // it). For everything else, push the current
+                        // enabled set to the manager directly.
+                        final knownIds = {for (final c in _chartCatalog) c.id};
+                        final addedNew = _layers.any((l) =>
+                            l['type'] == 's57' &&
+                            !knownIds.contains(l['id'] as String));
+                        if (addedNew) {
+                          unawaited(_refreshChartCatalog());
+                        } else {
+                          _pushManagerCharts();
+                        }
                       },
                     ),
                     _weatherLayersSection(sbSetState),

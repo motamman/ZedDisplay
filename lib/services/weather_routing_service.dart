@@ -576,11 +576,11 @@ class WeatherRoutingService extends ChangeNotifier
       _appendLog(_errorMessage!, WeatherRoutingLogKind.error);
       _clearActiveJob();
       notifyListeners();
-      _teardownSse();
+      unawaited(_teardownSse());
       return;
     }
 
-    _teardownSse();
+    unawaited(_teardownSse());
     final idx = _sseAttempt < _sseBackoffSeconds.length
         ? _sseAttempt
         : _sseBackoffSeconds.length - 1;
@@ -628,7 +628,7 @@ class WeatherRoutingService extends ChangeNotifier
       notifyListeners();
       _sseReconnectTimer?.cancel();
       _sseReconnectTimer = null;
-      _teardownSse();
+      await _teardownSse();
       return true;
     } catch (_) {
       return false;

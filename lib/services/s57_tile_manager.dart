@@ -149,16 +149,23 @@ class S57TileManager extends ChangeNotifier {
   /// what avoids the rectangular cuts at chart boundaries.
   final String Function(String chartId, S57TileKey key) urlBuilderForChart;
 
-  /// Charts the manager fetches from. Updated in place via [setCharts]
-  /// when the user adds/removes layers; the manager fans out across
-  /// every chart whose bounds intersect the requested tile. Toggling a
-  /// chart's enabled state is NOT modeled here — the painter filters
-  /// rendered features by chartId so toggle is instant and free of
-  /// network refetches. Keep `_charts` to the set actually wired in
-  /// the layer panel (enabled or disabled) so disabling a chart hides
-  /// it via the painter without dropping the in-memory features.
+  /// Charts the manager knows about. Pass ALL charts wired in the
+  /// layer panel here — enabled and disabled — so that an enable/disable
+  /// toggle doesn't evict cached features. Charts that disappear from
+  /// the next [setCharts] list are treated as true removals (deleted
+  /// from the panel) and have their cached contributions dropped.
+  ///
+  /// Whether each chart is currently fetched from the network is
+  /// controlled separately via [setActiveCharts]. Whether each chart's
+  /// features get rendered is owned by the painter (`enabledChartIds`).
   List<ChartDescriptor> _charts;
   List<ChartDescriptor> get charts => _charts;
+
+  /// Subset of [_charts] eligible for new tile fetches. `null` means
+  /// no filter — every chart is fetchable (default). Set this to the
+  /// currently-enabled chart ids to stop new fetches for disabled
+  /// charts; their cached features stay put so toggle-on is instant.
+  Set<String>? _activeChartIds;
 
   /// Optional per-request header builder — used to inject
   /// `Authorization: Bearer <token>` when fetching tiles directly
@@ -315,8 +322,10 @@ class S57TileManager extends ChangeNotifier {
   /// coverage.
   void _ensureTile(S57TileKey key) {
     final perChart = _tileCacheByChart.putIfAbsent(key, () => {});
+    final active = _activeChartIds;
     bool kickedAny = false;
     for (final chart in _charts) {
+      if (active != null && !active.contains(chart.id)) continue;
       if (!chart.intersectsTile(key.z, key.x, key.y)) continue;
       if (perChart.containsKey(chart.id)) continue;
       final slot = (chart.id, key);
@@ -341,14 +350,18 @@ class S57TileManager extends ChangeNotifier {
     try {
       final url = urlBuilderForChart(chartId, key);
       final headers = headersBuilder?.call() ?? const <String, String>{};
-      debugPrint(
-        '[S57TileManager] GET $url  '
-        'auth=${headers.containsKey('Authorization') ? 'Bearer[${(headers['Authorization']!.length - 7)}c]' : 'NONE'}',
-      );
+      if (kDebugMode) {
+        debugPrint(
+          '[S57TileManager] GET $url  '
+          'auth=${headers.containsKey('Authorization') ? 'Bearer[${(headers['Authorization']!.length - 7)}c]' : 'NONE'}',
+        );
+      }
       final resp = await http.get(Uri.parse(url), headers: headers);
-      debugPrint(
-        '[S57TileManager] ← ${resp.statusCode} ${resp.bodyBytes.length}B  $url',
-      );
+      if (kDebugMode) {
+        debugPrint(
+          '[S57TileManager] ← ${resp.statusCode} ${resp.bodyBytes.length}B  $url',
+        );
+      }
       // Window may have shifted while we waited — drop late arrivals
       // from outside the current viewport rather than caching them
       // (which would race the next eviction and briefly paint stale).
@@ -587,13 +600,15 @@ class S57TileManager extends ChangeNotifier {
     _bumpAndNotify();
   }
 
-  /// Replace the chart catalog the manager fans out to. Newly-added
-  /// charts are picked up on the next viewport refresh; charts that
-  /// disappear from the catalog have their cached contributions
-  /// dropped from every tile and the merged view rebuilt so stale
-  /// features don't keep painting after a delete. The painter still
-  /// owns enable/disable filtering — that's handled per-feature via
-  /// `chartId` and does not call this.
+  /// Replace the full chart set the manager knows about. Pass every
+  /// chart wired in the layer panel — enabled or disabled — so that an
+  /// enable/disable toggle leaves cached features in place. Charts
+  /// that disappear from this list are treated as deleted and have
+  /// their cached contributions dropped from every tile.
+  ///
+  /// Use [setActiveCharts] to control which charts are eligible for
+  /// new fetches; the painter owns the visual filter via
+  /// `enabledChartIds`.
   void setCharts(List<ChartDescriptor> next) {
     final nextIds = next.map((c) => c.id).toSet();
     final removed = _charts.where((c) => !nextIds.contains(c.id)).toList();
@@ -611,6 +626,20 @@ class S57TileManager extends ChangeNotifier {
       _rebuildMerged(key);
     }
     _bumpAndNotify();
+  }
+
+  /// Restrict tile fetches to the given chart ids. Charts in [_charts]
+  /// but not in [ids] keep their cached features (so re-enabling is
+  /// instant) but stop accruing new tiles. Pass `null` to clear the
+  /// filter and let every chart fetch.
+  void setActiveCharts(Set<String>? ids) {
+    final next = ids == null ? null : Set<String>.from(ids);
+    final prev = _activeChartIds;
+    if (next == null && prev == null) return;
+    if (next != null && prev != null && setEquals(next, prev)) return;
+    _activeChartIds = next;
+    // Newly-active charts will pick up tiles on the next viewport
+    // refresh — no need to bump cache state here.
   }
 
   bool _inWindow(S57TileKey k, ({int z, int x0, int x1, int y0, int y1}) w) =>

@@ -680,20 +680,39 @@ class _BearerTokenSection extends StatefulWidget {
 
 class _BearerTokenSectionState extends State<_BearerTokenSection> {
   final _ctrl = TextEditingController();
+  RoutePlannerAuthService? _auth;
   bool _dirty = false;
 
   @override
   void initState() {
     super.initState();
-    _ctrl.text = context.read<RoutePlannerAuthService>().token ?? '';
-    _ctrl.addListener(() {
-      final next = _ctrl.text != (context.read<RoutePlannerAuthService>().token ?? '');
-      if (next != _dirty) setState(() => _dirty = next);
-    });
+    final auth = context.read<RoutePlannerAuthService>();
+    _auth = auth;
+    _ctrl.text = auth.token ?? '';
+    _ctrl.addListener(_onCtrlChanged);
+    auth.addListener(_onAuthChanged);
+  }
+
+  void _onCtrlChanged() {
+    final next = _ctrl.text != (_auth?.token ?? '');
+    if (next != _dirty) setState(() => _dirty = next);
+  }
+
+  // Sign-in-with-Google completes asynchronously and writes the token
+  // back to the auth service; without this listener the field would
+  // keep showing whatever was there at mount time. Skip while the user
+  // has unsaved edits — clobbering their typing would be worse than a
+  // brief mismatch.
+  void _onAuthChanged() {
+    if (!mounted || _dirty) return;
+    final token = _auth?.token ?? '';
+    if (_ctrl.text != token) _ctrl.text = token;
   }
 
   @override
   void dispose() {
+    _auth?.removeListener(_onAuthChanged);
+    _ctrl.removeListener(_onCtrlChanged);
     _ctrl.dispose();
     super.dispose();
   }
