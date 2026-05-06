@@ -78,20 +78,42 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
   static const _initialCenter = LatLng(41.10, -72.80); // Long Island Sound
   static const _initialZoom = 12.0;
 
-  /// Stacked layer definition — `{type: base|s57, id, enabled, opacity}`.
-  /// Same shape ChartLayerPanel mutates. The basemap is the first
-  /// enabled `base` entry; every enabled `s57` entry is drawn on top,
-  /// fanned out per chart by the tile manager and merged in render
-  /// order by S-52 displayPriority. The s57 starter entry mirrors V1's
-  /// default. Additional charts are added by the user via the layer
-  /// panel's add picker (`chart_layer_panel.dart` calls
-  /// `signalKService.getResources('charts')` for that menu); we do
-  /// NOT auto-enable every catalog entry — the catalog can list
-  /// charts that no installed provider plugin actually serves tiles
-  /// for, which causes 404 floods.
+  /// The full set of chart-domain layers the user can toggle:
+  /// every basemap, the OpenSeaMap seamark overlay, the depth
+  /// overlay, and every S-57 chart published by the SignalK server's
+  /// `/resources/charts` catalog. Each entry is
+  /// `{type, id, enabled, opacity}`; ordering is the user's,
+  /// preserved across restarts via `_persistLayerPrefs`.
+  ///
+  /// Render contract:
+  /// - **base** entries render in list order (so multiple bases
+  ///   stack — drag the one you want underneath to the front).
+  /// - **overlay** entries (currently just `openseamap`) render
+  ///   wherever they appear in the list, on top of any basemaps
+  ///   above them.
+  /// - **depth** is the route planner's GEBCO bathymetry served via
+  ///   `_weatherRasterTile('/depth', ...)`.
+  /// - **s57** entries are merged into a single render via the
+  ///   tile manager + s52 painter (the painter filters per
+  ///   `_enabledChartIds`); the merged group renders right after
+  ///   the base/overlay/depth stack.
+  ///
+  /// Catalog reconciliation: on every catalog refresh, new s57
+  /// entries are appended (default `enabled: false`) and entries
+  /// for charts no longer in the catalog are dropped. The non-s57
+  /// seed below is what every fresh install starts with.
   final List<Map<String, dynamic>> _layers = [
     {'type': 'base', 'id': 'carto_voyager', 'enabled': true, 'opacity': 1.0},
-    {'type': 's57', 'id': '01CGD_ENCs', 'enabled': true, 'opacity': 1.0},
+    {'type': 'base', 'id': 'openstreetmap', 'enabled': false, 'opacity': 1.0},
+    {'type': 'base', 'id': 'carto_dark', 'enabled': false, 'opacity': 1.0},
+    {'type': 'base', 'id': 'carto_light', 'enabled': false, 'opacity': 1.0},
+    {'type': 'base', 'id': 'esri_ocean', 'enabled': false, 'opacity': 1.0},
+    {'type': 'base', 'id': 'esri_satellite', 'enabled': false, 'opacity': 1.0},
+    // OpenSeaMap seamarks. Default on — that preserves the
+    // pre-refactor "Voyager + seamarks" UX where seamarks were
+    // implicit. User can toggle off like any other layer.
+    {'type': 'overlay', 'id': 'openseamap', 'enabled': true, 'opacity': 1.0},
+    {'type': 'depth', 'id': 'depth', 'enabled': false, 'opacity': 1.0},
   ];
   // Cache the discovered chart catalog so `_pushManagerCharts` can
   // look up bounds + URL templates by chartId. Refreshed from
@@ -106,6 +128,54 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
       if (l['type'] == type && (l['enabled'] as bool? ?? true)) return l;
     }
     return null;
+  }
+
+  /// Resolve a `_layers` entry to its TileLayer URL template for
+  /// the basemap / overlay render path. Returns null when the entry
+  /// has no public URL (s57 charts and the depth overlay route
+  /// through their own machinery).
+  String? _urlForChartLayer(Map<String, dynamic> layer) {
+    final type = layer['type'] as String?;
+    final id = layer['id'] as String?;
+    if (id == null) return null;
+    if (type == 'base') return baseMapUrls[id];
+    if (type == 'overlay' && id == 'openseamap') return openSeaMapUrl;
+    return null;
+  }
+
+  /// Widgets emitted by the unified `_layers` loop for one chart-
+  /// domain layer entry. Returns an empty list for entries that have
+  /// no widget at the basemap-stack level (S-57 charts render via
+  /// `_S57OverlayLayer` higher in the Stack; unknown types are
+  /// silently skipped).
+  List<Widget> _chartLayerWidgets(Map<String, dynamic> layer) {
+    final type = layer['type'] as String?;
+    final opacity = (layer['opacity'] as num?)?.toDouble() ?? 1.0;
+    if (type == 'base' || type == 'overlay') {
+      final url = _urlForChartLayer(layer);
+      if (url == null) return const [];
+      return [
+        Opacity(
+          opacity: opacity,
+          child: TileLayer(
+            urlTemplate: url,
+            userAgentPackageName: 'org.zennora.zed_display',
+            maxZoom: 19,
+          ),
+        ),
+      ];
+    }
+    if (type == 'depth') {
+      if (_weatherDataService == null) return const [];
+      return [
+        Opacity(
+          opacity: opacity,
+          child: _weatherRasterTile(
+              '/depth', WeatherDataService.zoomFloorDepth),
+        ),
+      ];
+    }
+    return const [];
   }
 
   /// Set of chart ids the user currently has toggled on. Used by the
@@ -281,6 +351,52 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
   late bool _windHeatmapOn = _boolProp('windHeatmapOn');
   late bool _currentHeatmapOn = _boolProp('currentHeatmapOn');
   late bool _seaStateOn = _boolProp('seaStateOn');
+  /// Significant wave height heatmap. ECMWF HRES `swh`; alpha-masked
+  /// to ocean cells server-side.
+  late bool _waveHeatmapOn = _boolProp('waveHeatmapOn');
+  /// Total precipitation rate heatmap (mm·s⁻¹ on the wire). Joins the
+  /// exclusive heatmap mutex so only one raster heatmap is on at a
+  /// time. Legend converts to mm/h / in/h / cm/h via the layer-
+  /// specific formatter.
+  late bool _precipHeatmapOn = _boolProp('precipHeatmapOn');
+  /// 2-metre air temperature heatmap (Kelvin on the wire). ECMWF HRES
+  /// `2t`/`t2m`. Server returns 204 below z=5.
+  late bool _temperatureHeatmapOn = _boolProp('temperatureHeatmapOn');
+  /// Sea-surface skin-temperature heatmap (Kelvin on the wire). ECMWF
+  /// HRES `skt`; land cells alpha-masked server-side via the OSM land
+  /// polygon raster.
+  late bool _sstHeatmapOn = _boolProp('sstHeatmapOn');
+
+  /// True when at least one weather layer that varies with the
+  /// reference time is on. The weather player's strip is hidden /
+  /// disabled when this is false; toggling the last time-keyed layer
+  /// off also resets the player state via `_maybeDeactivatePlayer`.
+  bool get _hasTimeKeyedWeatherLayer =>
+      _windBarbsOn ||
+      _currentsOn ||
+      _windHeatmapOn ||
+      _currentHeatmapOn ||
+      _seaStateOn ||
+      _waveHeatmapOn ||
+      _precipHeatmapOn ||
+      _temperatureHeatmapOn ||
+      _sstHeatmapOn;
+
+  // ===== Weather player state =====
+  //
+  // The player strip lets the user scrub the reference time of every
+  // time-keyed weather layer (wind / current / heatmaps) forward and
+  // back. State is in-memory only — closing the strip resets the
+  // offset to 0.
+  bool _playerVisible = false;
+  int _playerOffsetHours = 0;
+  /// 0 = paused, +1 = forward play, -1 = reverse play.
+  int _playerDirection = 0;
+  Timer? _playerTimer;
+  /// Player range (hours). `-120` = 5 days past, `+384` = 16 days
+  /// future. Matches the route planner's forecast envelope.
+  static const int _playerMinOffset = -120;
+  static const int _playerMaxOffset = 384;
 
   // Per-layer user-picked minimum zoom (overrides metadata's default).
   // Cleared on session end.
@@ -305,13 +421,18 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
   }
 
   /// Force only one raster heatmap on at a time. Picking any one
-  /// turns the other two off; vector layers (wind barbs, currents)
-  /// are independent and unaffected.
+  /// turns the others off — including precipitation. Depth and the
+  /// vector layers (wind barbs, currents) are independent and
+  /// unaffected; everything else listed below is in the mutex.
   void _setExclusiveHeatmap(String selected) {
     setState(() {
       _windHeatmapOn = selected == 'wind';
       _currentHeatmapOn = selected == 'current';
       _seaStateOn = selected == 'seaState';
+      _waveHeatmapOn = selected == 'wave';
+      _precipHeatmapOn = selected == 'precip';
+      _temperatureHeatmapOn = selected == 'temperature';
+      _sstHeatmapOn = selected == 'sst';
     });
     _persistLayerPrefs();
   }
@@ -321,7 +442,14 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
       _windHeatmapOn = false;
       _currentHeatmapOn = false;
       _seaStateOn = false;
+      _waveHeatmapOn = false;
+      _precipHeatmapOn = false;
+      _temperatureHeatmapOn = false;
+      _sstHeatmapOn = false;
     });
+    // If no vector layers (wind barbs / currents) were on, this just
+    // killed the last time-keyed layer — drop the player state too.
+    if (_maybeDeactivatePlayer()) _syncWeatherReferenceTime();
     _persistLayerPrefs();
   }
 
@@ -342,8 +470,16 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
         'windHeatmapOn': _windHeatmapOn,
         'currentHeatmapOn': _currentHeatmapOn,
         'seaStateOn': _seaStateOn,
+        'waveHeatmapOn': _waveHeatmapOn,
+        'precipHeatmapOn': _precipHeatmapOn,
+        'temperatureHeatmapOn': _temperatureHeatmapOn,
+        'sstHeatmapOn': _sstHeatmapOn,
         'userMinZoom': _userMinZoom,
         'legendOnMap': _legendOnMap,
+        // Full chart-domain layer list (basemaps, OpenSeaMap, depth,
+        // every s57 chart). Persisted in order so reorder survives,
+        // and per-row enabled + opacity round-trip.
+        'chartLayers': _layers,
       });
       unawaited(storage.saveSetting(_layerPrefsKey, payload));
     } catch (_) {
@@ -365,6 +501,37 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
         _currentHeatmapOn =
             (j['currentHeatmapOn'] as bool?) ?? _currentHeatmapOn;
         _seaStateOn = (j['seaStateOn'] as bool?) ?? _seaStateOn;
+        _waveHeatmapOn = (j['waveHeatmapOn'] as bool?) ?? _waveHeatmapOn;
+        _precipHeatmapOn =
+            (j['precipHeatmapOn'] as bool?) ?? _precipHeatmapOn;
+        _temperatureHeatmapOn =
+            (j['temperatureHeatmapOn'] as bool?) ?? _temperatureHeatmapOn;
+        _sstHeatmapOn = (j['sstHeatmapOn'] as bool?) ?? _sstHeatmapOn;
+        // Enforce the single-heatmap mutex on persisted state.
+        // Pre-fix builds could have left two heatmaps on at once
+        // (precipitation wasn't part of the mutex); keep the first
+        // ON in canonical order and clear the rest.
+        final restored = <String, bool>{
+          'wind': _windHeatmapOn,
+          'current': _currentHeatmapOn,
+          'seaState': _seaStateOn,
+          'wave': _waveHeatmapOn,
+          'precip': _precipHeatmapOn,
+          'temperature': _temperatureHeatmapOn,
+          'sst': _sstHeatmapOn,
+        };
+        final firstOn = restored.entries
+            .firstWhere((e) => e.value, orElse: () => const MapEntry('', false))
+            .key;
+        if (firstOn.isNotEmpty) {
+          _windHeatmapOn = firstOn == 'wind';
+          _currentHeatmapOn = firstOn == 'current';
+          _seaStateOn = firstOn == 'seaState';
+          _waveHeatmapOn = firstOn == 'wave';
+          _precipHeatmapOn = firstOn == 'precip';
+          _temperatureHeatmapOn = firstOn == 'temperature';
+          _sstHeatmapOn = firstOn == 'sst';
+        }
         final mz = j['userMinZoom'];
         if (mz is Map<String, dynamic>) {
           _userMinZoom.clear();
@@ -380,6 +547,46 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
             final v = e.value as bool?;
             if (v != null) _legendOnMap[e.key] = v;
           }
+        }
+        final cl = j['chartLayers'];
+        if (cl is List) {
+          // Restore the user's layer list verbatim. Catalog
+          // reconciliation runs later (`_onChartsCatalogChanged`)
+          // and adds any new s57 charts / drops gone ones.
+          //
+          // We MERGE rather than replace: the seeded `_layers`
+          // already has the basemap + overlay + depth defaults;
+          // the persisted list might be missing a basemap that
+          // was added in a newer build, so we add any
+          // not-in-saved seeds at the end. Then we order by the
+          // saved sequence + append leftovers.
+          final saved = <Map<String, dynamic>>[];
+          for (final entry in cl) {
+            if (entry is! Map) continue;
+            final id = entry['id'];
+            final type = entry['type'];
+            if (id is! String || type is! String) continue;
+            saved.add({
+              'type': type,
+              'id': id,
+              'enabled': entry['enabled'] as bool? ?? false,
+              'opacity':
+                  (entry['opacity'] as num?)?.toDouble() ?? 1.0,
+            });
+          }
+          // Compare on `(type, id)` so a built-in row (e.g.
+          // `depth` / `openstreetmap`) isn't dropped just because a
+          // saved S-57 chart happens to share its `id`.
+          final savedKeys = {
+            for (final l in saved) '${l['type']}:${l['id']}',
+          };
+          final leftovers = _layers
+              .where((l) => !savedKeys.contains('${l['type']}:${l['id']}'))
+              .toList();
+          _layers
+            ..clear()
+            ..addAll(saved)
+            ..addAll(leftovers);
         }
       });
     } catch (_) {
@@ -515,7 +722,7 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
     final effectiveFloor = _effectiveMinZoom(path, fallbackZoomFloor);
     return TileLayer(
       key: ValueKey(
-          '$path|${svc.hourParam}|${svc.cacheNonce}|$effectiveFloor'),
+          '$path|${svc.cacheNonce}|$effectiveFloor'),
       urlTemplate: template,
       userAgentPackageName: 'org.zennora.zed_display',
       // `minZoom` hides the layer below the user-configurable floor;
@@ -525,6 +732,12 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
       minNativeZoom: effectiveFloor,
       maxNativeZoom: 16,
       tileProvider: NetworkTileProvider(headers: svc.authHeaders),
+      // Crossfade new tiles in over the previous hour's tiles so the
+      // player playback reads as a smooth animation rather than a
+      // flicker-then-replace step.
+      tileDisplay: const TileDisplay.fadeIn(
+        duration: Duration(milliseconds: 250),
+      ),
     );
   }
 
@@ -533,11 +746,31 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
   /// and the tile-aware vector overlays watch the service directly,
   /// so nothing else needs to happen here — no per-camera scheduling.
   ///
-  /// Reference-time precedence: selected route waypoint's `time`
-  /// (scrubbing the field to that hour) → the planned departure → now.
+  /// Reference-time precedence: weather player offset (when the
+  /// player strip is open *and* a time-keyed layer is on) → selected
+  /// route waypoint's `time` (scrubbing the field to that hour) → the
+  /// planned departure → now.
   void _syncWeatherReferenceTime() {
     final svc = _weatherDataService;
     if (svc == null) return;
+    // Player drives the reference time only while it's actually
+    // visible AND there's a time-keyed layer to play through. If the
+    // last time-keyed layer was just turned off the player offset
+    // becomes a stale ghost, so fall through to the regular
+    // selection / departure / now precedence in that case.
+    if (_playerVisible && _hasTimeKeyedWeatherLayer) {
+      // Floor to the UTC hour the URL builder uses so the strip's
+      // displayed time and the actually-fetched tiles agree. Without
+      // this, `DateTime.now() + offset` carries minutes that the
+      // strip would render as e.g. `14:39` while the map fetched the
+      // `14:00` forecast.
+      final unfloored =
+          DateTime.now().add(Duration(hours: _playerOffsetHours));
+      final utc = unfloored.toUtc();
+      svc.referenceTime =
+          DateTime.utc(utc.year, utc.month, utc.day, utc.hour);
+      return;
+    }
     DateTime? selectedTime;
     final wrResult = _weatherRoutingService?.currentResult;
     final sel = _weatherRouteSelectedIdx;
@@ -549,6 +782,107 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
     }
     final dep = _weatherRoutingService?.lastRequest?.departure;
     svc.referenceTime = selectedTime ?? dep ?? DateTime.now();
+  }
+
+  // ===== Weather player handlers =====
+
+  void _togglePlayer() {
+    setState(() {
+      _playerVisible = !_playerVisible;
+      if (!_playerVisible) {
+        // Closing the player resets the timeline to "now" and
+        // hands reference-time control back to the normal
+        // selection / departure / now precedence.
+        _resetPlayerStateUnsafe();
+      }
+    });
+    _syncWeatherReferenceTime();
+  }
+
+  /// Reset every piece of player state to "off". Caller is responsible
+  /// for wrapping this in a `setState` (suffix `_Unsafe`).
+  void _resetPlayerStateUnsafe() {
+    _playerVisible = false;
+    _playerDirection = 0;
+    _playerOffsetHours = 0;
+    _playerTimer?.cancel();
+    _playerTimer = null;
+  }
+
+  /// If toggling a layer just turned off the last time-keyed weather
+  /// layer, fully deactivate the player. Without this the
+  /// `_playerVisible` flag and the player offset would survive,
+  /// causing the next time-keyed layer to come back to a stale
+  /// hidden hour. Returns `true` when reset happened so the caller
+  /// can also re-sync the weather reference time.
+  bool _maybeDeactivatePlayer() {
+    if (_hasTimeKeyedWeatherLayer) return false;
+    if (!_playerVisible &&
+        _playerOffsetHours == 0 &&
+        _playerDirection == 0 &&
+        _playerTimer == null) {
+      return false; // nothing to reset
+    }
+    setState(_resetPlayerStateUnsafe);
+    return true;
+  }
+
+  /// Set the player's playback direction. Tapping the same direction
+  /// that's already active pauses (toggle behaviour). Tapping the
+  /// opposite direction switches without an intermediate pause.
+  void _setPlayerDirection(int dir) {
+    if (!_playerVisible) return;
+    final next = (dir == _playerDirection) ? 0 : dir;
+    setState(() {
+      _playerDirection = next;
+      _playerTimer?.cancel();
+      _playerTimer = null;
+      if (next != 0) {
+        _playerTimer =
+            Timer.periodic(const Duration(seconds: 1), (_) => _playerTick());
+      }
+    });
+  }
+
+  void _playerTick() {
+    if (!mounted || !_playerVisible || _playerDirection == 0) return;
+    final next = _playerOffsetHours + _playerDirection;
+    if (next > _playerMaxOffset || next < _playerMinOffset) {
+      // Pause at either end of the forecast envelope.
+      _playerTimer?.cancel();
+      _playerTimer = null;
+      setState(() => _playerDirection = 0);
+      return;
+    }
+    setState(() => _playerOffsetHours = next);
+    _syncWeatherReferenceTime();
+  }
+
+  void _setPlayerOffset(int hours) {
+    final clamped = hours.clamp(_playerMinOffset, _playerMaxOffset);
+    if (clamped == _playerOffsetHours) return;
+    setState(() => _playerOffsetHours = clamped);
+    _syncWeatherReferenceTime();
+  }
+
+  void _stepPlayer(int delta) {
+    if (!_playerVisible) return;
+    setState(() {
+      _playerDirection = 0;
+      _playerTimer?.cancel();
+      _playerTimer = null;
+    });
+    _setPlayerOffset(_playerOffsetHours + delta);
+  }
+
+  void _resetPlayerToNow() {
+    setState(() {
+      _playerOffsetHours = 0;
+      _playerDirection = 0;
+      _playerTimer?.cancel();
+      _playerTimer = null;
+    });
+    _syncWeatherReferenceTime();
   }
 
   /// Single entry point for updating the selected weather-route
@@ -599,6 +933,7 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
   void dispose() {
     _routePollTimer?.cancel();
     _vesselTimer?.cancel();
+    _playerTimer?.cancel();
     _stopArrivalMonitor();
     widget.signalKService.metadataStore
         .removeListener(_onMetadataStoreChanged);
@@ -1837,9 +2172,50 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
             .read<ChartTileServerService>()
             .setChartUpstreamTemplates(urlTemplates);
       } catch (_) {/* proxy unavailable */}
-      _pushManagerCharts();
-      setState(() {});
+      _onChartsCatalogChanged();
     } catch (_) {/* best effort — chart catalog may not be available */}
+  }
+
+  /// Reconcile `_layers` against the freshly-arrived chart catalog.
+  /// Auto-appends new s57 entries (default `enabled: false` so a
+  /// fresh chart arrival doesn't suddenly start fetching tiles the
+  /// user didn't ask for) and drops entries for charts the catalog
+  /// no longer publishes. Persists + repaints when either side moves.
+  /// Always re-pushes the manager chart list so its in-memory cache
+  /// matches the merged set.
+  void _onChartsCatalogChanged() {
+    if (!mounted) return;
+    final catalogIds = {for (final c in _chartCatalog) c.id};
+
+    var dirty = false;
+    final beforeLen = _layers.length;
+    _layers.removeWhere((l) =>
+        l['type'] == 's57' && !catalogIds.contains(l['id'] as String));
+    if (_layers.length != beforeLen) dirty = true;
+
+    // Identity is `(type, id)` — comparing only on `id` would let an
+    // S-57 chart whose server id collides with a built-in row (e.g.
+    // a chart called `depth` or `openstreetmap`) be silently
+    // discarded as already-present.
+    final existingKeys = {
+      for (final l in _layers) '${l['type']}:${l['id']}',
+    };
+    for (final c in _chartCatalog) {
+      if (existingKeys.contains('s57:${c.id}')) continue;
+      _layers.add({
+        'type': 's57',
+        'id': c.id,
+        'enabled': false,
+        'opacity': 1.0,
+      });
+      dirty = true;
+    }
+
+    _pushManagerCharts();
+    if (dirty) {
+      _persistLayerPrefs();
+    }
+    setState(() {});
   }
 
   /// Pushes the currently-wired s57 layer set to the tile manager.
@@ -1932,13 +2308,18 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
         ),
       );
     }
-    final baseLayer = _firstEnabled('base');
     final s57Layer = _firstEnabled('s57');
-    final basemapUrl = baseLayer == null
-        ? null
-        : baseMapUrls[baseLayer['id'] as String];
-    final baseOpacity = (baseLayer?['opacity'] as num?)?.toDouble() ?? 1.0;
-    final s57Opacity = (s57Layer?['opacity'] as num?)?.toDouble() ?? 1.0;
+    // Per-chart opacity from each S-57 row's slider in the layer
+    // panel. The painter applies these via `saveLayer` per chart per
+    // geometry pass, so adjusting any S-57 row's slider is visible.
+    // The previous code wrapped the whole merged overlay in a single
+    // `Opacity` keyed off the first-enabled chart, which silently
+    // ignored every other row's slider.
+    final s57ChartOpacities = <String, double>{
+      for (final l in _layers)
+        if (l['type'] == 's57' && (l['enabled'] as bool? ?? false))
+          l['id'] as String: ((l['opacity'] as num?)?.toDouble() ?? 1.0),
+    };
 
     return Container(
       color: AppColors.cardBackgroundDark,
@@ -1949,7 +2330,11 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
             options: MapOptions(
               initialCenter: _initialCenter,
               initialZoom: _initialZoom,
-              minZoom: 8,
+              // Wide pan-out for context. S-57 ENC charts
+              // auto-suppress below z=8 via `_S57OverlayLayer`'s
+              // `_minRenderZoom`, so the chart stays useful all the
+              // way out.
+              minZoom: 5,
               maxZoom: 16,
               // Lock pan gestures while auto-follow is on — the map
               // stays glued to the vessel. Pinch/scroll zoom and
@@ -1997,38 +2382,38 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
               onLongPress: _onMapLongPress,
             ),
             children: [
-              if (basemapUrl != null)
-                Opacity(
-                  opacity: baseOpacity,
-                  child: TileLayer(
-                    urlTemplate: basemapUrl,
-                    userAgentPackageName: 'org.zennora.zed_display',
-                    maxZoom: 19,
-                  ),
-                ),
+              // Walk `_layers` in order, emitting a TileLayer for
+              // every enabled basemap, overlay, or depth row. List
+              // order is paint order, so dragging a basemap above
+              // another puts it on top in the chart, and dragging
+              // the depth row higher composites bathymetry over
+              // basemaps. OpenSeaMap is just another overlay entry —
+              // no auto-pair logic; it's toggled like everything
+              // else.
+              for (final layer in _layers)
+                if (layer['enabled'] as bool? ?? false)
+                  ..._chartLayerWidgets(layer),
               if (s57Layer != null && _tileManager != null)
-                Opacity(
-                  opacity: s57Opacity,
-                  child: _S57OverlayLayer(
-                    tileCache: _tileManager!.tiles,
-                    generation: _tileManager!.generation,
-                    colorTable: _colorTable!,
-                    spriteAtlas: _spriteAtlas!,
-                    spriteImage: _spriteImage!,
-                    hiddenClasses: _hiddenClasses,
-                    enabledChartIds: _enabledChartIds,
-                    declutter: _declutter,
-                    // Path-first, category fallback — same lookup the
-                    // HUD uses at chart_hud.dart:125. Vessels normally
-                    // populate `environment.depth.belowTransducer`
-                    // with displayUnits; `getByCategory` only fires
-                    // when the user has a category-level preset but
-                    // no per-path metadata yet.
-                    depthMetadata: widget.signalKService.metadataStore
-                            .get('environment.depth.belowTransducer') ??
-                        widget.signalKService.metadataStore
-                            .getByCategory('depth'),
-                  ),
+                _S57OverlayLayer(
+                  tileCache: _tileManager!.tiles,
+                  generation: _tileManager!.generation,
+                  colorTable: _colorTable!,
+                  spriteAtlas: _spriteAtlas!,
+                  spriteImage: _spriteImage!,
+                  hiddenClasses: _hiddenClasses,
+                  enabledChartIds: _enabledChartIds,
+                  chartOpacities: s57ChartOpacities,
+                  declutter: _declutter,
+                  // Path-first, category fallback — same lookup the
+                  // HUD uses at chart_hud.dart:125. Vessels normally
+                  // populate `environment.depth.belowTransducer`
+                  // with displayUnits; `getByCategory` only fires
+                  // when the user has a category-level preset but
+                  // no per-path metadata yet.
+                  depthMetadata: widget.signalKService.metadataStore
+                          .get('environment.depth.belowTransducer') ??
+                      widget.signalKService.metadataStore
+                          .getByCategory('depth'),
                 ),
               // Weather raster tiles sit under the vector overlays +
               // route so they read as a background tint (matches web
@@ -2045,6 +2430,18 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
               if (_seaStateOn && _weatherDataService != null)
                 _weatherRasterTile('/roughness',
                     WeatherDataService.zoomFloorSeaState),
+              if (_waveHeatmapOn && _weatherDataService != null)
+                _weatherRasterTile('/wave-heatmap',
+                    WeatherDataService.zoomFloorWaveHeatmap),
+              if (_precipHeatmapOn && _weatherDataService != null)
+                _weatherRasterTile('/precip-heatmap',
+                    WeatherDataService.zoomFloorPrecipHeatmap),
+              if (_temperatureHeatmapOn && _weatherDataService != null)
+                _weatherRasterTile('/temperature',
+                    WeatherDataService.zoomFloorTemperature),
+              if (_sstHeatmapOn && _weatherDataService != null)
+                _weatherRasterTile(
+                    '/sst', WeatherDataService.zoomFloorSst),
               if (_currentsOn && _weatherDataService != null)
                 CurrentArrowsTileOverlay(
                   service: _weatherDataService!,
@@ -2122,6 +2519,28 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
               if (i != null) _skipToWaypoint(i + 1);
             },
           ),
+          // Weather player floating strip. Sits above the on-map
+          // legend stack so the slider and time label stay visible
+          // even when many layers have legends pinned to the chart.
+          if (_playerVisible && _hasTimeKeyedWeatherLayer)
+            Positioned(
+              left: 8,
+              right: 8,
+              bottom: _hudStyle == 'visual' ? 250 : 140,
+              child: _WeatherPlayerStrip(
+                offsetHours: _playerOffsetHours,
+                direction: _playerDirection,
+                minOffset: _playerMinOffset,
+                maxOffset: _playerMaxOffset,
+                referenceTime: _weatherDataService?.referenceTime ??
+                    DateTime.now(),
+                onSetDirection: _setPlayerDirection,
+                onStep: _stepPlayer,
+                onSeek: _setPlayerOffset,
+                onResetToNow: _resetPlayerToNow,
+                onClose: _togglePlayer,
+              ),
+            ),
           // On-map legend stack — renders compact cards near the
           // bottom of the chart for every layer whose "On map" toggle
           // is on AND that's currently visible at the effective zoom.
@@ -2260,6 +2679,9 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
               onWeatherRouting: _weatherRoutingEnabled
                   ? () => _showWeatherRoutingSheet(context)
                   : null,
+              playerVisible: _playerVisible,
+              playerAvailable: _hasTimeKeyedWeatherLayer,
+              onTogglePlayer: _togglePlayer,
             ),
           ),
           if (_rulerVisible && _rulerRed != null && _rulerBlue != null)
@@ -2918,7 +3340,6 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
                     ),
                     ChartLayerPanel(
                       layers: _layers,
-                      signalKService: widget.signalKService,
                       // Re-render the sheet immediately AND the V3 tool
                       // so toggles take effect without closing the sheet.
                       setState: (fn) {
@@ -2927,22 +3348,14 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
                       },
                       onLayersChanged: () {
                         if (!mounted) return;
-                        // `onLayersChanged` fires for every panel event
-                        // including opacity slider ticks and enable
-                        // toggles. Only re-fetch the catalog when we
-                        // see an s57 layer whose id isn't yet captured
-                        // in `_chartCatalog` (i.e. the user just added
-                        // it). For everything else, push the current
-                        // enabled set to the manager directly.
-                        final knownIds = {for (final c in _chartCatalog) c.id};
-                        final addedNew = _layers.any((l) =>
-                            l['type'] == 's57' &&
-                            !knownIds.contains(l['id'] as String));
-                        if (addedNew) {
-                          unawaited(_refreshChartCatalog());
-                        } else {
-                          _pushManagerCharts();
-                        }
+                        // The picker is gone — `_layers` only contains
+                        // entries that were either seeded or added by
+                        // the catalog reconciliation. So every panel
+                        // mutation is an enable / opacity / reorder; no
+                        // catalog refetch needed. Just re-push the
+                        // active s57 set and persist.
+                        _pushManagerCharts();
+                        _persistLayerPrefs();
                       },
                     ),
                     _weatherLayersSection(sbSetState),
@@ -2971,6 +3384,11 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
       sheetSetState(() => assign(next));
       if (!mounted) return;
       setState(() => assign(next));
+      // Wind barbs / currents are time-keyed too. If this flip just
+      // dropped the last time-keyed layer, fully deactivate the
+      // player so it doesn't come back to a stale hidden hour next
+      // time the user re-enables a layer.
+      if (_maybeDeactivatePlayer()) _syncWeatherReferenceTime();
       _persistLayerPrefs();
     }
 
@@ -3012,7 +3430,7 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
         _weatherLayerTile(
           icon: Icons.air,
           label: 'Wind barbs',
-          subtitle: 'ECMWF HRES — zoom ≥ 6',
+          subtitle: 'ECMWF HRES',
           value: _windBarbsOn,
           metadataPath: '/wind',
           sheetSetState: sheetSetState,
@@ -3024,7 +3442,7 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
         _weatherLayerTile(
           icon: Icons.waves,
           label: 'Tidal currents',
-          subtitle: 'Zoom ≥ 11',
+          subtitle: 'NOAA STOFS-3D / NECOFS / FES2014',
           value: _currentsOn,
           metadataPath: '/currents',
           sheetSetState: sheetSetState,
@@ -3036,7 +3454,7 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
         _weatherLayerTile(
           icon: Icons.thermostat,
           label: 'Wind speed heatmap',
-          subtitle: 'Zoom ≥ 5',
+          subtitle: 'ECMWF HRES',
           value: _windHeatmapOn,
           metadataPath: '/wind-heatmap',
           sheetSetState: sheetSetState,
@@ -3052,7 +3470,7 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
         _weatherLayerTile(
           icon: Icons.water,
           label: 'Current speed heatmap',
-          subtitle: 'Zoom ≥ 9',
+          subtitle: 'NOAA STOFS-3D / NECOFS / FES2014',
           value: _currentHeatmapOn,
           metadataPath: '/current-heatmap',
           sheetSetState: sheetSetState,
@@ -3068,7 +3486,7 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
         _weatherLayerTile(
           icon: Icons.warning_amber,
           label: 'Sea state',
-          subtitle: 'Wind × current × swell — zoom ≥ 9',
+          subtitle: 'Wind × current × swell',
           value: _seaStateOn,
           metadataPath: '/roughness',
           sheetSetState: sheetSetState,
@@ -3077,6 +3495,70 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
               _clearHeatmap();
             } else {
               _setExclusiveHeatmap('seaState');
+            }
+            sheetSetState(() {});
+          },
+        ),
+        _weatherLayerTile(
+          icon: Icons.tsunami,
+          label: 'Wave height heatmap',
+          subtitle: 'Significant wave height',
+          value: _waveHeatmapOn,
+          metadataPath: '/wave-heatmap',
+          sheetSetState: sheetSetState,
+          onChanged: () {
+            if (_waveHeatmapOn) {
+              _clearHeatmap();
+            } else {
+              _setExclusiveHeatmap('wave');
+            }
+            sheetSetState(() {});
+          },
+        ),
+        _weatherLayerTile(
+          icon: Icons.umbrella,
+          label: 'Precipitation rate',
+          subtitle: 'Total precipitation rate (mm/h)',
+          value: _precipHeatmapOn,
+          metadataPath: '/precip-heatmap',
+          sheetSetState: sheetSetState,
+          onChanged: () {
+            if (_precipHeatmapOn) {
+              _clearHeatmap();
+            } else {
+              _setExclusiveHeatmap('precip');
+            }
+            sheetSetState(() {});
+          },
+        ),
+        _weatherLayerTile(
+          icon: Icons.thermostat,
+          label: 'Air temperature',
+          subtitle: 'ECMWF HRES 2 m air temperature',
+          value: _temperatureHeatmapOn,
+          metadataPath: '/temperature',
+          sheetSetState: sheetSetState,
+          onChanged: () {
+            if (_temperatureHeatmapOn) {
+              _clearHeatmap();
+            } else {
+              _setExclusiveHeatmap('temperature');
+            }
+            sheetSetState(() {});
+          },
+        ),
+        _weatherLayerTile(
+          icon: Icons.water_drop_outlined,
+          label: 'Sea-surface temperature',
+          subtitle: 'ECMWF HRES skin temperature (ocean only)',
+          value: _sstHeatmapOn,
+          metadataPath: '/sst',
+          sheetSetState: sheetSetState,
+          onChanged: () {
+            if (_sstHeatmapOn) {
+              _clearHeatmap();
+            } else {
+              _setExclusiveHeatmap('sst');
             }
             sheetSetState(() {});
           },
@@ -3100,6 +3582,10 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
     // deal in speed; sea state is a dimensionless index with no
     // SignalK path. Null → legend falls back to SI values verbatim.
     final pathMd = _pathMetadataForLayer(metadataPath);
+    // Direct MetadataStore route for layers whose conversion can't be
+    // expressed as a single multiplier (temperature, precip rate).
+    // Null when the path-metadata route is sufficient.
+    final fmtOverride = _legendFormatterForLayer(metadataPath);
 
     final fallbackFloor = _fallbackZoomFloorForLayer(metadataPath);
     final currentMinZoom = _effectiveMinZoom(metadataPath, fallbackFloor);
@@ -3133,7 +3619,12 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    _LegendBar(metadata: md, pathMetadata: pathMd),
+                    _LegendBar(
+                      metadata: md,
+                      pathMetadata: pathMd,
+                      formatter: fmtOverride?.format,
+                      formatterSymbol: fmtOverride?.symbol,
+                    ),
                     if (md.minZoom != null &&
                         md.maxZoom != null &&
                         md.maxZoom! > md.minZoom!) ...[
@@ -3209,11 +3700,14 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
       final md = _weatherDataService?.metadataFor(path);
       if (md == null) return;
       final pathMd = _pathMetadataForLayer(path);
+      final fmtOverride = _legendFormatterForLayer(path);
       final effective = _effectiveMinZoom(
           path, _fallbackZoomFloorForLayer(path));
       out.add(_OnMapLegendEntry(
         metadata: md,
         pathMetadata: pathMd,
+        formatter: fmtOverride?.format,
+        formatterSymbol: fmtOverride?.symbol,
         minZoom: effective,
       ));
     }
@@ -3223,6 +3717,11 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
     consider('/wind-heatmap', _windHeatmapOn);
     consider('/current-heatmap', _currentHeatmapOn);
     consider('/roughness', _seaStateOn);
+    consider('/wave-heatmap', _waveHeatmapOn);
+    consider('/precip-heatmap', _precipHeatmapOn);
+    consider('/temperature', _temperatureHeatmapOn);
+    consider('/sst', _sstHeatmapOn);
+    consider('/depth', _firstEnabled('depth') != null);
     return out;
   }
 
@@ -3240,6 +3739,16 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
         return WeatherDataService.zoomFloorCurrentHeatmap;
       case '/roughness':
         return WeatherDataService.zoomFloorSeaState;
+      case '/wave-heatmap':
+        return WeatherDataService.zoomFloorWaveHeatmap;
+      case '/precip-heatmap':
+        return WeatherDataService.zoomFloorPrecipHeatmap;
+      case '/depth':
+        return WeatherDataService.zoomFloorDepth;
+      case '/temperature':
+        return WeatherDataService.zoomFloorTemperature;
+      case '/sst':
+        return WeatherDataService.zoomFloorSst;
       default:
         return 0;
     }
@@ -3258,6 +3767,16 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
       case '/currents':
       case '/current-heatmap':
         return 'environment.current.drift';
+      case '/wave-heatmap':
+        return 'environment.water.waves.height';
+      case '/depth':
+        return 'environment.depth.belowTransducer';
+      case '/precip-heatmap':
+        return 'environment.outside.precipitationRate';
+      case '/temperature':
+        return 'environment.outside.temperature';
+      case '/sst':
+        return 'environment.water.temperature';
       case '/roughness':
       default:
         return null;
@@ -3266,8 +3785,7 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
 
   /// Unit category per weather layer, used as the `getWithFallback`
   /// fallback key when the path-specific `PathMetadata` hasn't been
-  /// populated in the store. Every weather-value category we deal in
-  /// is 'speed' today (m/s → kt/mph/km·h⁻¹); roughness has no category.
+  /// populated in the store.
   static String? _signalKCategoryForLayerPath(String metadataPath) {
     switch (metadataPath) {
       case '/wind':
@@ -3275,6 +3793,14 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
       case '/currents':
       case '/current-heatmap':
         return 'speed';
+      case '/wave-heatmap':
+      case '/depth':
+        return 'height';
+      case '/precip-heatmap':
+        return 'rainfall';
+      case '/temperature':
+      case '/sst':
+        return 'temperature';
       case '/roughness':
       default:
         return null;
@@ -3296,6 +3822,61 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
       path,
       (_) => category,
     );
+  }
+
+  /// Build a per-layer legend formatter that calls [MetadataStore]
+  /// directly for layers whose conversions don't reduce to a single
+  /// multiplicative factor — temperature is affine and the
+  /// precipitation rate combines a length conversion with a fixed
+  /// time scale (s → h).
+  ///
+  /// Diverges intentionally from the OpenMeteo sister: the OpenMeteo
+  /// version reaches into `ConversionService` (from `openmeteo_core`)
+  /// because its `MetadataShim` deliberately doesn't synthesise
+  /// affine / rate `PathMetadata`. SignalK's `MetadataStore` is
+  /// server-fed, so we ask it for the published `PathMetadata`
+  /// directly and lean on the server's `formula` / `symbol`. Returns
+  /// `null` for layers where `pathMetadata.format(...)` is sufficient.
+  ({String Function(double) format, String symbol})?
+      _legendFormatterForLayer(String metadataPath) {
+    final store = widget.signalKService.metadataStore;
+    switch (metadataPath) {
+      case '/temperature':
+      case '/sst':
+        // Server publishes meta on the temperature category (formula
+        // performs K → °C/°F via math_expressions). When unavailable,
+        // fall through to raw SI display by returning null.
+        final md = store.getWithFallback(
+          metadataPath == '/sst'
+              ? 'environment.water.temperature'
+              : 'environment.outside.temperature',
+          (_) => 'temperature',
+        );
+        if (md == null || md.symbol == null) return null;
+        final symbol = md.symbol!;
+        return (
+          format: (si) => md.format(si, decimals: 1),
+          symbol: symbol,
+        );
+      case '/precip-heatmap':
+        // Server emits mm/s; the rainfall PathMetadata (length
+        // conversion, e.g. mm → in) handles the unit side. We pre-
+        // multiply by 3600 to land at user-pref / hour. The s → h
+        // factor is the only fixed scale; everything else is server
+        // published.
+        final md = store.getWithFallback(
+          'environment.outside.precipitationRate',
+          (_) => 'rainfall',
+        );
+        if (md == null || md.symbol == null) return null;
+        final symbol = md.symbol!;
+        return (
+          format: (si) => md.format(si * 3600.0, decimals: 1),
+          symbol: '$symbol/h',
+        );
+      default:
+        return null;
+    }
   }
 
   /// Distance in metres from a point to the nearest land bounding box.
@@ -3371,6 +3952,7 @@ class _S57OverlayLayer extends StatelessWidget {
     required this.spriteImage,
     this.hiddenClasses = const <String>{},
     this.enabledChartIds = const <String>{},
+    this.chartOpacities = const <String, double>{},
     this.declutter = false,
     this.depthMetadata,
   });
@@ -3385,6 +3967,12 @@ class _S57OverlayLayer extends StatelessWidget {
   /// time — toggling a chart on/off has no fetch cost because the
   /// manager keeps fetched contributions in cache regardless.
   final Set<String> enabledChartIds;
+
+  /// Per-chart opacity (0..1) sourced from the layer panel's per-row
+  /// slider. Chart ids missing from the map render at full opacity.
+  /// The painter wraps each chart's features in a `saveLayer` only
+  /// when opacity < 1, so the common all-opaque case stays cheap.
+  final Map<String, double> chartOpacities;
   final bool declutter;
   // Routed straight through to the painter so SOUNDG depth labels
   // can be formatted via MetadataStore at paint time. Null until
@@ -3392,9 +3980,19 @@ class _S57OverlayLayer extends StatelessWidget {
   // to raw metres in that case.
   final PathMetadata? depthMetadata;
 
+  /// Below this zoom the S-57 overlay is suppressed entirely. Pure
+  /// vector ENC content at very wide-area zooms paints as a noisy
+  /// mat of tiny triangles — there's nothing useful for the user
+  /// to see, and the tile manager's per-chart minZoom typically
+  /// blocks fetches anyway.
+  static const double _minRenderZoom = 8.0;
+
   @override
   Widget build(BuildContext context) {
     final camera = MapCamera.of(context);
+    if (camera.zoom < _minRenderZoom) {
+      return const SizedBox.shrink();
+    }
     return MobileLayerTransformer(
       child: CustomPaint(
         painter: _S57Painter(
@@ -3406,6 +4004,7 @@ class _S57OverlayLayer extends StatelessWidget {
           spriteImage: spriteImage,
           hiddenClasses: hiddenClasses,
           enabledChartIds: enabledChartIds,
+          chartOpacities: chartOpacities,
           declutter: declutter,
           depthMetadata: depthMetadata,
         ),
@@ -3425,6 +4024,7 @@ class _S57Painter extends CustomPainter {
     required this.spriteImage,
     this.hiddenClasses = const <String>{},
     this.enabledChartIds = const <String>{},
+    this.chartOpacities = const <String, double>{},
     this.declutter = false,
     this.depthMetadata,
   });
@@ -3444,6 +4044,10 @@ class _S57Painter extends CustomPainter {
   // Chart ids the user has enabled in the layer panel. Features whose
   // `chartId` is not in this set are skipped — toggle is instant.
   final Set<String> enabledChartIds;
+  // Per-chart opacity from the layer panel. Each chart's features are
+  // wrapped in a `saveLayer` with this alpha when < 1.0; missing or
+  // 1.0 entries skip the layer save and paint at full opacity.
+  final Map<String, double> chartOpacities;
   // User-forced declutter. When true, sounding-label decimation runs
   // at every zoom; otherwise the auto-cutoff at zoom > 11 still
   // fires.
@@ -3493,14 +4097,46 @@ class _S57Painter extends CustomPainter {
     // → point symbols) without needing per-feature priority data from
     // the engine. A finer-grained priority sort lives behind a later
     // task, once the lookup row's priority is threaded through.
+    //
+    // Within each geometry pass, features are bucketed by `chartId`
+    // so per-chart opacity from the layer panel can be applied via
+    // `saveLayer` once per chart per pass. Bucket draw *order*
+    // follows `enabledChartIds` (which the chart plotter builds by
+    // walking `_layers` in panel order), so dragging an S-57 row in
+    // the panel is what controls cross-chart z-order in overlap
+    // areas. Cross-zoom ordering within each chart is preserved
+    // because we walk `sorted` in cross-zoom order while filling
+    // each bucket.
     for (final kind in _paintOrder) {
+      final byChart = <String, List<S57StyledFeature>>{};
       for (final entry in sorted) {
         for (final f in entry.value.features) {
           if (f.geometry.kind != kind) continue;
           if (hiddenClasses.contains(f.objectClass)) continue;
           if (!enabledChartIds.contains(f.chartId)) continue;
+          byChart.putIfAbsent(f.chartId, () => <S57StyledFeature>[]).add(f);
+        }
+      }
+      // Iterate in `enabledChartIds` order (panel order, courtesy of
+      // Dart's default `LinkedHashSet`), NOT `byChart.entries` order
+      // (which is feature-encounter order and ignores the panel).
+      for (final chartId in enabledChartIds) {
+        final features = byChart[chartId];
+        if (features == null || features.isEmpty) continue;
+        final opacity = (chartOpacities[chartId] ?? 1.0).clamp(0.0, 1.0);
+        final useLayer = opacity < 0.999;
+        if (useLayer) {
+          // saveLayer with an alpha-only paint stamps every draw
+          // inside it through that alpha when restored.
+          canvas.saveLayer(
+            null,
+            Paint()..color = Color.fromRGBO(0, 0, 0, opacity),
+          );
+        }
+        for (final f in features) {
           _paintFeature(canvas, f, project);
         }
+        if (useLayer) canvas.restore();
       }
     }
   }
@@ -3885,8 +4521,32 @@ class _S57Painter extends CustomPainter {
       old.depthMetadata != depthMetadata ||
       old.hiddenClasses.length != hiddenClasses.length ||
       !old.hiddenClasses.containsAll(hiddenClasses) ||
-      old.enabledChartIds.length != enabledChartIds.length ||
-      !old.enabledChartIds.containsAll(enabledChartIds);
+      !_orderedSetEqual(old.enabledChartIds, enabledChartIds) ||
+      !_chartOpacitiesEqual(old.chartOpacities, chartOpacities);
+
+  /// Order-sensitive compare for `enabledChartIds`. Both sets are
+  /// `LinkedHashSet`s built by walking `_layers` in panel order, and
+  /// the painter uses that order for cross-chart paint sequence, so
+  /// a reorder with the same membership must still trigger a repaint.
+  static bool _orderedSetEqual(Set<String> a, Set<String> b) {
+    if (a.length != b.length) return false;
+    final ai = a.iterator;
+    final bi = b.iterator;
+    while (ai.moveNext() && bi.moveNext()) {
+      if (ai.current != bi.current) return false;
+    }
+    return true;
+  }
+
+  static bool _chartOpacitiesEqual(
+      Map<String, double> a, Map<String, double> b) {
+    if (a.length != b.length) return false;
+    for (final entry in a.entries) {
+      final other = b[entry.key];
+      if (other == null || other != entry.value) return false;
+    }
+    return true;
+  }
 }
 
 /// Paints the vessel's recent track. Matches V1's gradient-faded
@@ -5528,6 +6188,9 @@ class _MapControls extends StatelessWidget {
     required this.weatherRoutingEnabled,
     required this.weatherRouteActive,
     required this.onWeatherRouting,
+    required this.playerVisible,
+    required this.playerAvailable,
+    required this.onTogglePlayer,
   });
   final bool autoFollow;
   final _ViewMode viewMode;
@@ -5549,6 +6212,14 @@ class _MapControls extends StatelessWidget {
   final bool weatherRoutingEnabled;
   final bool weatherRouteActive;
   final VoidCallback? onWeatherRouting;
+  /// True while the user has the weather player strip open. The
+  /// toolbar button tints orange to mirror the strip's accent.
+  final bool playerVisible;
+  /// True when at least one time-keyed weather layer is on, so the
+  /// player has something to scrub. When false the button is dimmed
+  /// and the tap is a no-op.
+  final bool playerAvailable;
+  final VoidCallback onTogglePlayer;
 
   @override
   Widget build(BuildContext context) {
@@ -5608,6 +6279,21 @@ class _MapControls extends StatelessWidget {
               tooltip: 'Weather routing',
               onPressed: onWeatherRouting,
             ),
+          IconButton(
+            icon: Icon(
+              Icons.play_circle_outline,
+              color: !playerAvailable
+                  ? Colors.white24
+                  : (playerVisible
+                      ? const Color(0xFFFF9800)
+                      : Colors.white),
+              size: 20,
+            ),
+            tooltip: !playerAvailable
+                ? 'Weather player (turn on a weather layer)'
+                : (playerVisible ? 'Hide weather player' : 'Show weather player'),
+            onPressed: playerAvailable ? onTogglePlayer : null,
+          ),
           IconButton(
             icon: const Icon(Icons.download, color: Colors.white, size: 20),
             tooltip: 'Download charts',
@@ -5986,10 +6672,30 @@ class _FreshnessChip extends StatelessWidget {
 /// matching SignalK path, e.g. roughness index) we fall through to
 /// the server's SI values verbatim.
 class _LegendBar extends StatelessWidget {
-  const _LegendBar({required this.metadata, required this.pathMetadata});
+  const _LegendBar({
+    required this.metadata,
+    required this.pathMetadata,
+    this.formatter,
+    this.formatterSymbol,
+  });
 
   final WeatherLayerMetadata metadata;
   final PathMetadata? pathMetadata;
+
+  /// Optional override — when non-null, the legend hands SI values to
+  /// this closure instead of going through [pathMetadata]'s formula.
+  /// Used for layers whose conversions can't be expressed as a single
+  /// multiplicative factor (temperature, precipitation rate); the
+  /// closure routes through MetadataStore (server-fed PathMetadata)
+  /// plus any non-unit scale the layer needs (e.g. seconds → hours
+  /// for the precip rate).
+  final String Function(double siValue)? formatter;
+
+  /// User-preferred unit symbol shown in the legend heading when
+  /// [formatter] is in play. Sourced from MetadataStore (server-fed
+  /// `PathMetadata.symbol`) so the heading and tick labels agree on
+  /// units.
+  final String? formatterSymbol;
 
   // The server labels unitless scales (e.g. roughness index) as
   // "dimensionless". That word reads as noise next to the number, so
@@ -6001,6 +6707,8 @@ class _LegendBar extends StatelessWidget {
   }
 
   String _formatValue(double siValue) {
+    final fmt = formatter;
+    if (fmt != null) return fmt(siValue);
     if (pathMetadata != null && !_isUnitless(pathMetadata!.symbol)) {
       return pathMetadata!.format(siValue, decimals: 1);
     }
@@ -6011,10 +6719,11 @@ class _LegendBar extends StatelessWidget {
 
   String _legendHeading() {
     final serverTitle = metadata.legendTitle;
-    final symbol = pathMetadata?.symbol ?? metadata.valueUnits;
-    // Strip any trailing "(units)" from the server's title and
-    // re-append the symbol we actually used, so heading and tick
-    // labels agree.
+    // When a `formatter` is in play, its symbol came from MetadataStore
+    // and is the source of truth. Otherwise fall back to the
+    // path-metadata symbol, then to the server's SI tag.
+    final symbol =
+        formatterSymbol ?? pathMetadata?.symbol ?? metadata.valueUnits;
     final cleaned =
         serverTitle.replaceAll(RegExp(r'\s*\([^)]*\)\s*$'), '').trim();
     if (_isUnitless(symbol)) return cleaned;
@@ -6158,10 +6867,14 @@ class _OnMapLegendEntry {
   const _OnMapLegendEntry({
     required this.metadata,
     required this.pathMetadata,
+    required this.formatter,
+    required this.formatterSymbol,
     required this.minZoom,
   });
   final WeatherLayerMetadata metadata;
   final PathMetadata? pathMetadata;
+  final String Function(double)? formatter;
+  final String? formatterSymbol;
   final int minZoom;
 }
 
@@ -6246,6 +6959,8 @@ class _OnMapLegendStackState extends State<_OnMapLegendStack> {
                 child: _LegendBar(
                   metadata: e.metadata,
                   pathMetadata: e.pathMetadata,
+                  formatter: e.formatter,
+                  formatterSymbol: e.formatterSymbol,
                 ),
               ),
             ),
@@ -6300,6 +7015,209 @@ class _LayerZoomDropdown extends StatelessWidget {
         ),
       ),
     );
+  }
+}
+
+/// Floating player strip pinned over the chart. Owns no state — its
+/// fields come from the chart plotter and every interaction goes back
+/// out through callbacks. Visible only when the player toggle is on
+/// AND at least one time-keyed weather layer is active.
+class _WeatherPlayerStrip extends StatelessWidget {
+  const _WeatherPlayerStrip({
+    required this.offsetHours,
+    required this.direction,
+    required this.minOffset,
+    required this.maxOffset,
+    required this.referenceTime,
+    required this.onSetDirection,
+    required this.onStep,
+    required this.onSeek,
+    required this.onResetToNow,
+    required this.onClose,
+  });
+
+  final int offsetHours;
+  /// 0 = paused, +1 = forward play, -1 = reverse play.
+  final int direction;
+  final int minOffset;
+  final int maxOffset;
+  final DateTime referenceTime;
+  final ValueChanged<int> onSetDirection;
+  final ValueChanged<int> onStep;
+  final ValueChanged<int> onSeek;
+  final VoidCallback onResetToNow;
+  final VoidCallback onClose;
+
+  static const Color _accent = Color(0xFFFF9800);
+
+  @override
+  Widget build(BuildContext context) {
+    final local = referenceTime.toLocal();
+    String two(int n) => n.toString().padLeft(2, '0');
+    final dayLabel = _shortWeekday(local.weekday);
+    final timeLabel = '$dayLabel ${two(local.hour)}:${two(local.minute)}';
+    final offsetLabel = offsetHours == 0
+        ? 'now'
+        : (offsetHours > 0 ? '+${offsetHours}h' : '${offsetHours}h');
+    final atMin = offsetHours <= minOffset;
+    final atMax = offsetHours >= maxOffset;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.72),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.white24),
+      ),
+      padding: const EdgeInsets.fromLTRB(8, 6, 4, 4),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: RichText(
+                  text: TextSpan(
+                    style: const TextStyle(fontFamily: 'Menlo'),
+                    children: [
+                      TextSpan(
+                        text: timeLabel,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 13,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const TextSpan(text: '  '),
+                      TextSpan(
+                        text: offsetLabel,
+                        style: const TextStyle(
+                          color: Colors.white54,
+                          fontSize: 11,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              IconButton(
+                icon: const Icon(Icons.replay,
+                    color: Colors.white70, size: 18),
+                tooltip: 'Reset to now',
+                onPressed: onResetToNow,
+                constraints:
+                    const BoxConstraints.tightFor(width: 32, height: 28),
+                padding: EdgeInsets.zero,
+              ),
+              IconButton(
+                icon: const Icon(Icons.close,
+                    color: Colors.white70, size: 18),
+                tooltip: 'Close player',
+                onPressed: onClose,
+                constraints:
+                    const BoxConstraints.tightFor(width: 32, height: 28),
+                padding: EdgeInsets.zero,
+              ),
+            ],
+          ),
+          SliderTheme(
+            data: SliderTheme.of(context).copyWith(
+              trackHeight: 2,
+              thumbShape:
+                  const RoundSliderThumbShape(enabledThumbRadius: 7),
+              overlayShape:
+                  const RoundSliderOverlayShape(overlayRadius: 14),
+              activeTrackColor: _accent,
+              inactiveTrackColor: Colors.white24,
+              thumbColor: _accent,
+            ),
+            child: Slider(
+              value:
+                  offsetHours.clamp(minOffset, maxOffset).toDouble(),
+              min: minOffset.toDouble(),
+              max: maxOffset.toDouble(),
+              divisions: maxOffset - minOffset,
+              onChanged: (v) => onSeek(v.round()),
+            ),
+          ),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              _transportButton(
+                icon: Icons.skip_previous,
+                tooltip: 'Step back 1 hour',
+                tinted: false,
+                enabled: !atMin,
+                onPressed: () => onStep(-1),
+              ),
+              _transportButton(
+                icon: direction == -1 ? Icons.pause : Icons.play_arrow,
+                flipHorizontal: direction != -1,
+                tooltip: direction == -1 ? 'Pause' : 'Play backward',
+                tinted: direction == -1,
+                enabled: !atMin,
+                onPressed: () => onSetDirection(-1),
+              ),
+              _transportButton(
+                icon: direction == 1 ? Icons.pause : Icons.play_arrow,
+                tooltip: direction == 1 ? 'Pause' : 'Play forward',
+                tinted: direction == 1,
+                enabled: !atMax,
+                onPressed: () => onSetDirection(1),
+              ),
+              _transportButton(
+                icon: Icons.skip_next,
+                tooltip: 'Step forward 1 hour',
+                tinted: false,
+                enabled: !atMax,
+                onPressed: () => onStep(1),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _transportButton({
+    required IconData icon,
+    required String tooltip,
+    required bool tinted,
+    required bool enabled,
+    required VoidCallback onPressed,
+    bool flipHorizontal = false,
+  }) {
+    final color =
+        !enabled ? Colors.white24 : (tinted ? _accent : Colors.white);
+    final iconWidget = Icon(icon, color: color, size: 24);
+    return IconButton(
+      icon: flipHorizontal
+          ? Transform.flip(flipX: true, child: iconWidget)
+          : iconWidget,
+      tooltip: tooltip,
+      onPressed: enabled ? onPressed : null,
+      constraints: const BoxConstraints.tightFor(width: 40, height: 36),
+      padding: EdgeInsets.zero,
+    );
+  }
+
+  static String _shortWeekday(int weekday) {
+    switch (weekday) {
+      case DateTime.monday:
+        return 'Mon';
+      case DateTime.tuesday:
+        return 'Tue';
+      case DateTime.wednesday:
+        return 'Wed';
+      case DateTime.thursday:
+        return 'Thu';
+      case DateTime.friday:
+        return 'Fri';
+      case DateTime.saturday:
+        return 'Sat';
+      case DateTime.sunday:
+        return 'Sun';
+    }
+    return '';
   }
 }
 

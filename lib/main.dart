@@ -40,6 +40,7 @@ import 'services/chart_tile_server_service.dart';
 import 'services/chart_download_manager.dart';
 import 'services/route_planner_auth_service.dart';
 import 'services/route_planner_boats_service.dart';
+import 'services/route_planner_charts_service.dart';
 import 'services/weather_routing_service.dart';
 import 'models/alert_event.dart' as alert_models;
 
@@ -233,6 +234,9 @@ void main() async {
     auth: routePlannerAuthService,
     storage: storageService,
   );
+  final routePlannerChartsService = RoutePlannerChartsService(
+    auth: routePlannerAuthService,
+  );
 
   runApp(ZedDisplayApp(
     storageService: storageService,
@@ -259,6 +263,7 @@ void main() async {
     routePlannerAuthService: routePlannerAuthService,
     weatherRoutingService: weatherRoutingService,
     routePlannerBoatsService: routePlannerBoatsService,
+    routePlannerChartsService: routePlannerChartsService,
   ));
 }
 
@@ -287,6 +292,7 @@ class ZedDisplayApp extends StatefulWidget {
   final RoutePlannerAuthService routePlannerAuthService;
   final WeatherRoutingService weatherRoutingService;
   final RoutePlannerBoatsService routePlannerBoatsService;
+  final RoutePlannerChartsService routePlannerChartsService;
 
   const ZedDisplayApp({
     super.key,
@@ -314,6 +320,7 @@ class ZedDisplayApp extends StatefulWidget {
     required this.routePlannerAuthService,
     required this.weatherRoutingService,
     required this.routePlannerBoatsService,
+    required this.routePlannerChartsService,
   });
 
   @override
@@ -578,6 +585,7 @@ class _ZedDisplayAppState extends State<ZedDisplayApp> with WidgetsBindingObserv
         ChangeNotifierProvider.value(value: widget.routePlannerAuthService),
         ChangeNotifierProvider.value(value: widget.weatherRoutingService),
         ChangeNotifierProvider.value(value: widget.routePlannerBoatsService),
+        ChangeNotifierProvider.value(value: widget.routePlannerChartsService),
         Provider<NotificationNavigationService>.value(value: widget.notificationNavigationService),
       ],
       child: MaterialApp(

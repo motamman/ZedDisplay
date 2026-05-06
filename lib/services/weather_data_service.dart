@@ -93,6 +93,11 @@ class WeatherDataService extends ChangeNotifier {
     '/wind-heatmap',
     '/current-heatmap',
     '/roughness',
+    '/wave-heatmap',
+    '/precip-heatmap',
+    '/depth',
+    '/temperature',
+    '/sst',
   ];
   final Map<String, WeatherLayerMetadata> _metadata = {};
   WeatherLayerMetadata? metadataFor(String path) => _metadata[path];
@@ -196,13 +201,26 @@ class WeatherDataService extends ChangeNotifier {
   /// Headers that every tile request (raster and JSON) must carry.
   Map<String, String> get authHeaders => _auth.authorisedHeaders();
 
-  /// Zoom floors mirror the server's gates so we don't hit the network
-  /// for a guaranteed-empty response.
-  static const int zoomFloorWindBarbs = 6;
-  static const int zoomFloorCurrents = 11;
+  /// Default zoom floors. Standardised at **5** for every layer.
+  ///
+  /// These are floors, not server gates: when server metadata
+  /// publishes a tighter `minzoom`, that wins via
+  /// `_effectiveMinZoom`'s `max(metadata, fallback)` clamp.
+  static const int zoomFloorWindBarbs = 5;
+  static const int zoomFloorCurrents = 5;
   static const int zoomFloorWindHeatmap = 5;
-  static const int zoomFloorCurrentHeatmap = 9;
-  static const int zoomFloorSeaState = 9;
+  static const int zoomFloorCurrentHeatmap = 5;
+  static const int zoomFloorSeaState = 5;
+  static const int zoomFloorWaveHeatmap = 5;
+  static const int zoomFloorPrecipHeatmap = 5;
+  static const int zoomFloorDepth = 5;
+  /// `/temperature`: 2-metre air temperature heatmap PNG (ECMWF
+  /// HRES `2t`/`t2m`). Server returns 204 below z=5.
+  static const int zoomFloorTemperature = 5;
+  /// `/sst`: sea-surface skin temperature heatmap PNG (ECMWF HRES
+  /// `skt`); land cells alpha-masked via the OSM land polygon
+  /// raster. Server returns 204 below z=5.
+  static const int zoomFloorSst = 5;
 
   // ===== Vector tile cache =====
   //

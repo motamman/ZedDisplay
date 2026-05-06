@@ -1,0 +1,147 @@
+import 'dart:async';
+import 'dart:convert';
+import 'dart:math' as math;
+
+import 'package:flutter/foundation.dart';
+import 'package:http/http.dart' as http;
+
+import '../config/service_constants.dart';
+import 'route_planner_auth_service.dart';
+
+/// Per-chart metadata as exposed by the route planner's `/charts`
+/// endpoint. Bounds are EPSG:4326 (geographic), zoom range is the
+/// MBTiles native zoom range. The tile manager uses [intersectsTile]
+/// to skip fetches that would otherwise 404.
+class ChartDescriptor {
+  const ChartDescriptor({
+    required this.id,
+    required this.west,
+    required this.south,
+    required this.east,
+    required this.north,
+    required this.minZoom,
+    required this.maxZoom,
+  });
+
+  final String id;
+  final double west;
+  final double south;
+  final double east;
+  final double north;
+  final int minZoom;
+  final int maxZoom;
+
+  bool intersectsTile(int z, int x, int y) {
+    if (z < minZoom || z > maxZoom) return false;
+    final n = 1 << z;
+    final tileWest = x * 360.0 / n - 180.0;
+    final tileEast = (x + 1) * 360.0 / n - 180.0;
+    final tileNorth = _tileYToLat(y, n);
+    final tileSouth = _tileYToLat(y + 1, n);
+    return tileEast >= west &&
+        tileWest <= east &&
+        tileNorth >= south &&
+        tileSouth <= north;
+  }
+
+  static double _tileYToLat(int y, int n) {
+    final m = math.pi * (1 - 2 * y / n);
+    return math.atan((math.exp(m) - math.exp(-m)) / 2) * 180.0 / math.pi;
+  }
+
+  factory ChartDescriptor.fromJson(Map<String, dynamic> j) {
+    final b = j['bounds'] as Map<String, dynamic>;
+    return ChartDescriptor(
+      id: j['id'] as String,
+      west: (b['west'] as num).toDouble(),
+      south: (b['south'] as num).toDouble(),
+      east: (b['east'] as num).toDouble(),
+      north: (b['north'] as num).toDouble(),
+      minZoom: (j['minzoom'] as num).toInt(),
+      maxZoom: (j['maxzoom'] as num).toInt(),
+    );
+  }
+}
+
+/// Wraps the route-planner `/charts` endpoint. Caches the returned
+/// catalog and exposes it as `List<ChartDescriptor>`. Mirrors the
+/// `RoutePlannerBoatsService` shape: settable [baseUrl], `lastError`
+/// for snackbar surfacing, `loading` for spinner gating.
+///
+/// Refreshes are explicit — call [refresh] from the chart plotter on
+/// init so the catalog is ready when `_layers` seeds. The service does
+/// not poll; the catalog only changes when the operator restarts the
+/// router with new MBTiles, so a one-shot fetch per session is enough.
+class RoutePlannerChartsService extends ChangeNotifier {
+  RoutePlannerChartsService({required RoutePlannerAuthService auth})
+      : _auth = auth;
+
+  final RoutePlannerAuthService _auth;
+
+  String _baseUrl = 'https://router.zeddisplay.com';
+  String get baseUrl => _baseUrl;
+  set baseUrl(String v) {
+    final trimmed = v.trim().replaceAll(RegExp(r'/+$'), '');
+    if (trimmed == _baseUrl) return;
+    _baseUrl = trimmed;
+    // Catalog and any prior error message belong to the old server —
+    // drop both so listeners that re-seed off the catalog (chart
+    // plotter's `_layersSeededFromCatalog`) and snackbars driven by
+    // `lastError` see clean state for the next refresh.
+    _charts = const [];
+    _lastError = null;
+    notifyListeners();
+  }
+
+  List<ChartDescriptor> _charts = const [];
+  List<ChartDescriptor> get charts => _charts;
+
+  bool _loading = false;
+  bool get loading => _loading;
+
+  String? _lastError;
+  String? get lastError => _lastError;
+  void clearError() {
+    if (_lastError == null) return;
+    _lastError = null;
+    notifyListeners();
+  }
+
+  Future<void> refresh() async {
+    if (_loading) return;
+    _loading = true;
+    notifyListeners();
+    try {
+      final uri = Uri.parse('$_baseUrl/charts');
+      final resp = await http
+          .get(uri, headers: _auth.authorisedHeaders())
+          .timeout(ServiceConstants.shortHttpTimeout);
+      if (resp.statusCode != 200) {
+        _lastError = 'GET /charts failed: HTTP ${resp.statusCode}';
+        return;
+      }
+      final j = jsonDecode(resp.body);
+      if (j is! List) {
+        _lastError = 'GET /charts: expected JSON list';
+        return;
+      }
+      _charts = j
+          .whereType<Map<String, dynamic>>()
+          .map(ChartDescriptor.fromJson)
+          .toList(growable: false);
+      _lastError = null;
+    } catch (e) {
+      _lastError = 'GET /charts error: $e';
+    } finally {
+      _loading = false;
+      notifyListeners();
+    }
+  }
+
+  ChartDescriptor? byId(String id) {
+    for (final c in _charts) {
+      if (c.id == id) return c;
+    }
+    return null;
+  }
+}

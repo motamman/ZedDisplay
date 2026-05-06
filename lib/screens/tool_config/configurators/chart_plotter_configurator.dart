@@ -113,7 +113,6 @@ class ChartPlotterConfigurator extends ToolConfigurator {
               const SizedBox(height: 8),
               ChartLayerPanel(
                 layers: layers,
-                signalKService: signalKService,
                 setState: setState,
               ),
 
