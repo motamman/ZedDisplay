@@ -353,12 +353,18 @@ class ChartPlotterV3Configurator extends ToolConfigurator {
                     final nextOrigin = _httpOriginOrNull(next);
                     if (nextOrigin == null) return;
                     final prevOrigin = _lastValidOrigin;
-                    _lastValidOrigin = nextOrigin;
                     if (prevOrigin == null || prevOrigin == nextOrigin) {
+                      _lastValidOrigin = nextOrigin;
                       return;
                     }
+                    // Only advance `_lastValidOrigin` once `clear()`
+                    // succeeds — if it throws (Hive disk error, etc.)
+                    // the old token would otherwise survive AND a
+                    // subsequent edit to the same new origin would
+                    // skip the retry because `prev == next`.
                     final auth = context.read<RoutePlannerAuthService>();
                     await auth.clear();
+                    _lastValidOrigin = nextOrigin;
                   },
                 ),
                 const SizedBox(height: 12),
