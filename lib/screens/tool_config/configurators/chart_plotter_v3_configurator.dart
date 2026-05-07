@@ -39,6 +39,13 @@ class ChartPlotterV3Configurator extends ToolConfigurator {
   RouteMode weatherRouteDefaultMode = RouteMode.sailMax;
   String weatherRoutePolar = '';
 
+  /// Last fully-parsed router origin (`<scheme>://<host>[:<port>]`).
+  /// Compared against the next valid origin in the API-URL field's
+  /// `onChanged` so we can detect a real router switch even when the
+  /// user has typed through invalid intermediate values. Origin (not
+  /// host) so a scheme/port flip on the same hostname is also caught.
+  String? _lastValidOrigin;
+
   @override
   void reset() {
     layers = [
@@ -54,6 +61,7 @@ class ChartPlotterV3Configurator extends ToolConfigurator {
     hiddenClasses = <String>{};
     weatherRoutingEnabled = true;
     routePlannerBaseUrl = 'https://router.zeddisplay.com';
+    _lastValidOrigin = _httpOriginOrNull(routePlannerBaseUrl);
     weatherRouteDefaultMode = RouteMode.sailMax;
     weatherRoutePolar = '';
   }
@@ -91,6 +99,7 @@ class ChartPlotterV3Configurator extends ToolConfigurator {
     weatherRoutingEnabled = props['weatherRoutingEnabled'] as bool? ?? true;
     routePlannerBaseUrl = props['routePlannerBaseUrl'] as String? ??
         'https://router.zeddisplay.com';
+    _lastValidOrigin = _httpOriginOrNull(routePlannerBaseUrl);
     weatherRouteDefaultMode =
         RouteMode.fromWire(props['weatherRouteDefaultMode'] as String?);
     weatherRoutePolar = props['weatherRoutePolar'] as String? ?? '';
@@ -121,6 +130,26 @@ class ChartPlotterV3Configurator extends ToolConfigurator {
 
   @override
   String? validate() => null;
+
+  /// Returns the canonical origin of `raw` — `<scheme>://<host>` plus
+  /// `:<port>` when the URL specifies a non-default port — only when
+  /// it parses as an absolute HTTP(S) URL with a non-empty host.
+  /// Returns null otherwise (empty input, relative paths, custom
+  /// schemes, or partially-typed URLs the user is still editing).
+  /// Used by the API-URL field's onChanged so a mid-edit keystroke
+  /// can't trigger a token-clearing comparison, and so a scheme or
+  /// port flip on the same host is treated as a router change too.
+  static String? _httpOriginOrNull(String raw) {
+    final parsed = Uri.tryParse(raw.trim());
+    if (parsed == null) return null;
+    final scheme = parsed.scheme.toLowerCase();
+    if (scheme != 'http' && scheme != 'https') return null;
+    if (parsed.host.isEmpty) return null;
+    final host = parsed.host.toLowerCase();
+    final defaultPort = scheme == 'https' ? 443 : 80;
+    final port = parsed.hasPort ? parsed.port : defaultPort;
+    return port == defaultPort ? '$scheme://$host' : '$scheme://$host:$port';
+  }
 
   @override
   Widget buildConfigUI(BuildContext context, SignalKService signalKService) {
@@ -305,8 +334,38 @@ class ChartPlotterV3Configurator extends ToolConfigurator {
                     hintText: 'https://router.zeddisplay.com',
                     isDense: true,
                   ),
-                  onChanged: (v) =>
-                      setState(() => routePlannerBaseUrl = v.trim()),
+                  onChanged: (v) async {
+                    final next = v.trim();
+                    if (next == routePlannerBaseUrl) return;
+                    // Update the visible state synchronously so fast
+                    // edits never lag behind what the user is typing.
+                    setState(() => routePlannerBaseUrl = next);
+                    // Tokens are minted by the router at a specific
+                    // origin — they don't authenticate against a
+                    // different deployment. Drop the bearer only on a
+                    // real origin change between two parseable URLs;
+                    // `_lastValidOrigin` survives invalid intermediate
+                    // keystrokes so editing through `https://` and out
+                    // again still trips the comparison if the user
+                    // lands on a different server. Origin (scheme +
+                    // host + port) so `https→http` or a port flip on
+                    // the same hostname is also caught.
+                    final nextOrigin = _httpOriginOrNull(next);
+                    if (nextOrigin == null) return;
+                    final prevOrigin = _lastValidOrigin;
+                    if (prevOrigin == null || prevOrigin == nextOrigin) {
+                      _lastValidOrigin = nextOrigin;
+                      return;
+                    }
+                    // Only advance `_lastValidOrigin` once `clear()`
+                    // succeeds — if it throws (Hive disk error, etc.)
+                    // the old token would otherwise survive AND a
+                    // subsequent edit to the same new origin would
+                    // skip the retry because `prev == next`.
+                    final auth = context.read<RoutePlannerAuthService>();
+                    await auth.clear();
+                    _lastValidOrigin = nextOrigin;
+                  },
                 ),
                 const SizedBox(height: 12),
                 const Text('Default routing mode',
@@ -719,22 +778,41 @@ class _BearerTokenSectionState extends State<_BearerTokenSection> {
   @override
   Widget build(BuildContext context) {
     final auth = context.watch<RoutePlannerAuthService>();
+    // Once signed in, the only thing the user needs is a way out —
+    // hide the manual-paste field and the Sign-in / Save buttons so
+    // the configurator doesn't feel like a half-completed form.
+    // Pasting a different token isn't a real use case once OAuth
+    // works; if the user wants to replace the token they Sign out
+    // and Sign in again, which goes through the in-app flow.
+    if (auth.hasToken) {
+      return Row(
+        children: [
+          const Icon(Icons.verified_user,
+              color: Color(0xFF88DD88), size: 14),
+          const SizedBox(width: 4),
+          const Text('Signed in',
+              style: TextStyle(
+                  color: Color(0xFF88DD88), fontSize: 12)),
+          const Spacer(),
+          TextButton(
+            onPressed: () async {
+              await auth.clear();
+              _ctrl.clear();
+              if (!mounted) return;
+              setState(() => _dirty = false);
+            },
+            child: const Text('Sign out',
+                style: TextStyle(color: Color(0xFFFF8888))),
+          ),
+        ],
+      );
+    }
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          children: [
-            const Text('Bearer token',
-                style: TextStyle(color: Colors.grey, fontSize: 12)),
-            const Spacer(),
-            if (auth.hasToken)
-              const Padding(
-                padding: EdgeInsets.only(right: 4),
-                child: Icon(Icons.verified_user,
-                    color: Color(0xFF88DD88), size: 14),
-              ),
-          ],
-        ),
+        const Text('Bearer token',
+            style: TextStyle(color: Colors.grey, fontSize: 12)),
         const SizedBox(height: 4),
         Row(
           children: [
@@ -743,12 +821,10 @@ class _BearerTokenSectionState extends State<_BearerTokenSection> {
                 controller: _ctrl,
                 obscureText: true,
                 style: const TextStyle(fontFamily: 'Menlo'),
-                decoration: InputDecoration(
-                  hintText: auth.hasToken
-                      ? 'Token set — paste new to replace'
-                      : 'Paste bearer token',
+                decoration: const InputDecoration(
+                  hintText: 'Paste bearer token',
                   isDense: true,
-                  border: const OutlineInputBorder(),
+                  border: OutlineInputBorder(),
                 ),
               ),
             ),
@@ -773,10 +849,25 @@ class _BearerTokenSectionState extends State<_BearerTokenSection> {
                 label: const Text('Sign in with Google'),
                 onPressed: () async {
                   final messenger = ScaffoldMessenger.of(context);
-                  final ok = await auth.signInWithGoogle(widget.baseUrl);
-                  if (!ok) {
+                  // signInWithGoogle owns the system-browser flow,
+                  // captures the token from the deep-link callback,
+                  // and persists it. Configurator just surfaces the
+                  // outcome — the build flips to the signed-in
+                  // branch above as soon as setBearerToken fires
+                  // notifyListeners.
+                  final result = await auth.signInWithGoogle(widget.baseUrl);
+                  if (!mounted) return;
+                  if (result.ok) {
                     messenger.showSnackBar(
-                      const SnackBar(content: Text('Could not open browser')),
+                      const SnackBar(content: Text('Signed in')),
+                    );
+                  } else if (result.cancelled) {
+                    // User hit close on the auth tab; nothing to say.
+                  } else if (result.error != null) {
+                    messenger.showSnackBar(
+                      SnackBar(
+                        content: Text('Sign-in failed: ${result.error}'),
+                      ),
                     );
                   }
                 },
@@ -784,7 +875,7 @@ class _BearerTokenSectionState extends State<_BearerTokenSection> {
             ),
             const SizedBox(width: 8),
             TextButton(
-              onPressed: (_ctrl.text.isEmpty && !auth.hasToken) || !_dirty
+              onPressed: _ctrl.text.isEmpty || !_dirty
                   ? null
                   : () async {
                       await auth.setBearerToken(_ctrl.text);
@@ -793,19 +884,6 @@ class _BearerTokenSectionState extends State<_BearerTokenSection> {
                     },
               child: const Text('Save'),
             ),
-            if (auth.hasToken) ...[
-              const SizedBox(width: 4),
-              TextButton(
-                onPressed: () async {
-                  await auth.clear();
-                  _ctrl.clear();
-                  if (!mounted) return;
-                  setState(() => _dirty = false);
-                },
-                child: const Text('Sign out',
-                    style: TextStyle(color: Color(0xFFFF8888))),
-              ),
-            ],
           ],
         ),
       ],

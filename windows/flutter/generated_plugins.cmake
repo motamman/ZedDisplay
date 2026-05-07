@@ -5,11 +5,13 @@
 list(APPEND FLUTTER_PLUGIN_LIST
   audioplayers_windows
   battery_plus
+  desktop_webview_window
   flutter_webrtc
   geolocator_windows
   permission_handler_windows
   share_plus
   url_launcher_windows
+  window_to_front
 )
 
 list(APPEND FLUTTER_FFI_PLUGIN_LIST
