@@ -802,10 +802,9 @@ class _BearerTokenSectionState extends State<_BearerTokenSection> {
                     messenger.showSnackBar(
                       const SnackBar(content: Text('Signed in')),
                     );
+                  } else if (result.cancelled) {
+                    // User hit close on the auth tab; nothing to say.
                   } else if (result.error != null) {
-                    // flutter_web_auth_2 throws on user-cancel too;
-                    // for now we treat every non-success the same —
-                    // a quiet snackbar is better than a silent no-op.
                     messenger.showSnackBar(
                       SnackBar(
                         content: Text('Sign-in failed: ${result.error}'),

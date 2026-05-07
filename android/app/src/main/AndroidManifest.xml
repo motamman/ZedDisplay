@@ -88,10 +88,11 @@
             android:foregroundServiceType="dataSync"
             android:exported="false" />
 
-        <!-- Catches the zeddisplay:// deep-link from the route-planner
-             Google sign-in flow and hands it back to flutter_web_auth_2.
-             The plugin owns CallbackActivity; the intent-filter is the
-             only thing the host app needs to declare. -->
+        <!-- Catches the com.zennora.zeddisplay:// deep-link from the
+             route-planner Google sign-in flow and hands it back to
+             flutter_web_auth_2. Reverse-DNS scheme per RFC 8252 §7.1.
+             The plugin owns CallbackActivity; the intent-filter is
+             the only thing the host app needs to declare. -->
         <activity
             android:name="com.linusu.flutter_web_auth_2.CallbackActivity"
             android:exported="true">
@@ -99,7 +100,7 @@
                 <action android:name="android.intent.action.VIEW"/>
                 <category android:name="android.intent.category.DEFAULT"/>
                 <category android:name="android.intent.category.BROWSABLE"/>
-                <data android:scheme="zeddisplay"/>
+                <data android:scheme="com.zennora.zeddisplay"/>
             </intent-filter>
         </activity>
     </application>

@@ -66,20 +66,22 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
-	<!-- Custom URL scheme for the route-planner Google sign-in flow.
-	     The router server redirects to zeddisplay://auth-callback?token=…
-	     after a successful OAuth; ASWebAuthenticationSession picks that
-	     URL up and hands it back to flutter_web_auth_2. -->
+	<!-- Reverse-DNS URL scheme for the route-planner Google sign-in
+	     flow (RFC 8252 §7.1). The router redirects to
+	     com.zennora.zeddisplay://auth-callback?code=…&state=… after a
+	     successful OAuth; ASWebAuthenticationSession picks that URL
+	     up and hands it back to flutter_web_auth_2, which dispatches
+	     to RoutePlannerAuthService for the code-for-token exchange. -->
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
 			<key>CFBundleTypeRole</key>
 			<string>Editor</string>
 			<key>CFBundleURLName</key>
-			<string>sv.zennora.zeddisplaysignalk.auth</string>
+			<string>sv.zennora.zeddisplaysignalk.routeplanner</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
-				<string>zeddisplay</string>
+				<string>com.zennora.zeddisplay</string>
 			</array>
 		</dict>
 	</array>
