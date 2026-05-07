@@ -122,6 +122,21 @@ class ChartPlotterV3Configurator extends ToolConfigurator {
   @override
   String? validate() => null;
 
+  /// Returns the lowercase host of `raw` only when it parses as an
+  /// absolute HTTP(S) URL with a non-empty host. Returns null for
+  /// anything else — empty input, relative paths, custom schemes,
+  /// or partially-typed URLs the user is still editing. Used by the
+  /// API-URL field's onChanged so a mid-edit keystroke can't trigger
+  /// a token-clearing host comparison.
+  static String? _httpHostOrNull(String raw) {
+    final parsed = Uri.tryParse(raw.trim());
+    if (parsed == null) return null;
+    final scheme = parsed.scheme.toLowerCase();
+    if (scheme != 'http' && scheme != 'https') return null;
+    if (parsed.host.isEmpty) return null;
+    return parsed.host.toLowerCase();
+  }
+
   @override
   Widget buildConfigUI(BuildContext context, SignalKService signalKService) {
     return StatefulBuilder(
@@ -305,20 +320,27 @@ class ChartPlotterV3Configurator extends ToolConfigurator {
                     hintText: 'https://router.zeddisplay.com',
                     isDense: true,
                   ),
-                  onChanged: (v) {
+                  onChanged: (v) async {
                     final next = v.trim();
                     if (next == routePlannerBaseUrl) return;
                     // Tokens are minted by the router at the previous
                     // base URL — they don't authenticate against a
-                    // different deployment. Drop the bearer when the
-                    // host changes so the user is forced to sign in
-                    // again on the new server rather than silently
-                    // leak the old token to it.
-                    final prevHost = Uri.tryParse(routePlannerBaseUrl)?.host;
-                    final nextHost = Uri.tryParse(next)?.host;
-                    if (prevHost != nextHost) {
-                      context.read<RoutePlannerAuthService>().clear();
+                    // different deployment. Drop the bearer only when
+                    // the host actually changes between two valid
+                    // HTTP(S) URLs. Mid-edit garbage (the user is
+                    // half-way through typing a new URL and it
+                    // doesn't yet parse) leaves the cached token
+                    // alone so a transient keystroke can't blow it
+                    // away.
+                    final auth = context.read<RoutePlannerAuthService>();
+                    final prevHost = _httpHostOrNull(routePlannerBaseUrl);
+                    final nextHost = _httpHostOrNull(next);
+                    if (prevHost != null &&
+                        nextHost != null &&
+                        prevHost != nextHost) {
+                      await auth.clear();
                     }
+                    if (!context.mounted) return;
                     setState(() => routePlannerBaseUrl = next);
                   },
                 ),
