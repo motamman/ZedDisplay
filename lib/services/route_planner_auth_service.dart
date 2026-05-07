@@ -172,15 +172,20 @@ class RoutePlannerAuthService extends ChangeNotifier {
       return const RoutePlannerSignInResult.error('Invalid base URL.');
     }
     try {
-      final resp = await http.post(
-        exchange,
-        headers: const {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'code': code,
-          'state': state,
-          'code_verifier': verifier,
-        }),
-      );
+      // Bound the round trip — without a timeout a stalled socket on
+      // a captive-portal Wi-Fi or a router gone unreachable can leave
+      // the auth flow hanging forever instead of surfacing the error.
+      final resp = await http
+          .post(
+            exchange,
+            headers: const {'Content-Type': 'application/json'},
+            body: jsonEncode({
+              'code': code,
+              'state': state,
+              'code_verifier': verifier,
+            }),
+          )
+          .timeout(const Duration(seconds: 15));
       if (resp.statusCode != 200) {
         await _bringAppToFront();
         return RoutePlannerSignInResult.error(
@@ -300,7 +305,14 @@ class RoutePlannerAuthService extends ChangeNotifier {
       trimmed = trimmed.substring(0, trimmed.length - 1);
     }
     final parsed = Uri.tryParse(trimmed);
-    if (parsed == null || !parsed.hasScheme) return null;
+    if (parsed == null) return null;
+    // Reject `file:`, `mailto:`, `javascript:`, custom-scheme deep
+    // links, etc. — anything we'd later concatenate `/auth/…` onto
+    // and try to launch in the system browser must be an absolute
+    // HTTP(S) URL with a real host.
+    final scheme = parsed.scheme.toLowerCase();
+    if (scheme != 'http' && scheme != 'https') return null;
+    if (parsed.host.isEmpty) return null;
     return parsed;
   }
 

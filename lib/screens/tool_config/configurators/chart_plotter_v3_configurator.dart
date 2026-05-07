@@ -305,8 +305,22 @@ class ChartPlotterV3Configurator extends ToolConfigurator {
                     hintText: 'https://router.zeddisplay.com',
                     isDense: true,
                   ),
-                  onChanged: (v) =>
-                      setState(() => routePlannerBaseUrl = v.trim()),
+                  onChanged: (v) {
+                    final next = v.trim();
+                    if (next == routePlannerBaseUrl) return;
+                    // Tokens are minted by the router at the previous
+                    // base URL — they don't authenticate against a
+                    // different deployment. Drop the bearer when the
+                    // host changes so the user is forced to sign in
+                    // again on the new server rather than silently
+                    // leak the old token to it.
+                    final prevHost = Uri.tryParse(routePlannerBaseUrl)?.host;
+                    final nextHost = Uri.tryParse(next)?.host;
+                    if (prevHost != nextHost) {
+                      context.read<RoutePlannerAuthService>().clear();
+                    }
+                    setState(() => routePlannerBaseUrl = next);
+                  },
                 ),
                 const SizedBox(height: 12),
                 const Text('Default routing mode',
