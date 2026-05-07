@@ -39,6 +39,13 @@ class ChartPlotterV3Configurator extends ToolConfigurator {
   RouteMode weatherRouteDefaultMode = RouteMode.sailMax;
   String weatherRoutePolar = '';
 
+  /// Last fully-parsed router origin (`<scheme>://<host>[:<port>]`).
+  /// Compared against the next valid origin in the API-URL field's
+  /// `onChanged` so we can detect a real router switch even when the
+  /// user has typed through invalid intermediate values. Origin (not
+  /// host) so a scheme/port flip on the same hostname is also caught.
+  String? _lastValidOrigin;
+
   @override
   void reset() {
     layers = [
@@ -54,6 +61,7 @@ class ChartPlotterV3Configurator extends ToolConfigurator {
     hiddenClasses = <String>{};
     weatherRoutingEnabled = true;
     routePlannerBaseUrl = 'https://router.zeddisplay.com';
+    _lastValidOrigin = _httpOriginOrNull(routePlannerBaseUrl);
     weatherRouteDefaultMode = RouteMode.sailMax;
     weatherRoutePolar = '';
   }
@@ -91,6 +99,7 @@ class ChartPlotterV3Configurator extends ToolConfigurator {
     weatherRoutingEnabled = props['weatherRoutingEnabled'] as bool? ?? true;
     routePlannerBaseUrl = props['routePlannerBaseUrl'] as String? ??
         'https://router.zeddisplay.com';
+    _lastValidOrigin = _httpOriginOrNull(routePlannerBaseUrl);
     weatherRouteDefaultMode =
         RouteMode.fromWire(props['weatherRouteDefaultMode'] as String?);
     weatherRoutePolar = props['weatherRoutePolar'] as String? ?? '';
@@ -122,19 +131,24 @@ class ChartPlotterV3Configurator extends ToolConfigurator {
   @override
   String? validate() => null;
 
-  /// Returns the lowercase host of `raw` only when it parses as an
-  /// absolute HTTP(S) URL with a non-empty host. Returns null for
-  /// anything else — empty input, relative paths, custom schemes,
-  /// or partially-typed URLs the user is still editing. Used by the
-  /// API-URL field's onChanged so a mid-edit keystroke can't trigger
-  /// a token-clearing host comparison.
-  static String? _httpHostOrNull(String raw) {
+  /// Returns the canonical origin of `raw` — `<scheme>://<host>` plus
+  /// `:<port>` when the URL specifies a non-default port — only when
+  /// it parses as an absolute HTTP(S) URL with a non-empty host.
+  /// Returns null otherwise (empty input, relative paths, custom
+  /// schemes, or partially-typed URLs the user is still editing).
+  /// Used by the API-URL field's onChanged so a mid-edit keystroke
+  /// can't trigger a token-clearing comparison, and so a scheme or
+  /// port flip on the same host is treated as a router change too.
+  static String? _httpOriginOrNull(String raw) {
     final parsed = Uri.tryParse(raw.trim());
     if (parsed == null) return null;
     final scheme = parsed.scheme.toLowerCase();
     if (scheme != 'http' && scheme != 'https') return null;
     if (parsed.host.isEmpty) return null;
-    return parsed.host.toLowerCase();
+    final host = parsed.host.toLowerCase();
+    final defaultPort = scheme == 'https' ? 443 : 80;
+    final port = parsed.hasPort ? parsed.port : defaultPort;
+    return port == defaultPort ? '$scheme://$host' : '$scheme://$host:$port';
   }
 
   @override
@@ -323,25 +337,28 @@ class ChartPlotterV3Configurator extends ToolConfigurator {
                   onChanged: (v) async {
                     final next = v.trim();
                     if (next == routePlannerBaseUrl) return;
-                    // Tokens are minted by the router at the previous
-                    // base URL — they don't authenticate against a
-                    // different deployment. Drop the bearer only when
-                    // the host actually changes between two valid
-                    // HTTP(S) URLs. Mid-edit garbage (the user is
-                    // half-way through typing a new URL and it
-                    // doesn't yet parse) leaves the cached token
-                    // alone so a transient keystroke can't blow it
-                    // away.
-                    final auth = context.read<RoutePlannerAuthService>();
-                    final prevHost = _httpHostOrNull(routePlannerBaseUrl);
-                    final nextHost = _httpHostOrNull(next);
-                    if (prevHost != null &&
-                        nextHost != null &&
-                        prevHost != nextHost) {
-                      await auth.clear();
-                    }
-                    if (!context.mounted) return;
+                    // Update the visible state synchronously so fast
+                    // edits never lag behind what the user is typing.
                     setState(() => routePlannerBaseUrl = next);
+                    // Tokens are minted by the router at a specific
+                    // origin — they don't authenticate against a
+                    // different deployment. Drop the bearer only on a
+                    // real origin change between two parseable URLs;
+                    // `_lastValidOrigin` survives invalid intermediate
+                    // keystrokes so editing through `https://` and out
+                    // again still trips the comparison if the user
+                    // lands on a different server. Origin (scheme +
+                    // host + port) so `https→http` or a port flip on
+                    // the same hostname is also caught.
+                    final nextOrigin = _httpOriginOrNull(next);
+                    if (nextOrigin == null) return;
+                    final prevOrigin = _lastValidOrigin;
+                    _lastValidOrigin = nextOrigin;
+                    if (prevOrigin == null || prevOrigin == nextOrigin) {
+                      return;
+                    }
+                    final auth = context.read<RoutePlannerAuthService>();
+                    await auth.clear();
                   },
                 ),
                 const SizedBox(height: 12),
