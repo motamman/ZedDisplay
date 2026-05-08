@@ -6,7 +6,7 @@
 library;
 
 /// Per-leg precision policy. `precise` snaps the polyline onto each
-/// intermediate via via a synthetic motor segment (the legacy
+/// intermediate via through a synthetic motor segment (the legacy
 /// behaviour); `approximate` lets the propagation finish a leg as soon
 /// as the frontier reaches a point within `arrivalRadiusM` of the
 /// canonical via, which avoids forcing motor detours through narrow

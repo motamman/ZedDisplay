@@ -288,7 +288,9 @@ class _ComposeTabState extends State<_ComposeTab> {
   // hundred metres of an intermediate via, and forcing a synthetic
   // motor segment to snap onto the exact coord wastes time on
   // narrow approaches. The user can flip to `precise` per-request
-  // via the segmented toggle in the Advanced section.
+  // via the segmented toggle in `_precisionSection`, which renders
+  // between Routing mode and Departure in the main Compose list
+  // (not inside the collapsible Advanced section).
   RoutePrecision _precision = RoutePrecision.approximate;
   // Pass-through radius around each via in approximate mode. SI metres.
   // Slider exposes 50–2000 m at 50 m steps; server caps at 5000 m.
@@ -658,11 +660,6 @@ class _ComposeTabState extends State<_ComposeTab> {
     );
   }
 
-  /// Collapsible "Advanced" section with the seven per-request
-  /// routing tolerances. Sliders only — matches the web UI's range
-  /// picker at `routePlanning/ui/route-planner.html:251-310`.
-  /// Values persist client-side via `StorageService`; they're sent
-  /// as top-level fields on `POST /route`, not stored on the server.
   /// Per-leg precision controls — segmented Approximate / Precise
   /// selector on top, with the arrival-radius slider below it that
   /// only enables in Approximate mode (server ignores the radius
@@ -760,6 +757,13 @@ class _ComposeTabState extends State<_ComposeTab> {
     );
   }
 
+  /// Collapsible "Advanced" section with the seven per-request
+  /// routing tolerances. Sliders only — matches the web UI's range
+  /// picker at `routePlanning/ui/route-planner.html:251-310`.
+  /// Values persist client-side via `StorageService`; they're sent
+  /// as top-level fields on `POST /api/v1/routes` (the async job
+  /// API the client uses — see `WeatherRoutingService.submitRoute`),
+  /// not stored on the server.
   Widget _advancedSection() {
     final isSail = _mode != RouteMode.motor;
     // MetadataStore drives every unit-bearing slider's display label.

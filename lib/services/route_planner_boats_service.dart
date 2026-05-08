@@ -27,6 +27,34 @@ class RoutePlannerBoatsService extends ChangeNotifier {
   })  : _auth = auth,
         _storage = storage {
     _selectedBoatId = _storage.getSetting(_selectedBoatIdKey);
+    // Observe auth so the boat list refreshes itself when the bearer
+    // token transitions from absent to present. Sister-app's auth
+    // service loads the token synchronously from Hive (no secure-
+    // storage race), so this is mostly a defensive port — covers
+    // mid-session sign-in (sign out, sign back in) where the boats
+    // service would otherwise wait for a manual picker reopen to
+    // re-fetch.
+    _hadToken = _auth.hasToken;
+    _auth.addListener(_onAuthChanged);
+  }
+
+  bool _hadToken = false;
+
+  void _onAuthChanged() {
+    final hasNow = _auth.hasToken;
+    if (hasNow == _hadToken) return;
+    _hadToken = hasNow;
+    if (hasNow) {
+      if (_allBoats.isEmpty && !_loadingBoats) {
+        unawaited(refreshAllBoats());
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _auth.removeListener(_onAuthChanged);
+    super.dispose();
   }
 
   static const String _selectedBoatIdKey =

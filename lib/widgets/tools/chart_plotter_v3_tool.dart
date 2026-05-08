@@ -4594,15 +4594,14 @@ class _S57Painter extends CustomPainter {
         return a.key.z.compareTo(b.key.z);
       });
 
-    // Sounding declutter — reset every frame. At z > 11 the server
-    // emits densely-packed spot soundings; we keep only one label
-    // per ~40 px screen radius so the chart stays readable. Below
-    // z=12 the natural density is manageable, so we skip the filter
-    // and draw every sounding. The user-facing on/off toggle that
-    // used to force this at lower zooms was removed — the auto-
-    // cutoff is the only mode now.
+    // Sounding declutter — reset every frame. Below z=11 the spot
+    // soundings stack into an unreadable wall; we keep only one label
+    // per ~40 px screen radius so the chart stays legible. At z >= 11
+    // the natural density is manageable and we draw every sounding.
+    // The user-facing on/off toggle that used to force this at lower
+    // zooms was removed — the auto-cutoff is the only mode now.
     _drawnSoundings.clear();
-    _soundingDeclutterActive = camera.zoom > 11;
+    _soundingDeclutterActive = camera.zoom < 11;
 
     // Three passes by geometry kind — polygons (area fills + patterns)
     // on the bottom, lines in the middle, points on top. This
