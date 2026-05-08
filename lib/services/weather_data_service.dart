@@ -102,7 +102,63 @@ class WeatherDataService extends ChangeNotifier {
   final Map<String, WeatherLayerMetadata> _metadata = {};
   WeatherLayerMetadata? metadataFor(String path) => _metadata[path];
 
-  Future<void> _fetchAllMetadata() async {
+  // -------------------------------------------------------------------
+  // Tile load instrumentation.
+  //
+  // The chart plotter's `_WeatherTileProvider` calls into these counters
+  // when flutter_map asks it for a tile image. We track:
+  //   - `_inFlight[path]` — number of tile requests currently awaiting
+  //     a decoded image or error. Drives the player's per-hour gating
+  //     (advance only when in-flight reaches 0, with a 5 s max-wait
+  //     fallback) and the per-layer status chips on the player strip.
+  //   - `_tileLastSuccess[path]` — wall-clock of the most recent
+  //     successfully-decoded tile for that layer.
+  //   - `_tileLastError[path]` — the most recent error object, kept
+  //     until either a fresh success arrives or the user reloads.
+  // All updates `notifyListeners` so the strip can rebuild.
+  // -------------------------------------------------------------------
+
+  final Map<String, int> _inFlight = {};
+  final Map<String, DateTime> _tileLastSuccess = {};
+  final Map<String, Object?> _tileLastError = {};
+
+  int inFlightCount(String path) => _inFlight[path] ?? 0;
+  DateTime? tileLastSuccess(String path) => _tileLastSuccess[path];
+  Object? tileLastError(String path) => _tileLastError[path];
+
+  /// Has *any* tile for `path` ever resolved successfully on this
+  /// service instance? Useful for distinguishing "still waiting on
+  /// the very first fetch" from "loaded and current".
+  bool hasEverLoaded(String path) => _tileLastSuccess.containsKey(path);
+
+  void recordTileStart(String path) {
+    _inFlight[path] = (_inFlight[path] ?? 0) + 1;
+    notifyListeners();
+  }
+
+  void recordTileSuccess(String path) {
+    final n = _inFlight[path] ?? 0;
+    if (n > 0) _inFlight[path] = n - 1;
+    _tileLastSuccess[path] = DateTime.now();
+    // Successful fetch trumps any stale error from a previous attempt.
+    _tileLastError.remove(path);
+    notifyListeners();
+  }
+
+  void recordTileError(String path, Object error) {
+    final n = _inFlight[path] ?? 0;
+    if (n > 0) _inFlight[path] = n - 1;
+    _tileLastError[path] = error;
+    notifyListeners();
+  }
+
+  Future<void> _fetchAllMetadata() => refreshMetadata();
+
+  /// Re-fetch every layer's metadata in parallel. Public so the
+  /// chart-layer sheet's Weather tab can drive a manual refresh
+  /// when the user thinks the legend / unit info is stale (server
+  /// was slow to publish, container just woke up, etc.).
+  Future<void> refreshMetadata() async {
     await Future.wait(_metadataPaths.map(_fetchMetadata));
     notifyListeners();
   }
@@ -145,6 +201,14 @@ class WeatherDataService extends ChangeNotifier {
     _cacheNonce = DateTime.now().millisecondsSinceEpoch;
     _vectorCache.clear();
     _vectorLru.clear();
+    // Tile-load indicators are bound to the (path, current nonce)
+    // pairing. Cache wipe means the next fetch is the new "first"
+    // load, so reset success / error / in-flight maps too — without
+    // this, a stale "loaded ✓" chip would persist across the wipe
+    // until the next tile actually arrived.
+    _inFlight.clear();
+    _tileLastSuccess.clear();
+    _tileLastError.clear();
     debugPrint(
         '[WeatherDataService] reloadTiles() called: nonce $oldNonce -> $_cacheNonce');
     try {

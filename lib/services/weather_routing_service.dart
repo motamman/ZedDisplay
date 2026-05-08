@@ -309,6 +309,36 @@ class WeatherRoutingService extends ChangeNotifier
     notifyListeners();
   }
 
+  /// Drop every piece of routing state in one shot — start/end pins,
+  /// every via, the computed result, log lines, in-flight job id,
+  /// status, error message, and the persisted active-job blob.
+  /// Single `notifyListeners()` so the chart plotter and the panel
+  /// rebuild once for the whole reset rather than twice. Used by the
+  /// "Clear" tap targets across the routing UI (Compose tab Start /
+  /// End rows, Result tab Clear, the chart-side Compose popover and
+  /// Waypoint popover) — every Clear is a tabula-rasa wipe.
+  void clearAll() {
+    final hadAnything = _plannedStart != null ||
+        _plannedEnd != null ||
+        _plannedVias.isNotEmpty ||
+        _currentResult != null ||
+        _logLines.isNotEmpty ||
+        _currentJobId != null ||
+        _status != WeatherRoutingStatus.idle ||
+        _errorMessage != null;
+    if (!hadAnything) return;
+    _plannedStart = null;
+    _plannedEnd = null;
+    _plannedVias.clear();
+    _currentResult = null;
+    _logLines.clear();
+    _currentJobId = null;
+    _status = WeatherRoutingStatus.idle;
+    _errorMessage = null;
+    _clearActiveJob();
+    notifyListeners();
+  }
+
   Future<void> deleteRemoteJob() async {
     final id = _currentJobId;
     if (id == null) return;

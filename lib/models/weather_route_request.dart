@@ -5,6 +5,46 @@
 /// VesselOverride). Optional fields serialise to absent keys when null.
 library;
 
+/// Per-leg precision policy. `precise` snaps the polyline onto each
+/// intermediate via via a synthetic motor segment (the legacy
+/// behaviour); `approximate` lets the propagation finish a leg as soon
+/// as the frontier reaches a point within `arrivalRadiusM` of the
+/// canonical via, which avoids forcing motor detours through narrow
+/// passes the natural sail track would have skirted anyway. Final
+/// destination is always exact regardless of policy.
+enum RoutePrecision {
+  precise,
+  approximate;
+
+  String get wire {
+    switch (this) {
+      case RoutePrecision.precise:
+        return 'precise';
+      case RoutePrecision.approximate:
+        return 'approximate';
+    }
+  }
+
+  String get label {
+    switch (this) {
+      case RoutePrecision.precise:
+        return 'Precise';
+      case RoutePrecision.approximate:
+        return 'Approximate';
+    }
+  }
+
+  static RoutePrecision fromWire(String? s) {
+    switch (s) {
+      case 'precise':
+        return RoutePrecision.precise;
+      case 'approximate':
+      default:
+        return RoutePrecision.approximate;
+    }
+  }
+}
+
 enum RouteMode {
   /// Sail-first: only motor when wind can't drive the boat.
   sailMax,
@@ -111,6 +151,8 @@ class WeatherRouteRequest {
     this.polar,
     this.vessel,
     this.boatId,
+    this.precision,
+    this.arrivalRadiusM,
   });
 
   final LatLon start;
@@ -134,6 +176,16 @@ class WeatherRouteRequest {
   /// Explicit [vessel] / [polar] overrides still win.
   final String? boatId;
 
+  /// Per-leg precision policy. Server defaults to `precise` when
+  /// absent; the client passes `approximate` by default per the
+  /// shared SignalK + OpenMeteo direction. See [RoutePrecision].
+  final RoutePrecision? precision;
+
+  /// Pass-through radius around each intermediate via in
+  /// approximate mode. Server validates 0–5000 m. Ignored when
+  /// `precision == precise` or when `waypoints` is empty.
+  final double? arrivalRadiusM;
+
   Map<String, dynamic> toJson() {
     final m = <String, dynamic>{
       'start': start.toJson(),
@@ -156,6 +208,8 @@ class WeatherRouteRequest {
       m['under_keel_clearance'] = underKeelClearance;
     }
     if (simplify != null) m['simplify'] = simplify;
+    if (precision != null) m['precision'] = precision!.wire;
+    if (arrivalRadiusM != null) m['arrival_radius_m'] = arrivalRadiusM;
     if (polar != null && polar!.isNotEmpty) m['polar'] = polar;
     // `boat_id` goes inside the `vessel` block per the API spec — the
     // server resolves it before the compute slot is acquired, so
