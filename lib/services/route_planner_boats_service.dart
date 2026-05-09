@@ -76,12 +76,22 @@ class RoutePlannerBoatsService extends ChangeNotifier {
       final hadCached = _allBoats.isNotEmpty ||
           _ownedBoatIds.isNotEmpty ||
           _polars.isNotEmpty;
+      final hadSelection = _selectedBoatId != null;
       if (hadCached) {
         _allBoats = const [];
         _ownedBoatIds.clear();
         _polars = const [];
       }
-      if (hadCached || hadLoading) {
+      // The persisted selection points at a boat owned by the prior
+      // account; without this it would survive sign-out and resurface
+      // on the next sign-in (or worse, attach to a same-id boat on
+      // a different server). Drop the persisted entry too so the
+      // re-fetch doesn't see a stale id at all.
+      if (hadSelection) {
+        _selectedBoatId = null;
+        unawaited(_storage.deleteSetting(_selectedBoatIdKey));
+      }
+      if (hadCached || hadLoading || hadSelection) {
         notifyListeners();
       }
     }
@@ -115,6 +125,14 @@ class RoutePlannerBoatsService extends ChangeNotifier {
     _allBoats = const [];
     _ownedBoatIds.clear();
     _polars = const [];
+    // The persisted selection is a boat-id from the old server; the
+    // new server may not know that id, or worse, may have a *different*
+    // boat under it. Drop both the in-memory and on-disk selection so
+    // the next refresh against the new host starts clean.
+    if (_selectedBoatId != null) {
+      _selectedBoatId = null;
+      unawaited(_storage.deleteSetting(_selectedBoatIdKey));
+    }
     notifyListeners();
   }
 
@@ -285,12 +303,16 @@ class RoutePlannerBoatsService extends ChangeNotifier {
   }
 
   Future<Boat?> createBoat(BoatDraft draft) async {
+    final epoch = _refreshEpoch;
     final resp = await _request(
       method: 'POST',
       path: '/boats',
       body: draft.toBoatSpecJson(),
     );
     if (resp == null) return null;
+    // Auth/baseUrl changed mid-flight — the response belongs to a
+    // server / token that's no longer current. Don't merge it back.
+    if (epoch != _refreshEpoch) return null;
     final boat = Boat.fromJson(resp);
     _allBoats = [boat, ..._allBoats];
     _ownedBoatIds.add(boat.id);
@@ -299,12 +321,14 @@ class RoutePlannerBoatsService extends ChangeNotifier {
   }
 
   Future<Boat?> patchBoat(String id, Map<String, dynamic> changes) async {
+    final epoch = _refreshEpoch;
     final resp = await _request(
       method: 'PATCH',
       path: '/boats/$id',
       body: changes,
     );
     if (resp == null) return null;
+    if (epoch != _refreshEpoch) return null;
     final updated = Boat.fromJson(resp);
     _allBoats = [
       for (final b in _allBoats)
@@ -315,12 +339,14 @@ class RoutePlannerBoatsService extends ChangeNotifier {
   }
 
   Future<Boat?> replaceBoat(String id, BoatDraft draft) async {
+    final epoch = _refreshEpoch;
     final resp = await _request(
       method: 'PUT',
       path: '/boats/$id',
       body: draft.toFullReplaceJson(),
     );
     if (resp == null) return null;
+    if (epoch != _refreshEpoch) return null;
     final updated = Boat.fromJson(resp);
     _allBoats = [
       for (final b in _allBoats)
@@ -331,11 +357,13 @@ class RoutePlannerBoatsService extends ChangeNotifier {
   }
 
   Future<bool> deleteBoat(String id) async {
+    final epoch = _refreshEpoch;
     final ok = await _requestNoContent(
       method: 'DELETE',
       path: '/boats/$id',
     );
     if (!ok) return false;
+    if (epoch != _refreshEpoch) return false;
     _allBoats = _allBoats.where((b) => b.id != id).toList(growable: false);
     _ownedBoatIds.remove(id);
     if (_selectedBoatId == id) {
@@ -454,6 +482,7 @@ class RoutePlannerBoatsService extends ChangeNotifier {
   }
 
   Future<bool> deletePolar(String path) async {
+    final epoch = _refreshEpoch;
     final uri = Uri.parse('$_baseUrl/polars').replace(
       queryParameters: {'path': path},
     );
@@ -461,6 +490,7 @@ class RoutePlannerBoatsService extends ChangeNotifier {
       final resp = await http
           .delete(uri, headers: _auth.authorisedHeaders())
           .timeout(ServiceConstants.shortHttpTimeout);
+      if (epoch != _refreshEpoch) return false;
       if (resp.statusCode == 200 || resp.statusCode == 204) {
         _polars =
             _polars.where((p) => p.path != path).toList(growable: false);
