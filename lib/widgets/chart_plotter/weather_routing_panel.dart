@@ -344,6 +344,12 @@ class _ComposeTabState extends State<_ComposeTab> {
             ((j['arrivalRadiusM'] as num?)?.toDouble() ?? _arrivalRadiusM)
                 .clamp(50.0, 2000.0);
       });
+      // Mirror the just-loaded values into the service so the chart
+      // plotter can render the approximate-mode halo without having
+      // to read Hive itself.
+      final svc = context.read<WeatherRoutingService>();
+      svc.precision = _precision;
+      svc.arrivalRadiusM = _arrivalRadiusM;
     } catch (_) {/* ignore */}
   }
 
@@ -690,6 +696,9 @@ class _ComposeTabState extends State<_ComposeTab> {
           selected: {_precision},
           onSelectionChanged: (v) {
             setState(() => _precision = v.first);
+            // Push to the service so the chart plotter's halo
+            // overlay knows whether to paint.
+            context.read<WeatherRoutingService>().precision = _precision;
             _saveTolerances();
           },
         ),
@@ -720,7 +729,14 @@ class _ComposeTabState extends State<_ComposeTab> {
                     siSuffix: 'm',
                   ),
                   onChanged: isApprox
-                      ? (v) => setState(() => _arrivalRadiusM = v)
+                      ? (v) {
+                          setState(() => _arrivalRadiusM = v);
+                          // Push live to the service so the chart
+                          // halo grows/shrinks under the user's
+                          // finger while they drag the slider.
+                          context.read<WeatherRoutingService>()
+                              .arrivalRadiusM = v;
+                        }
                       : null,
                   onChangeEnd: isApprox ? (_) => _saveTolerances() : null,
                 ),

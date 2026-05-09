@@ -154,6 +154,38 @@ class WeatherRoutingService extends ChangeNotifier
     notifyListeners();
   }
 
+  // ===== Precision + arrival radius =====
+  //
+  // Lifted from the panel state so the chart plotter can react —
+  // when the user is in `approximate` precision, planned via pins on
+  // the chart get a white halo whose geographic radius matches
+  // [arrivalRadiusM]. The compose panel is the editor; it pushes
+  // changes through the setters below and persists them under the
+  // existing `weather_routing_tolerances` Hive key.
+  RoutePrecision _precision = RoutePrecision.approximate;
+  RoutePrecision get precision => _precision;
+  set precision(RoutePrecision v) {
+    if (_precision == v) return;
+    _precision = v;
+    notifyListeners();
+  }
+
+  /// Server-side radius around each intermediate via in approximate
+  /// mode. Unit is meters (matches the `arrival_radius_m` wire field).
+  /// Slider clamps to [50, 2000] in the panel; the setter enforces
+  /// the same bounds at the service boundary so a stray non-finite
+  /// or out-of-range value can't leak into request bodies or the
+  /// chart-overlay halo radius.
+  double _arrivalRadiusM = 200;
+  double get arrivalRadiusM => _arrivalRadiusM;
+  set arrivalRadiusM(double v) {
+    if (!v.isFinite) return;
+    final clamped = v.clamp(50.0, 2000.0);
+    if (_arrivalRadiusM == clamped) return;
+    _arrivalRadiusM = clamped;
+    notifyListeners();
+  }
+
   // ===== Recent routes =====
   List<WeatherRecentJob> _recentJobs = const [];
   List<WeatherRecentJob> get recentJobs => _recentJobs;
