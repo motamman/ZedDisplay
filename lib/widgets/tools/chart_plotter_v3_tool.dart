@@ -272,6 +272,23 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
   StreamSubscription<RouteArrivalEvent>? _arrivalSub;
 
 
+  // Active nav-drawer flyout. The map-controls column on the right
+  // edge has six buttons: three standalones (view-mode / snap /
+  // ruler) and three group icons (AIS / Routes / Layers). Tapping a
+  // group icon opens its sub-buttons in a horizontal drawer that
+  // slides in to the LEFT of the column. Only one drawer is open at
+  // a time; tapping the same group icon a second time (or tapping a
+  // different group) collapses or swaps it. Local UI state — not
+  // persisted across restarts.
+  _NavDrawerKind _openDrawer = _NavDrawerKind.none;
+
+  void _toggleNavDrawer(_NavDrawerKind which) {
+    setState(() {
+      _openDrawer =
+          _openDrawer == which ? _NavDrawerKind.none : which;
+    });
+  }
+
   // Ruler state. Matches V1's model: two endpoints (red + blue) that
   // can each snap to the own vessel ('self') or an AIS vessel id, and
   // reposition automatically when their snap target moves.
@@ -2928,12 +2945,10 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
               autoFollow: _autoFollow,
               viewMode: _viewMode,
               rulerVisible: _rulerVisible,
-              aisEnabled: _aisEnabled,
-              aisActiveOnly: _aisActiveOnly,
-              aisShowPaths: _aisShowPaths,
-              onLayers: () => _showLayerSheet(context),
-              onRoutes: () => _showRouteManager(context),
-              onDownload: () => _showDownloadSheet(context),
+              openDrawer: _openDrawer,
+              onOpenAis: () => _toggleNavDrawer(_NavDrawerKind.ais),
+              onOpenRoutes: () => _toggleNavDrawer(_NavDrawerKind.routes),
+              onOpenLayers: () => _toggleNavDrawer(_NavDrawerKind.layers),
               onToggleFollow: () {
                 // V1 re-engages auto-zoom whenever auto-follow turns
                 // back on (chart_webview.dart:1395).
@@ -2953,6 +2968,10 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
               },
               onToggleViewMode: _toggleViewMode,
               onToggleRuler: _toggleRuler,
+              // AIS sub-buttons
+              aisEnabled: _aisEnabled,
+              aisActiveOnly: _aisActiveOnly,
+              aisShowPaths: _aisShowPaths,
               onToggleAis: () {
                 setState(() {
                   _aisEnabled = !_aisEnabled;
@@ -2977,12 +2996,17 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
                   _refreshAisVessels();
                 });
               },
+              // Routes sub-buttons (sister has no tracker)
+              onRoutes: () => _showRouteManager(context),
               weatherRoutingEnabled: _weatherRoutingEnabled,
               weatherRouteActive:
                   _weatherRoutingService?.currentResult?.isNotEmpty ?? false,
               onWeatherRouting: _weatherRoutingEnabled
                   ? () => _showWeatherRoutingSheet(context)
                   : null,
+              // Layers sub-buttons
+              onLayers: () => _showLayerSheet(context),
+              onDownload: () => _showDownloadSheet(context),
               playerVisible: _playerVisible,
               playerAvailable: _hasTimeKeyedWeatherLayer,
               onTogglePlayer: _togglePlayer,
@@ -6752,177 +6776,433 @@ class _RoutePainter extends CustomPainter {
       old.reversed != reversed;
 }
 
+/// Identifier for the currently-open nav-drawer flyout. Sister-app
+/// shape — no tracker drawer entry. `_NavDrawerKind.none` collapses
+/// the drawer entirely.
+enum _NavDrawerKind { none, ais, routes, layers }
+
+/// `Material 3` IconButton renders inside a 48 px tappable square
+/// regardless of icon size, so this is the actual painted height of
+/// each `IconButton(size: 20)` in the nav column. The drawer-side
+/// column uses this same constant for its slot heights so the active
+/// drawer pill sits exactly at the right column's matching row.
+const double _navRowHeight = 48.0;
+
+/// The right-edge map controls. Right side is a single rounded pill
+/// of six `IconButton`s — that pill never reflows when a drawer
+/// opens, so existing buttons can't wobble. Left side is a column of
+/// six row slots: inactive slots are zero-width spacers, the active
+/// group's slot expands into a [_DrawerPill]. The drawer butts
+/// directly against the nav's left edge so the two read as a single
+/// L-shape rather than two pills.
 class _MapControls extends StatelessWidget {
   const _MapControls({
     required this.autoFollow,
     required this.viewMode,
     required this.rulerVisible,
-    required this.aisEnabled,
-    required this.aisActiveOnly,
-    required this.aisShowPaths,
-    required this.onLayers,
-    required this.onRoutes,
-    required this.onDownload,
+    required this.openDrawer,
     required this.onToggleFollow,
     required this.onToggleViewMode,
     required this.onToggleRuler,
+    required this.onOpenAis,
+    required this.onOpenRoutes,
+    required this.onOpenLayers,
+    // AIS sub-buttons
+    required this.aisEnabled,
+    required this.aisActiveOnly,
+    required this.aisShowPaths,
     required this.onToggleAis,
     required this.onToggleAisActive,
     required this.onToggleAisPaths,
+    // Routes sub-buttons (sister has no tracker)
+    required this.onRoutes,
     required this.weatherRoutingEnabled,
     required this.weatherRouteActive,
     required this.onWeatherRouting,
+    // Layers sub-buttons
+    required this.onLayers,
+    required this.onDownload,
     required this.playerVisible,
     required this.playerAvailable,
     required this.onTogglePlayer,
   });
+
   final bool autoFollow;
   final _ViewMode viewMode;
   final bool rulerVisible;
-  final bool aisEnabled;
-  final bool aisActiveOnly;
-  final bool aisShowPaths;
-  final VoidCallback onLayers;
-  final VoidCallback onRoutes;
-  final VoidCallback onDownload;
+
+  /// Which group's drawer is currently open. Drives the highlight
+  /// fill on the matching group icon AND which row in the drawer
+  /// column renders an actual flyout.
+  final _NavDrawerKind openDrawer;
+
   final VoidCallback onToggleFollow;
   final VoidCallback onToggleViewMode;
   final VoidCallback onToggleRuler;
+  final VoidCallback onOpenAis;
+  final VoidCallback onOpenRoutes;
+  final VoidCallback onOpenLayers;
+
+  // AIS
+  final bool aisEnabled;
+  final bool aisActiveOnly;
+  final bool aisShowPaths;
   final VoidCallback onToggleAis;
   final VoidCallback onToggleAisActive;
   final VoidCallback onToggleAisPaths;
+
+  // Routes
+  final VoidCallback onRoutes;
   final bool weatherRoutingEnabled;
   final bool weatherRouteActive;
   final VoidCallback? onWeatherRouting;
-  /// True while the user has the weather player strip open. The
-  /// toolbar button tints orange to mirror the strip's accent.
+
+  // Layers
+  final VoidCallback onLayers;
+  final VoidCallback onDownload;
   final bool playerVisible;
-  /// True when at least one time-keyed weather layer is on, so the
-  /// player has something to scrub. When false the button is dimmed
-  /// and the tap is a no-op.
   final bool playerAvailable;
   final VoidCallback onTogglePlayer;
 
   @override
   Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: Colors.black54,
-        borderRadius: BorderRadius.circular(6),
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          IconButton(
-            icon: Icon(
-              switch (viewMode) {
-                _ViewMode.northUp => Icons.navigation_outlined,
-                _ViewMode.headingUp => Icons.navigation,
-                _ViewMode.free => Icons.threesixty,
-              },
-              color: Colors.white,
-              size: 20,
-            ),
-            tooltip: switch (viewMode) {
-              _ViewMode.northUp => 'North-up (tap for heading-up)',
-              _ViewMode.headingUp => 'Heading-up (tap for free)',
-              _ViewMode.free => 'Free rotation (tap for north-up)',
-            },
-            onPressed: onToggleViewMode,
-          ),
-          IconButton(
-            icon: Icon(
-              autoFollow ? Icons.my_location : Icons.location_searching,
-              color: Colors.white,
-              size: 20,
-            ),
-            tooltip: autoFollow ? 'Snap to vessel (on)' : 'Snap to vessel (off)',
-            onPressed: onToggleFollow,
-          ),
-          IconButton(
-            icon: const Icon(Icons.layers, color: Colors.white, size: 20),
-            tooltip: 'Chart layers',
-            onPressed: onLayers,
-          ),
-          IconButton(
-            icon: const Icon(Icons.route, color: Colors.white, size: 20),
-            tooltip: 'Routes',
-            onPressed: onRoutes,
-          ),
-          if (weatherRoutingEnabled)
-            IconButton(
-              icon: Icon(
-                Icons.flight_takeoff,
-                color: weatherRouteActive
-                    ? const Color(0xFFFF9800)
-                    : Colors.white,
-                size: 20,
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // ===== Drawer column (left) =====
+        Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            const _DrawerSlot(active: false, child: SizedBox.shrink()),
+            const _DrawerSlot(active: false, child: SizedBox.shrink()),
+            const _DrawerSlot(active: false, child: SizedBox.shrink()),
+            _DrawerSlot(
+              active: openDrawer == _NavDrawerKind.ais,
+              child: _AisDrawerRow(
+                aisEnabled: aisEnabled,
+                aisActiveOnly: aisActiveOnly,
+                aisShowPaths: aisShowPaths,
+                onToggleAis: onToggleAis,
+                onToggleAisActive: onToggleAisActive,
+                onToggleAisPaths: onToggleAisPaths,
               ),
-              tooltip: 'Weather routing',
-              onPressed: onWeatherRouting,
             ),
-          IconButton(
-            icon: Icon(
-              Icons.play_circle_outline,
-              color: !playerAvailable
-                  ? Colors.white24
-                  : (playerVisible
-                      ? const Color(0xFFFF9800)
-                      : Colors.white),
-              size: 20,
-            ),
-            tooltip: !playerAvailable
-                ? 'Weather player (turn on a weather layer)'
-                : (playerVisible ? 'Hide weather player' : 'Show weather player'),
-            onPressed: playerAvailable ? onTogglePlayer : null,
-          ),
-          IconButton(
-            icon: const Icon(Icons.download, color: Colors.white, size: 20),
-            tooltip: 'Download charts',
-            onPressed: onDownload,
-          ),
-          IconButton(
-            icon: Icon(
-              rulerVisible ? Icons.straighten : Icons.straighten_outlined,
-              color: Colors.white,
-              size: 20,
-            ),
-            tooltip: rulerVisible ? 'Hide ruler' : 'Show ruler',
-            onPressed: onToggleRuler,
-          ),
-          IconButton(
-            icon: Icon(
-              aisEnabled ? Icons.sailing : Icons.sailing_outlined,
-              color: Colors.white,
-              size: 20,
-            ),
-            tooltip: aisEnabled ? 'AIS on' : 'AIS off',
-            onPressed: onToggleAis,
-          ),
-          if (aisEnabled) ...[
-            IconButton(
-              icon: Icon(
-                aisActiveOnly
-                    ? Icons.filter_alt
-                    : Icons.filter_alt_outlined,
-                color: Colors.white,
-                size: 20,
+            _DrawerSlot(
+              active: openDrawer == _NavDrawerKind.routes,
+              child: _RoutesDrawerRow(
+                onRoutes: onRoutes,
+                weatherRoutingEnabled: weatherRoutingEnabled,
+                weatherRouteActive: weatherRouteActive,
+                onWeatherRouting: onWeatherRouting,
               ),
-              tooltip: aisActiveOnly ? 'Active only' : 'All vessels',
-              onPressed: onToggleAisActive,
             ),
-            IconButton(
-              icon: Icon(
-                aisShowPaths ? Icons.timeline : Icons.linear_scale,
-                color: Colors.white,
-                size: 20,
+            _DrawerSlot(
+              active: openDrawer == _NavDrawerKind.layers,
+              child: _LayersDrawerRow(
+                onLayers: onLayers,
+                onDownload: onDownload,
+                playerVisible: playerVisible,
+                playerAvailable: playerAvailable,
+                onTogglePlayer: onTogglePlayer,
               ),
-              tooltip: aisShowPaths ? 'Hide projections' : 'Show projections',
-              onPressed: onToggleAisPaths,
             ),
           ],
+        ),
+        // ===== Nav column (right) — single fixed pill =====
+        DecoratedBox(
+          decoration: BoxDecoration(
+            color: Colors.black54,
+            borderRadius: BorderRadius.circular(6),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _NavIconButton(
+                icon: switch (viewMode) {
+                  _ViewMode.northUp => Icons.navigation_outlined,
+                  _ViewMode.headingUp => Icons.navigation,
+                  _ViewMode.free => Icons.threesixty,
+                },
+                tooltip: switch (viewMode) {
+                  _ViewMode.northUp => 'North-up (tap for heading-up)',
+                  _ViewMode.headingUp => 'Heading-up (tap for free)',
+                  _ViewMode.free => 'Free rotation (tap for north-up)',
+                },
+                onPressed: onToggleViewMode,
+              ),
+              _NavIconButton(
+                icon: autoFollow
+                    ? Icons.my_location
+                    : Icons.location_searching,
+                tooltip: autoFollow
+                    ? 'Snap to vessel (on)'
+                    : 'Snap to vessel (off)',
+                onPressed: onToggleFollow,
+              ),
+              _NavIconButton(
+                icon: rulerVisible
+                    ? Icons.straighten
+                    : Icons.straighten_outlined,
+                tooltip: rulerVisible ? 'Hide ruler' : 'Show ruler',
+                onPressed: onToggleRuler,
+              ),
+              _NavIconButton(
+                icon: Icons.sailing,
+                tooltip: 'AIS',
+                highlight: openDrawer == _NavDrawerKind.ais,
+                onPressed: onOpenAis,
+              ),
+              _NavIconButton(
+                icon: Icons.route,
+                tooltip: 'Routes',
+                highlight: openDrawer == _NavDrawerKind.routes,
+                onPressed: onOpenRoutes,
+              ),
+              _NavIconButton(
+                icon: Icons.layers,
+                tooltip: 'Layers',
+                highlight: openDrawer == _NavDrawerKind.layers,
+                onPressed: onOpenLayers,
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _NavIconButton extends StatelessWidget {
+  const _NavIconButton({
+    required this.icon,
+    required this.tooltip,
+    required this.onPressed,
+    this.highlight = false,
+  });
+
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback onPressed;
+  final bool highlight;
+
+  @override
+  Widget build(BuildContext context) {
+    final button = IconButton(
+      icon: Icon(icon, color: Colors.white, size: 20),
+      tooltip: tooltip,
+      onPressed: onPressed,
+    );
+    if (!highlight) return button;
+    return SizedBox(
+      width: _navRowHeight,
+      height: _navRowHeight,
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          Container(
+            margin: const EdgeInsets.all(4),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.18),
+              borderRadius: BorderRadius.circular(4),
+            ),
+          ),
+          button,
         ],
       ),
+    );
+  }
+}
+
+class _DrawerSlot extends StatelessWidget {
+  const _DrawerSlot({required this.active, required this.child});
+
+  final bool active;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: _navRowHeight,
+      child: AnimatedSize(
+        duration: const Duration(milliseconds: 160),
+        curve: Curves.easeOut,
+        alignment: Alignment.centerRight,
+        child: active
+            ? _DrawerPill(child: child)
+            : const SizedBox.shrink(),
+      ),
+    );
+  }
+}
+
+class _DrawerPill extends StatelessWidget {
+  const _DrawerPill({required this.child});
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: const BoxDecoration(
+        color: Colors.black54,
+        borderRadius: BorderRadius.only(
+          topLeft: Radius.circular(6),
+          bottomLeft: Radius.circular(6),
+        ),
+      ),
+      child: child,
+    );
+  }
+}
+
+class _AisDrawerRow extends StatelessWidget {
+  const _AisDrawerRow({
+    required this.aisEnabled,
+    required this.aisActiveOnly,
+    required this.aisShowPaths,
+    required this.onToggleAis,
+    required this.onToggleAisActive,
+    required this.onToggleAisPaths,
+  });
+
+  final bool aisEnabled;
+  final bool aisActiveOnly;
+  final bool aisShowPaths;
+  final VoidCallback onToggleAis;
+  final VoidCallback onToggleAisActive;
+  final VoidCallback onToggleAisPaths;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        IconButton(
+          icon: Icon(
+            aisEnabled ? Icons.sailing : Icons.sailing_outlined,
+            color: Colors.white,
+            size: 20,
+          ),
+          tooltip: aisEnabled ? 'AIS on' : 'AIS off',
+          onPressed: onToggleAis,
+        ),
+        if (aisEnabled) ...[
+          IconButton(
+            icon: Icon(
+              aisActiveOnly
+                  ? Icons.filter_alt
+                  : Icons.filter_alt_outlined,
+              color: Colors.white,
+              size: 20,
+            ),
+            tooltip: aisActiveOnly ? 'Active only' : 'All vessels',
+            onPressed: onToggleAisActive,
+          ),
+          IconButton(
+            icon: Icon(
+              aisShowPaths ? Icons.timeline : Icons.linear_scale,
+              color: Colors.white,
+              size: 20,
+            ),
+            tooltip:
+                aisShowPaths ? 'Hide projections' : 'Show projections',
+            onPressed: onToggleAisPaths,
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+class _RoutesDrawerRow extends StatelessWidget {
+  const _RoutesDrawerRow({
+    required this.onRoutes,
+    required this.weatherRoutingEnabled,
+    required this.weatherRouteActive,
+    required this.onWeatherRouting,
+  });
+
+  final VoidCallback onRoutes;
+  final bool weatherRoutingEnabled;
+  final bool weatherRouteActive;
+  final VoidCallback? onWeatherRouting;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        IconButton(
+          icon: const Icon(Icons.route, color: Colors.white, size: 20),
+          tooltip: 'Routes',
+          onPressed: onRoutes,
+        ),
+        if (weatherRoutingEnabled)
+          IconButton(
+            icon: Icon(
+              Icons.flight_takeoff,
+              color: weatherRouteActive
+                  ? const Color(0xFFFF9800)
+                  : Colors.white,
+              size: 20,
+            ),
+            tooltip: 'Weather routing',
+            onPressed: onWeatherRouting,
+          ),
+      ],
+    );
+  }
+}
+
+class _LayersDrawerRow extends StatelessWidget {
+  const _LayersDrawerRow({
+    required this.onLayers,
+    required this.onDownload,
+    required this.playerVisible,
+    required this.playerAvailable,
+    required this.onTogglePlayer,
+  });
+
+  final VoidCallback onLayers;
+  final VoidCallback onDownload;
+  final bool playerVisible;
+  final bool playerAvailable;
+  final VoidCallback onTogglePlayer;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        IconButton(
+          icon: const Icon(Icons.layers, color: Colors.white, size: 20),
+          tooltip: 'Chart layers',
+          onPressed: onLayers,
+        ),
+        IconButton(
+          icon: Icon(
+            Icons.play_circle_outline,
+            color: !playerAvailable
+                ? Colors.white24
+                : (playerVisible
+                    ? const Color(0xFFFF9800)
+                    : Colors.white),
+            size: 20,
+          ),
+          tooltip: !playerAvailable
+              ? 'Weather player (turn on a weather layer)'
+              : (playerVisible
+                  ? 'Hide weather player'
+                  : 'Show weather player'),
+          onPressed: playerAvailable ? onTogglePlayer : null,
+        ),
+        IconButton(
+          icon: const Icon(Icons.download, color: Colors.white, size: 20),
+          tooltip: 'Download charts',
+          onPressed: onDownload,
+        ),
+      ],
     );
   }
 }

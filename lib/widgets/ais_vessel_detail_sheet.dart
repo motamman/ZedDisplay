@@ -334,9 +334,13 @@ class AISVesselDetailSheet {
   );
 
   static String _fmtTCPA(double seconds) {
-    if (seconds < 60) return '${seconds.toStringAsFixed(0)}s';
-    if (seconds < 3600) return '${(seconds / 60).toStringAsFixed(1)}m';
-    return '${(seconds / 3600).toStringAsFixed(1)}h';
+    final total = seconds.round();
+    final h = total ~/ 3600;
+    final m = (total % 3600) ~/ 60;
+    final s = total % 60;
+    return '${h.toString().padLeft(2, '0')}:'
+        '${m.toString().padLeft(2, '0')}:'
+        '${s.toString().padLeft(2, '0')}';
   }
 
   static String _formatTimeSince(DateTime timestamp) =>
