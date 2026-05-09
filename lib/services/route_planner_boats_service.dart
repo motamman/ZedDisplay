@@ -56,25 +56,32 @@ class RoutePlannerBoatsService extends ChangeNotifier {
     // polars back into our state after the user has signed out (or
     // signed in to a different account).
     _refreshEpoch++;
+    final hadLoading = _loadingBoats || _loadingPolars;
+    _loadingBoats = false;
+    _loadingPolars = false;
     if (hasNow) {
       // Always re-fetch on token regain. The previous gate
       // (`_allBoats.isEmpty`) skipped the refresh on a sign-out →
       // sign-in cycle because nothing wipes `_allBoats` on logout —
       // so the picker would silently keep boats minted by the prior
       // account.
-      _loadingBoats = false;
       unawaited(refreshAllBoats());
     } else {
       // Clear state owned by the prior token so a re-sign-in starts
       // from a known-empty cache and any UI bound to this notifier
-      // re-renders empty until the refresh lands.
-      _loadingBoats = false;
-      if (_allBoats.isNotEmpty ||
+      // re-renders empty until the refresh lands. Notify even when
+      // the caches are already empty if a load WAS in flight — the
+      // spinner-bound UI would otherwise stay stuck because we
+      // dropped `_loadingBoats` without telling anyone.
+      final hadCached = _allBoats.isNotEmpty ||
           _ownedBoatIds.isNotEmpty ||
-          _polars.isNotEmpty) {
+          _polars.isNotEmpty;
+      if (hadCached) {
         _allBoats = const [];
         _ownedBoatIds.clear();
         _polars = const [];
+      }
+      if (hadCached || hadLoading) {
         notifyListeners();
       }
     }
@@ -103,6 +110,7 @@ class RoutePlannerBoatsService extends ChangeNotifier {
     // request against the old host must not write its result back.
     _refreshEpoch++;
     _loadingBoats = false;
+    _loadingPolars = false;
     // Drop cached state — it's owned by the old server.
     _allBoats = const [];
     _ownedBoatIds.clear();
@@ -242,9 +250,15 @@ class RoutePlannerBoatsService extends ChangeNotifier {
   /// touching the full inventory. Most UI paths should call
   /// [refreshAllBoats] instead.
   Future<void> refreshBoats() async {
+    final epoch = _refreshEpoch;
     _loadingBoats = true;
     notifyListeners();
     final list = await _getJsonList('/boats');
+    // See `refreshAllBoats` — auth/baseUrl flip during the round
+    // trip means this list belongs to a token/host that's no longer
+    // current. The setter that bumped the epoch already cleared the
+    // loading flag.
+    if (epoch != _refreshEpoch) return;
     if (list != null) {
       final owned = list
           .whereType<Map<String, dynamic>>()
@@ -400,9 +414,11 @@ class RoutePlannerBoatsService extends ChangeNotifier {
   // ===== Polars =====
 
   Future<void> refreshPolars() async {
+    final epoch = _refreshEpoch;
     _loadingPolars = true;
     notifyListeners();
     final list = await _getJsonList('/polars');
+    if (epoch != _refreshEpoch) return;
     if (list != null) {
       _polars = list
           .whereType<Map<String, dynamic>>()

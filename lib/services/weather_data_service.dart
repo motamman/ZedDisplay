@@ -85,6 +85,13 @@ class WeatherDataService extends ChangeNotifier {
   final RoutePlannerAuthService _auth;
   Timer? _refreshTimer;
 
+  /// Set on entry to `dispose()`. Every async path that might call
+  /// `notifyListeners()` or ping the tile-status notifier consults
+  /// this first — `ChangeNotifier.notifyListeners` throws after
+  /// `dispose`, and a refreshMetadata / fetchVectorTile started just
+  /// before disposal can easily land after.
+  bool _disposed = false;
+
   String _baseUrl = 'https://router.zeddisplay.com';
   String get baseUrl => _baseUrl;
   set baseUrl(String v) {
@@ -169,12 +176,14 @@ class WeatherDataService extends ChangeNotifier {
   /// chips appear "loaded" or "errored". Callers that pre-date the
   /// generation argument are still accepted (treated as untracked).
   void recordTileStart(String path, {int? generation}) {
+    if (_disposed) return;
     if (generation != null && generation != _cacheNonce) return;
     _inFlight[path] = (_inFlight[path] ?? 0) + 1;
     _tileStatusNotifier.ping();
   }
 
   void recordTileSuccess(String path, {int? generation}) {
+    if (_disposed) return;
     if (generation != null && generation != _cacheNonce) return;
     final n = _inFlight[path] ?? 0;
     if (n > 0) _inFlight[path] = n - 1;
@@ -185,6 +194,7 @@ class WeatherDataService extends ChangeNotifier {
   }
 
   void recordTileError(String path, Object error, {int? generation}) {
+    if (_disposed) return;
     if (generation != null && generation != _cacheNonce) return;
     final n = _inFlight[path] ?? 0;
     if (n > 0) _inFlight[path] = n - 1;
@@ -200,6 +210,7 @@ class WeatherDataService extends ChangeNotifier {
   /// was slow to publish, container just woke up, etc.).
   Future<void> refreshMetadata() async {
     await Future.wait(_metadataPaths.map(_fetchMetadata));
+    if (_disposed) return;
     notifyListeners();
   }
 
@@ -209,6 +220,7 @@ class WeatherDataService extends ChangeNotifier {
       final resp = await http
           .get(uri, headers: _auth.authorisedHeaders())
           .timeout(const Duration(seconds: 10));
+      if (_disposed) return;
       if (resp.statusCode != 200) return;
       final json = jsonDecode(resp.body);
       if (json is! Map<String, dynamic>) return;
@@ -353,6 +365,7 @@ class WeatherDataService extends ChangeNotifier {
       final resp = await http
           .get(uri, headers: _auth.authorisedHeaders())
           .timeout(const Duration(seconds: 15));
+      if (_disposed) return null;
       // Return null on any non-success / malformed-shape so the
       // overlay treats it as a transient failure and retries on the
       // next camera tick. Returning `const []` here would be
@@ -399,7 +412,17 @@ class WeatherDataService extends ChangeNotifier {
   }
 
   @override
+  void notifyListeners() {
+    if (_disposed) return;
+    super.notifyListeners();
+  }
+
+  @override
   void dispose() {
+    // Set BEFORE we tear down the timer / notifier so any in-flight
+    // futures completing during disposal short-circuit before they
+    // try to fan a notification out.
+    _disposed = true;
     _refreshTimer?.cancel();
     _vectorCache.clear();
     _vectorLru.clear();
