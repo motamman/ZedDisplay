@@ -45,8 +45,25 @@ class RoutePlannerBoatsService extends ChangeNotifier {
     if (hasNow == _hadToken) return;
     _hadToken = hasNow;
     if (hasNow) {
-      if (_allBoats.isEmpty && !_loadingBoats) {
+      // Always re-fetch on token regain. The previous gate
+      // (`_allBoats.isEmpty`) skipped the refresh on a sign-out →
+      // sign-in cycle because nothing wipes `_allBoats` on logout —
+      // so the picker would silently keep boats minted by the prior
+      // account.
+      if (!_loadingBoats) {
         unawaited(refreshAllBoats());
+      }
+    } else {
+      // Clear state owned by the prior token so a re-sign-in starts
+      // from a known-empty cache and any UI bound to this notifier
+      // re-renders empty until the refresh lands.
+      if (_allBoats.isNotEmpty ||
+          _ownedBoatIds.isNotEmpty ||
+          _polars.isNotEmpty) {
+        _allBoats = const [];
+        _ownedBoatIds.clear();
+        _polars = const [];
+        notifyListeners();
       }
     }
   }

@@ -122,6 +122,17 @@ class WeatherDataService extends ChangeNotifier {
   final Map<String, DateTime> _tileLastSuccess = {};
   final Map<String, Object?> _tileLastError = {};
 
+  /// Tile-status events fan out through this dedicated `Listenable`
+  /// instead of the service's own `notifyListeners` so high-frequency
+  /// per-tile traffic (every fetch start, every fetch resolve) doesn't
+  /// trigger the main service listeners. The vector overlays
+  /// (`weather_data_overlays.dart`) wake on any main-service notify
+  /// and re-evaluate their fetch fingerprint — without this split,
+  /// recording one tile's status would invalidate every overlay and
+  /// cascade into another fetch round, on every tile.
+  final _PingNotifier _tileStatusNotifier = _PingNotifier();
+  Listenable get tileStatusNotifier => _tileStatusNotifier;
+
   int inFlightCount(String path) => _inFlight[path] ?? 0;
   DateTime? tileLastSuccess(String path) => _tileLastSuccess[path];
   Object? tileLastError(String path) => _tileLastError[path];
@@ -131,25 +142,35 @@ class WeatherDataService extends ChangeNotifier {
   /// the very first fetch" from "loaded and current".
   bool hasEverLoaded(String path) => _tileLastSuccess.containsKey(path);
 
-  void recordTileStart(String path) {
+  /// Tile-status mutators take an optional `generation` (the
+  /// `cacheNonce` snapshot from when the fetch started). After
+  /// `reloadTiles()` bumps the nonce and clears the maps, any tile
+  /// future from the prior generation is dropped here so it can't
+  /// repopulate `_tileLastSuccess` / `_tileLastError` and make stale
+  /// chips appear "loaded" or "errored". Callers that pre-date the
+  /// generation argument are still accepted (treated as untracked).
+  void recordTileStart(String path, {int? generation}) {
+    if (generation != null && generation != _cacheNonce) return;
     _inFlight[path] = (_inFlight[path] ?? 0) + 1;
-    notifyListeners();
+    _tileStatusNotifier.ping();
   }
 
-  void recordTileSuccess(String path) {
+  void recordTileSuccess(String path, {int? generation}) {
+    if (generation != null && generation != _cacheNonce) return;
     final n = _inFlight[path] ?? 0;
     if (n > 0) _inFlight[path] = n - 1;
     _tileLastSuccess[path] = DateTime.now();
     // Successful fetch trumps any stale error from a previous attempt.
     _tileLastError.remove(path);
-    notifyListeners();
+    _tileStatusNotifier.ping();
   }
 
-  void recordTileError(String path, Object error) {
+  void recordTileError(String path, Object error, {int? generation}) {
+    if (generation != null && generation != _cacheNonce) return;
     final n = _inFlight[path] ?? 0;
     if (n > 0) _inFlight[path] = n - 1;
     _tileLastError[path] = error;
-    notifyListeners();
+    _tileStatusNotifier.ping();
   }
 
   Future<void> _fetchAllMetadata() => refreshMetadata();
@@ -209,6 +230,10 @@ class WeatherDataService extends ChangeNotifier {
     _inFlight.clear();
     _tileLastSuccess.clear();
     _tileLastError.clear();
+    // Player chips listen to the dedicated status notifier; ping it
+    // so they re-render against the cleared maps without waiting for
+    // the next tile event to come back.
+    _tileStatusNotifier.ping();
     debugPrint(
         '[WeatherDataService] reloadTiles() called: nonce $oldNonce -> $_cacheNonce');
     try {
@@ -302,14 +327,20 @@ class WeatherDataService extends ChangeNotifier {
   Future<List<WeatherVectorPoint>?> fetchVectorTile(
       String path, int z, int x, int y) async {
     final hour = hourParam;
-    final key = '$path|$z|$x|$y|$hour|$_cacheNonce';
+    // Capture the generation at fetch start so a reload mid-flight
+    // can't repopulate post-clear status maps. Same gating as the
+    // raster `_WeatherTileProvider` path — keeps vector layers
+    // honest in the player's "all tiles settled" gate.
+    final generation = _cacheNonce;
+    final key = '$path|$z|$x|$y|$hour|$generation';
     final cached = _vectorCache[key];
     if (cached != null) {
       _touchLru(key);
       return cached;
     }
     final uri = Uri.parse(
-        '$_baseUrl$path/$z/$x/$y.json?t=$hour&v=$_cacheNonce');
+        '$_baseUrl$path/$z/$x/$y.json?t=$hour&v=$generation');
+    recordTileStart(path, generation: generation);
     try {
       final resp = await http
           .get(uri, headers: _auth.authorisedHeaders())
@@ -319,9 +350,16 @@ class WeatherDataService extends ChangeNotifier {
       // next camera tick. Returning `const []` here would be
       // indistinguishable from "tile is legitimately empty" and get
       // memoized by the overlay's fingerprint.
-      if (resp.statusCode != 200) return null;
+      if (resp.statusCode != 200) {
+        recordTileError(
+            path, 'HTTP ${resp.statusCode}', generation: generation);
+        return null;
+      }
       final data = jsonDecode(resp.body);
-      if (data is! List) return null;
+      if (data is! List) {
+        recordTileError(path, 'malformed body', generation: generation);
+        return null;
+      }
       final points = data
           .whereType<Map<String, dynamic>>()
           .map((m) => WeatherVectorPoint(
@@ -339,8 +377,10 @@ class WeatherDataService extends ChangeNotifier {
         final evict = _vectorLru.removeAt(0);
         _vectorCache.remove(evict);
       }
+      recordTileSuccess(path, generation: generation);
       return points;
-    } catch (_) {
+    } catch (e) {
+      recordTileError(path, e, generation: generation);
       return null;
     }
   }
@@ -355,6 +395,7 @@ class WeatherDataService extends ChangeNotifier {
     _refreshTimer?.cancel();
     _vectorCache.clear();
     _vectorLru.clear();
+    _tileStatusNotifier.dispose();
     super.dispose();
   }
 
@@ -362,4 +403,12 @@ class WeatherDataService extends ChangeNotifier {
     final u = t.toUtc();
     return DateTime.utc(u.year, u.month, u.day, u.hour);
   }
+}
+
+/// Trivial public-notify wrapper so the service can fan out
+/// tile-status pings without exposing `notifyListeners` (which is
+/// `protected`) on a separate object. Kept private to this file —
+/// consumers see `Listenable` only.
+class _PingNotifier extends ChangeNotifier {
+  void ping() => notifyListeners();
 }

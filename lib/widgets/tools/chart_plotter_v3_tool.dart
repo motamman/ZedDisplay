@@ -731,6 +731,12 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
       _weatherDataService = WeatherDataService(auth)
         ..baseUrl = _routePlannerBaseUrl
         ..addListener(_onWeatherDataChanged);
+      // Per-tile events fire on a dedicated notifier so they don't
+      // wake every overlay that listens to the main service. The
+      // player's status chips and "all tiles settled" gate need them
+      // though, so subscribe explicitly.
+      _weatherDataService!.tileStatusNotifier
+          .addListener(_onWeatherDataChanged);
       // First dependency pass — now that `context.read<StorageService>()`
       // is wired, restore the user's persisted layer preferences
       // (which toggles were on, custom min-zooms, which legends on
@@ -1136,6 +1142,8 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
     _tileManager?.dispose();
     _weatherRoutingService?.removeListener(_onWeatherRoutingChanged);
     _weatherDataService?.removeListener(_onWeatherDataChanged);
+    _weatherDataService?.tileStatusNotifier
+        .removeListener(_onWeatherDataChanged);
     _weatherDataService?.dispose();
     super.dispose();
   }
@@ -7907,24 +7915,32 @@ class _WeatherTileProvider extends NetworkTileProvider {
   _WeatherTileProvider({
     required this.path,
     required this.service,
-  }) : super(headers: service.authHeaders);
+  })  : generation = service.cacheNonce,
+        super(headers: service.authHeaders);
 
   final String path;
   final WeatherDataService service;
 
+  /// Captured at construction so a tile resolve that lands after
+  /// `reloadTiles()` (which bumps `cacheNonce` and clears the status
+  /// maps) is dropped on the floor in the service's `recordTile*`
+  /// guards instead of leaking a stale "loaded" or "errored" chip
+  /// into the player's gating.
+  final int generation;
+
   @override
   ImageProvider getImage(TileCoordinates coords, TileLayer options) {
     final inner = super.getImage(coords, options);
-    service.recordTileStart(path);
+    service.recordTileStart(path, generation: generation);
     final stream = inner.resolve(const ImageConfiguration());
     late ImageStreamListener listener;
     listener = ImageStreamListener(
       (image, sync) {
-        service.recordTileSuccess(path);
+        service.recordTileSuccess(path, generation: generation);
         stream.removeListener(listener);
       },
       onError: (error, stack) {
-        service.recordTileError(path, error);
+        service.recordTileError(path, error, generation: generation);
         stream.removeListener(listener);
       },
     );
