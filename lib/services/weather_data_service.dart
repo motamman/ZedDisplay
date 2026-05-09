@@ -56,14 +56,30 @@ class WeatherDataService extends ChangeNotifier {
     _refreshTimer = Timer.periodic(
       const Duration(hours: 3),
       (_) {
-        _cacheNonce = DateTime.now().millisecondsSinceEpoch;
-        _vectorCache.clear();
-        _vectorLru.clear();
+        _resetCacheGeneration();
         unawaited(_fetchAllMetadata());
         notifyListeners();
       },
     );
     unawaited(_fetchAllMetadata());
+  }
+
+  /// Single chokepoint for every cache-boundary event: bumps
+  /// `_cacheNonce`, drops the in-memory vector cache, and clears the
+  /// per-tile status maps so any in-flight resolve from the prior
+  /// generation is dropped by the gates in `recordTile*`. Pings the
+  /// status notifier so player chips repaint against the cleared
+  /// state. Callers handle their own `notifyListeners()` for the
+  /// main service notifier (whether the change should wake overlays
+  /// is context-specific).
+  void _resetCacheGeneration() {
+    _cacheNonce = DateTime.now().millisecondsSinceEpoch;
+    _vectorCache.clear();
+    _vectorLru.clear();
+    _inFlight.clear();
+    _tileLastSuccess.clear();
+    _tileLastError.clear();
+    _tileStatusNotifier.ping();
   }
 
   final RoutePlannerAuthService _auth;
@@ -75,8 +91,11 @@ class WeatherDataService extends ChangeNotifier {
     final trimmed = v.trim().replaceAll(RegExp(r'/+$'), '');
     if (trimmed == _baseUrl) return;
     _baseUrl = trimmed;
-    _vectorCache.clear();
-    _vectorLru.clear();
+    // Bump the generation BEFORE the swap takes effect so any tile
+    // resolve still in flight against the old host gets dropped in
+    // the `recordTile*` gates. Without this, post-switch completions
+    // leak old-host status into the new-host chips.
+    _resetCacheGeneration();
     _metadata.clear();
     unawaited(_fetchAllMetadata());
     notifyListeners();
@@ -219,21 +238,7 @@ class WeatherDataService extends ChangeNotifier {
   ///      which keys on URL, so a new URL is a miss.
   Future<void> reloadTiles() async {
     final oldNonce = _cacheNonce;
-    _cacheNonce = DateTime.now().millisecondsSinceEpoch;
-    _vectorCache.clear();
-    _vectorLru.clear();
-    // Tile-load indicators are bound to the (path, current nonce)
-    // pairing. Cache wipe means the next fetch is the new "first"
-    // load, so reset success / error / in-flight maps too — without
-    // this, a stale "loaded ✓" chip would persist across the wipe
-    // until the next tile actually arrived.
-    _inFlight.clear();
-    _tileLastSuccess.clear();
-    _tileLastError.clear();
-    // Player chips listen to the dedicated status notifier; ping it
-    // so they re-render against the cleared maps without waiting for
-    // the next tile event to come back.
-    _tileStatusNotifier.ping();
+    _resetCacheGeneration();
     debugPrint(
         '[WeatherDataService] reloadTiles() called: nonce $oldNonce -> $_cacheNonce');
     try {
@@ -330,9 +335,12 @@ class WeatherDataService extends ChangeNotifier {
     // Capture the generation at fetch start so a reload mid-flight
     // can't repopulate post-clear status maps. Same gating as the
     // raster `_WeatherTileProvider` path — keeps vector layers
-    // honest in the player's "all tiles settled" gate.
+    // honest in the player's "all tiles settled" gate. Generation
+    // also rolls on baseUrl change, but include `_baseUrl` in the
+    // key explicitly so a (theoretical) nonce collision across hosts
+    // can't cause a cache hit against the wrong server.
     final generation = _cacheNonce;
-    final key = '$path|$z|$x|$y|$hour|$generation';
+    final key = '$_baseUrl|$path|$z|$x|$y|$hour|$generation';
     final cached = _vectorCache[key];
     if (cached != null) {
       _touchLru(key);

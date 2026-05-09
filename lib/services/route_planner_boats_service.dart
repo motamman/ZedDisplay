@@ -40,23 +40,35 @@ class RoutePlannerBoatsService extends ChangeNotifier {
 
   bool _hadToken = false;
 
+  /// Bumped on every auth transition AND on every `baseUrl` change.
+  /// `refreshAllBoats` captures it at start and refuses to commit
+  /// boats / polars if the value has moved on by the time the HTTP
+  /// round-trip lands — so a fetch initiated against the prior token
+  /// or the prior router can never repopulate the new state.
+  int _refreshEpoch = 0;
+
   void _onAuthChanged() {
     final hasNow = _auth.hasToken;
     if (hasNow == _hadToken) return;
     _hadToken = hasNow;
+    // Bump the epoch on every auth transition so any in-flight
+    // refresh started under the prior token won't write its boats /
+    // polars back into our state after the user has signed out (or
+    // signed in to a different account).
+    _refreshEpoch++;
     if (hasNow) {
       // Always re-fetch on token regain. The previous gate
       // (`_allBoats.isEmpty`) skipped the refresh on a sign-out →
       // sign-in cycle because nothing wipes `_allBoats` on logout —
       // so the picker would silently keep boats minted by the prior
       // account.
-      if (!_loadingBoats) {
-        unawaited(refreshAllBoats());
-      }
+      _loadingBoats = false;
+      unawaited(refreshAllBoats());
     } else {
       // Clear state owned by the prior token so a re-sign-in starts
       // from a known-empty cache and any UI bound to this notifier
       // re-renders empty until the refresh lands.
+      _loadingBoats = false;
       if (_allBoats.isNotEmpty ||
           _ownedBoatIds.isNotEmpty ||
           _polars.isNotEmpty) {
@@ -87,6 +99,10 @@ class RoutePlannerBoatsService extends ChangeNotifier {
     final trimmed = v.trim().replaceAll(RegExp(r'/+$'), '');
     if (trimmed == _baseUrl) return;
     _baseUrl = trimmed;
+    // Same epoch-bump rationale as `_onAuthChanged` — an in-flight
+    // request against the old host must not write its result back.
+    _refreshEpoch++;
+    _loadingBoats = false;
     // Drop cached state — it's owned by the old server.
     _allBoats = const [];
     _ownedBoatIds.clear();
@@ -150,12 +166,19 @@ class RoutePlannerBoatsService extends ChangeNotifier {
   /// attached to any saved boat appear below as "adopt me" rows
   /// that call `POST /boats` on tap via [adoptPolar].
   Future<void> refreshAllBoats() async {
+    if (_loadingBoats) return;
+    final epoch = _refreshEpoch;
     _loadingBoats = true;
     notifyListeners();
     final results = await Future.wait([
       _getJsonList('/boats'),
       _getJsonList('/polars'),
     ]);
+    // Auth transition / baseUrl flip happened mid-flight — these
+    // results belong to a token or host that's no longer current.
+    // Don't write them back, and leave the loading flag alone (the
+    // setter that bumped the epoch already cleared it).
+    if (epoch != _refreshEpoch) return;
     final boatList = results[0];
     final polarList = results[1];
     if (boatList != null) {
