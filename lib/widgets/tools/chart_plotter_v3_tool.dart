@@ -2778,6 +2778,24 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
                   result: _weatherRoutingService!.currentResult!,
                   selectedIndex: _weatherRouteSelectedIdx,
                 ),
+              // Approximate-mode halo around each intermediate via
+              // pin. Visible only when the routing service is in
+              // `approximate` precision; the ring's geographic radius
+              // matches the `arrival_radius_m` slider in the panel,
+              // so the user gets a live preview of the proximity
+              // tolerance before pressing Compute.
+              if (_weatherRoutingEnabled &&
+                  _weatherRoutingService != null &&
+                  _weatherRoutingService!.precision ==
+                      RoutePrecision.approximate &&
+                  _weatherRoutingService!.plannedVias.isNotEmpty)
+                WeatherRouteApproxHaloLayer(
+                  vias: [
+                    for (final v in _weatherRoutingService!.plannedVias)
+                      LatLng(v.lat, v.lon),
+                  ],
+                  radiusM: _weatherRoutingService!.arrivalRadiusM,
+                ),
               if (_aisEnabled && _aisVessels.isNotEmpty)
                 _AisOverlayLayer(
                   vessels: _aisVessels,

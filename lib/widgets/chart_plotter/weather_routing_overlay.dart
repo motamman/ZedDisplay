@@ -345,6 +345,116 @@ class WeatherRoutePainter extends CustomPainter {
       old.selectedIndex != selectedIndex;
 }
 
+/// Paints a translucent white halo around each intermediate via
+/// pin when the user has the routing service set to
+/// `approximate` precision. The halo's geographic radius matches
+/// the server's `arrival_radius_m` parameter — so the user can
+/// see, before pressing Compute, how loose the arrival proximity
+/// is around each waypoint. The radius is in meters and scales
+/// with zoom (closer-in zooms paint a larger pixel ring; farther-
+/// out zooms paint a tighter one).
+///
+/// Halos are drawn ONLY for intermediate vias because the server
+/// treats start and end as exact regardless of precision — the
+/// `arrival_radius_m` field is ignored for those.
+class WeatherRouteApproxHaloLayer extends StatelessWidget {
+  const WeatherRouteApproxHaloLayer({
+    super.key,
+    required this.vias,
+    required this.radiusM,
+  });
+
+  final List<LatLng> vias;
+  final double radiusM;
+
+  @override
+  Widget build(BuildContext context) {
+    if (vias.isEmpty || radiusM <= 0) return const SizedBox.shrink();
+    final camera = MapCamera.of(context);
+    return MobileLayerTransformer(
+      child: CustomPaint(
+        painter: _ApproxHaloPainter(
+          camera: camera,
+          vias: vias,
+          radiusM: radiusM,
+        ),
+        size: Size.infinite,
+      ),
+    );
+  }
+}
+
+class _ApproxHaloPainter extends CustomPainter {
+  _ApproxHaloPainter({
+    required this.camera,
+    required List<LatLng> vias,
+    required this.radiusM,
+  }) : vias = List<LatLng>.unmodifiable(vias);
+
+  final MapCamera camera;
+  /// Snapshot taken at construction. Defensive against an upstream
+  /// caller that caches and mutates the source list in place — the
+  /// `identical` short-circuit in shouldRepaint would otherwise
+  /// hide content changes. The wrap is a single allocation per
+  /// rebuild and the painter rebuilds on every camera change anyway,
+  /// so cost is negligible.
+  final List<LatLng> vias;
+  final double radiusM;
+
+  /// Geodesic distance helper — produces a true offset point given a
+  /// LatLng + bearing + distance, so the halo's pixel radius tracks
+  /// the WebMercator projection (and any latitude-dependent stretch)
+  /// rather than a hardcoded meters-per-degree-latitude constant.
+  /// Bearing 0° is north — irrelevant which compass heading we pick
+  /// since we measure pixel distance back to the centre, but north
+  /// avoids the cosine term that would otherwise distort the ring
+  /// near the poles.
+  static const Distance _geo = Distance();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final origin = camera.pixelOrigin;
+    final fillPaint = Paint()
+      ..color = Colors.white.withValues(alpha: 0.18)
+      ..style = PaintingStyle.fill;
+    final strokePaint = Paint()
+      ..color = Colors.white.withValues(alpha: 0.85)
+      ..strokeWidth = 1.5
+      ..style = PaintingStyle.stroke;
+
+    for (final via in vias) {
+      final centre = camera.projectAtZoom(via) - origin;
+      // `Distance.offset` returns the geodesic point `radiusM`
+      // meters away on the given bearing. Project both points and
+      // measure their pixel separation — the result is whatever the
+      // current map projection makes [radiusM] resolve to in pixels.
+      final north = _geo.offset(via, radiusM, 0);
+      final northPx = camera.projectAtZoom(north) - origin;
+      final pxRadius = (centre - northPx).distance;
+      if (pxRadius < 0.5) continue;
+      canvas.drawCircle(centre, pxRadius, fillPaint);
+      canvas.drawCircle(centre, pxRadius, strokePaint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _ApproxHaloPainter old) =>
+      old.camera != camera ||
+      old.radiusM != radiusM ||
+      !_listEquals(old.vias, vias);
+
+  /// Length + element comparison. No `identical` short-circuit so a
+  /// mutated-in-place list never hides a content change — paranoid
+  /// given the unmodifiable snapshot in the constructor, but cheap.
+  static bool _listEquals(List<LatLng> a, List<LatLng> b) {
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i] != b[i]) return false;
+    }
+    return true;
+  }
+}
+
 /// Hit-tests a tap against the waypoint markers of a weather route.
 /// Returns the index of the nearest waypoint within [radius] pixels, or
 /// null if the tap doesn't land on any marker.
