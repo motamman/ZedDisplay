@@ -30,6 +30,7 @@ import '../../models/weather_layer_metadata.dart';
 import '../../models/weather_route_request.dart';
 import '../../models/weather_route_result.dart';
 import '../../services/route_planner_auth_service.dart';
+import '../../utils/ship_type_utils.dart' as ship_type;
 import '../../services/route_planner_boats_service.dart';
 import '../../services/weather_data_service.dart';
 import '../../services/weather_routing_service.dart';
@@ -124,6 +125,22 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
   // `ChartTileServerService` so the proxy resolves the right upstream
   // per chartId.
   List<ChartDescriptor> _chartCatalog = const [];
+
+  /// `true` once `_refreshChartCatalog` has successfully parsed a
+  /// resources/charts response from this SignalK server. Stays `true`
+  /// across subsequent failures so `_onChartsCatalogChanged` can
+  /// distinguish "catalog never arrived (don't reconcile yet)" from
+  /// "catalog is empty (drop stale s57 rows)". Without this, a slow
+  /// or failing first connect would wipe every persisted s57
+  /// selection from `_layers` before the next retry could rescue
+  /// them.
+  bool _catalogHasLoaded = false;
+
+  /// Mirrors `_chartsService.loading` / `lastError` semantics in the
+  /// inline catalog fetch path. Drives the Charts tab's spinner /
+  /// error chip.
+  bool _catalogLoading = false;
+  String? _catalogLastError;
 
   Map<String, dynamic>? _firstEnabled(String type) {
     for (final l in _layers) {
@@ -255,15 +272,26 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
   StreamSubscription<RouteArrivalEvent>? _arrivalSub;
 
 
+  // Active nav-drawer flyout. The map-controls column on the right
+  // edge has six buttons: three standalones (view-mode / snap /
+  // ruler) and three group icons (AIS / Routes / Layers). Tapping a
+  // group icon opens its sub-buttons in a horizontal drawer that
+  // slides in to the LEFT of the column. Only one drawer is open at
+  // a time; tapping the same group icon a second time (or tapping a
+  // different group) collapses or swaps it. Local UI state — not
+  // persisted across restarts.
+  _NavDrawerKind _openDrawer = _NavDrawerKind.none;
+
+  void _toggleNavDrawer(_NavDrawerKind which) {
+    setState(() {
+      _openDrawer =
+          _openDrawer == which ? _NavDrawerKind.none : which;
+    });
+  }
+
   // Ruler state. Matches V1's model: two endpoints (red + blue) that
   // can each snap to the own vessel ('self') or an AIS vessel id, and
   // reposition automatically when their snap target moves.
-  // Manual declutter toggle. When true, forces sounding-label
-  // decimation at every zoom; when false, the painter still applies
-  // the zoom > 11 auto-cutoff so closely-packed labels are thinned
-  // at high detail without the user having to press anything.
-  bool _declutter = false;
-
   bool _rulerVisible = false;
   LatLng? _rulerRed;
   LatLng? _rulerBlue;
@@ -278,6 +306,13 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
   bool _aisActiveOnly = false;
   bool _aisShowPaths = false;
   List<_AisRenderable> _aisVessels = const [];
+  /// Vessel id of the most recently tapped AIS target. Drives the
+  /// 16 px yellow ring the painter draws over the selected vessel.
+  /// Persists across detail-sheet open/close — cleared when the
+  /// user taps an empty area of the chart, when AIS is turned off,
+  /// or when the vessel ages out of the active snapshot. Session
+  /// only (not persisted to disk).
+  String? _selectedAisId;
 
   // Own-vessel position / heading. Populated on a 1s tick from
   // SignalKService's cached values — same cadence V1 used. Kept as
@@ -410,6 +445,24 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
   /// 0 = paused, +1 = forward play, -1 = reverse play.
   int _playerDirection = 0;
   Timer? _playerTimer;
+  /// Wall clock of the most recent player advance. Used by the
+  /// tile-aware gating below to decide whether we've waited long
+  /// enough to either advance (tiles quiet, ≥ minHold) or force-
+  /// advance (tiles busy, ≥ maxHold). Null while the player is
+  /// paused or has never advanced.
+  DateTime? _playerLastAdvance;
+  /// Minimum visual cadence: the player advances no faster than one
+  /// hour per second even when tiles arrive faster, so playback
+  /// stays watchable.
+  static const Duration _playerMinHold = Duration(seconds: 1);
+  /// Maximum tile-wait per advance: if any active time-keyed layer
+  /// is still loading after this much, advance anyway so a single
+  /// stuck tile / dead tileserver can't deadlock playback.
+  static const Duration _playerMaxHold = Duration(seconds: 5);
+  /// Polling interval for the gated tick loop. Granularity for the
+  /// "tiles quiet?" check between [_playerMinHold] and
+  /// [_playerMaxHold].
+  static const Duration _playerPollInterval = Duration(milliseconds: 200);
   /// Player range (hours). `-120` = 5 days past, `+384` = 16 days
   /// future. Matches the route planner's forecast envelope.
   static const int _playerMinOffset = -120;
@@ -695,6 +748,12 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
       _weatherDataService = WeatherDataService(auth)
         ..baseUrl = _routePlannerBaseUrl
         ..addListener(_onWeatherDataChanged);
+      // Per-tile events fire on a dedicated notifier so they don't
+      // wake every overlay that listens to the main service. The
+      // player's status chips and "all tiles settled" gate need them
+      // though, so subscribe explicitly.
+      _weatherDataService!.tileStatusNotifier
+          .addListener(_onWeatherDataChanged);
       // First dependency pass — now that `context.read<StorageService>()`
       // is wired, restore the user's persisted layer preferences
       // (which toggles were on, custom min-zooms, which legends on
@@ -748,7 +807,10 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
       minZoom: effectiveFloor.toDouble(),
       minNativeZoom: effectiveFloor,
       maxNativeZoom: 16,
-      tileProvider: NetworkTileProvider(headers: svc.authHeaders),
+      tileProvider: _WeatherTileProvider(
+        path: path,
+        service: svc,
+      ),
       // Crossfade new tiles in over the previous hour's tiles so the
       // player playback reads as a smooth animation rather than a
       // flicker-then-replace step.
@@ -824,6 +886,7 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
     _playerOffsetHours = 0;
     _playerTimer?.cancel();
     _playerTimer = null;
+    _playerLastAdvance = null;
   }
 
   /// If toggling a layer just turned off the last time-keyed weather
@@ -855,24 +918,144 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
       _playerTimer?.cancel();
       _playerTimer = null;
       if (next != 0) {
-        _playerTimer =
-            Timer.periodic(const Duration(seconds: 1), (_) => _playerTick());
+        // Reset the hold clock so the very first tick honours the
+        // 1 s minimum hold from the moment play started, not from
+        // some leftover advance timestamp.
+        _playerLastAdvance = DateTime.now();
+        _scheduleNextPlayerTick();
+      } else {
+        _playerLastAdvance = null;
       }
     });
   }
 
-  void _playerTick() {
+  /// Sum of in-flight tile counts across every currently-enabled
+  /// time-keyed layer. Drives the player's tile-aware gating: when
+  /// any active layer still has tiles in flight, hold the next
+  /// advance until the queue clears (or until the max-hold timeout
+  /// fires).
+  int _activeWeatherLayersInFlight() {
+    final svc = _weatherDataService;
+    if (svc == null) return 0;
+    var total = 0;
+    if (_windBarbsOn) total += svc.inFlightCount('/wind');
+    if (_currentsOn) total += svc.inFlightCount('/currents');
+    if (_windHeatmapOn) total += svc.inFlightCount('/wind-heatmap');
+    if (_currentHeatmapOn) total += svc.inFlightCount('/current-heatmap');
+    if (_seaStateOn) total += svc.inFlightCount('/roughness');
+    if (_waveHeatmapOn) total += svc.inFlightCount('/wave-heatmap');
+    if (_precipHeatmapOn) total += svc.inFlightCount('/precip-heatmap');
+    if (_temperatureHeatmapOn) total += svc.inFlightCount('/temperature');
+    if (_sstHeatmapOn) total += svc.inFlightCount('/sst');
+    return total;
+  }
+
+  /// Snapshot of every currently-enabled time-keyed weather layer
+  /// for the player strip's status-chip row. Order matches the
+  /// canonical layer order so the strip's chip layout doesn't
+  /// reshuffle on every toggle.
+  List<_WeatherPlayerStripLayer> _playerLayerStatuses() {
+    final svc = _weatherDataService;
+    if (svc == null) return const [];
+    _WeatherPlayerStripLayer entry(
+      String path, {
+      required IconData icon,
+      required String label,
+    }) {
+      final inFlight = svc.inFlightCount(path);
+      final lastErr = svc.tileLastError(path);
+      final lastOk = svc.tileLastSuccess(path);
+      // `recordTileSuccess` clears `_tileLastError`, so a non-null
+      // `lastErr` always reflects the most recent fetch failing.
+      final _LayerLoadStatus status;
+      if (inFlight > 0) {
+        status = _LayerLoadStatus.loading;
+      } else if (lastErr != null) {
+        status = _LayerLoadStatus.error;
+      } else if (lastOk != null) {
+        status = _LayerLoadStatus.loaded;
+      } else {
+        status = _LayerLoadStatus.idle;
+      }
+      return _WeatherPlayerStripLayer(
+        path: path,
+        label: label,
+        icon: icon,
+        status: status,
+      );
+    }
+
+    return [
+      if (_windBarbsOn)
+        entry('/wind', icon: Icons.air, label: 'Wind barbs'),
+      if (_currentsOn)
+        entry('/currents', icon: Icons.waves, label: 'Currents'),
+      if (_windHeatmapOn)
+        entry('/wind-heatmap',
+            icon: Icons.thermostat, label: 'Wind speed'),
+      if (_currentHeatmapOn)
+        entry('/current-heatmap',
+            icon: Icons.water, label: 'Current speed'),
+      if (_seaStateOn)
+        entry('/roughness',
+            icon: Icons.warning_amber, label: 'Sea state'),
+      if (_waveHeatmapOn)
+        entry('/wave-heatmap',
+            icon: Icons.tsunami, label: 'Wave height'),
+      if (_precipHeatmapOn)
+        entry('/precip-heatmap', icon: Icons.umbrella, label: 'Precip'),
+      if (_temperatureHeatmapOn)
+        entry('/temperature',
+            icon: Icons.thermostat, label: 'Air temp'),
+      if (_sstHeatmapOn)
+        entry('/sst',
+            icon: Icons.water_drop_outlined, label: 'SST'),
+    ];
+  }
+
+  /// Schedule the next gated tick. Self-rescheduling so the cadence
+  /// adapts to network speed: if tiles arrive in 200 ms we poll past
+  /// the 1 s minimum and advance; if tiles take 4 s we hold; if
+  /// tiles never arrive we force-advance after 5 s.
+  void _scheduleNextPlayerTick() {
+    _playerTimer?.cancel();
+    _playerTimer = null;
     if (!mounted || !_playerVisible || _playerDirection == 0) return;
+    _playerTimer = Timer(_playerPollInterval, _maybeAdvancePlayerTick);
+  }
+
+  void _maybeAdvancePlayerTick() {
+    if (!mounted || !_playerVisible || _playerDirection == 0) return;
+    final lastAdvance = _playerLastAdvance ?? DateTime.now();
+    final since = DateTime.now().difference(lastAdvance);
+    final tilesBusy = _activeWeatherLayersInFlight() > 0;
+    // Always honour the visual minimum cadence, even when tiles
+    // landed instantly. Without this, a hot disk cache would
+    // rattle through hours faster than the eye can read.
+    if (since < _playerMinHold) {
+      _scheduleNextPlayerTick();
+      return;
+    }
+    // Between min and max hold: advance only when tiles are quiet.
+    // After max hold: advance regardless so a stuck tile or dead
+    // server can't freeze playback indefinitely.
+    if (tilesBusy && since < _playerMaxHold) {
+      _scheduleNextPlayerTick();
+      return;
+    }
     final next = _playerOffsetHours + _playerDirection;
     if (next > _playerMaxOffset || next < _playerMinOffset) {
       // Pause at either end of the forecast envelope.
-      _playerTimer?.cancel();
-      _playerTimer = null;
-      setState(() => _playerDirection = 0);
+      setState(() {
+        _playerDirection = 0;
+        _playerLastAdvance = null;
+      });
       return;
     }
     setState(() => _playerOffsetHours = next);
+    _playerLastAdvance = DateTime.now();
     _syncWeatherReferenceTime();
+    _scheduleNextPlayerTick();
   }
 
   void _setPlayerOffset(int hours) {
@@ -888,6 +1071,7 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
       _playerDirection = 0;
       _playerTimer?.cancel();
       _playerTimer = null;
+      _playerLastAdvance = null;
     });
     _setPlayerOffset(_playerOffsetHours + delta);
   }
@@ -898,6 +1082,7 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
       _playerDirection = 0;
       _playerTimer?.cancel();
       _playerTimer = null;
+      _playerLastAdvance = null;
     });
     _syncWeatherReferenceTime();
   }
@@ -932,6 +1117,22 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
     if (!hasResult && _weatherRouteSelectedIdx != null) {
       _weatherRouteSelectedIdx = null;
     }
+    // Tabula-rasa hook for panel-driven `clearAll`. The panel sits in
+    // a bottom sheet and can't reach this widget's local state, so
+    // when the service goes fully empty (no result, no pins, no
+    // vias) we mirror that locally: drop the waypoint selection and
+    // close the compose popover. Idempotent — re-firing on an
+    // already-empty service is a no-op.
+    final svc = _weatherRoutingService;
+    if (svc != null &&
+        svc.currentResult == null &&
+        svc.plannedStart == null &&
+        svc.plannedEnd == null &&
+        svc.plannedVias.isEmpty) {
+      if (_composePopoverOpen) {
+        _composePopoverOpen = false;
+      }
+    }
     setState(() {});
     // Reference time may have shifted (new route, different departure,
     // or cleared selection) — push it into the data service. Tile
@@ -958,6 +1159,8 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
     _tileManager?.dispose();
     _weatherRoutingService?.removeListener(_onWeatherRoutingChanged);
     _weatherDataService?.removeListener(_onWeatherDataChanged);
+    _weatherDataService?.tileStatusNotifier
+        .removeListener(_onWeatherDataChanged);
     _weatherDataService?.dispose();
     super.dispose();
   }
@@ -1128,7 +1331,7 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
         // is an acceptable fallback — the symbol stays upright.
         bearingRadians: v.headingTrueRad ?? v.cogRad ?? 0.0,
         name: v.name ?? '',
-        color: _aisShipTypeColor(v.aisShipType, v.aisClass),
+        color: ship_type.shipTypeColor(v.aisShipType, aisClass: v.aisClass),
         alpha: _aisFreshnessAlpha(v.aisStatus, v.lastSeen),
         stale: _aisIsStale(v.aisStatus, v.lastSeen),
         kind: kind,
@@ -1138,35 +1341,18 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
       ));
     }
     _aisVessels = out;
+    // If the selected vessel just aged out / lost position / was
+    // filtered by `_aisActiveOnly`, clear the ring — there's
+    // nothing under it to draw against any more.
+    if (_selectedAisId != null &&
+        out.every((r) => r.id != _selectedAisId)) {
+      _selectedAisId = null;
+    }
   }
 
-  /// Ship-type / AIS-class palette — ported verbatim from V1's
-  /// `shipTypeColor` in chart_webview.dart so the two plotters render
-  /// the same traffic in the same colours.
-  Color _aisShipTypeColor(int? type, String? aisClass) {
-    if (type == null) {
-      return aisClass == 'A' ? const Color(0xFFBDBDBD) : const Color(0xFF9E9E9E);
-    }
-    if (type == 36) return const Color(0xFF9C27B0); // sailing
-    switch (type ~/ 10) {
-      case 1:
-      case 2:
-        return const Color(0xFF00BCD4); // fishing, towing
-      case 3:
-        return const Color(0xFFFFC107); // special craft
-      case 4:
-      case 5:
-        return const Color(0xFF009688); // HSC
-      case 6:
-        return const Color(0xFF2196F3); // passenger
-      case 7:
-        return const Color(0xFF388E3C); // cargo
-      case 8:
-        return const Color(0xFF795548); // tanker
-      default:
-        return const Color(0xFF9E9E9E);
-    }
-  }
+  // Ship-type / AIS-class palette lives in `lib/utils/ship_type_utils.dart`
+  // as `ship_type.shipTypeColor` — single source of truth shared with the
+  // AIS polar chart widget. No inline copy here.
 
   double _aisFreshnessAlpha(String? status, DateTime? lastSeen) {
     if (status == 'confirmed') return 1.0;
@@ -1422,12 +1608,18 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
       }
     }
 
+    // AIS hit-test — if a vessel is within 20 px of the tap, mark
+    // it selected (drives the persistent 16 px ring), open the
+    // detail sheet, and short-circuit before chart-feature hit-
+    // testing. Selection persists after the sheet closes; clears
+    // when the user taps an empty area of the chart (handled below).
     if (_aisEnabled) {
       const aisHitRadius = 20.0;
       for (final v in _aisVessels) {
         final p = camera.latLngToScreenOffset(v.position);
         if ((p - tapScreen).distanceSquared <=
             aisHitRadius * aisHitRadius) {
+          setState(() => _selectedAisId = v.id);
           AISVesselDetailSheet.show(
             context,
             signalKService: widget.signalKService,
@@ -1440,6 +1632,14 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
           return;
         }
       }
+    }
+
+    // Tap landed outside any AIS vessel — clear the selection ring
+    // before the chart-feature popover takes over. Without this,
+    // the ring would stay around even after the user has clearly
+    // moved on to a chart feature.
+    if (_selectedAisId != null) {
+      setState(() => _selectedAisId = null);
     }
 
     _showFeaturePopoverForTap(latLng, tapScreen);
@@ -2117,6 +2317,12 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
   /// id→template map to the proxy so it forwards each chartId to the
   /// correct upstream.
   Future<void> _refreshChartCatalog() async {
+    if (_catalogLoading) return;
+    if (mounted) {
+      setState(() {
+        _catalogLoading = true;
+      });
+    }
     try {
       final raw = await widget.signalKService.getResources('charts');
       final descriptors = <ChartDescriptor>[];
@@ -2200,6 +2406,13 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
       }
       if (!mounted) return;
       _chartCatalog = descriptors;
+      // Catalog has now successfully arrived from this server. From
+      // this point on, an empty catalog is authoritative — meaning
+      // `_onChartsCatalogChanged` is allowed to drop persisted s57
+      // entries. Before this point, a slow / failing first connect
+      // leaves persisted rows in place.
+      _catalogHasLoaded = true;
+      _catalogLastError = null;
       // Push URL templates to the local cache proxy so it can forward
       // each chartId to the right upstream. Best-effort: a missing
       // proxy in tests just means tile fetches fall back to direct.
@@ -2209,7 +2422,17 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
             .setChartUpstreamTemplates(urlTemplates);
       } catch (_) {/* proxy unavailable */}
       _onChartsCatalogChanged();
-    } catch (_) {/* best effort — chart catalog may not be available */}
+    } catch (e) {
+      if (mounted) {
+        _catalogLastError = 'Catalog refresh failed: $e';
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _catalogLoading = false;
+        });
+      }
+    }
   }
 
   /// Reconcile `_layers` against the freshly-arrived chart catalog.
@@ -2224,27 +2447,36 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
     final catalogIds = {for (final c in _chartCatalog) c.id};
 
     var dirty = false;
-    final beforeLen = _layers.length;
-    _layers.removeWhere((l) =>
-        l['type'] == 's57' && !catalogIds.contains(l['id'] as String));
-    if (_layers.length != beforeLen) dirty = true;
 
-    // Identity is `(type, id)` — comparing only on `id` would let an
-    // S-57 chart whose server id collides with a built-in row (e.g.
-    // a chart called `depth` or `openstreetmap`) be silently
-    // discarded as already-present.
-    final existingKeys = {
-      for (final l in _layers) '${l['type']}:${l['id']}',
-    };
-    for (final c in _chartCatalog) {
-      if (existingKeys.contains('s57:${c.id}')) continue;
-      _layers.add({
-        'type': 's57',
-        'id': c.id,
-        'enabled': false,
-        'opacity': 1.0,
-      });
-      dirty = true;
+    // Only treat the catalog as authoritative once we've ever seen
+    // it successfully load from this SignalK server. Without this
+    // guard, a slow / failing first connect leaves `_chartCatalog`
+    // at the initial `const []`, and the `removeWhere` below would
+    // wipe every persisted s57 selection before the next retry
+    // could rescue them.
+    if (_catalogHasLoaded) {
+      final beforeLen = _layers.length;
+      _layers.removeWhere((l) =>
+          l['type'] == 's57' && !catalogIds.contains(l['id'] as String));
+      if (_layers.length != beforeLen) dirty = true;
+
+      // Identity is `(type, id)` — comparing only on `id` would let an
+      // S-57 chart whose server id collides with a built-in row (e.g.
+      // a chart called `depth` or `openstreetmap`) be silently
+      // discarded as already-present.
+      final existingKeys = {
+        for (final l in _layers) '${l['type']}:${l['id']}',
+      };
+      for (final c in _chartCatalog) {
+        if (existingKeys.contains('s57:${c.id}')) continue;
+        _layers.add({
+          'type': 's57',
+          'id': c.id,
+          'enabled': false,
+          'opacity': 1.0,
+        });
+        dirty = true;
+      }
     }
 
     _pushManagerCharts();
@@ -2469,7 +2701,6 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
                   hiddenClasses: _hiddenClasses,
                   enabledChartIds: _enabledChartIds,
                   chartOpacities: s57ChartOpacities,
-                  declutter: _declutter,
                   // Path-first, category fallback — same lookup the
                   // HUD uses at chart_hud.dart:125. Vessels normally
                   // populate `environment.depth.belowTransducer`
@@ -2551,6 +2782,7 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
                 _AisOverlayLayer(
                   vessels: _aisVessels,
                   showPaths: _aisShowPaths,
+                  selectedId: _selectedAisId,
                 ),
               if (_ownLat != null && _ownLon != null)
                 _OwnVesselLayer(
@@ -2610,6 +2842,7 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
                 maxOffset: _playerMaxOffset,
                 referenceTime: _weatherDataService?.referenceTime ??
                     DateTime.now(),
+                layers: _playerLayerStatuses(),
                 onSetDirection: _setPlayerDirection,
                 onStep: _stepPlayer,
                 onSeek: _setPlayerOffset,
@@ -2656,8 +2889,13 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
                     _weatherRoutingService!.currentResult!.coords.length - 1),
                 onClose: () => _setSelectedWaypoint(null),
                 onClearRoute: () {
+                  // Tabula-rasa wipe — drops the result polyline,
+                  // all pins, every via, the selection cursor, and
+                  // any open compose popover. See
+                  // `WeatherRoutingService.clearAll`.
                   _setSelectedWaypoint(null);
-                  _weatherRoutingService?.clearResult();
+                  setState(() => _composePopoverOpen = false);
+                  _weatherRoutingService?.clearAll();
                 },
               ),
             ),
@@ -2680,8 +2918,12 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
                   _showWeatherRoutingSheet(context, autoSubmit: true);
                 },
                 onClearRoute: () {
+                  // Tabula-rasa wipe — drops all pins, every via,
+                  // the result, the selection cursor, and closes
+                  // this compose popover.
                   setState(() => _composePopoverOpen = false);
-                  _weatherRoutingService?.clearResult();
+                  _setSelectedWaypoint(null);
+                  _weatherRoutingService?.clearAll();
                 },
                 onClose: () =>
                     setState(() => _composePopoverOpen = false),
@@ -2703,13 +2945,10 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
               autoFollow: _autoFollow,
               viewMode: _viewMode,
               rulerVisible: _rulerVisible,
-              declutter: _declutter,
-              aisEnabled: _aisEnabled,
-              aisActiveOnly: _aisActiveOnly,
-              aisShowPaths: _aisShowPaths,
-              onLayers: () => _showLayerSheet(context),
-              onRoutes: () => _showRouteManager(context),
-              onDownload: () => _showDownloadSheet(context),
+              openDrawer: _openDrawer,
+              onOpenAis: () => _toggleNavDrawer(_NavDrawerKind.ais),
+              onOpenRoutes: () => _toggleNavDrawer(_NavDrawerKind.routes),
+              onOpenLayers: () => _toggleNavDrawer(_NavDrawerKind.layers),
               onToggleFollow: () {
                 // V1 re-engages auto-zoom whenever auto-follow turns
                 // back on (chart_webview.dart:1395).
@@ -2729,12 +2968,20 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
               },
               onToggleViewMode: _toggleViewMode,
               onToggleRuler: _toggleRuler,
-              onToggleDeclutter: () =>
-                  setState(() => _declutter = !_declutter),
+              // AIS sub-buttons
+              aisEnabled: _aisEnabled,
+              aisActiveOnly: _aisActiveOnly,
+              aisShowPaths: _aisShowPaths,
               onToggleAis: () {
                 setState(() {
                   _aisEnabled = !_aisEnabled;
-                  if (_aisEnabled) _refreshAisVessels();
+                  if (_aisEnabled) {
+                    _refreshAisVessels();
+                  } else {
+                    // No vessels visible → no place to anchor the
+                    // selection ring.
+                    _selectedAisId = null;
+                  }
                 });
               },
               onToggleAisActive: () {
@@ -2749,12 +2996,17 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
                   _refreshAisVessels();
                 });
               },
+              // Routes sub-buttons (sister has no tracker)
+              onRoutes: () => _showRouteManager(context),
               weatherRoutingEnabled: _weatherRoutingEnabled,
               weatherRouteActive:
                   _weatherRoutingService?.currentResult?.isNotEmpty ?? false,
               onWeatherRouting: _weatherRoutingEnabled
                   ? () => _showWeatherRoutingSheet(context)
                   : null,
+              // Layers sub-buttons
+              onLayers: () => _showLayerSheet(context),
+              onDownload: () => _showDownloadSheet(context),
               playerVisible: _playerVisible,
               playerAvailable: _hasTimeKeyedWeatherLayer,
               onTogglePlayer: _togglePlayer,
@@ -3374,74 +3626,313 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
         snapSizes: const [0.75, 0.92],
         shouldCloseOnMinExtent: true,
         builder: (_, scrollController) => StatefulBuilder(
-          builder: (sbCtx, sbSetState) => Container(
-            decoration: const BoxDecoration(
-              color: AppColors.cardBackgroundDark,
-              borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-            ),
-            child: SafeArea(
-              top: false,
-              child: Padding(
-                padding: EdgeInsets.only(
-                  bottom: MediaQuery.of(sheetCtx).viewInsets.bottom,
+          builder: (sbCtx, sbSetState) {
+            // Wrapped panel `setState`: run the mutation once, then
+            // rebuild both the sheet's StatefulBuilder and the
+            // chart-plotter state. The previous shape called the
+            // mutation closure twice (`sbSetState(fn)` + `setState(fn)`)
+            // which double-applied every reorder / toggle.
+            void panelSetState(VoidCallback fn) {
+              fn();
+              sbSetState(() {});
+              if (mounted) setState(() {});
+            }
+
+            void onChartLayersChanged() {
+              if (!mounted) return;
+              // The picker is gone — `_layers` only contains entries
+              // that were either seeded or added by the catalog
+              // reconciliation. Every panel mutation is an enable /
+              // opacity / reorder; no catalog refetch needed. Just
+              // re-push the active s57 set and persist.
+              _pushManagerCharts();
+              _persistLayerPrefs();
+            }
+
+            Widget basemapsTab() {
+              return _basemapsTab(
+                onChartLayersChanged: onChartLayersChanged,
+                panelSetState: panelSetState,
+              );
+            }
+
+            Widget chartsTab() {
+              return _chartsTab(
+                onChartLayersChanged: onChartLayersChanged,
+                panelSetState: panelSetState,
+                sheetSetState: sbSetState,
+              );
+            }
+
+            Widget weatherTab() {
+              return _weatherTab(sheetSetState: sbSetState);
+            }
+
+            return DefaultTabController(
+              length: 3,
+              child: Container(
+                decoration: const BoxDecoration(
+                  color: AppColors.cardBackgroundDark,
+                  borderRadius:
+                      BorderRadius.vertical(top: Radius.circular(16)),
                 ),
-                child: ListView(
-                  controller: scrollController,
-                  children: [
-                    // Handle — visual affordance for the drag gesture.
-                    Center(
-                      child: Container(
-                        width: 40,
-                        height: 4,
-                        margin: const EdgeInsets.only(top: 8, bottom: 4),
-                        decoration: BoxDecoration(
-                          color: Colors.white24,
-                          borderRadius: BorderRadius.circular(2),
-                        ),
-                      ),
+                child: SafeArea(
+                  top: false,
+                  child: Padding(
+                    padding: EdgeInsets.only(
+                      bottom: MediaQuery.of(sheetCtx).viewInsets.bottom,
                     ),
-                    const Padding(
-                      padding: EdgeInsets.fromLTRB(16, 12, 16, 4),
-                      child: Align(
-                        alignment: Alignment.centerLeft,
-                        child: Text(
-                          'Chart Layers',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 16,
+                    child: Column(
+                      children: [
+                        Center(
+                          child: Container(
+                            width: 40,
+                            height: 4,
+                            margin: const EdgeInsets.only(
+                                top: 8, bottom: 4),
+                            decoration: BoxDecoration(
+                              color: Colors.white24,
+                              borderRadius: BorderRadius.circular(2),
+                            ),
                           ),
                         ),
+                        const Padding(
+                          padding: EdgeInsets.fromLTRB(16, 8, 16, 4),
+                          child: Align(
+                            alignment: Alignment.centerLeft,
+                            child: Text(
+                              'Chart Layers',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 16,
+                              ),
+                            ),
+                          ),
+                        ),
+                        const TabBar(
+                          labelColor: Colors.white,
+                          unselectedLabelColor: Colors.white54,
+                          indicatorColor: Colors.white,
+                          indicatorSize: TabBarIndicatorSize.label,
+                          tabs: [
+                            Tab(text: 'Basemaps'),
+                            Tab(text: 'Charts'),
+                            Tab(text: 'Weather'),
+                          ],
+                        ),
+                        Expanded(
+                          child: TabBarView(
+                            children: [
+                              basemapsTab(),
+                              chartsTab(),
+                              weatherTab(),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  /// Basemaps tab: 6 raster basemaps + OpenSeaMap overlay + GEBCO
+  /// depth, all backed by constants in `chart_constants.dart`. No
+  /// network catalog — no refresh affordance.
+  Widget _basemapsTab({
+    required VoidCallback onChartLayersChanged,
+    required void Function(VoidCallback) panelSetState,
+  }) {
+    return ListView(
+      primary: false,
+      padding: const EdgeInsets.only(top: 4, bottom: 16),
+      children: [
+        ChartLayerPanel(
+          layers: _layers,
+          setState: panelSetState,
+          onLayersChanged: onChartLayersChanged,
+          filter: (l) =>
+              l['type'] == 'base' ||
+              l['type'] == 'overlay' ||
+              l['type'] == 'depth',
+        ),
+      ],
+    );
+  }
+
+  /// Charts tab: every catalog-published S-57 ENC. Header row
+  /// surfaces a refresh icon (with spinner) plus, when the catalog
+  /// fetch flagged a `lastError`, an error chip with Retry.
+  /// Pull-to-refresh on the body re-runs `_refreshChartCatalog`.
+  Widget _chartsTab({
+    required VoidCallback onChartLayersChanged,
+    required void Function(VoidCallback) panelSetState,
+    required void Function(VoidCallback) sheetSetState,
+  }) {
+    final loading = _catalogLoading;
+    final lastError = _catalogLastError;
+    final s57Count = _layers.where((l) => l['type'] == 's57').length;
+
+    Future<void> refresh() async {
+      await _refreshChartCatalog();
+      if (!mounted) return;
+      sheetSetState(() {});
+    }
+
+    return RefreshIndicator(
+      onRefresh: refresh,
+      child: ListView(
+        primary: false,
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.only(top: 4, bottom: 16),
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 8, 4),
+            child: Row(
+              children: [
+                const Expanded(
+                  child: Text(
+                    'S-57 charts',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 14,
+                    ),
+                  ),
+                ),
+                if (loading)
+                  const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: Padding(
+                      padding: EdgeInsets.all(2),
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                  )
+                else
+                  IconButton(
+                    tooltip: 'Refresh chart catalog',
+                    iconSize: 20,
+                    color: Colors.white70,
+                    icon: const Icon(Icons.refresh),
+                    onPressed: refresh,
+                  ),
+              ],
+            ),
+          ),
+          if (lastError != null)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF3A1A1A),
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(
+                      color: AppColors.alarmRed, width: 1),
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        lastError,
+                        style: const TextStyle(
+                            color: Color(0xFFFF8888), fontSize: 12),
                       ),
                     ),
-                    ChartLayerPanel(
-                      layers: _layers,
-                      // Re-render the sheet immediately AND the V3 tool
-                      // so toggles take effect without closing the sheet.
-                      setState: (fn) {
-                        sbSetState(fn);
-                        if (mounted) setState(fn);
-                      },
-                      onLayersChanged: () {
-                        if (!mounted) return;
-                        // The picker is gone — `_layers` only contains
-                        // entries that were either seeded or added by
-                        // the catalog reconciliation. So every panel
-                        // mutation is an enable / opacity / reorder; no
-                        // catalog refetch needed. Just re-push the
-                        // active s57 set and persist.
-                        _pushManagerCharts();
-                        _persistLayerPrefs();
-                      },
+                    TextButton(
+                      onPressed: refresh,
+                      style: TextButton.styleFrom(
+                        foregroundColor: Colors.white,
+                        padding:
+                            const EdgeInsets.symmetric(horizontal: 8),
+                      ),
+                      child: const Text('Retry'),
                     ),
-                    _weatherLayersSection(sbSetState),
-                    const SizedBox(height: 16),
                   ],
                 ),
               ),
             ),
+          if (s57Count == 0 && !loading && lastError == null)
+            const Padding(
+              padding: EdgeInsets.fromLTRB(16, 24, 16, 16),
+              child: Text(
+                'No S-57 charts published. Pull to refresh.',
+                style:
+                    TextStyle(color: Colors.white54, fontSize: 12),
+                textAlign: TextAlign.center,
+              ),
+            )
+          else
+            ChartLayerPanel(
+              layers: _layers,
+              setState: panelSetState,
+              onLayersChanged: onChartLayersChanged,
+              filter: (l) => l['type'] == 's57',
+            ),
+        ],
+      ),
+    );
+  }
+
+  /// Weather tab: the existing 9 toggles, plus a unified refresh
+  /// affordance that re-fetches metadata AND invalidates the tile
+  /// cache (the user's "server slow" intent covers both).
+  Widget _weatherTab({
+    required void Function(VoidCallback) sheetSetState,
+  }) {
+    Future<void> refresh() async {
+      final s = _weatherDataService;
+      if (s == null) return;
+      await s.refreshMetadata();
+      await s.reloadTiles();
+      if (!mounted) return;
+      sheetSetState(() {});
+    }
+
+    return RefreshIndicator(
+      onRefresh: refresh,
+      child: ListView(
+        primary: false,
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.only(top: 4, bottom: 16),
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 8, 4),
+            child: Row(
+              children: [
+                const Expanded(
+                  child: Text(
+                    'Weather Layers',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 14,
+                    ),
+                  ),
+                ),
+                IconButton(
+                  tooltip: 'Refresh weather metadata + reload tiles',
+                  iconSize: 20,
+                  color: Colors.white70,
+                  icon: const Icon(Icons.refresh),
+                  onPressed: refresh,
+                ),
+              ],
+            ),
           ),
-        ),
+          // Body of the existing weather section, minus its old
+          // header row (which carried the Reload-tiles button now
+          // folded into the tab refresh icon above).
+          _weatherLayersSection(sheetSetState),
+        ],
       ),
     );
   }
@@ -3468,41 +3959,14 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
       _persistLayerPrefs();
     }
 
+    // Header row + standalone "Reload tiles" button used to live
+    // here. The Weather tab now owns the section header and the
+    // refresh affordance (tab refresh icon + pull-to-refresh, both
+    // of which combine `refreshMetadata()` + `reloadTiles()`), so
+    // this widget renders only the rows.
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 12, 8, 4),
-          child: Row(
-            children: [
-              const Expanded(
-                child: Text(
-                  'Weather Layers',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 14,
-                  ),
-                ),
-              ),
-              TextButton.icon(
-                icon: const Icon(Icons.refresh, size: 16),
-                label: const Text('Reload tiles'),
-                style: TextButton.styleFrom(
-                  foregroundColor: Colors.white70,
-                  padding: const EdgeInsets.symmetric(horizontal: 8),
-                ),
-                onPressed: () async {
-                  debugPrint('[ChartPlotterV3] Reload tiles pressed; '
-                      'service=${_weatherDataService == null ? "null" : "ok"}');
-                  await _weatherDataService?.reloadTiles();
-                  if (!mounted) return;
-                  sheetSetState(() {});
-                },
-              ),
-            ],
-          ),
-        ),
         _weatherLayerTile(
           icon: Icons.air,
           label: 'Wind barbs',
@@ -4040,7 +4504,6 @@ class _S57OverlayLayer extends StatelessWidget {
     this.hiddenClasses = const <String>{},
     this.enabledChartIds = const <String>{},
     this.chartOpacities = const <String, double>{},
-    this.declutter = false,
     this.depthMetadata,
   });
   final Map<S57TileKey, S57ParsedTile> tileCache;
@@ -4060,7 +4523,6 @@ class _S57OverlayLayer extends StatelessWidget {
   /// The painter wraps each chart's features in a `saveLayer` only
   /// when opacity < 1, so the common all-opaque case stays cheap.
   final Map<String, double> chartOpacities;
-  final bool declutter;
   // Routed straight through to the painter so SOUNDG depth labels
   // can be formatted via MetadataStore at paint time. Null until
   // SignalK populates the unit-preference store; painter falls back
@@ -4092,7 +4554,6 @@ class _S57OverlayLayer extends StatelessWidget {
           hiddenClasses: hiddenClasses,
           enabledChartIds: enabledChartIds,
           chartOpacities: chartOpacities,
-          declutter: declutter,
           depthMetadata: depthMetadata,
         ),
         size: Size.infinite,
@@ -4112,7 +4573,6 @@ class _S57Painter extends CustomPainter {
     this.hiddenClasses = const <String>{},
     this.enabledChartIds = const <String>{},
     this.chartOpacities = const <String, double>{},
-    this.declutter = false,
     this.depthMetadata,
   });
   final MapCamera camera;
@@ -4135,10 +4595,6 @@ class _S57Painter extends CustomPainter {
   // wrapped in a `saveLayer` with this alpha when < 1.0; missing or
   // 1.0 entries skip the layer save and paint at full opacity.
   final Map<String, double> chartOpacities;
-  // User-forced declutter. When true, sounding-label decimation runs
-  // at every zoom; otherwise the auto-cutoff at zoom > 11 still
-  // fires.
-  final bool declutter;
   // PathMetadata for the user's depth unit preference. SOUNDG label
   // text is formatted through this so the chart honours the same
   // m/ft/fa preset as the rest of the app (CLAUDE.md SSOT). Null
@@ -4170,13 +4626,14 @@ class _S57Painter extends CustomPainter {
         return a.key.z.compareTo(b.key.z);
       });
 
-    // Sounding declutter state — reset every frame. At z > 11 the
-    // server emits densely-packed spot soundings; we keep only one
-    // label per ~40 px screen radius so the chart stays readable.
-    // Below z=12 the natural density is manageable, so we skip the
-    // filter and draw every sounding as before.
+    // Sounding declutter — reset every frame. Below z=11 the spot
+    // soundings stack into an unreadable wall; we keep only one label
+    // per ~40 px screen radius so the chart stays legible. At z >= 11
+    // the natural density is manageable and we draw every sounding.
+    // The user-facing on/off toggle that used to force this at lower
+    // zooms was removed — the auto-cutoff is the only mode now.
     _drawnSoundings.clear();
-    _soundingDeclutterActive = declutter || camera.zoom > 11;
+    _soundingDeclutterActive = camera.zoom < 11;
 
     // Three passes by geometry kind — polygons (area fills + patterns)
     // on the bottom, lines in the middle, points on top. This
@@ -4604,7 +5061,6 @@ class _S57Painter extends CustomPainter {
       old.colorTable != colorTable ||
       old.spriteAtlas != spriteAtlas ||
       old.spriteImage != spriteImage ||
-      old.declutter != declutter ||
       old.depthMetadata != depthMetadata ||
       old.hiddenClasses.length != hiddenClasses.length ||
       !old.hiddenClasses.containsAll(hiddenClasses) ||
@@ -5305,9 +5761,13 @@ class _AisOverlayLayer extends StatelessWidget {
   const _AisOverlayLayer({
     required this.vessels,
     required this.showPaths,
+    required this.selectedId,
   });
   final List<_AisRenderable> vessels;
   final bool showPaths;
+  /// Vessel id of the most recently tapped target. The painter draws
+  /// a 16 px yellow ring around the matching vessel; null = no ring.
+  final String? selectedId;
 
   @override
   Widget build(BuildContext context) {
@@ -5318,6 +5778,7 @@ class _AisOverlayLayer extends StatelessWidget {
           camera: camera,
           vessels: vessels,
           showPaths: showPaths,
+          selectedId: selectedId,
           // V1 hides labels below zoom 13 where the map is too zoomed
           // out for names to be readable anyway; mirror that here.
           showNames: camera.zoom >= 13,
@@ -5334,25 +5795,27 @@ class _AisPainter extends CustomPainter {
     required this.vessels,
     required this.showPaths,
     required this.showNames,
+    required this.selectedId,
   });
   final MapCamera camera;
   final List<_AisRenderable> vessels;
   final bool showPaths;
   final bool showNames;
+  final String? selectedId;
 
-  // V1's vessel-arrow SVG shape (0..16 × 0..24) re-centred to the
-  // pivot at (8, 12) so rotation happens about the visual midpoint.
-  // Path in SVG coords:
-  //   M 8 1  L 2 19  L 5.5 16.5  L 8 21  L 10.5 16.5  L 14 19  Z
-  // Translated by (-8, -12):
-  static final _vesselPath = ui.Path()
-    ..moveTo(0, -11)
-    ..lineTo(-6, 7)
-    ..lineTo(-2.5, 4.5)
-    ..lineTo(0, 9)
-    ..lineTo(2.5, 4.5)
-    ..lineTo(6, 7)
-    ..close();
+  /// Standard size for every vessel icon glyph (Material Icons
+  /// rendered via TextPainter — same trick the anchor case has used
+  /// since the V3 chart plotter shipped). 32 pt matches the AIS
+  /// polar chart widget's default vessel size (`ais_polar_chart.dart`
+  /// `iconSize = 32.0`) so the two surfaces read as the same
+  /// vessel-symbol language.
+  static const double _iconSize = 32.0;
+
+  /// Selection-ring radius. The ring sits outside the icon glyph so
+  /// the colour silhouette stays visible underneath. Sized so the
+  /// 32 pt icon's bounding box (~26 px wide) clears the inner edge
+  /// with a small margin.
+  static const double _selectionRingRadius = 22.0;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -5362,21 +5825,39 @@ class _AisPainter extends CustomPainter {
         _paintProjections(canvas, v, origin);
       }
       final center = camera.projectAtZoom(v.position) - origin;
+      // Selection ring goes underneath the icon so the icon's
+      // colour silhouette reads against a yellow halo, not on top
+      // of one. Drawn first; icon overpaints the central area.
+      if (selectedId != null && v.id == selectedId) {
+        _paintSelectionRing(canvas, center);
+      }
+      // Polar chart rotates every vessel icon by heading regardless
+      // of motion state (`ais_polar_chart.dart:1998-1999`). Match
+      // that — `Icons.circle` is rotation-invariant, anchor and the
+      // buoy rotate just like the moving navigation arrow does.
       switch (v.kind) {
         case _AisKind.moving:
-          _paintMoving(canvas, v, center);
+          _paintIcon(canvas, v, center, Icons.navigation, rotate: true);
           break;
         case _AisKind.slow:
-          _paintSlow(canvas, v, center);
+          _paintIcon(canvas, v, center, Icons.circle, rotate: true);
           break;
         case _AisKind.moored:
-          _paintMoored(canvas, v, center);
+          // Mooring buoy keeps its custom painter — the polar chart
+          // widget overrides the icon with the same SVG silhouette
+          // (`ais_polar_chart.dart:_mooringBuoySvg`), so this path
+          // matches that visual without dragging in `flutter_svg`.
+          _paintMoored(canvas, v, center, rotate: true);
           break;
         case _AisKind.anchored:
-          _paintAnchored(canvas, v, center);
+          _paintIcon(canvas, v, center, Icons.anchor, rotate: true);
           break;
       }
-      if (v.stale) _paintStaleX(canvas, center);
+      // Polar chart hides the stale × on the highlighted vessel
+      // (`ais_polar_chart.dart:2023`: `stale && !isHighlighted ? …`).
+      // Match — the selection ring is enough signal on its own.
+      final isSelected = selectedId != null && v.id == selectedId;
+      if (v.stale && !isSelected) _paintStaleX(canvas, center);
       if (showNames && v.name.isNotEmpty) {
         _paintName(canvas, v, center);
       }
@@ -5399,8 +5880,10 @@ class _AisPainter extends CustomPainter {
         ..style = PaintingStyle.stroke
         ..strokeWidth = 2,
     );
-    // Dot sizes match V1's [3, 4, 6, 8] for 30s, 1m, 15m, 30m.
-    const dotR = [3.0, 4.0, 6.0, 8.0];
+    // Dot sizes match the polar chart map view's
+    // `projectionDotSizes = [6.0, 10.0, 16.0, 22.0]`
+    // (`ais_polar_chart.dart:2044`) for 30s, 1m, 15m, 30m.
+    const dotR = [6.0, 10.0, 16.0, 22.0];
     final dotFill = Paint()..color = v.color.withValues(alpha: v.alpha * 0.7);
     final dotStroke = Paint()
       ..color = Colors.black
@@ -5438,78 +5921,135 @@ class _AisPainter extends CustomPainter {
     return out;
   }
 
-  void _paintMoving(Canvas canvas, _AisRenderable v, Offset center) {
-    canvas.save();
-    canvas.translate(center.dx, center.dy);
-    canvas.rotate(v.bearingRadians);
-    // V1 applies a scale of 1.2 on the moving arrow for visibility.
-    canvas.scale(1.2);
-    canvas.drawPath(
-      _vesselPath,
-      Paint()..color = v.color.withValues(alpha: v.alpha),
-    );
-    canvas.drawPath(
-      _vesselPath,
-      Paint()
-        ..color = Colors.black.withValues(alpha: 0.6)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 0.8,
-    );
-    canvas.restore();
-  }
-
-  void _paintSlow(Canvas canvas, _AisRenderable v, Offset center) {
-    // V1 renders stationary vessels as a 5-radius circle.
-    canvas.drawCircle(
-      center,
-      5,
-      Paint()..color = v.color.withValues(alpha: v.alpha),
-    );
-    canvas.drawCircle(
-      center,
-      5,
-      Paint()
-        ..color = Colors.white
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.5,
-    );
-  }
-
-  void _paintMoored(Canvas canvas, _AisRenderable v, Offset center) {
-    // Mooring-buoy cue: filled disk with a horizontal blue band,
-    // grey rim. Simplified from V1's SVG — same visual language.
-    final disk = Paint()..color = v.color.withValues(alpha: v.alpha);
-    final rim = Paint()
-      ..color = const Color(0xFF666666)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1;
-    final band = Paint()..color = const Color(0xFF1565C0);
-    const r = 7.0;
-    canvas.drawCircle(center, r, disk);
-    canvas.save();
-    canvas.clipPath(ui.Path()..addOval(Rect.fromCircle(center: center, radius: r)));
-    canvas.drawRect(
-      Rect.fromLTWH(center.dx - r, center.dy - r * 0.24, r * 2, r * 0.48),
-      band,
-    );
-    canvas.restore();
-    canvas.drawCircle(center, r, rim);
-  }
-
-  void _paintAnchored(Canvas canvas, _AisRenderable v, Offset center) {
-    // V1 renders the Material Design anchor glyph sized 20×20 in the
-    // ship-type colour (chart_webview.dart:1173-1181, comment says
-    // "same as Icons.anchor in Flutter"). Use the icon font directly
-    // so we match the exact glyph without shipping a sprite.
-    final icon = Icons.anchor;
+  /// Render a Material Icon glyph centred on the vessel position.
+  /// `rotate: true` rotates by `v.bearingRadians` (used for
+  /// `Icons.navigation` on moving vessels); other states draw
+  /// upright. A subtle drop shadow keeps the silhouette legible
+  /// against busy chart backgrounds.
+  void _paintIcon(
+    Canvas canvas,
+    _AisRenderable v,
+    Offset center,
+    IconData icon, {
+    bool rotate = false,
+  }) {
     final painter = TextPainter(
       text: TextSpan(
         text: String.fromCharCode(icon.codePoint),
         style: TextStyle(
           fontFamily: icon.fontFamily,
           package: icon.fontPackage,
-          fontSize: 20,
+          fontSize: _iconSize,
           color: v.color.withValues(alpha: v.alpha),
+          // Match polar chart map-view: `Shadow(black, blurRadius: 3)`
+          // (`ais_polar_chart.dart:2008-2012`).
+          shadows: const [
+            Shadow(color: Colors.black, blurRadius: 3),
+          ],
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+    );
+    painter.layout();
+    final dx = -painter.width / 2;
+    final dy = -painter.height / 2;
+    if (rotate) {
+      canvas.save();
+      canvas.translate(center.dx, center.dy);
+      canvas.rotate(v.bearingRadians);
+      painter.paint(canvas, Offset(dx, dy));
+      canvas.restore();
+    } else {
+      painter.paint(canvas, Offset(center.dx + dx, center.dy + dy));
+    }
+  }
+
+  /// Yellow ring around the most-recently-tapped vessel. Drawn under
+  /// the icon glyph so the icon's colour stays readable.
+  void _paintSelectionRing(Canvas canvas, Offset center) {
+    canvas.drawCircle(
+      center,
+      _selectionRingRadius,
+      Paint()
+        ..color = const Color(0xFFFFEB3B)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2.5,
+    );
+    // Thin black inner edge so the yellow reads against light chart
+    // backgrounds (white seamarks, snow, etc.).
+    canvas.drawCircle(
+      center,
+      _selectionRingRadius - 1.5,
+      Paint()
+        ..color = const Color(0x66000000)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1,
+    );
+  }
+
+  void _paintMoored(
+    Canvas canvas,
+    _AisRenderable v,
+    Offset center, {
+    bool rotate = false,
+  }) {
+    // Mooring buoy — exact visual match to the AIS polar chart
+    // widget's `_mooringBuoySvg` (`ais_polar_chart.dart:955-960`):
+    //   - r=45 disk in the 100×100 viewBox → 14 px radius at 32 pt
+    //     icon size, leaving 2 px breathing room for the strokes
+    //   - TYPE_COLOR fill (the vessel's ship-type colour, alpha-aged)
+    //   - Horizontal #1565C0 band centred on the disk, clipped to it
+    //     (band y=38 height=24 in the 100-unit viewBox → ±0.24 r
+    //     about the centre, height 0.48 r)
+    //   - Two concentric strokes: outer #888 at 1.5 px, inner #666
+    //     at 1 px. The SVG draws both circles at the same radius;
+    //     in our painter the order is fill → band → outer stroke →
+    //     inner stroke, matching the SVG's source order.
+    // `rotate` rotates the band by the vessel heading so the buoy
+    // matches the polar chart's blanket-rotate-everything behaviour.
+    const r = 14.0;
+    final disk = Paint()..color = v.color.withValues(alpha: v.alpha);
+    final band = Paint()..color = const Color(0xFF1565C0);
+    final outerStroke = Paint()
+      ..color = const Color(0xFF888888)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.5;
+    final innerStroke = Paint()
+      ..color = const Color(0xFF666666)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1;
+    canvas.save();
+    canvas.translate(center.dx, center.dy);
+    if (rotate) canvas.rotate(v.bearingRadians);
+    canvas.drawCircle(Offset.zero, r, disk);
+    canvas.save();
+    canvas.clipPath(
+        ui.Path()..addOval(Rect.fromCircle(center: Offset.zero, radius: r)));
+    canvas.drawRect(
+      const Rect.fromLTWH(-r, -r * 0.24, r * 2, r * 0.48),
+      band,
+    );
+    canvas.restore();
+    canvas.drawCircle(Offset.zero, r, outerStroke);
+    canvas.drawCircle(Offset.zero, r, innerStroke);
+    canvas.restore();
+  }
+
+  void _paintStaleX(Canvas canvas, Offset center) {
+    // Stale overlay — exact match to the polar chart widget's
+    // `Icon(Icons.close, color: Colors.red, size: iconSize * 0.8)`
+    // (`ais_polar_chart.dart:1684, 2028`). Material's close glyph
+    // is a clean × that overlays the vessel icon without obscuring
+    // the silhouette beneath.
+    const icon = Icons.close;
+    final painter = TextPainter(
+      text: TextSpan(
+        text: String.fromCharCode(icon.codePoint),
+        style: TextStyle(
+          fontFamily: icon.fontFamily,
+          package: icon.fontPackage,
+          fontSize: _iconSize * 0.8,
+          color: Colors.red,
         ),
       ),
       textDirection: TextDirection.ltr,
@@ -5518,24 +6058,6 @@ class _AisPainter extends CustomPainter {
     painter.paint(
       canvas,
       Offset(center.dx - painter.width / 2, center.dy - painter.height / 2),
-    );
-  }
-
-  void _paintStaleX(Canvas canvas, Offset center) {
-    final paint = Paint()
-      ..color = const Color(0xCCFF0000)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.5;
-    const r = 7.0;
-    canvas.drawLine(
-      center.translate(-r, -r),
-      center.translate(r, r),
-      paint,
-    );
-    canvas.drawLine(
-      center.translate(-r, r),
-      center.translate(r, -r),
-      paint,
     );
   }
 
@@ -5566,7 +6088,8 @@ class _AisPainter extends CustomPainter {
       old.camera != camera ||
       old.vessels != vessels ||
       old.showPaths != showPaths ||
-      old.showNames != showNames;
+      old.showNames != showNames ||
+      old.selectedId != selectedId;
 }
 
 
@@ -6253,190 +6776,433 @@ class _RoutePainter extends CustomPainter {
       old.reversed != reversed;
 }
 
+/// Identifier for the currently-open nav-drawer flyout. Sister-app
+/// shape — no tracker drawer entry. `_NavDrawerKind.none` collapses
+/// the drawer entirely.
+enum _NavDrawerKind { none, ais, routes, layers }
+
+/// `Material 3` IconButton renders inside a 48 px tappable square
+/// regardless of icon size, so this is the actual painted height of
+/// each `IconButton(size: 20)` in the nav column. The drawer-side
+/// column uses this same constant for its slot heights so the active
+/// drawer pill sits exactly at the right column's matching row.
+const double _navRowHeight = 48.0;
+
+/// The right-edge map controls. Right side is a single rounded pill
+/// of six `IconButton`s — that pill never reflows when a drawer
+/// opens, so existing buttons can't wobble. Left side is a column of
+/// six row slots: inactive slots are zero-width spacers, the active
+/// group's slot expands into a [_DrawerPill]. The drawer butts
+/// directly against the nav's left edge so the two read as a single
+/// L-shape rather than two pills.
 class _MapControls extends StatelessWidget {
   const _MapControls({
     required this.autoFollow,
     required this.viewMode,
     required this.rulerVisible,
-    required this.declutter,
-    required this.aisEnabled,
-    required this.aisActiveOnly,
-    required this.aisShowPaths,
-    required this.onLayers,
-    required this.onRoutes,
-    required this.onDownload,
+    required this.openDrawer,
     required this.onToggleFollow,
     required this.onToggleViewMode,
     required this.onToggleRuler,
-    required this.onToggleDeclutter,
+    required this.onOpenAis,
+    required this.onOpenRoutes,
+    required this.onOpenLayers,
+    // AIS sub-buttons
+    required this.aisEnabled,
+    required this.aisActiveOnly,
+    required this.aisShowPaths,
     required this.onToggleAis,
     required this.onToggleAisActive,
     required this.onToggleAisPaths,
+    // Routes sub-buttons (sister has no tracker)
+    required this.onRoutes,
     required this.weatherRoutingEnabled,
     required this.weatherRouteActive,
     required this.onWeatherRouting,
+    // Layers sub-buttons
+    required this.onLayers,
+    required this.onDownload,
     required this.playerVisible,
     required this.playerAvailable,
     required this.onTogglePlayer,
   });
+
   final bool autoFollow;
   final _ViewMode viewMode;
   final bool rulerVisible;
-  final bool declutter;
-  final bool aisEnabled;
-  final bool aisActiveOnly;
-  final bool aisShowPaths;
-  final VoidCallback onLayers;
-  final VoidCallback onRoutes;
-  final VoidCallback onDownload;
+
+  /// Which group's drawer is currently open. Drives the highlight
+  /// fill on the matching group icon AND which row in the drawer
+  /// column renders an actual flyout.
+  final _NavDrawerKind openDrawer;
+
   final VoidCallback onToggleFollow;
   final VoidCallback onToggleViewMode;
   final VoidCallback onToggleRuler;
-  final VoidCallback onToggleDeclutter;
+  final VoidCallback onOpenAis;
+  final VoidCallback onOpenRoutes;
+  final VoidCallback onOpenLayers;
+
+  // AIS
+  final bool aisEnabled;
+  final bool aisActiveOnly;
+  final bool aisShowPaths;
   final VoidCallback onToggleAis;
   final VoidCallback onToggleAisActive;
   final VoidCallback onToggleAisPaths;
+
+  // Routes
+  final VoidCallback onRoutes;
   final bool weatherRoutingEnabled;
   final bool weatherRouteActive;
   final VoidCallback? onWeatherRouting;
-  /// True while the user has the weather player strip open. The
-  /// toolbar button tints orange to mirror the strip's accent.
+
+  // Layers
+  final VoidCallback onLayers;
+  final VoidCallback onDownload;
   final bool playerVisible;
-  /// True when at least one time-keyed weather layer is on, so the
-  /// player has something to scrub. When false the button is dimmed
-  /// and the tap is a no-op.
   final bool playerAvailable;
   final VoidCallback onTogglePlayer;
 
   @override
   Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: Colors.black54,
-        borderRadius: BorderRadius.circular(6),
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          IconButton(
-            icon: Icon(
-              switch (viewMode) {
-                _ViewMode.northUp => Icons.navigation_outlined,
-                _ViewMode.headingUp => Icons.navigation,
-                _ViewMode.free => Icons.threesixty,
-              },
-              color: Colors.white,
-              size: 20,
-            ),
-            tooltip: switch (viewMode) {
-              _ViewMode.northUp => 'North-up (tap for heading-up)',
-              _ViewMode.headingUp => 'Heading-up (tap for free)',
-              _ViewMode.free => 'Free rotation (tap for north-up)',
-            },
-            onPressed: onToggleViewMode,
-          ),
-          IconButton(
-            icon: Icon(
-              autoFollow ? Icons.my_location : Icons.location_searching,
-              color: Colors.white,
-              size: 20,
-            ),
-            tooltip: autoFollow ? 'Snap to vessel (on)' : 'Snap to vessel (off)',
-            onPressed: onToggleFollow,
-          ),
-          IconButton(
-            icon: const Icon(Icons.layers, color: Colors.white, size: 20),
-            tooltip: 'Chart layers',
-            onPressed: onLayers,
-          ),
-          IconButton(
-            icon: const Icon(Icons.route, color: Colors.white, size: 20),
-            tooltip: 'Routes',
-            onPressed: onRoutes,
-          ),
-          if (weatherRoutingEnabled)
-            IconButton(
-              icon: Icon(
-                Icons.flight_takeoff,
-                color: weatherRouteActive
-                    ? const Color(0xFFFF9800)
-                    : Colors.white,
-                size: 20,
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // ===== Drawer column (left) =====
+        Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            const _DrawerSlot(active: false, child: SizedBox.shrink()),
+            const _DrawerSlot(active: false, child: SizedBox.shrink()),
+            const _DrawerSlot(active: false, child: SizedBox.shrink()),
+            _DrawerSlot(
+              active: openDrawer == _NavDrawerKind.ais,
+              child: _AisDrawerRow(
+                aisEnabled: aisEnabled,
+                aisActiveOnly: aisActiveOnly,
+                aisShowPaths: aisShowPaths,
+                onToggleAis: onToggleAis,
+                onToggleAisActive: onToggleAisActive,
+                onToggleAisPaths: onToggleAisPaths,
               ),
-              tooltip: 'Weather routing',
-              onPressed: onWeatherRouting,
             ),
-          IconButton(
-            icon: Icon(
-              Icons.play_circle_outline,
-              color: !playerAvailable
-                  ? Colors.white24
-                  : (playerVisible
-                      ? const Color(0xFFFF9800)
-                      : Colors.white),
-              size: 20,
-            ),
-            tooltip: !playerAvailable
-                ? 'Weather player (turn on a weather layer)'
-                : (playerVisible ? 'Hide weather player' : 'Show weather player'),
-            onPressed: playerAvailable ? onTogglePlayer : null,
-          ),
-          IconButton(
-            icon: const Icon(Icons.download, color: Colors.white, size: 20),
-            tooltip: 'Download charts',
-            onPressed: onDownload,
-          ),
-          IconButton(
-            icon: Icon(
-              rulerVisible ? Icons.straighten : Icons.straighten_outlined,
-              color: Colors.white,
-              size: 20,
-            ),
-            tooltip: rulerVisible ? 'Hide ruler' : 'Show ruler',
-            onPressed: onToggleRuler,
-          ),
-          IconButton(
-            icon: Icon(
-              declutter ? Icons.filter_list : Icons.filter_list_off,
-              color: Colors.white,
-              size: 20,
-            ),
-            tooltip: declutter ? 'Declutter on' : 'Declutter off',
-            onPressed: onToggleDeclutter,
-          ),
-          IconButton(
-            icon: Icon(
-              aisEnabled ? Icons.sailing : Icons.sailing_outlined,
-              color: Colors.white,
-              size: 20,
-            ),
-            tooltip: aisEnabled ? 'AIS on' : 'AIS off',
-            onPressed: onToggleAis,
-          ),
-          if (aisEnabled) ...[
-            IconButton(
-              icon: Icon(
-                aisActiveOnly
-                    ? Icons.filter_alt
-                    : Icons.filter_alt_outlined,
-                color: Colors.white,
-                size: 20,
+            _DrawerSlot(
+              active: openDrawer == _NavDrawerKind.routes,
+              child: _RoutesDrawerRow(
+                onRoutes: onRoutes,
+                weatherRoutingEnabled: weatherRoutingEnabled,
+                weatherRouteActive: weatherRouteActive,
+                onWeatherRouting: onWeatherRouting,
               ),
-              tooltip: aisActiveOnly ? 'Active only' : 'All vessels',
-              onPressed: onToggleAisActive,
             ),
-            IconButton(
-              icon: Icon(
-                aisShowPaths ? Icons.timeline : Icons.linear_scale,
-                color: Colors.white,
-                size: 20,
+            _DrawerSlot(
+              active: openDrawer == _NavDrawerKind.layers,
+              child: _LayersDrawerRow(
+                onLayers: onLayers,
+                onDownload: onDownload,
+                playerVisible: playerVisible,
+                playerAvailable: playerAvailable,
+                onTogglePlayer: onTogglePlayer,
               ),
-              tooltip: aisShowPaths ? 'Hide projections' : 'Show projections',
-              onPressed: onToggleAisPaths,
             ),
           ],
+        ),
+        // ===== Nav column (right) — single fixed pill =====
+        DecoratedBox(
+          decoration: BoxDecoration(
+            color: Colors.black54,
+            borderRadius: BorderRadius.circular(6),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _NavIconButton(
+                icon: switch (viewMode) {
+                  _ViewMode.northUp => Icons.navigation_outlined,
+                  _ViewMode.headingUp => Icons.navigation,
+                  _ViewMode.free => Icons.threesixty,
+                },
+                tooltip: switch (viewMode) {
+                  _ViewMode.northUp => 'North-up (tap for heading-up)',
+                  _ViewMode.headingUp => 'Heading-up (tap for free)',
+                  _ViewMode.free => 'Free rotation (tap for north-up)',
+                },
+                onPressed: onToggleViewMode,
+              ),
+              _NavIconButton(
+                icon: autoFollow
+                    ? Icons.my_location
+                    : Icons.location_searching,
+                tooltip: autoFollow
+                    ? 'Snap to vessel (on)'
+                    : 'Snap to vessel (off)',
+                onPressed: onToggleFollow,
+              ),
+              _NavIconButton(
+                icon: rulerVisible
+                    ? Icons.straighten
+                    : Icons.straighten_outlined,
+                tooltip: rulerVisible ? 'Hide ruler' : 'Show ruler',
+                onPressed: onToggleRuler,
+              ),
+              _NavIconButton(
+                icon: Icons.sailing,
+                tooltip: 'AIS',
+                highlight: openDrawer == _NavDrawerKind.ais,
+                onPressed: onOpenAis,
+              ),
+              _NavIconButton(
+                icon: Icons.route,
+                tooltip: 'Routes',
+                highlight: openDrawer == _NavDrawerKind.routes,
+                onPressed: onOpenRoutes,
+              ),
+              _NavIconButton(
+                icon: Icons.layers,
+                tooltip: 'Layers',
+                highlight: openDrawer == _NavDrawerKind.layers,
+                onPressed: onOpenLayers,
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _NavIconButton extends StatelessWidget {
+  const _NavIconButton({
+    required this.icon,
+    required this.tooltip,
+    required this.onPressed,
+    this.highlight = false,
+  });
+
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback onPressed;
+  final bool highlight;
+
+  @override
+  Widget build(BuildContext context) {
+    final button = IconButton(
+      icon: Icon(icon, color: Colors.white, size: 20),
+      tooltip: tooltip,
+      onPressed: onPressed,
+    );
+    if (!highlight) return button;
+    return SizedBox(
+      width: _navRowHeight,
+      height: _navRowHeight,
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          Container(
+            margin: const EdgeInsets.all(4),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.18),
+              borderRadius: BorderRadius.circular(4),
+            ),
+          ),
+          button,
         ],
       ),
+    );
+  }
+}
+
+class _DrawerSlot extends StatelessWidget {
+  const _DrawerSlot({required this.active, required this.child});
+
+  final bool active;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: _navRowHeight,
+      child: AnimatedSize(
+        duration: const Duration(milliseconds: 160),
+        curve: Curves.easeOut,
+        alignment: Alignment.centerRight,
+        child: active
+            ? _DrawerPill(child: child)
+            : const SizedBox.shrink(),
+      ),
+    );
+  }
+}
+
+class _DrawerPill extends StatelessWidget {
+  const _DrawerPill({required this.child});
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: const BoxDecoration(
+        color: Colors.black54,
+        borderRadius: BorderRadius.only(
+          topLeft: Radius.circular(6),
+          bottomLeft: Radius.circular(6),
+        ),
+      ),
+      child: child,
+    );
+  }
+}
+
+class _AisDrawerRow extends StatelessWidget {
+  const _AisDrawerRow({
+    required this.aisEnabled,
+    required this.aisActiveOnly,
+    required this.aisShowPaths,
+    required this.onToggleAis,
+    required this.onToggleAisActive,
+    required this.onToggleAisPaths,
+  });
+
+  final bool aisEnabled;
+  final bool aisActiveOnly;
+  final bool aisShowPaths;
+  final VoidCallback onToggleAis;
+  final VoidCallback onToggleAisActive;
+  final VoidCallback onToggleAisPaths;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        IconButton(
+          icon: Icon(
+            aisEnabled ? Icons.sailing : Icons.sailing_outlined,
+            color: Colors.white,
+            size: 20,
+          ),
+          tooltip: aisEnabled ? 'AIS on' : 'AIS off',
+          onPressed: onToggleAis,
+        ),
+        if (aisEnabled) ...[
+          IconButton(
+            icon: Icon(
+              aisActiveOnly
+                  ? Icons.filter_alt
+                  : Icons.filter_alt_outlined,
+              color: Colors.white,
+              size: 20,
+            ),
+            tooltip: aisActiveOnly ? 'Active only' : 'All vessels',
+            onPressed: onToggleAisActive,
+          ),
+          IconButton(
+            icon: Icon(
+              aisShowPaths ? Icons.timeline : Icons.linear_scale,
+              color: Colors.white,
+              size: 20,
+            ),
+            tooltip:
+                aisShowPaths ? 'Hide projections' : 'Show projections',
+            onPressed: onToggleAisPaths,
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+class _RoutesDrawerRow extends StatelessWidget {
+  const _RoutesDrawerRow({
+    required this.onRoutes,
+    required this.weatherRoutingEnabled,
+    required this.weatherRouteActive,
+    required this.onWeatherRouting,
+  });
+
+  final VoidCallback onRoutes;
+  final bool weatherRoutingEnabled;
+  final bool weatherRouteActive;
+  final VoidCallback? onWeatherRouting;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        IconButton(
+          icon: const Icon(Icons.route, color: Colors.white, size: 20),
+          tooltip: 'Routes',
+          onPressed: onRoutes,
+        ),
+        if (weatherRoutingEnabled)
+          IconButton(
+            icon: Icon(
+              Icons.flight_takeoff,
+              color: weatherRouteActive
+                  ? const Color(0xFFFF9800)
+                  : Colors.white,
+              size: 20,
+            ),
+            tooltip: 'Weather routing',
+            onPressed: onWeatherRouting,
+          ),
+      ],
+    );
+  }
+}
+
+class _LayersDrawerRow extends StatelessWidget {
+  const _LayersDrawerRow({
+    required this.onLayers,
+    required this.onDownload,
+    required this.playerVisible,
+    required this.playerAvailable,
+    required this.onTogglePlayer,
+  });
+
+  final VoidCallback onLayers;
+  final VoidCallback onDownload;
+  final bool playerVisible;
+  final bool playerAvailable;
+  final VoidCallback onTogglePlayer;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        IconButton(
+          icon: const Icon(Icons.layers, color: Colors.white, size: 20),
+          tooltip: 'Chart layers',
+          onPressed: onLayers,
+        ),
+        IconButton(
+          icon: Icon(
+            Icons.play_circle_outline,
+            color: !playerAvailable
+                ? Colors.white24
+                : (playerVisible
+                    ? const Color(0xFFFF9800)
+                    : Colors.white),
+            size: 20,
+          ),
+          tooltip: !playerAvailable
+              ? 'Weather player (turn on a weather layer)'
+              : (playerVisible
+                  ? 'Hide weather player'
+                  : 'Show weather player'),
+          onPressed: playerAvailable ? onTogglePlayer : null,
+        ),
+        IconButton(
+          icon: const Icon(Icons.download, color: Colors.white, size: 20),
+          tooltip: 'Download charts',
+          onPressed: onDownload,
+        ),
+      ],
     );
   }
 }
@@ -7116,6 +7882,7 @@ class _WeatherPlayerStrip extends StatelessWidget {
     required this.minOffset,
     required this.maxOffset,
     required this.referenceTime,
+    required this.layers,
     required this.onSetDirection,
     required this.onStep,
     required this.onSeek,
@@ -7129,6 +7896,10 @@ class _WeatherPlayerStrip extends StatelessWidget {
   final int minOffset;
   final int maxOffset;
   final DateTime referenceTime;
+  /// One entry per currently-enabled time-keyed weather layer, in
+  /// canonical order. Drives the per-layer status chip row between
+  /// the time label and the slider.
+  final List<_WeatherPlayerStripLayer> layers;
   final ValueChanged<int> onSetDirection;
   final ValueChanged<int> onStep;
   final ValueChanged<int> onSeek;
@@ -7206,6 +7977,21 @@ class _WeatherPlayerStrip extends StatelessWidget {
               ),
             ],
           ),
+          // Row 1.5: per-layer status chips. Each active time-keyed
+          // layer gets its own chip showing layer icon + label +
+          // status (spinner / check / cross). Wraps so wide
+          // configurations don't overflow the strip.
+          if (layers.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(0, 4, 0, 2),
+              child: Wrap(
+                spacing: 6,
+                runSpacing: 4,
+                children: [
+                  for (final l in layers) _layerChip(l),
+                ],
+              ),
+            ),
           SliderTheme(
             data: SliderTheme.of(context).copyWith(
               trackHeight: 2,
@@ -7265,6 +8051,57 @@ class _WeatherPlayerStrip extends StatelessWidget {
     );
   }
 
+  Widget _layerChip(_WeatherPlayerStripLayer l) {
+    final (statusWidget, statusColor) = switch (l.status) {
+      _LayerLoadStatus.loading => (
+          const SizedBox(
+            width: 10,
+            height: 10,
+            child: CircularProgressIndicator(
+              strokeWidth: 1.5,
+              valueColor: AlwaysStoppedAnimation(Colors.white70),
+            ),
+          ),
+          Colors.white70,
+        ),
+      _LayerLoadStatus.loaded => (
+          const Icon(Icons.check, size: 12, color: Color(0xFF88DD88)),
+          const Color(0xFF88DD88),
+        ),
+      _LayerLoadStatus.error => (
+          const Icon(Icons.error_outline,
+              size: 12, color: Color(0xFFFF8888)),
+          const Color(0xFFFF8888),
+        ),
+      _LayerLoadStatus.idle => (
+          const Icon(Icons.hourglass_empty,
+              size: 12, color: Colors.white38),
+          Colors.white38,
+        ),
+    };
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.06),
+        borderRadius: BorderRadius.circular(4),
+        border: Border.all(color: Colors.white12),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(l.icon, size: 11, color: statusColor),
+          const SizedBox(width: 4),
+          Text(
+            l.label,
+            style: TextStyle(color: statusColor, fontSize: 10),
+          ),
+          const SizedBox(width: 4),
+          statusWidget,
+        ],
+      ),
+    );
+  }
+
   Widget _transportButton({
     required IconData icon,
     required String tooltip,
@@ -7305,6 +8142,90 @@ class _WeatherPlayerStrip extends StatelessWidget {
         return 'Sun';
     }
     return '';
+  }
+}
+
+/// One layer's worth of state for the player strip's chip row.
+/// Snapshot taken at build time on the chart plotter side and
+/// passed in via [_WeatherPlayerStrip.layers] so the strip itself
+/// stays a `StatelessWidget`.
+class _WeatherPlayerStripLayer {
+  const _WeatherPlayerStripLayer({
+    required this.path,
+    required this.label,
+    required this.icon,
+    required this.status,
+  });
+  final String path;
+  final String label;
+  final IconData icon;
+  final _LayerLoadStatus status;
+}
+
+enum _LayerLoadStatus {
+  /// Tiles are in flight for this layer — at least one outstanding
+  /// fetch hasn't yet resolved (success or error).
+  loading,
+
+  /// The most recent fetch succeeded; nothing in flight.
+  loaded,
+
+  /// The most recent fetch errored; nothing in flight.
+  error,
+
+  /// No fetch has been observed yet for this layer (just enabled,
+  /// hasn't entered the viewport, or the cache was just wiped).
+  idle,
+}
+
+/// `NetworkTileProvider` subclass that pipes per-tile load events
+/// into `WeatherDataService` so the chart plotter's player can hold
+/// playback while tiles are still in flight, and per-layer status
+/// chips can show loading / loaded / failed state.
+///
+/// `getImage` is called by `flutter_map` once per tile coordinate;
+/// the returned `ImageProvider` is the standard `NetworkImage` from
+/// the superclass. We resolve it ourselves with a one-shot
+/// `ImageStreamListener` that decrements the in-flight counter on
+/// either `onImage` or `onError`, then return the unmodified
+/// provider so flutter_map renders normally. The double resolve is
+/// a no-op in practice — `ImageProvider`'s cache key is identical,
+/// so the second resolve hits the same in-flight stream.
+class _WeatherTileProvider extends NetworkTileProvider {
+  _WeatherTileProvider({
+    required this.path,
+    required this.service,
+  })  : generation = service.cacheNonce,
+        super(headers: service.authHeaders);
+
+  final String path;
+  final WeatherDataService service;
+
+  /// Captured at construction so a tile resolve that lands after
+  /// `reloadTiles()` (which bumps `cacheNonce` and clears the status
+  /// maps) is dropped on the floor in the service's `recordTile*`
+  /// guards instead of leaking a stale "loaded" or "errored" chip
+  /// into the player's gating.
+  final int generation;
+
+  @override
+  ImageProvider getImage(TileCoordinates coords, TileLayer options) {
+    final inner = super.getImage(coords, options);
+    service.recordTileStart(path, generation: generation);
+    final stream = inner.resolve(const ImageConfiguration());
+    late ImageStreamListener listener;
+    listener = ImageStreamListener(
+      (image, sync) {
+        service.recordTileSuccess(path, generation: generation);
+        stream.removeListener(listener);
+      },
+      onError: (error, stack) {
+        service.recordTileError(path, error, generation: generation);
+        stream.removeListener(listener);
+      },
+    );
+    stream.addListener(listener);
+    return inner;
   }
 }
 

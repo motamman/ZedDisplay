@@ -24,29 +24,100 @@ class ChartLayerPanel extends StatelessWidget {
   final void Function(VoidCallback fn) setState;
   final VoidCallback? onLayersChanged;
 
+  /// When non-null, only layers matching the predicate render. The
+  /// panel still mutates the master `layers` list on toggle and
+  /// reorder — it just shows a slice. Used by the layer sheet's
+  /// `Basemaps` / `Charts` tabs to render disjoint subsets while
+  /// preserving full-list paint order and persistence.
+  final bool Function(Map<String, dynamic>)? filter;
+
+  /// `false` disables the drag-handle column. Useful for tabs that
+  /// only ever show one row (or no rows) where reorder would just
+  /// be visual noise.
+  final bool reorderable;
+
   const ChartLayerPanel({
     super.key,
     required this.layers,
     required this.setState,
     this.onLayersChanged,
+    this.filter,
+    this.reorderable = true,
   });
+
+  /// Indices in `layers` (master list) that pass the filter, in
+  /// master order. The panel iterates this for itemBuilder, and
+  /// uses it to translate visible-index reorder events back to
+  /// master-index moves so the master order — and therefore paint
+  /// order and persistence — stays correct.
+  List<int> _visibleMasterIndices() {
+    if (filter == null) {
+      return [for (var i = 0; i < layers.length; i++) i];
+    }
+    final out = <int>[];
+    for (var i = 0; i < layers.length; i++) {
+      if (filter!(layers[i])) out.add(i);
+    }
+    return out;
+  }
 
   @override
   Widget build(BuildContext context) {
+    final visibleIdx = _visibleMasterIndices();
     return ReorderableListView.builder(
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
-      itemCount: layers.length,
-      onReorder: (oldIndex, newIndex) {
+      itemCount: visibleIdx.length,
+      buildDefaultDragHandles: false,
+      onReorder: (oldVisible, newVisible) {
+        // Translate visible indices to master indices. The master
+        // list is reordered so the dragged row lands immediately
+        // before the row that previously sat at `newVisible` in the
+        // filtered view; if the user dragged past the last visible
+        // row, the move ends up after the previously-last visible
+        // master index.
+        if (!reorderable) return;
+        final n = visibleIdx.length;
+        if (oldVisible < 0 || oldVisible >= n) return;
+        if (newVisible < 0 || newVisible > n) return;
         setState(() {
-          if (newIndex > oldIndex) newIndex--;
-          final item = layers.removeAt(oldIndex);
-          layers.insert(newIndex, item);
+          final masterFrom = visibleIdx[oldVisible];
+          final item = layers.removeAt(masterFrom);
+          // After removeAt, the remaining indices shift. Compute
+          // the destination master index from the (still-correct)
+          // post-removal pointer to the visible row that should now
+          // sit immediately *after* the moved item.
+          int masterTo;
+          if (newVisible >= n) {
+            // Past the last visible row → place after the last
+            // remaining visible master index.
+            final lastVisibleMaster =
+                visibleIdx[n - 1] > masterFrom
+                    ? visibleIdx[n - 1] - 1
+                    : visibleIdx[n - 1];
+            masterTo = lastVisibleMaster + 1;
+          } else if (newVisible > oldVisible) {
+            // ReorderableListView already adjusts newIndex by +1
+            // when dragging downward; we mirror that semantics by
+            // dropping into the position previously held by the
+            // (newVisible)-th visible row, post-removal.
+            final dst = newVisible; // the row that was at newVisible
+            // After remove, that row's master index has shifted
+            // down by 1 if it was past masterFrom.
+            final origMaster = visibleIdx[dst];
+            masterTo = origMaster > masterFrom ? origMaster - 1 : origMaster;
+          } else {
+            final origMaster = visibleIdx[newVisible];
+            masterTo = origMaster > masterFrom ? origMaster - 1 : origMaster;
+          }
+          if (masterTo < 0) masterTo = 0;
+          if (masterTo > layers.length) masterTo = layers.length;
+          layers.insert(masterTo, item);
         });
         onLayersChanged?.call();
       },
       itemBuilder: (_, index) {
-        final layer = layers[index];
+        final layer = layers[visibleIdx[index]];
         final type = layer['type'] as String;
         final id = layer['id'] as String;
         final enabled = layer['enabled'] as bool? ?? false;
@@ -91,10 +162,13 @@ class ChartLayerPanel extends StatelessWidget {
           child: Column(children: [
             ListTile(
               dense: true,
-              leading: ReorderableDragStartListener(
-                index: index,
-                child: const Icon(Icons.drag_handle, color: Colors.grey, size: 20),
-              ),
+              leading: reorderable
+                  ? ReorderableDragStartListener(
+                      index: index,
+                      child: const Icon(Icons.drag_handle,
+                          color: Colors.grey, size: 20),
+                    )
+                  : const SizedBox(width: 20),
               title: Row(children: [
                 Icon(
                   typeIcon,

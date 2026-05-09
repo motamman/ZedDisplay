@@ -56,9 +56,7 @@ class WeatherDataService extends ChangeNotifier {
     _refreshTimer = Timer.periodic(
       const Duration(hours: 3),
       (_) {
-        _cacheNonce = DateTime.now().millisecondsSinceEpoch;
-        _vectorCache.clear();
-        _vectorLru.clear();
+        _resetCacheGeneration();
         unawaited(_fetchAllMetadata());
         notifyListeners();
       },
@@ -66,8 +64,33 @@ class WeatherDataService extends ChangeNotifier {
     unawaited(_fetchAllMetadata());
   }
 
+  /// Single chokepoint for every cache-boundary event: bumps
+  /// `_cacheNonce`, drops the in-memory vector cache, and clears the
+  /// per-tile status maps so any in-flight resolve from the prior
+  /// generation is dropped by the gates in `recordTile*`. Pings the
+  /// status notifier so player chips repaint against the cleared
+  /// state. Callers handle their own `notifyListeners()` for the
+  /// main service notifier (whether the change should wake overlays
+  /// is context-specific).
+  void _resetCacheGeneration() {
+    _cacheNonce = DateTime.now().millisecondsSinceEpoch;
+    _vectorCache.clear();
+    _vectorLru.clear();
+    _inFlight.clear();
+    _tileLastSuccess.clear();
+    _tileLastError.clear();
+    _tileStatusNotifier.ping();
+  }
+
   final RoutePlannerAuthService _auth;
   Timer? _refreshTimer;
+
+  /// Set on entry to `dispose()`. Every async path that might call
+  /// `notifyListeners()` or ping the tile-status notifier consults
+  /// this first — `ChangeNotifier.notifyListeners` throws after
+  /// `dispose`, and a refreshMetadata / fetchVectorTile started just
+  /// before disposal can easily land after.
+  bool _disposed = false;
 
   String _baseUrl = 'https://router.zeddisplay.com';
   String get baseUrl => _baseUrl;
@@ -75,8 +98,11 @@ class WeatherDataService extends ChangeNotifier {
     final trimmed = v.trim().replaceAll(RegExp(r'/+$'), '');
     if (trimmed == _baseUrl) return;
     _baseUrl = trimmed;
-    _vectorCache.clear();
-    _vectorLru.clear();
+    // Bump the generation BEFORE the swap takes effect so any tile
+    // resolve still in flight against the old host gets dropped in
+    // the `recordTile*` gates. Without this, post-switch completions
+    // leak old-host status into the new-host chips.
+    _resetCacheGeneration();
     _metadata.clear();
     unawaited(_fetchAllMetadata());
     notifyListeners();
@@ -102,8 +128,89 @@ class WeatherDataService extends ChangeNotifier {
   final Map<String, WeatherLayerMetadata> _metadata = {};
   WeatherLayerMetadata? metadataFor(String path) => _metadata[path];
 
-  Future<void> _fetchAllMetadata() async {
+  // -------------------------------------------------------------------
+  // Tile load instrumentation.
+  //
+  // The chart plotter's `_WeatherTileProvider` calls into these counters
+  // when flutter_map asks it for a tile image. We track:
+  //   - `_inFlight[path]` — number of tile requests currently awaiting
+  //     a decoded image or error. Drives the player's per-hour gating
+  //     (advance only when in-flight reaches 0, with a 5 s max-wait
+  //     fallback) and the per-layer status chips on the player strip.
+  //   - `_tileLastSuccess[path]` — wall-clock of the most recent
+  //     successfully-decoded tile for that layer.
+  //   - `_tileLastError[path]` — the most recent error object, kept
+  //     until either a fresh success arrives or the user reloads.
+  // All updates `notifyListeners` so the strip can rebuild.
+  // -------------------------------------------------------------------
+
+  final Map<String, int> _inFlight = {};
+  final Map<String, DateTime> _tileLastSuccess = {};
+  final Map<String, Object?> _tileLastError = {};
+
+  /// Tile-status events fan out through this dedicated `Listenable`
+  /// instead of the service's own `notifyListeners` so high-frequency
+  /// per-tile traffic (every fetch start, every fetch resolve) doesn't
+  /// trigger the main service listeners. The vector overlays
+  /// (`weather_data_overlays.dart`) wake on any main-service notify
+  /// and re-evaluate their fetch fingerprint — without this split,
+  /// recording one tile's status would invalidate every overlay and
+  /// cascade into another fetch round, on every tile.
+  final _PingNotifier _tileStatusNotifier = _PingNotifier();
+  Listenable get tileStatusNotifier => _tileStatusNotifier;
+
+  int inFlightCount(String path) => _inFlight[path] ?? 0;
+  DateTime? tileLastSuccess(String path) => _tileLastSuccess[path];
+  Object? tileLastError(String path) => _tileLastError[path];
+
+  /// Has *any* tile for `path` ever resolved successfully on this
+  /// service instance? Useful for distinguishing "still waiting on
+  /// the very first fetch" from "loaded and current".
+  bool hasEverLoaded(String path) => _tileLastSuccess.containsKey(path);
+
+  /// Tile-status mutators take an optional `generation` (the
+  /// `cacheNonce` snapshot from when the fetch started). After
+  /// `reloadTiles()` bumps the nonce and clears the maps, any tile
+  /// future from the prior generation is dropped here so it can't
+  /// repopulate `_tileLastSuccess` / `_tileLastError` and make stale
+  /// chips appear "loaded" or "errored". Callers that pre-date the
+  /// generation argument are still accepted (treated as untracked).
+  void recordTileStart(String path, {int? generation}) {
+    if (_disposed) return;
+    if (generation != null && generation != _cacheNonce) return;
+    _inFlight[path] = (_inFlight[path] ?? 0) + 1;
+    _tileStatusNotifier.ping();
+  }
+
+  void recordTileSuccess(String path, {int? generation}) {
+    if (_disposed) return;
+    if (generation != null && generation != _cacheNonce) return;
+    final n = _inFlight[path] ?? 0;
+    if (n > 0) _inFlight[path] = n - 1;
+    _tileLastSuccess[path] = DateTime.now();
+    // Successful fetch trumps any stale error from a previous attempt.
+    _tileLastError.remove(path);
+    _tileStatusNotifier.ping();
+  }
+
+  void recordTileError(String path, Object error, {int? generation}) {
+    if (_disposed) return;
+    if (generation != null && generation != _cacheNonce) return;
+    final n = _inFlight[path] ?? 0;
+    if (n > 0) _inFlight[path] = n - 1;
+    _tileLastError[path] = error;
+    _tileStatusNotifier.ping();
+  }
+
+  Future<void> _fetchAllMetadata() => refreshMetadata();
+
+  /// Re-fetch every layer's metadata in parallel. Public so the
+  /// chart-layer sheet's Weather tab can drive a manual refresh
+  /// when the user thinks the legend / unit info is stale (server
+  /// was slow to publish, container just woke up, etc.).
+  Future<void> refreshMetadata() async {
     await Future.wait(_metadataPaths.map(_fetchMetadata));
+    if (_disposed) return;
     notifyListeners();
   }
 
@@ -113,6 +220,7 @@ class WeatherDataService extends ChangeNotifier {
       final resp = await http
           .get(uri, headers: _auth.authorisedHeaders())
           .timeout(const Duration(seconds: 10));
+      if (_disposed) return;
       if (resp.statusCode != 200) return;
       final json = jsonDecode(resp.body);
       if (json is! Map<String, dynamic>) return;
@@ -142,9 +250,7 @@ class WeatherDataService extends ChangeNotifier {
   ///      which keys on URL, so a new URL is a miss.
   Future<void> reloadTiles() async {
     final oldNonce = _cacheNonce;
-    _cacheNonce = DateTime.now().millisecondsSinceEpoch;
-    _vectorCache.clear();
-    _vectorLru.clear();
+    _resetCacheGeneration();
     debugPrint(
         '[WeatherDataService] reloadTiles() called: nonce $oldNonce -> $_cacheNonce');
     try {
@@ -238,26 +344,43 @@ class WeatherDataService extends ChangeNotifier {
   Future<List<WeatherVectorPoint>?> fetchVectorTile(
       String path, int z, int x, int y) async {
     final hour = hourParam;
-    final key = '$path|$z|$x|$y|$hour|$_cacheNonce';
+    // Capture the generation at fetch start so a reload mid-flight
+    // can't repopulate post-clear status maps. Same gating as the
+    // raster `_WeatherTileProvider` path — keeps vector layers
+    // honest in the player's "all tiles settled" gate. Generation
+    // also rolls on baseUrl change, but include `_baseUrl` in the
+    // key explicitly so a (theoretical) nonce collision across hosts
+    // can't cause a cache hit against the wrong server.
+    final generation = _cacheNonce;
+    final key = '$_baseUrl|$path|$z|$x|$y|$hour|$generation';
     final cached = _vectorCache[key];
     if (cached != null) {
       _touchLru(key);
       return cached;
     }
     final uri = Uri.parse(
-        '$_baseUrl$path/$z/$x/$y.json?t=$hour&v=$_cacheNonce');
+        '$_baseUrl$path/$z/$x/$y.json?t=$hour&v=$generation');
+    recordTileStart(path, generation: generation);
     try {
       final resp = await http
           .get(uri, headers: _auth.authorisedHeaders())
           .timeout(const Duration(seconds: 15));
+      if (_disposed) return null;
       // Return null on any non-success / malformed-shape so the
       // overlay treats it as a transient failure and retries on the
       // next camera tick. Returning `const []` here would be
       // indistinguishable from "tile is legitimately empty" and get
       // memoized by the overlay's fingerprint.
-      if (resp.statusCode != 200) return null;
+      if (resp.statusCode != 200) {
+        recordTileError(
+            path, 'HTTP ${resp.statusCode}', generation: generation);
+        return null;
+      }
       final data = jsonDecode(resp.body);
-      if (data is! List) return null;
+      if (data is! List) {
+        recordTileError(path, 'malformed body', generation: generation);
+        return null;
+      }
       final points = data
           .whereType<Map<String, dynamic>>()
           .map((m) => WeatherVectorPoint(
@@ -275,8 +398,10 @@ class WeatherDataService extends ChangeNotifier {
         final evict = _vectorLru.removeAt(0);
         _vectorCache.remove(evict);
       }
+      recordTileSuccess(path, generation: generation);
       return points;
-    } catch (_) {
+    } catch (e) {
+      recordTileError(path, e, generation: generation);
       return null;
     }
   }
@@ -287,10 +412,21 @@ class WeatherDataService extends ChangeNotifier {
   }
 
   @override
+  void notifyListeners() {
+    if (_disposed) return;
+    super.notifyListeners();
+  }
+
+  @override
   void dispose() {
+    // Set BEFORE we tear down the timer / notifier so any in-flight
+    // futures completing during disposal short-circuit before they
+    // try to fan a notification out.
+    _disposed = true;
     _refreshTimer?.cancel();
     _vectorCache.clear();
     _vectorLru.clear();
+    _tileStatusNotifier.dispose();
     super.dispose();
   }
 
@@ -298,4 +434,12 @@ class WeatherDataService extends ChangeNotifier {
     final u = t.toUtc();
     return DateTime.utc(u.year, u.month, u.day, u.hour);
   }
+}
+
+/// Trivial public-notify wrapper so the service can fan out
+/// tile-status pings without exposing `notifyListeners` (which is
+/// `protected`) on a separate object. Kept private to this file —
+/// consumers see `Listenable` only.
+class _PingNotifier extends ChangeNotifier {
+  void ping() => notifyListeners();
 }

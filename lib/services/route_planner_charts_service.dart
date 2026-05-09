@@ -105,6 +105,10 @@ class RoutePlannerChartsService extends ChangeNotifier {
     _charts = const [];
     _chartById = const {};
     _lastError = null;
+    // A fresh server is a fresh authority. Drop the "we've ever seen
+    // a catalog" flag so the chart plotter's reconcile won't drop
+    // persisted s57 entries based on the old server's catalog.
+    _hasLoaded = false;
     notifyListeners();
   }
 
@@ -114,6 +118,14 @@ class RoutePlannerChartsService extends ChangeNotifier {
 
   bool _loading = false;
   bool get loading => _loading;
+
+  /// `true` once a `refresh()` against the current `baseUrl` has
+  /// returned a parseable list. Stays `true` across subsequent
+  /// failures so the chart plotter can distinguish "catalog never
+  /// arrived (don't reconcile yet)" from "catalog is empty (drop
+  /// stale s57 rows)". Reset only when [baseUrl] changes.
+  bool _hasLoaded = false;
+  bool get hasLoaded => _hasLoaded;
 
   String? _lastError;
   String? get lastError => _lastError;
@@ -163,6 +175,10 @@ class RoutePlannerChartsService extends ChangeNotifier {
       _charts = List.unmodifiable(parsed);
       _chartById = {for (final c in parsed) c.id: c};
       _lastError = null;
+      // Catalog has now successfully arrived from this server. The
+      // chart plotter will treat empty catalogs as authoritative
+      // from this point on (and drop stale s57 rows).
+      _hasLoaded = true;
     } catch (e) {
       // Same epoch guard for errors — a network failure against the
       // old server shouldn't surface as a snackbar after the user

@@ -283,6 +283,18 @@ class _ComposeTabState extends State<_ComposeTab> {
   double _underKeelClearanceM = 0.5; // 0..3, step 0.1
   double _shoreStepM = 10;         // 5..200, step 5
   double _simplifyM = 10;          // 0..100, step 5
+  // Per-leg precision policy. Default `approximate` per project
+  // direction: most marine routes are happy passing within a few
+  // hundred metres of an intermediate via, and forcing a synthetic
+  // motor segment to snap onto the exact coord wastes time on
+  // narrow approaches. The user can flip to `precise` per-request
+  // via the segmented toggle in `_precisionSection`, which renders
+  // between Routing mode and Departure in the main Compose list
+  // (not inside the collapsible Advanced section).
+  RoutePrecision _precision = RoutePrecision.approximate;
+  // Pass-through radius around each via in approximate mode. SI metres.
+  // Slider exposes 50–2000 m at 50 m steps; server caps at 5000 m.
+  double _arrivalRadiusM = 200;
   bool _advancedOpen = false;
 
   static const String _prefsKey = 'weather_routing_tolerances';
@@ -327,6 +339,10 @@ class _ComposeTabState extends State<_ComposeTab> {
         _shoreStepM =
             (j['shoreStepM'] as num?)?.toDouble() ?? _shoreStepM;
         _simplifyM = (j['simplifyM'] as num?)?.toDouble() ?? _simplifyM;
+        _precision = RoutePrecision.fromWire(j['precision'] as String?);
+        _arrivalRadiusM =
+            ((j['arrivalRadiusM'] as num?)?.toDouble() ?? _arrivalRadiusM)
+                .clamp(50.0, 2000.0);
       });
     } catch (_) {/* ignore */}
   }
@@ -342,6 +358,8 @@ class _ComposeTabState extends State<_ComposeTab> {
         'underKeelClearanceM': _underKeelClearanceM,
         'shoreStepM': _shoreStepM,
         'simplifyM': _simplifyM,
+        'precision': _precision.wire,
+        'arrivalRadiusM': _arrivalRadiusM,
       });
       unawaited(storage.saveSetting(_prefsKey, payload));
     } catch (_) {/* ignore */}
@@ -432,7 +450,11 @@ class _ComposeTabState extends State<_ComposeTab> {
               ? null
               : _PinAction(
                   label: 'Clear',
-                  onTap: () => service.plannedStart = null,
+                  // Every "Clear" tap in the routing UI is a tabula-
+                  // rasa wipe — Start / End / vias / result / job all
+                  // gone. Per-via × icons (below) still do per-item
+                  // delete. See `WeatherRoutingService.clearAll`.
+                  onTap: () => service.clearAll(),
                 ),
         ),
         const SizedBox(height: 12),
@@ -447,7 +469,7 @@ class _ComposeTabState extends State<_ComposeTab> {
                 )
               : _PinAction(
                   label: 'Clear',
-                  onTap: () => service.plannedEnd = null,
+                  onTap: () => service.clearAll(),
                 ),
         ),
         if (service.plannedVias.isNotEmpty) ...[
@@ -467,6 +489,8 @@ class _ComposeTabState extends State<_ComposeTab> {
           selected: {_mode},
           onSelectionChanged: (v) => setState(() => _mode = v.first),
         ),
+        const SizedBox(height: 16),
+        _precisionSection(),
         const SizedBox(height: 16),
         _sectionLabel('Departure'),
         ListTile(
@@ -583,6 +607,13 @@ class _ComposeTabState extends State<_ComposeTab> {
       underKeelClearance: _underKeelClearanceM,    // m
       shoreStep: _shoreStepM,                      // m
       simplify: _simplifyM,                        // m
+      precision: _precision,
+      // Server only consults the radius in approximate mode; sending
+      // it for precise is harmless (server ignores) but skipping
+      // keeps the wire payload clean.
+      arrivalRadiusM: _precision == RoutePrecision.approximate
+          ? _arrivalRadiusM
+          : null,
     );
     await service.submitRoute(req);
   }
@@ -629,11 +660,110 @@ class _ComposeTabState extends State<_ComposeTab> {
     );
   }
 
+  /// Per-leg precision controls — segmented Approximate / Precise
+  /// selector on top, with the arrival-radius slider below it that
+  /// only enables in Approximate mode (server ignores the radius
+  /// when precision == precise). Slider value is stored in metres
+  /// internally; the displayed label routes through MetadataStore's
+  /// `'distance'` category so a Settings unit-preset flip rebuilds
+  /// the label in the user's preferred distance unit (km / mi / nm
+  /// / m) without reopening the sheet.
+  Widget _precisionSection() {
+    final store = context.watch<SignalKService>().metadataStore;
+    final distMd = store.getByCategory('distance');
+    final isApprox = _precision == RoutePrecision.approximate;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _sectionLabel('Precision'),
+        SegmentedButton<RoutePrecision>(
+          segments: const [
+            ButtonSegment(
+              value: RoutePrecision.approximate,
+              label: Text('Approximate'),
+            ),
+            ButtonSegment(
+              value: RoutePrecision.precise,
+              label: Text('Precise'),
+            ),
+          ],
+          selected: {_precision},
+          onSelectionChanged: (v) {
+            setState(() => _precision = v.first);
+            _saveTolerances();
+          },
+        ),
+        const SizedBox(height: 8),
+        Padding(
+          padding: const EdgeInsets.only(left: 4, right: 4),
+          child: Row(
+            children: [
+              SizedBox(
+                width: 140,
+                child: Text(
+                  'Arrival radius',
+                  style: TextStyle(
+                    color: isApprox ? Colors.white70 : Colors.white24,
+                    fontSize: 12,
+                  ),
+                ),
+              ),
+              Expanded(
+                child: Slider(
+                  value: _arrivalRadiusM.clamp(50.0, 2000.0),
+                  min: 50,
+                  max: 2000,
+                  divisions: 39,
+                  label: distMd.formatOrRaw(
+                    _arrivalRadiusM,
+                    decimals: 0,
+                    siSuffix: 'm',
+                  ),
+                  onChanged: isApprox
+                      ? (v) => setState(() => _arrivalRadiusM = v)
+                      : null,
+                  onChangeEnd: isApprox ? (_) => _saveTolerances() : null,
+                ),
+              ),
+              SizedBox(
+                width: 64,
+                child: Text(
+                  distMd.formatOrRaw(
+                    _arrivalRadiusM,
+                    decimals: 0,
+                    siSuffix: 'm',
+                  ),
+                  textAlign: TextAlign.right,
+                  style: TextStyle(
+                    color: isApprox ? Colors.white : Colors.white24,
+                    fontSize: 12,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 4),
+        Padding(
+          padding: const EdgeInsets.only(left: 4, right: 4),
+          child: Text(
+            isApprox
+                ? 'Sail through within the radius of each waypoint instead of motor-snapping onto it. Final destination is always exact.'
+                : 'Snap onto each intermediate waypoint exactly via a synthetic motor segment.',
+            style: const TextStyle(color: Colors.white38, fontSize: 11),
+          ),
+        ),
+      ],
+    );
+  }
+
   /// Collapsible "Advanced" section with the seven per-request
   /// routing tolerances. Sliders only — matches the web UI's range
   /// picker at `routePlanning/ui/route-planner.html:251-310`.
   /// Values persist client-side via `StorageService`; they're sent
-  /// as top-level fields on `POST /route`, not stored on the server.
+  /// as top-level fields on `POST /api/v1/routes` (the async job
+  /// API the client uses — see `WeatherRoutingService.submitRoute`),
+  /// not stored on the server.
   Widget _advancedSection() {
     final isSail = _mode != RouteMode.motor;
     // MetadataStore drives every unit-bearing slider's display label.
@@ -1204,7 +1334,9 @@ class _ResultTab extends StatelessWidget {
                 side: const BorderSide(color: Color(0xFF553333)),
                 padding: const EdgeInsets.symmetric(horizontal: 10),
               ),
-              onPressed: service.clearResult,
+              // Tabula-rasa wipe — drops the result polyline, all
+              // pins, and every via in one shot.
+              onPressed: service.clearAll,
             ),
           ],
         ),

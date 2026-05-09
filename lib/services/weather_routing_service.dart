@@ -309,11 +309,61 @@ class WeatherRoutingService extends ChangeNotifier
     notifyListeners();
   }
 
-  Future<void> deleteRemoteJob() async {
-    final id = _currentJobId;
-    if (id == null) return;
+  /// Drop every piece of routing state in one shot — start/end pins,
+  /// every via, the computed result, log lines, in-flight job id,
+  /// status, error message, and the persisted active-job blob.
+  /// Single `notifyListeners()` so the chart plotter and the panel
+  /// rebuild once for the whole reset rather than twice. Used by the
+  /// "Clear" tap targets across the routing UI (Compose tab Start /
+  /// End rows, Result tab Clear, the chart-side Compose popover and
+  /// Waypoint popover) — every Clear is a tabula-rasa wipe.
+  void clearAll() {
+    final hadAnything = _plannedStart != null ||
+        _plannedEnd != null ||
+        _plannedVias.isNotEmpty ||
+        _currentResult != null ||
+        _logLines.isNotEmpty ||
+        _currentJobId != null ||
+        _status != WeatherRoutingStatus.idle ||
+        _errorMessage != null;
+    if (!hadAnything) return;
+    final priorJobId = _currentJobId;
+    final wasBusy = isBusy;
+    _plannedStart = null;
+    _plannedEnd = null;
+    _plannedVias.clear();
+    _currentResult = null;
+    _logLines.clear();
+    _currentJobId = null;
+    _status = WeatherRoutingStatus.idle;
+    _errorMessage = null;
+    // Resume-state must die with the wipe — otherwise a still-running
+    // SSE reconnect or a `tryReattachActiveJob` call after this would
+    // bring the cancelled job back from the dead via these fields.
+    _lastEventId = null;
+    _submittedAt = null;
+    _lastRequest = null;
+    _sseAttempt = 0;
+    _sseDeadline = null;
+    _clearActiveJob();
+    // Tear down the SSE subscription synchronously-ish — without this
+    // the still-open stream would keep delivering frames into
+    // `_handleFrame`, which repopulates status/result and re-persists
+    // the active-job blob seconds after the user cleared.
+    unawaited(_teardownSse());
+    // Best-effort cancel on the backend so a queued/running job
+    // doesn't keep consuming router capacity. Fire-and-forget — if
+    // the network is down or the server has already moved on, we
+    // don't want to block the local clear on it.
+    if (wasBusy && priorJobId != null) {
+      unawaited(_deleteRemoteJob(priorJobId));
+    }
+    notifyListeners();
+  }
+
+  Future<void> _deleteRemoteJob(String jobId) async {
     try {
-      final uri = Uri.parse('$_baseUrl/api/v1/routes/$id');
+      final uri = Uri.parse('$_baseUrl/api/v1/routes/$jobId');
       await http
           .delete(uri, headers: _auth.authorisedHeaders())
           .timeout(ServiceConstants.shortHttpTimeout);
@@ -390,6 +440,11 @@ class WeatherRoutingService extends ChangeNotifier
             if (match == null) break;
             final frame = buffer.substring(0, match.start);
             buffer = buffer.substring(match.end);
+            // `clearAll()` drops `_currentJobId` to null — any frames
+            // still arriving from the cancelled job's stream before
+            // the teardown completes are dropped here so they can't
+            // resurrect the state we just wiped.
+            if (_currentJobId != jobId) continue;
             _handleFrame(frame);
           }
         },

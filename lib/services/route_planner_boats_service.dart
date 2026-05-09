@@ -27,6 +27,80 @@ class RoutePlannerBoatsService extends ChangeNotifier {
   })  : _auth = auth,
         _storage = storage {
     _selectedBoatId = _storage.getSetting(_selectedBoatIdKey);
+    // Observe auth so the boat list refreshes itself when the bearer
+    // token transitions from absent to present. Sister-app's auth
+    // service loads the token synchronously from Hive (no secure-
+    // storage race), so this is mostly a defensive port — covers
+    // mid-session sign-in (sign out, sign back in) where the boats
+    // service would otherwise wait for a manual picker reopen to
+    // re-fetch.
+    _hadToken = _auth.hasToken;
+    _auth.addListener(_onAuthChanged);
+  }
+
+  bool _hadToken = false;
+
+  /// Bumped on every auth transition AND on every `baseUrl` change.
+  /// `refreshAllBoats` captures it at start and refuses to commit
+  /// boats / polars if the value has moved on by the time the HTTP
+  /// round-trip lands — so a fetch initiated against the prior token
+  /// or the prior router can never repopulate the new state.
+  int _refreshEpoch = 0;
+
+  void _onAuthChanged() {
+    final hasNow = _auth.hasToken;
+    if (hasNow == _hadToken) return;
+    _hadToken = hasNow;
+    // Bump the epoch on every auth transition so any in-flight
+    // refresh started under the prior token won't write its boats /
+    // polars back into our state after the user has signed out (or
+    // signed in to a different account).
+    _refreshEpoch++;
+    final hadLoading = _loadingBoats || _loadingPolars;
+    _loadingBoats = false;
+    _loadingPolars = false;
+    if (hasNow) {
+      // Always re-fetch on token regain. The previous gate
+      // (`_allBoats.isEmpty`) skipped the refresh on a sign-out →
+      // sign-in cycle because nothing wipes `_allBoats` on logout —
+      // so the picker would silently keep boats minted by the prior
+      // account.
+      unawaited(refreshAllBoats());
+    } else {
+      // Clear state owned by the prior token so a re-sign-in starts
+      // from a known-empty cache and any UI bound to this notifier
+      // re-renders empty until the refresh lands. Notify even when
+      // the caches are already empty if a load WAS in flight — the
+      // spinner-bound UI would otherwise stay stuck because we
+      // dropped `_loadingBoats` without telling anyone.
+      final hadCached = _allBoats.isNotEmpty ||
+          _ownedBoatIds.isNotEmpty ||
+          _polars.isNotEmpty;
+      final hadSelection = _selectedBoatId != null;
+      if (hadCached) {
+        _allBoats = const [];
+        _ownedBoatIds.clear();
+        _polars = const [];
+      }
+      // The persisted selection points at a boat owned by the prior
+      // account; without this it would survive sign-out and resurface
+      // on the next sign-in (or worse, attach to a same-id boat on
+      // a different server). Drop the persisted entry too so the
+      // re-fetch doesn't see a stale id at all.
+      if (hadSelection) {
+        _selectedBoatId = null;
+        unawaited(_storage.deleteSetting(_selectedBoatIdKey));
+      }
+      if (hadCached || hadLoading || hadSelection) {
+        notifyListeners();
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _auth.removeListener(_onAuthChanged);
+    super.dispose();
   }
 
   static const String _selectedBoatIdKey =
@@ -42,10 +116,23 @@ class RoutePlannerBoatsService extends ChangeNotifier {
     final trimmed = v.trim().replaceAll(RegExp(r'/+$'), '');
     if (trimmed == _baseUrl) return;
     _baseUrl = trimmed;
+    // Same epoch-bump rationale as `_onAuthChanged` — an in-flight
+    // request against the old host must not write its result back.
+    _refreshEpoch++;
+    _loadingBoats = false;
+    _loadingPolars = false;
     // Drop cached state — it's owned by the old server.
     _allBoats = const [];
     _ownedBoatIds.clear();
     _polars = const [];
+    // The persisted selection is a boat-id from the old server; the
+    // new server may not know that id, or worse, may have a *different*
+    // boat under it. Drop both the in-memory and on-disk selection so
+    // the next refresh against the new host starts clean.
+    if (_selectedBoatId != null) {
+      _selectedBoatId = null;
+      unawaited(_storage.deleteSetting(_selectedBoatIdKey));
+    }
     notifyListeners();
   }
 
@@ -105,12 +192,19 @@ class RoutePlannerBoatsService extends ChangeNotifier {
   /// attached to any saved boat appear below as "adopt me" rows
   /// that call `POST /boats` on tap via [adoptPolar].
   Future<void> refreshAllBoats() async {
+    if (_loadingBoats) return;
+    final epoch = _refreshEpoch;
     _loadingBoats = true;
     notifyListeners();
     final results = await Future.wait([
       _getJsonList('/boats'),
       _getJsonList('/polars'),
     ]);
+    // Auth transition / baseUrl flip happened mid-flight — these
+    // results belong to a token or host that's no longer current.
+    // Don't write them back, and leave the loading flag alone (the
+    // setter that bumped the epoch already cleared it).
+    if (epoch != _refreshEpoch) return;
     final boatList = results[0];
     final polarList = results[1];
     if (boatList != null) {
@@ -174,9 +268,15 @@ class RoutePlannerBoatsService extends ChangeNotifier {
   /// touching the full inventory. Most UI paths should call
   /// [refreshAllBoats] instead.
   Future<void> refreshBoats() async {
+    final epoch = _refreshEpoch;
     _loadingBoats = true;
     notifyListeners();
     final list = await _getJsonList('/boats');
+    // See `refreshAllBoats` — auth/baseUrl flip during the round
+    // trip means this list belongs to a token/host that's no longer
+    // current. The setter that bumped the epoch already cleared the
+    // loading flag.
+    if (epoch != _refreshEpoch) return;
     if (list != null) {
       final owned = list
           .whereType<Map<String, dynamic>>()
@@ -203,12 +303,16 @@ class RoutePlannerBoatsService extends ChangeNotifier {
   }
 
   Future<Boat?> createBoat(BoatDraft draft) async {
+    final epoch = _refreshEpoch;
     final resp = await _request(
       method: 'POST',
       path: '/boats',
       body: draft.toBoatSpecJson(),
     );
     if (resp == null) return null;
+    // Auth/baseUrl changed mid-flight — the response belongs to a
+    // server / token that's no longer current. Don't merge it back.
+    if (epoch != _refreshEpoch) return null;
     final boat = Boat.fromJson(resp);
     _allBoats = [boat, ..._allBoats];
     _ownedBoatIds.add(boat.id);
@@ -217,12 +321,14 @@ class RoutePlannerBoatsService extends ChangeNotifier {
   }
 
   Future<Boat?> patchBoat(String id, Map<String, dynamic> changes) async {
+    final epoch = _refreshEpoch;
     final resp = await _request(
       method: 'PATCH',
       path: '/boats/$id',
       body: changes,
     );
     if (resp == null) return null;
+    if (epoch != _refreshEpoch) return null;
     final updated = Boat.fromJson(resp);
     _allBoats = [
       for (final b in _allBoats)
@@ -233,12 +339,14 @@ class RoutePlannerBoatsService extends ChangeNotifier {
   }
 
   Future<Boat?> replaceBoat(String id, BoatDraft draft) async {
+    final epoch = _refreshEpoch;
     final resp = await _request(
       method: 'PUT',
       path: '/boats/$id',
       body: draft.toFullReplaceJson(),
     );
     if (resp == null) return null;
+    if (epoch != _refreshEpoch) return null;
     final updated = Boat.fromJson(resp);
     _allBoats = [
       for (final b in _allBoats)
@@ -249,11 +357,13 @@ class RoutePlannerBoatsService extends ChangeNotifier {
   }
 
   Future<bool> deleteBoat(String id) async {
+    final epoch = _refreshEpoch;
     final ok = await _requestNoContent(
       method: 'DELETE',
       path: '/boats/$id',
     );
     if (!ok) return false;
+    if (epoch != _refreshEpoch) return false;
     _allBoats = _allBoats.where((b) => b.id != id).toList(growable: false);
     _ownedBoatIds.remove(id);
     if (_selectedBoatId == id) {
@@ -332,9 +442,11 @@ class RoutePlannerBoatsService extends ChangeNotifier {
   // ===== Polars =====
 
   Future<void> refreshPolars() async {
+    final epoch = _refreshEpoch;
     _loadingPolars = true;
     notifyListeners();
     final list = await _getJsonList('/polars');
+    if (epoch != _refreshEpoch) return;
     if (list != null) {
       _polars = list
           .whereType<Map<String, dynamic>>()
@@ -370,6 +482,7 @@ class RoutePlannerBoatsService extends ChangeNotifier {
   }
 
   Future<bool> deletePolar(String path) async {
+    final epoch = _refreshEpoch;
     final uri = Uri.parse('$_baseUrl/polars').replace(
       queryParameters: {'path': path},
     );
@@ -377,6 +490,7 @@ class RoutePlannerBoatsService extends ChangeNotifier {
       final resp = await http
           .delete(uri, headers: _auth.authorisedHeaders())
           .timeout(ServiceConstants.shortHttpTimeout);
+      if (epoch != _refreshEpoch) return false;
       if (resp.statusCode == 200 || resp.statusCode == 204) {
         _polars =
             _polars.where((p) => p.path != path).toList(growable: false);
