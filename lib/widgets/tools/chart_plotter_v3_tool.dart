@@ -21,6 +21,9 @@ import '../../models/tool_definition.dart';
 import '../../services/chart_download_manager.dart';
 import '../../services/chart_tile_cache_service.dart';
 import '../../services/chart_tile_server_service.dart';
+import '../../services/cpa_alert_service.dart';
+import '../../services/dashboard_service.dart';
+import '../../services/find_home_target_service.dart';
 import '../../services/route_arrival_monitor.dart';
 import '../../services/s57_tile_manager.dart';
 import '../../services/signalk_service.dart';
@@ -35,6 +38,7 @@ import '../../services/route_planner_boats_service.dart';
 import '../../services/weather_data_service.dart';
 import '../../services/weather_routing_service.dart';
 import '../ais_vessel_detail_sheet.dart';
+import '../ais_vessel_list.dart' as ais_list;
 import '../chart_plotter/chart_hud.dart';
 import '../chart_plotter/chart_layer_panel.dart';
 import '../chart_plotter/chart_route_panel.dart';
@@ -1376,6 +1380,201 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
     if (navState == 'anchored') return _AisKind.anchored;
     if (sogMs < 0.1) return _AisKind.slow;
     return _AisKind.moving;
+  }
+
+  /// Adapter for the shared AIS list: map this app's `AISVesselRegistry`
+  /// entries to `AisVesselListItem`s, applying the same active-only
+  /// filter the map renderer uses so the two views stay consistent.
+  /// Distance + CPA / TCPA are computed here against the own vessel
+  /// kinematics; rad → deg for COG / heading happens at the boundary
+  /// so the row only deals in display units.
+  List<ais_list.AisVesselListItem> _buildAisListItems() {
+    final registry = widget.signalKService.aisVesselRegistry.vessels;
+    final now = DateTime.now();
+    final items = <ais_list.AisVesselListItem>[];
+    for (final v in registry.values) {
+      if (!v.hasPosition) continue;
+      if (_aisActiveOnly) {
+        if (v.aisStatus == 'lost' || v.aisStatus == 'remove') continue;
+        if (now.difference(v.lastSeen).inMinutes >= 10) continue;
+      }
+      final dist = (_ownLat != null && _ownLon != null)
+          ? _haversineMeters(_ownLat!, _ownLon!, v.latitude!, v.longitude!)
+          : 0.0;
+      final cpa = ais_list.computeCpa(
+        ownLat: _ownLat,
+        ownLon: _ownLon,
+        ownCogRad: _ownCog,
+        ownSogMs: _ownSog,
+        otherLat: v.latitude,
+        otherLon: v.longitude,
+        otherCogRad: v.cogRad,
+        otherSogMs: v.sogMs,
+      );
+      items.add(ais_list.AisVesselListItem(
+        mmsi: v.vesselId,
+        name: v.name,
+        aisShipType: v.aisShipType,
+        aisClass: v.aisClass,
+        aisStatus: v.aisStatus,
+        navState: v.navState,
+        headingTrue: v.headingTrueRad != null
+            ? v.headingTrueRad! * 180.0 / math.pi
+            : null,
+        cog: v.cogRad != null ? v.cogRad! * 180.0 / math.pi : null,
+        sogRaw: v.sogMs,
+        distance: dist,
+        cpa: cpa?.cpaM,
+        tcpa: cpa?.tcpaS,
+        timestamp: v.lastSeen,
+      ));
+    }
+    return items;
+  }
+
+  /// Equirectangular-tangent haversine — good to a few cm at AIS
+  /// ranges. Same shape used by the route planner's distance maths.
+  static double _haversineMeters(
+      double lat1, double lon1, double lat2, double lon2) {
+    const r = 6371000.0;
+    final dLat = (lat2 - lat1) * math.pi / 180;
+    final dLon = (lon2 - lon1) * math.pi / 180;
+    final a = math.sin(dLat / 2) * math.sin(dLat / 2) +
+        math.cos(lat1 * math.pi / 180) *
+            math.cos(lat2 * math.pi / 180) *
+            math.sin(dLon / 2) *
+            math.sin(dLon / 2);
+    final c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a));
+    return r * c;
+  }
+
+  /// Bring up the AIS vessel list as a draggable bottom sheet. Lives
+  /// inside the chart plotter (rather than a separate tool) because
+  /// the list is a peer to the existing AIS toggles and inherits the
+  /// same `_aisActiveOnly` gate. Rebuilds the item list each time the
+  /// registry notifies so a new sentence on the wire ticks the rows.
+  void _openAisList(BuildContext ctx) {
+    // Distance / speed / angle formatters reuse the same MetadataStore
+    // category lookups the rest of the chart plotter uses — keeps
+    // units consistent with the HUD and the scale bar.
+    final store = widget.signalKService.metadataStore;
+    final distMd = store.getByCategory('distance');
+    final speedMd = store.getByCategory('speed');
+    final angleSymbol =
+        store.get('__category__.angle')?.symbol ?? '°';
+    String formatDistance(double meters, {int decimals = 1}) {
+      if (distMd == null) return '${meters.toStringAsFixed(decimals)} m';
+      final v = distMd.convert(meters);
+      if (v == null) return '${meters.toStringAsFixed(decimals)} m';
+      return '${v.toStringAsFixed(decimals)} ${distMd.symbol ?? 'm'}';
+    }
+
+    String formatSpeed(double ms) {
+      if (speedMd == null) return '${ms.toStringAsFixed(1)} m/s';
+      final v = speedMd.convert(ms);
+      if (v == null) return '${ms.toStringAsFixed(1)} m/s';
+      return '${v.toStringAsFixed(1)} ${speedMd.symbol ?? 'm/s'}';
+    }
+
+    CpaAlertService? cpaService;
+    try {
+      cpaService = ctx.read<CpaAlertService>();
+    } catch (_) {
+      // No CPA service in the tree — the list's chip falls back to a
+      // neutral palette via the shared helper's default config.
+    }
+
+    showModalBottomSheet<void>(
+      context: ctx,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetCtx) {
+        return DraggableScrollableSheet(
+          initialChildSize: 0.6,
+          maxChildSize: 0.92,
+          minChildSize: 0.25,
+          snap: true,
+          snapSizes: const [0.6, 0.92],
+          builder: (_, scroll) {
+            return Container(
+              decoration: const BoxDecoration(
+                color: AppColors.cardBackgroundDark,
+                borderRadius:
+                    BorderRadius.vertical(top: Radius.circular(16)),
+              ),
+              child: Column(
+                children: [
+                  // Grab handle.
+                  Container(
+                    width: 40,
+                    height: 4,
+                    margin: const EdgeInsets.only(top: 8, bottom: 4),
+                    decoration: BoxDecoration(
+                      color: Colors.white24,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                  Expanded(
+                    child: AnimatedBuilder(
+                      animation:
+                          widget.signalKService.aisVesselRegistry,
+                      builder: (_, _) => ais_list.AisVesselList(
+                        vessels: _buildAisListItems(),
+                        lastPositionUpdate: null,
+                        cpaAlertService: cpaService,
+                        colorByShipType: true,
+                        formatDistance: formatDistance,
+                        formatSpeed: formatSpeed,
+                        formatAngleSymbol: () => angleSymbol,
+                        onTap: (vesselId) {
+                          Navigator.of(sheetCtx).pop();
+                          if (!mounted) return;
+                          setState(() => _selectedAisId = vesselId);
+                          AISVesselDetailSheet.show(
+                            context,
+                            signalKService: widget.signalKService,
+                            vesselId: vesselId,
+                            ownLat: _ownLat,
+                            ownLon: _ownLon,
+                            ownCogRad: _ownCog,
+                            ownSogMs: _ownSog,
+                          );
+                        },
+                        onLongPress: (vesselId, displayName) {
+                          Navigator.of(sheetCtx).pop();
+                          if (!mounted) return;
+                          _navigateToFindHomeForVessel(
+                              vesselId, displayName);
+                        },
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  /// Mirror of the polar chart's `_navigateToFindHome`: hand off
+  /// the vessel to the Find Home tool and switch screens. Silent
+  /// no-op when the user doesn't have a Find Home tool on their
+  /// dashboard.
+  void _navigateToFindHomeForVessel(String vesselId, String displayName) {
+    try {
+      final dashService = context.read<DashboardService>();
+      final findHomeScreen =
+          dashService.findScreenWithToolType('find_home');
+      if (findHomeScreen == null) return;
+      final targetService = context.read<FindHomeTargetService>();
+      targetService.setAisTarget(vesselId, displayName);
+      dashService.setActiveScreen(findHomeScreen.$1);
+    } catch (_) {
+      // Either service missing from the Provider tree — no-op rather
+      // than crashing the long-press handler.
+    }
   }
 
   /// Great-circle projected positions at 30s / 1m / 15m / 30m.
@@ -3014,6 +3213,7 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
                   _refreshAisVessels();
                 });
               },
+              onOpenAisList: () => _openAisList(context),
               // Routes sub-buttons (sister has no tracker)
               onRoutes: () => _showRouteManager(context),
               weatherRoutingEnabled: _weatherRoutingEnabled,
@@ -6832,6 +7032,7 @@ class _MapControls extends StatelessWidget {
     required this.onToggleAis,
     required this.onToggleAisActive,
     required this.onToggleAisPaths,
+    required this.onOpenAisList,
     // Routes sub-buttons (sister has no tracker)
     required this.onRoutes,
     required this.weatherRoutingEnabled,
@@ -6868,6 +7069,7 @@ class _MapControls extends StatelessWidget {
   final VoidCallback onToggleAis;
   final VoidCallback onToggleAisActive;
   final VoidCallback onToggleAisPaths;
+  final VoidCallback onOpenAisList;
 
   // Routes
   final VoidCallback onRoutes;
@@ -6905,6 +7107,7 @@ class _MapControls extends StatelessWidget {
                 onToggleAis: onToggleAis,
                 onToggleAisActive: onToggleAisActive,
                 onToggleAisPaths: onToggleAisPaths,
+                onOpenAisList: onOpenAisList,
               ),
             ),
             _DrawerSlot(
@@ -7082,6 +7285,7 @@ class _AisDrawerRow extends StatelessWidget {
     required this.onToggleAis,
     required this.onToggleAisActive,
     required this.onToggleAisPaths,
+    required this.onOpenAisList,
   });
 
   final bool aisEnabled;
@@ -7090,6 +7294,7 @@ class _AisDrawerRow extends StatelessWidget {
   final VoidCallback onToggleAis;
   final VoidCallback onToggleAisActive;
   final VoidCallback onToggleAisPaths;
+  final VoidCallback onOpenAisList;
 
   @override
   Widget build(BuildContext context) {
@@ -7126,6 +7331,15 @@ class _AisDrawerRow extends StatelessWidget {
             tooltip:
                 aisShowPaths ? 'Hide projections' : 'Show projections',
             onPressed: onToggleAisPaths,
+          ),
+          IconButton(
+            icon: const Icon(
+              Icons.list_alt,
+              color: Colors.white,
+              size: 20,
+            ),
+            tooltip: 'AIS list',
+            onPressed: onOpenAisList,
           ),
         ],
       ],
