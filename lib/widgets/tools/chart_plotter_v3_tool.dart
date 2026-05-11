@@ -248,11 +248,12 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
     'navigation.courseGreatCircle.nextPoint.position',
   ];
 
-  // HUD controls — mutable surface for a later settings/config pass.
-  // ignore: prefer_final_fields
-  String _hudStyle = 'text';
-  // ignore: prefer_final_fields
-  String _hudPosition = 'bottom';
+  // HUD style + position come from the V3 configurator's HUD section.
+  // Hydrated once at construction; the chart-plotter widget is
+  // rebuilt with a fresh state when the tool config changes, so
+  // there's no path for these to need mid-life updates.
+  late final String _hudStyle = _stringProp('hudStyle', 'text');
+  late final String _hudPosition = _stringProp('hudPosition', 'bottom');
 
   S52StyleEngine? _engine;
   S52ColorTable? _colorTable;
@@ -484,6 +485,11 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
     return v is bool ? v : false;
   }
 
+  String _stringProp(String key, String fallback) {
+    final v = widget.config.style.customProperties?[key];
+    return v is String ? v : fallback;
+  }
+
   /// Effective minimum zoom for a weather layer, applied by `TileLayer`
   /// (raster) or `zoomFloor` (vector). Precedence:
   /// `_userMinZoom[path]` → `metadata.minZoom` → hardcoded fallback.
@@ -701,10 +707,19 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
     WidgetsBinding.instance.addPostFrameCallback((_) {
       try {
         final tileServer = context.read<ChartTileServerService>();
+        // `cacheRefresh` from the configurator: `'aging'` triggers a
+        // background re-fetch once a tile is 15 days old, `'stale'`
+        // holds off until 30 days. Anything else (or missing) falls
+        // back to the stricter `stale` threshold so we don't burn
+        // bandwidth refreshing tiles users haven't asked us to.
+        final cacheRefreshRaw = _stringProp('cacheRefresh', 'stale');
+        final refreshThreshold = cacheRefreshRaw == 'aging'
+            ? TileFreshness.aging
+            : TileFreshness.stale;
         tileServer.configure(
           upstreamBaseUrl: widget.signalKService.httpBaseUrl,
           authToken: widget.signalKService.authToken?.token,
-          refreshThreshold: TileFreshness.stale,
+          refreshThreshold: refreshThreshold,
         );
       } catch (_) {}
     });
