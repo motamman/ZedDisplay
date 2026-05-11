@@ -496,10 +496,21 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
     return v is String ? v : fallback;
   }
 
+  // Cache of the last (upstream, token, refresh) tuple we pushed into
+  // `ChartTileServerService`. Used to short-circuit redundant
+  // `configure(...)` calls when `_configureTileServer` is invoked from
+  // multiple paths (initState / didUpdateWidget / SignalKService
+  // listener) on every WS delta.
+  String? _appliedTileUpstream;
+  String? _appliedTileToken;
+  TileFreshness? _appliedTileRefresh;
+
   /// Push the current `cacheRefresh` choice (and SignalK origin / token)
-  /// into the shared tile server. Called from `initState` and again
-  /// from `didUpdateWidget` so a configurator edit takes effect without
-  /// an app restart.
+  /// into the shared tile server. Called from `initState`, from
+  /// `didUpdateWidget` (config edits), and from a `SignalKService`
+  /// listener (auth-token refresh / upstream change on the same
+  /// service instance) so the proxy never stays stuck on a stale
+  /// upstream or token.
   ///
   /// `'aging'` triggers a background re-fetch once a tile is 15 days
   /// old, `'stale'` holds off until 30 days. Anything else (or missing)
@@ -512,9 +523,19 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
       final refreshThreshold = cacheRefreshRaw == 'aging'
           ? TileFreshness.aging
           : TileFreshness.stale;
+      final upstream = widget.signalKService.httpBaseUrl;
+      final token = widget.signalKService.authToken?.token;
+      if (upstream == _appliedTileUpstream &&
+          token == _appliedTileToken &&
+          refreshThreshold == _appliedTileRefresh) {
+        return;
+      }
+      _appliedTileUpstream = upstream;
+      _appliedTileToken = token;
+      _appliedTileRefresh = refreshThreshold;
       tileServer.configure(
-        upstreamBaseUrl: widget.signalKService.httpBaseUrl,
-        authToken: widget.signalKService.authToken?.token,
+        upstreamBaseUrl: upstream,
+        authToken: token,
         refreshThreshold: refreshThreshold,
       );
     } catch (_) {}
@@ -729,6 +750,11 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
   void initState() {
     super.initState();
     _loadEngine();
+    // Token refresh / upstream change on the same SignalKService
+    // instance — keep the tile proxy in sync without waiting for a
+    // remount. `_configureTileServer` self-throttles on its cached
+    // last-applied tuple so this is cheap on every delta.
+    widget.signalKService.addListener(_configureTileServer);
     // Configure the cached tile proxy once on mount. The server itself
     // is started at app boot in main.dart; here we just tell it which
     // upstream SignalK server to proxy for and whether to refresh
@@ -1182,19 +1208,20 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
   void didUpdateWidget(covariant ChartPlotterV3Tool oldWidget) {
     super.didUpdateWidget(oldWidget);
     // The dashboard reuses our State across config edits (keyed by
-    // toolId), so `cacheRefresh` from `customProperties` needs a fresh
-    // push to the tile server whenever it flips between 'aging' and
-    // 'stale'.
-    final oldRefresh =
-        oldWidget.config.style.customProperties?['cacheRefresh'];
-    final newRefresh = widget.config.style.customProperties?['cacheRefresh'];
-    if (oldRefresh != newRefresh) {
-      _configureTileServer();
+    // toolId), so any change that affects the tile proxy — config
+    // edits, or a swapped-in SignalKService instance — needs a fresh
+    // push. `_configureTileServer` self-throttles on its cached
+    // last-applied tuple, so calling it unconditionally is cheap.
+    if (oldWidget.signalKService != widget.signalKService) {
+      oldWidget.signalKService.removeListener(_configureTileServer);
+      widget.signalKService.addListener(_configureTileServer);
     }
+    _configureTileServer();
   }
 
   @override
   void dispose() {
+    widget.signalKService.removeListener(_configureTileServer);
     _routePollTimer?.cancel();
     _vesselTimer?.cancel();
     _playerTimer?.cancel();
@@ -1323,6 +1350,9 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
           _ownHeading = null;
           _ownCog = null;
           _ownSog = null;
+          // A 'self'-snapped ruler endpoint is pinned to own position;
+          // clearing the cached fix means it needs re-evaluation too.
+          _refreshRulerSnaps();
         });
         _ownVesselTick.value++;
       }
