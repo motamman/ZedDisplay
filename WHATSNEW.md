@@ -1,4 +1,58 @@
-# What's New in v0.6.2
+# What's New in v0.6.3
+
+## Release Notes (Google Play - max 500 chars)
+
+v0.6.3 Weather Routing + In-App Google Sign-In
+
+NEW: Weather Routing on the chart plotter — boat + polar picker, per-leg precision, per-waypoint arrival radius with halo, wind/currents vector tiles, live SSE progress.
+
+NEW: Google sign-in is now in-app via system browser (PKCE + state nonce) — no more pasting auth codes.
+
+NEW: AIS vessel list reachable from the chart plotter with Nearby/Favorites tabs, CPA chips, tap-to-detail, long-press Find-Home.
+
+FIXED: token retention during URL edits; SSE teardown; many race + disposal fixes.
+
+## Release Notes (App Store / TestFlight - max 4000 chars)
+
+### Weather Routing (NEW)
+- **End-to-End Routing** — Plan a weather-aware route from inside the chart plotter. Pick your boat, pick a polar, set per-leg precision, set per-waypoint arrival radius, hit compute. Progress streams back over SSE while the solver runs; the result lands as an itinerary card with per-leg distance and time.
+- **Boat + Polar Picker** — Boats and polars are filterable; selection persists across sessions and clears on auth or server change so a stale selection can't leak into a new boat.
+- **Per-Leg Precision** — Each leg carries a `RoutePrecision` setting (the request model exposes the enum), so you can tune the solver's tolerance per leg instead of one global knob.
+- **Approximate-Mode Halo** — Per-waypoint arrival radius renders as a halo around the waypoint so you can see what counts as "arrived" before you commit.
+- **Compose Popover** — Replaces the old end-pin snackbar; height constraints tuned for both landscape and portrait, with an `autoSubmit` first-frame hook for jumps from context.
+- **Weather Vector Tiles** — A dedicated `WeatherDataService` fetches wind-barb and current-arrow vector tiles on the chart plotter with per-layer min / maxZoom and refresh metadata; cache invalidates on baseUrl / token changes. Color ramps aligned with the web UI.
+
+### In-App Google Sign-In (NEW)
+- **System Browser, Not Copy-Paste** — Google sign-in now goes through the system browser: Custom Tab on Android, ASWebAuthenticationSession on iOS, native window on desktop. No more copying an auth code into a text field.
+- **PKCE + State Nonce** — Code challenge per RFC 7636, state per RFC 9700. Standard, modern, hostile to interception.
+- **Reverse-DNS Callback** — Redirect uses `com.zennora.zeddisplay://auth-callback` (RFC 8252), declared in both `Info.plist` and `AndroidManifest.xml`.
+- **Per-Device Tokens** — Tokens are scoped by device UUID. Changing the router origin clears the token so a half-typed URL can't ship credentials to the wrong host. An auth-request timeout prevents hangs on flaky networks.
+
+### AIS Vessel List in Chart Plotter (NEW)
+- **Drawer-Reachable List** — The richer in-app AIS vessel list (previously only inside the AIS Polar Chart tool) is now reachable from the chart plotter's AIS drawer. Nearby / Favorites tabs, distance-sorted, ship-type-coloured icons with freshness opacity, CPA / TCPA trailing chip per row, Clear-All-CPA-alerts button.
+- **Tap + Long-Press** — Tap a row to open the vessel detail sheet (selection ring also lights up on the map). Long-press to set the vessel as the Find Home target — same behaviour as the polar chart.
+- **Shared Widget** — One renderer (`lib/widgets/ais_vessel_list.dart`) backs both hosts, so the polar chart and the chart plotter stay in sync going forward.
+- **Status-Coloured AIS Icon** — Green when AIS is on, red when off, on both the vertical toolbar and the drawer icon. Tap the AIS icon inside the drawer to toggle off and hide dependent controls.
+- **Tap-Outside Closes Drawers** — Tapping anywhere on the map dismisses any open chart-plotter drawer.
+
+### Chart Plotter Polish (IMPROVED)
+- **Configurator Cleanup** — Deleted the dead Chart Layers / Show AIS / Show Route switches that were stored but never read. Wired up HUD Style / HUD Position / Auto-Refresh from config to the running widget (they were placeholders waiting on a later pass). Tile freshness now follows the configured cache-refresh interval instead of falling back to "stale".
+- **OpenStreetMap + Attribution** — New `MapAttribution` widget for OSM / OpenSeaMap compliance; chart layer panel defaults to enabled and tolerates malformed chart entries.
+- **Per-Chart Tile Templates** — Chart tile manager accepts a per-chart upstream URL template; legacy paths handled cleanly.
+- **Declutter Toggle** — Sounding declutter now adjusts by zoom level; high-zoom label rendering improved.
+- **AIS Ship Type Catalogue** — Pre-loaded at app start, so list icons render with the correct colour from the first paint.
+
+### Bug Fixes (FIXED)
+- **Token Retention on URL Edits** — The chart plotter configurator no longer drops your auth token while you're mid-typing an invalid URL. Validation gates token clearance; only a genuinely new valid host clears the token.
+- **SSE Teardown** — Weather Routing's SSE stream is torn down on close, on error, and on `clearAll`. Line endings (`\r\n`) parsed reliably. Recent routes don't reload during an active job.
+- **Disposal Races** — Boats, weather, and routing services all guard against `notifyListeners` after dispose; caches reset on baseUrl / token changes so stale data can't bleed into a new server.
+- **TCPA Formatting** — Vessel detail sheet TCPA is now `HH:MM:SS`.
+- **Hive Box Leak in Tests** — `ChartTileCacheService.dispose()` is called in widget-test tearDown.
+- **AndroidManifest Cleanup** — Removed an unnecessary task affinity that interfered with the OAuth redirect.
+
+---
+
+# Previous: v0.6.2
 
 ## Release Notes (Google Play - max 500 chars)
 

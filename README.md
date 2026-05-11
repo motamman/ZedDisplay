@@ -215,10 +215,15 @@ A customizable SignalK marine dashboard and crew comms application to display re
 
 - **Chart Plotter**: Full-featured chart plotter with native Flutter S-57 rendering
   - S-57 ENC vector tiles rendered through a pure-Dart S-52 symbology engine (`s52_dart`) straight into a Flutter `CustomPainter` — no WebView, no JavaScript bridge
-  - OSM basemap via `flutter_map` (CARTO Voyager default); stacked, reorderable chart layers with per-layer opacity
+  - OSM basemap via `flutter_map` (CARTO Voyager default); stacked, reorderable chart layers with per-layer opacity; OSM / OpenSeaMap attribution rendered inline
+  - Per-chart upstream tile URL templates with legacy-path tolerance
   - Own vessel marker with heading line and COG vector
   - AIS targets with ship-type colors, nav-state icons, COG projections
-  - AIS controls: toggle on/off, active-only filter, projection path toggle
+  - AIS controls: toggle on/off (icon turns green when on, red when off), active-only filter, projection path toggle, AIS drawer with tap-outside-to-close
+  - **AIS Vessel List Drawer**: Nearby / Favorites tabs, distance-sorted, ship-type-coloured icons with freshness opacity, CPA / TCPA chips, Clear-All-CPA-alerts button. Tap a row to open the detail sheet (also lights the on-map selection ring); long-press to set the vessel as Find Home target. Shared renderer with the AIS Polar Chart tool.
+  - **Weather Routing**: Plan a weather-aware route from inside the chart plotter — boat + polar picker (filterable), per-leg `RoutePrecision`, per-waypoint arrival radius with approximate-mode halo, SSE-streamed progress while the solver runs, itinerary card with per-leg distance + time, Compose popover entry with `autoSubmit` for context jumps
+  - **Weather Vector Tiles**: Wind-barb and current-arrow tile overlays with per-layer min / maxZoom and refresh metadata; colour ramps aligned with the web UI
+  - **In-App Google Sign-In**: System-browser OAuth (Custom Tab on Android, ASWebAuthenticationSession on iOS, native window on desktop) with PKCE (RFC 7636), state nonce (RFC 9700), and reverse-DNS callback (RFC 8252). Tokens are per-device (UUID-scoped) and clear on host change so a half-typed router origin can't leak credentials to the wrong host
   - Active route overlay with directional waypoint arrows and active leg highlighting
   - Route management: list routes, activate forward/reverse, advance, skip, fast-forward to nearest
   - Nav data HUD: SOG, COG, depth, DTW, BRG, XTE — all values via MetadataStore for unit correctness
@@ -739,6 +744,7 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 - [x] Chart playback for historical data (completed — timeline playback in Historical Data Explorer)
 - [x] Enhanced alerts and notification rules (notification dedup, stable OS IDs, temporal throttling)
 - [ ] Weather integration (GRIB files, forecasts)
+- [x] Weather-aware routing (completed - Weather Routing in chart plotter with wind/current vector tiles, per-leg precision, per-waypoint arrival radius)
 - [x] AIS target display (completed in v0.2.0+3)
 - [x] Route/track/waypoint creation from historical data (completed - save to SignalK Resources API)
 - [ ] More chart types (bar charts, area charts)
