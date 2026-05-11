@@ -5,6 +5,44 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.3+72] - 2026-05-11
+
+### Added
+- **Weather Routing — End-to-End**: New routing service that computes optimal weather-aware routes from inside the chart plotter. Wires together a `RoutePlannerAuthService` (per-device API keys, host-change re-auth, request timeout), a `WeatherRoutingService` (job submission, SSE-streamed progress, recent-routes history), a `RoutePlannerBoatsService` (boat + polar picker with filtering and persisted selection), a `RoutePlannerChartsService` (chart catalog), and a `WeatherDataService` (weather vector tiles for wind / currents). UI built around a Compose popover (replaces the old end-pin snackbar) with height constraints tuned for both landscape and portrait, an itinerary card showing per-leg distance + time, and an `autoSubmit` first-frame hook for jump-from-context entry. `WeatherRouteRequest` carries a `RoutePrecision` enum so each leg can be tuned independently; `WeatherRouteWaypoint` carries per-waypoint arrival radius with an approximate-mode halo drawn on the chart. `PolarEntry` + `BoatPolarSpecs` models capture the polar-generation inputs.
+- **In-App Google Sign-In (PKCE)**: OAuth flow is now driven by the system browser instead of the old paste-an-auth-code workflow. PKCE (RFC 7636) + state nonce (RFC 9700) per request; `flutter_web_auth_2` uses Custom Tab on Android, `ASWebAuthenticationSession` on iOS; `desktop_webview_window` handles macOS / Linux / Windows. Reverse-DNS callback scheme `com.zennora.zeddisplay://auth-callback` (RFC 8252) declared in `Info.plist` and `AndroidManifest.xml`. Tokens are per-device (UUID-scoped) and cleared on host change so a half-typed router origin can't leak credentials to the wrong host.
+- **Weather Vector Tiles (wind + currents)**: New `WeatherDataService` fetches vector tiles with `WeatherLayerMetadata` (per-layer min / maxZoom, refresh policy). `WindBarbsTileOverlay` / `CurrentArrowsTileOverlay` + matching `WindBarbsPainter` / `CurrentsPainter` render on the chart plotter; color ramps aligned with the web UI. Cache invalidates on baseUrl / token changes.
+- **AIS Vessel List in Chart Plotter**: The AIS Polar Chart's vessel-list overlay is now extracted into a shared widget (`lib/widgets/ais_vessel_list.dart`) and reachable from the chart plotter's AIS drawer. Nearby / Favorites tabs, distance-sorted, ship-type-coloured icons with freshness opacity, CPA / TCPA trailing chips, Clear-All-CPA-alerts button, tap-to-open-detail-sheet (also sets the on-map selection ring), long-press → Find Home navigation. Both hosts now share one renderer.
+- **AIS Drawer Status Indicator**: Tapping the AIS icon in the chart plotter's vertical toolbar opens a drawer with show-paths / list / filter controls. AIS-enabled state is reflected as a green background on the AIS icon (both vertical bar and drawer); red when off. Tapping the AIS icon inside the drawer toggles AIS off and hides the dependent controls.
+- **Tap-Outside-to-Close for Map Drawers**: All chart-plotter drawers (AIS, routes/layers) dismiss when the user taps anywhere on the map outside the drawer — uses Flutter's `TapRegion` instead of a custom gesture overlay.
+- **OpenStreetMap Basemap + Attribution**: New `MapAttribution` widget meets OSM / OpenSeaMap attribution requirements; chart layer panel defaults to enabled and tolerates malformed chart entries.
+- **Per-Chart Upstream Tile URL Templates**: Chart tile manager accepts a per-chart upstream URL template; URL construction handles legacy paths cleanly.
+- **AIS Ship Type Catalogue**: Ship-type metadata pre-loaded at app start (`main.dart`) so list icons render with the correct colour from the first paint.
+- **Chart Plotter Declutter Toggle**: New declutter toggle; sounding declutter now adjusts by zoom level. Label rendering improved at high zoom.
+
+### Changed
+- **Chart Plotter V3 Configurator — Vestigial Surfaces Removed**: Deleted the dead Chart Layers panel, "Show AIS", and "Show Route" switches whose state was stored in `customProperties` but never read by the runtime. Wired up HUD Style / HUD Position and `cacheRefresh` from config into the running widget — they were `late final` placeholders with a "wire this up later" comment that finally got addressed. `_aging` vs `_stale` tile freshness now driven by the configured `cacheRefresh` instead of hardcoded `.stale`.
+- **WeatherRoutePainter Leg Classification**: Legs are now classified by outgoing direction; colour palette aligned with the web UI's leg semantics. Motoring colour matches the web UI.
+- **AISVesselDetailSheet TCPA Formatting**: `_fmtTCPA` output is now `HH:MM:SS` for readability when the alarm window is long.
+- **Boat Picker**: Added a filter input, tighter state management, disposal hardening for filter / polar state.
+- **S52Feature Construction**: Now instantiated as `const` where applicable; heading normalisation logic refactored for clarity.
+- **Tile Status Notifications**: Chart plotter exposes a separate `ValueNotifier` for tile-status changes so the freshness chip can repaint without dragging the whole map widget through a rebuild.
+- **Compose Popover**: Replaces the prior end-pin snackbar as the entry point for route computation. Height constraints constrained for both orientations.
+
+### Fixed
+- **RoutePlannerBoatsService — State on Auth / Base URL Changes**: Persisted boat selection clears on token / baseUrl changes; disposal checks prevent `notifyListeners` calls after disposal; cache resets so stale boats / polars don't survive a server switch. Same disposal pattern applied to `WeatherDataService` and `WeatherRoutingService`.
+- **WeatherRoutingService — SSE Teardown**: Stream is now torn down on close, on error, and when `clearAll` is called mid-job. Line-ending parsing handles `\r\n` reliably. Recent routes will not load while an active job is running. UI re-renders on token changes.
+- **RoutePlannerChartsService — BaseUrl Race**: Chart fetch state stays consistent across baseUrl changes; malformed entries are skipped instead of crashing the panel; chart IDs are URL-safe-encoded.
+- **ChartPlotterV3Configurator — Token Retention on Edit**: HTTP(S) URL validation gates token clearance; the last valid origin is tracked separately so the token survives mid-edit invalid states (typed-in-progress URLs) and only clears on a genuinely new host. Auth timeout added.
+- **AndroidManifest** — Removed an unnecessary task affinity that interfered with the OAuth redirect.
+- **Hive Box Leak in Widget Tests**: `ChartTileCacheService.dispose()` is now called in `tearDown`, releasing the `chart_tile_meta` / `chart_tile_regions` Hive boxes between tests.
+
+### Developer
+- New services: `RoutePlannerAuthService`, `WeatherRoutingService`, `WeatherDataService`, `RoutePlannerBoatsService`, `RoutePlannerChartsService`.
+- New models: `WeatherRouteRequest`, `WeatherRouteWaypoint`, `PolarEntry`, `BoatPolarSpecs`, `RoutePrecision`, `WeatherLayerMetadata`.
+- New widgets: `lib/widgets/ais_vessel_list.dart` (shared between AIS Polar Chart and Chart Plotter V3 — both hosts now render one component), `MapAttribution`.
+- New dependencies: `flutter_web_auth_2`, `desktop_webview_window`. `crypto` declared explicitly.
+- Reverse-DNS OAuth callback scheme registered in `Info.plist` and `AndroidManifest.xml`.
+
 ## [0.6.2+70] - 2026-04-21
 
 ### Added

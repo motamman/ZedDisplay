@@ -9,6 +9,7 @@ import 'package:provider/provider.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 import 'services/signalk_service.dart';
 import 'services/storage_service.dart';
+import 'utils/ship_type_utils.dart' show ensureShipTypesLoaded;
 import 'services/dashboard_service.dart';
 import 'services/tool_registry.dart';
 import 'services/tool_service.dart';
@@ -73,6 +74,11 @@ void main() async {
   // Initialize storage service
   final storageService = StorageService();
   await storageService.initialize();
+
+  // Pre-load the AIS ship-type label table from
+  // `assets/ais/ship_types.json` so the synchronous `shipTypeLabel`
+  // helper has data the moment the first AIS row renders.
+  await ensureShipTypesLoaded();
 
   // Initialize notification service
   final notificationService = NotificationService();

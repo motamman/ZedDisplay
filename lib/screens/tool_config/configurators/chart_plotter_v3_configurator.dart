@@ -7,7 +7,6 @@ import '../../../models/weather_route_request.dart';
 import '../../../services/chart_tile_cache_service.dart';
 import '../../../services/route_planner_auth_service.dart';
 import '../../../services/signalk_service.dart';
-import '../../../widgets/chart_plotter/chart_layer_panel.dart';
 import '../base_tool_configurator.dart';
 
 /// Configurator for the native-paint Chart Plotter (tool id
@@ -24,10 +23,7 @@ class ChartPlotterV3Configurator extends ToolConfigurator {
   @override
   Size get defaultSize => const Size(6, 6);
 
-  List<Map<String, dynamic>> layers = [];
   int trailMinutes = 10;
-  bool showAIS = true;
-  bool showRoute = true;
   String hudStyle = 'text';
   String hudPosition = 'bottom';
   String cacheRefresh = 'stale';
@@ -48,13 +44,7 @@ class ChartPlotterV3Configurator extends ToolConfigurator {
 
   @override
   void reset() {
-    layers = [
-      {'type': 'base', 'id': 'carto_voyager', 'enabled': true, 'opacity': 1.0},
-      {'type': 's57', 'id': '01CGD_ENCs', 'enabled': true, 'opacity': 1.0},
-    ];
     trailMinutes = 10;
-    showAIS = true;
-    showRoute = true;
     hudStyle = 'text';
     hudPosition = 'bottom';
     cacheRefresh = 'stale';
@@ -74,19 +64,7 @@ class ChartPlotterV3Configurator extends ToolConfigurator {
   @override
   void loadFromTool(Tool tool) {
     final props = tool.config.style.customProperties ?? {};
-    final rawLayers = props['layers'] as List?;
-    if (rawLayers != null && rawLayers.isNotEmpty) {
-      layers =
-          rawLayers.map((e) => Map<String, dynamic>.from(e as Map)).toList();
-    } else {
-      layers = [
-        {'type': 'base', 'id': 'carto_voyager', 'enabled': true, 'opacity': 1.0},
-        {'type': 's57', 'id': '01CGD_ENCs', 'enabled': true, 'opacity': 1.0},
-      ];
-    }
     trailMinutes = props['trailMinutes'] as int? ?? 10;
-    showAIS = props['showAIS'] as bool? ?? true;
-    showRoute = props['showRoute'] as bool? ?? true;
     hudStyle = props['hudStyle'] as String? ?? 'text';
     hudPosition = props['hudPosition'] as String? ?? 'bottom';
     cacheRefresh = props['cacheRefresh'] as String? ?? 'stale';
@@ -111,10 +89,7 @@ class ChartPlotterV3Configurator extends ToolConfigurator {
       dataSources: const [],
       style: StyleConfig(
         customProperties: {
-          'layers': layers,
           'trailMinutes': trailMinutes,
-          'showAIS': showAIS,
-          'showRoute': showRoute,
           'hudStyle': hudStyle,
           'hudPosition': hudPosition,
           'cacheRefresh': cacheRefresh,
@@ -160,46 +135,6 @@ class ChartPlotterV3Configurator extends ToolConfigurator {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Chart layers — reorderable
-              Text('Chart Layers',
-                  style: Theme.of(context).textTheme.titleSmall),
-              const SizedBox(height: 4),
-              const Text(
-                'Drag to reorder. Bottom layer renders first.',
-                style: TextStyle(color: Colors.grey, fontSize: 12),
-              ),
-              const SizedBox(height: 8),
-              ChartLayerPanel(
-                layers: layers,
-                setState: setState,
-              ),
-
-              const SizedBox(height: 24),
-              const Divider(),
-              const SizedBox(height: 16),
-
-              Text('Display',
-                  style: Theme.of(context).textTheme.titleSmall),
-              const SizedBox(height: 8),
-              SwitchListTile(
-                title: const Text('Show AIS Targets'),
-                subtitle: const Text(
-                    'Nearby vessel markers and COG projections'),
-                value: showAIS,
-                onChanged: (v) => setState(() => showAIS = v),
-              ),
-              SwitchListTile(
-                title: const Text('Show Active Route'),
-                subtitle:
-                    const Text('Route line, waypoints, active leg'),
-                value: showRoute,
-                onChanged: (v) => setState(() => showRoute = v),
-              ),
-
-              const SizedBox(height: 16),
-              const Divider(),
-              const SizedBox(height: 16),
-
               Text('Trail Duration',
                   style: Theme.of(context).textTheme.titleSmall),
               const SizedBox(height: 8),

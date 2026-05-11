@@ -21,6 +21,9 @@ import '../../models/tool_definition.dart';
 import '../../services/chart_download_manager.dart';
 import '../../services/chart_tile_cache_service.dart';
 import '../../services/chart_tile_server_service.dart';
+import '../../services/cpa_alert_service.dart';
+import '../../services/dashboard_service.dart';
+import '../../services/find_home_target_service.dart';
 import '../../services/route_arrival_monitor.dart';
 import '../../services/s57_tile_manager.dart';
 import '../../services/signalk_service.dart';
@@ -35,6 +38,7 @@ import '../../services/route_planner_boats_service.dart';
 import '../../services/weather_data_service.dart';
 import '../../services/weather_routing_service.dart';
 import '../ais_vessel_detail_sheet.dart';
+import '../ais_vessel_list.dart' as ais_list;
 import '../chart_plotter/chart_hud.dart';
 import '../chart_plotter/chart_layer_panel.dart';
 import '../chart_plotter/chart_route_panel.dart';
@@ -244,11 +248,13 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
     'navigation.courseGreatCircle.nextPoint.position',
   ];
 
-  // HUD controls — mutable surface for a later settings/config pass.
-  // ignore: prefer_final_fields
-  String _hudStyle = 'text';
-  // ignore: prefer_final_fields
-  String _hudPosition = 'bottom';
+  // HUD style + position come from the V3 configurator's HUD section.
+  // Read as getters off `widget.config` so a configurator edit takes
+  // effect on the next rebuild — the dashboard keys the tool by
+  // toolId, not config, so State (and any cached fields) survives
+  // edits.
+  String get _hudStyle => _stringProp('hudStyle', 'text');
+  String get _hudPosition => _stringProp('hudPosition', 'bottom');
 
   S52StyleEngine? _engine;
   S52ColorTable? _colorTable;
@@ -323,6 +329,11 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
   double? _ownHeading; // radians
   double? _ownCog; // radians
   double? _ownSog; // m/s
+  /// Ticks whenever own-vessel kinematics change. The AIS list bottom
+  /// sheet listens to this alongside `aisVesselRegistry` so distance /
+  /// CPA / TCPA stay live as the boat moves, not just when an AIS
+  /// message arrives.
+  final ValueNotifier<int> _ownVesselTick = ValueNotifier<int>(0);
   Timer? _vesselTimer;
   // Follow-vessel off by default — the map recenters once on first fix
   // (see `_didInitialCenter` below) and otherwise stays where the user
@@ -478,6 +489,56 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
   bool _boolProp(String key) {
     final v = widget.config.style.customProperties?[key];
     return v is bool ? v : false;
+  }
+
+  String _stringProp(String key, String fallback) {
+    final v = widget.config.style.customProperties?[key];
+    return v is String ? v : fallback;
+  }
+
+  // Cache of the last (upstream, token, refresh) tuple we pushed into
+  // `ChartTileServerService`. Used to short-circuit redundant
+  // `configure(...)` calls when `_configureTileServer` is invoked from
+  // multiple paths (initState / didUpdateWidget / SignalKService
+  // listener) on every WS delta.
+  String? _appliedTileUpstream;
+  String? _appliedTileToken;
+  TileFreshness? _appliedTileRefresh;
+
+  /// Push the current `cacheRefresh` choice (and SignalK origin / token)
+  /// into the shared tile server. Called from `initState`, from
+  /// `didUpdateWidget` (config edits), and from a `SignalKService`
+  /// listener (auth-token refresh / upstream change on the same
+  /// service instance) so the proxy never stays stuck on a stale
+  /// upstream or token.
+  ///
+  /// `'aging'` triggers a background re-fetch once a tile is 15 days
+  /// old, `'stale'` holds off until 30 days. Anything else (or missing)
+  /// falls back to the stricter `stale` threshold so we don't burn
+  /// bandwidth refreshing tiles the user hasn't asked us to.
+  void _configureTileServer() {
+    try {
+      final tileServer = context.read<ChartTileServerService>();
+      final cacheRefreshRaw = _stringProp('cacheRefresh', 'stale');
+      final refreshThreshold = cacheRefreshRaw == 'aging'
+          ? TileFreshness.aging
+          : TileFreshness.stale;
+      final upstream = widget.signalKService.httpBaseUrl;
+      final token = widget.signalKService.authToken?.token;
+      if (upstream == _appliedTileUpstream &&
+          token == _appliedTileToken &&
+          refreshThreshold == _appliedTileRefresh) {
+        return;
+      }
+      _appliedTileUpstream = upstream;
+      _appliedTileToken = token;
+      _appliedTileRefresh = refreshThreshold;
+      tileServer.configure(
+        upstreamBaseUrl: upstream,
+        authToken: token,
+        refreshThreshold: refreshThreshold,
+      );
+    } catch (_) {}
   }
 
   /// Effective minimum zoom for a weather layer, applied by `TileLayer`
@@ -689,21 +750,17 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
   void initState() {
     super.initState();
     _loadEngine();
+    // Token refresh / upstream change on the same SignalKService
+    // instance — keep the tile proxy in sync without waiting for a
+    // remount. `_configureTileServer` self-throttles on its cached
+    // last-applied tuple so this is cheap on every delta.
+    widget.signalKService.addListener(_configureTileServer);
     // Configure the cached tile proxy once on mount. The server itself
     // is started at app boot in main.dart; here we just tell it which
     // upstream SignalK server to proxy for and whether to refresh
     // stale tiles eagerly. Wrapped in try/catch because the service
     // might not be present in test environments.
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      try {
-        final tileServer = context.read<ChartTileServerService>();
-        tileServer.configure(
-          upstreamBaseUrl: widget.signalKService.httpBaseUrl,
-          authToken: widget.signalKService.authToken?.token,
-          refreshThreshold: TileFreshness.stale,
-        );
-      } catch (_) {}
-    });
+    WidgetsBinding.instance.addPostFrameCallback((_) => _configureTileServer());
     // Poll SignalK's course API at the same cadence V1 used — 3s.
     // Cheaper than a full WS subscription and the REST endpoint is
     // authoritative for route/index/total state.
@@ -1148,7 +1205,23 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
   }
 
   @override
+  void didUpdateWidget(covariant ChartPlotterV3Tool oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // The dashboard reuses our State across config edits (keyed by
+    // toolId), so any change that affects the tile proxy — config
+    // edits, or a swapped-in SignalKService instance — needs a fresh
+    // push. `_configureTileServer` self-throttles on its cached
+    // last-applied tuple, so calling it unconditionally is cheap.
+    if (oldWidget.signalKService != widget.signalKService) {
+      oldWidget.signalKService.removeListener(_configureTileServer);
+      widget.signalKService.addListener(_configureTileServer);
+    }
+    _configureTileServer();
+  }
+
+  @override
   void dispose() {
+    widget.signalKService.removeListener(_configureTileServer);
     _routePollTimer?.cancel();
     _vesselTimer?.cancel();
     _playerTimer?.cancel();
@@ -1162,6 +1235,7 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
     _weatherDataService?.tileStatusNotifier
         .removeListener(_onWeatherDataChanged);
     _weatherDataService?.dispose();
+    _ownVesselTick.dispose();
     super.dispose();
   }
 
@@ -1259,7 +1333,31 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
       });
     }
 
-    if (lat == null || lon == null) return;
+    if (lat == null || lon == null) {
+      // GPS dropped after we had a fix. Clear the cached own-ship
+      // state so the AIS list / detail math don't keep computing
+      // distance / CPA against a stale position. `_ownVesselTick`
+      // wakes the AIS list sheet so its rows reflow immediately.
+      final hadFix = _ownLat != null ||
+          _ownLon != null ||
+          _ownHeading != null ||
+          _ownCog != null ||
+          _ownSog != null;
+      if (hadFix && mounted) {
+        setState(() {
+          _ownLat = null;
+          _ownLon = null;
+          _ownHeading = null;
+          _ownCog = null;
+          _ownSog = null;
+          // A 'self'-snapped ruler endpoint is pinned to own position;
+          // clearing the cached fix means it needs re-evaluation too.
+          _refreshRulerSnaps();
+        });
+        _ownVesselTick.value++;
+      }
+      return;
+    }
     final changed = lat != _ownLat ||
         lon != _ownLon ||
         heading != _ownHeading ||
@@ -1281,6 +1379,9 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
         _appendTrailPoint(lat!, lon!);
         _refreshRulerSnaps();
       });
+      // Wake the AIS list sheet so distance / CPA / TCPA recompute
+      // against the new fix without waiting for the next AIS delta.
+      _ownVesselTick.value++;
     }
     if (_mapReady) {
       // One-shot initial center on the first fix. After this the user
@@ -1376,6 +1477,207 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
     if (navState == 'anchored') return _AisKind.anchored;
     if (sogMs < 0.1) return _AisKind.slow;
     return _AisKind.moving;
+  }
+
+  /// Adapter for the shared AIS list: map this app's `AISVesselRegistry`
+  /// entries to `AisVesselListItem`s, applying the same active-only
+  /// filter the map renderer uses so the two views stay consistent.
+  /// Distance + CPA / TCPA are computed here against the own vessel
+  /// kinematics; rad → deg for COG / heading happens at the boundary
+  /// so the row only deals in display units.
+  List<ais_list.AisVesselListItem> _buildAisListItems() {
+    final registry = widget.signalKService.aisVesselRegistry.vessels;
+    final now = DateTime.now();
+    final items = <ais_list.AisVesselListItem>[];
+    for (final v in registry.values) {
+      if (!v.hasPosition) continue;
+      if (_aisActiveOnly) {
+        if (v.aisStatus == 'lost' || v.aisStatus == 'remove') continue;
+        if (now.difference(v.lastSeen).inMinutes >= 10) continue;
+      }
+      // Without an own-vessel fix, distance / CPA / TCPA are undefined.
+      // Pass nulls through; the shared list hides the distance cell and
+      // sorts the row to the bottom of Nearby. `_ownVesselTick` will
+      // bump the sheet on the next fix so the row reflows naturally.
+      final dist = (_ownLat != null && _ownLon != null)
+          ? _haversineMeters(_ownLat!, _ownLon!, v.latitude!, v.longitude!)
+          : null;
+      final cpa = ais_list.computeCpa(
+        ownLat: _ownLat,
+        ownLon: _ownLon,
+        ownCogRad: _ownCog,
+        ownSogMs: _ownSog,
+        otherLat: v.latitude,
+        otherLon: v.longitude,
+        otherCogRad: v.cogRad,
+        otherSogMs: v.sogMs,
+      );
+      items.add(ais_list.AisVesselListItem(
+        mmsi: v.vesselId,
+        name: v.name,
+        aisShipType: v.aisShipType,
+        aisClass: v.aisClass,
+        aisStatus: v.aisStatus,
+        navState: v.navState,
+        headingTrue: v.headingTrueRad != null
+            ? v.headingTrueRad! * 180.0 / math.pi
+            : null,
+        cog: v.cogRad != null ? v.cogRad! * 180.0 / math.pi : null,
+        sogRaw: v.sogMs,
+        distance: dist,
+        cpa: cpa?.cpaM,
+        tcpa: cpa?.tcpaS,
+        timestamp: v.lastSeen,
+      ));
+    }
+    return items;
+  }
+
+  /// Equirectangular-tangent haversine — good to a few cm at AIS
+  /// ranges. Same shape used by the route planner's distance maths.
+  static double _haversineMeters(
+      double lat1, double lon1, double lat2, double lon2) {
+    const r = 6371000.0;
+    final dLat = (lat2 - lat1) * math.pi / 180;
+    final dLon = (lon2 - lon1) * math.pi / 180;
+    final a = math.sin(dLat / 2) * math.sin(dLat / 2) +
+        math.cos(lat1 * math.pi / 180) *
+            math.cos(lat2 * math.pi / 180) *
+            math.sin(dLon / 2) *
+            math.sin(dLon / 2);
+    final c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a));
+    return r * c;
+  }
+
+  /// Bring up the AIS vessel list as a draggable bottom sheet. Lives
+  /// inside the chart plotter (rather than a separate tool) because
+  /// the list is a peer to the existing AIS toggles and inherits the
+  /// same `_aisActiveOnly` gate. Rebuilds the item list each time the
+  /// registry notifies so a new sentence on the wire ticks the rows.
+  void _openAisList(BuildContext ctx) {
+    // Distance / speed / angle formatters reuse the same MetadataStore
+    // category lookups the rest of the chart plotter uses — keeps
+    // units consistent with the HUD and the scale bar.
+    final store = widget.signalKService.metadataStore;
+    final distMd = store.getByCategory('distance');
+    final speedMd = store.getByCategory('speed');
+    final angleSymbol =
+        store.get('__category__.angle')?.symbol ?? '°';
+    String formatDistance(double meters, {int decimals = 1}) {
+      if (distMd == null) return '${meters.toStringAsFixed(decimals)} m';
+      final v = distMd.convert(meters);
+      if (v == null) return '${meters.toStringAsFixed(decimals)} m';
+      return '${v.toStringAsFixed(decimals)} ${distMd.symbol ?? 'm'}';
+    }
+
+    String formatSpeed(double ms) {
+      if (speedMd == null) return '${ms.toStringAsFixed(1)} m/s';
+      final v = speedMd.convert(ms);
+      if (v == null) return '${ms.toStringAsFixed(1)} m/s';
+      return '${v.toStringAsFixed(1)} ${speedMd.symbol ?? 'm/s'}';
+    }
+
+    CpaAlertService? cpaService;
+    try {
+      cpaService = ctx.read<CpaAlertService>();
+    } catch (_) {
+      // No CPA service in the tree — the list's chip falls back to a
+      // neutral palette via the shared helper's default config.
+    }
+
+    showModalBottomSheet<void>(
+      context: ctx,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetCtx) {
+        return DraggableScrollableSheet(
+          initialChildSize: 0.6,
+          maxChildSize: 0.92,
+          minChildSize: 0.25,
+          snap: true,
+          snapSizes: const [0.6, 0.92],
+          builder: (_, scroll) {
+            return Container(
+              decoration: const BoxDecoration(
+                color: AppColors.cardBackgroundDark,
+                borderRadius:
+                    BorderRadius.vertical(top: Radius.circular(16)),
+              ),
+              child: Column(
+                children: [
+                  // Grab handle.
+                  Container(
+                    width: 40,
+                    height: 4,
+                    margin: const EdgeInsets.only(top: 8, bottom: 4),
+                    decoration: BoxDecoration(
+                      color: Colors.white24,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                  Expanded(
+                    child: AnimatedBuilder(
+                      animation: Listenable.merge([
+                        widget.signalKService.aisVesselRegistry,
+                        _ownVesselTick,
+                      ]),
+                      builder: (_, _) => ais_list.AisVesselList(
+                        vessels: _buildAisListItems(),
+                        lastPositionUpdate: null,
+                        cpaAlertService: cpaService,
+                        colorByShipType: true,
+                        formatDistance: formatDistance,
+                        formatSpeed: formatSpeed,
+                        formatAngleSymbol: () => angleSymbol,
+                        onTap: (vesselId) {
+                          Navigator.of(sheetCtx).pop();
+                          if (!mounted) return;
+                          setState(() => _selectedAisId = vesselId);
+                          AISVesselDetailSheet.show(
+                            context,
+                            signalKService: widget.signalKService,
+                            vesselId: vesselId,
+                            ownLat: _ownLat,
+                            ownLon: _ownLon,
+                            ownCogRad: _ownCog,
+                            ownSogMs: _ownSog,
+                          );
+                        },
+                        onLongPress: (vesselId, displayName) {
+                          Navigator.of(sheetCtx).pop();
+                          if (!mounted) return;
+                          _navigateToFindHomeForVessel(
+                              vesselId, displayName);
+                        },
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  /// Mirror of the polar chart's `_navigateToFindHome`: hand off
+  /// the vessel to the Find Home tool and switch screens. Silent
+  /// no-op when the user doesn't have a Find Home tool on their
+  /// dashboard.
+  void _navigateToFindHomeForVessel(String vesselId, String displayName) {
+    try {
+      final dashService = context.read<DashboardService>();
+      final findHomeScreen =
+          dashService.findScreenWithToolType('find_home');
+      if (findHomeScreen == null) return;
+      final targetService = context.read<FindHomeTargetService>();
+      targetService.setAisTarget(vesselId, displayName);
+      dashService.setActiveScreen(findHomeScreen.$1);
+    } catch (_) {
+      // Either service missing from the Provider tree — no-op rather
+      // than crashing the long-press handler.
+    }
   }
 
   /// Great-circle projected positions at 30s / 1m / 15m / 30m.
@@ -2959,14 +3261,27 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
           Positioned(
             top: 8,
             right: 8,
-            child: _MapControls(
-              autoFollow: _autoFollow,
-              viewMode: _viewMode,
-              rulerVisible: _rulerVisible,
-              openDrawer: _openDrawer,
-              onOpenAis: () => _toggleNavDrawer(_NavDrawerKind.ais),
-              onOpenRoutes: () => _toggleNavDrawer(_NavDrawerKind.routes),
-              onOpenLayers: () => _toggleNavDrawer(_NavDrawerKind.layers),
+            // Any tap outside this region (the drawer + the right
+            // nav column) collapses an open drawer. Taps inside —
+            // on a group icon to open / swap, or on a sub-button
+            // to use the feature — are not treated as "outside" so
+            // the drawer stays open while the user interacts with
+            // it. Provided by `MaterialApp`'s default
+            // `TapRegionSurface`.
+            child: TapRegion(
+              onTapOutside: (_) {
+                if (_openDrawer != _NavDrawerKind.none) {
+                  setState(() => _openDrawer = _NavDrawerKind.none);
+                }
+              },
+              child: _MapControls(
+                autoFollow: _autoFollow,
+                viewMode: _viewMode,
+                rulerVisible: _rulerVisible,
+                openDrawer: _openDrawer,
+                onOpenAis: () => _toggleNavDrawer(_NavDrawerKind.ais),
+                onOpenRoutes: () => _toggleNavDrawer(_NavDrawerKind.routes),
+                onOpenLayers: () => _toggleNavDrawer(_NavDrawerKind.layers),
               onToggleFollow: () {
                 // V1 re-engages auto-zoom whenever auto-follow turns
                 // back on (chart_webview.dart:1395).
@@ -3014,6 +3329,7 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
                   _refreshAisVessels();
                 });
               },
+              onOpenAisList: () => _openAisList(context),
               // Routes sub-buttons (sister has no tracker)
               onRoutes: () => _showRouteManager(context),
               weatherRoutingEnabled: _weatherRoutingEnabled,
@@ -3028,6 +3344,7 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
               playerVisible: _playerVisible,
               playerAvailable: _hasTimeKeyedWeatherLayer,
               onTogglePlayer: _togglePlayer,
+              ),
             ),
           ),
           if (_rulerVisible && _rulerRed != null && _rulerBlue != null)
@@ -6832,6 +7149,7 @@ class _MapControls extends StatelessWidget {
     required this.onToggleAis,
     required this.onToggleAisActive,
     required this.onToggleAisPaths,
+    required this.onOpenAisList,
     // Routes sub-buttons (sister has no tracker)
     required this.onRoutes,
     required this.weatherRoutingEnabled,
@@ -6868,6 +7186,7 @@ class _MapControls extends StatelessWidget {
   final VoidCallback onToggleAis;
   final VoidCallback onToggleAisActive;
   final VoidCallback onToggleAisPaths;
+  final VoidCallback onOpenAisList;
 
   // Routes
   final VoidCallback onRoutes;
@@ -6905,6 +7224,7 @@ class _MapControls extends StatelessWidget {
                 onToggleAis: onToggleAis,
                 onToggleAisActive: onToggleAisActive,
                 onToggleAisPaths: onToggleAisPaths,
+                onOpenAisList: onOpenAisList,
               ),
             ),
             _DrawerSlot(
@@ -6969,7 +7289,11 @@ class _MapControls extends StatelessWidget {
               _NavIconButton(
                 icon: Icons.sailing,
                 tooltip: 'AIS',
-                highlight: openDrawer == _NavDrawerKind.ais,
+                // Green when AIS is on, red when off — gives the
+                // group icon a status-at-a-glance role independent
+                // of whether the drawer is open. (No `highlight`
+                // here; the fill colour wins anyway.)
+                backgroundColor: aisEnabled ? Colors.green : Colors.red,
                 onPressed: onOpenAis,
               ),
               _NavIconButton(
@@ -6998,12 +7322,19 @@ class _NavIconButton extends StatelessWidget {
     required this.tooltip,
     required this.onPressed,
     this.highlight = false,
+    this.backgroundColor,
   });
 
   final IconData icon;
   final String tooltip;
   final VoidCallback onPressed;
   final bool highlight;
+
+  /// Explicit background tint. Takes precedence over [highlight]'s
+  /// default white-alpha overlay. Used by the AIS controls to signal
+  /// on/off state via green/red on both the vertical nav button and
+  /// the drawer's own AIS-toggle button.
+  final Color? backgroundColor;
 
   @override
   Widget build(BuildContext context) {
@@ -7012,7 +7343,9 @@ class _NavIconButton extends StatelessWidget {
       tooltip: tooltip,
       onPressed: onPressed,
     );
-    if (!highlight) return button;
+    final fill = backgroundColor ??
+        (highlight ? Colors.white.withValues(alpha: 0.18) : null);
+    if (fill == null) return button;
     return SizedBox(
       width: _navRowHeight,
       height: _navRowHeight,
@@ -7022,7 +7355,7 @@ class _NavIconButton extends StatelessWidget {
           Container(
             margin: const EdgeInsets.all(4),
             decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.18),
+              color: fill,
               borderRadius: BorderRadius.circular(4),
             ),
           ),
@@ -7082,6 +7415,7 @@ class _AisDrawerRow extends StatelessWidget {
     required this.onToggleAis,
     required this.onToggleAisActive,
     required this.onToggleAisPaths,
+    required this.onOpenAisList,
   });
 
   final bool aisEnabled;
@@ -7090,19 +7424,21 @@ class _AisDrawerRow extends StatelessWidget {
   final VoidCallback onToggleAis;
   final VoidCallback onToggleAisActive;
   final VoidCallback onToggleAisPaths;
+  final VoidCallback onOpenAisList;
 
   @override
   Widget build(BuildContext context) {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        IconButton(
-          icon: Icon(
-            aisEnabled ? Icons.sailing : Icons.sailing_outlined,
-            color: Colors.white,
-            size: 20,
-          ),
+        // AIS on/off — matches the vertical-nav AIS button's tint so
+        // the user has the same green/red status cue inside the
+        // drawer. Tapping here turns AIS off (and the conditional
+        // below hides the filter / paths / list buttons).
+        _NavIconButton(
+          icon: aisEnabled ? Icons.sailing : Icons.sailing_outlined,
           tooltip: aisEnabled ? 'AIS on' : 'AIS off',
+          backgroundColor: aisEnabled ? Colors.green : Colors.red,
           onPressed: onToggleAis,
         ),
         if (aisEnabled) ...[
@@ -7126,6 +7462,15 @@ class _AisDrawerRow extends StatelessWidget {
             tooltip:
                 aisShowPaths ? 'Hide projections' : 'Show projections',
             onPressed: onToggleAisPaths,
+          ),
+          IconButton(
+            icon: const Icon(
+              Icons.list_alt,
+              color: Colors.white,
+              size: 20,
+            ),
+            tooltip: 'AIS list',
+            onPressed: onOpenAisList,
           ),
         ],
       ],
