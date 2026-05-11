@@ -166,6 +166,7 @@ flutter:
     - assets/dashboard/smallScreen/
     - assets/dashboard/largeScreen/
     - assets/charts/
+    - assets/ais/
 
 flutter_launcher_icons:
   android: true

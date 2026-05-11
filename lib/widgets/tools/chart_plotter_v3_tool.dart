@@ -3173,14 +3173,27 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
           Positioned(
             top: 8,
             right: 8,
-            child: _MapControls(
-              autoFollow: _autoFollow,
-              viewMode: _viewMode,
-              rulerVisible: _rulerVisible,
-              openDrawer: _openDrawer,
-              onOpenAis: () => _toggleNavDrawer(_NavDrawerKind.ais),
-              onOpenRoutes: () => _toggleNavDrawer(_NavDrawerKind.routes),
-              onOpenLayers: () => _toggleNavDrawer(_NavDrawerKind.layers),
+            // Any tap outside this region (the drawer + the right
+            // nav column) collapses an open drawer. Taps inside —
+            // on a group icon to open / swap, or on a sub-button
+            // to use the feature — are not treated as "outside" so
+            // the drawer stays open while the user interacts with
+            // it. Provided by `MaterialApp`'s default
+            // `TapRegionSurface`.
+            child: TapRegion(
+              onTapOutside: (_) {
+                if (_openDrawer != _NavDrawerKind.none) {
+                  setState(() => _openDrawer = _NavDrawerKind.none);
+                }
+              },
+              child: _MapControls(
+                autoFollow: _autoFollow,
+                viewMode: _viewMode,
+                rulerVisible: _rulerVisible,
+                openDrawer: _openDrawer,
+                onOpenAis: () => _toggleNavDrawer(_NavDrawerKind.ais),
+                onOpenRoutes: () => _toggleNavDrawer(_NavDrawerKind.routes),
+                onOpenLayers: () => _toggleNavDrawer(_NavDrawerKind.layers),
               onToggleFollow: () {
                 // V1 re-engages auto-zoom whenever auto-follow turns
                 // back on (chart_webview.dart:1395).
@@ -3243,6 +3256,7 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
               playerVisible: _playerVisible,
               playerAvailable: _hasTimeKeyedWeatherLayer,
               onTogglePlayer: _togglePlayer,
+              ),
             ),
           ),
           if (_rulerVisible && _rulerRed != null && _rulerBlue != null)
@@ -7187,7 +7201,11 @@ class _MapControls extends StatelessWidget {
               _NavIconButton(
                 icon: Icons.sailing,
                 tooltip: 'AIS',
-                highlight: openDrawer == _NavDrawerKind.ais,
+                // Green when AIS is on, red when off — gives the
+                // group icon a status-at-a-glance role independent
+                // of whether the drawer is open. (No `highlight`
+                // here; the fill colour wins anyway.)
+                backgroundColor: aisEnabled ? Colors.green : Colors.red,
                 onPressed: onOpenAis,
               ),
               _NavIconButton(
@@ -7216,12 +7234,19 @@ class _NavIconButton extends StatelessWidget {
     required this.tooltip,
     required this.onPressed,
     this.highlight = false,
+    this.backgroundColor,
   });
 
   final IconData icon;
   final String tooltip;
   final VoidCallback onPressed;
   final bool highlight;
+
+  /// Explicit background tint. Takes precedence over [highlight]'s
+  /// default white-alpha overlay. Used by the AIS controls to signal
+  /// on/off state via green/red on both the vertical nav button and
+  /// the drawer's own AIS-toggle button.
+  final Color? backgroundColor;
 
   @override
   Widget build(BuildContext context) {
@@ -7230,7 +7255,9 @@ class _NavIconButton extends StatelessWidget {
       tooltip: tooltip,
       onPressed: onPressed,
     );
-    if (!highlight) return button;
+    final fill = backgroundColor ??
+        (highlight ? Colors.white.withValues(alpha: 0.18) : null);
+    if (fill == null) return button;
     return SizedBox(
       width: _navRowHeight,
       height: _navRowHeight,
@@ -7240,7 +7267,7 @@ class _NavIconButton extends StatelessWidget {
           Container(
             margin: const EdgeInsets.all(4),
             decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.18),
+              color: fill,
               borderRadius: BorderRadius.circular(4),
             ),
           ),
@@ -7316,13 +7343,14 @@ class _AisDrawerRow extends StatelessWidget {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        IconButton(
-          icon: Icon(
-            aisEnabled ? Icons.sailing : Icons.sailing_outlined,
-            color: Colors.white,
-            size: 20,
-          ),
+        // AIS on/off — matches the vertical-nav AIS button's tint so
+        // the user has the same green/red status cue inside the
+        // drawer. Tapping here turns AIS off (and the conditional
+        // below hides the filter / paths / list buttons).
+        _NavIconButton(
+          icon: aisEnabled ? Icons.sailing : Icons.sailing_outlined,
           tooltip: aisEnabled ? 'AIS on' : 'AIS off',
+          backgroundColor: aisEnabled ? Colors.green : Colors.red,
           onPressed: onToggleAis,
         ),
         if (aisEnabled) ...[
