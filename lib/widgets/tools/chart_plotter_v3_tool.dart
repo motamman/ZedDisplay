@@ -328,6 +328,11 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
   double? _ownHeading; // radians
   double? _ownCog; // radians
   double? _ownSog; // m/s
+  /// Ticks whenever own-vessel kinematics change. The AIS list bottom
+  /// sheet listens to this alongside `aisVesselRegistry` so distance /
+  /// CPA / TCPA stay live as the boat moves, not just when an AIS
+  /// message arrives.
+  final ValueNotifier<int> _ownVesselTick = ValueNotifier<int>(0);
   Timer? _vesselTimer;
   // Follow-vessel off by default — the map recenters once on first fix
   // (see `_didInitialCenter` below) and otherwise stays where the user
@@ -1181,6 +1186,7 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
     _weatherDataService?.tileStatusNotifier
         .removeListener(_onWeatherDataChanged);
     _weatherDataService?.dispose();
+    _ownVesselTick.dispose();
     super.dispose();
   }
 
@@ -1300,6 +1306,9 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
         _appendTrailPoint(lat!, lon!);
         _refreshRulerSnaps();
       });
+      // Wake the AIS list sheet so distance / CPA / TCPA recompute
+      // against the new fix without waiting for the next AIS delta.
+      _ownVesselTick.value++;
     }
     if (_mapReady) {
       // One-shot initial center on the first fix. After this the user
@@ -1413,9 +1422,13 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
         if (v.aisStatus == 'lost' || v.aisStatus == 'remove') continue;
         if (now.difference(v.lastSeen).inMinutes >= 10) continue;
       }
+      // Without an own-vessel fix, distance / CPA / TCPA are undefined.
+      // Pass nulls through; the shared list hides the distance cell and
+      // sorts the row to the bottom of Nearby. `_ownVesselTick` will
+      // bump the sheet on the next fix so the row reflows naturally.
       final dist = (_ownLat != null && _ownLon != null)
           ? _haversineMeters(_ownLat!, _ownLon!, v.latitude!, v.longitude!)
-          : 0.0;
+          : null;
       final cpa = ais_list.computeCpa(
         ownLat: _ownLat,
         ownLon: _ownLon,
@@ -1531,8 +1544,10 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
                   ),
                   Expanded(
                     child: AnimatedBuilder(
-                      animation:
-                          widget.signalKService.aisVesselRegistry,
+                      animation: Listenable.merge([
+                        widget.signalKService.aisVesselRegistry,
+                        _ownVesselTick,
+                      ]),
                       builder: (_, _) => ais_list.AisVesselList(
                         vessels: _buildAisListItems(),
                         lastPositionUpdate: null,

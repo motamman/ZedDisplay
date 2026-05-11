@@ -2210,9 +2210,9 @@ class _AISPolarChartState extends State<AISPolarChart>
       cpaAlertService: widget.cpaAlertService,
       colorByShipType: widget.colorByShipType,
       formatDistance: (m, {int decimals = 1}) =>
-          '${_convertDistance(m).toStringAsFixed(decimals)}${_getDistanceUnit()}',
+          '${_convertDistance(m).toStringAsFixed(decimals)} ${_getDistanceUnit()}',
       formatSpeed: (msRaw) =>
-          '${_convertSpeed(msRaw).toStringAsFixed(1)}${_getSpeedUnit()}',
+          '${_convertSpeed(msRaw).toStringAsFixed(1)} ${_getSpeedUnit()}',
       formatAngleSymbol: _getAngleSymbol,
       onTap: _highlightVessel,
       onLongPress: (mmsi, displayName) =>

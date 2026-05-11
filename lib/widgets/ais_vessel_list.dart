@@ -40,7 +40,10 @@ class AisVesselListItem {
   final double? headingTrue;
   final double? cog;
   final double? sogRaw;
-  final double distance;
+  /// Range to own vessel in meters. `null` means the host doesn't have
+  /// a valid own-vessel fix yet — the row hides the distance cell and
+  /// sorts to the bottom of the Nearby tab rather than showing `0.0`.
+  final double? distance;
   final double? cpa;
   final double? tcpa;
   final DateTime? timestamp;
@@ -55,7 +58,7 @@ class AisVesselListItem {
     this.headingTrue,
     this.cog,
     this.sogRaw,
-    required this.distance,
+    this.distance,
     this.cpa,
     this.tcpa,
     this.timestamp,
@@ -354,8 +357,16 @@ class _AisVesselListState extends State<AisVesselList> {
     // tinting / counts on this list too.
     context.watch<AISFavoritesService>();
 
+    // Null distance (host has no own-vessel fix) sorts to the bottom.
     final sorted = List<AisVesselListItem>.from(widget.vessels)
-      ..sort((a, b) => a.distance.compareTo(b.distance));
+      ..sort((a, b) {
+        final ad = a.distance;
+        final bd = b.distance;
+        if (ad == null && bd == null) return 0;
+        if (ad == null) return 1;
+        if (bd == null) return -1;
+        return ad.compareTo(bd);
+      });
 
     String lastUpdateText = 'No data';
     final ts = widget.lastPositionUpdate;
@@ -502,11 +513,13 @@ class _AisVesselListState extends State<AisVesselList> {
       ),
       subtitle: Row(
         children: [
-          Text(
-            widget.formatDistance(vessel.distance, decimals: 1),
-            style: const TextStyle(fontSize: 11),
-          ),
-          const SizedBox(width: 8),
+          if (vessel.distance != null) ...[
+            Text(
+              widget.formatDistance(vessel.distance!, decimals: 1),
+              style: const TextStyle(fontSize: 11),
+            ),
+            const SizedBox(width: 8),
+          ],
           if (vessel.cog != null)
             Text(
               'COG ${vessel.cog!.toStringAsFixed(0)}${widget.formatAngleSymbol()}',
@@ -756,11 +769,13 @@ class _AisVesselListState extends State<AisVesselList> {
             ),
           ],
           if (inRange) ...[
-            const SizedBox(width: 8),
-            Text(
-              widget.formatDistance(inRangeVessel.distance, decimals: 1),
-              style: const TextStyle(fontSize: 11),
-            ),
+            if (inRangeVessel.distance != null) ...[
+              const SizedBox(width: 8),
+              Text(
+                widget.formatDistance(inRangeVessel.distance!, decimals: 1),
+                style: const TextStyle(fontSize: 11),
+              ),
+            ],
             if (inRangeVessel.sogRaw != null) ...[
               const SizedBox(width: 6),
               Text(
@@ -803,6 +818,7 @@ class _AisVesselListState extends State<AisVesselList> {
     final nameController = TextEditingController();
     final notesController = TextEditingController();
     String? mmsiError;
+    String? nameError;
 
     showDialog(
       context: outerContext,
@@ -826,7 +842,15 @@ class _AisVesselListState extends State<AisVesselList> {
                   const SizedBox(height: 8),
                   TextField(
                     controller: nameController,
-                    decoration: const InputDecoration(labelText: 'Vessel Name'),
+                    decoration: InputDecoration(
+                      labelText: 'Vessel Name',
+                      errorText: nameError,
+                    ),
+                    onChanged: (_) {
+                      if (nameError != null) {
+                        setDialogState(() => nameError = null);
+                      }
+                    },
                   ),
                   const SizedBox(height: 8),
                   TextField(
@@ -847,11 +871,17 @@ class _AisVesselListState extends State<AisVesselList> {
                     final mmsi = mmsiController.text.trim();
                     final name = nameController.text.trim();
                     if (!RegExp(r'^\d{9}$').hasMatch(mmsi)) {
-                      setDialogState(() => mmsiError = 'Must be exactly 9 digits');
+                      setDialogState(() {
+                        mmsiError = 'Must be exactly 9 digits';
+                        nameError = null;
+                      });
                       return;
                     }
                     if (name.isEmpty) {
-                      setDialogState(() => mmsiError = null);
+                      setDialogState(() {
+                        mmsiError = null;
+                        nameError = 'Required';
+                      });
                       return;
                     }
                     final favService =
