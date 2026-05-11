@@ -5,7 +5,7 @@ import 'package:flutter_svg/flutter_svg.dart';
 import 'package:provider/provider.dart';
 
 import '../models/ais_favorite.dart';
-import '../models/cpa_alert_state.dart' show CpaAlertConfig;
+import '../models/cpa_alert_state.dart' show CpaAlertConfig, CpaVesselAlert;
 import '../services/ais_favorites_service.dart';
 import '../services/cpa_alert_service.dart';
 import '../utils/date_time_formatter.dart';
@@ -299,6 +299,19 @@ class _AisVesselListState extends State<AisVesselList> {
 
   @override
   Widget build(BuildContext context) {
+    // Listen to the CPA alert service (when supplied) so a Dismissible
+    // swipe — which calls `dismissAlert` — actually rebuilds the list.
+    // Without this the dismissed Dismissible stays in the tree and
+    // Flutter trips its "still part of the tree" assertion.
+    final alertService = widget.cpaAlertService;
+    if (alertService == null) return _buildBody(context);
+    return ListenableBuilder(
+      listenable: alertService,
+      builder: (innerCtx, _) => _buildBody(innerCtx),
+    );
+  }
+
+  Widget _buildBody(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     return Container(
       decoration: BoxDecoration(
@@ -381,7 +394,9 @@ class _AisVesselListState extends State<AisVesselList> {
       }
     }
 
-    final alerts = widget.cpaAlertService?.vesselAlerts ?? const {};
+    final Map<String, CpaVesselAlert> alerts =
+        widget.cpaAlertService?.vesselAlerts ??
+            const <String, CpaVesselAlert>{};
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -443,7 +458,7 @@ class _AisVesselListState extends State<AisVesselList> {
     BuildContext context,
     bool isDark,
     AisVesselListItem vessel,
-    Map<String, dynamic> alerts,
+    Map<String, CpaVesselAlert> alerts,
   ) {
     final cpa = vessel.cpa;
     final tcpa = vessel.tcpa;

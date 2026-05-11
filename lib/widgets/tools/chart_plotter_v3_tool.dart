@@ -249,11 +249,12 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
   ];
 
   // HUD style + position come from the V3 configurator's HUD section.
-  // Hydrated once at construction; the chart-plotter widget is
-  // rebuilt with a fresh state when the tool config changes, so
-  // there's no path for these to need mid-life updates.
-  late final String _hudStyle = _stringProp('hudStyle', 'text');
-  late final String _hudPosition = _stringProp('hudPosition', 'bottom');
+  // Read as getters off `widget.config` so a configurator edit takes
+  // effect on the next rebuild — the dashboard keys the tool by
+  // toolId, not config, so State (and any cached fields) survives
+  // edits.
+  String get _hudStyle => _stringProp('hudStyle', 'text');
+  String get _hudPosition => _stringProp('hudPosition', 'bottom');
 
   S52StyleEngine? _engine;
   S52ColorTable? _colorTable;
@@ -495,6 +496,30 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
     return v is String ? v : fallback;
   }
 
+  /// Push the current `cacheRefresh` choice (and SignalK origin / token)
+  /// into the shared tile server. Called from `initState` and again
+  /// from `didUpdateWidget` so a configurator edit takes effect without
+  /// an app restart.
+  ///
+  /// `'aging'` triggers a background re-fetch once a tile is 15 days
+  /// old, `'stale'` holds off until 30 days. Anything else (or missing)
+  /// falls back to the stricter `stale` threshold so we don't burn
+  /// bandwidth refreshing tiles the user hasn't asked us to.
+  void _configureTileServer() {
+    try {
+      final tileServer = context.read<ChartTileServerService>();
+      final cacheRefreshRaw = _stringProp('cacheRefresh', 'stale');
+      final refreshThreshold = cacheRefreshRaw == 'aging'
+          ? TileFreshness.aging
+          : TileFreshness.stale;
+      tileServer.configure(
+        upstreamBaseUrl: widget.signalKService.httpBaseUrl,
+        authToken: widget.signalKService.authToken?.token,
+        refreshThreshold: refreshThreshold,
+      );
+    } catch (_) {}
+  }
+
   /// Effective minimum zoom for a weather layer, applied by `TileLayer`
   /// (raster) or `zoomFloor` (vector). Precedence:
   /// `_userMinZoom[path]` → `metadata.minZoom` → hardcoded fallback.
@@ -709,25 +734,7 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
     // upstream SignalK server to proxy for and whether to refresh
     // stale tiles eagerly. Wrapped in try/catch because the service
     // might not be present in test environments.
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      try {
-        final tileServer = context.read<ChartTileServerService>();
-        // `cacheRefresh` from the configurator: `'aging'` triggers a
-        // background re-fetch once a tile is 15 days old, `'stale'`
-        // holds off until 30 days. Anything else (or missing) falls
-        // back to the stricter `stale` threshold so we don't burn
-        // bandwidth refreshing tiles users haven't asked us to.
-        final cacheRefreshRaw = _stringProp('cacheRefresh', 'stale');
-        final refreshThreshold = cacheRefreshRaw == 'aging'
-            ? TileFreshness.aging
-            : TileFreshness.stale;
-        tileServer.configure(
-          upstreamBaseUrl: widget.signalKService.httpBaseUrl,
-          authToken: widget.signalKService.authToken?.token,
-          refreshThreshold: refreshThreshold,
-        );
-      } catch (_) {}
-    });
+    WidgetsBinding.instance.addPostFrameCallback((_) => _configureTileServer());
     // Poll SignalK's course API at the same cadence V1 used — 3s.
     // Cheaper than a full WS subscription and the REST endpoint is
     // authoritative for route/index/total state.
@@ -1172,6 +1179,21 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
   }
 
   @override
+  void didUpdateWidget(covariant ChartPlotterV3Tool oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // The dashboard reuses our State across config edits (keyed by
+    // toolId), so `cacheRefresh` from `customProperties` needs a fresh
+    // push to the tile server whenever it flips between 'aging' and
+    // 'stale'.
+    final oldRefresh =
+        oldWidget.config.style.customProperties?['cacheRefresh'];
+    final newRefresh = widget.config.style.customProperties?['cacheRefresh'];
+    if (oldRefresh != newRefresh) {
+      _configureTileServer();
+    }
+  }
+
+  @override
   void dispose() {
     _routePollTimer?.cancel();
     _vesselTimer?.cancel();
@@ -1284,7 +1306,28 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
       });
     }
 
-    if (lat == null || lon == null) return;
+    if (lat == null || lon == null) {
+      // GPS dropped after we had a fix. Clear the cached own-ship
+      // state so the AIS list / detail math don't keep computing
+      // distance / CPA against a stale position. `_ownVesselTick`
+      // wakes the AIS list sheet so its rows reflow immediately.
+      final hadFix = _ownLat != null ||
+          _ownLon != null ||
+          _ownHeading != null ||
+          _ownCog != null ||
+          _ownSog != null;
+      if (hadFix && mounted) {
+        setState(() {
+          _ownLat = null;
+          _ownLon = null;
+          _ownHeading = null;
+          _ownCog = null;
+          _ownSog = null;
+        });
+        _ownVesselTick.value++;
+      }
+      return;
+    }
     final changed = lat != _ownLat ||
         lon != _ownLon ||
         heading != _ownHeading ||
