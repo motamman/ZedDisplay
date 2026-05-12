@@ -4713,7 +4713,11 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
       case '/current-heatmap':
         return 'speed';
       case '/wave-heatmap':
-        return 'height';
+        // No `height` category on SignalK servers; wave height shares
+        // the same SI unit (meters) as depth, so the depth preference
+        // is the natural twin (feet of swell pairs with feet of
+        // depth).
+        return 'depth';
       case '/depth':
         return 'depth';
       case '/precip-heatmap':

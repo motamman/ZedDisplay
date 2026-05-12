@@ -103,8 +103,13 @@ class WeatherRoutingItineraryCard extends StatelessWidget {
         ?? store?.getByCategory('speed');
     final depthMd = store?.get('environment.depth.belowSurface')
         ?? store?.getByCategory('depth');
+    // Wave height: try the path first, then fall back to the user's
+    // `depth` preference. Wave height and depth share the same SI unit
+    // (meters) and there's no separate `height` category on SignalK
+    // servers, so depth is the natural display-unit twin — feet of
+    // depth pairs with feet of swell.
     final waveMd = store?.get('environment.water.waves.height')
-        ?? store?.getByCategory('height');
+        ?? store?.getByCategory('depth');
     final angleMd = store?.get('navigation.courseOverGroundTrue')
         ?? store?.getByCategory('angle');
     // No 'duration' / 'time' category exists in this codebase. Direct
