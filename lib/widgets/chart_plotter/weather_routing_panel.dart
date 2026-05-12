@@ -1338,7 +1338,7 @@ class _ResultTab extends StatelessWidget {
     // END card]. The START/END cards stand in for the point the user
     // clicked when the router had to relocate that endpoint to clear
     // water — they navigate (and renumber) just like any other
-    // waypoint. Selection index -1 addresses START, coords.length END.
+    // waypoint. Selection index -1 addresses START, waypoints.length END.
     final s = result.summary;
     final startVirtual = (s.startSnapDistanceM ?? 0) > 0 &&
         s.startOriginal != null &&
@@ -1357,7 +1357,11 @@ class _ResultTab extends StatelessWidget {
       pos++;
     }
     if (endVirtual) {
-      cards.add(_itineraryCard(context, result, result.coords.length, pos));
+      // Sentinel for the virtual END is one past the last real
+      // waypoint. Using `waypoints.length` (not `coords.length`) keeps
+      // the sentinel from colliding with a real waypoint index when a
+      // simplified geometry has `coords.length < waypoints.length`.
+      cards.add(_itineraryCard(context, result, result.waypoints.length, pos));
       pos++;
     }
 
@@ -1407,7 +1411,7 @@ class _ResultTab extends StatelessWidget {
       next = base;
       kind = legKindAt(result.waypoints, 0);
       snapAdjustmentM = s.startSnapDistanceM;
-    } else if (idx == result.coords.length) {
+    } else if (idx == result.waypoints.length) {
       final base = result.waypoints.last;
       waypoint = base.copyWith(lon: s.endOriginal![0], lat: s.endOriginal![1]);
       next = null;

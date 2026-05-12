@@ -164,12 +164,16 @@ class WeatherRoutingItineraryCard extends StatelessWidget {
                               const Icon(Icons.swap_horiz,
                                   size: 12, color: _snapText),
                               const SizedBox(width: 4),
-                              Text(
-                                '${_isStartSnap ? 'Start' : 'End'} adjusted ${snapAdjustmentM!.round()} m to clear water',
-                                style: const TextStyle(
-                                  color: _snapText,
-                                  fontSize: 10,
-                                  fontFamily: _mono,
+                              Expanded(
+                                child: Text(
+                                  '${_isStartSnap ? 'Start' : 'End'} adjusted ${snapAdjustmentM!.round()} m to clear water',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    color: _snapText,
+                                    fontSize: 10,
+                                    fontFamily: _mono,
+                                  ),
                                 ),
                               ),
                             ],

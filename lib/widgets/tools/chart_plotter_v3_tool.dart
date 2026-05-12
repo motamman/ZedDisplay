@@ -910,11 +910,19 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
     DateTime? selectedTime;
     final wrResult = _weatherRoutingService?.currentResult;
     final sel = _weatherRouteSelectedIdx;
-    if (wrResult != null &&
-        sel != null &&
-        sel >= 0 &&
-        sel < wrResult.waypoints.length) {
-      selectedTime = wrResult.waypoints[sel].time;
+    if (wrResult != null && sel != null && wrResult.waypoints.isNotEmpty) {
+      // The virtual START / END cards (sentinels -1 and
+      // waypoints.length) stand in for the user's clicked point that
+      // the router relocated to clear water. They don't have their
+      // own forecast time on the waypoint list, so anchor them to
+      // the first / last real waypoint's time.
+      if (sel == -1) {
+        selectedTime = wrResult.waypoints.first.time;
+      } else if (sel == wrResult.waypoints.length) {
+        selectedTime = wrResult.waypoints.last.time;
+      } else if (sel >= 0 && sel < wrResult.waypoints.length) {
+        selectedTime = wrResult.waypoints[sel].time;
+      }
     }
     final dep = _weatherRoutingService?.lastRequest?.departure;
     svc.referenceTime = selectedTime ?? dep ?? DateTime.now();
@@ -1151,17 +1159,19 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
   void _setSelectedWaypoint(int? idx) {
     final result = _weatherRoutingService?.currentResult;
     int? clamped;
-    if (idx != null && result != null && result.coords.isNotEmpty) {
-      // Index -1 / coords.length address the virtual START / END
+    if (idx != null && result != null && result.waypoints.isNotEmpty) {
+      // Index -1 / waypoints.length address the virtual START / END
       // cards — the user's clicked point that the router relocated to
       // clear water. They only exist when that endpoint was actually
       // snapped; otherwise the clamp collapses them back into the
-      // real-waypoint range.
+      // real-waypoint range. Note `waypoints.length` (not
+      // `coords.length`) is the END sentinel so it can't collide with
+      // a real waypoint index when the geometry is simplified.
       final s = result.summary;
       final lo = (s.startSnapDistanceM ?? 0) > 0 ? -1 : 0;
       final hi = (s.endSnapDistanceM ?? 0) > 0
-          ? result.coords.length
-          : result.coords.length - 1;
+          ? result.waypoints.length
+          : result.waypoints.length - 1;
       clamped = idx.clamp(lo, hi);
     }
     if (_weatherRouteSelectedIdx != clamped) {
@@ -1172,10 +1182,14 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
       List<double>? c;
       if (clamped == -1) {
         c = s.startOriginal;
-      } else if (clamped == result.coords.length) {
+      } else if (clamped == result.waypoints.length) {
         c = s.endOriginal;
       } else {
-        c = result.coords[clamped];
+        // Pan to the *waypoint* position (not the simplified-geometry
+        // coord at the same index, which may not align 1:1 with the
+        // waypoint list).
+        final wp = result.waypoints[clamped];
+        c = [wp.lon, wp.lat];
       }
       if (c != null) {
         _mapController.move(LatLng(c[1], c[0]), _mapController.camera.zoom);
@@ -1923,7 +1937,7 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
         return;
       }
       if ((s.endSnapDistanceM ?? 0) > 0 && nearLonLat(s.endOriginal)) {
-        _setSelectedWaypoint(wrResult.coords.length);
+        _setSelectedWaypoint(wrResult.waypoints.length);
         return;
       }
     }
@@ -3244,13 +3258,13 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
                     _setSelectedWaypoint(_weatherRouteSelectedIdx! - 1),
                 onNext: () =>
                     _setSelectedWaypoint(_weatherRouteSelectedIdx! + 1),
-                // -1 / coords.length address the START / END virtual
-                // cards; `_setSelectedWaypoint` clamps them back to
-                // the real-waypoint range when the corresponding
-                // endpoint wasn't snapped.
+                // -1 / waypoints.length address the START / END
+                // virtual cards; `_setSelectedWaypoint` clamps them
+                // back to the real-waypoint range when the
+                // corresponding endpoint wasn't snapped.
                 onFirst: () => _setSelectedWaypoint(-1),
                 onLast: () => _setSelectedWaypoint(
-                    _weatherRoutingService!.currentResult!.coords.length),
+                    _weatherRoutingService!.currentResult!.waypoints.length),
                 onClose: () => _setSelectedWaypoint(null),
                 onClearRoute: () {
                   // Tabula-rasa wipe — drops the result polyline,
@@ -7651,7 +7665,11 @@ class _WeatherWaypointPopover extends StatelessWidget {
     // When the router had to move the user's clicked start/end away
     // from the geometry endpoint, the user's original point gets its
     // own card in the sequence — index -1 for START, index
-    // coords.length for END — navigable like any other waypoint.
+    // waypoints.length for END — navigable like any other waypoint.
+    // The END sentinel is `waypoints.length` (not `coords.length`)
+    // because a simplified geometry can have fewer coords than
+    // waypoints, and we don't want the sentinel to collide with a
+    // real waypoint index.
     final startVirtual = (s.startSnapDistanceM ?? 0) > 0 &&
         s.startOriginal != null &&
         result.waypoints.isNotEmpty;
@@ -7659,8 +7677,13 @@ class _WeatherWaypointPopover extends StatelessWidget {
         s.endOriginal != null &&
         result.waypoints.isNotEmpty;
     final firstIdx = startVirtual ? -1 : 0;
-    final lastIdx =
-        endVirtual ? result.coords.length : result.coords.length - 1;
+    // Navigation range is the *waypoint* index range, not the geometry
+    // (`coords`) range — the popover renders waypoint data, so when
+    // simplified geometries have extra coords we don't want phantom
+    // pages that all clamp back to the same final waypoint.
+    final lastIdx = endVirtual
+        ? result.waypoints.length
+        : result.waypoints.length - 1;
     final totalCards = lastIdx - firstIdx + 1;
     final displayPos = (selectedIndex - firstIdx).clamp(0, totalCards - 1);
     final atFirst = selectedIndex <= firstIdx;
@@ -7677,7 +7700,7 @@ class _WeatherWaypointPopover extends StatelessWidget {
       next = base;
       kind = legKindAt(result.waypoints, 0);
       snapAdjustmentM = s.startSnapDistanceM;
-    } else if (endVirtual && selectedIndex == result.coords.length) {
+    } else if (endVirtual && selectedIndex == result.waypoints.length) {
       final base = result.waypoints.last;
       waypoint = base.copyWith(lon: s.endOriginal![0], lat: s.endOriginal![1]);
       next = null;
