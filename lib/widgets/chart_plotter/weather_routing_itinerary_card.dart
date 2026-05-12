@@ -23,9 +23,19 @@ class WeatherRoutingItineraryCard extends StatelessWidget {
     required this.kind,
     required this.selected,
     required this.onTap,
+    this.snapAdjustmentM,
   });
 
   final int index;
+
+  /// When this card stands in for the user's clicked start / end
+  /// point that the router had to move to clear water (because the
+  /// clicked cell wasn't navigable), this is the metres between the
+  /// click and the route's actual endpoint. Renders a maroon
+  /// "Start/End adjusted N m to clear water" card variant. `null`
+  /// (or `0`) on every real waypoint.
+  final double? snapAdjustmentM;
+
   final WeatherRouteWaypoint waypoint;
   /// The waypoint at index+1, or null on the last waypoint. Forward-looking
   /// fields (SOG/COG/Wind/TWA/Current) are sampled from `next` so the card
@@ -50,7 +60,21 @@ class WeatherRoutingItineraryCard extends StatelessWidget {
   static const _warnColor = Color(0xFFDDCC00);
   static const _coordColor = Color(0xFF666666);
 
+  // Snap-variant palette — the card stands in for the user's clicked
+  // start / end that the router had to move to clear water. Maroon
+  // accent + tint, salmon text / badge.
+  static const _snapAccent = Color(0xFF7F0000);
+  static const _snapTintedBg = Color(0x387F0000);
+  static const _snapBadgeBg = Color(0xFF3A0A0A);
+  static const _snapText = Color(0xFFFF8888);
+
   static const _mono = 'Menlo';
+
+  /// True when this card represents the user's clicked start / end
+  /// point that the router relocated. Within this mode, `next != null`
+  /// marks the START card and `next == null` the END card.
+  bool get _isSnap => snapAdjustmentM != null && snapAdjustmentM! > 0;
+  bool get _isStartSnap => _isSnap && next != null;
 
   @override
   Widget build(BuildContext context) {
@@ -93,9 +117,12 @@ class WeatherRoutingItineraryCard extends StatelessWidget {
     // consistent with the totals.
     final distanceMd = store?.getByCategory('distance');
 
-    final accent = colorForLegKind(kind);
-    final bg = selected ? _tintedBg(kind) : _bgColor;
-    final borderColor = selected ? accent : _borderColor;
+    final accent = _isSnap ? _snapAccent : colorForLegKind(kind);
+    final bg = _isSnap
+        ? _snapTintedBg
+        : (selected ? _tintedBg(kind) : _bgColor);
+    final borderColor =
+        _isSnap ? _snapAccent : (selected ? accent : _borderColor);
     // Flutter won't paint a rounded border with non-uniform side colours,
     // so the left-accent "stripe" is a separate child inside a Row instead
     // of a coloured left BorderSide.
@@ -125,9 +152,28 @@ class WeatherRoutingItineraryCard extends StatelessWidget {
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         _head(),
-                        const SizedBox(height: 4),
-                        _grid(speedMd, depthMd, waveMd, angleMd, periodMd,
-                            distanceMd),
+                        if (_isSnap) ...[
+                          const SizedBox(height: 4),
+                          Row(
+                            children: [
+                              const Icon(Icons.swap_horiz,
+                                  size: 12, color: _snapText),
+                              const SizedBox(width: 4),
+                              Text(
+                                '${_isStartSnap ? 'Start' : 'End'} adjusted ${snapAdjustmentM!.round()} m to clear water',
+                                style: const TextStyle(
+                                  color: _snapText,
+                                  fontSize: 10,
+                                  fontFamily: _mono,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ] else ...[
+                          const SizedBox(height: 4),
+                          _grid(speedMd, depthMd, waveMd, angleMd, periodMd,
+                              distanceMd),
+                        ],
                         const SizedBox(height: 3),
                         Text(
                           '${waypoint.lat.toStringAsFixed(4)}, ${waypoint.lon.toStringAsFixed(4)}',
@@ -184,8 +230,28 @@ class WeatherRoutingItineraryCard extends StatelessWidget {
             ),
           ],
         ),
-        _modeBadge(),
+        _isSnap ? _snapBadge() : _modeBadge(),
       ],
+    );
+  }
+
+  Widget _snapBadge() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+      decoration: BoxDecoration(
+        color: _snapBadgeBg,
+        borderRadius: BorderRadius.circular(3),
+      ),
+      child: Text(
+        _isStartSnap ? 'START' : 'END',
+        style: const TextStyle(
+          color: _snapText,
+          fontSize: 10,
+          fontFamily: _mono,
+          letterSpacing: 0.5,
+          fontWeight: FontWeight.bold,
+        ),
+      ),
     );
   }
 

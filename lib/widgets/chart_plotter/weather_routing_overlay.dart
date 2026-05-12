@@ -242,22 +242,138 @@ class WeatherRoutePainter extends CustomPainter {
       }
 
       // Only Start / End get the filled circle + label; intermediates
-      // are ring-only so the chevron and wind arrow read cleanly.
+      // are ring-only so the chevron and wind arrow read cleanly. Pin
+      // position is snap-aware: when the router moved the route's
+      // actual start / end away from the user's clicked point to find
+      // a navigable cell, the pin sits at the user's intent
+      // (`*_original`) and the dashed-bridge pass below joins it to
+      // the route's actual endpoint at `points[i]`.
       if (isStart || isEnd) {
         final fill = isStart
             ? WeatherRouteColors.startFill
             : WeatherRouteColors.endFill;
-        canvas.drawCircle(points[i], waypointRadius, Paint()..color = fill);
+        final pinPx = _snapAwarePinPosition(
+          isStart: isStart,
+          anchorPx: points[i],
+          origin: origin,
+        );
+        canvas.drawCircle(pinPx, waypointRadius, Paint()..color = fill);
         canvas.drawCircle(
-          points[i],
+          pinPx,
           waypointRadius,
           Paint()
             ..color = WeatherRouteColors.markerStroke
             ..strokeWidth = 2
             ..style = PaintingStyle.stroke,
         );
-        _paintLabel(canvas, points[i], isStart ? 'S' : 'E');
+        _paintLabel(canvas, pinPx, isStart ? 'S' : 'E');
       }
+    }
+
+    // Dashed maroon bridge from each `*_original` to its anchor
+    // when the router had to snap. Painted after the per-waypoint
+    // loop so the dashed segment sits over the ring / chevron
+    // without those decorations occluding the bridge endpoints.
+    _paintSnapBridge(
+      canvas: canvas,
+      origin: origin,
+      original: result.summary.startOriginal,
+      anchorPx: points.first,
+      snapDistanceM: result.summary.startSnapDistanceM,
+    );
+    _paintSnapBridge(
+      canvas: canvas,
+      origin: origin,
+      original: result.summary.endOriginal,
+      anchorPx: points.last,
+      snapDistanceM: result.summary.endSnapDistanceM,
+    );
+  }
+
+  /// Project the snap-original `[lon, lat]` to screen pixels when
+  /// the router moved the route's start / end. Falls back to the
+  /// anchor pixel (no snap → pin at the actual endpoint).
+  Offset _snapAwarePinPosition({
+    required bool isStart,
+    required Offset anchorPx,
+    required Offset origin,
+  }) {
+    final original = isStart
+        ? result.summary.startOriginal
+        : result.summary.endOriginal;
+    final snapDist = isStart
+        ? result.summary.startSnapDistanceM
+        : result.summary.endSnapDistanceM;
+    if (original == null || snapDist == null || snapDist <= 0) {
+      return anchorPx;
+    }
+    return camera.projectAtZoom(LatLng(original[1], original[0])) - origin;
+  }
+
+  /// Maroon (`#7F0000`) dashed line connecting the user's clicked
+  /// start / end (`*_original`) to the route's actual endpoint
+  /// (`*_anchor`, == `points.first` / `points.last`). Visible only
+  /// when the snap distance is non-zero — a snap of exactly zero
+  /// means the click hit a navigable cell directly.
+  void _paintSnapBridge({
+    required Canvas canvas,
+    required Offset origin,
+    required List<double>? original,
+    required Offset anchorPx,
+    required double? snapDistanceM,
+  }) {
+    if (original == null) return;
+    if (snapDistanceM == null || snapDistanceM <= 0) return;
+    final originPx =
+        camera.projectAtZoom(LatLng(original[1], original[0])) - origin;
+    _paintDashedLine(canvas, originPx, anchorPx, const Color(0xFF7F0000));
+  }
+
+  /// Stroke a dashed line between two screen-space offsets. Dash
+  /// length 6 px, gap 4 px. Flutter has no native dashed-stroke
+  /// primitive; this walks the segment and emits short individual
+  /// `drawLine` calls so the dashes render correctly even at
+  /// odd lengths and zoom levels.
+  static void _paintDashedLine(
+    Canvas canvas,
+    Offset a,
+    Offset b,
+    Color color,
+  ) {
+    const dashLen = 6.0;
+    const gapLen = 4.0;
+    final paint = Paint()
+      ..color = color
+      ..strokeWidth = 2
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round;
+    final dx = b.dx - a.dx;
+    final dy = b.dy - a.dy;
+    final dist = math.sqrt(dx * dx + dy * dy);
+    if (dist < 0.5) return;
+    final ux = dx / dist;
+    final uy = dy / dist;
+    final stepCount = (dist / (dashLen + gapLen)).floor();
+    for (var i = 0; i < stepCount; i++) {
+      final t0 = i * (dashLen + gapLen);
+      final t1 = t0 + dashLen;
+      canvas.drawLine(
+        Offset(a.dx + ux * t0, a.dy + uy * t0),
+        Offset(a.dx + ux * t1, a.dy + uy * t1),
+        paint,
+      );
+    }
+    // Trailing partial dash so the bridge always reaches the
+    // anchor visually instead of stopping short at the last full
+    // dash boundary.
+    final lastStart = stepCount * (dashLen + gapLen);
+    if (lastStart < dist) {
+      final endT = math.min(lastStart + dashLen, dist);
+      canvas.drawLine(
+        Offset(a.dx + ux * lastStart, a.dy + uy * lastStart),
+        Offset(a.dx + ux * endT, a.dy + uy * endT),
+        paint,
+      );
     }
   }
 
