@@ -1334,6 +1334,37 @@ class _ResultTab extends StatelessWidget {
         ),
       );
     }
+    // Itinerary = [optional START card] + every waypoint + [optional
+    // END card]. The START/END cards stand in for the point the user
+    // clicked when the router had to relocate that endpoint to clear
+    // water — they navigate (and renumber) just like any other
+    // waypoint. Selection index -1 addresses START, waypoints.length END.
+    final s = result.summary;
+    final startVirtual = (s.startSnapDistanceM ?? 0) > 0 &&
+        s.startOriginal != null &&
+        result.waypoints.isNotEmpty;
+    final endVirtual = (s.endSnapDistanceM ?? 0) > 0 &&
+        s.endOriginal != null &&
+        result.waypoints.isNotEmpty;
+    final cards = <Widget>[];
+    var pos = 0;
+    if (startVirtual) {
+      cards.add(_itineraryCard(context, result, -1, pos));
+      pos++;
+    }
+    for (var i = 0; i < result.waypoints.length; i++) {
+      cards.add(_itineraryCard(context, result, i, pos));
+      pos++;
+    }
+    if (endVirtual) {
+      // Sentinel for the virtual END is one past the last real
+      // waypoint. Using `waypoints.length` (not `coords.length`) keeps
+      // the sentinel from colliding with a real waypoint index when a
+      // simplified geometry has `coords.length < waypoints.length`.
+      cards.add(_itineraryCard(context, result, result.waypoints.length, pos));
+      pos++;
+    }
+
     return ListView(
       controller: scrollController,
       padding: const EdgeInsets.all(12),
@@ -1357,24 +1388,58 @@ class _ResultTab extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 10),
-        for (var i = 0; i < result.waypoints.length; i++)
-          WeatherRoutingItineraryCard(
-            index: i,
-            waypoint: result.waypoints[i],
-            next: i + 1 < result.waypoints.length
-                ? result.waypoints[i + 1]
-                : null,
-            kind: legKindAt(result.waypoints, i),
-            selected: false,
-            onTap: () {
-              onFocusWaypoint(i);
-              // Retreat the main sheet so only the floating chart
-              // popover remains over the map — user wants to scrub
-              // waypoints without the list overlapping the chart.
-              Navigator.of(context).maybePop();
-            },
-          ),
+        ...cards,
       ],
+    );
+  }
+
+  Widget _itineraryCard(
+    BuildContext context,
+    WeatherRouteResult result,
+    int idx,
+    int displayPos,
+  ) {
+    final s = result.summary;
+    final WeatherRouteWaypoint waypoint;
+    final WeatherRouteWaypoint? next;
+    final WeatherRouteLegKind kind;
+    final double? snapAdjustmentM;
+    if (idx == -1) {
+      final base = result.waypoints.first;
+      waypoint =
+          base.copyWith(lon: s.startOriginal![0], lat: s.startOriginal![1]);
+      next = base;
+      kind = legKindAt(result.waypoints, 0);
+      snapAdjustmentM = s.startSnapDistanceM;
+    } else if (idx == result.waypoints.length) {
+      final base = result.waypoints.last;
+      waypoint = base.copyWith(lon: s.endOriginal![0], lat: s.endOriginal![1]);
+      next = null;
+      kind = WeatherRouteLegKind.arrival;
+      snapAdjustmentM = s.endSnapDistanceM;
+    } else {
+      final wpIdx = idx.clamp(0, result.waypoints.length - 1);
+      waypoint = result.waypoints[wpIdx];
+      next = wpIdx + 1 < result.waypoints.length
+          ? result.waypoints[wpIdx + 1]
+          : null;
+      kind = legKindAt(result.waypoints, wpIdx);
+      snapAdjustmentM = null;
+    }
+    return WeatherRoutingItineraryCard(
+      index: displayPos,
+      waypoint: waypoint,
+      next: next,
+      kind: kind,
+      selected: false,
+      onTap: () {
+        onFocusWaypoint(idx);
+        // Retreat the main sheet so only the floating chart popover
+        // remains over the map — user wants to scrub waypoints
+        // without the list overlapping the chart.
+        Navigator.of(context).maybePop();
+      },
+      snapAdjustmentM: snapAdjustmentM,
     );
   }
 }

@@ -910,11 +910,19 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
     DateTime? selectedTime;
     final wrResult = _weatherRoutingService?.currentResult;
     final sel = _weatherRouteSelectedIdx;
-    if (wrResult != null &&
-        sel != null &&
-        sel >= 0 &&
-        sel < wrResult.waypoints.length) {
-      selectedTime = wrResult.waypoints[sel].time;
+    if (wrResult != null && sel != null && wrResult.waypoints.isNotEmpty) {
+      // The virtual START / END cards (sentinels -1 and
+      // waypoints.length) stand in for the user's clicked point that
+      // the router relocated to clear water. They don't have their
+      // own forecast time on the waypoint list, so anchor them to
+      // the first / last real waypoint's time.
+      if (sel == -1) {
+        selectedTime = wrResult.waypoints.first.time;
+      } else if (sel == wrResult.waypoints.length) {
+        selectedTime = wrResult.waypoints.last.time;
+      } else if (sel >= 0 && sel < wrResult.waypoints.length) {
+        selectedTime = wrResult.waypoints[sel].time;
+      }
     }
     final dep = _weatherRoutingService?.lastRequest?.departure;
     svc.referenceTime = selectedTime ?? dep ?? DateTime.now();
@@ -1151,15 +1159,41 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
   void _setSelectedWaypoint(int? idx) {
     final result = _weatherRoutingService?.currentResult;
     int? clamped;
-    if (idx != null && result != null && result.coords.isNotEmpty) {
-      clamped = idx.clamp(0, result.coords.length - 1);
+    if (idx != null && result != null && result.waypoints.isNotEmpty) {
+      // Index -1 / waypoints.length address the virtual START / END
+      // cards — the user's clicked point that the router relocated to
+      // clear water. They only exist when that endpoint was actually
+      // snapped; otherwise the clamp collapses them back into the
+      // real-waypoint range. Note `waypoints.length` (not
+      // `coords.length`) is the END sentinel so it can't collide with
+      // a real waypoint index when the geometry is simplified.
+      final s = result.summary;
+      final lo = (s.startSnapDistanceM ?? 0) > 0 ? -1 : 0;
+      final hi = (s.endSnapDistanceM ?? 0) > 0
+          ? result.waypoints.length
+          : result.waypoints.length - 1;
+      clamped = idx.clamp(lo, hi);
     }
     if (_weatherRouteSelectedIdx != clamped) {
       setState(() => _weatherRouteSelectedIdx = clamped);
     }
     if (clamped != null && result != null && _mapReady) {
-      final c = result.coords[clamped];
-      _mapController.move(LatLng(c[1], c[0]), _mapController.camera.zoom);
+      final s = result.summary;
+      List<double>? c;
+      if (clamped == -1) {
+        c = s.startOriginal;
+      } else if (clamped == result.waypoints.length) {
+        c = s.endOriginal;
+      } else {
+        // Pan to the *waypoint* position (not the simplified-geometry
+        // coord at the same index, which may not align 1:1 with the
+        // waypoint list).
+        final wp = result.waypoints[clamped];
+        c = [wp.lon, wp.lat];
+      }
+      if (c != null) {
+        _mapController.move(LatLng(c[1], c[0]), _mapController.camera.zoom);
+      }
     }
     _syncWeatherReferenceTime();
   }
@@ -1884,6 +1918,26 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
       );
       if (idx != null) {
         _setSelectedWaypoint(idx);
+        return;
+      }
+      // Snap pins — the green S / red E markers sit at the user's
+      // clicked point (`*_original`) when the router had to relocate
+      // that endpoint; tapping one selects its virtual card.
+      const snapPinHitPx = 14.0;
+      final s = wrResult.summary;
+      bool nearLonLat(List<double>? lonLat) {
+        if (lonLat == null) return false;
+        final px = camera.latLngToScreenOffset(LatLng(lonLat[1], lonLat[0]));
+        return (px - tapScreen).distanceSquared <=
+            snapPinHitPx * snapPinHitPx;
+      }
+
+      if ((s.startSnapDistanceM ?? 0) > 0 && nearLonLat(s.startOriginal)) {
+        _setSelectedWaypoint(-1);
+        return;
+      }
+      if ((s.endSnapDistanceM ?? 0) > 0 && nearLonLat(s.endOriginal)) {
+        _setSelectedWaypoint(wrResult.waypoints.length);
         return;
       }
     }
@@ -3204,9 +3258,13 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
                     _setSelectedWaypoint(_weatherRouteSelectedIdx! - 1),
                 onNext: () =>
                     _setSelectedWaypoint(_weatherRouteSelectedIdx! + 1),
-                onFirst: () => _setSelectedWaypoint(0),
+                // -1 / waypoints.length address the START / END
+                // virtual cards; `_setSelectedWaypoint` clamps them
+                // back to the real-waypoint range when the
+                // corresponding endpoint wasn't snapped.
+                onFirst: () => _setSelectedWaypoint(-1),
                 onLast: () => _setSelectedWaypoint(
-                    _weatherRoutingService!.currentResult!.coords.length - 1),
+                    _weatherRoutingService!.currentResult!.waypoints.length),
                 onClose: () => _setSelectedWaypoint(null),
                 onClearRoute: () {
                   // Tabula-rasa wipe — drops the result polyline,
@@ -4669,7 +4727,11 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
       case '/current-heatmap':
         return 'speed';
       case '/wave-heatmap':
-        return 'height';
+        // No `height` category on SignalK servers; wave height shares
+        // the same SI unit (meters) as depth, so the depth preference
+        // is the natural twin (feet of swell pairs with feet of
+        // depth).
+        return 'depth';
       case '/depth':
         return 'depth';
       case '/precip-heatmap':
@@ -7599,15 +7661,63 @@ class _WeatherWaypointPopover extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final total = result.coords.length;
-    final atFirst = selectedIndex <= 0;
-    final atLast = selectedIndex >= total - 1;
-    // Guard against selection pointing past the waypoints list (coords
-    // and waypoints can differ by one or two entries on simplified
-    // geometries).
-    final wpIdx = selectedIndex.clamp(0, result.waypoints.length - 1);
-    final waypoint = result.waypoints[wpIdx];
-    final kind = legKindAt(result.waypoints, wpIdx);
+    final s = result.summary;
+    // When the router had to move the user's clicked start/end away
+    // from the geometry endpoint, the user's original point gets its
+    // own card in the sequence — index -1 for START, index
+    // waypoints.length for END — navigable like any other waypoint.
+    // The END sentinel is `waypoints.length` (not `coords.length`)
+    // because a simplified geometry can have fewer coords than
+    // waypoints, and we don't want the sentinel to collide with a
+    // real waypoint index.
+    final startVirtual = (s.startSnapDistanceM ?? 0) > 0 &&
+        s.startOriginal != null &&
+        result.waypoints.isNotEmpty;
+    final endVirtual = (s.endSnapDistanceM ?? 0) > 0 &&
+        s.endOriginal != null &&
+        result.waypoints.isNotEmpty;
+    final firstIdx = startVirtual ? -1 : 0;
+    // Navigation range is the *waypoint* index range, not the geometry
+    // (`coords`) range — the popover renders waypoint data, so when
+    // simplified geometries have extra coords we don't want phantom
+    // pages that all clamp back to the same final waypoint.
+    final lastIdx = endVirtual
+        ? result.waypoints.length
+        : result.waypoints.length - 1;
+    final totalCards = lastIdx - firstIdx + 1;
+    final displayPos = (selectedIndex - firstIdx).clamp(0, totalCards - 1);
+    final atFirst = selectedIndex <= firstIdx;
+    final atLast = selectedIndex >= lastIdx;
+
+    final WeatherRouteWaypoint waypoint;
+    final WeatherRouteWaypoint? next;
+    final WeatherRouteLegKind kind;
+    final double? snapAdjustmentM;
+    if (startVirtual && selectedIndex == -1) {
+      final base = result.waypoints.first;
+      waypoint =
+          base.copyWith(lon: s.startOriginal![0], lat: s.startOriginal![1]);
+      next = base;
+      kind = legKindAt(result.waypoints, 0);
+      snapAdjustmentM = s.startSnapDistanceM;
+    } else if (endVirtual && selectedIndex == result.waypoints.length) {
+      final base = result.waypoints.last;
+      waypoint = base.copyWith(lon: s.endOriginal![0], lat: s.endOriginal![1]);
+      next = null;
+      kind = WeatherRouteLegKind.arrival;
+      snapAdjustmentM = s.endSnapDistanceM;
+    } else {
+      // Guard against selection pointing past the waypoints list
+      // (coords and waypoints can differ by one or two entries on
+      // simplified geometries).
+      final wpIdx = selectedIndex.clamp(0, result.waypoints.length - 1);
+      waypoint = result.waypoints[wpIdx];
+      next = wpIdx + 1 < result.waypoints.length
+          ? result.waypoints[wpIdx + 1]
+          : null;
+      kind = legKindAt(result.waypoints, wpIdx);
+      snapAdjustmentM = null;
+    }
 
     return Material(
       color: Colors.transparent,
@@ -7649,7 +7759,7 @@ class _WeatherWaypointPopover extends StatelessWidget {
                   ),
                   Expanded(
                     child: Text(
-                      'Waypoint ${selectedIndex + 1} of $total',
+                      'Waypoint ${displayPos + 1} of $totalCards',
                       textAlign: TextAlign.center,
                       style: const TextStyle(
                         color: Colors.white,
@@ -7683,14 +7793,16 @@ class _WeatherWaypointPopover extends StatelessWidget {
             Padding(
               padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
               child: WeatherRoutingItineraryCard(
-                index: wpIdx,
+                index: displayPos,
                 waypoint: waypoint,
-                next: wpIdx + 1 < result.waypoints.length
-                    ? result.waypoints[wpIdx + 1]
-                    : null,
+                next: next,
                 kind: kind,
                 selected: true,
                 onTap: () {},
+                // Non-null only on the virtual START / END cards —
+                // the ones standing in for the user's clicked point
+                // that the router moved to clear water.
+                snapAdjustmentM: snapAdjustmentM,
               ),
             ),
             Padding(

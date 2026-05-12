@@ -168,6 +168,7 @@ flutter:
     - assets/charts/
     - assets/ais/
 
+
 flutter_launcher_icons:
   android: true
   ios: true
