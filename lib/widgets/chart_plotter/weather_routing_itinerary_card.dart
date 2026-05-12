@@ -166,7 +166,7 @@ class WeatherRoutingItineraryCard extends StatelessWidget {
                               const SizedBox(width: 4),
                               Expanded(
                                 child: Text(
-                                  '${_isStartSnap ? 'Start' : 'End'} adjusted ${snapAdjustmentM!.round()} m to clear water',
+                                  '${_isStartSnap ? 'Start' : 'End'} adjusted ${distanceMd.formatOrRaw(snapAdjustmentM!, decimals: 0, siSuffix: 'm')} to clear water',
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                   style: const TextStyle(

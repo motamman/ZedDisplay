@@ -180,17 +180,38 @@ class WeatherRoutePainter extends CustomPainter {
     }
 
     // 2) Selection halo — under the waypoint decoration so the ring,
-    //    chevron, and wind arrow sit on top.
+    //    chevron, and wind arrow sit on top. Virtual sentinels (-1 /
+    //    waypoints.length) get a halo at the snap-aware pin position
+    //    so the user sees feedback when their click landed on the
+    //    relocated start/end marker; real-waypoint indices get the
+    //    halo at the waypoint anchor as before.
     final sel = selectedIndex;
-    if (sel != null && sel >= 0 && sel < points.length) {
-      final centre = points[sel];
+    Offset? haloCentre;
+    if (sel != null && points.isNotEmpty) {
+      if (sel == -1) {
+        haloCentre = _snapAwarePinPosition(
+          isStart: true,
+          anchorPx: points.first,
+          origin: origin,
+        );
+      } else if (sel == wps.length) {
+        haloCentre = _snapAwarePinPosition(
+          isStart: false,
+          anchorPx: points.last,
+          origin: origin,
+        );
+      } else if (sel >= 0 && sel < points.length) {
+        haloCentre = points[sel];
+      }
+    }
+    if (haloCentre != null) {
       canvas.drawCircle(
-        centre,
+        haloCentre,
         selectionOuterRadius,
         Paint()..color = WeatherRouteColors.selectionFill,
       );
       canvas.drawCircle(
-        centre,
+        haloCentre,
         selectionOuterRadius,
         Paint()
           ..color = WeatherRouteColors.selectionStroke
@@ -198,7 +219,7 @@ class WeatherRoutePainter extends CustomPainter {
           ..style = PaintingStyle.stroke,
       );
       canvas.drawCircle(
-        centre,
+        haloCentre,
         selectionInnerRadius,
         Paint()
           ..color = Colors.white
