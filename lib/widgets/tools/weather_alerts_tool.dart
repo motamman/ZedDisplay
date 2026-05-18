@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:phosphor_flutter/phosphor_flutter.dart';
 import '../../models/tool_definition.dart';
 import '../../models/tool_config.dart';
 import '../../services/signalk_service.dart';
@@ -64,15 +63,15 @@ enum AlertSeverity {
   IconData get icon {
     switch (this) {
       case AlertSeverity.extreme:
-        return PhosphorIcons.warning();
+        return Icons.warning;
       case AlertSeverity.severe:
-        return PhosphorIcons.warningCircle();
+        return Icons.error_outline;
       case AlertSeverity.moderate:
-        return PhosphorIcons.info();
+        return Icons.info_outline;
       case AlertSeverity.minor:
-        return PhosphorIcons.bellRinging();
+        return Icons.notifications_active;
       case AlertSeverity.unknown:
-        return PhosphorIcons.question();
+        return Icons.help_outline;
     }
   }
 
@@ -368,7 +367,7 @@ class _WeatherAlertsToolState extends State<WeatherAlertsTool>
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Icon(
-            PhosphorIcons.checkCircle(),
+            Icons.check_circle_outline,
             size: 48,
             color: Colors.green.shade400,
           ),
@@ -486,8 +485,8 @@ class _WeatherAlertsToolState extends State<WeatherAlertsTool>
           ),
           child: Row(
             children: [
-              Icon(
-                PhosphorIcons.warning(),
+              const Icon(
+                Icons.warning,
                 color: Colors.white,
                 size: 20,
               ),
@@ -666,7 +665,7 @@ class _WeatherAlertsToolState extends State<WeatherAlertsTool>
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Icon(
-                              PhosphorIcons.info(),
+                              Icons.info_outline,
                               size: 14,
                               color: isDark ? Colors.white70 : Colors.black54,
                             ),
@@ -766,7 +765,7 @@ class _WeatherAlertsToolState extends State<WeatherAlertsTool>
       builder: (context) => AlertDialog(
         title: Row(
           children: [
-            Icon(PhosphorIcons.warning(), color: alerts.first.severity.color),
+            Icon(Icons.warning, color: alerts.first.severity.color),
             const SizedBox(width: 8),
             Text('${alerts.length} Active Alerts'),
           ],

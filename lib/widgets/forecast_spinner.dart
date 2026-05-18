@@ -1,7 +1,6 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
-import 'package:phosphor_flutter/phosphor_flutter.dart';
 import 'weatherflow_forecast.dart'; // Reuse HourlyForecast, SunMoonTimes
 
 /// Weather effect types for animation
@@ -1651,31 +1650,31 @@ class _WeatherEffectOverlayState extends State<_WeatherEffectOverlay>
     switch (widget.effectType) {
       case WeatherEffectType.rain:
         return Icon(
-          PhosphorIcons.drop(),
+          Icons.water_drop,
           size: size,
           color: Colors.blue.shade300,
         );
       case WeatherEffectType.snow:
         return Icon(
-          PhosphorIcons.snowflake(),
+          Icons.ac_unit,
           size: size,
           color: Colors.white70,
         );
       case WeatherEffectType.wind:
         return Icon(
-          PhosphorIcons.wind(),
+          Icons.air,
           size: size,
           color: Colors.teal.shade300,
         );
       case WeatherEffectType.hail:
         return Icon(
-          PhosphorIcons.cloudSnow(),
+          Icons.cloudy_snowing,
           size: size,
           color: Colors.cyan.shade200,
         );
       case WeatherEffectType.thunder:
         return Icon(
-          PhosphorIcons.lightning(),
+          Icons.bolt,
           size: size,
           color: Colors.yellow.shade300,
         );
