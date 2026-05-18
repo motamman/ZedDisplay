@@ -6,6 +6,7 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 
 import '../../models/weather_route_result.dart';
+import '../../utils/antimeridian.dart';
 
 /// Colour palette lifted verbatim from the web UI at
 /// `routePlanning/ui/route-planner.html` so the chart and the web planner
@@ -153,14 +154,14 @@ class WeatherRoutePainter extends CustomPainter {
     // downstream decoration derives from `points`, so the polyline,
     // rings, chevrons, markers and selection halo stay aligned.
     final coords =
-        _unwrapForCamera(rawCoords, camera.center.longitude);
+        unwrapLonForCamera(rawCoords, camera.center.longitude);
     final points = coords.map(project).toList(growable: false);
     // Snap-original points unwrapped into the same world copy as their
     // route anchor (used by the selection halo, S/E pins and bridge).
     final startOrigU =
-        _unwrapNear(result.summary.startOriginal, coords.first[0]);
+        unwrapLonNear(result.summary.startOriginal, coords.first[0]);
     final endOrigU =
-        _unwrapNear(result.summary.endOriginal, coords.last[0]);
+        unwrapLonNear(result.summary.endOriginal, coords.last[0]);
 
     // Precompute a leg kind per segment. Segment i goes from point[i] to
     // point[i+1]; each segment is coloured by the tack of the leg
@@ -190,7 +191,7 @@ class WeatherRoutePainter extends CustomPainter {
       ..style = PaintingStyle.stroke
       ..strokeCap = StrokeCap.round
       ..strokeJoin = StrokeJoin.round;
-    // `coords` is already path-continuous (see `_unwrapForCamera`), so
+    // `coords` is already path-continuous (see `unwrapLonForCamera`), so
     // consecutive points never jump ±180 — a plain segment draw is
     // both streak-free and renders in the visible world copy.
     for (var i = 0; i < points.length - 1; i++) {
@@ -371,44 +372,6 @@ class WeatherRoutePainter extends CustomPainter {
     _paintDashedLine(canvas, originPx, anchorPx, const Color(0xFF7F0000));
   }
 
-  /// Make a polyline's longitudes path-continuous (no ±360 jump
-  /// between consecutive points), then shift the whole thing to the
-  /// world copy nearest [cameraLon]. flutter_map repeats the world
-  /// across ±180 but `projectAtZoom` only ever yields the one
-  /// canonical pixel, so without this a date-line-crossing route
-  /// either streaks straight across the map or vanishes on whichever
-  /// side of ±180 the viewport isn't centred on. Recomputed every
-  /// paint, so the route follows the camera across the seam. Returns
-  /// fresh `[lon, lat]` lists; `lat` is untouched.
-  static List<List<double>> _unwrapForCamera(
-      List<List<double>> coords, double cameraLon) {
-    if (coords.isEmpty) return coords;
-    final out = <List<double>>[
-      [coords[0][0], coords[0][1]]
-    ];
-    for (var i = 1; i < coords.length; i++) {
-      var d = coords[i][0] - coords[i - 1][0];
-      d -= 360.0 * (d / 360.0).roundToDouble(); // shortest signed step
-      out.add([out[i - 1][0] + d, coords[i][1]]);
-    }
-    final shift = 360.0 * ((cameraLon - out[0][0]) / 360.0).roundToDouble();
-    if (shift != 0.0) {
-      for (final p in out) {
-        p[0] += shift;
-      }
-    }
-    return out;
-  }
-
-  /// Bring a lone `[lon, lat]` (a snap-original endpoint) into the
-  /// same world copy as its already-unwrapped route anchor so the
-  /// pin / dashed bridge land beside the route, not a copy away.
-  static List<double>? _unwrapNear(List<double>? p, double anchorLon) {
-    if (p == null) return null;
-    var d = p[0] - anchorLon;
-    d -= 360.0 * (d / 360.0).roundToDouble();
-    return [anchorLon + d, p[1]];
-  }
 
   /// Stroke a dashed line between two screen-space offsets. Dash
   /// length 6 px, gap 4 px. Flutter has no native dashed-stroke
@@ -656,8 +619,11 @@ class _ApproxHaloPainter extends CustomPainter {
 /// Returns the index of the nearest waypoint within [radius] pixels, or
 /// null if the tap doesn't land on any marker.
 ///
-/// The caller converts the tap LatLng to a screen Offset using the same
-/// `MapCamera.projectAtZoom(…) - pixelOrigin` transform the painter uses.
+/// Both the tap and each waypoint are projected through the SAME
+/// camera-copy longitude unwrap `WeatherRoutePainter.paint` uses
+/// (`unwrapLonNear` toward the camera centre), so a route crossing
+/// ±180° — drawn in the camera's world copy — stays hit-testable
+/// instead of the canonical projection looking a world-width away.
 int? hitTestWeatherRouteWaypoint({
   required WeatherRouteResult result,
   required MapCamera camera,
@@ -666,13 +632,18 @@ int? hitTestWeatherRouteWaypoint({
 }) {
   if (result.coords.isEmpty) return null;
   final origin = camera.pixelOrigin;
-  final tapPx = camera.projectAtZoom(tap) - origin;
+  final camLon = camera.center.longitude;
+  Offset scrUnwrapped(double lon, double lat) {
+    final u = unwrapLonNear([lon, lat], camLon)!;
+    return camera.projectAtZoom(LatLng(u[1], u[0])) - origin;
+  }
+
+  final tapPx = scrUnwrapped(tap.longitude, tap.latitude);
   int? best;
   double bestDist = radius;
   for (var i = 0; i < result.coords.length; i++) {
     final c = result.coords[i];
-    final p =
-        camera.projectAtZoom(LatLng(c[1], c[0])) - origin;
+    final p = scrUnwrapped(c[0], c[1]);
     final d = (p - tapPx).distance;
     if (d < bestDist) {
       bestDist = d;

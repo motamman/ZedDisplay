@@ -33,6 +33,7 @@ import '../../models/weather_layer_metadata.dart';
 import '../../models/weather_route_request.dart';
 import '../../models/weather_route_result.dart';
 import '../../services/route_planner_auth_service.dart';
+import '../../utils/antimeridian.dart';
 import '../../utils/ship_type_utils.dart' as ship_type;
 import '../../services/route_planner_boats_service.dart';
 import '../../services/weather_data_service.dart';
@@ -1906,6 +1907,24 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
     final camera = _mapController.camera;
     final tapScreen = camera.latLngToScreenOffset(latLng);
 
+    // Route hit-testing must use the SAME camera-copy longitude unwrap
+    // the route painters use (`unwrapLonForCamera`). Otherwise, on a
+    // route crossing ±180°, the visible waypoints (drawn in the
+    // camera's world copy) sit a world-width away from where canonical
+    // projection looks, making them untappable / picking the wrong
+    // insert segment. `scrUnwrapped` mirrors the painter transform for
+    // a single point; `tapPxU` is the tap in that same space. (AIS /
+    // S-57 hit-tests below keep the plain canonical `tapScreen` — they
+    // aren't camera-unwrapped on the render side either.)
+    final camLon = camera.center.longitude;
+    final originPx = camera.pixelOrigin;
+    Offset scrUnwrapped(double lon, double lat) {
+      final u = unwrapLonNear([lon, lat], camLon)!;
+      return camera.projectAtZoom(LatLng(u[1], u[0])) - originPx;
+    }
+
+    final tapPxU = scrUnwrapped(latLng.longitude, latLng.latitude);
+
     // Weather-route waypoints take priority when visible — they sit on
     // top of the SignalK route overlay in the paint stack, so the tap
     // order must match.
@@ -1927,8 +1946,8 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
       final s = wrResult.summary;
       bool nearLonLat(List<double>? lonLat) {
         if (lonLat == null) return false;
-        final px = camera.latLngToScreenOffset(LatLng(lonLat[1], lonLat[0]));
-        return (px - tapScreen).distanceSquared <=
+        final px = scrUnwrapped(lonLat[0], lonLat[1]);
+        return (px - tapPxU).distanceSquared <=
             snapPinHitPx * snapPinHitPx;
       }
 
@@ -1946,9 +1965,8 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
     if (coords != null) {
       const hitRadius = 14.0;
       for (var i = 0; i < coords.length; i++) {
-        final wp = camera
-            .latLngToScreenOffset(LatLng(coords[i][1], coords[i][0]));
-        if ((wp - tapScreen).distanceSquared <= hitRadius * hitRadius) {
+        final wp = scrUnwrapped(coords[i][0], coords[i][1]);
+        if ((wp - tapPxU).distanceSquared <= hitRadius * hitRadius) {
           showWaypointEditDialog(
             context,
             index: i,
@@ -2553,12 +2571,22 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
     final coords = _routeCoords;
     if (coords == null || coords.isEmpty) return;
     final camera = _mapController.camera;
-    final tapScreen = camera.latLngToScreenOffset(latLng);
+    // Mirror the route painter's camera-copy unwrap so the nearest
+    // segment is picked correctly for a route crossing ±180° (a
+    // canonical projection streaks the date-line segment across the
+    // whole plane and would mis-pick the insertion point).
+    final camLon = camera.center.longitude;
+    final originPx = camera.pixelOrigin;
+    Offset scrUnwrapped(double lon, double lat) {
+      final u = unwrapLonNear([lon, lat], camLon)!;
+      return camera.projectAtZoom(LatLng(u[1], u[0])) - originPx;
+    }
+
+    final tapScreen = scrUnwrapped(latLng.longitude, latLng.latitude);
     var nearestIdx = 0;
     var nearestDistSq = double.infinity;
     for (var i = 0; i < coords.length; i++) {
-      final wp = camera
-          .latLngToScreenOffset(LatLng(coords[i][1], coords[i][0]));
+      final wp = scrUnwrapped(coords[i][0], coords[i][1]);
       final d = (wp - tapScreen).distanceSquared;
       if (d < nearestDistSq) {
         nearestDistSq = d;
@@ -7048,35 +7076,6 @@ class _RouteOverlayLayer extends StatelessWidget {
   }
 }
 
-/// Make a polyline's longitudes path-continuous (no ±360 jump between
-/// consecutive points), then shift the whole thing to the world copy
-/// nearest [cameraLon]. flutter_map repeats the world across ±180 but
-/// `projectAtZoom` only yields the one canonical pixel, so without
-/// this a date-line-crossing route either streaks straight across the
-/// map or vanishes on whichever side of ±180 the viewport isn't
-/// centred on. Recomputed every paint, so the route follows the
-/// camera across the seam. Mirror of `WeatherRoutePainter`'s
-/// `_unwrapForCamera` (kept a file-private copy — no shared util).
-List<List<double>> _unwrapRouteForCamera(
-    List<List<double>> coords, double cameraLon) {
-  if (coords.isEmpty) return coords;
-  final out = <List<double>>[
-    [coords[0][0], coords[0][1]]
-  ];
-  for (var i = 1; i < coords.length; i++) {
-    var d = coords[i][0] - coords[i - 1][0];
-    d -= 360.0 * (d / 360.0).roundToDouble(); // shortest signed step
-    out.add([out[i - 1][0] + d, coords[i][1]]);
-  }
-  final shift = 360.0 * ((cameraLon - out[0][0]) / 360.0).roundToDouble();
-  if (shift != 0.0) {
-    for (final p in out) {
-      p[0] += shift;
-    }
-  }
-  return out;
-}
-
 class _RoutePainter extends CustomPainter {
   _RoutePainter({
     required this.camera,
@@ -7101,7 +7100,7 @@ class _RoutePainter extends CustomPainter {
     // of ±180 when panned (flutter_map repeats the world; a custom
     // painter must place geometry in the visible copy itself).
     final uCoords =
-        _unwrapRouteForCamera(coords, camera.center.longitude);
+        unwrapLonForCamera(coords, camera.center.longitude);
     final points =
         uCoords.map(project).toList(growable: false);
 
