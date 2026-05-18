@@ -40,7 +40,7 @@ const double _knotsPerMps = 1.0 / _mpsPerKnot; // 1 m/s → kn
 
 /// Routing tolerances + precision policy as persisted under the
 /// `weather_routing_tolerances` Hive key. All values are **SI** (m, s,
-/// rad, m/s, cells) — the rule across this codebase. Slider widgets do
+/// m/s, cells) — the rule across this codebase. Slider widgets do
 /// the SI ↔ display-unit conversion for their chrome; this struct and
 /// the wire payload stay SI all the way through.
 typedef _RoutingTolerances = ({

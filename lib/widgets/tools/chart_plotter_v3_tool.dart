@@ -1570,6 +1570,24 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
 
   /// Equirectangular-tangent haversine — good to a few cm at AIS
   /// ranges. Same shape used by the route planner's distance maths.
+  /// Returns a `(lon, lat) → Offset` projector that mirrors the route
+  /// painter's camera-copy longitude unwrap. Hit-testing on routes
+  /// that cross ±180° MUST use this — a canonical projection puts the
+  /// visible waypoints a world-width away from where the tap lands.
+  /// `camLon` and `originPx` are captured once so the per-point
+  /// projection in tight loops stays cheap. Shared by `_onMapTap`'s
+  /// route-waypoint hit-test and the add-waypoint nearest-segment
+  /// search.
+  Offset Function(double lon, double lat) _unwrappedProjector(
+      MapCamera camera) {
+    final camLon = camera.center.longitude;
+    final originPx = camera.pixelOrigin;
+    return (lon, lat) {
+      final u = unwrapLonNear([lon, lat], camLon)!;
+      return camera.projectAtZoom(LatLng(u[1], u[0])) - originPx;
+    };
+  }
+
   static double _haversineMeters(
       double lat1, double lon1, double lat2, double lon2) {
     const r = 6371000.0;
@@ -1912,17 +1930,10 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
     // route crossing ±180°, the visible waypoints (drawn in the
     // camera's world copy) sit a world-width away from where canonical
     // projection looks, making them untappable / picking the wrong
-    // insert segment. `scrUnwrapped` mirrors the painter transform for
-    // a single point; `tapPxU` is the tap in that same space. (AIS /
-    // S-57 hit-tests below keep the plain canonical `tapScreen` — they
-    // aren't camera-unwrapped on the render side either.)
-    final camLon = camera.center.longitude;
-    final originPx = camera.pixelOrigin;
-    Offset scrUnwrapped(double lon, double lat) {
-      final u = unwrapLonNear([lon, lat], camLon)!;
-      return camera.projectAtZoom(LatLng(u[1], u[0])) - originPx;
-    }
-
+    // insert segment. (AIS / S-57 hit-tests below keep the plain
+    // canonical `tapScreen` — they aren't camera-unwrapped on the
+    // render side either.)
+    final scrUnwrapped = _unwrappedProjector(camera);
     final tapPxU = scrUnwrapped(latLng.longitude, latLng.latitude);
 
     // Weather-route waypoints take priority when visible — they sit on
@@ -2575,13 +2586,7 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
     // segment is picked correctly for a route crossing ±180° (a
     // canonical projection streaks the date-line segment across the
     // whole plane and would mis-pick the insertion point).
-    final camLon = camera.center.longitude;
-    final originPx = camera.pixelOrigin;
-    Offset scrUnwrapped(double lon, double lat) {
-      final u = unwrapLonNear([lon, lat], camLon)!;
-      return camera.projectAtZoom(LatLng(u[1], u[0])) - originPx;
-    }
-
+    final scrUnwrapped = _unwrappedProjector(camera);
     final tapScreen = scrUnwrapped(latLng.longitude, latLng.latitude);
     var nearestIdx = 0;
     var nearestDistSq = double.infinity;
