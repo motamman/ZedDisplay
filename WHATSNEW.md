@@ -1,4 +1,53 @@
-# What's New in v0.6.3
+# What's New in v0.6.4
+
+## Release Notes (Google Play - max 500 chars)
+
+v0.6.4 Editable Routes + Dateline-Safe Rendering
+
+NEW: Recent routes are editable — reload, drag the start or a via, recompute under fresh weather without retyping inputs.
+
+NEW: Virtual START/END cards show where the router moved your clicked endpoint to clear water.
+
+NEW: Routes crossing ±180° paint as one continuous polyline at any pan.
+
+FIXED: Wave height + snap-distance respect unit prefs. AIS list updates as your boat moves; GPS loss clears stale fixes.
+
+## Release Notes (App Store / TestFlight - max 4000 chars)
+
+### Editable Routes + Re-Runnable Recent Routes (NEW)
+- **Reload + Edit + Recompute** — Reload any route from the Recent tab; its start, end, and via points become live, draggable planning pins. Drag a pin, delete a via, hit Compute again — no retyping.
+- **User-Intent Seeding** — When the router originally moved your clicked endpoint to find clear water, the user's clicked location seeds the editable pin (not the relocated anchor) so re-running stays anchored where you wanted to go.
+- **Foreign-Boat Re-Runs** — Routes for boats from the shared inventory expand polar + vessel overrides automatically (the `boat_id` shortcut 404s on cross-owner requests).
+- **SI Tolerances End-To-End** — Sail threshold, tack penalty, iso step, UKC, shore step, simplify, arrival radius — all persisted in SI; legacy display-unit settings (knots/minutes) auto-migrate on read.
+
+### Virtual START / END Cards for Snap-Relocated Routes (NEW)
+- When the router moves your clicked start/end to clear water, the user's original point now gets its own card in the itinerary, navigable like a real waypoint.
+- The "Start/End adjusted X to clear water" chip respects your distance preference (nm/ft/km/m), not hardcoded meters.
+- Tapping the virtual card paints the on-map cyan selection halo at the snap-original location (where you clicked) and scrubs weather overlays to that waypoint's forecast hour.
+
+### Dateline-Safe Route Rendering (NEW)
+- Route polyline, waypoint rings, chevrons, wind arrows, start/end pins, snap bridges, and selection halo are all unwrapped into the world copy nearest the camera. Routes that cross ±180° paint as one continuous polyline at any pan instead of streaking.
+
+### Weather Routing Polish (IMPROVED)
+- **Waves Respect Units** — Itinerary "Waves" rows and the wave-heatmap legend honour your depth preference (feet/meters/fathoms) instead of raw-SI meters.
+- **No More Phantom Pages** — On simplified geometries (`waypoints.length > coords.length`), the popover no longer surfaces phantom "Waypoint N of M" cards rendering the same final-waypoint payload, and a latent `endOriginal!` crash is gone.
+- **Camera Pans to Waypoint** — Popover selection pans to the waypoint's lat/lon rather than the simplified-coord array (which may not align 1:1 with the waypoint list).
+- Snap banner wrapped in Expanded + ellipsis so narrow cards don't overflow.
+
+### AIS Vessel List (IMPROVED)
+- **No More False 0 nm** — Distance is nullable. With no own-vessel fix yet, rows skip the distance cell and sort to the bottom of Nearby instead of clustering at "0.0 nm".
+- **Updates as You Move** — The list sheet listens for both registry updates and own-vessel motion. Distance/CPA/TCPA chips refresh as the boat moves, not just when an AIS delta arrives.
+- Swipe-to-dismiss a CPA-alert row now actually removes it (was leaving a stale widget that tripped a Flutter assertion in debug).
+- Manual Add-Favorite now shows "Required" under Name when submitted empty (was silently no-op).
+
+### Chart Plotter Lifecycle (FIXED)
+- **GPS Loss Clears Cached Position** — When the fix disappears, the chart plotter clears cached lat/lon/heading/COG/SOG and refreshes `'self'`-snapped ruler endpoints. AIS list / detail math previously kept computing against the last known fix indefinitely.
+- HUD style and position re-read from config on every rebuild; configurator edits take effect without restart.
+- Tile server reconfigures on auth-token refresh, upstream change, and cacheRefresh edits — listener-driven with a cached last-applied tuple.
+
+---
+
+# Previous: v0.6.3
 
 ## Release Notes (Google Play - max 500 chars)
 
