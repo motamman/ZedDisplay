@@ -137,14 +137,30 @@ class WeatherRoutePainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    final coords = result.coords;
-    if (coords.length < 2) return;
+    final rawCoords = result.coords;
+    if (rawCoords.length < 2) return;
     final wps = result.waypoints;
     final origin = camera.pixelOrigin;
     Offset project(List<double> lonLat) =>
         camera.projectAtZoom(LatLng(lonLat[1], lonLat[0])) - origin;
 
+    // flutter_map renders the world in repeating copies across ±180°,
+    // but `projectAtZoom` maps a lon to its one canonical pixel. Make
+    // the route's longitudes path-continuous and shift the whole thing
+    // to the world copy nearest the camera so it (a) never streaks
+    // across the map at the date line and (b) stays fully visible when
+    // the user pans across ±180 (recomputed every paint). All
+    // downstream decoration derives from `points`, so the polyline,
+    // rings, chevrons, markers and selection halo stay aligned.
+    final coords =
+        _unwrapForCamera(rawCoords, camera.center.longitude);
     final points = coords.map(project).toList(growable: false);
+    // Snap-original points unwrapped into the same world copy as their
+    // route anchor (used by the selection halo, S/E pins and bridge).
+    final startOrigU =
+        _unwrapNear(result.summary.startOriginal, coords.first[0]);
+    final endOrigU =
+        _unwrapNear(result.summary.endOriginal, coords.last[0]);
 
     // Precompute a leg kind per segment. Segment i goes from point[i] to
     // point[i+1]; each segment is coloured by the tack of the leg
@@ -174,6 +190,9 @@ class WeatherRoutePainter extends CustomPainter {
       ..style = PaintingStyle.stroke
       ..strokeCap = StrokeCap.round
       ..strokeJoin = StrokeJoin.round;
+    // `coords` is already path-continuous (see `_unwrapForCamera`), so
+    // consecutive points never jump ±180 — a plain segment draw is
+    // both streak-free and renders in the visible world copy.
     for (var i = 0; i < points.length - 1; i++) {
       linePaint.color = colorForLegKind(legKinds[i]);
       canvas.drawLine(points[i], points[i + 1], linePaint);
@@ -191,12 +210,14 @@ class WeatherRoutePainter extends CustomPainter {
       if (sel == -1) {
         haloCentre = _snapAwarePinPosition(
           isStart: true,
+          original: startOrigU,
           anchorPx: points.first,
           origin: origin,
         );
       } else if (sel == wps.length) {
         haloCentre = _snapAwarePinPosition(
           isStart: false,
+          original: endOrigU,
           anchorPx: points.last,
           origin: origin,
         );
@@ -275,6 +296,7 @@ class WeatherRoutePainter extends CustomPainter {
             : WeatherRouteColors.endFill;
         final pinPx = _snapAwarePinPosition(
           isStart: isStart,
+          original: isStart ? startOrigU : endOrigU,
           anchorPx: points[i],
           origin: origin,
         );
@@ -298,30 +320,29 @@ class WeatherRoutePainter extends CustomPainter {
     _paintSnapBridge(
       canvas: canvas,
       origin: origin,
-      original: result.summary.startOriginal,
+      original: startOrigU,
       anchorPx: points.first,
       snapDistanceM: result.summary.startSnapDistanceM,
     );
     _paintSnapBridge(
       canvas: canvas,
       origin: origin,
-      original: result.summary.endOriginal,
+      original: endOrigU,
       anchorPx: points.last,
       snapDistanceM: result.summary.endSnapDistanceM,
     );
   }
 
-  /// Project the snap-original `[lon, lat]` to screen pixels when
-  /// the router moved the route's start / end. Falls back to the
-  /// anchor pixel (no snap → pin at the actual endpoint).
+  /// Project the (already camera-copy-unwrapped) snap-original
+  /// `[lon, lat]` to screen pixels when the router moved the route's
+  /// start / end. Falls back to the anchor pixel (no snap → pin at the
+  /// actual endpoint).
   Offset _snapAwarePinPosition({
     required bool isStart,
+    required List<double>? original,
     required Offset anchorPx,
     required Offset origin,
   }) {
-    final original = isStart
-        ? result.summary.startOriginal
-        : result.summary.endOriginal;
     final snapDist = isStart
         ? result.summary.startSnapDistanceM
         : result.summary.endSnapDistanceM;
@@ -348,6 +369,45 @@ class WeatherRoutePainter extends CustomPainter {
     final originPx =
         camera.projectAtZoom(LatLng(original[1], original[0])) - origin;
     _paintDashedLine(canvas, originPx, anchorPx, const Color(0xFF7F0000));
+  }
+
+  /// Make a polyline's longitudes path-continuous (no ±360 jump
+  /// between consecutive points), then shift the whole thing to the
+  /// world copy nearest [cameraLon]. flutter_map repeats the world
+  /// across ±180 but `projectAtZoom` only ever yields the one
+  /// canonical pixel, so without this a date-line-crossing route
+  /// either streaks straight across the map or vanishes on whichever
+  /// side of ±180 the viewport isn't centred on. Recomputed every
+  /// paint, so the route follows the camera across the seam. Returns
+  /// fresh `[lon, lat]` lists; `lat` is untouched.
+  static List<List<double>> _unwrapForCamera(
+      List<List<double>> coords, double cameraLon) {
+    if (coords.isEmpty) return coords;
+    final out = <List<double>>[
+      [coords[0][0], coords[0][1]]
+    ];
+    for (var i = 1; i < coords.length; i++) {
+      var d = coords[i][0] - coords[i - 1][0];
+      d -= 360.0 * (d / 360.0).roundToDouble(); // shortest signed step
+      out.add([out[i - 1][0] + d, coords[i][1]]);
+    }
+    final shift = 360.0 * ((cameraLon - out[0][0]) / 360.0).roundToDouble();
+    if (shift != 0.0) {
+      for (final p in out) {
+        p[0] += shift;
+      }
+    }
+    return out;
+  }
+
+  /// Bring a lone `[lon, lat]` (a snap-original endpoint) into the
+  /// same world copy as its already-unwrapped route anchor so the
+  /// pin / dashed bridge land beside the route, not a copy away.
+  static List<double>? _unwrapNear(List<double>? p, double anchorLon) {
+    if (p == null) return null;
+    var d = p[0] - anchorLon;
+    d -= 360.0 * (d / 360.0).roundToDouble();
+    return [anchorLon + d, p[1]];
   }
 
   /// Stroke a dashed line between two screen-space offsets. Dash

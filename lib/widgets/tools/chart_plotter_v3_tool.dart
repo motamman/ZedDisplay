@@ -7048,6 +7048,35 @@ class _RouteOverlayLayer extends StatelessWidget {
   }
 }
 
+/// Make a polyline's longitudes path-continuous (no ±360 jump between
+/// consecutive points), then shift the whole thing to the world copy
+/// nearest [cameraLon]. flutter_map repeats the world across ±180 but
+/// `projectAtZoom` only yields the one canonical pixel, so without
+/// this a date-line-crossing route either streaks straight across the
+/// map or vanishes on whichever side of ±180 the viewport isn't
+/// centred on. Recomputed every paint, so the route follows the
+/// camera across the seam. Mirror of `WeatherRoutePainter`'s
+/// `_unwrapForCamera` (kept a file-private copy — no shared util).
+List<List<double>> _unwrapRouteForCamera(
+    List<List<double>> coords, double cameraLon) {
+  if (coords.isEmpty) return coords;
+  final out = <List<double>>[
+    [coords[0][0], coords[0][1]]
+  ];
+  for (var i = 1; i < coords.length; i++) {
+    var d = coords[i][0] - coords[i - 1][0];
+    d -= 360.0 * (d / 360.0).roundToDouble(); // shortest signed step
+    out.add([out[i - 1][0] + d, coords[i][1]]);
+  }
+  final shift = 360.0 * ((cameraLon - out[0][0]) / 360.0).roundToDouble();
+  if (shift != 0.0) {
+    for (final p in out) {
+      p[0] += shift;
+    }
+  }
+  return out;
+}
+
 class _RoutePainter extends CustomPainter {
   _RoutePainter({
     required this.camera,
@@ -7067,10 +7096,18 @@ class _RoutePainter extends CustomPainter {
     Offset project(List<double> lonLat) =>
         camera.projectAtZoom(LatLng(lonLat[1], lonLat[0])) - origin;
 
+    // Unwrap longitudes to the camera's world copy so a date-line
+    // route neither streaks across the map nor vanishes on one side
+    // of ±180 when panned (flutter_map repeats the world; a custom
+    // painter must place geometry in the visible copy itself).
+    final uCoords =
+        _unwrapRouteForCamera(coords, camera.center.longitude);
     final points =
-        coords.map(project).toList(growable: false);
+        uCoords.map(project).toList(growable: false);
 
-    // Base polyline — faded green.
+    // Base polyline — faded green. `uCoords` is path-continuous so a
+    // plain connected `lineTo` is both streak-free and renders in the
+    // visible world copy.
     final basePath = ui.Path()..moveTo(points[0].dx, points[0].dy);
     for (var i = 1; i < points.length; i++) {
       basePath.lineTo(points[i].dx, points[i].dy);
@@ -7092,6 +7129,8 @@ class _RoutePainter extends CustomPainter {
           prevIdx < points.length &&
           ai >= 0 &&
           ai < points.length) {
+        // `points` is from the camera-unwrapped coords, so the
+        // highlighted active leg is continuous across ±180 too.
         canvas.drawLine(
           points[prevIdx],
           points[ai],
