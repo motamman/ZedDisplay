@@ -2912,8 +2912,7 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
   void _onMetadataStoreChanged() {
     if (!mounted) return;
     final store = widget.signalKService.metadataStore;
-    final depth = store.get('environment.depth.belowTransducer') ??
-        store.getByCategory('depth');
+    final depth = store.getByCategory('depth');
     final sig = depth == null ? null : '${depth.symbol}|${depth.formula}';
     if (sig == _lastDepthMetaSig) return;
     _lastDepthMetaSig = sig;
@@ -3090,16 +3089,13 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
                   hiddenClasses: _hiddenClasses,
                   enabledChartIds: _enabledChartIds,
                   chartOpacities: s57ChartOpacities,
-                  // Path-first, category fallback — same lookup the
-                  // HUD uses at chart_hud.dart:125. Vessels normally
-                  // populate `environment.depth.belowTransducer`
-                  // with displayUnits; `getByCategory` only fires
-                  // when the user has a category-level preset but
-                  // no per-path metadata yet.
+                  // Category-only: SignalK depth paths vary by setup
+                  // (`belowKeel` / `belowSurface` / `belowTransducer`),
+                  // so we don't pin to one — `getByCategory('depth')`
+                  // returns whichever depth metadata the server has
+                  // registered with the user's unit preset.
                   depthMetadata: widget.signalKService.metadataStore
-                          .get('environment.depth.belowTransducer') ??
-                      widget.signalKService.metadataStore
-                          .getByCategory('depth'),
+                      .getByCategory('depth'),
                 ),
               // Weather raster tiles sit under the vector overlays +
               // route so they read as a background tint (matches web
