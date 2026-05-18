@@ -31,6 +31,183 @@ String _formatHhMm(double seconds) {
   return h > 0 ? '${h}h ${m}m' : '${m}m';
 }
 
+// Speed conversion constants. OM gets these from
+// `package:openmeteo_core`; the sister has no such dependency, so the
+// two factors live here file-private (the recent-route-rerun + SI
+// tolerances stream is the only sister code that needs them).
+const double _mpsPerKnot = 0.514444; // 1 kn → m/s
+const double _knotsPerMps = 1.0 / _mpsPerKnot; // 1 m/s → kn
+
+/// Routing tolerances + precision policy as persisted under the
+/// `weather_routing_tolerances` Hive key. All values are **SI** (m, s,
+/// m/s, cells) — the rule across this codebase. Slider widgets do
+/// the SI ↔ display-unit conversion for their chrome; this struct and
+/// the wire payload stay SI all the way through.
+typedef _RoutingTolerances = ({
+  double sailThreshMs,
+  double tackPenaltyS,
+  double isoStepS,
+  int landBufferCells,
+  double underKeelClearanceM,
+  double shoreStepM,
+  double simplifyM,
+  RoutePrecision precision,
+  double arrivalRadiusM,
+});
+
+/// Defaults mirror `_ComposeTabState`'s initial field values.
+/// `5 kt → 5 * _mpsPerKnot`; `15 min → 900 s`.
+const _RoutingTolerances _defaultRoutingTolerances = (
+  sailThreshMs: 5.0 * _mpsPerKnot,
+  tackPenaltyS: 30.0,
+  isoStepS: 15.0 * 60.0,
+  landBufferCells: 24,
+  underKeelClearanceM: 0.5,
+  shoreStepM: 10.0,
+  simplifyM: 10.0,
+  precision: RoutePrecision.approximate,
+  arrivalRadiusM: 200.0,
+);
+
+const String _routingTolerancesPrefsKey = 'weather_routing_tolerances';
+
+/// Read the persisted routing tolerances. Falls back to
+/// [_defaultRoutingTolerances] field-by-field; a missing or malformed
+/// blob yields the full defaults. Used by the recent-route re-run path
+/// (the Compose tab keeps its own live, slider-bound copy).
+///
+/// Migrates legacy display-unit keys (`sailThreshKts`, `isoStepMin`) by
+/// converting them to SI on read — old blobs round-trip without losing
+/// their values; the next save unifies to the SI keys.
+_RoutingTolerances _loadRoutingTolerances(StorageService storage) {
+  const d = _defaultRoutingTolerances;
+  try {
+    final raw = storage.getSetting(_routingTolerancesPrefsKey);
+    if (raw == null || raw.isEmpty) return d;
+    final j = jsonDecode(raw);
+    if (j is! Map<String, dynamic>) return d;
+    // Prefer the new SI key; fall back to the legacy display-unit key
+    // (converting to SI). Same shape for sail threshold and iso step.
+    final sailThreshMs = (j['sailThreshMs'] as num?)?.toDouble() ??
+        ((j['sailThreshKts'] as num?)?.toDouble() != null
+            ? (j['sailThreshKts'] as num).toDouble() * _mpsPerKnot
+            : d.sailThreshMs);
+    final isoStepS = (j['isoStepS'] as num?)?.toDouble() ??
+        ((j['isoStepMin'] as num?)?.toDouble() != null
+            ? (j['isoStepMin'] as num).toDouble() * 60.0
+            : d.isoStepS);
+    return (
+      sailThreshMs: sailThreshMs,
+      tackPenaltyS: (j['tackPenaltyS'] as num?)?.toDouble() ?? d.tackPenaltyS,
+      isoStepS: isoStepS,
+      landBufferCells:
+          (j['landBufferCells'] as num?)?.toInt() ?? d.landBufferCells,
+      underKeelClearanceM: (j['underKeelClearanceM'] as num?)?.toDouble() ??
+          d.underKeelClearanceM,
+      shoreStepM: (j['shoreStepM'] as num?)?.toDouble() ?? d.shoreStepM,
+      simplifyM: (j['simplifyM'] as num?)?.toDouble() ?? d.simplifyM,
+      precision: RoutePrecision.fromWire(j['precision'] as String?),
+      arrivalRadiusM:
+          ((j['arrivalRadiusM'] as num?)?.toDouble() ?? d.arrivalRadiusM)
+              .clamp(50.0, 2000.0),
+    );
+  } catch (_) {
+    return d;
+  }
+}
+
+/// Assemble a [WeatherRouteRequest] from the active planning pins
+/// ([WeatherRoutingService.plannedStart] / `plannedEnd` / `plannedVias`)
+/// plus the supplied settings. Returns `null` when the request can't be
+/// dispatched — no auth token, no destination, or no usable start
+/// (neither a placed start pin nor a [vesselFallbackStart]). Owned
+/// boats go via the `boat_id` shortcut; foreign boats (from the shared
+/// `/boats/all` inventory — the server 404s cross-owner `boat_id`s)
+/// expand into explicit `polar` + `vessel` overrides. Tolerances are
+/// SI in / SI out. Shared by the Compose tab's Compute button and the
+/// Recent tab's re-run action so the two never drift.
+WeatherRouteRequest? _buildWeatherRouteRequest(
+  BuildContext context, {
+  required WeatherRoutingService routing,
+  required LatLon? vesselFallbackStart,
+  required RouteMode mode,
+  required String? polar,
+  required DateTime departure,
+  required _RoutingTolerances tolerances,
+}) {
+  final auth = context.read<RoutePlannerAuthService>();
+  if (!auth.hasToken) return null;
+  if (routing.plannedEnd == null) return null;
+  final start = routing.plannedStart ?? vesselFallbackStart;
+  if (start == null) return null;
+
+  final boats = context.read<RoutePlannerBoatsService>();
+  final selected = boats.selectedBoat;
+  String? boatId;
+  String? polarOverride = polar;
+  VesselOverride? vesselOverride;
+  if (selected != null) {
+    if (boats.isOwnedByCaller(selected.id)) {
+      // Boat-id shortcut: the server resolves dimensions + polar
+      // server-side. Drop the sheet-default polar / vessel override so
+      // the boat_id path isn't poisoned by a stale default — `boatId`
+      // must be exclusive with `polar` / `vessel` for the resolution
+      // to honour the selected boat.
+      boatId = selected.id;
+      polarOverride = null;
+      vesselOverride = null;
+    } else {
+      if (selected.polarPath != null &&
+          (polarOverride == null || polarOverride.isEmpty)) {
+        polarOverride = selected.polarPath;
+      }
+      vesselOverride = VesselOverride(
+        loa: selected.loaM,
+        beam: selected.beamM,
+        draught: selected.draughtM,
+        airDraft: selected.airDraftM,
+        motorSpeedMs: selected.motorSpeedMs,
+      );
+    }
+  }
+
+  return WeatherRouteRequest(
+    start: start,
+    end: routing.plannedEnd!,
+    waypoints: routing.plannedVias,
+    mode: mode,
+    departure: departure,
+    polar: polarOverride,
+    vessel: vesselOverride,
+    boatId: boatId,
+    sailThresh: tolerances.sailThreshMs,
+    tackPenalty: tolerances.tackPenaltyS,
+    isoStep: tolerances.isoStepS,
+    landBuffer: tolerances.landBufferCells,
+    underKeelClearance: tolerances.underKeelClearanceM,
+    shoreStep: tolerances.shoreStepM,
+    simplify: tolerances.simplifyM,
+    precision: tolerances.precision,
+    // Server only consults the radius in approximate mode; sending it
+    // for precise is harmless but skipping keeps the payload clean.
+    arrivalRadiusM: tolerances.precision == RoutePrecision.approximate
+        ? tolerances.arrivalRadiusM
+        : null,
+  );
+}
+
+/// `less than a minute` / `2 min` / `3 hr` / `5 days` — coarse age of a
+/// recent route's computed-at timestamp, for the post-load "re-run?"
+/// dialog body.
+String _routeAgeLabel(DateTime computedAt) {
+  final age = DateTime.now().difference(computedAt);
+  if (age.inMinutes < 1) return 'less than a minute';
+  if (age.inHours < 1) return '${age.inMinutes} min';
+  if (age.inDays < 1) return '${age.inHours} hr';
+  final d = age.inDays;
+  return '$d day${d == 1 ? '' : 's'}';
+}
+
 /// Shows the weather routing sheet. The caller provides:
 /// - [vesselPosition] — current own-vessel position. Used as the start
 ///   fallback when no explicit start pin is placed, and as the "Use
@@ -166,6 +343,73 @@ class _WeatherRoutingSheetState extends State<_WeatherRoutingSheet>
     }
   }
 
+  /// User tapped a recent-route row. Owns the whole flow because it
+  /// `await`s user input across a tab switch that disposes `_RecentTab`
+  /// — this sheet's state outlives that. Loads the route (which adopts
+  /// its start/end/vias as the active planning pins via
+  /// `WeatherRoutingService.adoptResultAsPlanned`), fits the chart,
+  /// flips to the Result tab, then offers a re-run. The returned future
+  /// resolves once the *load* completes — the dialog + re-submit run
+  /// detached so the row spinner doesn't hang on the dialog.
+  Future<void> _handleRecentRouteTap(WeatherRecentJob job) async {
+    final routing = _service;
+    if (routing == null || routing.isBusy) return;
+    await routing.loadRecentRoute(job.jobId);
+    if (!mounted) return;
+    // `loadRecentRoute` swallows failures (just appends a log line);
+    // the success signal is "this job is now the current result".
+    final ok = routing.status == WeatherRoutingStatus.done &&
+        routing.currentJobId == job.jobId;
+    if (!ok) return;
+    widget.onFitToRoute?.call();
+    if (_tabs.index != 2) _tabs.animateTo(2);
+    unawaited(_offerRerun(routing, job));
+  }
+
+  Future<void> _offerRerun(
+      WeatherRoutingService routing, WeatherRecentJob job) async {
+    final rerun = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.cardBackgroundDark,
+        title:
+            const Text('Route loaded', style: TextStyle(color: Colors.white)),
+        content: Text(
+          "This route's forecast is ${_routeAgeLabel(job.createdAt)} old. "
+          'Re-run it now with the current forecast? Its start, end, and '
+          'waypoints are on the chart and editable either way.',
+          style: const TextStyle(color: Colors.white70),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Keep as-is'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Re-run'),
+          ),
+        ],
+      ),
+    );
+    if (rerun != true || !mounted) return;
+    // Re-submit the just-loaded route's start / end / vias (adopted as
+    // the active planning pins) against the current forecast — fresh
+    // departure, current persisted settings. `submitRoute` clears the
+    // stale result + log, POSTs, and opens the SSE stream; the status
+    // listener flips us to the Progress tab.
+    final req = _buildWeatherRouteRequest(
+      context,
+      routing: routing,
+      vesselFallbackStart: widget.vesselPosition,
+      mode: widget.defaultMode,
+      polar: widget.defaultPolar,
+      departure: DateTime.now(),
+      tolerances: _loadRoutingTolerances(context.read<StorageService>()),
+    );
+    if (req != null) await routing.submitRoute(req);
+  }
+
   @override
   Widget build(BuildContext context) {
     return Container(
@@ -232,10 +476,7 @@ class _WeatherRoutingSheetState extends State<_WeatherRoutingSheet>
                 ),
                 _RecentTab(
                   scrollController: widget.scrollController,
-                  onFitToRoute: widget.onFitToRoute,
-                  onLoaded: () {
-                    if (_tabs.index != 2) _tabs.animateTo(2);
-                  },
+                  onRouteSelected: _handleRecentRouteTap,
                 ),
               ],
             ),
@@ -271,18 +512,17 @@ class _ComposeTabState extends State<_ComposeTab> {
   late RouteMode _mode = widget.defaultMode;
   late DateTime _departure = DateTime.now();
 
-  // Routing tolerances — ranges + defaults mirror the web UI at
-  // `routePlanning/ui/route-planner.html`. Sail-threshold is stored
-  // in display units (kts) and converted to SI at submit; depth-class
-  // tolerances are stored in SI metres and rendered through
-  // MetadataStore so the user sees their preferred unit (m vs ft).
-  double _sailThreshKts = 5.0;     // 0..10, step 0.5 — sail-only
-  double _tackPenaltyS = 30;       // 0..120, step 5 — sail-only
-  double _isoStepMin = 15;         // 5..60, step 5
-  int _landBufferCells = 24;       // 1..100, step 1
-  double _underKeelClearanceM = 0.5; // 0..3, step 0.1
-  double _shoreStepM = 10;         // 5..200, step 5
-  double _simplifyM = 10;          // 0..100, step 5
+  // Routing tolerances — ranges mirror the web UI at
+  // `routePlanning/ui/route-planner.html`. All fields are **SI** (m,
+  // s, m/s, cells); the slider widgets do the SI ↔ display-unit
+  // conversion for their chrome only. Defaults: 5 kt → SI; 15 min → SI.
+  double _sailThreshMs = 5.0 * _mpsPerKnot;    // slider: 0..10 kts, step 0.5 — sail-only
+  double _tackPenaltyS = 30;                   // slider: 0..120 s, step 5 — sail-only
+  double _isoStepS = 15.0 * 60.0;              // slider: 5..60 min, step 5
+  int _landBufferCells = 24;                   // slider: 1..100 cells, step 1
+  double _underKeelClearanceM = 0.5;           // slider: 0..3 m, step 0.1
+  double _shoreStepM = 10;                     // slider: 5..200 m, step 5
+  double _simplifyM = 10;                      // slider: 0..100 m, step 5
   // Per-leg precision policy. Default `approximate` per project
   // direction: most marine routes are happy passing within a few
   // hundred metres of an intermediate via, and forcing a synthetic
@@ -319,47 +559,42 @@ class _ComposeTabState extends State<_ComposeTab> {
   }
 
   void _loadTolerances() {
+    // Delegate to the top-level helper so the legacy-key migration
+    // (`sailThreshKts` → SI `sailThreshMs`, `isoStepMin` → SI
+    // `isoStepS`) is parsed in exactly one place. Same blob is read by
+    // the recent-route re-run path.
+    final t = _loadRoutingTolerances(context.read<StorageService>());
+    setState(() {
+      _sailThreshMs = t.sailThreshMs;
+      _tackPenaltyS = t.tackPenaltyS;
+      _isoStepS = t.isoStepS;
+      _landBufferCells = t.landBufferCells;
+      _underKeelClearanceM = t.underKeelClearanceM;
+      _shoreStepM = t.shoreStepM;
+      _simplifyM = t.simplifyM;
+      _precision = t.precision;
+      _arrivalRadiusM = t.arrivalRadiusM;
+    });
+    // Mirror the just-loaded values into the service so the chart
+    // plotter can render the approximate-mode halo without having to
+    // read Hive itself.
     try {
-      final raw = context.read<StorageService>().getSetting(_prefsKey);
-      if (raw == null || raw.isEmpty) return;
-      final j = jsonDecode(raw);
-      if (j is! Map<String, dynamic>) return;
-      setState(() {
-        _sailThreshKts =
-            (j['sailThreshKts'] as num?)?.toDouble() ?? _sailThreshKts;
-        _tackPenaltyS =
-            (j['tackPenaltyS'] as num?)?.toDouble() ?? _tackPenaltyS;
-        _isoStepMin =
-            (j['isoStepMin'] as num?)?.toDouble() ?? _isoStepMin;
-        _landBufferCells =
-            (j['landBufferCells'] as num?)?.toInt() ?? _landBufferCells;
-        _underKeelClearanceM =
-            (j['underKeelClearanceM'] as num?)?.toDouble() ??
-                _underKeelClearanceM;
-        _shoreStepM =
-            (j['shoreStepM'] as num?)?.toDouble() ?? _shoreStepM;
-        _simplifyM = (j['simplifyM'] as num?)?.toDouble() ?? _simplifyM;
-        _precision = RoutePrecision.fromWire(j['precision'] as String?);
-        _arrivalRadiusM =
-            ((j['arrivalRadiusM'] as num?)?.toDouble() ?? _arrivalRadiusM)
-                .clamp(50.0, 2000.0);
-      });
-      // Mirror the just-loaded values into the service so the chart
-      // plotter can render the approximate-mode halo without having
-      // to read Hive itself.
       final svc = context.read<WeatherRoutingService>();
       svc.precision = _precision;
       svc.arrivalRadiusM = _arrivalRadiusM;
-    } catch (_) {/* ignore */}
+    } catch (_) {/* ignore — service may not be in scope in tests */}
   }
 
   void _saveTolerances() {
     try {
       final storage = context.read<StorageService>();
+      // All values are SI; the legacy keys (`sailThreshKts` /
+      // `isoStepMin`) are no longer written — the load path migrates
+      // any existing blobs on read.
       final payload = jsonEncode({
-        'sailThreshKts': _sailThreshKts,
+        'sailThreshMs': _sailThreshMs,
         'tackPenaltyS': _tackPenaltyS,
-        'isoStepMin': _isoStepMin,
+        'isoStepS': _isoStepS,
         'landBufferCells': _landBufferCells,
         'underKeelClearanceM': _underKeelClearanceM,
         'shoreStepM': _shoreStepM,
@@ -558,69 +793,26 @@ class _ComposeTabState extends State<_ComposeTab> {
   }
 
   Future<void> _submit(WeatherRoutingService service) async {
-    final auth = context.read<RoutePlannerAuthService>();
-    final boats = context.read<RoutePlannerBoatsService>();
-    if (!auth.hasToken) {
-      // Cannot submit without a token; the status chip directs the user
-      // to the chart plotter settings.
-      return;
-    }
-    final start = service.plannedStart ?? widget.vesselPosition!;
-    final selected = boats.selectedBoat;
-
-    // Owned boats go via the `boat_id` shortcut — the server resolves
-    // dimensions + polar server-side. Foreign boats (from the shared
-    // inventory at /boats/all) can't use `boat_id` because the server
-    // 404s cross-owner references, so the client expands the boat's
-    // fields into explicit `polar` + `vessel` overrides.
-    String? boatId;
-    String? polarOverride = widget.defaultPolar;
-    VesselOverride? vesselOverride;
-    if (selected != null) {
-      if (boats.isOwnedByCaller(selected.id)) {
-        boatId = selected.id;
-      } else {
-        if (selected.polarPath != null &&
-            (polarOverride == null || polarOverride.isEmpty)) {
-          polarOverride = selected.polarPath;
-        }
-        vesselOverride = VesselOverride(
-          loa: selected.loaM,
-          beam: selected.beamM,
-          draught: selected.draughtM,
-          airDraft: selected.airDraftM,
-          motorSpeedMs: selected.motorSpeedMs,
-        );
-      }
-    }
-
-    // Tolerances — converted from display units to SI on the way out.
-    // `ow_step` isn't user-tunable per the web UI; server default kicks
-    // in when we leave it null.
-    final req = WeatherRouteRequest(
-      start: start,
-      end: service.plannedEnd!,
-      waypoints: service.plannedVias,
+    final req = _buildWeatherRouteRequest(
+      context,
+      routing: service,
+      vesselFallbackStart: widget.vesselPosition,
       mode: _mode,
+      polar: widget.defaultPolar,
       departure: _departure,
-      polar: polarOverride,
-      vessel: vesselOverride,
-      boatId: boatId,
-      sailThresh: _sailThreshKts * 0.514444,       // kts → m/s
-      tackPenalty: _tackPenaltyS,                  // s
-      isoStep: _isoStepMin * 60.0,                 // min → s
-      landBuffer: _landBufferCells,                // cells
-      underKeelClearance: _underKeelClearanceM,    // m
-      shoreStep: _shoreStepM,                      // m
-      simplify: _simplifyM,                        // m
-      precision: _precision,
-      // Server only consults the radius in approximate mode; sending
-      // it for precise is harmless (server ignores) but skipping
-      // keeps the wire payload clean.
-      arrivalRadiusM: _precision == RoutePrecision.approximate
-          ? _arrivalRadiusM
-          : null,
+      tolerances: (
+        sailThreshMs: _sailThreshMs,
+        tackPenaltyS: _tackPenaltyS,
+        isoStepS: _isoStepS,
+        landBufferCells: _landBufferCells,
+        underKeelClearanceM: _underKeelClearanceM,
+        shoreStepM: _shoreStepM,
+        simplifyM: _simplifyM,
+        precision: _precision,
+        arrivalRadiusM: _arrivalRadiusM,
+      ),
     );
+    if (req == null) return;
     await service.submitRoute(req);
   }
 
@@ -819,15 +1011,19 @@ class _ComposeTabState extends State<_ComposeTab> {
         childrenPadding: const EdgeInsets.only(bottom: 8),
         children: [
           if (isSail) ...[
+            // Slider chrome is in kts; the field is SI m/s. Convert at
+            // the slider boundary only — `_sailThreshMs * _knotsPerMps`
+            // for display, `v * _mpsPerKnot` on write.
             _slider(
               label: 'Min sail speed',
-              value: _sailThreshKts,
+              value: _sailThreshMs * _knotsPerMps,
               min: 0,
               max: 10,
               divisions: 20,
               unit: 'kts',
               decimals: 1,
-              onChanged: (v) => setState(() => _sailThreshKts = v),
+              onChanged: (v) =>
+                  setState(() => _sailThreshMs = v * _mpsPerKnot),
             ),
             _slider(
               label: 'Tack penalty',
@@ -840,15 +1036,16 @@ class _ComposeTabState extends State<_ComposeTab> {
               onChanged: (v) => setState(() => _tackPenaltyS = v),
             ),
           ],
+          // Slider chrome is in min; the field is SI s.
           _slider(
             label: 'Isochrone step',
-            value: _isoStepMin,
+            value: _isoStepS / 60.0,
             min: 5,
             max: 60,
             divisions: 11,
             unit: 'min',
             decimals: 0,
-            onChanged: (v) => setState(() => _isoStepMin = v),
+            onChanged: (v) => setState(() => _isoStepS = v * 60.0),
           ),
           _slider(
             label: 'Land buffer',
@@ -1526,19 +1723,18 @@ class _StatSummary extends StatelessWidget {
 class _RecentTab extends StatefulWidget {
   const _RecentTab({
     required this.scrollController,
-    required this.onLoaded,
-    this.onFitToRoute,
+    required this.onRouteSelected,
   });
 
   final ScrollController scrollController;
 
-  /// Called after a recent route is hydrated. The parent sheet uses
-  /// this to switch its TabController to the Result tab.
-  final VoidCallback onLoaded;
-
-  /// Optional — fits the host chart's camera to the just-loaded
-  /// route's bounding box.
-  final VoidCallback? onFitToRoute;
+  /// Invoked when the user taps a recent-route row. The parent sheet
+  /// owns the rest of the flow (load → fit → switch to Result →
+  /// re-run dialog → submit) because that flow `await`s user input
+  /// across a tab switch that disposes this tab's state. The returned
+  /// future completes once the route has been *loaded* (the row
+  /// spinner clears then); the dialog / re-submit run detached.
+  final Future<void> Function(WeatherRecentJob job) onRouteSelected;
 
   @override
   State<_RecentTab> createState() => _RecentTabState();
@@ -1567,16 +1763,14 @@ class _RecentTabState extends State<_RecentTab> {
     }
   }
 
-  Future<void> _load(WeatherRoutingService service, String jobId) async {
-    setState(() => _loadingJobId = jobId);
+  Future<void> _load(WeatherRecentJob job) async {
+    // Block a second tap while the first load is still in flight —
+    // without this guard a fast double-tap races `loadRecentRoute` and
+    // can stack rerun dialogs for two different jobs.
+    if (_loadingJobId != null) return;
+    setState(() => _loadingJobId = job.jobId);
     try {
-      await service.loadRecentRoute(jobId);
-      if (!mounted) return;
-      // Fit before switching tabs — currentResult is now populated, so
-      // the chart can compute bounds. Tab switch is purely visual and
-      // doesn't depend on the map state.
-      widget.onFitToRoute?.call();
-      widget.onLoaded();
+      await widget.onRouteSelected(job);
     } finally {
       if (mounted) setState(() => _loadingJobId = null);
     }
@@ -1661,7 +1855,7 @@ class _RecentTabState extends State<_RecentTab> {
           child: InkWell(
             onTap: (loading || disabled)
                 ? null
-                : () => _load(service, job.jobId),
+                : () => _load(job),
             borderRadius: BorderRadius.circular(8),
             child: Padding(
               padding: const EdgeInsets.fromLTRB(12, 10, 8, 10),

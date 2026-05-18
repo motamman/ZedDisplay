@@ -6,6 +6,7 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 
 import '../../models/weather_route_result.dart';
+import '../../utils/antimeridian.dart';
 
 /// Colour palette lifted verbatim from the web UI at
 /// `routePlanning/ui/route-planner.html` so the chart and the web planner
@@ -137,14 +138,30 @@ class WeatherRoutePainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    final coords = result.coords;
-    if (coords.length < 2) return;
+    final rawCoords = result.coords;
+    if (rawCoords.length < 2) return;
     final wps = result.waypoints;
     final origin = camera.pixelOrigin;
     Offset project(List<double> lonLat) =>
         camera.projectAtZoom(LatLng(lonLat[1], lonLat[0])) - origin;
 
+    // flutter_map renders the world in repeating copies across ±180°,
+    // but `projectAtZoom` maps a lon to its one canonical pixel. Make
+    // the route's longitudes path-continuous and shift the whole thing
+    // to the world copy nearest the camera so it (a) never streaks
+    // across the map at the date line and (b) stays fully visible when
+    // the user pans across ±180 (recomputed every paint). All
+    // downstream decoration derives from `points`, so the polyline,
+    // rings, chevrons, markers and selection halo stay aligned.
+    final coords =
+        unwrapLonForCamera(rawCoords, camera.center.longitude);
     final points = coords.map(project).toList(growable: false);
+    // Snap-original points unwrapped into the same world copy as their
+    // route anchor (used by the selection halo, S/E pins and bridge).
+    final startOrigU =
+        unwrapLonNear(result.summary.startOriginal, coords.first[0]);
+    final endOrigU =
+        unwrapLonNear(result.summary.endOriginal, coords.last[0]);
 
     // Precompute a leg kind per segment. Segment i goes from point[i] to
     // point[i+1]; each segment is coloured by the tack of the leg
@@ -174,6 +191,9 @@ class WeatherRoutePainter extends CustomPainter {
       ..style = PaintingStyle.stroke
       ..strokeCap = StrokeCap.round
       ..strokeJoin = StrokeJoin.round;
+    // `coords` is already path-continuous (see `unwrapLonForCamera`), so
+    // consecutive points never jump ±180 — a plain segment draw is
+    // both streak-free and renders in the visible world copy.
     for (var i = 0; i < points.length - 1; i++) {
       linePaint.color = colorForLegKind(legKinds[i]);
       canvas.drawLine(points[i], points[i + 1], linePaint);
@@ -191,12 +211,14 @@ class WeatherRoutePainter extends CustomPainter {
       if (sel == -1) {
         haloCentre = _snapAwarePinPosition(
           isStart: true,
+          original: startOrigU,
           anchorPx: points.first,
           origin: origin,
         );
       } else if (sel == wps.length) {
         haloCentre = _snapAwarePinPosition(
           isStart: false,
+          original: endOrigU,
           anchorPx: points.last,
           origin: origin,
         );
@@ -275,6 +297,7 @@ class WeatherRoutePainter extends CustomPainter {
             : WeatherRouteColors.endFill;
         final pinPx = _snapAwarePinPosition(
           isStart: isStart,
+          original: isStart ? startOrigU : endOrigU,
           anchorPx: points[i],
           origin: origin,
         );
@@ -298,30 +321,29 @@ class WeatherRoutePainter extends CustomPainter {
     _paintSnapBridge(
       canvas: canvas,
       origin: origin,
-      original: result.summary.startOriginal,
+      original: startOrigU,
       anchorPx: points.first,
       snapDistanceM: result.summary.startSnapDistanceM,
     );
     _paintSnapBridge(
       canvas: canvas,
       origin: origin,
-      original: result.summary.endOriginal,
+      original: endOrigU,
       anchorPx: points.last,
       snapDistanceM: result.summary.endSnapDistanceM,
     );
   }
 
-  /// Project the snap-original `[lon, lat]` to screen pixels when
-  /// the router moved the route's start / end. Falls back to the
-  /// anchor pixel (no snap → pin at the actual endpoint).
+  /// Project the (already camera-copy-unwrapped) snap-original
+  /// `[lon, lat]` to screen pixels when the router moved the route's
+  /// start / end. Falls back to the anchor pixel (no snap → pin at the
+  /// actual endpoint).
   Offset _snapAwarePinPosition({
     required bool isStart,
+    required List<double>? original,
     required Offset anchorPx,
     required Offset origin,
   }) {
-    final original = isStart
-        ? result.summary.startOriginal
-        : result.summary.endOriginal;
     final snapDist = isStart
         ? result.summary.startSnapDistanceM
         : result.summary.endSnapDistanceM;
@@ -349,6 +371,7 @@ class WeatherRoutePainter extends CustomPainter {
         camera.projectAtZoom(LatLng(original[1], original[0])) - origin;
     _paintDashedLine(canvas, originPx, anchorPx, const Color(0xFF7F0000));
   }
+
 
   /// Stroke a dashed line between two screen-space offsets. Dash
   /// length 6 px, gap 4 px. Flutter has no native dashed-stroke
@@ -596,8 +619,11 @@ class _ApproxHaloPainter extends CustomPainter {
 /// Returns the index of the nearest waypoint within [radius] pixels, or
 /// null if the tap doesn't land on any marker.
 ///
-/// The caller converts the tap LatLng to a screen Offset using the same
-/// `MapCamera.projectAtZoom(…) - pixelOrigin` transform the painter uses.
+/// Both the tap and each waypoint are projected through the SAME
+/// camera-copy longitude unwrap `WeatherRoutePainter.paint` uses
+/// (`unwrapLonNear` toward the camera centre), so a route crossing
+/// ±180° — drawn in the camera's world copy — stays hit-testable
+/// instead of the canonical projection looking a world-width away.
 int? hitTestWeatherRouteWaypoint({
   required WeatherRouteResult result,
   required MapCamera camera,
@@ -606,13 +632,18 @@ int? hitTestWeatherRouteWaypoint({
 }) {
   if (result.coords.isEmpty) return null;
   final origin = camera.pixelOrigin;
-  final tapPx = camera.projectAtZoom(tap) - origin;
+  final camLon = camera.center.longitude;
+  Offset scrUnwrapped(double lon, double lat) {
+    final u = unwrapLonNear([lon, lat], camLon)!;
+    return camera.projectAtZoom(LatLng(u[1], u[0])) - origin;
+  }
+
+  final tapPx = scrUnwrapped(tap.longitude, tap.latitude);
   int? best;
   double bestDist = radius;
   for (var i = 0; i < result.coords.length; i++) {
     final c = result.coords[i];
-    final p =
-        camera.projectAtZoom(LatLng(c[1], c[0])) - origin;
+    final p = scrUnwrapped(c[0], c[1]);
     final d = (p - tapPx).distance;
     if (d < bestDist) {
       bestDist = d;

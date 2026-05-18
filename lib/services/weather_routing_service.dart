@@ -154,6 +154,35 @@ class WeatherRoutingService extends ChangeNotifier
     notifyListeners();
   }
 
+  /// Rehydrate the active planning pins from a computed result so a
+  /// loaded route's start / end / vias become editable, draggable
+  /// markers (and feed a subsequent re-compose). Uses the user's
+  /// *original* clicked start / end when the router snapped the route
+  /// off them (`*_original`), else the route's actual endpoints. Vias
+  /// are the waypoints flagged `role: 'via'` — the user-specified
+  /// ones, not router turn points. On an empty result the planning
+  /// pins are cleared (not left stale) so a subsequent re-run can't
+  /// resubmit the previously-loaded route's geometry by accident.
+  ///
+  /// Does NOT call `notifyListeners()` — callers fold this into their
+  /// own notify (e.g. [loadRecentRoute] notifies once after).
+  void adoptResultAsPlanned(WeatherRouteResult r) {
+    if (r.coords.isEmpty) {
+      _plannedStart = null;
+      _plannedEnd = null;
+      _plannedVias.clear();
+      return;
+    }
+    LatLon ll(List<double> lonLat) => LatLon(lat: lonLat[1], lon: lonLat[0]);
+    _plannedStart = ll(r.summary.startOriginal ?? r.coords.first);
+    _plannedEnd = ll(r.summary.endOriginal ?? r.coords.last);
+    _plannedVias
+      ..clear()
+      ..addAll(r.waypoints
+          .where((w) => w.isVia)
+          .map((w) => LatLon(lat: w.lat, lon: w.lon)));
+  }
+
   // ===== Precision + arrival radius =====
   //
   // Lifted from the panel state so the chart plotter can react —
@@ -875,6 +904,10 @@ class WeatherRoutingService extends ChangeNotifier
       _currentJobId = jobId;
       _status = WeatherRoutingStatus.done;
       _errorMessage = null;
+      // The loaded route's geometry becomes the active planning state
+      // so its start / end / vias are draggable on the chart and feed
+      // a re-compose. Folded into the single notify below.
+      adoptResultAsPlanned(_currentResult!);
       notifyListeners();
     } catch (e) {
       _appendLog('Load recent route error: $e', WeatherRoutingLogKind.error);

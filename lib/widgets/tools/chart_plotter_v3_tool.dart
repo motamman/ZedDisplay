@@ -33,6 +33,7 @@ import '../../models/weather_layer_metadata.dart';
 import '../../models/weather_route_request.dart';
 import '../../models/weather_route_result.dart';
 import '../../services/route_planner_auth_service.dart';
+import '../../utils/antimeridian.dart';
 import '../../utils/ship_type_utils.dart' as ship_type;
 import '../../services/route_planner_boats_service.dart';
 import '../../services/weather_data_service.dart';
@@ -1569,6 +1570,24 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
 
   /// Equirectangular-tangent haversine — good to a few cm at AIS
   /// ranges. Same shape used by the route planner's distance maths.
+  /// Returns a `(lon, lat) → Offset` projector that mirrors the route
+  /// painter's camera-copy longitude unwrap. Hit-testing on routes
+  /// that cross ±180° MUST use this — a canonical projection puts the
+  /// visible waypoints a world-width away from where the tap lands.
+  /// `camLon` and `originPx` are captured once so the per-point
+  /// projection in tight loops stays cheap. Shared by `_onMapTap`'s
+  /// route-waypoint hit-test and the add-waypoint nearest-segment
+  /// search.
+  Offset Function(double lon, double lat) _unwrappedProjector(
+      MapCamera camera) {
+    final camLon = camera.center.longitude;
+    final originPx = camera.pixelOrigin;
+    return (lon, lat) {
+      final u = unwrapLonNear([lon, lat], camLon)!;
+      return camera.projectAtZoom(LatLng(u[1], u[0])) - originPx;
+    };
+  }
+
   static double _haversineMeters(
       double lat1, double lon1, double lat2, double lon2) {
     const r = 6371000.0;
@@ -1906,6 +1925,17 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
     final camera = _mapController.camera;
     final tapScreen = camera.latLngToScreenOffset(latLng);
 
+    // Route hit-testing must use the SAME camera-copy longitude unwrap
+    // the route painters use (`unwrapLonForCamera`). Otherwise, on a
+    // route crossing ±180°, the visible waypoints (drawn in the
+    // camera's world copy) sit a world-width away from where canonical
+    // projection looks, making them untappable / picking the wrong
+    // insert segment. (AIS / S-57 hit-tests below keep the plain
+    // canonical `tapScreen` — they aren't camera-unwrapped on the
+    // render side either.)
+    final scrUnwrapped = _unwrappedProjector(camera);
+    final tapPxU = scrUnwrapped(latLng.longitude, latLng.latitude);
+
     // Weather-route waypoints take priority when visible — they sit on
     // top of the SignalK route overlay in the paint stack, so the tap
     // order must match.
@@ -1927,8 +1957,8 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
       final s = wrResult.summary;
       bool nearLonLat(List<double>? lonLat) {
         if (lonLat == null) return false;
-        final px = camera.latLngToScreenOffset(LatLng(lonLat[1], lonLat[0]));
-        return (px - tapScreen).distanceSquared <=
+        final px = scrUnwrapped(lonLat[0], lonLat[1]);
+        return (px - tapPxU).distanceSquared <=
             snapPinHitPx * snapPinHitPx;
       }
 
@@ -1946,9 +1976,8 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
     if (coords != null) {
       const hitRadius = 14.0;
       for (var i = 0; i < coords.length; i++) {
-        final wp = camera
-            .latLngToScreenOffset(LatLng(coords[i][1], coords[i][0]));
-        if ((wp - tapScreen).distanceSquared <= hitRadius * hitRadius) {
+        final wp = scrUnwrapped(coords[i][0], coords[i][1]);
+        if ((wp - tapPxU).distanceSquared <= hitRadius * hitRadius) {
           showWaypointEditDialog(
             context,
             index: i,
@@ -2553,12 +2582,16 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
     final coords = _routeCoords;
     if (coords == null || coords.isEmpty) return;
     final camera = _mapController.camera;
-    final tapScreen = camera.latLngToScreenOffset(latLng);
+    // Mirror the route painter's camera-copy unwrap so the nearest
+    // segment is picked correctly for a route crossing ±180° (a
+    // canonical projection streaks the date-line segment across the
+    // whole plane and would mis-pick the insertion point).
+    final scrUnwrapped = _unwrappedProjector(camera);
+    final tapScreen = scrUnwrapped(latLng.longitude, latLng.latitude);
     var nearestIdx = 0;
     var nearestDistSq = double.infinity;
     for (var i = 0; i < coords.length; i++) {
-      final wp = camera
-          .latLngToScreenOffset(LatLng(coords[i][1], coords[i][0]));
+      final wp = scrUnwrapped(coords[i][0], coords[i][1]);
       final d = (wp - tapScreen).distanceSquared;
       if (d < nearestDistSq) {
         nearestDistSq = d;
@@ -7067,10 +7100,18 @@ class _RoutePainter extends CustomPainter {
     Offset project(List<double> lonLat) =>
         camera.projectAtZoom(LatLng(lonLat[1], lonLat[0])) - origin;
 
+    // Unwrap longitudes to the camera's world copy so a date-line
+    // route neither streaks across the map nor vanishes on one side
+    // of ±180 when panned (flutter_map repeats the world; a custom
+    // painter must place geometry in the visible copy itself).
+    final uCoords =
+        unwrapLonForCamera(coords, camera.center.longitude);
     final points =
-        coords.map(project).toList(growable: false);
+        uCoords.map(project).toList(growable: false);
 
-    // Base polyline — faded green.
+    // Base polyline — faded green. `uCoords` is path-continuous so a
+    // plain connected `lineTo` is both streak-free and renders in the
+    // visible world copy.
     final basePath = ui.Path()..moveTo(points[0].dx, points[0].dy);
     for (var i = 1; i < points.length; i++) {
       basePath.lineTo(points[i].dx, points[i].dy);
@@ -7092,6 +7133,8 @@ class _RoutePainter extends CustomPainter {
           prevIdx < points.length &&
           ai >= 0 &&
           ai < points.length) {
+        // `points` is from the camera-unwrapped coords, so the
+        // highlighted active leg is continuous across ±180 too.
         canvas.drawLine(
           points[prevIdx],
           points[ai],
