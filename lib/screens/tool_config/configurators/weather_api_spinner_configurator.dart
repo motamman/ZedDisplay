@@ -44,6 +44,21 @@ class WeatherApiSpinnerConfigurator extends ToolConfigurator {
   String? loadError;
   bool showWeatherAnimation = true;
   int forecastDays = 5;
+  // Centre-mode toggles. Default ON so the ported wind + solar centres
+  // are reachable without a config edit.
+  bool showWindCenter = true;
+  bool showSolarCenter = true;
+  /// Rim sun/moon icon toggle (sunrise / sunset / dawn / dusk /
+  /// golden hour / moonrise / moonset).
+  bool showSunMoonIcons = true;
+  /// Top-left corner digital clock + date label. When on, the centre
+  /// disc's time label is suppressed so the time isn't shown twice.
+  bool showTimeOverlay = true;
+  // Solar-panel config (consumed by the solar centre's power readout).
+  // 0 ⇒ "no panel configured" hint instead of watts.
+  double panelMaxWatts = 0;
+  // 0.85 = NREL default (inverter + wiring + dirt + temp losses).
+  double systemDerate = 0.85;
 
   @override
   void reset() {
@@ -53,6 +68,12 @@ class WeatherApiSpinnerConfigurator extends ToolConfigurator {
     loadError = null;
     showWeatherAnimation = true;
     forecastDays = 5;
+    showWindCenter = true;
+    showSolarCenter = true;
+    showSunMoonIcons = true;
+    showTimeOverlay = true;
+    panelMaxWatts = 0;
+    systemDerate = 0.85;
   }
 
   @override
@@ -64,15 +85,24 @@ class WeatherApiSpinnerConfigurator extends ToolConfigurator {
   void loadFromTool(Tool tool) {
     final style = tool.config.style;
     if (style.customProperties != null) {
-      final provider = style.customProperties!['provider'];
+      final cp = style.customProperties!;
+      final provider = cp['provider'];
       selectedProvider = (provider is String && provider.isNotEmpty) ? provider : null;
-      showWeatherAnimation = style.customProperties!['showWeatherAnimation'] as bool? ?? true;
-      final days = style.customProperties!['forecastDays'];
+      showWeatherAnimation = cp['showWeatherAnimation'] as bool? ?? true;
+      final days = cp['forecastDays'];
       if (days is int) {
         forecastDays = days.clamp(1, 10);
       } else if (days is num) {
         forecastDays = days.toInt().clamp(1, 10);
       }
+      showWindCenter = cp['showWindCenter'] as bool? ?? true;
+      showSolarCenter = cp['showSolarCenter'] as bool? ?? true;
+      showSunMoonIcons = cp['showSunMoonIcons'] as bool? ?? true;
+      showTimeOverlay = cp['showTimeOverlay'] as bool? ?? true;
+      final pmw = cp['panelMaxWatts'];
+      if (pmw is num) panelMaxWatts = pmw.toDouble().clamp(0, 100000).toDouble();
+      final sd = cp['systemDerate'];
+      if (sd is num) systemDerate = sd.toDouble().clamp(0.1, 1.0).toDouble();
     }
   }
 
@@ -85,6 +115,12 @@ class WeatherApiSpinnerConfigurator extends ToolConfigurator {
           'provider': selectedProvider ?? '',
           'showWeatherAnimation': showWeatherAnimation,
           'forecastDays': forecastDays,
+          'showWindCenter': showWindCenter,
+          'showSolarCenter': showSolarCenter,
+          'showSunMoonIcons': showSunMoonIcons,
+          'showTimeOverlay': showTimeOverlay,
+          'panelMaxWatts': panelMaxWatts,
+          'systemDerate': systemDerate,
         },
       ),
     );
@@ -374,6 +410,102 @@ class WeatherApiSpinnerConfigurator extends ToolConfigurator {
                 setState(() => showWeatherAnimation = value);
               },
             ),
+            SwitchListTile(
+              title: const Text('Sun / Moon Rim Icons'),
+              subtitle: const Text(
+                  'Show sunrise, sunset, dawn, dusk, golden hour, moonrise, '
+                  'moonset on the outer rim. Requires signalk-derived-data.'),
+              value: showSunMoonIcons,
+              onChanged: (value) {
+                setState(() => showSunMoonIcons = value);
+              },
+            ),
+            SwitchListTile(
+              title: const Text('Time / Date Overlay'),
+              subtitle: const Text(
+                  'Digital clock + date label in the top-left corner. '
+                  'When on, the centre disc no longer shows the time.'),
+              value: showTimeOverlay,
+              onChanged: (value) {
+                setState(() => showTimeOverlay = value);
+              },
+            ),
+
+            const SizedBox(height: 8),
+            const Divider(),
+            const SizedBox(height: 8),
+
+            Text(
+              'Centre Display Modes',
+              style: Theme.of(context).textTheme.titleSmall,
+            ),
+            Text(
+              'Tap the centre disc to cycle through enabled modes. '
+              'Weather is always on.',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Colors.grey,
+                  ),
+            ),
+            const SizedBox(height: 8),
+
+            SwitchListTile(
+              title: const Text('Wind State Centre'),
+              subtitle: const Text(
+                  'Beaufort scale, compass direction, animated leaf particles'),
+              value: showWindCenter,
+              onChanged: (value) {
+                setState(() => showWindCenter = value);
+              },
+            ),
+            SwitchListTile(
+              title: const Text('Solar Centre'),
+              subtitle: const Text(
+                  'Irradiance + panel power output (when provider exposes solar data)'),
+              value: showSolarCenter,
+              onChanged: (value) {
+                setState(() => showSolarCenter = value);
+              },
+            ),
+
+            if (showSolarCenter) ...[
+              const SizedBox(height: 8),
+              Text(
+                'Solar Panel Config',
+                style: Theme.of(context).textTheme.titleSmall,
+              ),
+              const SizedBox(height: 8),
+              TextFormField(
+                initialValue: panelMaxWatts == 0
+                    ? ''
+                    : panelMaxWatts.toStringAsFixed(0),
+                decoration: const InputDecoration(
+                  labelText: 'Panel max wattage (W)',
+                  helperText: 'Set to 0 to hide the power readout',
+                  border: OutlineInputBorder(),
+                ),
+                keyboardType: const TextInputType.numberWithOptions(decimal: false),
+                onChanged: (value) {
+                  final v = double.tryParse(value) ?? 0;
+                  panelMaxWatts = v.clamp(0, 100000).toDouble();
+                },
+              ),
+              const SizedBox(height: 8),
+              TextFormField(
+                initialValue: systemDerate.toStringAsFixed(2),
+                decoration: const InputDecoration(
+                  labelText: 'System derate factor (0.1–1.0)',
+                  helperText: 'Inverter + wiring + dirt losses. 0.85 is typical.',
+                  border: OutlineInputBorder(),
+                ),
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                onChanged: (value) {
+                  final v = double.tryParse(value);
+                  if (v != null) {
+                    systemDerate = v.clamp(0.1, 1.0).toDouble();
+                  }
+                },
+              ),
+            ],
           ],
         );
       },

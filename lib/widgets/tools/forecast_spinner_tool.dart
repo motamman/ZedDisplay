@@ -46,14 +46,17 @@ class ForecastSpinnerTool extends StatelessWidget {
       fallback: Colors.blue,
     ) ?? Colors.blue;
 
-    // Unit symbols from MetadataStore (null when not yet known).
-    final tempUnit = signalKService.getUnitSymbol(_getPath(0));
-    final windUnit = signalKService.getUnitSymbol(
-      'environment.outside.tempest.forecast.hourly.windAvg.0',
-    );
-    final pressureUnit = signalKService.getUnitSymbol(
-      'environment.outside.tempest.forecast.hourly.seaLevelPressure.0',
-    );
+    // Unit symbols from MetadataStore via category lookup. The
+    // Tempest forecast paths (`environment.outside.tempest.forecast.hourly.*`)
+    // aren't in the SignalK server's `default-categories` patterns,
+    // so path-based lookup falls through to null. Category lookup hits
+    // the synthetic `__category__.<name>` entries seeded by
+    // `populateFromPreset` on connect and so always carries the
+    // user's active preset.
+    final store = signalKService.metadataStore;
+    final tempUnit = store.getByCategory('temperature')?.symbol;
+    final windUnit = store.getByCategory('speed')?.symbol;
+    final pressureUnit = store.getByCategory('pressure')?.symbol;
 
     // Get hourly forecasts (up to 72 hours)
     final hoursToShow = style.customProperties?['hoursToShow'] as int? ?? 72;
@@ -145,20 +148,33 @@ class ForecastSpinnerTool extends StatelessWidget {
     );
   }
 
+  /// Convert a raw SI value at [path] via the user's preset for
+  /// [category]. The Tempest forecast paths don't appear in the
+  /// server's `default-categories` patterns, so a path-first lookup
+  /// falls through to raw SI silently. Category lookup goes straight
+  /// to the synthetic `__category__.<name>` entries seeded by
+  /// `populateFromPreset` and so always carries the active preset.
+  double? _convertByCategory(String path, String category) {
+    final raw = _getNumericValue(path);
+    if (raw == null) return null;
+    final meta = signalKService.metadataStore.getByCategory(category);
+    return meta?.convert(raw) ?? raw;
+  }
+
   /// Build list of hourly forecasts from indexed SignalK paths
   List<HourlyForecast> _getHourlyForecasts(String basePath, int count) {
     final forecasts = <HourlyForecast>[];
 
     for (int i = 0; i < count && i < 72; i++) {
-      final temp = signalKService.getConvertedValue('$basePath.airTemperature.$i');
-      final feelsLike = signalKService.getConvertedValue('$basePath.feelsLike.$i');
+      final temp = _convertByCategory('$basePath.airTemperature.$i', 'temperature');
+      final feelsLike = _convertByCategory('$basePath.feelsLike.$i', 'temperature');
       final conditions = _getStringValue('$basePath.conditions.$i');
       final icon = _getStringValue('$basePath.icon.$i');
-      final precipProb = signalKService.getConvertedValue('$basePath.precipProbability.$i');
-      final humidity = signalKService.getConvertedValue('$basePath.relativeHumidity.$i');
-      final pressure = signalKService.getConvertedValue('$basePath.seaLevelPressure.$i');
-      final windSpeed = signalKService.getConvertedValue('$basePath.windAvg.$i');
-      final windDirection = signalKService.getConvertedValue('$basePath.windDirection.$i');
+      final precipProb = _convertByCategory('$basePath.precipProbability.$i', 'percentage');
+      final humidity = _convertByCategory('$basePath.relativeHumidity.$i', 'percentage');
+      final pressure = _convertByCategory('$basePath.seaLevelPressure.$i', 'pressure');
+      final windSpeed = _convertByCategory('$basePath.windAvg.$i', 'speed');
+      final windDirection = _convertByCategory('$basePath.windDirection.$i', 'angle');
 
       // Only add if we have at least temperature or conditions
       if (temp != null || conditions != null) {

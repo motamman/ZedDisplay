@@ -1,10 +1,18 @@
 import 'dart:math' as math;
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'weatherflow_forecast.dart'; // Reuse HourlyForecast, SunMoonTimes
 
 /// Weather effect types for animation
 enum WeatherEffectType { none, rain, snow, wind, hail, thunder }
+
+/// Centre-display modes the spinner can cycle through. Tap the centre
+/// to advance to the next available mode (skipped when only `weather`
+/// is enabled). Sea / tides / currents / AQI from the sister app are
+/// intentionally absent — they depend on services this app doesn't
+/// have.
+enum CenterDisplayMode { weather, wind, solar }
 
 /// Circular forecast spinner widget
 /// Displays a spinnable dial showing 24 hours of forecast data
@@ -33,6 +41,35 @@ class ForecastSpinner extends StatefulWidget {
   /// Whether to show animated weather effects (rain, snow, etc.)
   final bool showWeatherAnimation;
 
+  /// Whether to include wind-state as a tap-cyclable centre display.
+  final bool showWindCenter;
+
+  /// Whether to include solar-state as a tap-cyclable centre display.
+  /// Renders a night fallback when the active provider's hourly
+  /// forecast doesn't include irradiance (most providers don't).
+  final bool showSolarCenter;
+
+  /// Solar panel max wattage for the solar-centre's power readout.
+  /// When null or zero, the centre shows irradiance only and a
+  /// "no panel configured" hint.
+  final double? panelMaxWatts;
+
+  /// System derate factor (0.0–1.0). Accounts for inverter, wiring,
+  /// dirt, temperature losses. Default 0.85 (NREL convention).
+  final double? systemDerate;
+
+  /// Whether to draw the sun + moon icons (sunrise / sunset / dawn /
+  /// dusk / golden hour / moonrise / moonset) on the outer rim. When
+  /// `false`, the rim still renders the time wheel and segment
+  /// colours but skips all rise/set/twilight icons.
+  final bool showSunMoonIcons;
+
+  /// Show a compact digital clock + date label in the top-left of the
+  /// spinner widget. Sister's `timeDisplayMode == 'digital'`
+  /// behaviour. When `true`, the centre disc's time label is also
+  /// suppressed so the time doesn't appear in two places.
+  final bool showTimeOverlay;
+
   const ForecastSpinner({
     super.key,
     required this.hourlyForecasts,
@@ -44,6 +81,12 @@ class ForecastSpinner extends StatefulWidget {
     this.providerName,
     this.onHourChanged,
     this.showWeatherAnimation = true,
+    this.showWindCenter = false,
+    this.showSolarCenter = false,
+    this.panelMaxWatts,
+    this.systemDerate,
+    this.showSunMoonIcons = true,
+    this.showTimeOverlay = true,
   });
 
   @override
@@ -51,7 +94,7 @@ class ForecastSpinner extends StatefulWidget {
 }
 
 class _ForecastSpinnerState extends State<ForecastSpinner>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin {
   // Rotation state - use ValueNotifier to avoid setState on every pan update
   final ValueNotifier<double> _rotationNotifier = ValueNotifier<double>(0.0);
   double _previousAngle = 0.0; // For tracking delta
@@ -62,6 +105,14 @@ class _ForecastSpinnerState extends State<ForecastSpinner>
   // Animation controller for momentum and snap
   late AnimationController _controller;
   Animation<double>? _snapAnimation;
+
+  /// Wind-state centre animation controller. Period reciprocates with
+  /// wind speed (faster wind ⇒ faster leaf flight). Always running so
+  /// the toggle from weather → wind shows movement immediately.
+  late AnimationController _windAnimController;
+
+  /// Active centre-display mode. Cycled by tapping the centre disc.
+  CenterDisplayMode _currentCenterMode = CenterDisplayMode.weather;
 
   // Cached segment colors (calculated once when sunMoonTimes changes)
   List<Color>? _cachedSegmentColors;
@@ -76,7 +127,10 @@ class _ForecastSpinnerState extends State<ForecastSpinner>
   // Selected time offset in minutes (derived from rotation)
   int get _selectedMinuteOffset {
     // Each 10 minutes = 2.5 degrees = pi/72 radians
-    // Negative rotation (counter-clockwise) = forward in time
+    // Negative rotation (counter-clockwise) = forward in time.
+    // Guard empty forecast list — otherwise `maxMinutes = -60` and
+    // `clamp(0, -60)` throws ArgumentError(0) on every layout pass.
+    if (widget.hourlyForecasts.isEmpty) return 0;
     final minutes = (-_rotationAngle / (math.pi / 72) * 10).round();
     final maxMinutes = (widget.hourlyForecasts.length - 1) * 60;
     return minutes.clamp(0, maxMinutes);
@@ -95,6 +149,12 @@ class _ForecastSpinnerState extends State<ForecastSpinner>
       vsync: this,
       duration: const Duration(milliseconds: 200),
     );
+    // Default 2 s wind animation; tightened to match wind speed
+    // inside _buildWindStateCenter on every build.
+    _windAnimController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 2000),
+    )..repeat();
     // Initialize cached segment colors
     _updateSegmentColors();
     // Defer listener registration to avoid issues during placement preview
@@ -118,6 +178,7 @@ class _ForecastSpinnerState extends State<ForecastSpinner>
   void dispose() {
     _controller.removeListener(_onAnimationTick);
     _controller.dispose();
+    _windAnimController.dispose();
     _rotationNotifier.dispose();
     super.dispose();
   }
@@ -338,44 +399,20 @@ class _ForecastSpinnerState extends State<ForecastSpinner>
             child: Stack(
             alignment: Alignment.center,
             children: [
-              // Gesture detector for the entire area (rim spinning)
-              Positioned.fill(
-                child: GestureDetector(
-                  behavior: HitTestBehavior.translucent,
-                  onPanStart: _onPanStart,
-                  onPanUpdate: (details) => _onPanUpdate(details, Size(size, size)),
-                  onPanEnd: _onPanEnd,
-                  // Use ValueListenableBuilder to only repaint the rim on rotation
-                  // without rebuilding the entire widget tree
-                  child: ValueListenableBuilder<double>(
-                    valueListenable: _rotationNotifier,
-                    builder: (context, rotationAngle, child) {
-                      return CustomPaint(
-                        size: Size(size, size),
-                        painter: _ForecastRimPainter(
-                          times: widget.sunMoonTimes,
-                          rotationAngle: rotationAngle,
-                          isDark: isDark,
-                          selectedHourOffset: _selectedHourOffset,
-                          cachedSegmentColors: _cachedSegmentColors,
-                          cachedNow: _cachedNow,
-                          maxForecastHours: widget.hourlyForecasts.length,
-                        ),
-                      );
-                    },
-                  ),
-                ),
-              ),
-
-              // Selection indicator at top - prominent pointer close to rim
+              // Selection indicator (notch) — drawn FIRST so the rim's
+              // CustomPaint renders on top of the notch's bottom edge.
+              // That clips the arrow tip behind the rim and makes the
+              // notch read as anchored to the rim instead of floating
+              // over it. Sister z-order. Tinted to the tool's primary
+              // colour so it doesn't read as an alarm.
               Positioned(
-                top: 0,
+                top: 2 * scale,
                 child: IgnorePointer(
                   child: Container(
                     width: 20 * scale,
-                    height: 30 * scale,
+                    height: 23 * scale,
                     decoration: BoxDecoration(
-                      color: Colors.red,
+                      color: widget.primaryColor,
                       borderRadius: BorderRadius.only(
                         bottomLeft: Radius.circular(10 * scale),
                         bottomRight: Radius.circular(10 * scale),
@@ -397,11 +434,61 @@ class _ForecastSpinnerState extends State<ForecastSpinner>
                 ),
               ),
 
-              // Center content (doesn't block rim gestures)
-              IgnorePointer(
-                ignoring: true,
-                child: _buildCenterContent(size, isDark),
+              // Gesture detector for the entire area (rim spinning).
+              // Uses an *eager* pan recognizer (resolves as accepted on
+              // first pointer-down) so it wins the gesture arena
+              // immediately on movement, leaving stationary touches
+              // free for the centre disc's tap-to-cycle handler. With
+              // a plain `GestureDetector` + `onPan*`, the centre's
+              // tap couldn't fire because the centre's hit-test
+              // claimed the touch first and pan never got a chance.
+              // Placed AFTER the notch so the rim paints over the
+              // notch's bottom edge.
+              Positioned.fill(
+                child: RawGestureDetector(
+                  behavior: HitTestBehavior.translucent,
+                  gestures: <Type, GestureRecognizerFactory>{
+                    _EagerPanGestureRecognizer:
+                        GestureRecognizerFactoryWithHandlers<
+                            _EagerPanGestureRecognizer>(
+                      () => _EagerPanGestureRecognizer(),
+                      (instance) {
+                        instance.onStart = _onPanStart;
+                        instance.onUpdate = (details) =>
+                            _onPanUpdate(details, Size(size, size));
+                        instance.onEnd = _onPanEnd;
+                      },
+                    ),
+                  },
+                  // Use ValueListenableBuilder to only repaint the rim on rotation
+                  // without rebuilding the entire widget tree
+                  child: ValueListenableBuilder<double>(
+                    valueListenable: _rotationNotifier,
+                    builder: (context, rotationAngle, child) {
+                      return CustomPaint(
+                        size: Size(size, size),
+                        painter: _ForecastRimPainter(
+                          times: widget.sunMoonTimes,
+                          rotationAngle: rotationAngle,
+                          isDark: isDark,
+                          selectedHourOffset: _selectedHourOffset,
+                          cachedSegmentColors: _cachedSegmentColors,
+                          cachedNow: _cachedNow,
+                          maxForecastHours: widget.hourlyForecasts.length,
+                          showSunMoonIcons: widget.showSunMoonIcons,
+                        ),
+                      );
+                    },
+                  ),
+                ),
               ),
+
+              // Centre disc on top of the rim. Its own GestureDetector
+              // captures taps for the mode-cycle. Pans started inside
+              // the centre still rotate the rim because the rim's
+              // `_EagerPanGestureRecognizer` claims the arena as soon
+              // as movement begins.
+              _buildCenterContent(size, isDark),
 
               // Return to Now button (separate, on top, interactive)
               if (_selectedHourOffset > 0)
@@ -421,10 +508,11 @@ class _ForecastSpinnerState extends State<ForecastSpinner>
                   ),
                 ),
 
-              // Provider name in top left
+              // Provider name in top left (below the time overlay
+              // when both are present)
               if (widget.providerName != null && widget.providerName!.isNotEmpty)
                 Positioned(
-                  top: 4 * scale,
+                  top: widget.showTimeOverlay ? 56 * scale : 4 * scale,
                   left: 4 * scale,
                   child: IgnorePointer(
                     child: Text(
@@ -435,6 +523,19 @@ class _ForecastSpinnerState extends State<ForecastSpinner>
                         color: isDark ? Colors.white54 : Colors.black45,
                       ),
                     ),
+                  ),
+                ),
+
+              // Compact time overlay (digital clock + date) at the
+              // top-left corner of the widget. Replaces the centre's
+              // time label so the time isn't shown in two places.
+              if (widget.showTimeOverlay)
+                Positioned(
+                  top: 4,
+                  left: 4,
+                  child: _buildCompactTimeDisplayOverlay(
+                    DateTime.now().add(Duration(minutes: _selectedMinuteOffset)),
+                    isDark,
                   ),
                 ),
             ],
@@ -460,25 +561,104 @@ class _ForecastSpinnerState extends State<ForecastSpinner>
     final selectedTime = DateTime.now().add(Duration(minutes: _selectedMinuteOffset));
     final bgColor = _getTimeOfDayColor(selectedTime);
 
-    return Container(
-      width: centerSize,
-      height: centerSize,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        gradient: RadialGradient(
-          colors: [
-            bgColor.withValues(alpha: 0.6),
-            bgColor.withValues(alpha: 0.3),
+    // Snap the active mode back to weather if the host turned off the
+    // toggle for the previously-selected mode mid-life.
+    final availableModes = _getAvailableModes();
+    if (!availableModes.contains(_currentCenterMode)) {
+      _currentCenterMode = CenterDisplayMode.weather;
+    }
+
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: availableModes.length > 1 ? _cycleCenterMode : null,
+      child: Container(
+        width: centerSize,
+        height: centerSize,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          gradient: RadialGradient(
+            colors: [
+              bgColor.withValues(alpha: 0.6),
+              bgColor.withValues(alpha: 0.3),
+            ],
+          ),
+          border: Border.all(
+            color: isDark ? Colors.white24 : Colors.black12,
+            width: 2,
+          ),
+        ),
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            if (forecast == null)
+              const Center(child: Text('No data'))
+            else
+              _buildCenterModeContent(forecast, selectedTime, isDark, centerSize),
+            // Indicator dots at the bottom — only when there's something to cycle.
+            if (availableModes.length > 1)
+              Positioned(
+                bottom: centerSize * 0.08,
+                child: _buildModeIndicator(availableModes, isDark),
+              ),
           ],
         ),
-        border: Border.all(
-          color: isDark ? Colors.white24 : Colors.black12,
-          width: 2,
-        ),
       ),
-      child: forecast == null
-          ? const Center(child: Text('No data'))
-          : _buildForecastContent(forecast, selectedTime, isDark, centerSize),
+    );
+  }
+
+  /// Available centre modes given current widget toggles.
+  List<CenterDisplayMode> _getAvailableModes() {
+    final modes = <CenterDisplayMode>[CenterDisplayMode.weather];
+    if (widget.showWindCenter) modes.add(CenterDisplayMode.wind);
+    if (widget.showSolarCenter) modes.add(CenterDisplayMode.solar);
+    return modes;
+  }
+
+  /// Tap-cycle to the next available mode.
+  void _cycleCenterMode() {
+    final modes = _getAvailableModes();
+    if (modes.length <= 1) return;
+    final currentIndex = modes.indexOf(_currentCenterMode);
+    final nextIndex = (currentIndex + 1) % modes.length;
+    setState(() => _currentCenterMode = modes[nextIndex]);
+  }
+
+  /// Dispatch to the per-mode centre builder.
+  Widget _buildCenterModeContent(
+    HourlyForecast forecast,
+    DateTime time,
+    bool isDark,
+    double centerSize,
+  ) {
+    switch (_currentCenterMode) {
+      case CenterDisplayMode.weather:
+        return _buildForecastContent(forecast, time, isDark, centerSize);
+      case CenterDisplayMode.wind:
+        return _buildWindStateCenter(forecast, time, isDark, centerSize);
+      case CenterDisplayMode.solar:
+        return _buildSolarCenter(forecast, time, isDark, centerSize);
+    }
+  }
+
+  /// Row of dots indicating the current centre mode within the
+  /// available set. Active dot is bigger + brighter.
+  Widget _buildModeIndicator(List<CenterDisplayMode> modes, bool isDark) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: modes.map((mode) {
+        final isActive = mode == _currentCenterMode;
+        return Container(
+          margin: const EdgeInsets.symmetric(horizontal: 3),
+          width: isActive ? 8 : 6,
+          height: isActive ? 8 : 6,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: isActive
+                ? (isDark ? Colors.white : Colors.black87)
+                : (isDark ? Colors.white38 : Colors.black26),
+          ),
+        );
+      }).toList(),
     );
   }
 
@@ -516,22 +696,30 @@ class _ForecastSpinnerState extends State<ForecastSpinner>
               size: centerSize,
             ),
           ),
-        // Data content on top
-        Padding(
-          padding: EdgeInsets.all(8 * scale),
+        // Data content — anchored to the top of the disc so the time
+        // label always sits at the same vertical position regardless
+        // of how many data rows follow. Sister layout.
+        Positioned(
+          top: 12 * scale,
+          left: 8 * scale,
+          right: 8 * scale,
           child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
+            mainAxisAlignment: MainAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
             children: [
-              // Time label
-              Text(
-                _formatSelectedTime(time),
-                style: TextStyle(
-                  fontSize: 14 * scale,
-                  fontWeight: FontWeight.bold,
-                  color: isDark ? Colors.white70 : Colors.black54,
+              // Time label — suppressed when the corner overlay is
+              // showing the clock; sister behaviour.
+              if (!widget.showTimeOverlay) ...[
+                Text(
+                  _formatSelectedTime(time),
+                  style: TextStyle(
+                    fontSize: 14 * scale,
+                    fontWeight: FontWeight.bold,
+                    color: isDark ? Colors.white : Colors.black87,
+                  ),
                 ),
-              ),
-              SizedBox(height: 2 * scale),
+                SizedBox(height: 2 * scale),
+              ],
 
               // Conditions text only (icon is now in background)
               // Use longDescription if available, otherwise conditions
@@ -637,6 +825,489 @@ class _ForecastSpinnerState extends State<ForecastSpinner>
     );
   }
 
+  // ===== Wind-state centre =====================================
+
+  /// Wind-state centre display — Beaufort number + scale text +
+  /// formatted speed + 16-point compass + leaf-particle animation.
+  /// Ported from `ZedDisplay-OpenMeteo/lib/widgets/forecast_spinner.dart:928`.
+  Widget _buildWindStateCenter(
+      HourlyForecast forecast, DateTime time, bool isDark, double centerSize) {
+    final scale = (centerSize / 200).clamp(0.6, 1.2);
+    final windSpeed = forecast.windSpeed ?? 0.0;
+    final windDirection = forecast.windDirection;
+    final beaufort = forecast.beaufort ?? 0;
+    final beaufortDesc = _getBeaufortDescription(beaufort);
+
+    final formattedSpeed = _fmtWind(windSpeed);
+
+    final compassDir = windDirection != null
+        ? _getWindDirectionLabel(windDirection)
+        : '--';
+
+    // Speed-scaled animation duration. The animation runs continuously
+    // regardless of which centre is showing (so a toggle to wind is
+    // mid-cycle), so updating the period here is safe.
+    final windMpsForAnim = (forecast.windSpeed ?? 0.0).clamp(0.0, 28.0);
+    final animDuration =
+        (4000 - (windMpsForAnim * 125)).round().clamp(500, 4000);
+    if (_windAnimController.duration?.inMilliseconds != animDuration) {
+      _windAnimController.duration = Duration(milliseconds: animDuration);
+      if (!_windAnimController.isAnimating) {
+        _windAnimController.repeat();
+      }
+    }
+
+    return Stack(
+      children: [
+        if (windSpeed > 0)
+          Positioned.fill(
+            child: ClipOval(
+              child: AnimatedBuilder(
+                animation: _windAnimController,
+                builder: (context, _) {
+                  return _buildWindParticles(
+                    _windAnimController.value,
+                    windDirection ?? 0,
+                    windSpeed,
+                    beaufort,
+                    centerSize,
+                    isDark,
+                  );
+                },
+              ),
+            ),
+          ),
+        Padding(
+          padding: EdgeInsets.all(12 * scale),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              if (!widget.showTimeOverlay) ...[
+                Text(
+                  _formatSelectedTime(time),
+                  style: TextStyle(
+                    fontSize: 14 * scale,
+                    fontWeight: FontWeight.bold,
+                    color: isDark ? Colors.white : Colors.black87,
+                  ),
+                ),
+                SizedBox(height: 2 * scale),
+              ],
+              Text(
+                beaufortDesc.toUpperCase(),
+                style: TextStyle(
+                  fontSize: 12 * scale,
+                  fontWeight: FontWeight.bold,
+                  color: isDark ? Colors.white : Colors.black87,
+                  letterSpacing: 1.2,
+                  shadows: isDark
+                      ? null
+                      : const [Shadow(color: Colors.white, blurRadius: 2)],
+                ),
+              ),
+              SizedBox(height: 2 * scale),
+              Text(
+                'BF $beaufort',
+                style: TextStyle(
+                  fontSize: 22 * scale,
+                  fontWeight: FontWeight.bold,
+                  color: _getBeaufortColor(beaufort),
+                  shadows: [
+                    Shadow(
+                      color: isDark ? Colors.black54 : Colors.white,
+                      blurRadius: 3,
+                    ),
+                  ],
+                ),
+              ),
+              SizedBox(height: 8 * scale),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  if (windDirection != null)
+                    Transform.rotate(
+                      angle: (windDirection + 180) * math.pi / 180,
+                      child: Icon(
+                        Icons.navigation,
+                        size: 24 * scale,
+                        color: Colors.teal.shade600,
+                        shadows: [
+                          Shadow(
+                            color: isDark ? Colors.black54 : Colors.white,
+                            blurRadius: 3,
+                          ),
+                        ],
+                      ),
+                    ),
+                  SizedBox(width: 6 * scale),
+                  Text(
+                    formattedSpeed,
+                    style: TextStyle(
+                      fontSize: 20 * scale,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.teal.shade600,
+                      shadows: [
+                        Shadow(
+                          color: isDark ? Colors.black54 : Colors.white,
+                          blurRadius: 3,
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              SizedBox(height: 4 * scale),
+              Text(
+                'from $compassDir',
+                style: TextStyle(
+                  fontSize: 14 * scale,
+                  color: isDark ? Colors.white : Colors.black87,
+                  shadows: isDark
+                      ? null
+                      : const [Shadow(color: Colors.white, blurRadius: 2)],
+                ),
+              ),
+              SizedBox(height: 20 * scale), // dot indicator space
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// Leaf-particle animation drifting across the centre in the wind's
+  /// direction. Ported from sister; uses Material `Icons.eco` since the
+  /// main app dropped `phosphor_flutter`.
+  Widget _buildWindParticles(
+    double progress,
+    double windDirection,
+    double windSpeed,
+    int beaufort,
+    double size,
+    bool isDark,
+  ) {
+    final center = size / 2;
+    final radius = size / 2;
+    final leafCount = (4 + beaufort.clamp(0, 8)).clamp(4, 12);
+    // Wind direction (meteorological, 0 = N, clockwise) → canvas radians
+    // where +x is east and the centre is "up" on screen.
+    final windAngle = (windDirection + 90) * math.pi / 180;
+    const iconSize = 22.0;
+    final speedMultiplier = 1.0 + (windSpeed.clamp(0, 60) / 30);
+    final oscillationAmp = radius * (0.12 - beaufort * 0.008).clamp(0.02, 0.12);
+
+    final particles = <Widget>[];
+    for (int i = 0; i < leafCount; i++) {
+      final delay = (i * 0.618033988749895) % 1.0;
+      final t = (progress * speedMultiplier + delay) % 1.0;
+      final startX = -radius * 0.3;
+      final endX = radius * 1.3;
+      final currentProgress = startX + t * (endX - startX);
+      final baseY = (i - leafCount / 2) * (radius * 1.6 / leafCount);
+      final oscillation = math.sin((t + delay) * math.pi * (3 + beaufort * 0.5)) *
+          oscillationAmp;
+      final currentY = baseY + oscillation;
+      final rotatedX = center +
+          currentProgress * math.cos(windAngle) -
+          currentY * math.sin(windAngle);
+      final rotatedY = center +
+          currentProgress * math.sin(windAngle) +
+          currentY * math.cos(windAngle);
+      final distFromCenter = math.sqrt(
+          math.pow(rotatedX - center, 2) + math.pow(rotatedY - center, 2));
+      if (distFromCenter > radius * 0.85) continue;
+      final edgeFade = (1 - distFromCenter / radius).clamp(0.5, 1.0);
+      final alpha = (isDark ? 0.95 : 0.9) * edgeFade;
+      final tumbleSpeed = (1 + beaufort * 1.2) * math.pi;
+      final leafRotation = (t * tumbleSpeed + i * 1.7) +
+          math.sin(t * math.pi * 4 + i) * (0.3 + beaufort * 0.15);
+      final leafColors = [
+        Colors.green.shade300,
+        Colors.green.shade400,
+        Colors.lightGreen.shade300,
+        Colors.teal.shade600,
+      ];
+      final leafColor = leafColors[i % leafColors.length];
+      particles.add(
+        Positioned(
+          left: rotatedX - iconSize / 2,
+          top: rotatedY - iconSize / 2,
+          child: Transform.rotate(
+            angle: leafRotation,
+            child: Icon(
+              Icons.eco,
+              size: iconSize,
+              color: leafColor.withValues(alpha: alpha),
+            ),
+          ),
+        ),
+      );
+    }
+    return Stack(children: particles);
+  }
+
+  /// Format a wind speed (m/s) using the user's preferred wind unit
+  /// symbol passed in `widget.windUnit`. Conversion to that unit
+  /// already happened in `_buildHourlyForecasts`; this is just the
+  /// display string.
+  String _fmtWind(double mps) {
+    final symbol = widget.windUnit ?? 'm/s';
+    return '${mps.toStringAsFixed(1)} $symbol';
+  }
+
+  String _getBeaufortDescription(int bf) {
+    const descriptions = [
+      'Calm', 'Light air', 'Light breeze', 'Gentle breeze',
+      'Moderate breeze', 'Fresh breeze', 'Strong breeze', 'Near gale',
+      'Gale', 'Strong gale', 'Storm', 'Violent storm', 'Hurricane',
+    ];
+    return descriptions[bf.clamp(0, 12)];
+  }
+
+  Color _getBeaufortColor(int bf) {
+    if (bf <= 2) return Colors.green;
+    if (bf <= 4) return Colors.teal;
+    if (bf <= 6) return Colors.orange;
+    if (bf <= 8) return Colors.deepOrange;
+    if (bf <= 10) return Colors.red;
+    return Colors.purple;
+  }
+
+  // ===== Solar centre ==========================================
+
+  /// Solar-state centre display. Reads irradiance from the forecast
+  /// (best-effort populated from `WeatherApiForecast.irradianceWm2`);
+  /// when the active provider doesn't return solar, irradiance is
+  /// null/zero and we fall back to a night display. Ported from
+  /// `ZedDisplay-OpenMeteo/lib/widgets/forecast_spinner.dart:1433`,
+  /// with the sister's `SolarCalculationService` helpers inlined.
+  Widget _buildSolarCenter(
+      HourlyForecast forecast, DateTime time, bool isDark, double centerSize) {
+    final scale = (centerSize / 200).clamp(0.6, 1.2);
+    final irradiance = forecast.irradianceWm2 ?? 0.0;
+    if (irradiance <= 0) {
+      return _buildNightSolarDisplay(time, isDark, scale);
+    }
+    final maxWatts = widget.panelMaxWatts ?? 0;
+    final derate = widget.systemDerate ?? 0.85;
+    final hasPanelConfig = maxWatts > 0;
+    final label = _getRadiationLabel(irradiance);
+    final color = _getRadiationColor(irradiance);
+    double? watts;
+    if (hasPanelConfig) {
+      watts = _calculateInstantPower(
+          irradiance: irradiance, maxWatts: maxWatts, systemDerate: derate);
+    }
+
+    return Stack(
+      children: [
+        if (irradiance > 50)
+          Positioned.fill(
+            child: ClipOval(
+              child: _SunRaysAnimation(
+                intensity: (irradiance / 1000).clamp(0.1, 1.0),
+                isDark: isDark,
+              ),
+            ),
+          ),
+        Padding(
+          padding: EdgeInsets.all(12 * scale),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              if (!widget.showTimeOverlay) ...[
+                Text(
+                  _formatSelectedTime(time),
+                  style: TextStyle(
+                    fontSize: 14 * scale,
+                    fontWeight: FontWeight.bold,
+                    color: isDark ? Colors.white : Colors.black87,
+                  ),
+                ),
+                SizedBox(height: 2 * scale),
+              ],
+              Text(
+                label.toUpperCase(),
+                style: TextStyle(
+                  fontSize: 12 * scale,
+                  fontWeight: FontWeight.bold,
+                  color: isDark ? Colors.white : Colors.black87,
+                  letterSpacing: 1.2,
+                  shadows: isDark
+                      ? null
+                      : const [Shadow(color: Colors.white, blurRadius: 2)],
+                ),
+              ),
+              SizedBox(height: 2 * scale),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    Icons.wb_sunny,
+                    size: 20 * scale,
+                    color: color,
+                    shadows: [
+                      Shadow(
+                        color: isDark ? Colors.black54 : Colors.white,
+                        blurRadius: 3,
+                      ),
+                    ],
+                  ),
+                  SizedBox(width: 4 * scale),
+                  Text(
+                    '${irradiance.toStringAsFixed(0)} W/m²',
+                    style: TextStyle(
+                      fontSize: 18 * scale,
+                      fontWeight: FontWeight.bold,
+                      color: color,
+                      shadows: [
+                        Shadow(
+                          color: isDark ? Colors.black54 : Colors.white,
+                          blurRadius: 3,
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              SizedBox(height: 8 * scale),
+              if (hasPanelConfig && watts != null)
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      Icons.electric_bolt,
+                      size: 18 * scale,
+                      color: Colors.amber,
+                      shadows: [
+                        Shadow(
+                          color: isDark ? Colors.black54 : Colors.white,
+                          blurRadius: 3,
+                        ),
+                      ],
+                    ),
+                    SizedBox(width: 4 * scale),
+                    Text(
+                      _formatWatts(watts),
+                      style: TextStyle(
+                        fontSize: 20 * scale,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.amber,
+                        shadows: [
+                          Shadow(
+                            color: isDark ? Colors.black54 : Colors.white,
+                            blurRadius: 3,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                )
+              else
+                Text(
+                  'No panel configured',
+                  style: TextStyle(
+                    fontSize: 12 * scale,
+                    color: isDark ? Colors.white38 : Colors.black26,
+                    fontStyle: FontStyle.italic,
+                  ),
+                ),
+              SizedBox(height: 20 * scale),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// Night / no-solar-output fallback. Shown when the forecast hour
+  /// has zero irradiance (night for the selected time, or a provider
+  /// that doesn't expose solar at all).
+  Widget _buildNightSolarDisplay(DateTime selectedTime, bool isDark, double scale) {
+    return Padding(
+      padding: EdgeInsets.all(12 * scale),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Text(
+            _formatSelectedTime(selectedTime),
+            style: TextStyle(
+              fontSize: 14 * scale,
+              fontWeight: FontWeight.bold,
+              color: isDark ? Colors.white : Colors.black87,
+            ),
+          ),
+          SizedBox(height: 8 * scale),
+          Icon(
+            Icons.nightlight_round,
+            size: 32 * scale,
+            color: Colors.indigo.shade500,
+          ),
+          SizedBox(height: 8 * scale),
+          Text(
+            'NIGHT',
+            style: TextStyle(
+              fontSize: 14 * scale,
+              fontWeight: FontWeight.bold,
+              color: Colors.indigo.shade500,
+              letterSpacing: 1.2,
+            ),
+          ),
+          SizedBox(height: 4 * scale),
+          Text(
+            'No solar output',
+            style: TextStyle(
+              fontSize: 12 * scale,
+              color: isDark ? Colors.white38 : Colors.black26,
+            ),
+          ),
+          SizedBox(height: 20 * scale),
+        ],
+      ),
+    );
+  }
+
+  String _formatWatts(double watts) {
+    if (watts < 1) return '0W';
+    if (watts >= 1000) return '${(watts / 1000).toStringAsFixed(1)}kW';
+    return '${watts.toStringAsFixed(0)}W';
+  }
+
+  /// Instantaneous PV power output at the given irradiance.
+  /// Inlined from sister's `SolarCalculationService.calculateInstantPower`.
+  /// `stcIrradiance = 1000 W/m²` (STC reference).
+  static double _calculateInstantPower({
+    required double irradiance,
+    required double maxWatts,
+    double systemDerate = 0.85,
+  }) {
+    if (irradiance <= 0 || maxWatts <= 0) return 0.0;
+    const stcIrradiance = 1000.0;
+    return (irradiance / stcIrradiance) * maxWatts * systemDerate;
+  }
+
+  /// Inlined from sister's `SolarCalculationService.getRadiationLabel`.
+  static String _getRadiationLabel(double wm2) {
+    if (wm2 < 50) return 'Negligible';
+    if (wm2 < 200) return 'Low';
+    if (wm2 < 400) return 'Moderate';
+    if (wm2 < 600) return 'Good';
+    if (wm2 < 800) return 'Very Good';
+    if (wm2 < 1000) return 'Excellent';
+    return 'Peak';
+  }
+
+  /// Inlined from sister's `SolarCalculationService.getRadiationColor`.
+  static Color _getRadiationColor(double wm2) {
+    if (wm2 < 50) return Colors.grey;
+    if (wm2 < 200) return Colors.blue.shade300;
+    if (wm2 < 400) return Colors.green;
+    if (wm2 < 600) return Colors.yellow.shade700;
+    if (wm2 < 800) return Colors.orange;
+    if (wm2 < 1000) return Colors.deepOrange;
+    return Colors.red;
+  }
+
   String _formatSelectedTime(DateTime time) {
     final now = DateTime.now();
     final isToday = time.day == now.day && time.month == now.month && time.year == now.year;
@@ -659,6 +1330,93 @@ class _ForecastSpinnerState extends State<ForecastSpinner>
       final dayName = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][time.weekday - 1];
       return '$dayName $hourStr';
     }
+  }
+
+  // ===== Corner time overlay (digital clock + date) ===========
+
+  /// Compact date label shown beneath the clock — "Today", "Tmrw",
+  /// "Mon"…"Sun", or "Jan 6" for dates beyond a week out. Sister's
+  /// `_getCompactDateLabel`.
+  String _getCompactDateLabel(DateTime time) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final target = DateTime(time.year, time.month, time.day);
+    final diff = target.difference(today).inDays;
+    if (diff == 0) return 'Today';
+    if (diff == 1) return 'Tmrw';
+    if (diff >= 2 && diff <= 6) {
+      return ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][time.weekday - 1];
+    }
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+                    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    return '${months[time.month - 1]} ${time.day}';
+  }
+
+  /// Digital clock — "3:45 PM" with the AM/PM rendered smaller.
+  /// Fixed font sizes (no scale multiplier) so the corner overlay
+  /// stays a consistent size across spinner instances.
+  Widget _buildDigitalClock(DateTime time, bool isDark) {
+    final hour = time.hour;
+    final minute = time.minute;
+    final minuteStr = minute.toString().padLeft(2, '0');
+    final displayHour = hour == 0 ? 12 : (hour > 12 ? hour - 12 : hour);
+    final ampm = hour < 12 ? 'AM' : 'PM';
+    final timeStr = '$displayHour:$minuteStr';
+    return SizedBox(
+      width: 64,
+      child: FittedBox(
+        fit: BoxFit.scaleDown,
+        alignment: Alignment.centerRight,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.baseline,
+          textBaseline: TextBaseline.alphabetic,
+          children: [
+            Text(
+              timeStr,
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: isDark ? Colors.white : Colors.black87,
+              ),
+            ),
+            const SizedBox(width: 2),
+            Text(
+              ampm,
+              style: TextStyle(
+                fontSize: 9,
+                fontWeight: FontWeight.w500,
+                color: isDark ? Colors.white54 : Colors.black87,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Compact time-overlay: digital clock + date label below it.
+  /// Wrapped in `IgnorePointer` so it never steals taps from the rim
+  /// or centre.
+  Widget _buildCompactTimeDisplayOverlay(DateTime time, bool isDark) {
+    return IgnorePointer(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _buildDigitalClock(time, isDark),
+          const SizedBox(height: 2),
+          Text(
+            _getCompactDateLabel(time),
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              color: isDark ? Colors.white : Colors.black87,
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   Color _getTimeOfDayColor(DateTime time) {
@@ -790,6 +1548,7 @@ class _ForecastRimPainter extends CustomPainter {
   final List<Color>? cachedSegmentColors;
   final DateTime cachedNow;
   final int maxForecastHours;
+  final bool showSunMoonIcons;
 
   _ForecastRimPainter({
     required this.times,
@@ -799,6 +1558,7 @@ class _ForecastRimPainter extends CustomPainter {
     this.cachedSegmentColors,
     required this.cachedNow,
     required this.maxForecastHours,
+    this.showSunMoonIcons = true,
   });
 
   @override
@@ -971,8 +1731,13 @@ class _ForecastRimPainter extends CustomPainter {
       canvas.restore();
     }
 
-    // Draw sun/moon icons on the rim (pass base offset and scale for correct positioning)
-    _drawSunMoonIcons(canvas, center, outerRadius, innerRadius, cachedNow, baseHourOffset, scale);
+    // Draw sun/moon icons on the rim (pass base offset and scale for
+    // correct positioning). Gated by the per-spinner toggle so users
+    // can hide the rim icons regardless of whether the SignalK paths
+    // are actually publishing rise/set/twilight times.
+    if (showSunMoonIcons) {
+      _drawSunMoonIcons(canvas, center, outerRadius, innerRadius, cachedNow, baseHourOffset, scale);
+    }
 
     canvas.restore();
 
@@ -1535,6 +2300,7 @@ class _ForecastRimPainter extends CustomPainter {
     // cachedSegmentColors identity check is fast (same list = no change)
     return oldDelegate.rotationAngle != rotationAngle ||
            oldDelegate.isDark != isDark ||
+           oldDelegate.showSunMoonIcons != showSunMoonIcons ||
            !identical(oldDelegate.cachedSegmentColors, cachedSegmentColors);
   }
 }
@@ -1703,5 +2469,139 @@ class _WeatherParticle {
   }) {
     currentX = x;
     currentY = y;
+  }
+}
+
+/// Rotating amber/orange ray spray behind the solar centre.
+/// Ported verbatim from `ZedDisplay-OpenMeteo/lib/widgets/forecast_spinner.dart:4490`.
+class _SunRaysAnimation extends StatefulWidget {
+  final double intensity; // 0.0–1.0 — opacity + ray count
+  final bool isDark;
+
+  const _SunRaysAnimation({
+    required this.intensity,
+    required this.isDark,
+  });
+
+  @override
+  State<_SunRaysAnimation> createState() => _SunRaysAnimationState();
+}
+
+class _SunRaysAnimationState extends State<_SunRaysAnimation>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      duration: const Duration(seconds: 20),
+      vsync: this,
+    )..repeat();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _controller,
+      builder: (context, child) {
+        return CustomPaint(
+          painter: _SunRaysPainter(
+            progress: _controller.value,
+            intensity: widget.intensity,
+            isDark: widget.isDark,
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _SunRaysPainter extends CustomPainter {
+  final double progress;
+  final double intensity;
+  final bool isDark;
+
+  _SunRaysPainter({
+    required this.progress,
+    required this.intensity,
+    required this.isDark,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+    final maxRadius = math.max(size.width, size.height);
+    final rayCount = (8 + (intensity * 8)).round();
+    final baseAngle = progress * 2 * math.pi;
+
+    for (int i = 0; i < rayCount; i++) {
+      final angle = baseAngle + (i * 2 * math.pi / rayCount);
+      final rayIntensity = 0.5 + 0.5 * math.sin(progress * 4 * math.pi + i);
+      final rayLength = maxRadius * (0.3 + 0.3 * rayIntensity);
+      final rayWidth = math.pi / 60 * (1 + rayIntensity);
+      final rayPaint = Paint()
+        ..shader = RadialGradient(
+          center: Alignment.center,
+          radius: 1.0,
+          colors: [
+            Colors.orange.withValues(alpha: intensity * 0.15 * rayIntensity),
+            Colors.amber.withValues(alpha: intensity * 0.08 * rayIntensity),
+            Colors.transparent,
+          ],
+          stops: const [0.0, 0.5, 1.0],
+        ).createShader(Rect.fromCircle(center: center, radius: rayLength))
+        ..style = PaintingStyle.fill;
+      final path = Path()
+        ..moveTo(center.dx, center.dy)
+        ..arcTo(
+          Rect.fromCircle(center: center, radius: rayLength),
+          angle - rayWidth / 2,
+          rayWidth,
+          false,
+        )
+        ..close();
+      canvas.drawPath(path, rayPaint);
+    }
+
+    final glowPaint = Paint()
+      ..shader = RadialGradient(
+        center: Alignment.center,
+        radius: 0.5,
+        colors: [
+          Colors.amber.withValues(alpha: intensity * 0.2),
+          Colors.orange.withValues(alpha: intensity * 0.1),
+          Colors.transparent,
+        ],
+        stops: const [0.0, 0.4, 1.0],
+      ).createShader(Rect.fromCircle(center: center, radius: maxRadius * 0.5));
+    canvas.drawCircle(center, maxRadius * 0.3, glowPaint);
+  }
+
+  @override
+  bool shouldRepaint(covariant _SunRaysPainter oldDelegate) {
+    return oldDelegate.progress != progress ||
+        oldDelegate.intensity != intensity ||
+        oldDelegate.isDark != isDark;
+  }
+}
+
+/// Pan recognizer that resolves the gesture arena as accepted on the
+/// first pointer-down. Used on the spinner's rim so pans win
+/// immediately and don't have to wait for the slop threshold; this
+/// lets the centre disc keep its own tap-to-cycle handler without
+/// losing tap events to undecided pan contention. Ported verbatim
+/// from `ZedDisplay-OpenMeteo/lib/widgets/forecast_spinner.dart:4622`.
+class _EagerPanGestureRecognizer extends PanGestureRecognizer {
+  @override
+  void addAllowedPointer(PointerDownEvent event) {
+    super.addAllowedPointer(event);
+    resolve(GestureDisposition.accepted);
   }
 }

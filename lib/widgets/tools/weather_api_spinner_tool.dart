@@ -1,4 +1,10 @@
+import 'dart:convert';
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
+
+import '../../models/path_metadata.dart';
 import '../../models/tool_definition.dart';
 import '../../models/tool_config.dart';
 import '../../services/signalk_service.dart';
@@ -38,6 +44,16 @@ class _WeatherApiSpinnerToolState extends State<WeatherApiSpinnerTool>
   // Cached sun/moon times to avoid recalculating every build
   SunMoonTimes? _cachedSunMoonTimes;
 
+  /// Active-preset units, keyed by SignalK category name
+  /// (`temperature`, `speed`, `pressure`, `angle`, `percentage`, …).
+  /// Sourced once from `GET /signalk/v1/unitpreferences/active`, which
+  /// returns the user's preset already enriched with `formula` +
+  /// `symbol` for each category. The weather API delivers raw SI
+  /// values on provider-prefixed paths the server's
+  /// `default-categories.json` doesn't cover, so MetadataStore can't
+  /// resolve them — this endpoint sidesteps that entirely.
+  Map<String, PathMetadata>? _activeUnits;
+
   @override
   bool get wantKeepAlive => true; // Keep state alive when scrolled off screen
 
@@ -60,6 +76,11 @@ class _WeatherApiSpinnerToolState extends State<WeatherApiSpinnerTool>
       // Dynamically subscribe to sun/moon paths based on forecastDays
       _subscribeSunMoonPaths(forecastDays);
 
+      // Fetch the active unit preset (formula + symbol per category).
+      // Independent of the forecast fetch; result drives _convertApi
+      // and the unit-symbol lookups.
+      _fetchActiveUnits();
+
       _weatherService = WeatherApiService(widget.signalKService, provider: provider, forecastDays: forecastDays);
       _weatherService!.addListener(_onDataChanged);
 
@@ -75,21 +96,115 @@ class _WeatherApiSpinnerToolState extends State<WeatherApiSpinnerTool>
     }
   }
 
-  /// Dynamically subscribe to sun/moon paths based on forecast days
+  /// Fetch the active unit preset from
+  /// `GET /signalk/v1/unitpreferences/active`. The response is the
+  /// preset's `categories` map with each entry already enriched with
+  /// `formula`, `inverseFormula`, and `symbol` resolved by the server
+  /// from `unitDefinitions[baseUnit].conversions[targetUnit]`. We
+  /// wrap each entry in a [PathMetadata] so its existing
+  /// `math_expressions`-backed `convert()` does the formula eval.
+  ///
+  /// Forecasts that arrive before this completes display raw SI;
+  /// `_onDataChanged` / the build's next rebuild will pick up the
+  /// converted values once `setState` runs here.
+  Future<void> _fetchActiveUnits() async {
+    final svc = widget.signalKService;
+    final url = Uri.parse('${svc.httpBaseUrl}/signalk/v1/unitpreferences/active');
+    final token = svc.authToken?.token;
+    try {
+      final resp = await http.get(
+        url,
+        headers: {
+          if (token != null) 'Authorization': 'Bearer $token',
+        },
+      );
+      if (resp.statusCode != 200) {
+        debugPrint('WeatherApiSpinner: /unitpreferences/active → ${resp.statusCode}');
+        return;
+      }
+      final body = jsonDecode(resp.body);
+      if (body is! Map<String, dynamic>) return;
+      final categories = body['categories'];
+      if (categories is! Map<String, dynamic>) return;
+      final units = <String, PathMetadata>{};
+      categories.forEach((category, entry) {
+        if (entry is! Map<String, dynamic>) return;
+        final formula = entry['formula'] as String?;
+        final symbol = entry['symbol'] as String?;
+        if (formula == null && symbol == null) return; // identity-only — skip
+        units[category] = PathMetadata(
+          path: '__active__.$category',
+          baseUnit: entry['baseUnit'] as String?,
+          targetUnit: entry['targetUnit'] as String?,
+          category: category,
+          formula: formula,
+          inverseFormula: entry['inverseFormula'] as String?,
+          symbol: symbol,
+        );
+      });
+      if (!mounted) return;
+      setState(() {
+        _activeUnits = units;
+        // Drop the cached forecasts so the next build re-runs
+        // `_buildHourlyForecasts` with the now-available conversion.
+        _cachedForecasts = null;
+      });
+    } catch (e) {
+      debugPrint('WeatherApiSpinner: /unitpreferences/active failed: $e');
+    }
+  }
+
+  /// Subscribe to the leaf sun/moon paths the spinner reads.
+  ///
+  /// SignalK subscriptions are exact-path — subscribing to a parent
+  /// like `environment.sunlight.times` does NOT cover its children,
+  /// because the parent itself has no value (the values live on
+  /// leaves like `environment.sunlight.times.sunrise`). Subscribe to
+  /// each leaf explicitly so the WebSocket actually delivers the
+  /// values, then `_getSunMoonTimes` can read them from the cache.
   void _subscribeSunMoonPaths(int forecastDays) {
-    final paths = <String>[
-      'environment.sunlight.times',  // Today
-      'environment.moon',            // Moon data
-      'navigation.position',         // Position for weather API
+    // Leaves consumed by `_getSunMoonTimes()` (keep in sync if that
+    // method grows). One set per day; today is the unsuffixed base
+    // path, days N≥1 use `.N` between the base path and the leaf
+    // key (`environment.sunlight.times.1.sunrise`).
+    const sunLeaves = [
+      'sunrise',
+      'sunset',
+      'dawn',
+      'dusk',
+      'nauticalDawn',
+      'nauticalDusk',
+      'solarNoon',
+      'goldenHour',
+      'goldenHourEnd',
+      'night',
+      'nightEnd',
+    ];
+    const moonLeaves = [
+      'times.rise',
+      'times.set',
+      'phase',
+      'fraction',
+      'angle',
     ];
 
-    // Add paths for each additional forecast day (today is base path, .1 is tomorrow, etc.)
-    for (int i = 1; i < forecastDays; i++) {
-      paths.add('environment.sunlight.times.$i');
-      paths.add('environment.moon.$i');
+    final paths = <String>[
+      'navigation.position', // Position for weather API
+    ];
+    for (int i = 0; i < forecastDays; i++) {
+      final sunBase =
+          i == 0 ? 'environment.sunlight.times' : 'environment.sunlight.times.$i';
+      final moonBase = i == 0 ? 'environment.moon' : 'environment.moon.$i';
+      for (final leaf in sunLeaves) {
+        paths.add('$sunBase.$leaf');
+      }
+      for (final leaf in moonLeaves) {
+        paths.add('$moonBase.$leaf');
+      }
     }
 
-    debugPrint('WeatherSpinner: Subscribing to ${paths.length} sun/moon paths for $forecastDays days');
+    debugPrint(
+        'WeatherSpinner: Subscribing to ${paths.length} sun/moon leaf paths for $forecastDays days');
     widget.signalKService.subscribeToPaths(paths, ownerId: 'weather_spinner');
 
     // Refresh sun/moon times after data arrives via WebSocket
@@ -127,24 +242,6 @@ class _WeatherApiSpinnerToolState extends State<WeatherApiSpinnerTool>
     setState(() {});
   }
 
-  // Build conversion path based on provider source
-  String _getConversionPath(String field) {
-    final provider = _weatherService?.provider;
-    String source = 'meteoblue'; // default
-    if (provider != null && provider.startsWith('signalk-')) {
-      source = provider.substring(8); // remove "signalk-" prefix
-    } else if (provider != null && provider.isNotEmpty) {
-      source = provider;
-    }
-    // Normalize provider names to match SignalK conversion paths
-    if (source == 'weatherflow') {
-      source = 'tempest';
-    } else if (source == 'open-meteo') {
-      source = 'openmeteo'; // SignalK path uses no hyphen
-    }
-    return 'environment.outside.$source.forecast.hourly.$field.0';
-  }
-
   @override
   Widget build(BuildContext context) {
     super.build(context); // Required for AutomaticKeepAliveClientMixin
@@ -155,12 +252,11 @@ class _WeatherApiSpinnerToolState extends State<WeatherApiSpinnerTool>
       fallback: Colors.blue,
     ) ?? Colors.blue;
 
-    // Unit symbols from MetadataStore (via getUnitSymbol delegation).
-    // MetadataStore has category-level fallback wired, so a known path that
-    // lacks path-specific metadata still resolves via its category.
-    final tempUnit = widget.signalKService.getUnitSymbol(_getConversionPath('airTemperature')) ?? '';
-    final windUnit = widget.signalKService.getUnitSymbol(_getConversionPath('windAvg')) ?? '';
-    final pressureUnit = widget.signalKService.getUnitSymbol(_getConversionPath('seaLevelPressure')) ?? '';
+    // Unit symbols come from the active preset fetched by
+    // `_fetchActiveUnits`. Empty strings until that response arrives.
+    final tempUnit = _metaForCategory('temperature')?.symbol ?? '';
+    final windUnit = _metaForCategory('speed')?.symbol ?? '';
+    final pressureUnit = _metaForCategory('pressure')?.symbol ?? '';
 
     // Use cached forecasts (updated in _onDataChanged)
     // Always rebuild if cache is empty but service has data (handles swipe away/back)
@@ -236,7 +332,18 @@ class _WeatherApiSpinnerToolState extends State<WeatherApiSpinnerTool>
       );
     }
 
-    final showWeatherAnimation = widget.config.style.customProperties?['showWeatherAnimation'] as bool? ?? true;
+    final cp = widget.config.style.customProperties ?? const {};
+    final showWeatherAnimation = cp['showWeatherAnimation'] as bool? ?? true;
+    // Default the new centre modes ON so the ported wind + solar
+    // displays are visible without requiring a customProperties edit.
+    // Tap the centre disc to cycle through modes; dots at the bottom
+    // show which mode is active.
+    final showWindCenter = cp['showWindCenter'] as bool? ?? true;
+    final showSolarCenter = cp['showSolarCenter'] as bool? ?? true;
+    final showSunMoonIcons = cp['showSunMoonIcons'] as bool? ?? true;
+    final showTimeOverlay = cp['showTimeOverlay'] as bool? ?? true;
+    final panelMaxWatts = (cp['panelMaxWatts'] as num?)?.toDouble();
+    final systemDerate = (cp['systemDerate'] as num?)?.toDouble();
 
     return Stack(
       children: [
@@ -249,6 +356,12 @@ class _WeatherApiSpinnerToolState extends State<WeatherApiSpinnerTool>
           primaryColor: primaryColor,
           providerName: _getProviderDisplayName(),
           showWeatherAnimation: showWeatherAnimation,
+          showWindCenter: showWindCenter,
+          showSolarCenter: showSolarCenter,
+          showSunMoonIcons: showSunMoonIcons,
+          showTimeOverlay: showTimeOverlay,
+          panelMaxWatts: panelMaxWatts,
+          systemDerate: systemDerate,
         ),
         // Refresh button with loading/success indicator
         Positioned(
@@ -312,17 +425,37 @@ class _WeatherApiSpinnerToolState extends State<WeatherApiSpinnerTool>
     }
   }
 
-  /// Convert a raw SI value using MetadataStore. The weather API delivers
-  /// values as raw SI (Kelvin, Pa, m/s, radians, ratios) — they never enter
-  /// the data cache, so we apply the path's metadata directly.
-  ///
-  /// MetadataStore's category fallback (wired via [MetadataStore.categoryLookup])
-  /// resolves symbols/formulas for forecast paths that don't have direct
-  /// entries, so no separate per-field-type shim is needed.
-  double? _convertApi(String path, double? rawValue) {
+  /// Convert a raw SI value via the user's active-preset entry for
+  /// [category]. `_activeUnits` is populated by `_fetchActiveUnits`
+  /// from `/signalk/v1/unitpreferences/active`; until that response
+  /// arrives the value passes through unchanged.
+  double? _convertApi(String category, double? rawValue) {
     if (rawValue == null) return null;
-    final meta = widget.signalKService.metadataStore.get(path);
+    final meta = _metaForCategory(category);
     return meta?.convert(rawValue) ?? rawValue;
+  }
+
+  PathMetadata? _metaForCategory(String category) => _activeUnits?[category];
+
+  /// Beaufort scale (0-12) from wind speed in m/s. Cutoffs lifted
+  /// verbatim from the sister app's `openmeteo_core.HourlyForecast`
+  /// so the wind-state centre on this app reads identically. Returns
+  /// null for a null input.
+  static int? _beaufortFromMps(double? mps) {
+    if (mps == null) return null;
+    if (mps < 0.5) return 0;
+    if (mps < 1.6) return 1;
+    if (mps < 3.4) return 2;
+    if (mps < 5.5) return 3;
+    if (mps < 8.0) return 4;
+    if (mps < 10.8) return 5;
+    if (mps < 13.9) return 6;
+    if (mps < 17.2) return 7;
+    if (mps < 20.8) return 8;
+    if (mps < 24.5) return 9;
+    if (mps < 28.5) return 10;
+    if (mps < 32.7) return 11;
+    return 12;
   }
 
   /// Convert WeatherApiForecast to HourlyForecast for the spinner, applying
@@ -341,13 +474,19 @@ class _WeatherApiSpinnerToolState extends State<WeatherApiSpinnerTool>
       final hoursFromNow = apiFC.time.difference(now).inMinutes / 60.0;
       if (hoursFromNow < -1) continue; // Skip past forecasts
 
-      final temp = _convertApi(_getConversionPath('airTemperature'), apiFC.airTemperature);
-      final feelsLike = _convertApi(_getConversionPath('airTemperature'), apiFC.feelsLike);
-      final windSpeed = _convertApi(_getConversionPath('windAvg'), apiFC.windAvg);
-      final windDir = _convertApi(_getConversionPath('windDirection'), apiFC.windDirection);
-      final pressure = _convertApi(_getConversionPath('seaLevelPressure'), apiFC.pressure);
-      final humidity = _convertApi(_getConversionPath('relativeHumidity'), apiFC.relativeHumidity);
-      final precipProb = _convertApi(_getConversionPath('precipProbability'), apiFC.precipProbability);
+      final temp = _convertApi('temperature', apiFC.airTemperature);
+      final feelsLike = _convertApi('temperature', apiFC.feelsLike);
+      final windSpeed = _convertApi('speed', apiFC.windAvg);
+      // Wind direction is consumed graphically by the spinner (compass
+      // labels, arrow rotation), not as a user-facing numeric in the
+      // user's preferred angle unit. Convert radians → degrees
+      // directly so a non-degree angle preset can't break the visual.
+      final windDirDeg = apiFC.windDirection == null
+          ? null
+          : apiFC.windDirection! * 180.0 / math.pi;
+      final pressure = _convertApi('pressure', apiFC.pressure);
+      final humidity = _convertApi('percentage', apiFC.relativeHumidity);
+      final precipProb = _convertApi('percentage', apiFC.precipProbability);
 
       forecasts.add(HourlyForecast(
         hour: i,
@@ -360,7 +499,9 @@ class _WeatherApiSpinnerToolState extends State<WeatherApiSpinnerTool>
         humidity: humidity,
         pressure: pressure,
         windSpeed: windSpeed,
-        windDirection: windDir,
+        windDirection: windDirDeg,
+        beaufort: _beaufortFromMps(apiFC.windAvg),
+        irradianceWm2: apiFC.irradianceWm2,
       ));
     }
 
