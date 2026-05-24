@@ -180,15 +180,30 @@ class MetadataStore extends ChangeNotifier {
   /// Get the category for a path.
   String? getCategory(String path) => _metadata[path]?.category;
 
-  /// Get the first metadata entry matching a category.
-  /// Used for category-based conversions (e.g., distance, speed).
+  /// Get a metadata entry matching [category].
+  ///
+  /// Resolution order: the first real per-path entry with a usable
+  /// formula wins; falls back to the [populateFromPreset]-seeded
+  /// `__category__.<category>` entry only if no per-path entry exists.
+  /// Per-path entries are kept fresh by [updateFromMeta] from live
+  /// `sendMeta=all` deltas, so this ordering reflects a server-side
+  /// units-preference change without re-running [populateFromPreset].
+  ///
+  /// Entries with `category` set but `formula == null` are skipped —
+  /// they can't convert and would mask a usable entry later in the map.
   PathMetadata? getByCategory(String category) {
-    for (final metadata in _metadata.values) {
-      if (metadata.category == category) {
-        return metadata;
+    PathMetadata? categoryFallback;
+    for (final entry in _metadata.entries) {
+      final metadata = entry.value;
+      if (metadata.category != category) continue;
+      if (metadata.formula == null) continue;
+      if (entry.key.startsWith('__category__.')) {
+        categoryFallback = metadata;
+        continue;
       }
+      return metadata;
     }
-    return null;
+    return categoryFallback;
   }
 
   /// Clear all metadata.

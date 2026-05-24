@@ -107,3 +107,31 @@ If units are wrong:
 | Wrong unit symbol | Server configured for different unit | Change SignalK unit preferences |
 | No conversion | No metadata for path | Check sendMeta=all is working |
 | Stale units | Cached old metadata | Disconnect/reconnect to refresh |
+| Every widget showing raw SI after a units-preference change | SignalK server holds preset settings in memory; the unitpreferences plugin doesn't re-emit meta deltas for already-subscribed paths when the active preset changes | **Restart the SignalK server** (not just the plugin) after changing units. Verify with `GET /signalk/v1/api/vessels/self/<path>` — the `meta.displayUnits` block should reflect the new preset. If it does, the client will pick it up on the next reconnect. |
+
+### Verifying server-side meta delivery
+
+When debugging "all widgets show raw SI", first prove whether the server is sending the right metadata before touching client code:
+
+```bash
+curl -H "Authorization: Bearer <token>" \
+  https://<server>/signalk/v1/api/vessels/self/navigation/speedOverGround
+```
+
+The response should include:
+```json
+{
+  "value": 5.234,
+  "meta": {
+    "units": "m/s",
+    "displayUnits": {
+      "category": "speed",
+      "targetUnit": "kn",
+      "formula": "value * 1.94384",
+      "symbol": "kn"
+    }
+  }
+}
+```
+
+If `displayUnits` is missing or stale → server-side fix (restart, plugin reload, preset re-save). If `displayUnits` is correct → client-side (MetadataStore not populated, subscription not delivering meta, or widget reading wrong path). Use the **Conversion Test Tool** to confirm the client side.

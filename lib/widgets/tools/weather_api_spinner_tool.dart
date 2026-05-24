@@ -1,10 +1,7 @@
-import 'dart:convert';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
 
-import '../../models/path_metadata.dart';
 import '../../models/tool_definition.dart';
 import '../../models/tool_config.dart';
 import '../../services/signalk_service.dart';
@@ -44,16 +41,6 @@ class _WeatherApiSpinnerToolState extends State<WeatherApiSpinnerTool>
   // Cached sun/moon times to avoid recalculating every build
   SunMoonTimes? _cachedSunMoonTimes;
 
-  /// Active-preset units, keyed by SignalK category name
-  /// (`temperature`, `speed`, `pressure`, `angle`, `percentage`, …).
-  /// Sourced once from `GET /signalk/v1/unitpreferences/active`, which
-  /// returns the user's preset already enriched with `formula` +
-  /// `symbol` for each category. The weather API delivers raw SI
-  /// values on provider-prefixed paths the server's
-  /// `default-categories.json` doesn't cover, so MetadataStore can't
-  /// resolve them — this endpoint sidesteps that entirely.
-  Map<String, PathMetadata>? _activeUnits;
-
   @override
   bool get wantKeepAlive => true; // Keep state alive when scrolled off screen
 
@@ -76,10 +63,11 @@ class _WeatherApiSpinnerToolState extends State<WeatherApiSpinnerTool>
       // Dynamically subscribe to sun/moon paths based on forecastDays
       _subscribeSunMoonPaths(forecastDays);
 
-      // Fetch the active unit preset (formula + symbol per category).
-      // Independent of the forecast fetch; result drives _convertApi
-      // and the unit-symbol lookups.
-      _fetchActiveUnits();
+      // Rebuild when MetadataStore changes (e.g. server-pushed
+      // displayUnits delta after a units-preference change). Drops the
+      // hourly-forecast cache so the new symbols/formulas take effect
+      // immediately without waiting for a fresh API fetch.
+      widget.signalKService.metadataStore.addListener(_onMetadataChanged);
 
       _weatherService = WeatherApiService(widget.signalKService, provider: provider, forecastDays: forecastDays);
       _weatherService!.addListener(_onDataChanged);
@@ -96,62 +84,14 @@ class _WeatherApiSpinnerToolState extends State<WeatherApiSpinnerTool>
     }
   }
 
-  /// Fetch the active unit preset from
-  /// `GET /signalk/v1/unitpreferences/active`. The response is the
-  /// preset's `categories` map with each entry already enriched with
-  /// `formula`, `inverseFormula`, and `symbol` resolved by the server
-  /// from `unitDefinitions[baseUnit].conversions[targetUnit]`. We
-  /// wrap each entry in a [PathMetadata] so its existing
-  /// `math_expressions`-backed `convert()` does the formula eval.
-  ///
-  /// Forecasts that arrive before this completes display raw SI;
-  /// `_onDataChanged` / the build's next rebuild will pick up the
-  /// converted values once `setState` runs here.
-  Future<void> _fetchActiveUnits() async {
-    final svc = widget.signalKService;
-    final url = Uri.parse('${svc.httpBaseUrl}/signalk/v1/unitpreferences/active');
-    final token = svc.authToken?.token;
-    try {
-      final resp = await http.get(
-        url,
-        headers: {
-          if (token != null) 'Authorization': 'Bearer $token',
-        },
-      );
-      if (resp.statusCode != 200) {
-        debugPrint('WeatherApiSpinner: /unitpreferences/active → ${resp.statusCode}');
-        return;
-      }
-      final body = jsonDecode(resp.body);
-      if (body is! Map<String, dynamic>) return;
-      final categories = body['categories'];
-      if (categories is! Map<String, dynamic>) return;
-      final units = <String, PathMetadata>{};
-      categories.forEach((category, entry) {
-        if (entry is! Map<String, dynamic>) return;
-        final formula = entry['formula'] as String?;
-        final symbol = entry['symbol'] as String?;
-        if (formula == null && symbol == null) return; // identity-only — skip
-        units[category] = PathMetadata(
-          path: '__active__.$category',
-          baseUnit: entry['baseUnit'] as String?,
-          targetUnit: entry['targetUnit'] as String?,
-          category: category,
-          formula: formula,
-          inverseFormula: entry['inverseFormula'] as String?,
-          symbol: symbol,
-        );
-      });
-      if (!mounted) return;
-      setState(() {
-        _activeUnits = units;
-        // Drop the cached forecasts so the next build re-runs
-        // `_buildHourlyForecasts` with the now-available conversion.
-        _cachedForecasts = null;
-      });
-    } catch (e) {
-      debugPrint('WeatherApiSpinner: /unitpreferences/active failed: $e');
-    }
+  /// Drop the cached hourly forecasts and rebuild when MetadataStore
+  /// changes — covers live displayUnits updates pushed by the server
+  /// after a units-preference change.
+  void _onMetadataChanged() {
+    if (!mounted) return;
+    setState(() {
+      _cachedForecasts = null;
+    });
   }
 
   /// Subscribe to the leaf sun/moon paths the spinner reads.
@@ -221,6 +161,7 @@ class _WeatherApiSpinnerToolState extends State<WeatherApiSpinnerTool>
 
   @override
   void dispose() {
+    widget.signalKService.metadataStore.removeListener(_onMetadataChanged);
     _weatherService?.removeListener(_onDataChanged);
     _weatherService?.release();
     _weatherService = null;
@@ -252,11 +193,13 @@ class _WeatherApiSpinnerToolState extends State<WeatherApiSpinnerTool>
       fallback: Colors.blue,
     ) ?? Colors.blue;
 
-    // Unit symbols come from the active preset fetched by
-    // `_fetchActiveUnits`. Empty strings until that response arrives.
-    final tempUnit = _metaForCategory('temperature')?.symbol ?? '';
-    final windUnit = _metaForCategory('speed')?.symbol ?? '';
-    final pressureUnit = _metaForCategory('pressure')?.symbol ?? '';
+    // Symbols come from MetadataStore.getByCategory — populated by live
+    // WebSocket meta deltas and the connect-time preset seeding. Empty
+    // strings until the store has an entry for the category.
+    final store = widget.signalKService.metadataStore;
+    final tempUnit = store.getByCategory('temperature')?.symbol ?? '';
+    final windUnit = store.getByCategory('speed')?.symbol ?? '';
+    final pressureUnit = store.getByCategory('pressure')?.symbol ?? '';
 
     // Use cached forecasts (updated in _onDataChanged)
     // Always rebuild if cache is empty but service has data (handles swipe away/back)
@@ -425,17 +368,15 @@ class _WeatherApiSpinnerToolState extends State<WeatherApiSpinnerTool>
     }
   }
 
-  /// Convert a raw SI value via the user's active-preset entry for
-  /// [category]. `_activeUnits` is populated by `_fetchActiveUnits`
-  /// from `/signalk/v1/unitpreferences/active`; until that response
-  /// arrives the value passes through unchanged.
+  /// Convert a raw SI value via the live MetadataStore entry for
+  /// [category]. Falls through to the raw value when the store has no
+  /// usable entry yet — `_onMetadataChanged` will rebuild the cache
+  /// when one arrives.
   double? _convertApi(String category, double? rawValue) {
     if (rawValue == null) return null;
-    final meta = _metaForCategory(category);
+    final meta = widget.signalKService.metadataStore.getByCategory(category);
     return meta?.convert(rawValue) ?? rawValue;
   }
-
-  PathMetadata? _metaForCategory(String category) => _activeUnits?[category];
 
   /// Beaufort scale (0-12) from wind speed in m/s. Cutoffs lifted
   /// verbatim from the sister app's `openmeteo_core.HourlyForecast`
