@@ -457,55 +457,11 @@ class WeatherApiSpinnerConfigurator extends ToolConfigurator {
                 setState(() => showWindCenter = value);
               },
             ),
-            SwitchListTile(
-              title: const Text('Solar Centre'),
-              subtitle: const Text(
-                  'Irradiance + panel power output (when provider exposes solar data)'),
-              value: showSolarCenter,
-              onChanged: (value) {
-                setState(() => showSolarCenter = value);
-              },
-            ),
-
-            if (showSolarCenter) ...[
-              const SizedBox(height: 8),
-              Text(
-                'Solar Panel Config',
-                style: Theme.of(context).textTheme.titleSmall,
-              ),
-              const SizedBox(height: 8),
-              TextFormField(
-                initialValue: panelMaxWatts == 0
-                    ? ''
-                    : panelMaxWatts.toStringAsFixed(0),
-                decoration: const InputDecoration(
-                  labelText: 'Panel max wattage (W)',
-                  helperText: 'Set to 0 to hide the power readout',
-                  border: OutlineInputBorder(),
-                ),
-                keyboardType: const TextInputType.numberWithOptions(decimal: false),
-                onChanged: (value) {
-                  final v = double.tryParse(value) ?? 0;
-                  panelMaxWatts = v.clamp(0, 100000).toDouble();
-                },
-              ),
-              const SizedBox(height: 8),
-              TextFormField(
-                initialValue: systemDerate.toStringAsFixed(2),
-                decoration: const InputDecoration(
-                  labelText: 'System derate factor (0.1–1.0)',
-                  helperText: 'Inverter + wiring + dirt losses. 0.85 is typical.',
-                  border: OutlineInputBorder(),
-                ),
-                keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                onChanged: (value) {
-                  final v = double.tryParse(value);
-                  if (v != null) {
-                    systemDerate = v.clamp(0.1, 1.0).toDouble();
-                  }
-                },
-              ),
-            ],
+            // Solar Centre UI removed for now — no configured provider
+            // returns irradiance, so the centre would always render the
+            // "No solar output" fallback. Field defaults still load and
+            // save (see init/load/save above) so a previously-saved
+            // config round-trips intact when we bring the UI back.
           ],
         );
       },

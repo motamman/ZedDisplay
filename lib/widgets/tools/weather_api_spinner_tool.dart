@@ -277,14 +277,20 @@ class _WeatherApiSpinnerToolState extends State<WeatherApiSpinnerTool>
 
     final cp = widget.config.style.customProperties ?? const {};
     final showWeatherAnimation = cp['showWeatherAnimation'] as bool? ?? true;
-    // Default the new centre modes ON so the ported wind + solar
-    // displays are visible without requiring a customProperties edit.
-    // Tap the centre disc to cycle through modes; dots at the bottom
-    // show which mode is active.
+    // Default the new centre modes ON so the ported wind display is
+    // visible without requiring a customProperties edit. Tap the
+    // centre disc to cycle through modes; dots at the bottom show
+    // which mode is active.
     final showWindCenter = cp['showWindCenter'] as bool? ?? true;
-    final showSolarCenter = cp['showSolarCenter'] as bool? ?? true;
     final showSunMoonIcons = cp['showSunMoonIcons'] as bool? ?? true;
     final showTimeOverlay = cp['showTimeOverlay'] as bool? ?? true;
+    // Solar centre hidden until a configured provider exposes
+    // irradiance — `WeatherApiForecast.irradianceWm2` is null for the
+    // current Open-Meteo mapping, so the centre would always show the
+    // "No solar output" fallback. Plumbing in
+    // `forecast_spinner._buildSolarCenter` + `WeatherApiService`'s
+    // `irradiance` parse stays so re-enabling is a one-line flip.
+    const showSolarCenter = false;
     final panelMaxWatts = (cp['panelMaxWatts'] as num?)?.toDouble();
     final systemDerate = (cp['systemDerate'] as num?)?.toDouble();
 
