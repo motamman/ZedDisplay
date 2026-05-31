@@ -25,6 +25,26 @@ import '../models/path_metadata.dart';
 import '../services/alarm_audio_player.dart';
 import 'ais_vessel_detail_sheet.dart' show VesselLookupPage;
 
+/// Crisp dark halo for map markers. Four cardinal-offset shadows with
+/// `blurRadius: 0` paint as solid offset copies in the icon's own paint
+/// pass — unlike a blurred shadow, this triggers NO offscreen `saveLayer`,
+/// so the halo can't desync from the glyph and leave a black "ghost" while
+/// flutter_map translates the marker pane during a pan.
+List<Shadow> _markerOutline(Color color) => [
+      Shadow(color: color, offset: const Offset(1.5, 0)),
+      Shadow(color: color, offset: const Offset(-1.5, 0)),
+      Shadow(color: color, offset: const Offset(0, 1.5)),
+      Shadow(color: color, offset: const Offset(0, -1.5)),
+    ];
+
+/// `const` black outline for the always-black own-vessel marker.
+const List<Shadow> _kBlackMarkerOutline = [
+  Shadow(color: Colors.black, offset: Offset(1.5, 0)),
+  Shadow(color: Colors.black, offset: Offset(-1.5, 0)),
+  Shadow(color: Colors.black, offset: Offset(0, 1.5)),
+  Shadow(color: Colors.black, offset: Offset(0, -1.5)),
+];
+
 /// AIS Polar Chart that displays nearby vessels relative to own position
 ///
 /// Shows:
@@ -1976,7 +1996,7 @@ class _AISPolarChartState extends State<AISPolarChart>
                   Icons.navigation,
                   color: Colors.green,
                   size: 38,
-                  shadows: [Shadow(color: Colors.black, blurRadius: 3)],
+                  shadows: _kBlackMarkerOutline,
                 ),
               ),
             ),
@@ -2005,12 +2025,7 @@ class _AISPolarChartState extends State<AISPolarChart>
                       ? Colors.yellow
                       : typeColor,
                   size: iconSize,
-                  shadows: [
-                    Shadow(
-                      color: isHighlighted ? Colors.orange : Colors.black,
-                      blurRadius: isHighlighted ? 6 : 3,
-                    ),
-                  ],
+                  shadows: _markerOutline(isHighlighted ? Colors.orange : Colors.black),
                 ),
               );
 
