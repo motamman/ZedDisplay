@@ -754,7 +754,9 @@ class _ForecastSpinnerState extends State<ForecastSpinner>
               children: [
                 if (forecast.windDirection != null)
                   Transform.rotate(
-                    angle: (forecast.windDirection! + 180) * math.pi / 180,
+                    // windDirection is SI radians; arrow points downwind
+                    // (+π = "from" → "towards" for the navigation glyph).
+                    angle: forecast.windDirection! + math.pi,
                     child: Icon(
                       Icons.navigation,
                       size: 18 * scale,
@@ -844,17 +846,16 @@ class _ForecastSpinnerState extends State<ForecastSpinner>
         ? _getWindDirectionLabel(windDirection)
         : '--';
 
-    // Speed-scaled animation duration. The animation runs continuously
-    // regardless of which centre is showing (so a toggle to wind is
-    // mid-cycle), so updating the period here is safe.
-    final windMpsForAnim = (forecast.windSpeed ?? 0.0).clamp(0.0, 28.0);
-    final animDuration =
-        (4000 - (windMpsForAnim * 125)).round().clamp(500, 4000);
+    // Beaufort-scaled animation duration. Beaufort is derived from the
+    // raw m/s wind (not the display-unit `windSpeed`), so the leaf speed
+    // is the same regardless of the user's knots/km-h/m-s preference.
+    // The animation runs continuously regardless of which centre shows.
+    final animDuration = (4000 - (beaufort.clamp(0, 12) * 290)).clamp(500, 4000);
     if (_windAnimController.duration?.inMilliseconds != animDuration) {
       _windAnimController.duration = Duration(milliseconds: animDuration);
-      if (!_windAnimController.isAnimating) {
-        _windAnimController.repeat();
-      }
+      // Restart so the new period takes effect immediately rather than
+      // at the end of the current cycle.
+      _windAnimController.repeat();
     }
 
     return Stack(
@@ -868,7 +869,6 @@ class _ForecastSpinnerState extends State<ForecastSpinner>
                   return _buildWindParticles(
                     _windAnimController.value,
                     windDirection ?? 0,
-                    windSpeed,
                     beaufort,
                     centerSize,
                     isDark,
@@ -926,7 +926,8 @@ class _ForecastSpinnerState extends State<ForecastSpinner>
                 children: [
                   if (windDirection != null)
                     Transform.rotate(
-                      angle: (windDirection + 180) * math.pi / 180,
+                      // windDirection is SI radians (downwind = +π).
+                      angle: windDirection + math.pi,
                       child: Icon(
                         Icons.navigation,
                         size: 24 * scale,
@@ -981,7 +982,6 @@ class _ForecastSpinnerState extends State<ForecastSpinner>
   Widget _buildWindParticles(
     double progress,
     double windDirection,
-    double windSpeed,
     int beaufort,
     double size,
     bool isDark,
@@ -989,11 +989,13 @@ class _ForecastSpinnerState extends State<ForecastSpinner>
     final center = size / 2;
     final radius = size / 2;
     final leafCount = (4 + beaufort.clamp(0, 8)).clamp(4, 12);
-    // Wind direction (meteorological, 0 = N, clockwise) → canvas radians
-    // where +x is east and the centre is "up" on screen.
-    final windAngle = (windDirection + 90) * math.pi / 180;
+    // windDirection is SI radians (meteorological, 0 = N, clockwise).
+    // +π/2 maps the centre to "up" on screen (+x east).
+    final windAngle = windDirection + math.pi / 2;
     const iconSize = 22.0;
-    final speedMultiplier = 1.0 + (windSpeed.clamp(0, 60) / 30);
+    // Drift speed scales with Beaufort (derived from raw m/s), so it's
+    // independent of the user's wind-speed display unit.
+    final speedMultiplier = 1.0 + (beaufort.clamp(0, 12) / 6);
     final oscillationAmp = radius * (0.12 - beaufort * 0.008).clamp(0.02, 0.12);
 
     final particles = <Widget>[];
@@ -1229,15 +1231,19 @@ class _ForecastSpinnerState extends State<ForecastSpinner>
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Text(
-            _formatSelectedTime(selectedTime),
-            style: TextStyle(
-              fontSize: 14 * scale,
-              fontWeight: FontWeight.bold,
-              color: isDark ? Colors.white : Colors.black87,
+          // Suppress the centre time when the corner overlay shows it,
+          // matching the other centre modes (no double time display).
+          if (!widget.showTimeOverlay) ...[
+            Text(
+              _formatSelectedTime(selectedTime),
+              style: TextStyle(
+                fontSize: 14 * scale,
+                fontWeight: FontWeight.bold,
+                color: isDark ? Colors.white : Colors.black87,
+              ),
             ),
-          ),
-          SizedBox(height: 8 * scale),
+            SizedBox(height: 8 * scale),
+          ],
           Icon(
             Icons.nightlight_round,
             size: 32 * scale,
@@ -1482,10 +1488,16 @@ class _ForecastSpinnerState extends State<ForecastSpinner>
     return Colors.indigo.shade900;
   }
 
-  String _getWindDirectionLabel(double degrees) {
+  /// Map a wind direction in SI radians to a 16-point compass label.
+  /// This is a categorical mapping (preference-independent), not a
+  /// user-display unit conversion, so it stays out of MetadataStore.
+  String _getWindDirectionLabel(double radians) {
     const directions = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE',
                         'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
-    final index = ((degrees + 11.25) % 360 / 22.5).floor();
+    const twoPi = 2 * math.pi;
+    const sector = math.pi / 8; // 22.5°
+    final normalized = (radians % twoPi + twoPi) % twoPi;
+    final index = ((normalized + sector / 2) / sector).floor() % 16;
     return directions[index];
   }
 

@@ -69,10 +69,17 @@ class WeatherFlowForecastTool extends StatelessWidget {
     final rainLastHour = signalKService.getConvertedValue(rainLastHourPath);
     final rainToday = signalKService.getConvertedValue(rainTodayPath);
 
-    // Unit symbols from MetadataStore (null when not yet known).
-    final tempUnit = signalKService.getUnitSymbol(_getPath(0));
-    final pressureUnit = signalKService.getUnitSymbol(_getPath(2));
-    final windUnit = signalKService.getUnitSymbol(_getPath(3));
+    // Unit symbols from MetadataStore via category lookup. These labels
+    // are shared by the current observations AND the forecast rows; the
+    // Tempest forecast paths aren't in the server's `default-categories`,
+    // so a path-based symbol lookup falls through to null for them.
+    // Category lookup hits the `__category__.<name>` entries seeded on
+    // connect, so it always carries the user's active preset. Rain stays
+    // path-based — it's an observation-only value with no shared category.
+    final store = signalKService.metadataStore;
+    final tempUnit = store.getByCategory('temperature')?.symbol;
+    final pressureUnit = store.getByCategory('pressure')?.symbol;
+    final windUnit = store.getByCategory('speed')?.symbol;
     final rainUnit = signalKService.getUnitSymbol(rainLastHourPath);
 
     // Get hourly forecasts
@@ -139,6 +146,19 @@ class WeatherFlowForecastTool extends StatelessWidget {
     return null;
   }
 
+  /// Convert a raw SI value at [path] via the user's preset for
+  /// [category]. The Tempest forecast paths aren't in the server's
+  /// `default-categories`, so a path-first lookup (`getConvertedValue`)
+  /// falls through to raw SI silently. Category lookup goes straight to
+  /// the `__category__.<name>` entries seeded by `populateFromPreset`
+  /// and so always carries the active preset.
+  double? _convertByCategory(String path, String category) {
+    final raw = _getNumericValue(path);
+    if (raw == null) return null;
+    final meta = signalKService.metadataStore.getByCategory(category);
+    return meta?.convert(raw) ?? raw;
+  }
+
   /// Build SunMoonTimes from SignalK derived-data
   /// Dynamically loads available days
   SunMoonTimes _getSunMoonTimes() {
@@ -189,15 +209,18 @@ class WeatherFlowForecastTool extends StatelessWidget {
     final forecasts = <HourlyForecast>[];
 
     for (int i = 0; i < count && i < 72; i++) {
-      final temp = signalKService.getConvertedValue('$basePath.airTemperature.$i');
-      final feelsLike = signalKService.getConvertedValue('$basePath.feelsLike.$i');
+      final temp = _convertByCategory('$basePath.airTemperature.$i', 'temperature');
+      final feelsLike = _convertByCategory('$basePath.feelsLike.$i', 'temperature');
       final conditions = _getStringValue('$basePath.conditions.$i');
       final icon = _getStringValue('$basePath.icon.$i');
-      final precipProb = signalKService.getConvertedValue('$basePath.precipProbability.$i');
-      final humidity = signalKService.getConvertedValue('$basePath.relativeHumidity.$i');
-      final pressure = signalKService.getConvertedValue('$basePath.seaLevelPressure.$i');
-      final windSpeed = signalKService.getConvertedValue('$basePath.windAvg.$i');
-      final windDirection = signalKService.getConvertedValue('$basePath.windDirection.$i');
+      final precipProb = _convertByCategory('$basePath.precipProbability.$i', 'percentage');
+      final humidity = _convertByCategory('$basePath.relativeHumidity.$i', 'percentage');
+      final pressure = _convertByCategory('$basePath.seaLevelPressure.$i', 'pressure');
+      final windSpeed = _convertByCategory('$basePath.windAvg.$i', 'speed');
+      // Wind direction is graphical (arrow rotation), not a user-facing
+      // numeric, so it stays raw SI radians — the consumer rotates in
+      // radians directly rather than honouring the user's angle preset.
+      final windDirection = _getNumericValue('$basePath.windDirection.$i');
 
       // Only add if we have at least temperature or conditions
       if (temp != null || conditions != null) {
@@ -223,26 +246,16 @@ class WeatherFlowForecastTool extends StatelessWidget {
   List<DailyForecast> _getDailyForecasts(String basePath, int count) {
     final forecasts = <DailyForecast>[];
 
-    // Borrow the temperature PathMetadata from the current-observations path
-    // so we can convert raw forecast values (which may not have their own
-    // metadata entries) using the same formula.
-    final tempMeta = signalKService.metadataStore.get(_getPath(0));
-
     for (int i = 0; i < count && i < 10; i++) {
-      // Get raw temp values and apply conversion via MetadataStore.
-      final rawTempHigh = _getNumericValue('$basePath.airTempHigh.$i');
-      final rawTempLow = _getNumericValue('$basePath.airTempLow.$i');
-
-      final tempHigh = rawTempHigh == null
-          ? null
-          : (tempMeta?.convert(rawTempHigh) ?? rawTempHigh);
-      final tempLow = rawTempLow == null
-          ? null
-          : (tempMeta?.convert(rawTempLow) ?? rawTempLow);
+      // Convert via category lookup. The daily forecast paths aren't in
+      // the server's `default-categories`, so a path-based lookup falls
+      // through to raw SI; category lookup carries the user's preset.
+      final tempHigh = _convertByCategory('$basePath.airTempHigh.$i', 'temperature');
+      final tempLow = _convertByCategory('$basePath.airTempLow.$i', 'temperature');
 
       final conditions = _getStringValue('$basePath.conditions.$i');
       final icon = _getStringValue('$basePath.icon.$i');
-      final precipProb = signalKService.getConvertedValue('$basePath.precipProbability.$i');
+      final precipProb = _convertByCategory('$basePath.precipProbability.$i', 'percentage');
       final precipIcon = _getStringValue('$basePath.precipIcon.$i');
 
       // Get sunrise/sunset ISO times

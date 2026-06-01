@@ -1554,10 +1554,9 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
         aisClass: v.aisClass,
         aisStatus: v.aisStatus,
         navState: v.navState,
-        headingTrue: v.headingTrueRad != null
-            ? v.headingTrueRad! * 180.0 / math.pi
-            : null,
-        cog: v.cogRad != null ? v.cogRad! * 180.0 / math.pi : null,
+        // Raw SI radians; the list converts + symbols via formatAngle.
+        headingTrue: v.headingTrueRad,
+        cog: v.cogRad,
         sogRaw: v.sogMs,
         distance: dist,
         cpa: cpa?.cpaM,
@@ -1614,8 +1613,7 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
     final store = widget.signalKService.metadataStore;
     final distMd = store.getByCategory('distance');
     final speedMd = store.getByCategory('speed');
-    final angleSymbol =
-        store.get('__category__.angle')?.symbol ?? '°';
+    final angleMd = store.getByCategory('angle');
     String formatDistance(double meters, {int decimals = 1}) {
       if (distMd == null) return '${meters.toStringAsFixed(decimals)} m';
       final v = distMd.convert(meters);
@@ -1628,6 +1626,15 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
       final v = speedMd.convert(ms);
       if (v == null) return '${ms.toStringAsFixed(1)} m/s';
       return '${v.toStringAsFixed(1)} ${speedMd.symbol ?? 'm/s'}';
+    }
+
+    // Raw SI radians in → display angle + symbol out, honouring the
+    // user's angle preset. Falls back to degrees only when the preset
+    // hasn't seeded angle metadata yet (degrees is the COG default).
+    String formatAngle(double radians) {
+      final v = angleMd?.convert(radians);
+      if (v == null) return '${(radians * 180 / math.pi).toStringAsFixed(0)}°';
+      return '${v.toStringAsFixed(0)}${angleMd?.symbol ?? '°'}';
     }
 
     CpaAlertService? cpaService;
@@ -1681,7 +1688,7 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
                         colorByShipType: true,
                         formatDistance: formatDistance,
                         formatSpeed: formatSpeed,
-                        formatAngleSymbol: () => angleSymbol,
+                        formatAngle: formatAngle,
                         onTap: (vesselId) {
                           Navigator.of(sheetCtx).pop();
                           if (!mounted) return;

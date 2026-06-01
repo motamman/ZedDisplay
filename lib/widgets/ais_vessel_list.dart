@@ -37,7 +37,11 @@ class AisVesselListItem {
   final String? aisClass;
   final String? aisStatus;
   final String? navState;
+  /// True heading in raw SI radians (0..2π). Display conversion + symbol
+  /// happen at the boundary via [AisVesselList.formatAngle]; the row also
+  /// rotates the vessel icon with this value directly.
   final double? headingTrue;
+  /// Course over ground in raw SI radians (0..2π). See [headingTrue].
   final double? cog;
   final double? sogRaw;
   /// Range to own vessel in meters. `null` means the host doesn't have
@@ -250,7 +254,7 @@ class AisVesselList extends StatefulWidget {
     required this.colorByShipType,
     required this.formatDistance,
     required this.formatSpeed,
-    required this.formatAngleSymbol,
+    required this.formatAngle,
     required this.onTap,
     required this.onLongPress,
   });
@@ -279,7 +283,10 @@ class AisVesselList extends StatefulWidget {
   /// can use a tighter precision (2dp) than the row subtitle (1dp).
   final String Function(double meters, {int decimals}) formatDistance;
   final String Function(double metersPerSecond) formatSpeed;
-  final String Function() formatAngleSymbol;
+  /// Formats a raw SI angle in radians to a display string with symbol
+  /// (e.g. "353°"), honouring the user's angle preset via MetadataStore.
+  /// Parallels [formatSpeed]/[formatDistance] — SI in, display out.
+  final String Function(double radians) formatAngle;
 
   /// Called when the user taps a Nearby row, or a Favorites row that
   /// matches a currently-visible vessel. The `mmsi` is the host's
@@ -481,7 +488,8 @@ class _AisVesselListState extends State<AisVesselList> {
     final stale = isStale(vessel.timestamp, aisStatus: vessel.aisStatus);
 
     final iconWidget = Transform.rotate(
-      angle: (vessel.headingTrue ?? vessel.cog ?? 0.0) * math.pi / 180,
+      // headingTrue/cog are raw SI radians — rotate the icon directly.
+      angle: vessel.headingTrue ?? vessel.cog ?? 0.0,
       child: buildVesselIcon(
         aisShipType: vessel.aisShipType,
         navState: vessel.navState,
@@ -544,7 +552,7 @@ class _AisVesselListState extends State<AisVesselList> {
           ],
           if (vessel.cog != null)
             Text(
-              'COG ${vessel.cog!.toStringAsFixed(0)}${widget.formatAngleSymbol()}',
+              'COG ${widget.formatAngle(vessel.cog!)}',
               style: const TextStyle(fontSize: 11),
             ),
           const SizedBox(width: 8),

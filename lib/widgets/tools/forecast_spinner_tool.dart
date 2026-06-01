@@ -174,7 +174,12 @@ class ForecastSpinnerTool extends StatelessWidget {
       final humidity = _convertByCategory('$basePath.relativeHumidity.$i', 'percentage');
       final pressure = _convertByCategory('$basePath.seaLevelPressure.$i', 'pressure');
       final windSpeed = _convertByCategory('$basePath.windAvg.$i', 'speed');
-      final windDirection = _convertByCategory('$basePath.windDirection.$i', 'angle');
+      // Wind direction is graphical (arrow rotation + compass label),
+      // not a user-facing numeric, so it stays in raw SI radians rather
+      // than running through the user's `angle` preset (which could be
+      // radians/degrees and would skew the rotation). The spinner's
+      // graphical consumers work in radians directly.
+      final windDirection = _getNumericValue('$basePath.windDirection.$i');
 
       // Only add if we have at least temperature or conditions
       if (temp != null || conditions != null) {

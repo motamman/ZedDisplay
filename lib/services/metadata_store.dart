@@ -182,28 +182,36 @@ class MetadataStore extends ChangeNotifier {
 
   /// Get a metadata entry matching [category].
   ///
-  /// Resolution order: the first real per-path entry with a usable
-  /// formula wins; falls back to the [populateFromPreset]-seeded
-  /// `__category__.<category>` entry only if no per-path entry exists.
+  /// Resolution order:
+  ///   1. the first per-path entry with a real conversion formula;
+  ///   2. otherwise the first per-path entry that has no formula but is
+  ///      still usable as an identity conversion (and carries a symbol)
+  ///      — e.g. a symbol-only `sendMeta=all` delta;
+  ///   3. otherwise the [populateFromPreset]-seeded
+  ///      `__category__.<category>` entry.
+  ///
   /// Per-path entries are kept fresh by [updateFromMeta] from live
   /// `sendMeta=all` deltas, so this ordering reflects a server-side
   /// units-preference change without re-running [populateFromPreset].
   ///
-  /// Entries with `category` set but `formula == null` are skipped —
-  /// they can't convert and would mask a usable entry later in the map.
+  /// A formula-less entry is NOT skipped: `PathMetadata.convert()` treats
+  /// a null/empty formula as an identity conversion and the entry can
+  /// still provide a valid `symbol`, so dropping it would needlessly
+  /// return null (blank symbol / missed identity conversion).
   PathMetadata? getByCategory(String category) {
+    PathMetadata? identityPerPath;
     PathMetadata? categoryFallback;
     for (final entry in _metadata.entries) {
       final metadata = entry.value;
       if (metadata.category != category) continue;
-      if (metadata.formula == null) continue;
       if (entry.key.startsWith('__category__.')) {
-        categoryFallback = metadata;
+        categoryFallback ??= metadata;
         continue;
       }
-      return metadata;
+      if (metadata.hasConversion) return metadata;
+      identityPerPath ??= metadata;
     }
-    return categoryFallback;
+    return identityPerPath ?? categoryFallback;
   }
 
   /// Clear all metadata.

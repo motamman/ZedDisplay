@@ -1,4 +1,3 @@
-import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
@@ -426,11 +425,10 @@ class _WeatherApiSpinnerToolState extends State<WeatherApiSpinnerTool>
       final windSpeed = _convertApi('speed', apiFC.windAvg);
       // Wind direction is consumed graphically by the spinner (compass
       // labels, arrow rotation), not as a user-facing numeric in the
-      // user's preferred angle unit. Convert radians → degrees
-      // directly so a non-degree angle preset can't break the visual.
-      final windDirDeg = apiFC.windDirection == null
-          ? null
-          : apiFC.windDirection! * 180.0 / math.pi;
+      // user's preferred angle unit. Pass it through as raw SI radians;
+      // the spinner's graphical consumers work in radians directly, so
+      // there's no unit conversion to hardcode here.
+      final windDirRad = apiFC.windDirection;
       final pressure = _convertApi('pressure', apiFC.pressure);
       final humidity = _convertApi('percentage', apiFC.relativeHumidity);
       final precipProb = _convertApi('percentage', apiFC.precipProbability);
@@ -446,7 +444,7 @@ class _WeatherApiSpinnerToolState extends State<WeatherApiSpinnerTool>
         humidity: humidity,
         pressure: pressure,
         windSpeed: windSpeed,
-        windDirection: windDirDeg,
+        windDirection: windDirRad,
         beaufort: _beaufortFromMps(apiFC.windAvg),
         irradianceWm2: apiFC.irradianceWm2,
       ));

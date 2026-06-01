@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import '../utils/sun_calc.dart';
@@ -292,7 +293,7 @@ class HourlyForecast {
   final double? humidity; // Already converted (ratio or %)
   final double? pressure; // Already converted
   final double? windSpeed; // Already converted
-  final double? windDirection; // degrees (always — graphical use)
+  final double? windDirection; // SI radians — graphical/categorical use (arrow rotation + compass label), never user-display
   /// Beaufort scale 0-12 computed from wind speed in m/s. Used by the
   /// spinner's wind-state centre display.
   final int? beaufort;
@@ -1160,7 +1161,8 @@ class _WeatherFlowForecastState extends State<WeatherFlowForecast> {
               children: [
                 if (windDir != null)
                   Transform.rotate(
-                    angle: (windDir + 180) * 3.14159 / 180,
+                    // windDir is SI radians (downwind = +π).
+                    angle: windDir + math.pi,
                     child: Icon(
                       Icons.navigation,
                       size: 12,

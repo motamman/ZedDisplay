@@ -47,7 +47,10 @@ class WeatherApiSpinnerConfigurator extends ToolConfigurator {
   // Centre-mode toggles. Default ON so the ported wind + solar centres
   // are reachable without a config edit.
   bool showWindCenter = true;
-  bool showSolarCenter = true;
+  // Solar centre stays opt-in (off) until a provider exposes irradiance;
+  // the runtime hard-disables it today, and a `true` default here would
+  // silently opt configs in if/when the runtime starts honouring it.
+  bool showSolarCenter = false;
   /// Rim sun/moon icon toggle (sunrise / sunset / dawn / dusk /
   /// golden hour / moonrise / moonset).
   bool showSunMoonIcons = true;
@@ -69,7 +72,7 @@ class WeatherApiSpinnerConfigurator extends ToolConfigurator {
     showWeatherAnimation = true;
     forecastDays = 5;
     showWindCenter = true;
-    showSolarCenter = true;
+    showSolarCenter = false;
     showSunMoonIcons = true;
     showTimeOverlay = true;
     panelMaxWatts = 0;
@@ -96,7 +99,7 @@ class WeatherApiSpinnerConfigurator extends ToolConfigurator {
         forecastDays = days.toInt().clamp(1, 10);
       }
       showWindCenter = cp['showWindCenter'] as bool? ?? true;
-      showSolarCenter = cp['showSolarCenter'] as bool? ?? true;
+      showSolarCenter = cp['showSolarCenter'] as bool? ?? false;
       showSunMoonIcons = cp['showSunMoonIcons'] as bool? ?? true;
       showTimeOverlay = cp['showTimeOverlay'] as bool? ?? true;
       final pmw = cp['panelMaxWatts'];

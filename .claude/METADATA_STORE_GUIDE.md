@@ -107,7 +107,7 @@ If units are wrong:
 | Wrong unit symbol | Server configured for different unit | Change SignalK unit preferences |
 | No conversion | No metadata for path | Check sendMeta=all is working |
 | Stale units | Cached old metadata | Disconnect/reconnect to refresh |
-| Every widget showing raw SI after a units-preference change | SignalK server holds preset settings in memory; the unitpreferences plugin doesn't re-emit meta deltas for already-subscribed paths when the active preset changes | **Restart the SignalK server** (not just the plugin) after changing units. Verify with `GET /signalk/v1/api/vessels/self/<path>` — the `meta.displayUnits` block should reflect the new preset. If it does, the client will pick it up on the next reconnect. |
+| Every widget showing raw SI after a units-preference change | SignalK server holds preset settings in memory; the unit-preferences plugin doesn't re-emit meta deltas for already-subscribed paths when the active preset changes | **Restart the SignalK server** (not just the plugin) after changing units. Verify with `GET /signalk/v1/api/vessels/self/<path>` — the `meta.displayUnits` block should reflect the new preset. If it does, the client will pick it up on the next reconnect. |
 
 ### Verifying server-side meta delivery
 

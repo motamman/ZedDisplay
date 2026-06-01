@@ -828,6 +828,7 @@ class _AISPolarChartState extends State<AISPolarChart>
         aisShipType: vessel.aisShipType,
         navState: vessel.navState,
         headingTrue: headingDisplay,
+        headingTrueRad: vessel.headingTrueRad,
         latitude: lat,
         longitude: lon,
         aisClass: vessel.aisClass,
@@ -955,6 +956,16 @@ class _AISPolarChartState extends State<AISPolarChart>
     return widget.signalKService.metadataStore.get('__category__.angle')?.symbol
         ?? widget.signalKService.metadataStore.get(widget.cogPath)?.symbol
         ?? '°';
+  }
+
+  /// Format a raw SI angle (radians) to a display string with symbol,
+  /// honouring the user's angle preset via MetadataStore. SI in,
+  /// display out — parallels the speed/distance formatters.
+  String _formatAngle(double radians) {
+    final store = widget.signalKService.metadataStore;
+    final meta = store.get('__category__.angle') ?? store.get(widget.cogPath);
+    final v = meta?.convert(radians) ?? AngleUtils.toDegrees(radians);
+    return '${v.toStringAsFixed(0)}${meta?.symbol ?? '°'}';
   }
 
   /// Convert speed from m/s to user's preferred unit using SOG path's displayUnits
@@ -2207,8 +2218,9 @@ class _AISPolarChartState extends State<AISPolarChart>
       aisClass: v.aisClass,
       aisStatus: v.aisStatus,
       navState: v.navState,
-      headingTrue: v.headingTrue,
-      cog: v.cog,
+      // Raw SI radians; the list converts + symbols via formatAngle.
+      headingTrue: v.headingTrueRad,
+      cog: v.cogRad,
       sogRaw: v.sogRaw,
       distance: v.distance,
       cpa: v.cpa,
@@ -2228,7 +2240,7 @@ class _AISPolarChartState extends State<AISPolarChart>
           '${_convertDistance(m).toStringAsFixed(decimals)} ${_getDistanceUnit()}',
       formatSpeed: (msRaw) =>
           '${_convertSpeed(msRaw).toStringAsFixed(1)} ${_getSpeedUnit()}',
-      formatAngleSymbol: _getAngleSymbol,
+      formatAngle: _formatAngle,
       onTap: _highlightVessel,
       onLongPress: (mmsi, displayName) =>
           _navigateToFindHome(mmsi, displayName),
@@ -2331,6 +2343,7 @@ class _VesselPoint {
   final int? aisShipType; // AIS ship type code
   final String? navState; // "motoring", "anchored", "moored", "sailing", "fishing"
   final double? headingTrue; // True heading in display units (degrees)
+  final double? headingTrueRad; // True heading in radians (raw SI, for the list)
   final double? latitude; // For projected position calculations
   final double? longitude;
   final String? aisClass; // AIS class: "A" or "B"
@@ -2351,6 +2364,7 @@ class _VesselPoint {
     this.aisShipType,
     this.navState,
     this.headingTrue,
+    this.headingTrueRad,
     this.latitude,
     this.longitude,
     this.aisClass,
