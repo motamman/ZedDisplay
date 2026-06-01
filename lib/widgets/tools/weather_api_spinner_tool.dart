@@ -283,13 +283,15 @@ class _WeatherApiSpinnerToolState extends State<WeatherApiSpinnerTool>
     final showWindCenter = cp['showWindCenter'] as bool? ?? true;
     final showSunMoonIcons = cp['showSunMoonIcons'] as bool? ?? true;
     final showTimeOverlay = cp['showTimeOverlay'] as bool? ?? true;
-    // Solar centre hidden until a configured provider exposes
-    // irradiance — `WeatherApiForecast.irradianceWm2` is null for the
-    // current Open-Meteo mapping, so the centre would always show the
-    // "No solar output" fallback. Plumbing in
+    // Solar centre is OFF by default — no configured provider exposes
+    // irradiance yet (`WeatherApiForecast.irradianceWm2` is null for the
+    // current Open-Meteo mapping), so it would only show the "No solar
+    // output" fallback. Read the persisted flag (default false) rather
+    // than hard-coding it, so a config that does have a solar-capable
+    // provider can opt in without a code change. Plumbing in
     // `forecast_spinner._buildSolarCenter` + `WeatherApiService`'s
-    // `irradiance` parse stays so re-enabling is a one-line flip.
-    const showSolarCenter = false;
+    // `irradiance` parse stays in place.
+    final showSolarCenter = cp['showSolarCenter'] as bool? ?? false;
     final panelMaxWatts = (cp['panelMaxWatts'] as num?)?.toDouble();
     final systemDerate = (cp['systemDerate'] as num?)?.toDouble();
 

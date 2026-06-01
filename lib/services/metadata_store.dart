@@ -209,7 +209,13 @@ class MetadataStore extends ChangeNotifier {
         continue;
       }
       if (metadata.hasConversion) return metadata;
-      identityPerPath ??= metadata;
+      // A formula-less per-path entry is only a useful identity candidate
+      // if it actually carries a display label; otherwise it offers nothing
+      // over the preset `__category__` fallback (and would wrongly mask it,
+      // leaving callers on raw SI with no symbol until the next meta delta).
+      final hasDisplayLabel =
+          (metadata.symbol?.isNotEmpty ?? false) || metadata.targetUnit != null;
+      if (hasDisplayLabel) identityPerPath ??= metadata;
     }
     return identityPerPath ?? categoryFallback;
   }
