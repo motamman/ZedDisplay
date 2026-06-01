@@ -318,7 +318,13 @@ class _AisVesselListState extends State<AisVesselList> {
         color: isDark ? Colors.grey.shade900 : Colors.grey.shade100,
         borderRadius: BorderRadius.circular(12),
       ),
-      child: Column(
+      // Transparent Material so the ListTiles below paint their ink/background
+      // on THIS Material rather than searching past the coloured Container
+      // above (which would hide them and trip the "background may be invisible"
+      // assertion once per row).
+      child: Material(
+        type: MaterialType.transparency,
+        child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Padding(
@@ -350,6 +356,7 @@ class _AisVesselListState extends State<AisVesselList> {
                 : _buildFavorites(context, isDark),
           ),
         ],
+        ),
       ),
     );
   }
