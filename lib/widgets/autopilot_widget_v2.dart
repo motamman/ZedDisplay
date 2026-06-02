@@ -363,9 +363,14 @@ class _AutopilotWidgetV2State extends State<AutopilotWidgetV2> {
                 if (widget.mode != 'Wind' && widget.mode.toLowerCase() != 'route' && widget.mode.toLowerCase() != 'nav')
                   ..._buildBananaButtons(size, outerRadius, enabled: widget.engaged),
 
-                // Tack banana button (show in Wind mode only)
+                // Tack banana button (show in Wind mode only). Disabled
+                // until the wind side is known, mirroring the fail-closed
+                // guard in AutopilotToolV2._handleTack.
                 if (widget.mode == 'Wind' && widget.isSailingVessel)
-                  ..._buildTackBanana(size, enabled: widget.engaged),
+                  ..._buildTackBanana(
+                    size,
+                    enabled: widget.engaged && widget.apparentWindAngle != null,
+                  ),
 
                 // Advance waypoint banana button (show in Route/Nav mode)
                 if ((widget.mode.toLowerCase() == 'route' || widget.mode.toLowerCase() == 'nav') && !widget.dodgeActive)

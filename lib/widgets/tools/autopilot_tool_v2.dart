@@ -547,7 +547,23 @@ class _AutopilotToolV2State extends State<AutopilotToolV2> with AutomaticKeepAli
     // Wind on starboard (apparent wind angle >= 0) -> tack to starboard;
     // wind on port -> tack to port. Backends that ignore the value (e.g.
     // Raymarine N2K) tack from the current wind angle regardless.
-    final direction = (_apparentWindAngle ?? 0) >= 0 ? 'starboard' : 'port';
+    //
+    // Fail closed: without a known wind side we can't tell which way the
+    // boat tacks, so refuse rather than issue a command in an arbitrary
+    // direction. (The widget also disables the button in this state.)
+    final awa = _apparentWindAngle;
+    if (awa == null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Tack requires apparent wind data'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+      return;
+    }
+    final direction = awa >= 0 ? 'starboard' : 'port';
 
     final confirmed = await showCountdownConfirmation(
       context: context,
