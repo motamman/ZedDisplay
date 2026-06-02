@@ -1554,10 +1554,9 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
         aisClass: v.aisClass,
         aisStatus: v.aisStatus,
         navState: v.navState,
-        headingTrue: v.headingTrueRad != null
-            ? v.headingTrueRad! * 180.0 / math.pi
-            : null,
-        cog: v.cogRad != null ? v.cogRad! * 180.0 / math.pi : null,
+        // Raw SI radians; the list converts + symbols via formatAngle.
+        headingTrue: v.headingTrueRad,
+        cog: v.cogRad,
         sogRaw: v.sogMs,
         distance: dist,
         cpa: cpa?.cpaM,
@@ -1614,8 +1613,7 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
     final store = widget.signalKService.metadataStore;
     final distMd = store.getByCategory('distance');
     final speedMd = store.getByCategory('speed');
-    final angleSymbol =
-        store.get('__category__.angle')?.symbol ?? '°';
+    final angleMd = store.getByCategory('angle');
     String formatDistance(double meters, {int decimals = 1}) {
       if (distMd == null) return '${meters.toStringAsFixed(decimals)} m';
       final v = distMd.convert(meters);
@@ -1628,6 +1626,15 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
       final v = speedMd.convert(ms);
       if (v == null) return '${ms.toStringAsFixed(1)} m/s';
       return '${v.toStringAsFixed(1)} ${speedMd.symbol ?? 'm/s'}';
+    }
+
+    // Raw SI radians in → display angle + symbol out, honouring the
+    // user's angle preset. Falls back to degrees only when the preset
+    // hasn't seeded angle metadata yet (degrees is the COG default).
+    String formatAngle(double radians) {
+      final v = angleMd?.convert(radians);
+      if (v == null) return '${(radians * 180 / math.pi).toStringAsFixed(0)}°';
+      return '${v.toStringAsFixed(0)}${angleMd?.symbol ?? '°'}';
     }
 
     CpaAlertService? cpaService;
@@ -1681,7 +1688,7 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
                         colorByShipType: true,
                         formatDistance: formatDistance,
                         formatSpeed: formatSpeed,
-                        formatAngleSymbol: () => angleSymbol,
+                        formatAngle: formatAngle,
                         onTap: (vesselId) {
                           Navigator.of(sheetCtx).pop();
                           if (!mounted) return;
@@ -2912,8 +2919,7 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
   void _onMetadataStoreChanged() {
     if (!mounted) return;
     final store = widget.signalKService.metadataStore;
-    final depth = store.get('environment.depth.belowTransducer') ??
-        store.getByCategory('depth');
+    final depth = store.getByCategory('depth');
     final sig = depth == null ? null : '${depth.symbol}|${depth.formula}';
     if (sig == _lastDepthMetaSig) return;
     _lastDepthMetaSig = sig;
@@ -3090,16 +3096,13 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
                   hiddenClasses: _hiddenClasses,
                   enabledChartIds: _enabledChartIds,
                   chartOpacities: s57ChartOpacities,
-                  // Path-first, category fallback — same lookup the
-                  // HUD uses at chart_hud.dart:125. Vessels normally
-                  // populate `environment.depth.belowTransducer`
-                  // with displayUnits; `getByCategory` only fires
-                  // when the user has a category-level preset but
-                  // no per-path metadata yet.
+                  // Category-only: SignalK depth paths vary by setup
+                  // (`belowKeel` / `belowSurface` / `belowTransducer`),
+                  // so we don't pin to one — `getByCategory('depth')`
+                  // returns whichever depth metadata the server has
+                  // registered with the user's unit preset.
                   depthMetadata: widget.signalKService.metadataStore
-                          .get('environment.depth.belowTransducer') ??
-                      widget.signalKService.metadataStore
-                          .getByCategory('depth'),
+                      .getByCategory('depth'),
                 ),
               // Weather raster tiles sit under the vector overlays +
               // route so they read as a background tint (matches web

@@ -35,8 +35,11 @@ class AutopilotWidgetV2 extends StatefulWidget {
   final VoidCallback? onEngageDisengage;
   final Function(String mode)? onModeChange;
   final Function(int degrees)? onAdjustHeading;
-  final Function(String direction)? onTack;
-  final Function(String direction)? onGybe;
+  /// Tack onto the opposite tack. Tacking is a single action — it brings
+  /// the boat through head-to-wind onto the other tack — so it takes no
+  /// direction argument; the turn direction is derived from the current
+  /// wind side downstream (see `AutopilotToolV2._handleTack`).
+  final VoidCallback? onTack;
   final Function(double heading)? onSetTarget;
   final VoidCallback? onAdvanceWaypoint;
   final VoidCallback? onDodgeToggle;
@@ -71,7 +74,6 @@ class AutopilotWidgetV2 extends StatefulWidget {
     this.onModeChange,
     this.onAdjustHeading,
     this.onTack,
-    this.onGybe,
     this.onSetTarget,
     this.onAdvanceWaypoint,
     this.onDodgeToggle,
@@ -361,9 +363,14 @@ class _AutopilotWidgetV2State extends State<AutopilotWidgetV2> {
                 if (widget.mode != 'Wind' && widget.mode.toLowerCase() != 'route' && widget.mode.toLowerCase() != 'nav')
                   ..._buildBananaButtons(size, outerRadius, enabled: widget.engaged),
 
-                // Tack/Gybe banana buttons (show in Wind mode only)
+                // Tack banana button (show in Wind mode only). Disabled
+                // until the wind side is known, mirroring the fail-closed
+                // guard in AutopilotToolV2._handleTack.
                 if (widget.mode == 'Wind' && widget.isSailingVessel)
-                  ..._buildTackGybeBananas(size, enabled: widget.engaged),
+                  ..._buildTackBanana(
+                    size,
+                    enabled: widget.engaged && widget.apparentWindAngle != null,
+                  ),
 
                 // Advance waypoint banana button (show in Route/Nav mode)
                 if ((widget.mode.toLowerCase() == 'route' || widget.mode.toLowerCase() == 'nav') && !widget.dodgeActive)
@@ -576,80 +583,29 @@ class _AutopilotWidgetV2State extends State<AutopilotWidgetV2> {
     }).toList();
   }
 
-  /// Build tack/gybe banana buttons for Wind mode
-  /// Positioned based on turn direction:
-  /// - Port (left) side: buttons that turn you LEFT (Tack Port, Gybe Starboard)
-  /// - Starboard (right) side: buttons that turn you RIGHT (Tack Starboard, Gybe Port)
-  List<Widget> _buildTackGybeBananas(double size, {required bool enabled}) {
-    final buttons = <Widget>[];
-
-    // PORT SIDE (left) - buttons that turn the boat LEFT
-    // Tack to Port (turn left through the wind)
-    buttons.add(_buildTackGybeBanana(
-      size: size,
-      startAngle: 175.0, // Left side, upper
-      sweepAngle: 35.0,
-      isPort: true,
-      isTack: true,
-      label: 'TACK\nPORT',
-      enabled: enabled,
-      onPressed: () {
-        widget.onTack?.call('port');
-        _onHeadingAdjustmentSent();
-      },
-    ));
-
-    // Gybe to Starboard (turn left, wind ends on starboard) - V2 API only
-    if (widget.isV2Api) {
-      buttons.add(_buildTackGybeBanana(
+  /// Build the single Tack banana button for Wind mode.
+  ///
+  /// Tacking is one action — it brings the boat through head-to-wind onto
+  /// the opposite tack — so there is exactly one button (no port/starboard
+  /// choice, no gybe). The turn direction is derived from the current wind
+  /// side in `AutopilotToolV2._handleTack`. Centred at the top of the rim
+  /// (head-to-wind = up).
+  List<Widget> _buildTackBanana(double size, {required bool enabled}) {
+    return [
+      _buildTackGybeBanana(
         size: size,
-        startAngle: 135.0, // Left side, lower
-        sweepAngle: 35.0,
-        isPort: true,
-        isTack: false,
-        label: 'GYBE\nSTBD',
+        startAngle: -115.0, // top-centred (head-to-wind)
+        sweepAngle: 50.0,
+        isPort: false, // unused by the painter; label is centred by angle
+        isTack: true,
+        label: 'TACK',
         enabled: enabled,
         onPressed: () {
-          widget.onGybe?.call('starboard');
+          widget.onTack?.call();
           _onHeadingAdjustmentSent();
         },
-      ));
-    }
-
-    // STARBOARD SIDE (right) - buttons that turn the boat RIGHT
-    // Tack to Starboard (turn right through the wind)
-    buttons.add(_buildTackGybeBanana(
-      size: size,
-      startAngle: -30.0, // Right side, upper
-      sweepAngle: 35.0,
-      isPort: false,
-      isTack: true,
-      label: 'TACK\nSTBD',
-      enabled: enabled,
-      onPressed: () {
-        widget.onTack?.call('starboard');
-        _onHeadingAdjustmentSent();
-      },
-    ));
-
-    // Gybe to Port (turn right, wind ends on port) - V2 API only
-    if (widget.isV2Api) {
-      buttons.add(_buildTackGybeBanana(
-        size: size,
-        startAngle: 10.0, // Right side, lower
-        sweepAngle: 35.0,
-        isPort: false,
-        isTack: false,
-        label: 'GYBE\nPORT',
-        enabled: enabled,
-        onPressed: () {
-          widget.onGybe?.call('port');
-          _onHeadingAdjustmentSent();
-        },
-      ));
-    }
-
-    return buttons;
+      ),
+    ];
   }
 
   Widget _buildTackGybeBanana({

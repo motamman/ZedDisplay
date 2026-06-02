@@ -540,20 +540,42 @@ class _AutopilotToolV2State extends State<AutopilotToolV2> with AutomaticKeepAli
     );
   }
 
-  void _handleTack(String direction) async {
-    final directionLabel = direction == 'port' ? 'Port' : 'Starboard';
+  void _handleTack() async {
+    // Tacking is a single action — it brings the boat through head-to-wind
+    // onto the opposite tack — so the turn is always *toward* the wind and
+    // the direction is fixed by which tack we're on, not chosen by the user.
+    // Wind on starboard (apparent wind angle >= 0) -> tack to starboard;
+    // wind on port -> tack to port. Backends that ignore the value (e.g.
+    // Raymarine N2K) tack from the current wind angle regardless.
+    //
+    // Fail closed: without a known wind side we can't tell which way the
+    // boat tacks, so refuse rather than issue a command in an arbitrary
+    // direction. (The widget also disables the button in this state.)
+    final awa = _apparentWindAngle;
+    if (awa == null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Tack requires apparent wind data'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+      return;
+    }
+    final direction = awa >= 0 ? 'starboard' : 'port';
 
     final confirmed = await showCountdownConfirmation(
       context: context,
-      title: 'Tack to $directionLabel?',
-      action: 'Tack $directionLabel',
+      title: 'Tack?',
+      action: 'Tack',
       countdownSeconds: _autopilotConfig.confirmationCountdownSeconds,
     );
 
     if (!confirmed) return;
 
     await _sendCommand(
-      description: 'Tack $directionLabel',
+      description: 'Tack',
       v1Command: () async {
         await widget.signalKService.sendPutRequest(
           'steering.autopilot.actions.tack',
@@ -588,43 +610,6 @@ class _AutopilotToolV2State extends State<AutopilotToolV2> with AutomaticKeepAli
       },
       v2Command: () async {
         await _v2Api!.courseNextPoint(_selectedInstanceId!);
-      },
-      verifyPath: null,
-      verifyValue: null,
-    );
-  }
-
-  void _handleGybe(String direction) async {
-    if (_apiVersion != 'v2') {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Gybe support requires V2 API'),
-            backgroundColor: Colors.orange,
-          ),
-        );
-      }
-      return;
-    }
-
-    final directionLabel = direction == 'port' ? 'Port' : 'Starboard';
-
-    final confirmed = await showCountdownConfirmation(
-      context: context,
-      title: 'Gybe to $directionLabel?',
-      action: 'Gybe $directionLabel',
-      countdownSeconds: _autopilotConfig.confirmationCountdownSeconds,
-    );
-
-    if (!confirmed) return;
-
-    await _sendCommand(
-      description: 'Gybe $directionLabel',
-      v1Command: () async {
-        throw UnsupportedError('Gybe not available in V1');
-      },
-      v2Command: () async {
-        await _v2Api!.gybe(_selectedInstanceId!, direction);
       },
       verifyPath: null,
       verifyValue: null,
@@ -753,7 +738,6 @@ class _AutopilotToolV2State extends State<AutopilotToolV2> with AutomaticKeepAli
           onAdjustHeading: _handleAdjustHeading,
           onSetTarget: _handleSetTarget,
           onTack: _handleTack,
-          onGybe: _handleGybe,
           onAdvanceWaypoint: _handleAdvanceWaypoint,
           onDodgeToggle: _handleDodgeToggle,
         ),

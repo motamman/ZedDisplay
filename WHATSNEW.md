@@ -1,4 +1,36 @@
-# What's New in v0.6.4
+# What's New in v0.6.6
+
+## Release Notes (Google Play - max 500 chars)
+
+v0.6.6 Forecast Spinner Wind Centre + Correct Units
+
+NEW: Spin the forecast dial and tap its centre to cycle displays — a Wind mode shows the Beaufort number, named scale, and animated leaves that pick up with the wind.
+
+IMPROVED: Forecast and chart-plotter values now convert through your unit preset by category, so Tempest forecasts honour your units instead of showing raw SI.
+
+FIXED: AIS vessel markers no longer leave black "ghost" silhouettes while you pan the map.
+
+## Release Notes (App Store / TestFlight - max 4000 chars)
+
+### Forecast Spinner — Tap-Cyclable Centre (NEW)
+- **Wind / Beaufort Mode** — Tap the spinner's hub to cycle its centre display. The Wind mode shows the Beaufort force number, the named scale (Calm → Hurricane), and a colour keyed to the force, with animated leaves whose count, sway, and tumble speed scale with the wind.
+- **Solar Mode (built, hidden)** — A solar centre showing irradiance (W/m²) and panel power output is fully plumbed but disabled for now, because no current weather provider returns solar data — it would only ever show "No solar output". It flips on the moment a provider exposes irradiance.
+
+### Correct Units for Forecasts (IMPROVED)
+- **Category-Based Conversions** — Forecast temperature, wind, pressure, humidity, precipitation, and wind direction — plus chart-plotter depth — now convert through your unit preset *by category* instead of by exact path. The Tempest forecast paths aren't in the server's category patterns, so the old approach silently showed raw SI; now they honour your chosen units.
+- **Tracks Server Changes** — Unit lookups prefer live per-path metadata when present, so a units change on the server is reflected without restarting.
+
+### AIS Map Polish (FIXED)
+- **No More Marker Ghosts** — AIS vessel markers used a blurred drop-shadow that, on some devices, left a black silhouette "ghost" lagging behind the real marker while panning. Replaced with a crisp outline that keeps markers legible against any chart without the ghosting.
+- **Cleaner Vessel List** — Fixed a debug-log flood from the AIS vessel list ("background color or ink splashes may be invisible") by giving the list its own transparent Material surface.
+
+### Housekeeping (IMPROVED)
+- Weather effect overlays and the alerts tool moved from Phosphor to Material icons, and the Phosphor dependency was dropped — a smaller, more consistent build.
+- Linux builds pick up `libwebkit2gtk-4.1-dev` in CI.
+
+---
+
+# Previous: v0.6.4
 
 ## Release Notes (Google Play - max 500 chars)
 

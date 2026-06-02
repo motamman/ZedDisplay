@@ -70,6 +70,8 @@ A customizable SignalK marine dashboard and crew comms application to display re
 - **Forecast Spinner**: Circular dial to explore WeatherFlow/Tempest hourly forecast by spinning
   - Rotary hour-by-hour navigation through forecast data
   - Temperature, wind, and precipitation display
+  - Tap-cyclable centre display, including a Wind/Beaufort mode (Beaufort number, named scale, and wind-driven animated leaves)
+  - Units follow your preset by category, so forecast values display in your chosen units even for paths the server doesn't categorise
   - Requires signalk-weatherflow-api plugin
 
 - **Weather Alerts**: NWS (National Weather Service) weather alert display

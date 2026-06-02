@@ -5,6 +5,36 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.6+75] - 2026-05-31
+
+> Folds in the `0.6.5` build, which was tagged but never given a changelog entry.
+
+### Added
+- **Forecast Spinner — Tap-Cyclable Centre**: The forecast spinner's hub now cycles through display modes on tap. The **Wind** mode shows the Beaufort number, the named scale text, and a Beaufort-coloured readout, with animated leaves whose count, oscillation, and tumble speed scale with the Beaufort force. New `beaufort` field on `HourlyForecast` backs it.
+- **Solar Centre (plumbed, hidden)**: A **Solar** centre mode renders irradiance (W/m²) plus a panel-power readout. `WeatherApiForecast.irradianceWm2` best-effort parses `outside.globalTiltedIrradiance` (panel-aware, preferred) or `outside.shortwaveRadiation`. The mode is currently **disabled by default** — no configured provider returns irradiance yet, so it would always show the "No solar output" fallback. All plumbing (`_buildSolarCenter`, the service-side parse) stays in place; re-enabling is a one-line `showSolarCenter` flip.
+- **Category-Based Metadata Resolution**: `MetadataStore.getByCategory(category)` resolves in priority order: (1) the first **live per-path** entry with a real conversion formula, (2) otherwise a per-path entry that carries a display label (symbol/unit) usable as an identity conversion, (3) otherwise the `populateFromPreset`-seeded `__category__.<category>` fallback. A formula-less, label-less entry is ignored so it can't mask the preset fallback. This lets unit preferences track a server-side units change (via `sendMeta=all` deltas) without re-running `populateFromPreset`.
+
+### Changed
+- **Forecast Units via Category Lookup**: `ForecastSpinnerTool`, `WeatherApiSpinnerTool`, and `WeatherFlowForecastTool` now convert temperature, wind speed, pressure, humidity, and precipitation through `metadataStore.getByCategory(...)` instead of path-based lookup (the WeatherFlow tool covers both its hourly and daily loops and its labelling symbols). The Tempest forecast paths (`environment.outside.tempest.forecast.hourly.*` / `.daily.*`) aren't in the SignalK server's `default-categories` patterns, so the old path-first lookup fell through to raw SI silently; category lookup hits the synthetic `__category__.<name>` entries seeded on connect and always carries the user's active preset. New `_convertByCategory(path, category)` helper in each tool. (Wind **direction** is excluded — it's graphical, see Fixed below.)
+- **Chart Plotter Depth via Category Lookup**: `ChartPlotterV3Tool` depth metadata retrieval simplified to the same category-based lookup for consistency and to honour the user's depth preference even when the path-specific metadata isn't present.
+- **Weather API Spinner — Solar Centre Config Removed**: The Solar Centre toggle and panel-config UI were removed from `WeatherApiSpinnerConfigurator` (hidden until a provider exposes irradiance); related load/default logic simplified. The runtime field still loads so re-enabling stays trivial.
+- **Material Icons over Phosphor**: Weather effect overlays (`forecast_spinner.dart`) and the weather alerts tool now use Material icons instead of Phosphor icons for consistency and maintainability. The `phosphor_flutter` dependency was dropped from `pubspec.yaml`.
+
+### Fixed
+- **Wind Direction & AIS COG/Heading — SI Radians End-to-End**: Graphical angle values (the forecast spinner / WeatherFlow forecast wind arrows + compass labels, and the AIS vessel-list COG/heading) now stay in raw SI radians from source to the render boundary instead of being routed through the user's `angle` preset or hardcoded to degrees. Painters rotate in radians directly; the shared AIS list gains a `formatAngle(radians)` callback that converts + symbols via MetadataStore (paralleling `formatSpeed`/`formatDistance`), and `AisVesselListItem.cog`/`headingTrue` now carry radians. Previously a non-degree `angle` preset could mis-rotate the arrows and produce a value/symbol mismatch (a degrees number labelled e.g. `rad`).
+- **Forecast Spinner Polish**: Wind-centre leaf-animation timing is keyed to Beaufort (derived from raw m/s) rather than the display-unit wind speed, so it runs at the same rate regardless of the user's speed unit, and a duration change now restarts the controller immediately instead of at the next cycle. The night / no-irradiance solar centre no longer renders its own time label when the corner time overlay is enabled (was showing the time twice). The Weather API Spinner's solar centre now reads the persisted `showSolarCenter` flag (default off) instead of a hardcoded `false`, so a solar-capable provider config can opt in without a code change.
+- **AIS Marker "Ghosts" on Pan**: Vessel markers carried blurred drop-shadows (`Shadow(..., blurRadius: 3)`). A non-zero blur forces the glyph onto an offscreen `saveLayer`; `flutter_map` translates that cached layer during a pan gesture and it repaints a frame behind the real marker, leaving black silhouette "ghosts" that resolved once the map settled. Replaced with crisp **zero-blur**, four-cardinal-offset outlines (`_markerOutline` / `_kBlackMarkerOutline`) — same dark halo for legibility, no offscreen layer, no ghosting. Applies to own-vessel and other-vessel markers in the AIS Polar Chart.
+- **AIS Vessel List — "Background May Be Invisible" Assertion Flood**: The shared vessel list wrapped its chips + tile list in a `Container` with a coloured `BoxDecoration` and no `Material` between that box and the `ListTile`s, so Flutter logged "ListTile background color or ink splashes may be invisible" once per visible row. The list contents are now wrapped in a `Material(type: MaterialType.transparency)` inside the coloured container, so tiles paint their ink/background on a `Material` that sits above the colour.
+
+### Build
+- **Linux CI**: Added `libwebkit2gtk-4.1-dev` to the Linux release workflow build dependencies.
+
+### Developer
+- `MetadataStore.getByCategory` resolution order documented inline (per-path formula → label-bearing identity per-path → `__category__` fallback; label-less formula-less entries ignored). `.claude/METADATA_STORE_GUIDE.md` updated to match.
+- New model fields: `WeatherApiForecast.irradianceWm2` (W/m²), `HourlyForecast.beaufort`. New `CenterDisplayMode { weather, wind, solar }` enum in `forecast_spinner.dart`.
+- New `_convertByCategory(String path, String category)` helper in `forecast_spinner_tool.dart`; forecast unit-symbol lookups moved from `getUnitSymbol(path)` to `getByCategory(category)?.symbol`.
+- Marker-outline helpers `_markerOutline(Color)` and `const _kBlackMarkerOutline` in `ais_polar_chart.dart`. Gotcha for future work: never put a *blurred* shadow / mask filter on a `flutter_map` marker — the offscreen-layer caching desyncs from the layer transform during pan. Use a zero-blur outline.
+
 ## [0.6.4+73] - 2026-05-18
 
 ### Added

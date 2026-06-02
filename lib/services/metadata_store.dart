@@ -180,15 +180,44 @@ class MetadataStore extends ChangeNotifier {
   /// Get the category for a path.
   String? getCategory(String path) => _metadata[path]?.category;
 
-  /// Get the first metadata entry matching a category.
-  /// Used for category-based conversions (e.g., distance, speed).
+  /// Get a metadata entry matching [category].
+  ///
+  /// Resolution order:
+  ///   1. the first per-path entry with a real conversion formula;
+  ///   2. otherwise the first per-path entry that has no formula but is
+  ///      still usable as an identity conversion (and carries a symbol)
+  ///      — e.g. a symbol-only `sendMeta=all` delta;
+  ///   3. otherwise the [populateFromPreset]-seeded
+  ///      `__category__.<category>` entry.
+  ///
+  /// Per-path entries are kept fresh by [updateFromMeta] from live
+  /// `sendMeta=all` deltas, so this ordering reflects a server-side
+  /// units-preference change without re-running [populateFromPreset].
+  ///
+  /// A formula-less entry is NOT skipped: `PathMetadata.convert()` treats
+  /// a null/empty formula as an identity conversion and the entry can
+  /// still provide a valid `symbol`, so dropping it would needlessly
+  /// return null (blank symbol / missed identity conversion).
   PathMetadata? getByCategory(String category) {
-    for (final metadata in _metadata.values) {
-      if (metadata.category == category) {
-        return metadata;
+    PathMetadata? identityPerPath;
+    PathMetadata? categoryFallback;
+    for (final entry in _metadata.entries) {
+      final metadata = entry.value;
+      if (metadata.category != category) continue;
+      if (entry.key.startsWith('__category__.')) {
+        categoryFallback ??= metadata;
+        continue;
       }
+      if (metadata.hasConversion) return metadata;
+      // A formula-less per-path entry is only a useful identity candidate
+      // if it actually carries a display label; otherwise it offers nothing
+      // over the preset `__category__` fallback (and would wrongly mask it,
+      // leaving callers on raw SI with no symbol until the next meta delta).
+      final hasDisplayLabel =
+          (metadata.symbol?.isNotEmpty ?? false) || metadata.targetUnit != null;
+      if (hasDisplayLabel) identityPerPath ??= metadata;
     }
-    return null;
+    return identityPerPath ?? categoryFallback;
   }
 
   /// Clear all metadata.

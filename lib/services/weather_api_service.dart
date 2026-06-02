@@ -20,6 +20,12 @@ class WeatherApiForecast {
   final String? precipType;
   final double? uv;
   final double? pressure; // Pa
+  /// Solar irradiance in W/m². Best-effort parse of
+  /// `outside.globalTiltedIrradiance` (preferred) or
+  /// `outside.shortwaveRadiation`. Null when the configured provider
+  /// doesn't expose solar data — consumers (the spinner's solar
+  /// centre) treat null/zero as "no solar output".
+  final double? irradianceWm2;
   final String? conditions;
   final String? longDescription;
   final String? icon;
@@ -37,6 +43,7 @@ class WeatherApiForecast {
     this.precipType,
     this.uv,
     this.pressure,
+    this.irradianceWm2,
     this.conditions,
     this.longDescription,
     this.icon,
@@ -90,6 +97,12 @@ class WeatherApiForecast {
     // UV index
     double? uv = (outside['uvIndex'] as num?)?.toDouble();
 
+    // Solar irradiance in W/m². Prefer tilted (panel-aware) over flat
+    // shortwave radiation when both are present. Null is fine; the
+    // spinner's solar centre handles it as a "no data" fallback.
+    double? irradiance = (outside['globalTiltedIrradiance'] as num?)?.toDouble();
+    irradiance ??= (outside['shortwaveRadiation'] as num?)?.toDouble();
+
     // Description and icon
     String? conditions = json['description'] as String?;
     String? longDescription = json['longDescription'] as String?;
@@ -110,6 +123,7 @@ class WeatherApiForecast {
       precipType: null,
       uv: uv,
       pressure: pressure,
+      irradianceWm2: irradiance,
       conditions: conditions,
       longDescription: longDescription,
       icon: icon,

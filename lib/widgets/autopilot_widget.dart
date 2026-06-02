@@ -671,69 +671,8 @@ class _AutopilotWidgetState extends State<AutopilotWidget> {
           child: _buildHeadingLabel(widget.currentHeading, widget.headingTrue),
         ),
 
-        // Tack Port button - left side, aligned with compass midline (only for sailing vessels in Auto/Wind mode)
-        if (widget.isSailingVessel && widget.engaged && (widget.mode == 'Auto' || widget.mode == 'Wind'))
-          Positioned(
-            left: 0,
-            top: 0,
-            bottom: 0,
-            child: AnimatedOpacity(
-              opacity: _controlsOpacity,
-              duration: const Duration(milliseconds: 300),
-              child: Align(
-                alignment: Alignment.centerLeft,
-                child: SizedBox(
-                  width: 75,
-                  child: ElevatedButton(
-                    onPressed: () {
-                      widget.onTack?.call('port');
-                      _onHeadingAdjustmentSent();
-                    },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.red.withValues(alpha: 0.6),
-                      padding: const EdgeInsets.symmetric(vertical: 8),
-                    ),
-                    child: const Text('TACK\nPORT',
-                      style: TextStyle(fontSize: 9),
-                      textAlign: TextAlign.center,
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
-
-        // Tack Starboard button - right side, aligned with compass midline (only for sailing vessels in Auto/Wind mode)
-        if (widget.isSailingVessel && widget.engaged && (widget.mode == 'Auto' || widget.mode == 'Wind'))
-          Positioned(
-            right: 0,
-            top: 0,
-            bottom: 0,
-            child: AnimatedOpacity(
-              opacity: _controlsOpacity,
-              duration: const Duration(milliseconds: 300),
-              child: Align(
-                alignment: Alignment.centerRight,
-                child: SizedBox(
-                  width: 75,
-                  child: ElevatedButton(
-                    onPressed: () {
-                      widget.onTack?.call('starboard');
-                      _onHeadingAdjustmentSent();
-                    },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.green.withValues(alpha: 0.6),
-                      padding: const EdgeInsets.symmetric(vertical: 8),
-                    ),
-                    child: const Text('TACK\nSTBD',
-                      style: TextStyle(fontSize: 9),
-                      textAlign: TextAlign.center,
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
+        // Tack/gybe buttons removed from the V1 widget — tacking lives on
+        // the V2 autopilot as a single Tack banana button.
 
         // Route info panel - middle area (only in route/nav mode with route data, hidden during dodge)
         if ((widget.mode.toLowerCase() == 'route' || widget.mode.toLowerCase() == 'nav') &&
@@ -829,10 +768,6 @@ class _AutopilotWidgetState extends State<AutopilotWidget> {
             // Heading adjustment buttons (for all vessels in Auto/Compass/Wind mode)
             if (widget.engaged && (widget.mode == 'Auto' || widget.mode == 'Compass' || widget.mode == 'Wind'))
               _buildHeadingControls(),
-
-            // Gybe buttons (V2 only, sailing vessels, wind mode for downwind sailing)
-            if (widget.isV2Api && widget.isSailingVessel && widget.engaged && widget.mode == 'Wind')
-              _buildGybeControls(),
 
             // Dodge mode toggle (V2 only, route/nav mode)
             if (widget.isV2Api && widget.engaged && (widget.mode.toLowerCase() == 'route' || widget.mode.toLowerCase() == 'nav'))
@@ -1147,39 +1082,6 @@ class _AutopilotWidgetState extends State<AutopilotWidget> {
           backgroundColor: Colors.blue.withValues(alpha: 0.6),
           padding: const EdgeInsets.symmetric(vertical: 12),
         ),
-      ),
-    );
-  }
-
-  Widget _buildGybeControls() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      child: Row(
-        children: [
-          Expanded(
-            child: ElevatedButton.icon(
-              onPressed: () => widget.onGybe?.call('port'),
-              icon: const Icon(Icons.directions_boat, size: 16),
-              label: const Text('GYBE PORT'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.purple.withValues(alpha: 0.6),
-                padding: const EdgeInsets.symmetric(vertical: 10),
-              ),
-            ),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: ElevatedButton.icon(
-              onPressed: () => widget.onGybe?.call('starboard'),
-              icon: const Icon(Icons.directions_boat, size: 16),
-              label: const Text('GYBE STBD'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.purple.withValues(alpha: 0.6),
-                padding: const EdgeInsets.symmetric(vertical: 10),
-              ),
-            ),
-          ),
-        ],
       ),
     );
   }
