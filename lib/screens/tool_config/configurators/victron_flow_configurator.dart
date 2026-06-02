@@ -4,6 +4,7 @@ import '../../../models/tool_config.dart';
 import '../../../models/tool.dart';
 import '../../../services/signalk_service.dart';
 import '../../../widgets/config/path_selector.dart';
+import '../../../widgets/config/source_selector.dart';
 import '../base_tool_configurator.dart';
 
 /// Configurator for Power Flow tool with customizable sources and loads
@@ -25,6 +26,7 @@ class VictronFlowConfigurator extends ToolConfigurator {
 
   // Inverter state path
   String _inverterStatePath = 'electrical.inverter.state';
+  String? _inverterStateSource;
 
   // Primary color for the tool
   String? _primaryColor;
@@ -143,6 +145,7 @@ class VictronFlowConfigurator extends ToolConfigurator {
     ];
 
     _inverterStatePath = 'electrical.inverter.state';
+    _inverterStateSource = null;
     _primaryColor = null;
   }
 
@@ -182,6 +185,7 @@ class VictronFlowConfigurator extends ToolConfigurator {
 
     // Load inverter path
     _inverterStatePath = customProps['inverterStatePath'] as String? ?? 'electrical.inverter.state';
+    _inverterStateSource = customProps['inverterStateSource'] as String?;
 
     // Load primary color
     _primaryColor = tool.config.style.primaryColor;
@@ -198,6 +202,7 @@ class VictronFlowConfigurator extends ToolConfigurator {
           'loads': _loads,
           'batteries': _batteries,
           'inverterStatePath': _inverterStatePath,
+          if (_inverterStateSource != null) 'inverterStateSource': _inverterStateSource,
         },
       ),
     );
@@ -280,6 +285,8 @@ class VictronFlowConfigurator extends ToolConfigurator {
               const SizedBox(height: 8),
               _buildPathTile(context, setState, signalKService, 'State Path', _inverterStatePath, (path) {
                 setState(() => _inverterStatePath = path);
+              }, currentSource: _inverterStateSource, onSourceChanged: (sel) {
+                setState(() => _inverterStateSource = sel);
               }),
 
               const SizedBox(height: 24),
@@ -489,18 +496,28 @@ class VictronFlowConfigurator extends ToolConfigurator {
               children: [
                 _buildPathTile(context, setState, signalKService, 'Current', source['currentPath'] ?? '', (path) {
                   setState(() => source['currentPath'] = path);
+                }, currentSource: source['currentSource'] as String?, onSourceChanged: (sel) {
+                  setState(() => source['currentSource'] = sel);
                 }),
                 _buildPathTile(context, setState, signalKService, 'Voltage', source['voltagePath'] ?? '', (path) {
                   setState(() => source['voltagePath'] = path);
+                }, currentSource: source['voltageSource'] as String?, onSourceChanged: (sel) {
+                  setState(() => source['voltageSource'] = sel);
                 }),
                 _buildPathTile(context, setState, signalKService, 'Power', source['powerPath'] ?? '', (path) {
                   setState(() => source['powerPath'] = path);
+                }, currentSource: source['powerSource'] as String?, onSourceChanged: (sel) {
+                  setState(() => source['powerSource'] = sel);
                 }),
                 _buildPathTile(context, setState, signalKService, 'Frequency (opt)', source['frequencyPath'] ?? '', (path) {
                   setState(() => source['frequencyPath'] = path);
+                }, currentSource: source['frequencySource'] as String?, onSourceChanged: (sel) {
+                  setState(() => source['frequencySource'] = sel);
                 }),
                 _buildPathTile(context, setState, signalKService, 'State (opt)', source['statePath'] ?? '', (path) {
                   setState(() => source['statePath'] = path);
+                }, currentSource: source['stateSource'] as String?, onSourceChanged: (sel) {
+                  setState(() => source['stateSource'] = sel);
                 }),
               ],
             ),
@@ -573,15 +590,23 @@ class VictronFlowConfigurator extends ToolConfigurator {
               children: [
                 _buildPathTile(context, setState, signalKService, 'Current', load['currentPath'] ?? '', (path) {
                   setState(() => load['currentPath'] = path);
+                }, currentSource: load['currentSource'] as String?, onSourceChanged: (sel) {
+                  setState(() => load['currentSource'] = sel);
                 }),
                 _buildPathTile(context, setState, signalKService, 'Voltage', load['voltagePath'] ?? '', (path) {
                   setState(() => load['voltagePath'] = path);
+                }, currentSource: load['voltageSource'] as String?, onSourceChanged: (sel) {
+                  setState(() => load['voltageSource'] = sel);
                 }),
                 _buildPathTile(context, setState, signalKService, 'Power', load['powerPath'] ?? '', (path) {
                   setState(() => load['powerPath'] = path);
+                }, currentSource: load['powerSource'] as String?, onSourceChanged: (sel) {
+                  setState(() => load['powerSource'] = sel);
                 }),
                 _buildPathTile(context, setState, signalKService, 'Frequency (opt)', load['frequencyPath'] ?? '', (path) {
                   setState(() => load['frequencyPath'] = path);
+                }, currentSource: load['frequencySource'] as String?, onSourceChanged: (sel) {
+                  setState(() => load['frequencySource'] = sel);
                 }),
               ],
             ),
@@ -651,21 +676,33 @@ class VictronFlowConfigurator extends ToolConfigurator {
               children: [
                 _buildPathTile(context, setState, signalKService, 'State of Charge', battery['socPath'] ?? '', (path) {
                   setState(() => battery['socPath'] = path);
+                }, currentSource: battery['socSource'] as String?, onSourceChanged: (sel) {
+                  setState(() => battery['socSource'] = sel);
                 }),
                 _buildPathTile(context, setState, signalKService, 'Voltage', battery['voltagePath'] ?? '', (path) {
                   setState(() => battery['voltagePath'] = path);
+                }, currentSource: battery['voltageSource'] as String?, onSourceChanged: (sel) {
+                  setState(() => battery['voltageSource'] = sel);
                 }),
                 _buildPathTile(context, setState, signalKService, 'Current', battery['currentPath'] ?? '', (path) {
                   setState(() => battery['currentPath'] = path);
+                }, currentSource: battery['currentSource'] as String?, onSourceChanged: (sel) {
+                  setState(() => battery['currentSource'] = sel);
                 }),
                 _buildPathTile(context, setState, signalKService, 'Power', battery['powerPath'] ?? '', (path) {
                   setState(() => battery['powerPath'] = path);
+                }, currentSource: battery['powerSource'] as String?, onSourceChanged: (sel) {
+                  setState(() => battery['powerSource'] = sel);
                 }),
                 _buildPathTile(context, setState, signalKService, 'Time Remaining', battery['timeRemainingPath'] ?? '', (path) {
                   setState(() => battery['timeRemainingPath'] = path);
+                }, currentSource: battery['timeRemainingSource'] as String?, onSourceChanged: (sel) {
+                  setState(() => battery['timeRemainingSource'] = sel);
                 }),
                 _buildPathTile(context, setState, signalKService, 'Temperature', battery['temperaturePath'] ?? '', (path) {
                   setState(() => battery['temperaturePath'] = path);
+                }, currentSource: battery['temperatureSource'] as String?, onSourceChanged: (sel) {
+                  setState(() => battery['temperatureSource'] = sel);
                 }),
               ],
             ),
@@ -675,8 +712,17 @@ class VictronFlowConfigurator extends ToolConfigurator {
     );
   }
 
-  Widget _buildPathTile(BuildContext context, StateSetter setState, SignalKService signalKService, String label, String currentPath, ValueChanged<String> onChanged) {
-    return ListTile(
+  Widget _buildPathTile(
+    BuildContext context,
+    StateSetter setState,
+    SignalKService signalKService,
+    String label,
+    String currentPath,
+    ValueChanged<String> onChanged, {
+    String? currentSource,
+    ValueChanged<String?>? onSourceChanged,
+  }) {
+    final pathTile = ListTile(
       dense: true,
       contentPadding: EdgeInsets.zero,
       title: Text(label, style: const TextStyle(fontSize: 13)),
@@ -710,6 +756,47 @@ class VictronFlowConfigurator extends ToolConfigurator {
           ),
         );
       },
+    );
+
+    if (onSourceChanged == null) return pathTile;
+
+    // Compact per-path source picker. Source enumeration needs a path, so
+    // it's only tappable once a path is configured; "Auto" = active source.
+    final pathSet = currentPath.isNotEmpty;
+    final sourceRow = Padding(
+      padding: const EdgeInsets.only(left: 8, bottom: 6),
+      child: InkWell(
+        onTap: pathSet
+            ? () => showDialog(
+                  context: context,
+                  builder: (ctx) => SourceSelectorDialog(
+                    signalKService: signalKService,
+                    path: currentPath,
+                    currentSource: currentSource,
+                    onSelect: onSourceChanged,
+                  ),
+                )
+            : null,
+        child: Row(
+          children: [
+            Icon(Icons.sensors,
+                size: 14, color: pathSet ? Colors.blueGrey : Colors.grey),
+            const SizedBox(width: 6),
+            Text(
+              'Source: ${currentSource ?? 'Auto'}',
+              style: TextStyle(
+                fontSize: 11,
+                color: pathSet ? Colors.blueGrey.shade700 : Colors.grey,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [pathTile, sourceRow],
     );
   }
 

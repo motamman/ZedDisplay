@@ -15,6 +15,12 @@ class PowerSourceConfig {
   final String? powerPath;
   final String? frequencyPath;
   final String? statePath;
+  // Optional SignalK source per path (null = Auto / active source).
+  final String? currentSource;
+  final String? voltageSource;
+  final String? powerSource;
+  final String? frequencySource;
+  final String? stateSource;
 
   const PowerSourceConfig({
     required this.name,
@@ -24,6 +30,11 @@ class PowerSourceConfig {
     this.powerPath,
     this.frequencyPath,
     this.statePath,
+    this.currentSource,
+    this.voltageSource,
+    this.powerSource,
+    this.frequencySource,
+    this.stateSource,
   });
 
   factory PowerSourceConfig.fromMap(Map<String, dynamic> map) {
@@ -35,6 +46,11 @@ class PowerSourceConfig {
       powerPath: map['powerPath'] as String?,
       frequencyPath: map['frequencyPath'] as String?,
       statePath: map['statePath'] as String?,
+      currentSource: map['currentSource'] as String?,
+      voltageSource: map['voltageSource'] as String?,
+      powerSource: map['powerSource'] as String?,
+      frequencySource: map['frequencySource'] as String?,
+      stateSource: map['stateSource'] as String?,
     );
   }
 
@@ -46,17 +62,22 @@ class PowerSourceConfig {
     if (powerPath != null) 'powerPath': powerPath,
     if (frequencyPath != null) 'frequencyPath': frequencyPath,
     if (statePath != null) 'statePath': statePath,
+    if (currentSource != null) 'currentSource': currentSource,
+    if (voltageSource != null) 'voltageSource': voltageSource,
+    if (powerSource != null) 'powerSource': powerSource,
+    if (frequencySource != null) 'frequencySource': frequencySource,
+    if (stateSource != null) 'stateSource': stateSource,
   };
 
   /// Get the primary value for flow animation (current or power)
   double getPrimaryValue(SignalKService service) {
     // Prefer current, fall back to power
     if (currentPath != null) {
-      final data = service.getValue(currentPath!);
+      final data = service.getValue(currentPath!, source: currentSource);
       if (data?.value is num) return (data!.value as num).toDouble().abs();
     }
     if (powerPath != null) {
-      final data = service.getValue(powerPath!);
+      final data = service.getValue(powerPath!, source: powerSource);
       if (data?.value is num) return (data!.value as num).toDouble().abs() / 100;
     }
     return 0;
@@ -73,6 +94,11 @@ class PowerLoadConfig {
   final String? voltagePath;
   final String? powerPath;
   final String? frequencyPath;
+  // Optional SignalK source per path (null = Auto / active source).
+  final String? currentSource;
+  final String? voltageSource;
+  final String? powerSource;
+  final String? frequencySource;
 
   const PowerLoadConfig({
     required this.name,
@@ -81,6 +107,10 @@ class PowerLoadConfig {
     this.voltagePath,
     this.powerPath,
     this.frequencyPath,
+    this.currentSource,
+    this.voltageSource,
+    this.powerSource,
+    this.frequencySource,
   });
 
   factory PowerLoadConfig.fromMap(Map<String, dynamic> map) {
@@ -91,6 +121,10 @@ class PowerLoadConfig {
       voltagePath: map['voltagePath'] as String?,
       powerPath: map['powerPath'] as String?,
       frequencyPath: map['frequencyPath'] as String?,
+      currentSource: map['currentSource'] as String?,
+      voltageSource: map['voltageSource'] as String?,
+      powerSource: map['powerSource'] as String?,
+      frequencySource: map['frequencySource'] as String?,
     );
   }
 
@@ -101,15 +135,19 @@ class PowerLoadConfig {
     if (voltagePath != null) 'voltagePath': voltagePath,
     if (powerPath != null) 'powerPath': powerPath,
     if (frequencyPath != null) 'frequencyPath': frequencyPath,
+    if (currentSource != null) 'currentSource': currentSource,
+    if (voltageSource != null) 'voltageSource': voltageSource,
+    if (powerSource != null) 'powerSource': powerSource,
+    if (frequencySource != null) 'frequencySource': frequencySource,
   };
 
   double getPrimaryValue(SignalKService service) {
     if (currentPath != null) {
-      final data = service.getValue(currentPath!);
+      final data = service.getValue(currentPath!, source: currentSource);
       if (data?.value is num) return (data!.value as num).toDouble().abs();
     }
     if (powerPath != null) {
-      final data = service.getValue(powerPath!);
+      final data = service.getValue(powerPath!, source: powerSource);
       if (data?.value is num) return (data!.value as num).toDouble().abs() / 100;
     }
     return 0;
@@ -127,6 +165,13 @@ class BatteryConfig {
   final String? powerPath;
   final String? timeRemainingPath;
   final String? temperaturePath;
+  // Optional SignalK source per path (null = Auto / active source).
+  final String? socSource;
+  final String? voltageSource;
+  final String? currentSource;
+  final String? powerSource;
+  final String? timeRemainingSource;
+  final String? temperatureSource;
 
   const BatteryConfig({
     this.name = 'Battery',
@@ -136,6 +181,12 @@ class BatteryConfig {
     this.powerPath,
     this.timeRemainingPath,
     this.temperaturePath,
+    this.socSource,
+    this.voltageSource,
+    this.currentSource,
+    this.powerSource,
+    this.timeRemainingSource,
+    this.temperatureSource,
   });
 
   factory BatteryConfig.fromMap(Map<String, dynamic>? map) {
@@ -148,6 +199,12 @@ class BatteryConfig {
       powerPath: map['powerPath'] as String?,
       timeRemainingPath: map['timeRemainingPath'] as String?,
       temperaturePath: map['temperaturePath'] as String?,
+      socSource: map['socSource'] as String?,
+      voltageSource: map['voltageSource'] as String?,
+      currentSource: map['currentSource'] as String?,
+      powerSource: map['powerSource'] as String?,
+      timeRemainingSource: map['timeRemainingSource'] as String?,
+      temperatureSource: map['temperatureSource'] as String?,
     );
   }
 
@@ -159,16 +216,22 @@ class BatteryConfig {
     if (powerPath != null) 'powerPath': powerPath,
     if (timeRemainingPath != null) 'timeRemainingPath': timeRemainingPath,
     if (temperaturePath != null) 'temperaturePath': temperaturePath,
+    if (socSource != null) 'socSource': socSource,
+    if (voltageSource != null) 'voltageSource': voltageSource,
+    if (currentSource != null) 'currentSource': currentSource,
+    if (powerSource != null) 'powerSource': powerSource,
+    if (timeRemainingSource != null) 'timeRemainingSource': timeRemainingSource,
+    if (temperatureSource != null) 'temperatureSource': temperatureSource,
   };
 
   /// Get the primary value for flow animation (current or power)
   double getPrimaryValue(SignalKService service) {
     if (currentPath != null) {
-      final data = service.getValue(currentPath!);
+      final data = service.getValue(currentPath!, source: currentSource);
       if (data?.value is num) return (data!.value as num).toDouble().abs();
     }
     if (powerPath != null) {
-      final data = service.getValue(powerPath!);
+      final data = service.getValue(powerPath!, source: powerSource);
       if (data?.value is num) return (data!.value as num).toDouble().abs() / 100;
     }
     return 0;
@@ -198,6 +261,7 @@ class _VictronFlowToolState extends State<VictronFlowTool> with SingleTickerProv
   late List<PowerLoadConfig> _loads;
   late List<BatteryConfig> _batteryConfigs;
   late String? _inverterStatePath;
+  late String? _inverterStateSource;
   late Color _primaryColor;
 
   /// Collect all SignalK paths from current config for subscription management.
@@ -297,6 +361,7 @@ class _VictronFlowToolState extends State<VictronFlowTool> with SingleTickerProv
     // Parse inverter state path
     _inverterStatePath = customProps['inverterStatePath'] as String? ??
         'electrical.inverter.state';
+    _inverterStateSource = customProps['inverterStateSource'] as String?;
 
     // Parse primary color
     _primaryColor = _parseColor(widget.config.style.primaryColor);
@@ -379,18 +444,18 @@ class _VictronFlowToolState extends State<VictronFlowTool> with SingleTickerProv
     if (mounted) setState(() {});
   }
 
-  double? _getPathValue(String? path) {
+  double? _getPathValue(String? path, [String? source]) {
     if (path == null || path.isEmpty) return null;
-    final data = widget.signalKService.getValue(path);
+    final data = widget.signalKService.getValue(path, source: source);
     if (data?.value is num) {
       return (data!.value as num).toDouble();
     }
     return null;
   }
 
-  String? _getPathStringValue(String? path) {
+  String? _getPathStringValue(String? path, [String? source]) {
     if (path == null || path.isEmpty) return null;
-    final data = widget.signalKService.getValue(path);
+    final data = widget.signalKService.getValue(path, source: source);
     if (data?.value != null) {
       return data!.value.toString();
     }
@@ -402,7 +467,7 @@ class _VictronFlowToolState extends State<VictronFlowTool> with SingleTickerProv
     // Build flow data for painter
     final sourceFlows = _sources.map((s) => s.getPrimaryValue(widget.signalKService)).toList();
     final loadFlows = _loads.map((l) => l.getPrimaryValue(widget.signalKService)).toList();
-    final batteryCurrents = _batteryConfigs.map((b) => _getPathValue(b.currentPath) ?? 0.0).toList();
+    final batteryCurrents = _batteryConfigs.map((b) => _getPathValue(b.currentPath, b.currentSource) ?? 0.0).toList();
 
     return Stack(
       children: [
@@ -590,11 +655,11 @@ class _VictronFlowToolState extends State<VictronFlowTool> with SingleTickerProv
   }
 
   Widget _buildSourceBox(PowerSourceConfig source) {
-    final current = _getPathValue(source.currentPath);
-    final voltage = _getPathValue(source.voltagePath);
-    final power = _getPathValue(source.powerPath);
-    final frequency = _getPathValue(source.frequencyPath);
-    final state = _getPathStringValue(source.statePath);
+    final current = _getPathValue(source.currentPath, source.currentSource);
+    final voltage = _getPathValue(source.voltagePath, source.voltageSource);
+    final power = _getPathValue(source.powerPath, source.powerSource);
+    final frequency = _getPathValue(source.frequencyPath, source.frequencySource);
+    final state = _getPathStringValue(source.statePath, source.stateSource);
 
     return _buildComponentBox(
       title: source.name,
@@ -668,10 +733,10 @@ class _VictronFlowToolState extends State<VictronFlowTool> with SingleTickerProv
   }
 
   Widget _buildLoadBox(PowerLoadConfig load) {
-    final current = _getPathValue(load.currentPath);
-    final voltage = _getPathValue(load.voltagePath);
-    final power = _getPathValue(load.powerPath);
-    final frequency = _getPathValue(load.frequencyPath);
+    final current = _getPathValue(load.currentPath, load.currentSource);
+    final voltage = _getPathValue(load.voltagePath, load.voltageSource);
+    final power = _getPathValue(load.powerPath, load.powerSource);
+    final frequency = _getPathValue(load.frequencyPath, load.frequencySource);
 
     return _buildComponentBox(
       title: load.name,
@@ -747,7 +812,7 @@ class _VictronFlowToolState extends State<VictronFlowTool> with SingleTickerProv
   }
 
   Widget _buildInverterBox() {
-    final state = _getPathStringValue(_inverterStatePath);
+    final state = _getPathStringValue(_inverterStatePath, _inverterStateSource);
     final borderColor = HSLColor.fromColor(_primaryColor).withLightness(0.7).toColor();
 
     return _buildComponentBox(
@@ -768,12 +833,12 @@ class _VictronFlowToolState extends State<VictronFlowTool> with SingleTickerProv
   }
 
   Widget _buildBatteryBox(BatteryConfig battery) {
-    final soc = _getPathValue(battery.socPath);
-    final voltage = _getPathValue(battery.voltagePath);
-    final current = _getPathValue(battery.currentPath);
-    final power = _getPathValue(battery.powerPath);
-    final timeRemaining = _getPathValue(battery.timeRemainingPath);
-    final temp = _getPathValue(battery.temperaturePath);
+    final soc = _getPathValue(battery.socPath, battery.socSource);
+    final voltage = _getPathValue(battery.voltagePath, battery.voltageSource);
+    final current = _getPathValue(battery.currentPath, battery.currentSource);
+    final power = _getPathValue(battery.powerPath, battery.powerSource);
+    final timeRemaining = _getPathValue(battery.timeRemainingPath, battery.timeRemainingSource);
+    final temp = _getPathValue(battery.temperaturePath, battery.temperatureSource);
 
     final isCharging = (current ?? 0) > 0;
     final isDischarging = (current ?? 0) < 0;
