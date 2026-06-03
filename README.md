@@ -156,7 +156,7 @@ A customizable SignalK marine dashboard and crew comms application to display re
   - raySTNGConv keystroke strategy for Raymarine SmartPilot via SeaTalk-STNG converter
   - Banana-shaped heading adjustment buttons (+1, -1, +10, -10) arced around inner circle
   - Mode selector (Compass, Wind, Route) with engage/standby toggle
-  - Tack/Gybe banana buttons in Wind mode positioned by turn direction
+  - Single Tack banana button in Wind mode — tacking is one action through head-to-wind onto the opposite tack; the turn direction is derived from the current wind side (disabled until apparent wind is known)
   - Advance Waypoint and Dodge buttons in Route mode
   - Draggable target heading arrow with compass drag stability
   - Rudder indicator when space permits
@@ -261,6 +261,7 @@ A customizable SignalK marine dashboard and crew comms application to display re
   - Inverter/charger state display
   - Configurable base color theme
   - Each source/load has configurable SignalK paths for current, voltage, power, frequency, and state
+  - Per-path source selection: pin a specific SignalK source for any path (or leave on Auto), the same way other widgets do
 
   <img src="screenshots/power_flow.png" alt="Power Flow" width="400">
 

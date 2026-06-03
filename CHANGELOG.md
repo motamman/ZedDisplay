@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.7+76] - 2026-06-02
+
+### Added
+- **Electrical Flow — Per-Path Source Selection**: Every configurable path in the Power Flow tool — each source/load/battery's current, voltage, power, frequency, SOC, time-remaining, temperature, plus the inverter state path — can now pin a specific SignalK source, matching the source picker other widgets offer. The configurator shows a compact "Source: &lt;name or Auto&gt;" row under each path (reusing `SourceSelectorDialog` + `getSourcesForPath`); each `*Source` persists in `customProperties` and is passed through on read.
+
+### Changed
+- **Autopilot Steer-to-Wind — Single Tack Button**: The V2 autopilot's four tack/gybe port/starboard banana buttons are replaced by **one "TACK" banana** at the top of the rim (head-to-wind). Tacking is a single action — bringing the boat through head-to-wind onto the opposite tack — so there is no port/starboard choice: the turn direction is derived from the current wind side (wind on starboard → tack to starboard, etc.). Backends that ignore the value (e.g. Raymarine N2K) tack from the current wind angle regardless. `onTack` is now directionless. The tack/gybe buttons are likewise removed from the V1 autopilot widget.
+- **Source Selection Now Actually Filters (per-source cache)**: Previously, pinning a source was cosmetic *everywhere* — the shared `_DataCacheManager` kept one value per path and `getValue(path, source:)` returned it regardless of source. It now keeps a parallel per-`(path, source)` store. With **no source (Auto)** a widget shows the latest value from any source (unchanged); with a **source pinned** it shows only that source's value, or "--" if that source isn't publishing. This fixes source selection for the electrical-flow widget *and every other widget* at once.
+
+### Removed
+- **Autopilot Gybe Support**: The gybe port/starboard controls (V2 banana buttons and the V1 gybe row) and the `onGybe` plumbing were removed — gybe was never wired to a real maneuver, and tacking through the wind is the single supported action.
+
+### Fixed
+- **Autopilot Tack Fails Closed Without Wind**: The Tack button is disabled (and `_handleTack` refuses with a "Tack requires apparent wind data" message) until the apparent wind angle is known, so it can't issue a tack in an arbitrary direction when the wind side is unknown.
+
+### Developer
+- `_DataCacheManager` gains a `_bySource` map plus `store(path, dp)`, `clearAll()`, and `removePath(path)`; all delta writes and cache clears/removes route through them, and `pruneStaleData` prunes both stores with the same policy. `getValue(path, source:)` branches Auto (`_latestData`) vs pinned (`_bySource[path]?[source]`).
+- Victron config classes (`PowerSourceConfig` / `PowerLoadConfig` / `BatteryConfig`) gain a nullable `*Source` field paired with each `*Path`; `_getPathValue` / `_getPathStringValue` take an optional source. The V2 autopilot's single tack banana lives in `_buildTackBanana` (`autopilot_widget_v2.dart`).
+
 ## [0.6.6+75] - 2026-05-31
 
 > Folds in the `0.6.5` build, which was tagged but never given a changelog entry.
