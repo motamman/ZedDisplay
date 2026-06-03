@@ -238,6 +238,154 @@ class BatteryConfig {
   }
 }
 
+List<PowerSourceConfig> _defaultPowerSources() => [
+  const PowerSourceConfig(
+    name: 'Shore',
+    icon: 'power',
+    currentPath: 'electrical.shore.current',
+    voltagePath: 'electrical.shore.voltage',
+    powerPath: 'electrical.shore.power',
+    frequencyPath: 'electrical.shore.frequency',
+  ),
+  const PowerSourceConfig(
+    name: 'Solar',
+    icon: 'wb_sunny_outlined',
+    currentPath: 'electrical.solar.current',
+    voltagePath: 'electrical.solar.voltage',
+    powerPath: 'electrical.solar.power',
+    statePath: 'electrical.solar.chargingMode',
+  ),
+  const PowerSourceConfig(
+    name: 'Alternator',
+    icon: 'settings_input_svideo',
+    currentPath: 'electrical.alternator.current',
+    voltagePath: 'electrical.alternator.voltage',
+    powerPath: 'electrical.alternator.power',
+    statePath: 'electrical.alternator.state',
+  ),
+];
+
+List<PowerLoadConfig> _defaultPowerLoads() => [
+  const PowerLoadConfig(
+    name: 'AC Loads',
+    icon: 'outlet',
+    currentPath: 'electrical.ac.load.current',
+    voltagePath: 'electrical.ac.load.voltage',
+    powerPath: 'electrical.ac.load.power',
+    frequencyPath: 'electrical.ac.load.frequency',
+  ),
+  const PowerLoadConfig(
+    name: 'DC Loads',
+    icon: 'flash_on',
+    currentPath: 'electrical.dc.load.current',
+    voltagePath: 'electrical.dc.load.voltage',
+    powerPath: 'electrical.dc.load.power',
+  ),
+];
+
+BatteryConfig _defaultBatteryConfig() => const BatteryConfig(
+  name: 'House',
+  socPath: 'electrical.batteries.house.capacity.stateOfCharge',
+  voltagePath: 'electrical.batteries.house.voltage',
+  currentPath: 'electrical.batteries.house.current',
+  powerPath: 'electrical.batteries.house.power',
+  timeRemainingPath: 'electrical.batteries.house.capacity.timeRemaining',
+  temperaturePath: 'electrical.batteries.house.temperature',
+);
+
+/// Parsed Power Flow configuration. Single source of truth shared by the
+/// widget (rendering) and the builder (subscription path collection), so the
+/// paths the central subscription manager subscribes always match the paths
+/// the widget reads.
+class _VictronConfig {
+  final List<PowerSourceConfig> sources;
+  final List<PowerLoadConfig> loads;
+  final List<BatteryConfig> batteries;
+  final String? inverterStatePath;
+  final String? inverterStateSource;
+  const _VictronConfig({
+    required this.sources,
+    required this.loads,
+    required this.batteries,
+    required this.inverterStatePath,
+    required this.inverterStateSource,
+  });
+}
+
+_VictronConfig _parseVictronConfig(ToolConfig config) {
+  final customProps = config.style.customProperties ?? {};
+
+  final sourcesData = customProps['sources'] as List<dynamic>?;
+  final sources = (sourcesData != null && sourcesData.isNotEmpty)
+      ? sourcesData
+          .whereType<Map<String, dynamic>>()
+          .map((m) => PowerSourceConfig.fromMap(m))
+          .toList()
+      : _defaultPowerSources();
+
+  final loadsData = customProps['loads'] as List<dynamic>?;
+  final loads = (loadsData != null && loadsData.isNotEmpty)
+      ? loadsData
+          .whereType<Map<String, dynamic>>()
+          .map((m) => PowerLoadConfig.fromMap(m))
+          .toList()
+      : _defaultPowerLoads();
+
+  final batteriesData = customProps['batteries'] as List<dynamic>?;
+  final List<BatteryConfig> batteries;
+  if (batteriesData != null && batteriesData.isNotEmpty) {
+    batteries = batteriesData
+        .whereType<Map<String, dynamic>>()
+        .map((m) => BatteryConfig.fromMap(m))
+        .toList();
+  } else {
+    // Backward compat: single 'battery' map → wrap in list
+    final singleBattery =
+        BatteryConfig.fromMap(customProps['battery'] as Map<String, dynamic>?);
+    batteries =
+        singleBattery.socPath != null ? [singleBattery] : [_defaultBatteryConfig()];
+  }
+
+  return _VictronConfig(
+    sources: sources,
+    loads: loads,
+    batteries: batteries,
+    inverterStatePath:
+        customProps['inverterStatePath'] as String? ?? 'electrical.inverter.state',
+    inverterStateSource: customProps['inverterStateSource'] as String?,
+  );
+}
+
+/// All SignalK paths a Power Flow tool reads, for the central subscription
+/// manager. Mirrors what the widget renders (same parse + default fallbacks).
+List<String> victronRequiredPaths(ToolConfig config) {
+  final c = _parseVictronConfig(config);
+  final paths = <String>[];
+  for (final s in c.sources) {
+    if (s.currentPath != null) paths.add(s.currentPath!);
+    if (s.voltagePath != null) paths.add(s.voltagePath!);
+    if (s.powerPath != null) paths.add(s.powerPath!);
+    if (s.frequencyPath != null) paths.add(s.frequencyPath!);
+    if (s.statePath != null) paths.add(s.statePath!);
+  }
+  for (final l in c.loads) {
+    if (l.currentPath != null) paths.add(l.currentPath!);
+    if (l.voltagePath != null) paths.add(l.voltagePath!);
+    if (l.powerPath != null) paths.add(l.powerPath!);
+    if (l.frequencyPath != null) paths.add(l.frequencyPath!);
+  }
+  for (final b in c.batteries) {
+    if (b.socPath != null) paths.add(b.socPath!);
+    if (b.voltagePath != null) paths.add(b.voltagePath!);
+    if (b.currentPath != null) paths.add(b.currentPath!);
+    if (b.powerPath != null) paths.add(b.powerPath!);
+    if (b.timeRemainingPath != null) paths.add(b.timeRemainingPath!);
+    if (b.temperaturePath != null) paths.add(b.temperaturePath!);
+  }
+  if (c.inverterStatePath != null) paths.add(c.inverterStatePath!);
+  return paths;
+}
+
 /// Victron Power Flow Tool - Visual power flow diagram with animated flow lines
 class VictronFlowTool extends StatefulWidget {
   final ToolConfig config;
@@ -254,8 +402,6 @@ class VictronFlowTool extends StatefulWidget {
 }
 
 class _VictronFlowToolState extends State<VictronFlowTool> with SingleTickerProviderStateMixin {
-  static const _ownerId = 'victron_flow';
-
   late AnimationController _animController;
   late List<PowerSourceConfig> _sources;
   late List<PowerLoadConfig> _loads;
@@ -264,34 +410,6 @@ class _VictronFlowToolState extends State<VictronFlowTool> with SingleTickerProv
   late String? _inverterStateSource;
   late Color _primaryColor;
 
-  /// Collect all SignalK paths from current config for subscription management.
-  List<String> _collectAllPaths() {
-    final paths = <String>[];
-    for (final s in _sources) {
-      if (s.currentPath != null) paths.add(s.currentPath!);
-      if (s.voltagePath != null) paths.add(s.voltagePath!);
-      if (s.powerPath != null) paths.add(s.powerPath!);
-      if (s.frequencyPath != null) paths.add(s.frequencyPath!);
-      if (s.statePath != null) paths.add(s.statePath!);
-    }
-    for (final l in _loads) {
-      if (l.currentPath != null) paths.add(l.currentPath!);
-      if (l.voltagePath != null) paths.add(l.voltagePath!);
-      if (l.powerPath != null) paths.add(l.powerPath!);
-      if (l.frequencyPath != null) paths.add(l.frequencyPath!);
-    }
-    for (final b in _batteryConfigs) {
-      if (b.socPath != null) paths.add(b.socPath!);
-      if (b.voltagePath != null) paths.add(b.voltagePath!);
-      if (b.currentPath != null) paths.add(b.currentPath!);
-      if (b.powerPath != null) paths.add(b.powerPath!);
-      if (b.timeRemainingPath != null) paths.add(b.timeRemainingPath!);
-      if (b.temperaturePath != null) paths.add(b.temperaturePath!);
-    }
-    if (_inverterStatePath != null) paths.add(_inverterStatePath!);
-    return paths;
-  }
-
   @override
   void initState() {
     super.initState();
@@ -299,71 +417,29 @@ class _VictronFlowToolState extends State<VictronFlowTool> with SingleTickerProv
       vsync: this,
       duration: const Duration(milliseconds: 1000),
     )..repeat();
+    // Subscriptions are owned centrally by the dashboard/tool subscription
+    // manager (see VictronFlowToolBuilder.requiredPaths) — the widget is a
+    // pure reader and just repaints on delta. This keeps it on the same
+    // single source of truth as every other tool and recovers on reconnect.
     widget.signalKService.addListener(_onDataUpdate);
     _parseConfig();
-    widget.signalKService.subscribeToPaths(_collectAllPaths(), ownerId: _ownerId);
   }
 
   @override
   void didUpdateWidget(VictronFlowTool oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.config != widget.config) {
-      final oldPaths = _collectAllPaths();
       _parseConfig();
-      final newPaths = _collectAllPaths();
-      widget.signalKService.unsubscribeFromPaths(oldPaths, ownerId: _ownerId);
-      widget.signalKService.subscribeToPaths(newPaths, ownerId: _ownerId);
     }
   }
 
   void _parseConfig() {
-    final customProps = widget.config.style.customProperties ?? {};
-
-    // Parse sources
-    final sourcesData = customProps['sources'] as List<dynamic>?;
-    if (sourcesData != null && sourcesData.isNotEmpty) {
-      _sources = sourcesData
-          .whereType<Map<String, dynamic>>()
-          .map((m) => PowerSourceConfig.fromMap(m))
-          .toList();
-    } else {
-      _sources = _getDefaultSources();
-    }
-
-    // Parse loads
-    final loadsData = customProps['loads'] as List<dynamic>?;
-    if (loadsData != null && loadsData.isNotEmpty) {
-      _loads = loadsData
-          .whereType<Map<String, dynamic>>()
-          .map((m) => PowerLoadConfig.fromMap(m))
-          .toList();
-    } else {
-      _loads = _getDefaultLoads();
-    }
-
-    // Parse battery configs (list), with backward compat for single 'battery' map
-    final batteriesData = customProps['batteries'] as List<dynamic>?;
-    if (batteriesData != null && batteriesData.isNotEmpty) {
-      _batteryConfigs = batteriesData
-          .whereType<Map<String, dynamic>>()
-          .map((m) => BatteryConfig.fromMap(m))
-          .toList();
-    } else {
-      // Backward compat: single 'battery' map → wrap in list
-      final singleBattery = BatteryConfig.fromMap(customProps['battery'] as Map<String, dynamic>?);
-      if (singleBattery.socPath != null) {
-        _batteryConfigs = [singleBattery];
-      } else {
-        _batteryConfigs = [_getDefaultBatteryConfig()];
-      }
-    }
-
-    // Parse inverter state path
-    _inverterStatePath = customProps['inverterStatePath'] as String? ??
-        'electrical.inverter.state';
-    _inverterStateSource = customProps['inverterStateSource'] as String?;
-
-    // Parse primary color
+    final c = _parseVictronConfig(widget.config);
+    _sources = c.sources;
+    _loads = c.loads;
+    _batteryConfigs = c.batteries;
+    _inverterStatePath = c.inverterStatePath;
+    _inverterStateSource = c.inverterStateSource;
     _primaryColor = _parseColor(widget.config.style.primaryColor);
   }
 
@@ -377,65 +453,9 @@ class _VictronFlowToolState extends State<VictronFlowTool> with SingleTickerProv
     return Colors.blue;
   }
 
-  List<PowerSourceConfig> _getDefaultSources() => [
-    const PowerSourceConfig(
-      name: 'Shore',
-      icon: 'power',
-      currentPath: 'electrical.shore.current',
-      voltagePath: 'electrical.shore.voltage',
-      powerPath: 'electrical.shore.power',
-      frequencyPath: 'electrical.shore.frequency',
-    ),
-    const PowerSourceConfig(
-      name: 'Solar',
-      icon: 'wb_sunny_outlined',
-      currentPath: 'electrical.solar.current',
-      voltagePath: 'electrical.solar.voltage',
-      powerPath: 'electrical.solar.power',
-      statePath: 'electrical.solar.chargingMode',
-    ),
-    const PowerSourceConfig(
-      name: 'Alternator',
-      icon: 'settings_input_svideo',
-      currentPath: 'electrical.alternator.current',
-      voltagePath: 'electrical.alternator.voltage',
-      powerPath: 'electrical.alternator.power',
-      statePath: 'electrical.alternator.state',
-    ),
-  ];
-
-  List<PowerLoadConfig> _getDefaultLoads() => [
-    const PowerLoadConfig(
-      name: 'AC Loads',
-      icon: 'outlet',
-      currentPath: 'electrical.ac.load.current',
-      voltagePath: 'electrical.ac.load.voltage',
-      powerPath: 'electrical.ac.load.power',
-      frequencyPath: 'electrical.ac.load.frequency',
-    ),
-    const PowerLoadConfig(
-      name: 'DC Loads',
-      icon: 'flash_on',
-      currentPath: 'electrical.dc.load.current',
-      voltagePath: 'electrical.dc.load.voltage',
-      powerPath: 'electrical.dc.load.power',
-    ),
-  ];
-
-  BatteryConfig _getDefaultBatteryConfig() => const BatteryConfig(
-    name: 'House',
-    socPath: 'electrical.batteries.house.capacity.stateOfCharge',
-    voltagePath: 'electrical.batteries.house.voltage',
-    currentPath: 'electrical.batteries.house.current',
-    powerPath: 'electrical.batteries.house.power',
-    timeRemainingPath: 'electrical.batteries.house.capacity.timeRemaining',
-    temperaturePath: 'electrical.batteries.house.temperature',
-  );
-
   @override
   void dispose() {
     _animController.dispose();
-    widget.signalKService.unsubscribeFromPaths(_collectAllPaths(), ownerId: _ownerId);
     widget.signalKService.removeListener(_onDataUpdate);
     super.dispose();
   }
@@ -1489,6 +1509,9 @@ class _FlowLinesPainter extends CustomPainter {
 
 /// Builder for Victron Flow Tool
 class VictronFlowToolBuilder extends ToolBuilder {
+  @override
+  List<String> requiredPaths(ToolConfig config) => victronRequiredPaths(config);
+
   @override
   ToolDefinition getDefinition() {
     return ToolDefinition(

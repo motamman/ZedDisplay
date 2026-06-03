@@ -273,7 +273,7 @@ class CrewListTool extends StatelessWidget {
 }
 
 /// Builder for the crew list tool
-class CrewListToolBuilder implements ToolBuilder {
+class CrewListToolBuilder extends ToolBuilder {
   @override
   ToolDefinition getDefinition() {
     return ToolDefinition(
