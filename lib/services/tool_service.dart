@@ -66,10 +66,10 @@ class ToolService extends ChangeNotifier {
     ToolCategory category = ToolCategory.other,
     List<String> tags = const [],
   }) {
-    // Extract required paths from the tool's data sources
-    final requiredPaths = config.dataSources
-        .map((ds) => ds.path)
-        .toList();
+    // Required paths via the tool type's builder so the persisted field
+    // matches the live subscription (covers customProperties-based tools
+    // like victron_flow, not just dataSources).
+    final requiredPaths = ToolRegistry().requiredPaths(toolTypeId, config);
 
     return Tool(
       id: 'tool_${DateTime.now().millisecondsSinceEpoch}',

@@ -236,6 +236,14 @@ class BatteryConfig {
     }
     return 0;
   }
+
+  bool get hasAnyPath =>
+      socPath != null ||
+      voltagePath != null ||
+      currentPath != null ||
+      powerPath != null ||
+      timeRemainingPath != null ||
+      temperaturePath != null;
 }
 
 List<PowerSourceConfig> _defaultPowerSources() => [
@@ -343,7 +351,7 @@ _VictronConfig _parseVictronConfig(ToolConfig config) {
     final singleBattery =
         BatteryConfig.fromMap(customProps['battery'] as Map<String, dynamic>?);
     batteries =
-        singleBattery.socPath != null ? [singleBattery] : [_defaultBatteryConfig()];
+        singleBattery.hasAnyPath ? [singleBattery] : [_defaultBatteryConfig()];
   }
 
   return _VictronConfig(
