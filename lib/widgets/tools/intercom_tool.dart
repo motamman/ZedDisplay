@@ -335,7 +335,7 @@ class IntercomTool extends StatelessWidget {
 }
 
 /// Builder for the intercom tool
-class IntercomToolBuilder implements ToolBuilder {
+class IntercomToolBuilder extends ToolBuilder {
   @override
   ToolDefinition getDefinition() {
     return ToolDefinition(

@@ -250,7 +250,7 @@ class _FileListItem extends StatelessWidget {
 }
 
 /// Builder for the file share tool
-class FileShareToolBuilder implements ToolBuilder {
+class FileShareToolBuilder extends ToolBuilder {
   @override
   ToolDefinition getDefinition() {
     return ToolDefinition(

@@ -257,7 +257,7 @@ class SignalKService extends ChangeNotifier implements DataService {
 
   /// Evict a path from the data cache so stale deltas can't resurrect deleted data.
   void removeCachedValue(String path) {
-    _dataCache.internalDataMap.remove(path);
+    _dataCache.removePath(path);
     _latestDataView = null;
   }
 
@@ -748,13 +748,14 @@ class SignalKService extends ChangeNotifier implements DataService {
               );
               // Still store detail data in flat cache for _getExtraVesselData() lookups
               final contextPath = '${update.context}.${value.path}';
-              _dataCache.internalDataMap[contextPath] = dataPoint;
+              _dataCache.store(contextPath, dataPoint);
               continue; // Skip self-vessel storage
             }
 
-            // Own vessel — store in flat cache (single entry per path)
-            // Source is stored on the dataPoint itself, not as separate cache key
-            _dataCache.internalDataMap[value.path] = dataPoint;
+            // Own vessel — store in flat cache. store() keeps both the
+            // latest-any-source slot and the per-source slot so a pinned
+            // source can be read back exactly.
+            _dataCache.store(value.path, dataPoint);
           }
         }
 
@@ -950,7 +951,7 @@ class SignalKService extends ChangeNotifier implements DataService {
     notifyListeners();
 
     // Clear stale data from previous session so ghost paths don't accumulate
-    _dataCache.internalDataMap.clear();
+    _dataCache.clearAll();
     _latestDataView = null;
 
     // Re-send existing subscriptions to the new WebSocket
@@ -2099,7 +2100,7 @@ class SignalKService extends ChangeNotifier implements DataService {
       _channel = null;
 
       _isConnected = false;
-      _dataCache.internalDataMap.clear();
+      _dataCache.clearAll();
       _latestDataView = null;
       _conversionManager.internalDataMap.clear();
       _conversionsDataView = null;
@@ -2306,8 +2307,12 @@ class PathSubscriptionRegistry {
 /// Internal manager for data caching and cleanup
 /// Handles _latestData map, cache pruning, and data access methods
 class _DataCacheManager {
-  // Data storage - keeps latest value for each path
+  // Data storage - keeps latest value for each path (latest from ANY
+  // source; used for "Auto" reads and for enumerating all known paths).
   final Map<String, SignalKDataPoint> _latestData = {};
+  // Per-source storage: path -> source label -> latest point for THAT
+  // source. Lets a widget pin a specific source (getValue with source).
+  final Map<String, Map<String, SignalKDataPoint>> _bySource = {};
   Timer? _cacheCleanupTimer;
 
   // Dependencies injected via function getters for dynamic access
@@ -2324,19 +2329,37 @@ class _DataCacheManager {
   // Direct access to internal map for SignalKService
   Map<String, SignalKDataPoint> get internalDataMap => _latestData;
 
-  /// Get value for specific path, optionally from a specific source
+  /// Store a delta value, updating both the latest-any-source slot and the
+  /// per-source slot so a pinned source can be read back exactly.
+  void store(String path, SignalKDataPoint dataPoint) {
+    _latestData[path] = dataPoint;
+    final source = dataPoint.source;
+    if (source != null && source.isNotEmpty) {
+      (_bySource[path] ??= {})[source] = dataPoint;
+    }
+  }
+
+  /// Get value for a path. With no [source] (Auto) returns the latest value
+  /// from any source. With a [source] pinned, returns ONLY that source's
+  /// value, or null if that source hasn't reported (so the widget shows
+  /// "--" rather than another source's number).
   SignalKDataPoint? getValue(String path, {String? source}) {
-    final dataPoint = _latestData[path];
     if (source == null) {
-      return dataPoint;
+      return _latestData[path];
     }
-    // Source stored on the data point itself — return if it matches or if no source filter needed
-    if (dataPoint?.source == source) {
-      return dataPoint;
-    }
-    // Fallback: return the data point even if source doesn't match
-    // (better to show data from a different source than nothing)
-    return dataPoint;
+    return _bySource[path]?[source];
+  }
+
+  /// Clear both the latest-any-source and per-source stores.
+  void clearAll() {
+    _latestData.clear();
+    _bySource.clear();
+  }
+
+  /// Remove a single path from both stores.
+  void removePath(String path) {
+    _latestData.remove(path);
+    _bySource.remove(path);
   }
 
   /// Check if data is fresh (within TTL threshold)
@@ -2380,24 +2403,23 @@ class _DataCacheManager {
     final beforeSize = _latestData.length;
     final activePaths = getActivePaths();
 
-    _latestData.removeWhere((key, dataPoint) {
-      // Never prune actively subscribed paths (own vessel data uses bare paths)
-      if (activePaths.contains(key)) {
-        return false;
-      }
-      // Never prune environment data (weather, sun/moon, etc.) - updates infrequently
-      if (key.startsWith('environment.')) {
-        return false;
-      }
-      // AIS vessel detail data in flat cache - prune if older than 20 minutes
-      // (Navigation data is now in AISVesselRegistry which handles its own pruning)
-      if (key.startsWith('vessels.')) {
-        final age = now.difference(dataPoint.timestamp);
-        return age.inMinutes > 20;
-      }
-      // Other data - prune if older than 15 minutes
+    // Same prune policy for the latest-any-source slot and the per-source
+    // slots: keep active paths and environment data; AIS detail 20 min;
+    // everything else 15 min.
+    bool isStale(String key, SignalKDataPoint dataPoint) {
+      if (activePaths.contains(key)) return false;
+      if (key.startsWith('environment.')) return false;
       final age = now.difference(dataPoint.timestamp);
+      if (key.startsWith('vessels.')) return age.inMinutes > 20;
       return age.inMinutes > 15;
+    }
+
+    _latestData.removeWhere(isStale);
+
+    // Prune per-source slots with the same rule, dropping emptied paths.
+    _bySource.removeWhere((path, sources) {
+      sources.removeWhere((_, dp) => isStale(path, dp));
+      return sources.isEmpty;
     });
 
     final afterSize = _latestData.length;
@@ -2411,6 +2433,7 @@ class _DataCacheManager {
   void dispose() {
     _cacheCleanupTimer?.cancel();
     _latestData.clear();
+    _bySource.clear();
   }
 }
 

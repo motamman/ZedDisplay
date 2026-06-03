@@ -4,6 +4,7 @@ import '../models/tool.dart';
 import '../models/tool_placement.dart';
 import '../models/tool_config.dart';
 import 'storage_service.dart';
+import 'tool_registry.dart';
 
 /// Service for managing tools
 /// Tools are the unified model - every tool can be placed on dashboards
@@ -65,10 +66,10 @@ class ToolService extends ChangeNotifier {
     ToolCategory category = ToolCategory.other,
     List<String> tags = const [],
   }) {
-    // Extract required paths from the tool's data sources
-    final requiredPaths = config.dataSources
-        .map((ds) => ds.path)
-        .toList();
+    // Required paths via the tool type's builder so the persisted field
+    // matches the live subscription (covers customProperties-based tools
+    // like victron_flow, not just dataSources).
+    final requiredPaths = ToolRegistry().requiredPaths(toolTypeId, config);
 
     return Tool(
       id: 'tool_${DateTime.now().millisecondsSinceEpoch}',
@@ -290,9 +291,9 @@ class ToolService extends ChangeNotifier {
     for (final toolId in toolIds) {
       final tool = getTool(toolId);
       if (tool != null) {
-        for (final dataSource in tool.config.dataSources) {
-          paths.add(dataSource.path);
-        }
+        // Delegate to the tool type's builder so tools that keep paths in
+        // customProperties (e.g. Power Flow) are covered centrally too.
+        paths.addAll(ToolRegistry().requiredPaths(tool.toolTypeId, tool.config));
       }
     }
 

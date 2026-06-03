@@ -356,7 +356,7 @@ class _MessageBubble extends StatelessWidget {
 }
 
 /// Builder for the crew messages tool
-class CrewMessagesToolBuilder implements ToolBuilder {
+class CrewMessagesToolBuilder extends ToolBuilder {
   @override
   ToolDefinition getDefinition() {
     return ToolDefinition(

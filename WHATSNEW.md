@@ -1,4 +1,32 @@
-# What's New in v0.6.6
+# What's New in v0.6.7
+
+## Release Notes (Google Play - max 500 chars)
+
+v0.6.7 Simpler Tacking + Real Source Selection
+
+NEW: The steer-to-wind autopilot now has a single TACK button — one action onto the opposite tack, with the direction worked out from the wind. No port/starboard guesswork; gybe removed.
+
+NEW: Pick which SignalK source feeds each value in the Power Flow tool — and it now truly pins that source (across all widgets), not just the latest to arrive.
+
+FIXED: Power Flow keeps showing data after a Wi-Fi/connection drop — no more stuck "--".
+
+## Release Notes (App Store / TestFlight - max 4000 chars)
+
+### Autopilot — One-Tap Tacking (CHANGED)
+- **Single TACK button** — In wind-steering mode the V2 autopilot now shows one "TACK" banana at the top of the dial instead of four tack/gybe port/starboard buttons. Tacking is a single action — through head-to-wind onto the opposite tack — so the app works out the turn direction from the wind side; there's nothing to choose.
+- **Fails safe** — The button is disabled until the apparent wind angle is known, so it can't fire a tack in an arbitrary direction.
+- **Gybe removed** — The gybe controls are gone (they were never wired to a real maneuver); the tack/gybe buttons were also removed from the older V1 autopilot widget.
+
+### Real Data-Source Selection (NEW / FIXED)
+- **Pick the source that feeds each value** — The Power Flow (electrical) tool now lets you pin a specific SignalK source for every path (battery voltage, shore current, etc.), the same way other widgets do.
+- **And it now actually works** — Previously, selecting a source was cosmetic everywhere: the app kept a single value per path and showed whatever source updated last. Now it keeps values per source. Pin a source and you see only that source; pin one that isn't transmitting and it shows "--". Leave it on "Auto" and behavior is unchanged. This fixes source selection across every widget, not just Power Flow.
+
+### Reliability (FIXED)
+- **Power Flow survives reconnects** — The Power Flow tool used to get stuck showing "--" after a Wi-Fi or connection drop, even though the server was still publishing. Its data subscription is now managed centrally like every other tool, so it re-subscribes automatically on reconnect and keeps showing live values.
+
+---
+
+# Previous: v0.6.6
 
 ## Release Notes (Google Play - max 500 chars)
 

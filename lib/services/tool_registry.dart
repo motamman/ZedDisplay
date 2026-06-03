@@ -62,6 +62,15 @@ abstract class ToolBuilder {
   /// Get default config for this tool type (optional)
   /// Returns null if no defaults needed
   ToolConfig? getDefaultConfig(String vesselId) => null;
+
+  /// SignalK paths this tool needs subscribed, given its [config].
+  ///
+  /// Default: the tool's data-source paths. Tools that keep paths elsewhere
+  /// (e.g. in `customProperties`) override this so the central subscription
+  /// manager — the single source of truth for subscriptions — covers them and
+  /// re-subscribes them on (re)connect like every other tool.
+  List<String> requiredPaths(ToolConfig config) =>
+      config.dataSources.map((d) => d.path).toList();
 }
 
 /// Registry for all available tool types
@@ -76,6 +85,12 @@ class ToolRegistry {
   void register(String toolTypeId, ToolBuilder builder) {
     _builders[toolTypeId] = builder;
   }
+
+  /// SignalK paths a tool needs subscribed, delegating to its builder
+  /// (falls back to the config's data-source paths if the type is unknown).
+  List<String> requiredPaths(String toolTypeId, ToolConfig config) =>
+      _builders[toolTypeId]?.requiredPaths(config) ??
+      config.dataSources.map((d) => d.path).toList();
 
   /// Tools that work without a server connection
   static const _independentTools = {
