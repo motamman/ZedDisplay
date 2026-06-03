@@ -666,6 +666,12 @@ Tool Components (Display layer)
     └── Tool Configurators (Strategy pattern)
 ```
 
+Subscriptions are owned centrally: `DashboardService` collects every visible tool's
+`ToolBuilder.requiredPaths(config)` (default = the tool's data-source paths; tools that keep
+paths in `customProperties`, e.g. Power Flow, override it) and hands them to `SignalKService`,
+which re-subscribes on every (re)connect. Tools are pure readers of the cache — they don't
+manage their own subscriptions — so they all recover identically after a reconnect.
+
 ### Storage
 - Local persistent storage for connections, dashboards, tools, setups, and auth tokens
 - JSON serialization for import/export
