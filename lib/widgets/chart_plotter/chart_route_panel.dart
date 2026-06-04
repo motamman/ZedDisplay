@@ -65,11 +65,17 @@ void showRouteManagerSheet(
     isScrollControlled: true,
     backgroundColor: Colors.transparent,
     builder: (sheetCtx) => DraggableScrollableSheet(
+      // expand: false leaves the modal barrier exposed above the sheet so
+      // tap-outside dismisses (default true covers the barrier).
+      expand: false,
       initialChildSize: 0.45,
       maxChildSize: 0.7,
-      minChildSize: 0.2,
+      minChildSize: 0.12,
       snap: true,
       snapSizes: const [0.2, 0.45],
+      // Flick all the way down to dismiss (matches the other sheets);
+      // without this the sheet just snaps to its min and gets stuck.
+      shouldCloseOnMinExtent: true,
       builder: (_, scrollController) => Container(
         decoration: const BoxDecoration(
           color: AppColors.cardBackgroundDark,

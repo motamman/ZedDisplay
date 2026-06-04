@@ -236,6 +236,9 @@ void showWeatherRoutingSheet(
     isScrollControlled: true,
     backgroundColor: Colors.transparent,
     builder: (sheetCtx) => DraggableScrollableSheet(
+      // expand: false leaves the modal barrier exposed above the sheet so
+      // tap-outside dismisses (default true covers the barrier).
+      expand: false,
       initialChildSize: 0.55,
       maxChildSize: 0.92,
       // `minChildSize` low + `shouldCloseOnMinExtent: true` makes
