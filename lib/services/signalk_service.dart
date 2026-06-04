@@ -377,6 +377,12 @@ class SignalKService extends ChangeNotifier implements DataService {
       // but we're changing servers — wipe cached state so the new server
       // doesn't inherit the previous server's data, unit metadata, or AIS
       // vessels (disconnect() does this when there IS a live connection).
+      // Mirror disconnect()'s state resets so the new server starts clean:
+      // missing any of these strands a feature on the old server's state —
+      // _autopilotPaths would filter "already subscribed" paths, the AIS
+      // initial REST fetch (gated by _aisInitialLoadDone, reset by dispose())
+      // would be skipped, and _ensuredResourceTypes would skip crew/messaging
+      // resource-type creation on the new server.
       _dataCache.clearAll();
       _latestDataView = null;
       _conversionManager.internalDataMap.clear();
@@ -384,7 +390,9 @@ class SignalKService extends ChangeNotifier implements DataService {
       _metadataStore.clear();
       _displayUnitsCache.clear();
       _subscriptionRegistry.clear();
-      _aisManager.registry.clear();
+      _autopilotPaths.clear();
+      _ensuredResourceTypes.clear();
+      _aisManager.dispose(); // resets AIS init flag + refresh timer + registry
       _userPreferencesApplied = false;
     }
 
