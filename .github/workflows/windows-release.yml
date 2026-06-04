@@ -14,7 +14,7 @@ jobs:
   build-windows:
     runs-on: windows-latest
     # Skip if this is an iOS-only, Android-only, or Linux-only tag
-    if: ${{ !endsWith(github.ref, '-ios') && !endsWith(github.ref, '-android') && !endsWith(github.ref, '-linux') && !endsWith(github.ref, '-macos') }}
+    if: ${{ !endsWith(github.ref, '-ios') && !endsWith(github.ref, '-android') && !endsWith(github.ref, '-linux') && !endsWith(github.ref, '-macos') && !endsWith(github.ref, '-bookworm') }}
 
     steps:
       - name: Checkout code

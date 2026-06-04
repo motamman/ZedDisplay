@@ -14,7 +14,7 @@ jobs:
   build-macos:
     runs-on: macos-15
     # Skip if this is a platform-specific tag for another platform
-    if: ${{ !endsWith(github.ref, '-ios') && !endsWith(github.ref, '-android') && !endsWith(github.ref, '-linux') && !endsWith(github.ref, '-windows') }}
+    if: ${{ !endsWith(github.ref, '-ios') && !endsWith(github.ref, '-android') && !endsWith(github.ref, '-linux') && !endsWith(github.ref, '-windows') && !endsWith(github.ref, '-bookworm') }}
 
     steps:
       - name: Checkout code

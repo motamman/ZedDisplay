@@ -451,6 +451,10 @@ class _AISPolarChartState extends State<AISPolarChart>
     if (parts.isNotEmpty) dimensionsStr = parts.join(', ');
 
     return DraggableScrollableSheet(
+      // expand: false leaves the modal barrier exposed above the sheet so
+      // tapping outside dismisses it (default true fills the viewport and
+      // swallows the barrier tap).
+      expand: false,
       initialChildSize: 0.4,
       maxChildSize: 0.65,
       minChildSize: 0.15,

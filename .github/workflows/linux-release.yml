@@ -21,8 +21,9 @@ jobs:
           - arch: arm64
             runner: ubuntu-24.04-arm
     runs-on: ${{ matrix.runner }}
-    # Skip if this is an iOS-only or Android-only tag
-    if: ${{ !endsWith(github.ref, '-ios') && !endsWith(github.ref, '-android') && !endsWith(github.ref, '-windows') && !endsWith(github.ref, '-macos') }}
+    # Skip platform-specific tags handled by other workflows (iOS/Android/
+    # Windows/macOS, and `-bookworm` which has its own container build).
+    if: ${{ !endsWith(github.ref, '-ios') && !endsWith(github.ref, '-android') && !endsWith(github.ref, '-windows') && !endsWith(github.ref, '-macos') && !endsWith(github.ref, '-bookworm') }}
 
     steps:
       - name: Checkout code

@@ -829,13 +829,21 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
     // selected-boat id to a name/LOA before the picker is even opened.
     final boatsService =
         Provider.of<RoutePlannerBoatsService>(context, listen: false);
-    boatsService.baseUrl = _routePlannerBaseUrl;
-    if (boatsService.boats.isEmpty && !boatsService.loadingBoats) {
-      // Full server inventory + ownership oracle. Picker reads the
-      // full list; `_submit` uses ownership to pick between boat_id
-      // and explicit vessel+polar overrides.
-      unawaited(boatsService.refreshAllBoats());
-    }
+    // Both `baseUrl =` (on change) and `refreshAllBoats()` call
+    // notifyListeners(); running them synchronously here would fire during
+    // the build phase (didChangeDependencies) and trip "markNeedsBuild
+    // called during build" on the Provider's ListenableBuilder. Defer to
+    // after the current frame.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      boatsService.baseUrl = _routePlannerBaseUrl;
+      if (boatsService.boats.isEmpty && !boatsService.loadingBoats) {
+        // Full server inventory + ownership oracle. Picker reads the
+        // full list; `_submit` uses ownership to pick between boat_id
+        // and explicit vessel+polar overrides.
+        unawaited(boatsService.refreshAllBoats());
+      }
+    });
   }
 
   void _onWeatherDataChanged() {
@@ -1651,11 +1659,17 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
       backgroundColor: Colors.transparent,
       builder: (sheetCtx) {
         return DraggableScrollableSheet(
+          // expand: false leaves the modal barrier exposed above the sheet
+          // so tap-outside dismisses (default true covers the barrier).
+          expand: false,
           initialChildSize: 0.6,
           maxChildSize: 0.92,
-          minChildSize: 0.25,
+          minChildSize: 0.15,
           snap: true,
           snapSizes: const [0.6, 0.92],
+          // Flick all the way down to dismiss (matches the other sheets);
+          // without this the sheet just snaps to its min and gets stuck.
+          shouldCloseOnMinExtent: true,
           builder: (_, scroll) {
             return Container(
               decoration: const BoxDecoration(
@@ -3352,23 +3366,27 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
               connected: widget.signalKService.isConnected,
             ),
           ),
+          // Full-screen tap-catcher: while a nav drawer is open, a tap
+          // anywhere outside the drawer/controls collapses it. flutter_map
+          // consumes pointer events, so `TapRegion.onTapOutside` never sees
+          // taps that land on the map — an explicit opaque barrier above the
+          // map is the reliable mechanism, and it absorbs the tap so the map
+          // doesn't pan/select underneath. The controls below render on top
+          // of this barrier, so the drawer stays interactive.
+          if (_openDrawer != _NavDrawerKind.none)
+            Positioned.fill(
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () =>
+                    setState(() => _openDrawer = _NavDrawerKind.none),
+              ),
+            ),
           Positioned(
             top: 8,
             right: 8,
-            // Any tap outside this region (the drawer + the right
-            // nav column) collapses an open drawer. Taps inside —
-            // on a group icon to open / swap, or on a sub-button
-            // to use the feature — are not treated as "outside" so
-            // the drawer stays open while the user interacts with
-            // it. Provided by `MaterialApp`'s default
-            // `TapRegionSurface`.
-            child: TapRegion(
-              onTapOutside: (_) {
-                if (_openDrawer != _NavDrawerKind.none) {
-                  setState(() => _openDrawer = _NavDrawerKind.none);
-                }
-              },
-              child: _MapControls(
+            // The tap-catcher above handles dismiss; taps on the controls
+            // themselves render above it and are unaffected.
+            child: _MapControls(
                 autoFollow: _autoFollow,
                 viewMode: _viewMode,
                 rulerVisible: _rulerVisible,
@@ -3439,7 +3457,6 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
               playerAvailable: _hasTimeKeyedWeatherLayer,
               onTogglePlayer: _togglePlayer,
               ),
-            ),
           ),
           if (_rulerVisible && _rulerRed != null && _rulerBlue != null)
             Positioned(
@@ -4048,6 +4065,9 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
       // `shouldCloseOnMinExtent: true` pairs with a low `minChildSize`
       // so releasing past the bottom snap triggers pop().
       builder: (sheetCtx) => DraggableScrollableSheet(
+        // expand: false leaves the modal barrier exposed above the sheet
+        // so tap-outside dismisses (default true covers the barrier).
+        expand: false,
         initialChildSize: 0.75,
         maxChildSize: 0.92,
         minChildSize: 0.15,

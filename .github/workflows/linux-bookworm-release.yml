@@ -1,0 +1,105 @@
+name: Linux Bookworm Build and Release
+
+# Builds inside a debian:bookworm container so the binaries link against
+# glibc 2.36 / GCC 12 (GLIBCXX 3.4.30) — matching Raspberry Pi OS (Bookworm)
+# and other Debian 12 "stable" systems. The main "Linux Build and Release"
+# workflow builds on ubuntu-24.04 (glibc 2.39 / GLIBCXX 3.4.32+), which
+# produces binaries that won't load on Bookworm:
+#   GLIBC_2.38 not found / GLIBCXX_3.4.32 not found (libflutter_webrtc_plugin.so)
+#
+# Trigger manually (Actions → Run workflow) for an artifact you can copy to
+# the Pi, or push a `vX.Y.Z+B-bookworm` tag to cut a release.
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*.*.*-bookworm'
+
+permissions:
+  contents: write
+
+jobs:
+  build-bookworm:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    # Build steps execute inside Debian 12; the image arch follows the host
+    # runner (amd64 on ubuntu-latest, arm64 on ubuntu-24.04-arm).
+    container:
+      image: debian:bookworm
+
+    steps:
+      - name: Install build dependencies
+        run: |
+          apt-get update -y
+          apt-get install -y \
+            git curl unzip xz-utils file ca-certificates \
+            clang cmake ninja-build pkg-config \
+            libgtk-3-dev liblzma-dev libstdc++-12-dev \
+            libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
+            gstreamer1.0-plugins-good libwebkit2gtk-4.1-dev
+
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Mark workspace git-safe
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Setup Flutter (clone from source)
+        run: |
+          git clone https://github.com/flutter/flutter.git -b stable --depth 1 "$HOME/flutter"
+          echo "$HOME/flutter/bin" >> "$GITHUB_PATH"
+
+      - name: Verify Flutter version
+        run: |
+          flutter --version
+          flutter doctor -v
+
+      - name: Clean and get dependencies
+        run: |
+          flutter clean
+          flutter pub get
+
+      - name: Build Linux release
+        run: flutter build linux --release
+
+      - name: Get version
+        id: version
+        run: |
+          REF="${GITHUB_REF#refs/tags/}"
+          REF="${REF#refs/heads/}"
+          REF="${REF//\//-}"   # branch names can contain '/', invalid in filenames
+          echo "VERSION=${REF}" >> "$GITHUB_OUTPUT"
+
+      - name: Package Linux build
+        run: |
+          BUNDLE_DIR=$(find build/linux -path "*/release/bundle" -type d | head -1)
+          cp linux/install.sh "$BUNDLE_DIR/"
+          cd "$BUNDLE_DIR"
+          tar czf "$GITHUB_WORKSPACE/zed-display-linux-${{ matrix.arch }}-bookworm-${{ steps.version.outputs.VERSION }}.tar.gz" .
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: zed-display-linux-${{ matrix.arch }}-bookworm-${{ steps.version.outputs.VERSION }}
+          path: zed-display-linux-${{ matrix.arch }}-bookworm-${{ steps.version.outputs.VERSION }}.tar.gz
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Release ${{ steps.version.outputs.VERSION }}
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          files: |
+            zed-display-linux-${{ matrix.arch }}-bookworm-${{ steps.version.outputs.VERSION }}.tar.gz

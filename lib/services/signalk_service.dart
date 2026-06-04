@@ -352,14 +352,51 @@ class SignalKService extends ChangeNotifier implements DataService {
     if (_isConnecting) return;
     _isConnecting = true;
 
+    final switchingServer =
+        _previousServerUrl != null && _previousServerUrl != serverUrl;
+
+    // When CHANGING servers, cancel any auto-reconnect / background probe still
+    // chasing the PREVIOUS server — otherwise it keeps firing _reconnectLight()
+    // against the new server and churns the connection ("switching servers needs
+    // a restart"). Scoped to a real switch on purpose: a SAME-server reconnect
+    // (e.g. wake-from-sleep via main.dart's _reconnect) must NOT cancel the
+    // reconnect machinery it depends on.
+    if (switchingServer) {
+      _reconnectTimer?.cancel();
+      _stopBackgroundProbe();
+      _intentionalDisconnect = true;
+    }
+
     // Disconnect any existing connection first
     if (_isConnected || _channel != null) {
       await disconnect();
       // Give the socket time to fully close
       await Future.delayed(const Duration(milliseconds: 800));
+    } else if (switchingServer) {
+      // No live socket to tear down (the old connection already dropped),
+      // but we're changing servers — wipe cached state so the new server
+      // doesn't inherit the previous server's data, unit metadata, or AIS
+      // vessels (disconnect() does this when there IS a live connection).
+      // Mirror disconnect()'s state resets so the new server starts clean:
+      // missing any of these strands a feature on the old server's state —
+      // _autopilotPaths would filter "already subscribed" paths, the AIS
+      // initial REST fetch (gated by _aisInitialLoadDone, reset by dispose())
+      // would be skipped, and _ensuredResourceTypes would skip crew/messaging
+      // resource-type creation on the new server.
+      _dataCache.clearAll();
+      _latestDataView = null;
+      _conversionManager.internalDataMap.clear();
+      _conversionsDataView = null;
+      _metadataStore.clear();
+      _displayUnitsCache.clear();
+      _subscriptionRegistry.clear();
+      _autopilotPaths.clear();
+      _ensuredResourceTypes.clear();
+      _aisManager.dispose(); // resets AIS init flag + refresh timer + registry
+      _userPreferencesApplied = false;
     }
 
-    if (_previousServerUrl != null && _previousServerUrl != serverUrl) {
+    if (switchingServer) {
       _serverGeneration++;
     }
     _previousServerUrl = serverUrl;
@@ -490,6 +527,10 @@ class SignalKService extends ChangeNotifier implements DataService {
       _isConnecting = false;
     } catch (e) {
       _isConnecting = false;
+      // A failed connect must never leave reconnection suppressed — otherwise
+      // a connect attempt during a network blip (e.g. on wake) would strand the
+      // app until it's killed.
+      _intentionalDisconnect = false;
       _errorMessage = 'Connection failed: $e';
       _isConnected = false;
       notifyListeners();

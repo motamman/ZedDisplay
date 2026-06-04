@@ -492,6 +492,23 @@ SignalK acts as the message broker and data store:
    flutter run
    ```
 
+### Prebuilt Linux releases (Raspberry Pi / Debian)
+
+Tagged releases publish Linux `x64` and `arm64` tarballs on the
+[Releases](https://github.com/motamman/ZedDisplay/releases) page. Pick the one that
+matches your system's glibc:
+
+- **Ubuntu 24.04+ / recent distros** — `zed-display-linux-<arch>-<version>.tar.gz`.
+- **Raspberry Pi OS / Debian 12 "Bookworm"** — the **`…-bookworm-…`** tarball. The
+  standard build is compiled against glibc 2.39 and will fail to launch on Bookworm
+  with `GLIBC_2.38` / `GLIBCXX_3.4.32 not found`; the Bookworm build is compiled in a
+  Debian 12 container (glibc 2.36) so it loads. (Produced by the
+  `Linux Bookworm Build and Release` workflow.)
+
+Extract the tarball and run `./install.sh`. On a Pi you can also just build from source
+locally (`flutter build linux --release`) — a local build always links against the Pi's
+own glibc.
+
 ### First Time Setup
 
 1. Launch the app

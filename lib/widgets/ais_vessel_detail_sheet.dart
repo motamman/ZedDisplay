@@ -137,6 +137,10 @@ class AISVesselDetailSheet {
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (sheetContext) => DraggableScrollableSheet(
+        // expand: false so the sheet sizes to its extent and leaves the
+        // modal barrier exposed above it — otherwise (default true) it
+        // fills the viewport, covers the barrier, and tap-outside dies.
+        expand: false,
         initialChildSize: 0.4,
         maxChildSize: 0.65,
         minChildSize: 0.15,
