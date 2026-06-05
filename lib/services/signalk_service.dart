@@ -541,9 +541,18 @@ class SignalKService extends ChangeNotifier implements DataService {
   /// Get the REST API vessel path segment.
   /// Uses MMSI/URN if available, falls back to 'self'.
   String get _vesselRestPath {
-    if (_vesselContext != null && _vesselContext!.startsWith('vessels.')) {
-      return _vesselContext!.substring('vessels.'.length);
-    }
+    // Always address the self vessel as 'self' in REST URLs.
+    //
+    // _vesselContext is the WS delta context (e.g. 'vessels.urn:mrn:imo:mmsi:368396230')
+    // and is used for delta routing. But the REST PUT route (signalk-server put.ts)
+    // takes the context VERBATIM from the URL with no self-normalization:
+    //   context = `${parts[0]}.${parts[1]}`   // 'vessels.urn:mrn:imo:mmsi:...'
+    // Plugins register PUT/action handlers under the literal context 'vessels.self'
+    // (see registerPutHandler docs), so a PUT addressed by the resolved MMSI URN
+    // misses the handler lookup and the server returns 405 — even though the path's
+    // meta advertises supportsPut: true. Addressing 'self' makes the server-side
+    // context resolve to 'vessels.self' and hit the registered handler.
+    // GET routes resolve 'self' -> selfId (rest.js), so reads are unaffected.
     return 'self';
   }
 
@@ -1032,7 +1041,11 @@ class SignalKService extends ChangeNotifier implements DataService {
       );
       _diagnosticService?.instrumentRestCall('PUT', memBefore, _diagnosticRssKB());
 
-      if (response.statusCode != 200) {
+      // 200 = applied synchronously, 202 = accepted (async). Either way the
+      // request was accepted; the resulting value change arrives over the
+      // WebSocket as a normal delta, which updates the cache and rebuilds the
+      // widget. No need to poll the request status for that.
+      if (response.statusCode != 200 && response.statusCode != 202) {
         throw Exception('PUT request failed: ${response.statusCode}');
       }
     } catch (e) {

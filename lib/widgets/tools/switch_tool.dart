@@ -106,7 +106,11 @@ class _SwitchToolState extends State<SwitchTool> with AutomaticKeepAliveClientMi
     Color activeColor,
     Color inactiveColor,
   ) {
-    final dataPoint = widget.signalKService.getValue(dataSource.path, source: dataSource.source);
+    // Read the pinned source if it has reported; otherwise fall back to the
+    // latest value from any source so the button always reflects the real state
+    // (a pinned-source string that doesn't match the cache key must not blank it).
+    final dataPoint = widget.signalKService.getValue(dataSource.path, source: dataSource.source)
+        ?? widget.signalKService.getValue(dataSource.path);
     final currentValue = dataPoint.toBool();
     final label = dataSource.label ?? dataSource.path.toReadableLabel();
     final isSending = _sendingPaths.contains(dataSource.path);
@@ -175,7 +179,11 @@ class _SwitchToolState extends State<SwitchTool> with AutomaticKeepAliveClientMi
     Color activeColor,
     Color inactiveColor,
   ) {
-    final dataPoint = widget.signalKService.getValue(dataSource.path, source: dataSource.source);
+    // Read the pinned source if it has reported; otherwise fall back to the
+    // latest value from any source so the button always reflects the real state
+    // (a pinned-source string that doesn't match the cache key must not blank it).
+    final dataPoint = widget.signalKService.getValue(dataSource.path, source: dataSource.source)
+        ?? widget.signalKService.getValue(dataSource.path);
     final currentValue = dataPoint.toBool();
     final label = dataSource.label ?? dataSource.path.toReadableLabel();
     final isSending = _sendingPaths.contains(dataSource.path);
@@ -249,7 +257,16 @@ class _SwitchToolState extends State<SwitchTool> with AutomaticKeepAliveClientMi
     });
 
     try {
-      await widget.signalKService.sendPutRequest(path, newValue, source: source);
+      // Send the value in the same representation the path already uses. Many
+      // SignalK switch/relay sources model state as numeric 1/0 (the live value
+      // for this path is `1`), and a handler expecting a number can reject or
+      // no-op a JSON bool. If the current value is numeric, send 1/0; otherwise
+      // send a bool. Falls back to the latest value if the pinned source is empty.
+      final current = widget.signalKService.getValue(path, source: source)
+          ?? widget.signalKService.getValue(path);
+      final dynamic putValue =
+          current?.value is num ? (newValue ? 1 : 0) : newValue;
+      await widget.signalKService.sendPutRequest(path, putValue, source: source);
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
