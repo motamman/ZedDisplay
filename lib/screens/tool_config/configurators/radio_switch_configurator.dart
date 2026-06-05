@@ -73,7 +73,7 @@ class RadioSwitchConfigurator extends ToolConfigurator {
       case 'bool':
         return trimmed.toLowerCase() == 'true';
       default:
-        return text;
+        return trimmed;
     }
   }
 
