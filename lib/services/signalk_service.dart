@@ -1046,7 +1046,14 @@ class SignalKService extends ChangeNotifier implements DataService {
       // WebSocket as a normal delta, which updates the cache and rebuilds the
       // widget. No need to poll the request status for that.
       if (response.statusCode != 200 && response.statusCode != 202) {
-        throw Exception('PUT request failed: ${response.statusCode}');
+        // Surface the server's failure reason. A 502 means a PUT handler ran
+        // but returned FAILURE; signalk-server attaches a `message` explaining
+        // why (bad value, device/bus error, etc.) in the response body.
+        final detail = response.body.trim();
+        throw Exception(
+          'PUT request failed: ${response.statusCode}'
+          '${detail.isNotEmpty ? ' - $detail' : ''}',
+        );
       }
     } catch (e) {
       if (kDebugMode) {
