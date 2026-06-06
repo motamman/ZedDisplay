@@ -446,7 +446,7 @@ class AnchorAlarmService extends ChangeNotifier {
         return true;
       }
       if (kDebugMode) {
-        print('Set anchor position failed: ${response.statusCode}');
+        print('Set anchor position failed: ${response.statusCode} - ${response.body}');
       }
       return false;
     } catch (e) {

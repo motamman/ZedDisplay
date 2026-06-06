@@ -229,6 +229,7 @@ void showWeatherRoutingSheet(
   required String? defaultPolar,
   required WeatherRoutingWaypointFocus onFocusWaypoint,
   VoidCallback? onFitToRoute,
+  VoidCallback? onSaveAsRoute,
   bool autoSubmit = false,
 }) {
   showModalBottomSheet(
@@ -255,6 +256,7 @@ void showWeatherRoutingSheet(
         defaultPolar: defaultPolar,
         onFocusWaypoint: onFocusWaypoint,
         onFitToRoute: onFitToRoute,
+        onSaveAsRoute: onSaveAsRoute,
         autoSubmit: autoSubmit,
       ),
     ),
@@ -269,6 +271,7 @@ class _WeatherRoutingSheet extends StatefulWidget {
     required this.defaultPolar,
     required this.onFocusWaypoint,
     this.onFitToRoute,
+    this.onSaveAsRoute,
     this.autoSubmit = false,
   });
 
@@ -278,6 +281,7 @@ class _WeatherRoutingSheet extends StatefulWidget {
   final String? defaultPolar;
   final WeatherRoutingWaypointFocus onFocusWaypoint;
   final VoidCallback? onFitToRoute;
+  final VoidCallback? onSaveAsRoute;
   final bool autoSubmit;
 
   @override
@@ -476,6 +480,7 @@ class _WeatherRoutingSheetState extends State<_WeatherRoutingSheet>
                 _ResultTab(
                   scrollController: widget.scrollController,
                   onFocusWaypoint: widget.onFocusWaypoint,
+                  onSaveAsRoute: widget.onSaveAsRoute,
                 ),
                 _RecentTab(
                   scrollController: widget.scrollController,
@@ -1513,10 +1518,12 @@ class _ResultTab extends StatelessWidget {
   const _ResultTab({
     required this.scrollController,
     required this.onFocusWaypoint,
+    this.onSaveAsRoute,
   });
 
   final ScrollController scrollController;
   final WeatherRoutingWaypointFocus onFocusWaypoint;
+  final VoidCallback? onSaveAsRoute;
 
   @override
   Widget build(BuildContext context) {
@@ -1573,6 +1580,22 @@ class _ResultTab extends StatelessWidget {
           children: [
             Expanded(child: _StatSummary(result: result)),
             const SizedBox(width: 8),
+            // Save the computed route's turn waypoints as a SignalK
+            // `routes` resource so it appears in the route manager and
+            // can be activated. Only meaningful with ≥2 waypoints.
+            if (onSaveAsRoute != null && result.waypoints.length >= 2) ...[
+              OutlinedButton.icon(
+                icon: const Icon(Icons.save_alt, size: 16),
+                label: const Text('Save as Route'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: AppColors.infoBlue,
+                  side: const BorderSide(color: Color(0xFF335566)),
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                ),
+                onPressed: onSaveAsRoute,
+              ),
+              const SizedBox(width: 8),
+            ],
             OutlinedButton.icon(
               icon: const Icon(Icons.layers_clear, size: 16),
               label: const Text('Clear'),
