@@ -3553,9 +3553,14 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
           // of this barrier, so the drawer stays interactive.
           if (_openDrawer != _NavDrawerKind.none)
             Positioned.fill(
-              child: GestureDetector(
+              // Dismiss on any pointer-down, not just a clean onTap: a
+              // slightly-draggy tap makes a TapGestureRecognizer bail and the
+              // drawer stays stuck open. A Listener fires on the raw pointer,
+              // so any touch outside the drawer/controls collapses it. The
+              // controls render above this barrier and stay interactive.
+              child: Listener(
                 behavior: HitTestBehavior.opaque,
-                onTap: () =>
+                onPointerDown: (_) =>
                     setState(() => _openDrawer = _NavDrawerKind.none),
               ),
             ),
@@ -7523,6 +7528,10 @@ class _MapControls extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
+            // One empty spacer per nav-pill button ABOVE the AIS button, so
+            // each flyout aligns with its trigger: view-mode, follow, ruler,
+            // record. Keep this count in sync with those buttons.
+            const _DrawerSlot(active: false, child: SizedBox.shrink()),
             const _DrawerSlot(active: false, child: SizedBox.shrink()),
             const _DrawerSlot(active: false, child: SizedBox.shrink()),
             const _DrawerSlot(active: false, child: SizedBox.shrink()),

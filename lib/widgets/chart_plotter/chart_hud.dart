@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:syncfusion_flutter_gauges/gauges.dart';
 import '../../models/path_metadata.dart';
+import '../../models/zone_data.dart';
 import '../../services/signalk_service.dart';
 import '../compass_gauge.dart';
 
@@ -67,8 +68,16 @@ class ChartPlotterHUD extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (hudStyle == 'off') return const SizedBox.shrink();
-    if (hudStyle == 'visual') return _buildVisualHUD();
-    return _buildTextHUD();
+    // Self-update on every SignalK delta — the same way the ZonesMixin gauges
+    // do — so every HUD value (depth especially) refreshes in real time
+    // rather than only when the chart plotter rebuilds (which is gated on
+    // vessel motion). Only this HUD subtree repaints; the map keeps its own
+    // throttle, so there's no added map-render cost.
+    return ListenableBuilder(
+      listenable: signalKService,
+      builder: (context, _) =>
+          hudStyle == 'visual' ? _buildVisualHUD() : _buildTextHUD(),
+    );
   }
 
   Widget _buildTextHUD() {
@@ -125,6 +134,14 @@ class ChartPlotterHUD extends StatelessWidget {
     final dptMeta = store.get(_path(_dsDepth)) ?? store.getByCategory('depth');
     final dptVal = dptMeta?.convert(dptRaw ?? 0) ?? dptRaw ?? 0;
     final dptFmt = dptRaw != null ? (dptMeta?.format(dptRaw, decimals: 1) ?? dptRaw.toStringAsFixed(1)) : '--';
+    // Depth danger colour + alarm bands come from the server-defined zones
+    // (MetadataStore), evaluated against the RAW SI value — not hardcoded
+    // thresholds. No zones defined → neutral colour, no invented levels.
+    final dptZone = _activeZone(dptRaw, dptMeta?.zones);
+    final dptColor = dptZone != null
+        ? _zoneFillColor(ZoneState.fromString(dptZone.state))
+        : Colors.cyan;
+    final dptBands = _zoneBands(dptMeta, maxValue: 30);
 
     // COG
     final cogRaw = _numValue(_path(_dsCog));
@@ -140,10 +157,10 @@ class ChartPlotterHUD extends StatelessWidget {
     // DTW (raw SI meters for XTE scaling)
     final dtwRaw = _numValue(_path(_dsDtw));
 
-    // XTE
+    // XTE — keep the raw SI value for the bar geometry; the MetadataStore
+    // handles the display label only (see _miniXteBar).
     final xteRaw = _numValue(_path(_dsXte));
     final xteMeta = store.get(_path(_dsXte)) ?? store.getByCategory('distance');
-    final xteVal = xteMeta?.convert(xteRaw ?? 0) ?? xteRaw ?? 0;
     final xteFmt = xteRaw != null ? (xteMeta?.format(xteRaw, decimals: 1) ?? xteRaw.toStringAsFixed(1)) : '--';
 
     return Positioned(
@@ -187,8 +204,8 @@ class ChartPlotterHUD extends StatelessWidget {
                       value: dptVal.toDouble(),
                       maxValue: 30,
                       formattedValue: dptFmt,
-                      color: _depthColor(dptVal.toDouble()),
-                      zones: dptMeta?.zones,
+                      color: dptColor,
+                      zoneBands: dptBands,
                     ),
                   ),
                 ],
@@ -201,7 +218,7 @@ class ChartPlotterHUD extends StatelessWidget {
                 mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                 children: [
                   _hudItem('DTW', _formatValue(_path(_dsDtw), decimals: 1, fallbackCategory: 'distance')),
-                  Flexible(child: _miniXteBar(xteVal.toDouble(), xteFmt, xteMeta?.symbol ?? 'm', dtwRaw)),
+                  Flexible(child: _miniXteBar(xteRaw ?? 0, xteFmt, dtwRaw)),
                   if (canAdvance) ...[
                     GestureDetector(
                       onTap: onAdvanceWaypoint,
@@ -227,10 +244,103 @@ class ChartPlotterHUD extends StatelessWidget {
     );
   }
 
-  static Color _depthColor(double depth) {
-    if (depth < 2) return Colors.red;
-    if (depth < 5) return Colors.orange;
-    return Colors.cyan;
+  /// The most-severe zone (from MetadataStore) whose SI range contains the
+  /// raw SI [value]. Null when there are no zones or none match — callers
+  /// fall back to a neutral colour rather than inventing thresholds.
+  static PathZone? _activeZone(double? value, List<PathZone>? zones) {
+    if (value == null || zones == null || zones.isEmpty) return null;
+    PathZone? best;
+    var bestRank = -1;
+    for (final z in zones) {
+      final aboveLower = z.lower == null || value >= z.lower!;
+      final belowUpper = z.upper == null || value <= z.upper!;
+      if (aboveLower && belowUpper) {
+        final rank = _zoneSeverity(z.state);
+        if (rank > bestRank) {
+          bestRank = rank;
+          best = z;
+        }
+      }
+    }
+    return best;
+  }
+
+  static int _zoneSeverity(String state) {
+    switch (ZoneState.fromString(state)) {
+      case ZoneState.emergency:
+        return 5;
+      case ZoneState.alarm:
+        return 4;
+      case ZoneState.warn:
+        return 3;
+      case ZoneState.alert:
+        return 2;
+      case ZoneState.nominal:
+        return 1;
+      case ZoneState.normal:
+        return 0;
+    }
+  }
+
+  /// Solid colour for the value-fill arc, by zone state.
+  static Color _zoneFillColor(ZoneState state) {
+    switch (state) {
+      case ZoneState.emergency:
+        return Colors.red.shade900;
+      case ZoneState.alarm:
+        return Colors.red;
+      case ZoneState.warn:
+        return Colors.orange;
+      case ZoneState.alert:
+        return Colors.yellow.shade700;
+      case ZoneState.nominal:
+        return Colors.blue;
+      case ZoneState.normal:
+        return Colors.cyan;
+    }
+  }
+
+  /// Translucent band colour, by zone state. Mirrors the radial/linear
+  /// gauges' `_getZoneColor` so the HUD reads consistently with them.
+  static Color _zoneBandColor(ZoneState state) {
+    switch (state) {
+      case ZoneState.nominal:
+        return Colors.blue.withValues(alpha: 0.5);
+      case ZoneState.alert:
+        return Colors.yellow.shade600.withValues(alpha: 0.6);
+      case ZoneState.warn:
+        return Colors.orange.withValues(alpha: 0.6);
+      case ZoneState.alarm:
+        return Colors.red.withValues(alpha: 0.6);
+      case ZoneState.emergency:
+        return Colors.red.shade900.withValues(alpha: 0.6);
+      case ZoneState.normal:
+        return Colors.grey.withValues(alpha: 0.5);
+    }
+  }
+
+  /// Convert a path's SI zones into display-unit gauge bands, clamped later
+  /// to the axis. Open-ended bounds map to 0 / [maxValue]. Empty when the
+  /// path has no zones.
+  static List<({double start, double end, Color color})> _zoneBands(
+    PathMetadata? meta, {
+    required double maxValue,
+  }) {
+    final zones = meta?.zones;
+    if (meta == null || zones == null) return const [];
+    final bands = <({double start, double end, Color color})>[];
+    for (final z in zones) {
+      final lo = z.lower != null ? (meta.convert(z.lower!) ?? z.lower!) : 0.0;
+      final hi =
+          z.upper != null ? (meta.convert(z.upper!) ?? z.upper!) : maxValue;
+      if (hi <= lo) continue;
+      bands.add((
+        start: lo,
+        end: hi,
+        color: _zoneBandColor(ZoneState.fromString(z.state)),
+      ));
+    }
+    return bands;
   }
 
   static Widget _miniArcGauge({
@@ -239,7 +349,7 @@ class ChartPlotterHUD extends StatelessWidget {
     required double maxValue,
     required String formattedValue,
     required Color color,
-    List<dynamic>? zones,
+    List<({double start, double end, Color color})>? zoneBands,
   }) {
     final clamped = value.clamp(0.0, maxValue);
     return SfRadialGauge(
@@ -263,6 +373,17 @@ class ChartPlotterHUD extends StatelessWidget {
               color: Colors.white.withValues(alpha: 0.1),
               startWidth: 8, endWidth: 8,
             ),
+            // Server-defined alarm zones (MetadataStore), drawn as bands so
+            // the warning levels are the same source the gauges use.
+            if (zoneBands != null)
+              for (final b in zoneBands)
+                GaugeRange(
+                  startValue: b.start.clamp(0.0, maxValue),
+                  endValue: b.end.clamp(0.0, maxValue),
+                  color: b.color,
+                  startWidth: 8, endWidth: 8,
+                ),
+            // Value fill last so it paints over the bands up to current value.
             GaugeRange(
               startValue: 0, endValue: clamped,
               color: color,
@@ -309,10 +430,14 @@ class ChartPlotterHUD extends StatelessWidget {
     );
   }
 
-  static Widget _miniXteBar(double xteValue, String xteFmt, String unit, double? dtwMeters) {
+  /// Cross-track-error bar. All geometry and colour thresholds are computed
+  /// in raw SI metres: XTE and DTW are the same physical quantity, so the bar
+  /// is "XTE as a fraction of distance-to-waypoint" and is unit-independent.
+  /// Only the marker label ([xteFmt]) uses the MetadataStore-formatted value.
+  static Widget _miniXteBar(double xteMeters, String xteFmt, double? dtwMeters) {
     final dtw = (dtwMeters ?? 1000).abs();
     final maxXte = (dtw * 0.25).clamp(10.0, 500.0);
-    final clamped = xteValue.clamp(-maxXte, maxXte);
+    final clamped = xteMeters.clamp(-maxXte, maxXte);
     final barColor = clamped.abs() < dtw * 0.05
         ? Colors.green
         : (clamped.abs() < dtw * 0.15 ? Colors.orange : Colors.red);

@@ -337,6 +337,7 @@ class _ZedDisplayAppState extends State<ZedDisplayApp> with WidgetsBindingObserv
   String? _lastServerUrl;
   bool? _lastUseSecure;
   AuthToken? _lastToken;
+  DateTime? _pausedAt; // when the app last went to background (for resume staleness)
   late ThemeMode _themeMode;
   static const platform = MethodChannel('com.zennora.zed_display/intent');
   final GlobalKey<NavigatorState> _navigatorKey = GlobalKey<NavigatorState>();
@@ -517,6 +518,7 @@ class _ZedDisplayAppState extends State<ZedDisplayApp> with WidgetsBindingObserv
       case AppLifecycleState.inactive:
         // Flush diagnostic log on background
         DiagnosticService.instance?.stop();
+        _pausedAt = DateTime.now();
         // Save connection state when app goes to background
         // (don't disconnect — reconnect is too heavy; PlatformDispatcher.onError
         // catches any SocketException if Android kills the socket)
@@ -536,9 +538,20 @@ class _ZedDisplayAppState extends State<ZedDisplayApp> with WidgetsBindingObserv
         if (widget.storageService.getDiagnosticsEnabled()) {
           DiagnosticService.instance?.start();
         }
-        // Reconnect when app returns to foreground
-        if (_lastServerUrl != null && _lastToken != null && !widget.signalKService.isConnected) {
-          _reconnect();
+        // Reconnect on foreground return. Do NOT trust isConnected here:
+        // after device sleep the socket is frequently half-open (the OS never
+        // fires onDone/onError), so isConnected reads "true" while no data
+        // flows — the classic "had to restart the app to get data back". So we
+        // force a fresh socket if we were backgrounded long enough to be stale,
+        // OR if we already know we're disconnected. No token requirement —
+        // no-auth servers must reconnect too.
+        if (_lastServerUrl != null) {
+          final sleptLong = _pausedAt != null &&
+              DateTime.now().difference(_pausedAt!) >
+                  const Duration(seconds: 10);
+          if (!widget.signalKService.isConnected || sleptLong) {
+            _reconnect();
+          }
         }
         break;
 
