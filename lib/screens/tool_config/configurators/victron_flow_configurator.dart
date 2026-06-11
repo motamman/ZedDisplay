@@ -315,6 +315,14 @@ class VictronFlowConfigurator extends ToolConfigurator {
               _buildPathTile(context, setState, signalKService, 'Mode PUT Path (tap-to-set)', _inverterModePath, (path) {
                 setState(() => _inverterModePath = path);
               }),
+              if (_inverterModePath.trim().isEmpty)
+                const Padding(
+                  padding: EdgeInsets.only(top: 4, bottom: 4),
+                  child: Text(
+                    'Set a Mode PUT path to enable tap-to-set on the inverter/charger box.',
+                    style: TextStyle(fontSize: 12, color: Colors.orangeAccent),
+                  ),
+                ),
               _buildModeOptionsEditor(context, setState),
 
               const SizedBox(height: 24),

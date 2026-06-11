@@ -10,6 +10,22 @@ import '../base_tool_configurator.dart';
 /// option's value is typed (Text / Number / Bool) so it round-trips as the
 /// correct JSON type, and is stored under customProperties['options'] as a
 /// list of `{label, value, type}` maps.
+/// Coerce a radio-option's edited text into the declared JSON type
+/// ('number' → num, 'bool' → true/false, else trimmed text). Pure +
+/// top-level so it's unit-testable. A non-parseable number falls back to the
+/// trimmed text rather than throwing.
+dynamic coerceRadioOptionValue(String text, String type) {
+  final trimmed = text.trim();
+  switch (type) {
+    case 'number':
+      return num.tryParse(trimmed) ?? trimmed;
+    case 'bool':
+      return trimmed.toLowerCase() == 'true';
+    default:
+      return trimmed;
+  }
+}
+
 class RadioSwitchConfigurator extends ToolConfigurator {
   @override
   String get toolTypeId => 'radio_switch';
@@ -64,26 +80,13 @@ class RadioSwitchConfigurator extends ToolConfigurator {
     if (_options.isEmpty) _options.add(_newOption());
   }
 
-  /// Coerce the edited text into the JSON type the option declares.
-  dynamic _coerce(String text, String type) {
-    final trimmed = text.trim();
-    switch (type) {
-      case 'number':
-        return num.tryParse(trimmed) ?? trimmed;
-      case 'bool':
-        return trimmed.toLowerCase() == 'true';
-      default:
-        return trimmed;
-    }
-  }
-
   @override
   ToolConfig getConfig() {
     final opts = _options
         .where((o) => (o['label'] as String).trim().isNotEmpty)
         .map((o) => {
               'label': (o['label'] as String).trim(),
-              'value': _coerce(o['valueText'] as String, o['type'] as String),
+              'value': coerceRadioOptionValue(o['valueText'] as String, o['type'] as String),
               'type': o['type'],
             })
         .toList();

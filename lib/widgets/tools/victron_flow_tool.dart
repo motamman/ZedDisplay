@@ -348,6 +348,16 @@ class _VictronConfig {
   });
 }
 
+/// Whether a live mode value matches a configured option value: numbers
+/// compare numerically, everything else case-insensitively (so "On"/"on"
+/// match). Pure + top-level so it's unit-testable.
+bool victronModeValuesMatch(dynamic live, dynamic option) {
+  if (live == null || option == null) return false;
+  if (live is num && option is num) return live == option;
+  return live.toString().trim().toLowerCase() ==
+      option.toString().trim().toLowerCase();
+}
+
 /// Standard Victron VE.Bus mode positions used when nothing is configured.
 List<Map<String, dynamic>> _defaultInverterModeOptions() => [
       {'label': 'On', 'value': 'on'},
@@ -1024,7 +1034,7 @@ class _VictronFlowToolState extends State<VictronFlowTool> with SingleTickerProv
                 for (final opt in _inverterModeOptions)
                   Padding(
                     padding: const EdgeInsets.symmetric(vertical: 3),
-                    child: _modeValuesMatch(current, opt['value'])
+                    child: victronModeValuesMatch(current, opt['value'])
                         ? FilledButton.icon(
                             onPressed: () {
                               messenger.hideCurrentSnackBar();
@@ -1051,15 +1061,6 @@ class _VictronFlowToolState extends State<VictronFlowTool> with SingleTickerProv
         ),
       ),
     );
-  }
-
-  /// Compare the live mode value against an option value: numbers compare
-  /// numerically, everything else case-insensitively (so "On"/"on" match).
-  bool _modeValuesMatch(dynamic live, dynamic option) {
-    if (live == null || option == null) return false;
-    if (live is num && option is num) return live == option;
-    return live.toString().trim().toLowerCase() ==
-        option.toString().trim().toLowerCase();
   }
 
   Future<void> _putInverterMode(String path, Map<String, dynamic> option) async {

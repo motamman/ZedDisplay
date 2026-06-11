@@ -2301,6 +2301,26 @@ class SignalKService extends ChangeNotifier implements DataService {
     }
   }
 
+  /// Wake-from-sleep reconnect. A same-server wake with a (likely half-open)
+  /// live socket only needs a lightweight socket swap — `_reconnectLight`
+  /// keeps cached data, identity, and subscriptions, which is far cheaper than
+  /// a full `connect()` teardown+rebuild (the original "reconnect is too heavy"
+  /// concern). A genuine disconnect falls back to the full reconnect path.
+  Future<void> wakeReconnect() async {
+    if (_serverUrl.isEmpty) return;
+    if (_isConnected && _channel != null && !_isConnecting) {
+      try {
+        await _reconnectLight();
+        return;
+      } catch (e) {
+        if (kDebugMode) {
+          print('wakeReconnect: light path failed ($e) — full reconnect');
+        }
+      }
+    }
+    await reconnect();
+  }
+
   @override
   void dispose() {
     _stopBackgroundProbe();

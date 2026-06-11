@@ -25,7 +25,6 @@ import 'services/file_server_service.dart';
 import 'services/intercom_service.dart';
 import 'services/scale_service.dart';
 import 'services/diagnostic_service.dart';
-import 'models/auth_token.dart';
 import 'models/notification_payload.dart';
 import 'screens/splash_screen.dart';
 import 'screens/setup_management_screen.dart';
@@ -335,8 +334,6 @@ class ZedDisplayApp extends StatefulWidget {
 
 class _ZedDisplayAppState extends State<ZedDisplayApp> with WidgetsBindingObserver {
   String? _lastServerUrl;
-  bool? _lastUseSecure;
-  AuthToken? _lastToken;
   DateTime? _pausedAt; // when the app last went to background (for resume staleness)
   late ThemeMode _themeMode;
   static const platform = MethodChannel('com.zennora.zed_display/intent');
@@ -519,17 +516,11 @@ class _ZedDisplayAppState extends State<ZedDisplayApp> with WidgetsBindingObserv
         // Flush diagnostic log on background
         DiagnosticService.instance?.stop();
         _pausedAt = DateTime.now();
-        // Save connection state when app goes to background
-        // (don't disconnect — reconnect is too heavy; PlatformDispatcher.onError
-        // catches any SocketException if Android kills the socket)
+        // Remember the connected server so resume knows whether to reconnect.
+        // We don't disconnect here (too heavy); wakeReconnect() on resume reuses
+        // the service's own server/secure/token state, so we only need the URL.
         if (widget.signalKService.isConnected) {
           _lastServerUrl = widget.signalKService.serverUrl;
-          _lastUseSecure = widget.signalKService.useSecureConnection;
-          // Find connection by URL to get connectionId for token lookup
-          final connection = widget.storageService.findConnectionByUrl(_lastServerUrl!);
-          _lastToken = connection != null
-              ? widget.authService.getSavedToken(connection.id)
-              : null;
         }
         break;
 
@@ -563,11 +554,9 @@ class _ZedDisplayAppState extends State<ZedDisplayApp> with WidgetsBindingObserv
 
   Future<void> _reconnect() async {
     try {
-      await widget.signalKService.connect(
-        _lastServerUrl!,
-        secure: _lastUseSecure ?? false,
-        authToken: _lastToken,
-      );
+      // Prefer a lightweight socket swap on wake (same server) over a full
+      // teardown+reconnect; falls back to full connect when truly disconnected.
+      await widget.signalKService.wakeReconnect();
 
       // Re-setup dashboard subscriptions
       if (widget.dashboardService.currentLayout != null) {
