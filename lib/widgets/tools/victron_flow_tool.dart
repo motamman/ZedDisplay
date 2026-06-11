@@ -620,13 +620,12 @@ class _VictronFlowToolState extends State<VictronFlowTool> with SingleTickerProv
             children: [
               Expanded(flex: 2, child: _buildInverterBox()),
               const SizedBox(height: 28),
-              for (int i = 0; i < _batteryConfigs.length; i++) ...[
-                if (i > 0) const SizedBox(height: 8),
-                Expanded(
-                  flex: _batteryConfigs.length == 1 ? 3 : 2,
-                  child: _buildBatteryBox(_batteryConfigs[i]),
-                ),
-              ],
+              Expanded(
+                flex: _batteryConfigs.length == 1
+                    ? 3
+                    : _batteryConfigs.length * 2,
+                child: _buildBatteriesContainer(),
+              ),
             ],
           ),
         ),
@@ -690,6 +689,8 @@ class _VictronFlowToolState extends State<VictronFlowTool> with SingleTickerProv
     required Widget content,
     Color? borderColor,
     Color? backgroundColor,
+    Gradient? backgroundGradient,
+    bool drawBorder = true,
     VoidCallback? onTap,
   }) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
@@ -705,9 +706,10 @@ class _VictronFlowToolState extends State<VictronFlowTool> with SingleTickerProv
 
     final box = Container(
       decoration: BoxDecoration(
-        color: bgColor,
+        color: backgroundGradient == null ? bgColor : null,
+        gradient: backgroundGradient,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: border, width: 2),
+        border: drawBorder ? Border.all(color: border, width: 2) : null,
       ),
       padding: const EdgeInsets.all(10),
       child: Column(
@@ -995,44 +997,54 @@ class _VictronFlowToolState extends State<VictronFlowTool> with SingleTickerProv
     if (path == null || path.isEmpty || _inverterModeOptions.isEmpty) return;
     final messenger = ScaffoldMessenger.of(context);
     messenger.clearSnackBars();
-    // Current mode (from the live mode path; fall back to the state path) so we
-    // can highlight the active option.
-    final current = widget.signalKService.getValue(path)?.value ??
-        _getPathStringValue(_inverterStatePath, _inverterStateSource);
     messenger.showSnackBar(
       SnackBar(
-        duration: const Duration(seconds: 8),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            const Padding(
-              padding: EdgeInsets.only(bottom: 6),
-              child: Text('Set inverter / charger mode'),
-            ),
-            // One full-width button per line; the active mode is filled + checked.
-            for (final opt in _inverterModeOptions)
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 3),
-                child: _modeValuesMatch(current, opt['value'])
-                    ? FilledButton.icon(
-                        onPressed: () {
-                          messenger.hideCurrentSnackBar();
-                          _putInverterMode(path, opt);
-                        },
-                        icon: const Icon(Icons.check, size: 18),
-                        label: Text(opt['label'] as String? ?? ''),
-                      )
-                    : OutlinedButton(
-                        style: OutlinedButton.styleFrom(foregroundColor: Colors.white),
-                        onPressed: () {
-                          messenger.hideCurrentSnackBar();
-                          _putInverterMode(path, opt);
-                        },
-                        child: Text(opt['label'] as String? ?? ''),
-                      ),
-              ),
-          ],
+        duration: const Duration(seconds: 10),
+        content: ListenableBuilder(
+          // Rebuild on every SignalK delta so the highlighted (active) option
+          // tracks the live mode — including changes made outside this widget
+          // while the snackbar is open, and the correct state at first build.
+          listenable: widget.signalKService,
+          builder: (context, _) {
+            final current = widget.signalKService.getValue(path)?.value ??
+                _getPathStringValue(_inverterStatePath, _inverterStateSource);
+            return Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const Padding(
+                  padding: EdgeInsets.only(bottom: 6),
+                  child: Text('Set inverter / charger mode'),
+                ),
+                // One full-width button per line. Active = filled + checked;
+                // inactive = darker grey with black text.
+                for (final opt in _inverterModeOptions)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 3),
+                    child: _modeValuesMatch(current, opt['value'])
+                        ? FilledButton.icon(
+                            onPressed: () {
+                              messenger.hideCurrentSnackBar();
+                              _putInverterMode(path, opt);
+                            },
+                            icon: const Icon(Icons.check, size: 18),
+                            label: Text(opt['label'] as String? ?? ''),
+                          )
+                        : ElevatedButton(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.grey.shade600,
+                              foregroundColor: Colors.black,
+                            ),
+                            onPressed: () {
+                              messenger.hideCurrentSnackBar();
+                              _putInverterMode(path, opt);
+                            },
+                            child: Text(opt['label'] as String? ?? ''),
+                          ),
+                  ),
+              ],
+            );
+          },
         ),
       ),
     );
@@ -1071,6 +1083,29 @@ class _VictronFlowToolState extends State<VictronFlowTool> with SingleTickerProv
     }
   }
 
+  /// All batteries inside ONE bordered container. The flow painter targets the
+  /// battery-area edges, so flows terminate at this container's edge.
+  Widget _buildBatteriesContainer() {
+    final borderColor =
+        HSLColor.fromColor(_primaryColor).withLightness(0.7).toColor();
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: borderColor, width: 2),
+      ),
+      clipBehavior: Clip.antiAlias,
+      padding: const EdgeInsets.all(4),
+      child: Column(
+        children: [
+          for (int i = 0; i < _batteryConfigs.length; i++) ...[
+            if (i > 0) const SizedBox(height: 4),
+            Expanded(child: _buildBatteryBox(_batteryConfigs[i])),
+          ],
+        ],
+      ),
+    );
+  }
+
   Widget _buildBatteryBox(BatteryConfig battery) {
     final soc = _getPathValue(battery.socPath, battery.socSource);
     final voltage = _getPathValue(battery.voltagePath, battery.voltageSource);
@@ -1097,14 +1132,31 @@ class _VictronFlowToolState extends State<VictronFlowTool> with SingleTickerProv
       }
     }
 
-    final bgColor = HSLColor.fromColor(_primaryColor).withLightness(0.5).withSaturation(0.6).toColor().withValues(alpha: 0.9);
-    final borderColor = HSLColor.fromColor(_primaryColor).withLightness(0.7).toColor();
+    // Blue fill proportional to state of charge — a left→right "fuel gauge":
+    // filled up to the SOC fraction, faded for the remainder.
+    final socFrac = (soc ?? 0).clamp(0.0, 1.0);
+    final filledColor = HSLColor.fromColor(_primaryColor)
+        .withLightness(0.5)
+        .withSaturation(0.7)
+        .toColor()
+        .withValues(alpha: 0.95);
+    final emptyColor = HSLColor.fromColor(_primaryColor)
+        .withLightness(0.22)
+        .withSaturation(0.3)
+        .toColor()
+        .withValues(alpha: 0.85);
+    final socGradient = LinearGradient(
+      begin: Alignment.centerLeft,
+      end: Alignment.centerRight,
+      colors: [filledColor, filledColor, emptyColor, emptyColor],
+      stops: [0.0, socFrac, socFrac, 1.0],
+    );
 
     return _buildComponentBox(
       title: battery.name,
       icon: Icons.battery_std,
-      backgroundColor: bgColor,
-      borderColor: borderColor,
+      backgroundGradient: socGradient,
+      drawBorder: false,
       content: LayoutBuilder(
         builder: (context, constraints) {
           final isWide = constraints.maxWidth > 200;
@@ -1310,28 +1362,19 @@ class _FlowLinesPainter extends CustomPainter {
     // Center column: inverter (flex 2) and batteries (flex 3 total) with 28px gap
     final batteryFlex = batteryCount == 1 ? 3 : batteryCount * 2;
     final totalFlex = 2 + batteryFlex;
-    final batteryGaps = batteryCount > 1 ? (batteryCount - 1) * 8.0 : 0.0;
-    final inverterHeight = (contentHeight - 28 - batteryGaps) * 2 / totalFlex;
-    final totalBatteryHeight = (contentHeight - 28 - batteryGaps) * batteryFlex / totalFlex;
-    final singleBatteryHeight = totalBatteryHeight / batteryCount;
+    // Batteries now live in ONE container (no outer inter-battery gaps), so
+    // flows terminate at the container's top / left / right edges.
+    final inverterHeight = (contentHeight - 28) * 2 / totalFlex;
+    final totalBatteryHeight = (contentHeight - 28) * batteryFlex / totalFlex;
     final inverterBottom = paddingTop + inverterHeight;
     final inverterCenter = paddingTop + inverterHeight / 2;
 
-    // Calculate center Y for each battery
-    List<double> batteryCenters = [];
-    for (int i = 0; i < batteryCount; i++) {
-      final top = inverterBottom + 28 + i * (singleBatteryHeight + 8);
-      batteryCenters.add(top + singleBatteryHeight / 2);
-    }
-    // First battery top (for inverter→battery line)
+    // Battery container top edge (inverter→battery line) and vertical center
+    // (source↔battery / battery↔load lines).
     final firstBatteryTop = inverterBottom + 28;
+    final batteryAreaCenter = firstBatteryTop + totalBatteryHeight / 2;
 
     final midX = leftColRight + gap / 2;
-
-    // Center of entire battery area (for shared flow lines)
-    final batteryAreaCenter = batteryCenters.isNotEmpty
-        ? (batteryCenters.first + batteryCenters.last) / 2
-        : firstBatteryTop + singleBatteryHeight / 2;
 
     // Draw source flows
     int lineIndex = 0;
