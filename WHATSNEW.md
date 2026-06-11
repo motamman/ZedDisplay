@@ -1,4 +1,36 @@
-# What's New in v0.6.7
+# What's New in v0.6.8
+
+## Release Notes (Google Play - max 500 chars)
+
+v0.6.8 Rock-Solid Reconnects + New Controls
+
+FIXED: Switching SignalK servers and waking from sleep no longer need an app restart — the connection times out cleanly, reconnects on resume, and a watchdog recovers stalled "half-open" sockets.
+
+NEW: Radio Switch tool — mutually-exclusive buttons that send a chosen value to a path. Tap the Power Flow inverter to change its mode.
+
+NEW: Record a voyage track on the chart plotter and save it (or a computed weather route) as a SignalK resource.
+
+## Release Notes (App Store / TestFlight - max 4000 chars)
+
+### Reliable Connections (FIXED)
+- **No more restarts when switching servers** — Changing SignalK servers, or leaving one network for another, used to leave the old server's reconnect loop fighting the new connection. The connection now tears down cleanly and reconnects on its own.
+- **Survives sleep / backgrounding** — After the device sleeps, the socket is often "half-open" — the app thinks it's connected but no data flows (the classic "had to restart to get data back"). The app now reconnects on resume without trusting that stale state, and a liveness watchdog forces a fresh socket if data stops arriving. A brief loss of focus (a system dialog) no longer counts as a background, so it won't trigger needless reconnects.
+
+### New Controls (NEW)
+- **Radio Switch tool** — Define a list of labelled options, each sending a Text, Number, or Bool value to a single SignalK path. They render as mutually-exclusive radio buttons; pick one and it sends that value, with the active button reflecting the live state. Honours the per-path source you've pinned.
+- **Set your inverter/charger mode** — Tap the inverter/charger section of the Power Flow tool to change its mode (on / off / charger only / inverter only) via a configurable path.
+
+### Chart Plotter (NEW)
+- **Record a voyage track** — Record your track while underway and save it as a SignalK track. The recording is kept safe until the save actually succeeds, and you're asked before discarding an unsaved recording.
+- **Save a weather route** — Save a computed weather-routing result's waypoints directly as a route so it shows up in the route manager and can be activated.
+
+### Polish (CHANGED / FIXED)
+- **Power Flow battery** — The battery is now a single panel with a charge-level fill and a primary metric you can choose.
+- **Clearer PUT errors** — When a control fails to send a value, the app now shows the server's actual reason instead of a generic "failed" message.
+
+---
+
+# Previous: v0.6.7
 
 ## Release Notes (Google Play - max 500 chars)
 

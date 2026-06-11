@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.8+77] - 2026-06-11
+
+### Added
+- **Radio Switch Tool**: A new control tool that renders a configurable list of mutually-exclusive radio buttons for a single SignalK path. Each option is a `label → value` pair whose value is typed (Text / Number / Bool) so it round-trips as the correct JSON type; selecting an option PUTs that value to the path, and the active radio reflects whichever option matches the path's live value. The configurator builds the option list (add/remove rows, per-row type) and persists it under `customProperties['options']`. The PUT forwards the configured data-source `source`, so multi-source paths route to the right handler.
+- **Inverter / Charger Mode Control (Power Flow)**: The Power Flow tool's inverter/charger section is now interactive — tap it to set the device mode (e.g. *on*, *off*, *charger only*, *inverter only*) via a configurable mode path. New mode-path + options editor in the configurator.
+- **Chart Plotter — Record Voyage Track**: Record the boat's track while underway and save it as a SignalK `tracks` resource (MultiLineString). The recorded buffer is movement-thresholded to bound long voyages, is kept recoverable until a save actually succeeds, and prompts before discarding an unsaved buffer when starting a new recording.
+- **Chart Plotter — Save Weather Route as Route**: A computed weather-routing result's turn waypoints can be saved directly as a SignalK `routes` resource (LineString) from the weather-routing panel, so it appears in the route manager and can be activated.
+
+### Changed
+- **Power Flow / Victron Overhaul**: The battery section is consolidated into a single container with a SOC-driven fill, gradient backgrounds, and a selectable primary metric. Snackbar feedback is now reactive, and the inverter/charger tile is tappable to change mode (see Added).
+- **PUT Error Details Surfaced**: Failed PUT requests now surface the server's error body in the snackbar instead of a generic failure message, so the cause (bad value, unauthorized, unknown handler) is visible.
+
+### Fixed
+- **Flaky Server Switching & Post-Sleep Reconnect**: A cluster of connection-lifecycle bugs that forced app restarts after switching servers or waking from sleep. `WebSocket.connect`/`sink.close` are now timed out so the `_isConnecting` latch is always released; resume reconnects without trusting `isConnected` (half-open sockets after sleep read "connected" while no data flows); a liveness watchdog forces a fresh socket on a stalled connection; and a lightweight wake-from-sleep reconnect swaps the socket without a full teardown. The watchdog is stopped on disconnect (no more 20s timer firing while offline), resume gates on the service's own persisted server URL so a drop just before backgrounding still reconnects, and `_pausedAt` is stamped only on a real background (`paused`/`hidden`, not transient `inactive`) and cleared on resume so a stale timestamp can't force a needless reconnect.
+- **Radio Switch PUT Dropped Source**: The radio switch read the pinned source for its live-value display but ignored it on PUT; it now forwards the configured `source` so multi-source paths route correctly.
+- **Recorded Track Lost on Cancel/Failure**: `_saveRecordedTrack` now clears the buffer only on a successful save, and both the track and weather-route save helpers catch `putResource` exceptions and show the red failure snackbar instead of assuming a plain `false` return.
+- **Stray Persisted Radio Option Type**: The radio-switch configurator clamps an unsupported stored option `type` to `string` before binding it to the type dropdown, so a malformed persisted config can't assert.
+- **REST / `self` Context Handling**: `SignalKService` value retrieval and switch-tool state handling were corrected to use the right context for `self`, and cache-loading errors are now handled gracefully.
+
+### Build
+- **Android Toolchain — Built-in Kotlin Migration**: Bumped to the AGP 8.12.1 / Kotlin 2.2.20 floor and migrated the flutter.dev first-party plugins to Built-in Kotlin; `jni` added to the FFI plugin lists. Third-party plugins still applying the Kotlin Gradle Plugin remain on the wait-for-upstream list.
+
+### Developer
+- New `coerceRadioOptionValue(text, type)` (configurator) and `victronModeValuesMatch(live, option)` (Victron tool) extracted as pure top-level functions with unit tests in `test/victron_radio_logic_test.dart` (typing, case-insensitive/trimmed match, numeric vs string compare, negative numbers, empty strings).
+- `onReorder` → `onReorderItem` deprecation addressed in `VictronFlowConfigurator`.
+
 ## [0.6.7+76] - 2026-06-02
 
 ### Added

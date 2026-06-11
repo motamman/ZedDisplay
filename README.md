@@ -231,6 +231,8 @@ A customizable SignalK marine dashboard and crew comms application to display re
   - **In-App Google Sign-In**: System-browser OAuth (Custom Tab on Android, ASWebAuthenticationSession on iOS, native window on desktop) with PKCE (RFC 7636), state nonce (RFC 9700), and reverse-DNS callback (RFC 8252). Tokens are per-device (UUID-scoped) and clear on host change so a half-typed router origin can't leak credentials to the wrong host
   - Active route overlay with directional waypoint arrows and active leg highlighting
   - Route management: list routes, activate forward/reverse, advance, skip, fast-forward to nearest
+  - **Record voyage track**: record the boat's track while underway and save it as a SignalK `tracks` resource; the recording is kept recoverable until a save succeeds and prompts before discarding an unsaved buffer
+  - **Save weather route**: save a computed weather-routing result's waypoints directly as a SignalK `routes` resource so it appears in the route manager and can be activated
   - Nav data HUD: SOG, COG, depth, DTW, BRG, XTE — all values via MetadataStore for unit correctness
   - North-up / heading-up view modes with compass rose indicator
   - **Snap-to-vessel lock**: when engaged, pan gestures are disabled so the map stays glued to the vessel; pinch-zoom and rotation still work around it
@@ -258,7 +260,8 @@ A customizable SignalK marine dashboard and crew comms application to display re
   - Icon picker with 14+ icons for each source/load
   - Drag-and-drop reordering of sources and loads
   - Battery section showing SOC, voltage, current, power, time remaining, temperature
-  - Inverter/charger state display
+  - Inverter/charger state display — tap to set the device mode (on / off / charger only / inverter only) via a configurable mode path
+  - Single battery panel with a charge-level (SOC) fill and a selectable primary metric
   - Configurable base color theme
   - Each source/load has configurable SignalK paths for current, voltage, power, frequency, and state
   - Per-path source selection: pin a specific SignalK source for any path (or leave on Auto), the same way other widgets do
@@ -266,6 +269,7 @@ A customizable SignalK marine dashboard and crew comms application to display re
   <img src="screenshots/power_flow.png" alt="Power Flow" width="400">
 
 **Control Tools**
+- **Radio Switch**: Mutually-exclusive radio buttons for a single SignalK path. Define a list of `label → value` options (each value typed as Text, Number, or Bool); selecting one PUTs that value, and the active button reflects the path's live value. Honours the per-path source selection so multi-source paths route to the correct PUT handler.
 - **Switch**: Toggle switch for boolean SignalK paths with PUT support
 - **Slider**: Slider control for sending numeric values to SignalK paths with PUT support
 - **Knob**: Rotary knob control for sending numeric values to SignalK paths with PUT support
