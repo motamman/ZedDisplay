@@ -45,6 +45,17 @@ class SignalKService extends ChangeNotifier implements DataService {
   bool _isConnecting = false;
   bool _wasConnected = false;
 
+  // Liveness watchdog — detect a half-open socket (no deltas arriving while we
+  // still believe we're connected) and replace it. Catches silent drops that
+  // never fire onDone/onError: device sleep, NAT/idle timeout, network
+  // black-hole. Without this the app can sit "connected" with no data until
+  // it's force-restarted.
+  Timer? _livenessTimer;
+  DateTime? _lastMessageAt;
+  bool _livenessBusy = false;
+  static const Duration _livenessCheckInterval = Duration(seconds: 20);
+  static const Duration _livenessStaleThreshold = Duration(seconds: 45);
+
   // Throttled notifyListeners — coalesce rapid WS updates via microtask
   bool _notifyScheduled = false;
   int _notifyCount = 0; // Cumulative per-connect: total notifyListeners requests
@@ -404,10 +415,16 @@ class SignalKService extends ChangeNotifier implements DataService {
     _useSecureConnection = secure;
     _authToken = authToken;
 
-    // Load cached conversions immediately for instant display
-    // Server data will replace this when it arrives
-    _conversionManager.loadFromLocalCache();
-    _loadDisplayUnitsFromCache(); // Load displayUnits for instant unit conversions
+    // Load cached conversions immediately for instant display. Server data
+    // replaces these when it arrives. They're optional Hive-cache reads that
+    // run BEFORE the try/finally which releases _isConnecting — an uncaught
+    // throw here (e.g. corrupt cache) would strand the latch, so guard them.
+    try {
+      _conversionManager.loadFromLocalCache();
+    } catch (_) {}
+    try {
+      _loadDisplayUnitsFromCache(); // displayUnits for instant unit conversions
+    } catch (_) {}
     // Wire up category fallback for MetadataStore so paths without
     // direct metadata can resolve via category (e.g. tempest temperature)
     _metadataStore.categoryLookup = findCategoryForPath;
@@ -433,7 +450,11 @@ class SignalKService extends ChangeNotifier implements DataService {
         try {
           // Use dart:io WebSocket.connect which supports headers
           // Pass the URL string directly - don't parse and re-stringify
-          final socket = await WebSocket.connect(wsUrl, headers: headers);
+          // Timeout so an unreachable/half-open endpoint fails fast instead of
+          // hanging here with _isConnecting latched (which blocks all future
+          // switches/reconnects until the app is killed).
+          final socket = await WebSocket.connect(wsUrl, headers: headers)
+              .timeout(ServiceConstants.wsConnectTimeout);
           // Keep connection alive with ping frames every 30 seconds
           socket.pingInterval = const Duration(seconds: 30);
           _channel = IOWebSocketChannel(socket);
@@ -479,6 +500,7 @@ class SignalKService extends ChangeNotifier implements DataService {
       _intentionalDisconnect = false;
       _connectionState = SignalKConnectionState.connected;
       _connectionStateController.add(SignalKConnectionState.connected);
+      _startLivenessWatchdog();
       notifyListeners();
 
 
@@ -524,9 +546,7 @@ class SignalKService extends ChangeNotifier implements DataService {
         }
       }
 
-      _isConnecting = false;
     } catch (e) {
-      _isConnecting = false;
       // A failed connect must never leave reconnection suppressed — otherwise
       // a connect attempt during a network blip (e.g. on wake) would strand the
       // app until it's killed.
@@ -535,6 +555,11 @@ class SignalKService extends ChangeNotifier implements DataService {
       _isConnected = false;
       notifyListeners();
       rethrow;
+    } finally {
+      // The latch ALWAYS clears (success, failure, or the WS-connect timeout)
+      // so a hung or aborted connect can never permanently block a future
+      // connect, server switch, or reconnect.
+      _isConnecting = false;
     }
   }
 
@@ -632,6 +657,8 @@ class SignalKService extends ChangeNotifier implements DataService {
 
   /// Handle incoming WebSocket messages
   void _handleMessage(dynamic message) {
+    // Any inbound frame means the socket is alive — feeds the liveness watchdog.
+    _lastMessageAt = DateTime.now();
     try {
       // Verbose logging disabled - only log errors
 
@@ -842,6 +869,10 @@ class SignalKService extends ChangeNotifier implements DataService {
 
     _isConnected = false;
     _isConnecting = false;
+    // Stop the liveness watchdog while disconnected — otherwise its 20s timer
+    // keeps firing for the rest of the session. It restarts on the next
+    // successful connect / _reconnectLight.
+    _stopLivenessWatchdog();
 
     _subscription?.cancel();
     _subscription = null;
@@ -917,6 +948,50 @@ class SignalKService extends ChangeNotifier implements DataService {
     });
   }
 
+  /// Start the liveness watchdog. While we believe we're connected, if no
+  /// inbound frame has arrived for [_livenessStaleThreshold] the socket is
+  /// treated as half-open and replaced (lightweight). Catches silent drops
+  /// that never fire onDone/onError, without waiting for a lifecycle event.
+  void _startLivenessWatchdog() {
+    _lastMessageAt = DateTime.now();
+    _livenessTimer?.cancel();
+    _livenessTimer =
+        Timer.periodic(_livenessCheckInterval, (_) => _checkLiveness());
+  }
+
+  void _stopLivenessWatchdog() {
+    _livenessTimer?.cancel();
+    _livenessTimer = null;
+  }
+
+  Future<void> _checkLiveness() async {
+    if (_livenessBusy) return;
+    // Only meaningful while we think we're connected and aren't already
+    // (re)connecting or intentionally down.
+    if (!_isConnected || _isConnecting || _intentionalDisconnect) return;
+    final last = _lastMessageAt;
+    if (last == null) return;
+    if (DateTime.now().difference(last) < _livenessStaleThreshold) return;
+
+    _livenessBusy = true;
+    if (kDebugMode) {
+      print('Liveness: no data for ${_livenessStaleThreshold.inSeconds}s+ — '
+          'replacing the (likely half-open) socket');
+    }
+    try {
+      await _reconnectLight();
+      _lastMessageAt = DateTime.now(); // reset baseline; data resumes shortly
+    } catch (e) {
+      if (kDebugMode) {
+        print('Liveness reconnect failed: $e');
+      }
+      // Lightweight replace failed → hand off to the full backoff machinery.
+      _handleDisconnect();
+    } finally {
+      _livenessBusy = false;
+    }
+  }
+
   /// Background probe: silently try to reconnect every 2 minutes indefinitely.
   void _startBackgroundProbe() {
     _stopBackgroundProbe();
@@ -966,7 +1041,7 @@ class SignalKService extends ChangeNotifier implements DataService {
     await _subscription?.cancel();
     _subscription = null;
     try {
-      await _channel?.sink.close();
+      await _channel?.sink.close().timeout(ServiceConstants.wsCloseTimeout);
     } catch (_) {}
     _channel = null;
 
@@ -977,7 +1052,8 @@ class SignalKService extends ChangeNotifier implements DataService {
       final headers = <String, String>{
         'Authorization': 'Bearer ${_authToken!.token}',
       };
-      final socket = await WebSocket.connect(wsUrl, headers: headers);
+      final socket = await WebSocket.connect(wsUrl, headers: headers)
+          .timeout(ServiceConstants.wsConnectTimeout);
       socket.pingInterval = const Duration(seconds: 30);
       _channel = IOWebSocketChannel(socket);
     } else {
@@ -998,6 +1074,7 @@ class SignalKService extends ChangeNotifier implements DataService {
     _intentionalDisconnect = false;
     _connectionState = SignalKConnectionState.connected;
     _connectionStateController.add(SignalKConnectionState.connected);
+    _startLivenessWatchdog();
     notifyListeners();
 
     // Clear stale data from previous session so ghost paths don't accumulate
@@ -1046,7 +1123,14 @@ class SignalKService extends ChangeNotifier implements DataService {
       // WebSocket as a normal delta, which updates the cache and rebuilds the
       // widget. No need to poll the request status for that.
       if (response.statusCode != 200 && response.statusCode != 202) {
-        throw Exception('PUT request failed: ${response.statusCode}');
+        // Surface the server's failure reason. A 502 means a PUT handler ran
+        // but returned FAILURE; signalk-server attaches a `message` explaining
+        // why (bad value, device/bus error, etc.) in the response body.
+        final detail = response.body.trim();
+        throw Exception(
+          'PUT request failed: ${response.statusCode}'
+          '${detail.isNotEmpty ? ' - $detail' : ''}',
+        );
       }
     } catch (e) {
       if (kDebugMode) {
@@ -2138,6 +2222,7 @@ class SignalKService extends ChangeNotifier implements DataService {
       _intentionalDisconnect = true;
       _reconnectTimer?.cancel();
       _stopBackgroundProbe();
+      _stopLivenessWatchdog();
       // Flush displayUnits cache immediately before clearing
       if (_displayUnitsSaveTimer?.isActive ?? false) {
         _displayUnitsSaveTimer!.cancel();
@@ -2150,7 +2235,12 @@ class SignalKService extends ChangeNotifier implements DataService {
       await _subscription?.cancel();
       _subscription = null;
 
-      await _channel?.sink.close();
+      // Time-box the close: a half-open socket's close handshake can hang
+      // forever, which would strand teardown and — because connect() awaits
+      // disconnect() — the whole reconnect/switch with _isConnecting latched.
+      try {
+        await _channel?.sink.close().timeout(ServiceConstants.wsCloseTimeout);
+      } catch (_) {}
       _channel = null;
 
       _isConnected = false;
@@ -2215,9 +2305,30 @@ class SignalKService extends ChangeNotifier implements DataService {
     }
   }
 
+  /// Wake-from-sleep reconnect. A same-server wake with a (likely half-open)
+  /// live socket only needs a lightweight socket swap — `_reconnectLight`
+  /// keeps cached data, identity, and subscriptions, which is far cheaper than
+  /// a full `connect()` teardown+rebuild (the original "reconnect is too heavy"
+  /// concern). A genuine disconnect falls back to the full reconnect path.
+  Future<void> wakeReconnect() async {
+    if (_serverUrl.isEmpty) return;
+    if (_isConnected && _channel != null && !_isConnecting) {
+      try {
+        await _reconnectLight();
+        return;
+      } catch (e) {
+        if (kDebugMode) {
+          print('wakeReconnect: light path failed ($e) — full reconnect');
+        }
+      }
+    }
+    await reconnect();
+  }
+
   @override
   void dispose() {
     _stopBackgroundProbe();
+    _stopLivenessWatchdog();
     disconnect();
     _connectionStateController.close();
     _dataCache.dispose();

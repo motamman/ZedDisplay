@@ -28,6 +28,17 @@ class VictronFlowConfigurator extends ToolConfigurator {
   String _inverterStatePath = 'electrical.inverter.state';
   String? _inverterStateSource;
 
+  // Writable inverter/charger mode PUT path + tap-to-set options.
+  String _inverterModePath = '';
+  List<Map<String, dynamic>> _inverterModeOptions = _defaultModeOptions();
+
+  static List<Map<String, dynamic>> _defaultModeOptions() => [
+        {'label': 'On', 'value': 'on'},
+        {'label': 'Off', 'value': 'off'},
+        {'label': 'Charger Only', 'value': 'charger only'},
+        {'label': 'Inverter Only', 'value': 'inverter only'},
+      ];
+
   // Primary color for the tool
   String? _primaryColor;
 
@@ -146,6 +157,8 @@ class VictronFlowConfigurator extends ToolConfigurator {
 
     _inverterStatePath = 'electrical.inverter.state';
     _inverterStateSource = null;
+    _inverterModePath = '';
+    _inverterModeOptions = _defaultModeOptions();
     _primaryColor = null;
   }
 
@@ -186,6 +199,12 @@ class VictronFlowConfigurator extends ToolConfigurator {
     // Load inverter path
     _inverterStatePath = customProps['inverterStatePath'] as String? ?? 'electrical.inverter.state';
     _inverterStateSource = customProps['inverterStateSource'] as String?;
+    _inverterModePath = customProps['inverterModePath'] as String? ?? '';
+    final modeOpts = customProps['inverterModeOptions'];
+    _inverterModeOptions = (modeOpts is List)
+        ? modeOpts.whereType<Map>().map((m) => Map<String, dynamic>.from(m)).toList()
+        : _defaultModeOptions();
+    if (_inverterModeOptions.isEmpty) _inverterModeOptions = _defaultModeOptions();
 
     // Load primary color
     _primaryColor = tool.config.style.primaryColor;
@@ -203,6 +222,9 @@ class VictronFlowConfigurator extends ToolConfigurator {
           'batteries': _batteries,
           'inverterStatePath': _inverterStatePath,
           if (_inverterStateSource != null) 'inverterStateSource': _inverterStateSource,
+          if (_inverterModePath.trim().isNotEmpty)
+            'inverterModePath': _inverterModePath.trim(),
+          'inverterModeOptions': _inverterModeOptions,
         },
       ),
     );
@@ -245,6 +267,7 @@ class VictronFlowConfigurator extends ToolConfigurator {
                   'currentPath': '',
                   'voltagePath': '',
                   'powerPath': '',
+                  'primaryMetric': 'power',
                 };
                 setState(() {
                   _sources.add(newSource);
@@ -268,6 +291,7 @@ class VictronFlowConfigurator extends ToolConfigurator {
                   'currentPath': '',
                   'voltagePath': '',
                   'powerPath': '',
+                  'primaryMetric': 'power',
                 };
                 setState(() {
                   _loads.add(newLoad);
@@ -288,6 +312,18 @@ class VictronFlowConfigurator extends ToolConfigurator {
               }, currentSource: _inverterStateSource, onSourceChanged: (sel) {
                 setState(() => _inverterStateSource = sel);
               }),
+              _buildPathTile(context, setState, signalKService, 'Mode PUT Path (tap-to-set)', _inverterModePath, (path) {
+                setState(() => _inverterModePath = path);
+              }),
+              if (_inverterModePath.trim().isEmpty)
+                const Padding(
+                  padding: EdgeInsets.only(top: 4, bottom: 4),
+                  child: Text(
+                    'Set a Mode PUT path to enable tap-to-set on the inverter/charger box.',
+                    style: TextStyle(fontSize: 12, color: Colors.orangeAccent),
+                  ),
+                ),
+              _buildModeOptionsEditor(context, setState),
 
               const SizedBox(height: 24),
 
@@ -433,14 +469,93 @@ class VictronFlowConfigurator extends ToolConfigurator {
     );
   }
 
+  /// Editor for the inverter/charger tap options (label → value). Each row's
+  /// value is PUT to the Mode path when the user taps that option in the widget.
+  Widget _buildModeOptionsEditor(BuildContext context, StateSetter setState) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Padding(
+          padding: EdgeInsets.only(top: 8, bottom: 4),
+          child: Text(
+            'Tap options (label → value PUT to the Mode path)',
+            style: TextStyle(fontSize: 12, color: Colors.grey),
+          ),
+        ),
+        ..._inverterModeOptions.map((opt) {
+          return Padding(
+            key: ObjectKey(opt),
+            padding: const EdgeInsets.symmetric(vertical: 4),
+            child: Row(
+              children: [
+                Expanded(
+                  child: TextFormField(
+                    initialValue: opt['label'] as String? ?? '',
+                    decoration: const InputDecoration(
+                      labelText: 'Label', border: OutlineInputBorder(), isDense: true),
+                    onChanged: (v) => opt['label'] = v,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: TextFormField(
+                    initialValue: (opt['value'] ?? '').toString(),
+                    decoration: const InputDecoration(
+                      labelText: 'Value', border: OutlineInputBorder(), isDense: true),
+                    onChanged: (v) => opt['value'] = v,
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.delete_outline, color: Colors.red, size: 20),
+                  tooltip: 'Remove option',
+                  onPressed: () => setState(() => _inverterModeOptions.remove(opt)),
+                ),
+              ],
+            ),
+          );
+        }),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: OutlinedButton.icon(
+            onPressed: () => setState(
+                () => _inverterModeOptions.add({'label': '', 'value': ''})),
+            icon: const Icon(Icons.add),
+            label: const Text('Add option'),
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// Per-element "primary (headline) metric" picker. Defaults to Power.
+  Widget _buildPrimaryDropdown(StateSetter setState, Map<String, dynamic> element) {
+    final value = (element['primaryMetric'] as String?) ?? 'power';
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: DropdownButtonFormField<String>(
+        initialValue: value,
+        decoration: const InputDecoration(
+          labelText: 'Primary (headline) metric',
+          border: OutlineInputBorder(),
+          isDense: true,
+        ),
+        items: const [
+          DropdownMenuItem(value: 'power', child: Text('Power (W)')),
+          DropdownMenuItem(value: 'current', child: Text('Current (A)')),
+          DropdownMenuItem(value: 'voltage', child: Text('Voltage (V)')),
+        ],
+        onChanged: (v) => setState(() => element['primaryMetric'] = v ?? 'power'),
+      ),
+    );
+  }
+
   Widget _buildSourcesList(BuildContext context, StateSetter setState, SignalKService signalKService) {
     return ReorderableListView.builder(
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
       itemCount: _sources.length,
-      onReorder: (oldIndex, newIndex) {
+      onReorderItem: (oldIndex, newIndex) {
         setState(() {
-          if (newIndex > oldIndex) newIndex--;
           final item = _sources.removeAt(oldIndex);
           _sources.insert(newIndex, item);
         });
@@ -519,6 +634,7 @@ class VictronFlowConfigurator extends ToolConfigurator {
                 }, currentSource: source['stateSource'] as String?, onSourceChanged: (sel) {
                   setState(() => source['stateSource'] = sel);
                 }),
+                _buildPrimaryDropdown(setState, source),
               ],
             ),
           ),
@@ -532,9 +648,8 @@ class VictronFlowConfigurator extends ToolConfigurator {
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
       itemCount: _loads.length,
-      onReorder: (oldIndex, newIndex) {
+      onReorderItem: (oldIndex, newIndex) {
         setState(() {
-          if (newIndex > oldIndex) newIndex--;
           final item = _loads.removeAt(oldIndex);
           _loads.insert(newIndex, item);
         });
@@ -608,6 +723,7 @@ class VictronFlowConfigurator extends ToolConfigurator {
                 }, currentSource: load['frequencySource'] as String?, onSourceChanged: (sel) {
                   setState(() => load['frequencySource'] = sel);
                 }),
+                _buildPrimaryDropdown(setState, load),
               ],
             ),
           ),
@@ -621,9 +737,8 @@ class VictronFlowConfigurator extends ToolConfigurator {
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
       itemCount: _batteries.length,
-      onReorder: (oldIndex, newIndex) {
+      onReorderItem: (oldIndex, newIndex) {
         setState(() {
-          if (newIndex > oldIndex) newIndex--;
           final item = _batteries.removeAt(oldIndex);
           _batteries.insert(newIndex, item);
         });

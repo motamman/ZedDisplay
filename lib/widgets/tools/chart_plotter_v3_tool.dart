@@ -12,6 +12,7 @@ import 'package:flutter_map_dragmarker/flutter_map_dragmarker.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:provider/provider.dart';
 import 'package:s52_dart/s52_dart.dart';
+import 'package:uuid/uuid.dart';
 
 import '../../config/app_colors.dart';
 import '../../config/chart_constants.dart';
@@ -34,6 +35,7 @@ import '../../models/weather_route_request.dart';
 import '../../models/weather_route_result.dart';
 import '../../services/route_planner_auth_service.dart';
 import '../../utils/antimeridian.dart';
+import '../../utils/track_simplifier.dart';
 import '../../utils/ship_type_utils.dart' as ship_type;
 import '../../services/route_planner_boats_service.dart';
 import '../../services/weather_data_service.dart';
@@ -54,6 +56,10 @@ import '../map_attribution.dart';
 /// the user's two-finger rotation gesture spin the map; the other two
 /// lock or drive rotation from code.
 enum _ViewMode { northUp, headingUp, free }
+
+/// What to do with a leftover unsaved recorded-track buffer when the user
+/// starts a new recording.
+enum _UnsavedTrackAction { save, discard }
 
 /// Chart Plotter V3 — spike: proves the s52_dart → flutter_map pipeline.
 ///
@@ -371,6 +377,16 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
   final List<LatLng> _trailPoints = [];
   final List<int> _trailTimestamps = [];
   int _lastTrailPushMs = 0;
+
+  // Track recording — a full-voyage capture, independent of the rolling
+  // display trail above. While `_recordingTrack` is on, every fix is
+  // appended to `_recordedTrack` (movement-thresholded, but with NO
+  // time-window cutoff), then saved as a SignalK `tracks` resource when
+  // the user stops. In-memory for the session — not persisted across an
+  // app restart.
+  bool _recordingTrack = false;
+  final List<LatLng> _recordedTrack = [];
+
   int get _trailMinutes {
     final v = widget.config.style.customProperties?['trailMinutes'];
     if (v is num) return v.toInt();
@@ -1420,6 +1436,7 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
         _ownCog = cog;
         _ownSog = sog;
         _appendTrailPoint(lat!, lon!);
+        if (_recordingTrack) _appendRecordedPoint(lat, lon);
         _refreshRulerSnaps();
       });
       // Wake the AIS list sheet so distance / CPA / TCPA recompute
@@ -1804,6 +1821,220 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
       _trailTimestamps.removeAt(0);
       _trailPoints.removeAt(0);
     }
+  }
+
+  /// Append a fix to the voyage-recording buffer. Movement-thresholded
+  /// (<5 m skipped, same planar approx as `_appendTrailPoint`) to bound
+  /// the buffer on a long voyage; unlike the display trail there is no
+  /// time-window cutoff, so the whole session is retained.
+  void _appendRecordedPoint(double lat, double lon) {
+    if (_recordedTrack.isNotEmpty) {
+      final last = _recordedTrack.last;
+      final dx =
+          (lon - last.longitude) * math.cos(lat * math.pi / 180) * 111320;
+      final dy = (lat - last.latitude) * 111320;
+      if (dx * dx + dy * dy < 25) return; // <5 m
+    }
+    _recordedTrack.add(LatLng(lat, lon));
+  }
+
+  /// Toggle voyage track recording. Starting clears the buffer and seeds
+  /// it with the current fix; stopping with ≥2 points prompts to save the
+  /// track as a SignalK `tracks` resource.
+  Future<void> _toggleTrackRecording() async {
+    if (!_recordingTrack) {
+      // A non-empty buffer left over from a prior session that was never
+      // saved (cancelled/failed save). Don't silently drop it — let the user
+      // save it, discard it, or back out of starting a new recording.
+      if (_recordedTrack.length >= 2) {
+        final action = await _confirmDiscardRecordedTrack();
+        if (action == null) return; // cancel — leave everything as-is
+        if (action == _UnsavedTrackAction.save) {
+          final saved = await _saveRecordedTrack();
+          if (!saved) return; // save cancelled/failed — keep the buffer
+        }
+        // save-succeeded or explicit discard → fall through and start fresh
+      }
+      if (!mounted) return;
+      setState(() {
+        _recordingTrack = true;
+        _recordedTrack.clear();
+        if (_ownLat != null && _ownLon != null) {
+          _recordedTrack.add(LatLng(_ownLat!, _ownLon!));
+        }
+      });
+      _showPlotterSnack('Recording track…');
+      return;
+    }
+    setState(() => _recordingTrack = false);
+    if (_recordedTrack.length < 2) {
+      _showPlotterSnack('Track too short to save');
+      return;
+    }
+    await _saveRecordedTrack();
+  }
+
+  /// Prompt the user about an unsaved recorded-track buffer left over from a
+  /// previous session. Returns the chosen action, or null if cancelled.
+  Future<_UnsavedTrackAction?> _confirmDiscardRecordedTrack() {
+    return showDialog<_UnsavedTrackAction>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Unsaved track'),
+        content: Text(
+          'A recorded track with ${_recordedTrack.length} points has not been '
+          'saved. Save it before starting a new recording, or discard it?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, _UnsavedTrackAction.discard),
+            child: const Text('Discard'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, _UnsavedTrackAction.save),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Save the recorded voyage as a SignalK `tracks` resource
+  /// (MultiLineString), mirroring the Historical Data Explorer's
+  /// `_saveAsTrack` shape.
+  /// Returns true only when the save actually succeeds. The recorded buffer is
+  /// retained on cancel/failure so it can be retried (it's cleared only on a
+  /// successful save, or via an explicit discard when starting a new recording).
+  Future<bool> _saveRecordedTrack() async {
+    final points = List<LatLng>.from(_recordedTrack);
+    if (points.length < 2) return false;
+    final name =
+        await _promptResourceName('Save Track', 'Track ${_resourceStamp()}');
+    if (name == null) return false; // cancelled — keep the buffer
+    final coordinates = points.map((p) => [p.longitude, p.latitude]).toList();
+    final data = {
+      'feature': {
+        'type': 'Feature',
+        'geometry': {
+          'type': 'MultiLineString',
+          'coordinates': [coordinates],
+        },
+        'properties': {'name': name, 'description': ''},
+        'id': '',
+      },
+    };
+    bool ok = false;
+    try {
+      ok = await widget.signalKService
+          .putResource('tracks', const Uuid().v4(), data);
+    } catch (e) {
+      if (kDebugMode) print('Save track error: $e');
+    }
+    if (!mounted) return ok;
+    if (ok) {
+      _recordedTrack.clear(); // saved → safe to drop the buffer
+      _showPlotterSnack('Track saved: $name (${coordinates.length} pts)');
+    } else {
+      _showPlotterSnack('Track not saved — kept; tap Record to retry or discard');
+    }
+    return ok;
+  }
+
+  /// Save the current weather-router result's turn waypoints as a SignalK
+  /// `routes` resource (LineString), mirroring the Historical Data
+  /// Explorer's `_saveAsRoute` shape so it appears in the route manager
+  /// and can be activated.
+  Future<void> _saveWeatherRouteAsRoute() async {
+    final result = _weatherRoutingService?.currentResult;
+    if (result == null || result.waypoints.length < 2) {
+      _showPlotterSnack('No weather route to save');
+      return;
+    }
+    final name = await _promptResourceName(
+        'Save as Route', 'Weather route ${_resourceStamp()}');
+    if (name == null) return;
+    final wps = result.waypoints;
+    final coordinates = wps.map((w) => [w.lon, w.lat]).toList();
+    final distM =
+        trackDistanceMeters(wps.map((w) => LatLng(w.lat, w.lon)).toList());
+    final data = {
+      'name': name,
+      'description': '',
+      'distance': distM.round(),
+      'feature': {
+        'type': 'Feature',
+        'geometry': {'type': 'LineString', 'coordinates': coordinates},
+        'properties': {
+          'coordinatesMeta': List.generate(
+            coordinates.length,
+            (i) => {'name': 'WPT ${i + 1}'},
+          ),
+        },
+        'id': '',
+      },
+    };
+    bool ok = false;
+    try {
+      ok = await widget.signalKService
+          .putResource('routes', const Uuid().v4(), data);
+    } catch (e) {
+      if (kDebugMode) print('Save route error: $e');
+    }
+    if (!mounted) return;
+    _showPlotterSnack(ok
+        ? 'Route saved: $name (${coordinates.length} waypoints, '
+            '${metersToNM(distM).toStringAsFixed(1)} NM)'
+        : 'Failed to save route');
+  }
+
+  /// Prompt for a resource name with a sensible default. Returns the
+  /// trimmed name, or null if cancelled / left empty.
+  Future<String?> _promptResourceName(String title, String defaultName) async {
+    final controller = TextEditingController(text: defaultName);
+    final name = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(title),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          decoration: const InputDecoration(labelText: 'Name'),
+          onSubmitted: (v) => Navigator.pop(ctx, v.trim()),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, controller.text.trim()),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    if (name == null || name.isEmpty) return null;
+    return name;
+  }
+
+  /// Local timestamp `YYYY-MM-DD HH:MM` for default resource names.
+  String _resourceStamp() {
+    final n = DateTime.now();
+    String two(int v) => v.toString().padLeft(2, '0');
+    return '${n.year}-${two(n.month)}-${two(n.day)} '
+        '${two(n.hour)}:${two(n.minute)}';
+  }
+
+  /// Brief snackbar helper for plotter resource actions.
+  void _showPlotterSnack(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), duration: const Duration(seconds: 2)),
+    );
   }
 
   Future<void> _pollCourseAPI() async {
@@ -3043,11 +3274,10 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
               // way out.
               minZoom: 5,
               maxZoom: 16,
-              // Lock pan gestures while auto-follow is on — the map
-              // stays glued to the vessel. Pinch/scroll zoom and
-              // double-tap zoom remain enabled so the user can change
-              // scale around the vessel without disengaging follow.
-              // Tap the "snap to vessel" button to unlock.
+              // Panning releases auto-follow (the map stays where the
+              // user dragged it); zoom gestures keep follow so the user
+              // can change scale around the vessel. Re-engage via the
+              // "snap to vessel" button.
               //
               // Rotation gestures are only permitted in `free` mode.
               // In `northUp` the rotation is pinned to 0; in
@@ -3057,6 +3287,17 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
                 flags: _interactiveFlags(),
               ),
               onMapEvent: (e) {
+                // A single-finger pan/fling disengages auto-follow so the
+                // map stays where the user dragged it. Programmatic moves
+                // (mapController/fitCamera) and two-finger pinch zoom are
+                // excluded, so zooming keeps follow engaged.
+                if (e.source == MapEventSource.dragStart ||
+                    e.source == MapEventSource.onDrag ||
+                    e.source == MapEventSource.flingAnimationController) {
+                  if (_autoFollow && mounted) {
+                    setState(() => _autoFollow = false);
+                  }
+                }
                 // User pinch/scroll zoom kills auto-zoom but leaves
                 // auto-follow intact (V1 chart_webview.dart:1271-1278).
                 if (e.source == MapEventSource.scrollWheel ||
@@ -3375,9 +3616,14 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
           // of this barrier, so the drawer stays interactive.
           if (_openDrawer != _NavDrawerKind.none)
             Positioned.fill(
-              child: GestureDetector(
+              // Dismiss on any pointer-down, not just a clean onTap: a
+              // slightly-draggy tap makes a TapGestureRecognizer bail and the
+              // drawer stays stuck open. A Listener fires on the raw pointer,
+              // so any touch outside the drawer/controls collapses it. The
+              // controls render above this barrier and stay interactive.
+              child: Listener(
                 behavior: HitTestBehavior.opaque,
-                onTap: () =>
+                onPointerDown: (_) =>
                     setState(() => _openDrawer = _NavDrawerKind.none),
               ),
             ),
@@ -3390,6 +3636,8 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
                 autoFollow: _autoFollow,
                 viewMode: _viewMode,
                 rulerVisible: _rulerVisible,
+                recordingTrack: _recordingTrack,
+                onToggleRecordTrack: _toggleTrackRecording,
                 openDrawer: _openDrawer,
                 onOpenAis: () => _toggleNavDrawer(_NavDrawerKind.ais),
                 onOpenRoutes: () => _toggleNavDrawer(_NavDrawerKind.routes),
@@ -3524,6 +3772,7 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
       defaultPolar: _weatherRoutePolar,
       onFocusWaypoint: _focusWeatherRouteWaypoint,
       onFitToRoute: _fitWeatherRoute,
+      onSaveAsRoute: _saveWeatherRouteAsRoute,
       autoSubmit: autoSubmit,
     );
   }
@@ -3609,13 +3858,11 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
   }
 
   /// Gesture flags for FlutterMap's `InteractionOptions`.
-  /// `drag` + `flingAnimation` are gated on auto-follow; `rotate` on
-  /// view mode.
+  /// All gestures stay enabled — a user pan releases auto-follow via
+  /// `onMapEvent` rather than being locked out, while zoom keeps follow
+  /// engaged. Only `rotate` is gated, on view mode.
   int _interactiveFlags() {
     var f = InteractiveFlag.all;
-    if (_autoFollow) {
-      f &= ~(InteractiveFlag.drag | InteractiveFlag.flingAnimation);
-    }
     if (_viewMode != _ViewMode.free) {
       f &= ~InteractiveFlag.rotate;
     }
@@ -7258,11 +7505,19 @@ const double _navRowHeight = 48.0;
 /// group's slot expands into a [_DrawerPill]. The drawer butts
 /// directly against the nav's left edge so the two read as a single
 /// L-shape rather than two pills.
+/// Number of nav-pill buttons rendered ABOVE the AIS/Routes/Layers drawer
+/// group (view-mode, follow, ruler, record). The drawer column pads with this
+/// many blank spacer slots so each flyout lines up with its trigger button.
+/// Single source of truth — update this if the leading nav buttons change.
+const int _navButtonsBeforeDrawers = 4;
+
 class _MapControls extends StatelessWidget {
   const _MapControls({
     required this.autoFollow,
     required this.viewMode,
     required this.rulerVisible,
+    required this.recordingTrack,
+    required this.onToggleRecordTrack,
     required this.openDrawer,
     required this.onToggleFollow,
     required this.onToggleViewMode,
@@ -7294,6 +7549,8 @@ class _MapControls extends StatelessWidget {
   final bool autoFollow;
   final _ViewMode viewMode;
   final bool rulerVisible;
+  final bool recordingTrack;
+  final VoidCallback onToggleRecordTrack;
 
   /// Which group's drawer is currently open. Drives the highlight
   /// fill on the matching group icon AND which row in the drawer
@@ -7340,9 +7597,14 @@ class _MapControls extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
-            const _DrawerSlot(active: false, child: SizedBox.shrink()),
-            const _DrawerSlot(active: false, child: SizedBox.shrink()),
-            const _DrawerSlot(active: false, child: SizedBox.shrink()),
+            // One empty spacer per nav-pill button ABOVE the AIS button so each
+            // flyout aligns with its trigger. Generated from a single source
+            // (_navButtonsBeforeDrawers) so adding/removing a leading nav button
+            // is a one-constant change — no silent misalignment.
+            ...List.generate(
+              _navButtonsBeforeDrawers,
+              (_) => const _DrawerSlot(active: false, child: SizedBox.shrink()),
+            ),
             _DrawerSlot(
               active: openDrawer == _NavDrawerKind.ais,
               child: _AisDrawerRow(
@@ -7413,6 +7675,18 @@ class _MapControls extends StatelessWidget {
                     : Icons.straighten_outlined,
                 tooltip: rulerVisible ? 'Hide ruler' : 'Show ruler',
                 onPressed: onToggleRuler,
+              ),
+              _NavIconButton(
+                icon: recordingTrack
+                    ? Icons.stop_circle
+                    : Icons.fiber_manual_record,
+                tooltip: recordingTrack
+                    ? 'Stop & save track'
+                    : 'Record track',
+                // Red fill while recording so it's obvious a capture is
+                // running; stop prompts to save the voyage as a track.
+                backgroundColor: recordingTrack ? Colors.red : null,
+                onPressed: onToggleRecordTrack,
               ),
               _NavIconButton(
                 icon: Icons.sailing,

@@ -12,6 +12,7 @@ import '../widgets/tools/slider_tool.dart';
 import '../widgets/tools/knob_tool.dart';
 import '../widgets/tools/checkbox_tool.dart';
 import '../widgets/tools/dropdown_tool.dart';
+import '../widgets/tools/radio_switch_tool.dart';
 import '../widgets/tools/realtime_chart_tool.dart';
 import '../widgets/tools/radial_bar_chart_tool.dart';
 import '../widgets/tools/autopilot_tool.dart';
@@ -172,6 +173,7 @@ class ToolRegistry {
     register('knob', KnobToolBuilder());
     register('checkbox', CheckboxToolBuilder());
     register('dropdown', DropdownToolBuilder());
+    register('radio_switch', RadioSwitchToolBuilder());
     register('autopilot', AutopilotToolBuilder());
     register('autopilot_v2', AutopilotToolV2Builder());
     register('autopilot_simple', AutopilotSimpleToolBuilder());

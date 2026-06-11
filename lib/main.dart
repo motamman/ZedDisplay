@@ -25,7 +25,6 @@ import 'services/file_server_service.dart';
 import 'services/intercom_service.dart';
 import 'services/scale_service.dart';
 import 'services/diagnostic_service.dart';
-import 'models/auth_token.dart';
 import 'models/notification_payload.dart';
 import 'screens/splash_screen.dart';
 import 'screens/setup_management_screen.dart';
@@ -334,9 +333,7 @@ class ZedDisplayApp extends StatefulWidget {
 }
 
 class _ZedDisplayAppState extends State<ZedDisplayApp> with WidgetsBindingObserver {
-  String? _lastServerUrl;
-  bool? _lastUseSecure;
-  AuthToken? _lastToken;
+  DateTime? _pausedAt; // when the app last went to background (for resume staleness)
   late ThemeMode _themeMode;
   static const platform = MethodChannel('com.zennora.zed_display/intent');
   final GlobalKey<NavigatorState> _navigatorKey = GlobalKey<NavigatorState>();
@@ -514,21 +511,19 @@ class _ZedDisplayAppState extends State<ZedDisplayApp> with WidgetsBindingObserv
 
     switch (state) {
       case AppLifecycleState.paused:
-      case AppLifecycleState.inactive:
-        // Flush diagnostic log on background
+      case AppLifecycleState.hidden:
+        // Flush diagnostic log on real background. Stamp _pausedAt ONLY here
+        // (not on `inactive`): `inactive` also fires for transient focus loss
+        // while the app stays visible (system dialogs/overlays), and treating
+        // that as a long sleep would force a needless reconnect on resume.
         DiagnosticService.instance?.stop();
-        // Save connection state when app goes to background
-        // (don't disconnect — reconnect is too heavy; PlatformDispatcher.onError
-        // catches any SocketException if Android kills the socket)
-        if (widget.signalKService.isConnected) {
-          _lastServerUrl = widget.signalKService.serverUrl;
-          _lastUseSecure = widget.signalKService.useSecureConnection;
-          // Find connection by URL to get connectionId for token lookup
-          final connection = widget.storageService.findConnectionByUrl(_lastServerUrl!);
-          _lastToken = connection != null
-              ? widget.authService.getSavedToken(connection.id)
-              : null;
-        }
+        _pausedAt = DateTime.now();
+        // We don't disconnect here (too heavy); wakeReconnect() on resume reuses
+        // the service's own persisted server/secure/token state.
+        break;
+
+      case AppLifecycleState.inactive:
+        // Transient focus loss — not a background. Do nothing.
         break;
 
       case AppLifecycleState.resumed:
@@ -536,25 +531,38 @@ class _ZedDisplayAppState extends State<ZedDisplayApp> with WidgetsBindingObserv
         if (widget.storageService.getDiagnosticsEnabled()) {
           DiagnosticService.instance?.start();
         }
-        // Reconnect when app returns to foreground
-        if (_lastServerUrl != null && _lastToken != null && !widget.signalKService.isConnected) {
-          _reconnect();
+        // Reconnect on foreground return. Do NOT trust isConnected here:
+        // after device sleep the socket is frequently half-open (the OS never
+        // fires onDone/onError), so isConnected reads "true" while no data
+        // flows — the classic "had to restart the app to get data back". So we
+        // force a fresh socket if we were backgrounded long enough to be stale,
+        // OR if we already know we're disconnected. No token requirement —
+        // no-auth servers must reconnect too. Gate on the service's own
+        // persisted server URL so a drop just before backgrounding (which
+        // would have cleared a connected-only latch) still reconnects.
+        if (widget.signalKService.serverUrl.isNotEmpty) {
+          final sleptLong = _pausedAt != null &&
+              DateTime.now().difference(_pausedAt!) >
+                  const Duration(seconds: 10);
+          if (!widget.signalKService.isConnected || sleptLong) {
+            _reconnect();
+          }
         }
+        // Clear so a later transient inactive→resumed can't reuse a stale
+        // background timestamp and read as "slept long."
+        _pausedAt = null;
         break;
 
       case AppLifecycleState.detached:
-      case AppLifecycleState.hidden:
         break;
     }
   }
 
   Future<void> _reconnect() async {
     try {
-      await widget.signalKService.connect(
-        _lastServerUrl!,
-        secure: _lastUseSecure ?? false,
-        authToken: _lastToken,
-      );
+      // Prefer a lightweight socket swap on wake (same server) over a full
+      // teardown+reconnect; falls back to full connect when truly disconnected.
+      await widget.signalKService.wakeReconnect();
 
       // Re-setup dashboard subscriptions
       if (widget.dashboardService.currentLayout != null) {

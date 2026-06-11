@@ -35,7 +35,12 @@ class PowerSourceConfig {
     this.powerSource,
     this.frequencySource,
     this.stateSource,
+    this.primaryMetric = 'power',
   });
+
+  /// Which metric is the headline value (and drives the flow speed):
+  /// 'power' (default) | 'current' | 'voltage'.
+  final String primaryMetric;
 
   factory PowerSourceConfig.fromMap(Map<String, dynamic> map) {
     return PowerSourceConfig(
@@ -51,6 +56,7 @@ class PowerSourceConfig {
       powerSource: map['powerSource'] as String?,
       frequencySource: map['frequencySource'] as String?,
       stateSource: map['stateSource'] as String?,
+      primaryMetric: map['primaryMetric'] as String? ?? 'power',
     );
   }
 
@@ -67,20 +73,25 @@ class PowerSourceConfig {
     if (powerSource != null) 'powerSource': powerSource,
     if (frequencySource != null) 'frequencySource': frequencySource,
     if (stateSource != null) 'stateSource': stateSource,
+    'primaryMetric': primaryMetric,
   };
 
-  /// Get the primary value for flow animation (current or power)
+  /// Flow-animation magnitude. Power is the default driver (scaled /100 so its
+  /// speed is comparable to current); a 'current' primary prefers current.
+  /// Voltage/other primaries fall back to power→current — voltage is not a
+  /// flow magnitude.
   double getPrimaryValue(SignalKService service) {
-    // Prefer current, fall back to power
-    if (currentPath != null) {
-      final data = service.getValue(currentPath!, source: currentSource);
-      if (data?.value is num) return (data!.value as num).toDouble().abs();
+    double? read(String? path, String? src, {bool scale = false}) {
+      if (path == null) return null;
+      final d = service.getValue(path, source: src);
+      if (d?.value is! num) return null;
+      final v = (d!.value as num).toDouble().abs();
+      return scale ? v / 100 : v;
     }
-    if (powerPath != null) {
-      final data = service.getValue(powerPath!, source: powerSource);
-      if (data?.value is num) return (data!.value as num).toDouble().abs() / 100;
-    }
-    return 0;
+    final c = read(currentPath, currentSource);
+    final p = read(powerPath, powerSource, scale: true);
+    if (primaryMetric == 'current') return c ?? p ?? 0;
+    return p ?? c ?? 0;
   }
 
   bool get hasAnyPath => currentPath != null || voltagePath != null || powerPath != null;
@@ -111,7 +122,12 @@ class PowerLoadConfig {
     this.voltageSource,
     this.powerSource,
     this.frequencySource,
+    this.primaryMetric = 'power',
   });
+
+  /// Which metric is the headline value (and drives the flow speed):
+  /// 'power' (default) | 'current' | 'voltage'.
+  final String primaryMetric;
 
   factory PowerLoadConfig.fromMap(Map<String, dynamic> map) {
     return PowerLoadConfig(
@@ -125,6 +141,7 @@ class PowerLoadConfig {
       voltageSource: map['voltageSource'] as String?,
       powerSource: map['powerSource'] as String?,
       frequencySource: map['frequencySource'] as String?,
+      primaryMetric: map['primaryMetric'] as String? ?? 'power',
     );
   }
 
@@ -139,18 +156,23 @@ class PowerLoadConfig {
     if (voltageSource != null) 'voltageSource': voltageSource,
     if (powerSource != null) 'powerSource': powerSource,
     if (frequencySource != null) 'frequencySource': frequencySource,
+    'primaryMetric': primaryMetric,
   };
 
+  /// See [PowerSourceConfig.getPrimaryValue] — same rule: power-first
+  /// (scaled /100), current-first when primaryMetric == 'current'.
   double getPrimaryValue(SignalKService service) {
-    if (currentPath != null) {
-      final data = service.getValue(currentPath!, source: currentSource);
-      if (data?.value is num) return (data!.value as num).toDouble().abs();
+    double? read(String? path, String? src, {bool scale = false}) {
+      if (path == null) return null;
+      final d = service.getValue(path, source: src);
+      if (d?.value is! num) return null;
+      final v = (d!.value as num).toDouble().abs();
+      return scale ? v / 100 : v;
     }
-    if (powerPath != null) {
-      final data = service.getValue(powerPath!, source: powerSource);
-      if (data?.value is num) return (data!.value as num).toDouble().abs() / 100;
-    }
-    return 0;
+    final c = read(currentPath, currentSource);
+    final p = read(powerPath, powerSource, scale: true);
+    if (primaryMetric == 'current') return c ?? p ?? 0;
+    return p ?? c ?? 0;
   }
 
   bool get hasAnyPath => currentPath != null || voltagePath != null || powerPath != null;
@@ -311,14 +333,38 @@ class _VictronConfig {
   final List<BatteryConfig> batteries;
   final String? inverterStatePath;
   final String? inverterStateSource;
+  // Writable mode path + tap-to-set options (On / Off / Charger Only /
+  // Inverter Only). Empty path → tapping the inverter box does nothing.
+  final String? inverterModePath;
+  final List<Map<String, dynamic>> inverterModeOptions;
   const _VictronConfig({
     required this.sources,
     required this.loads,
     required this.batteries,
     required this.inverterStatePath,
     required this.inverterStateSource,
+    required this.inverterModePath,
+    required this.inverterModeOptions,
   });
 }
+
+/// Whether a live mode value matches a configured option value: numbers
+/// compare numerically, everything else case-insensitively (so "On"/"on"
+/// match). Pure + top-level so it's unit-testable.
+bool victronModeValuesMatch(dynamic live, dynamic option) {
+  if (live == null || option == null) return false;
+  if (live is num && option is num) return live == option;
+  return live.toString().trim().toLowerCase() ==
+      option.toString().trim().toLowerCase();
+}
+
+/// Standard Victron VE.Bus mode positions used when nothing is configured.
+List<Map<String, dynamic>> _defaultInverterModeOptions() => [
+      {'label': 'On', 'value': 'on'},
+      {'label': 'Off', 'value': 'off'},
+      {'label': 'Charger Only', 'value': 'charger only'},
+      {'label': 'Inverter Only', 'value': 'inverter only'},
+    ];
 
 _VictronConfig _parseVictronConfig(ToolConfig config) {
   final customProps = config.style.customProperties ?? {};
@@ -361,6 +407,12 @@ _VictronConfig _parseVictronConfig(ToolConfig config) {
     inverterStatePath:
         customProps['inverterStatePath'] as String? ?? 'electrical.inverter.state',
     inverterStateSource: customProps['inverterStateSource'] as String?,
+    inverterModePath: (customProps['inverterModePath'] as String?)?.trim(),
+    inverterModeOptions: (customProps['inverterModeOptions'] as List<dynamic>?)
+            ?.whereType<Map>()
+            .map((m) => m.cast<String, dynamic>())
+            .toList() ??
+        _defaultInverterModeOptions(),
   );
 }
 
@@ -391,6 +443,10 @@ List<String> victronRequiredPaths(ToolConfig config) {
     if (b.temperaturePath != null) paths.add(b.temperaturePath!);
   }
   if (c.inverterStatePath != null) paths.add(c.inverterStatePath!);
+  // Subscribe the mode path too so the tap menu can highlight the active mode.
+  if (c.inverterModePath != null && c.inverterModePath!.isNotEmpty) {
+    paths.add(c.inverterModePath!);
+  }
   return paths;
 }
 
@@ -416,6 +472,8 @@ class _VictronFlowToolState extends State<VictronFlowTool> with SingleTickerProv
   late List<BatteryConfig> _batteryConfigs;
   late String? _inverterStatePath;
   late String? _inverterStateSource;
+  late String? _inverterModePath;
+  late List<Map<String, dynamic>> _inverterModeOptions;
   late Color _primaryColor;
 
   @override
@@ -448,6 +506,8 @@ class _VictronFlowToolState extends State<VictronFlowTool> with SingleTickerProv
     _batteryConfigs = c.batteries;
     _inverterStatePath = c.inverterStatePath;
     _inverterStateSource = c.inverterStateSource;
+    _inverterModePath = c.inverterModePath;
+    _inverterModeOptions = c.inverterModeOptions;
     _primaryColor = _parseColor(widget.config.style.primaryColor);
   }
 
@@ -570,13 +630,12 @@ class _VictronFlowToolState extends State<VictronFlowTool> with SingleTickerProv
             children: [
               Expanded(flex: 2, child: _buildInverterBox()),
               const SizedBox(height: 28),
-              for (int i = 0; i < _batteryConfigs.length; i++) ...[
-                if (i > 0) const SizedBox(height: 8),
-                Expanded(
-                  flex: _batteryConfigs.length == 1 ? 3 : 2,
-                  child: _buildBatteryBox(_batteryConfigs[i]),
-                ),
-              ],
+              Expanded(
+                flex: _batteryConfigs.length == 1
+                    ? 3
+                    : _batteryConfigs.length * 2,
+                child: _buildBatteriesContainer(),
+              ),
             ],
           ),
         ),
@@ -640,6 +699,9 @@ class _VictronFlowToolState extends State<VictronFlowTool> with SingleTickerProv
     required Widget content,
     Color? borderColor,
     Color? backgroundColor,
+    Gradient? backgroundGradient,
+    bool drawBorder = true,
+    VoidCallback? onTap,
   }) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     // Create shade variants from primary color
@@ -652,12 +714,7 @@ class _VictronFlowToolState extends State<VictronFlowTool> with SingleTickerProv
     final bgColor = backgroundColor ?? defaultBg;
     final border = borderColor ?? defaultBorder;
 
-    return Container(
-      decoration: BoxDecoration(
-        color: bgColor,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: border, width: 2),
-      ),
+    final inner = Padding(
       padding: const EdgeInsets.all(10),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -680,14 +737,54 @@ class _VictronFlowToolState extends State<VictronFlowTool> with SingleTickerProv
         ],
       ),
     );
+
+    // Always paint the normal bgColor as the base. A backgroundGradient (the
+    // battery SOC fill) is layered ON TOP of it rather than replacing it, so
+    // the unfilled — transparent — portion of the gradient reveals the bare
+    // container background ("visible but not filled").
+    final box = Container(
+      decoration: BoxDecoration(
+        color: bgColor,
+        borderRadius: BorderRadius.circular(12),
+        border: drawBorder ? Border.all(color: border, width: 2) : null,
+      ),
+      clipBehavior: backgroundGradient != null ? Clip.antiAlias : Clip.none,
+      child: backgroundGradient == null
+          ? inner
+          : Stack(
+              children: [
+                Positioned.fill(
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(gradient: backgroundGradient),
+                  ),
+                ),
+                inner,
+              ],
+            ),
+    );
+    if (onTap == null) return box;
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: onTap,
+      child: box,
+    );
   }
 
   Widget _buildSourceBox(PowerSourceConfig source) {
-    final current = _getPathValue(source.currentPath, source.currentSource);
-    final voltage = _getPathValue(source.voltagePath, source.voltageSource);
-    final power = _getPathValue(source.powerPath, source.powerSource);
-    final frequency = _getPathValue(source.frequencyPath, source.frequencySource);
     final state = _getPathStringValue(source.statePath, source.stateSource);
+    final headline = _formatPrimary(
+      source.primaryMetric,
+      currentPath: source.currentPath, currentSource: source.currentSource,
+      voltagePath: source.voltagePath, voltageSource: source.voltageSource,
+      powerPath: source.powerPath, powerSource: source.powerSource,
+    );
+    final secondary = _buildSecondaryLine(
+      source.primaryMetric,
+      currentPath: source.currentPath, currentSource: source.currentSource,
+      voltagePath: source.voltagePath, voltageSource: source.voltageSource,
+      powerPath: source.powerPath, powerSource: source.powerSource,
+      frequencyPath: source.frequencyPath, frequencySource: source.frequencySource,
+    );
 
     return _buildComponentBox(
       title: source.name,
@@ -705,7 +802,7 @@ class _VictronFlowToolState extends State<VictronFlowTool> with SingleTickerProv
                     fit: BoxFit.scaleDown,
                     alignment: Alignment.centerLeft,
                     child: Text(
-                      current != null ? '${current.toStringAsFixed(1)}A' : '--A',
+                      headline,
                       style: const TextStyle(color: Colors.white, fontSize: 32, fontWeight: FontWeight.bold),
                     ),
                   ),
@@ -722,7 +819,7 @@ class _VictronFlowToolState extends State<VictronFlowTool> with SingleTickerProv
                         if (state != null)
                           Text(_formatState(state), style: const TextStyle(color: Colors.white70, fontSize: 13)),
                         Text(
-                          _buildSecondaryLine(voltage, frequency, power),
+                          secondary,
                           style: const TextStyle(color: Colors.white60, fontSize: 12),
                           textAlign: TextAlign.right,
                         ),
@@ -743,13 +840,13 @@ class _VictronFlowToolState extends State<VictronFlowTool> with SingleTickerProv
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  current != null ? '${current.toStringAsFixed(1)}A' : '--A',
+                  headline,
                   style: const TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.bold),
                 ),
                 if (state != null)
                   Text(_formatState(state), style: const TextStyle(color: Colors.white70, fontSize: 12)),
                 Text(
-                  _buildSecondaryLine(voltage, frequency, power),
+                  secondary,
                   style: const TextStyle(color: Colors.white60, fontSize: 11),
                 ),
               ],
@@ -761,10 +858,19 @@ class _VictronFlowToolState extends State<VictronFlowTool> with SingleTickerProv
   }
 
   Widget _buildLoadBox(PowerLoadConfig load) {
-    final current = _getPathValue(load.currentPath, load.currentSource);
-    final voltage = _getPathValue(load.voltagePath, load.voltageSource);
-    final power = _getPathValue(load.powerPath, load.powerSource);
-    final frequency = _getPathValue(load.frequencyPath, load.frequencySource);
+    final headline = _formatPrimary(
+      load.primaryMetric,
+      currentPath: load.currentPath, currentSource: load.currentSource,
+      voltagePath: load.voltagePath, voltageSource: load.voltageSource,
+      powerPath: load.powerPath, powerSource: load.powerSource,
+    );
+    final secondary = _buildSecondaryLine(
+      load.primaryMetric,
+      currentPath: load.currentPath, currentSource: load.currentSource,
+      voltagePath: load.voltagePath, voltageSource: load.voltageSource,
+      powerPath: load.powerPath, powerSource: load.powerSource,
+      frequencyPath: load.frequencyPath, frequencySource: load.frequencySource,
+    );
 
     return _buildComponentBox(
       title: load.name,
@@ -782,7 +888,7 @@ class _VictronFlowToolState extends State<VictronFlowTool> with SingleTickerProv
                     fit: BoxFit.scaleDown,
                     alignment: Alignment.centerLeft,
                     child: Text(
-                      current != null ? '${current.toStringAsFixed(1)}A' : '--A',
+                      headline,
                       style: const TextStyle(color: Colors.white, fontSize: 32, fontWeight: FontWeight.bold),
                     ),
                   ),
@@ -793,7 +899,7 @@ class _VictronFlowToolState extends State<VictronFlowTool> with SingleTickerProv
                     fit: BoxFit.scaleDown,
                     alignment: Alignment.centerRight,
                     child: Text(
-                      _buildSecondaryLine(voltage, frequency, power),
+                      secondary,
                       style: const TextStyle(color: Colors.white60, fontSize: 12),
                       textAlign: TextAlign.right,
                     ),
@@ -812,11 +918,11 @@ class _VictronFlowToolState extends State<VictronFlowTool> with SingleTickerProv
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  current != null ? '${current.toStringAsFixed(1)}A' : '--A',
+                  headline,
                   style: const TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.bold),
                 ),
                 Text(
-                  _buildSecondaryLine(voltage, frequency, power),
+                  secondary,
                   style: const TextStyle(color: Colors.white60, fontSize: 11),
                 ),
               ],
@@ -827,26 +933,82 @@ class _VictronFlowToolState extends State<VictronFlowTool> with SingleTickerProv
     );
   }
 
-  String _buildSecondaryLine(double? voltage, double? frequency, double? power) {
+  /// Secondary metrics line — every available metric EXCEPT the one chosen as
+  /// the primary headline (so it isn't duplicated). Current appears here
+  /// whenever it isn't the primary.
+  /// Format the value at [path] via MetadataStore (single source of truth for
+  /// the unit symbol); falls back to a plain SI [suffix] only when the server
+  /// has no metadata for the path. Returns null when there's no value, so
+  /// callers can omit absent metrics.
+  String? _fmtMetric(String? path, String? src, String suffix, int decimals) {
+    final v = _getPathValue(path, src);
+    if (v == null) return null;
+    final meta = (path != null && path.isNotEmpty)
+        ? widget.signalKService.metadataStore.get(path)
+        : null;
+    return meta != null
+        ? meta.format(v, decimals: decimals)
+        : '${v.toStringAsFixed(decimals)}$suffix';
+  }
+
+  /// Secondary metrics line — every available metric EXCEPT the primary
+  /// headline, formatted via MetadataStore (so it respects server unit
+  /// metadata rather than hardcoding symbols).
+  String _buildSecondaryLine(
+    String primaryMetric, {
+    String? currentPath,
+    String? currentSource,
+    String? voltagePath,
+    String? voltageSource,
+    String? powerPath,
+    String? powerSource,
+    String? frequencyPath,
+    String? frequencySource,
+  }) {
     final parts = <String>[];
-    if (voltage != null) {
-      parts.add(voltage > 50 ? '${voltage.toStringAsFixed(0)}V' : '${voltage.toStringAsFixed(2)}V');
+    void add(String? s) {
+      if (s != null) parts.add(s);
     }
-    if (frequency != null) parts.add('${frequency.toStringAsFixed(0)}Hz');
-    if (power != null) {
-      parts.add(power > 100 ? '${power.toStringAsFixed(0)}W' : '${power.toStringAsFixed(2)}W');
-    }
+    if (primaryMetric != 'current') add(_fmtMetric(currentPath, currentSource, 'A', 1));
+    if (primaryMetric != 'voltage') add(_fmtMetric(voltagePath, voltageSource, 'V', 1));
+    add(_fmtMetric(frequencyPath, frequencySource, 'Hz', 0));
+    if (primaryMetric != 'power') add(_fmtMetric(powerPath, powerSource, 'W', 0));
     return parts.isEmpty ? '--' : parts.join('  ');
+  }
+
+  /// Headline string for a source/load's chosen [metric] (via MetadataStore).
+  String _formatPrimary(
+    String metric, {
+    String? currentPath,
+    String? currentSource,
+    String? voltagePath,
+    String? voltageSource,
+    String? powerPath,
+    String? powerSource,
+  }) {
+    switch (metric) {
+      case 'current':
+        return _fmtMetric(currentPath, currentSource, 'A', 1) ?? '--A';
+      case 'voltage':
+        return _fmtMetric(voltagePath, voltageSource, 'V', 1) ?? '--V';
+      case 'power':
+      default:
+        return _fmtMetric(powerPath, powerSource, 'W', 0) ?? '--W';
+    }
   }
 
   Widget _buildInverterBox() {
     final state = _getPathStringValue(_inverterStatePath, _inverterStateSource);
     final borderColor = HSLColor.fromColor(_primaryColor).withLightness(0.7).toColor();
+    // Tappable only when a writable mode path + options are configured.
+    final canSetMode = (_inverterModePath?.isNotEmpty ?? false) &&
+        _inverterModeOptions.isNotEmpty;
 
     return _buildComponentBox(
       title: 'Inverter / Charger',
       icon: Icons.electrical_services,
       borderColor: borderColor,
+      onTap: canSetMode ? _showInverterModeSnackbar : null,
       content: Center(
         child: FittedBox(
           fit: BoxFit.scaleDown,
@@ -860,11 +1022,118 @@ class _VictronFlowToolState extends State<VictronFlowTool> with SingleTickerProv
     );
   }
 
+  /// Tap handler for the inverter/charger box: a SnackBar offering the four
+  /// configured mode options; tapping one PUTs its value to the mode path.
+  void _showInverterModeSnackbar() {
+    final path = _inverterModePath;
+    if (path == null || path.isEmpty || _inverterModeOptions.isEmpty) return;
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.clearSnackBars();
+    messenger.showSnackBar(
+      SnackBar(
+        duration: const Duration(seconds: 10),
+        content: ListenableBuilder(
+          // Rebuild on every SignalK delta so the highlighted (active) option
+          // tracks the live mode — including changes made outside this widget
+          // while the snackbar is open, and the correct state at first build.
+          listenable: widget.signalKService,
+          builder: (context, _) {
+            final current = widget.signalKService.getValue(path)?.value ??
+                _getPathStringValue(_inverterStatePath, _inverterStateSource);
+            return Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const Padding(
+                  padding: EdgeInsets.only(bottom: 6),
+                  child: Text('Set inverter / charger mode'),
+                ),
+                // One full-width button per line. Active = filled + checked;
+                // inactive = darker grey with black text.
+                for (final opt in _inverterModeOptions)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 3),
+                    child: victronModeValuesMatch(current, opt['value'])
+                        ? FilledButton.icon(
+                            onPressed: () {
+                              messenger.hideCurrentSnackBar();
+                              _putInverterMode(path, opt);
+                            },
+                            icon: const Icon(Icons.check, size: 18),
+                            label: Text(opt['label'] as String? ?? ''),
+                          )
+                        : ElevatedButton(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.grey.shade600,
+                              foregroundColor: Colors.black,
+                            ),
+                            onPressed: () {
+                              messenger.hideCurrentSnackBar();
+                              _putInverterMode(path, opt);
+                            },
+                            child: Text(opt['label'] as String? ?? ''),
+                          ),
+                  ),
+              ],
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  Future<void> _putInverterMode(String path, Map<String, dynamic> option) async {
+    try {
+      // Values are enum/state tokens, not unit-bearing — sent as-is.
+      await widget.signalKService.sendPutRequest(path, option['value']);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Mode → ${option['label']}'),
+          duration: const Duration(seconds: 2),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to set mode: $e'),
+          duration: const Duration(seconds: 3),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  /// All batteries inside ONE bordered container. The flow painter targets the
+  /// battery-area edges, so flows terminate at this container's edge.
+  Widget _buildBatteriesContainer() {
+    final borderColor =
+        HSLColor.fromColor(_primaryColor).withLightness(0.7).toColor();
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: borderColor, width: 2),
+      ),
+      clipBehavior: Clip.antiAlias,
+      padding: const EdgeInsets.all(4),
+      child: Column(
+        children: [
+          for (int i = 0; i < _batteryConfigs.length; i++) ...[
+            if (i > 0) const SizedBox(height: 4),
+            Expanded(child: _buildBatteryBox(_batteryConfigs[i])),
+          ],
+        ],
+      ),
+    );
+  }
+
   Widget _buildBatteryBox(BatteryConfig battery) {
     final soc = _getPathValue(battery.socPath, battery.socSource);
-    final voltage = _getPathValue(battery.voltagePath, battery.voltageSource);
+    // Voltage/power are formatted for display via _fmtMetric (by path); only
+    // current is needed here, to derive the charge/discharge state.
     final current = _getPathValue(battery.currentPath, battery.currentSource);
-    final power = _getPathValue(battery.powerPath, battery.powerSource);
     final timeRemaining = _getPathValue(battery.timeRemainingPath, battery.timeRemainingSource);
     final temp = _getPathValue(battery.temperaturePath, battery.temperatureSource);
 
@@ -886,14 +1155,29 @@ class _VictronFlowToolState extends State<VictronFlowTool> with SingleTickerProv
       }
     }
 
-    final bgColor = HSLColor.fromColor(_primaryColor).withLightness(0.5).withSaturation(0.6).toColor().withValues(alpha: 0.9);
-    final borderColor = HSLColor.fromColor(_primaryColor).withLightness(0.7).toColor();
+    // Blue fill proportional to state of charge — a left→right "fuel gauge":
+    // the box is filled with the primary blue up to the SOC fraction, and the
+    // remainder is left transparent so the bare container background shows
+    // through (visible, but not filled). The gradient is painted OVER the
+    // box's normal bgColor by _buildComponentBox (see backgroundGradient).
+    final socFrac = (soc ?? 0).clamp(0.0, 1.0);
+    final filledColor = HSLColor.fromColor(_primaryColor)
+        .withLightness(0.5)
+        .withSaturation(0.7)
+        .toColor()
+        .withValues(alpha: 0.95);
+    final socGradient = LinearGradient(
+      begin: Alignment.centerLeft,
+      end: Alignment.centerRight,
+      colors: [filledColor, filledColor, Colors.transparent, Colors.transparent],
+      stops: [0.0, socFrac, socFrac, 1.0],
+    );
 
     return _buildComponentBox(
       title: battery.name,
       icon: Icons.battery_std,
-      backgroundColor: bgColor,
-      borderColor: borderColor,
+      backgroundGradient: socGradient,
+      drawBorder: false,
       content: LayoutBuilder(
         builder: (context, constraints) {
           final isWide = constraints.maxWidth > 200;
@@ -951,9 +1235,9 @@ class _VictronFlowToolState extends State<VictronFlowTool> with SingleTickerProv
                       mainAxisSize: MainAxisSize.min,
                       crossAxisAlignment: CrossAxisAlignment.end,
                       children: [
-                        Text('${voltage?.toStringAsFixed(2) ?? '--'}V', style: TextStyle(color: stateColor, fontSize: 13)),
-                        Text('${current?.toStringAsFixed(1) ?? '--'}A', style: TextStyle(color: stateColor, fontSize: 13)),
-                        Text('${power?.toStringAsFixed(0) ?? '--'}W', style: TextStyle(color: stateColor, fontSize: 13)),
+                        Text(_fmtMetric(battery.voltagePath, battery.voltageSource, 'V', 2) ?? '--V', style: TextStyle(color: stateColor, fontSize: 13)),
+                        Text(_fmtMetric(battery.currentPath, battery.currentSource, 'A', 1) ?? '--A', style: TextStyle(color: stateColor, fontSize: 13)),
+                        Text(_fmtMetric(battery.powerPath, battery.powerSource, 'W', 0) ?? '--W', style: TextStyle(color: stateColor, fontSize: 13)),
                       ],
                     ),
                   ),
@@ -1001,7 +1285,9 @@ class _VictronFlowToolState extends State<VictronFlowTool> with SingleTickerProv
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  '${voltage?.toStringAsFixed(2) ?? '--'}V  ${current?.toStringAsFixed(1) ?? '--'}A  ${power?.toStringAsFixed(0) ?? '--'}W',
+                  '${_fmtMetric(battery.voltagePath, battery.voltageSource, 'V', 2) ?? '--V'}  '
+                  '${_fmtMetric(battery.currentPath, battery.currentSource, 'A', 1) ?? '--A'}  '
+                  '${_fmtMetric(battery.powerPath, battery.powerSource, 'W', 0) ?? '--W'}',
                   style: TextStyle(color: stateColor, fontSize: 13),
                 ),
               ],
@@ -1099,28 +1385,19 @@ class _FlowLinesPainter extends CustomPainter {
     // Center column: inverter (flex 2) and batteries (flex 3 total) with 28px gap
     final batteryFlex = batteryCount == 1 ? 3 : batteryCount * 2;
     final totalFlex = 2 + batteryFlex;
-    final batteryGaps = batteryCount > 1 ? (batteryCount - 1) * 8.0 : 0.0;
-    final inverterHeight = (contentHeight - 28 - batteryGaps) * 2 / totalFlex;
-    final totalBatteryHeight = (contentHeight - 28 - batteryGaps) * batteryFlex / totalFlex;
-    final singleBatteryHeight = totalBatteryHeight / batteryCount;
+    // Batteries now live in ONE container (no outer inter-battery gaps), so
+    // flows terminate at the container's top / left / right edges.
+    final inverterHeight = (contentHeight - 28) * 2 / totalFlex;
+    final totalBatteryHeight = (contentHeight - 28) * batteryFlex / totalFlex;
     final inverterBottom = paddingTop + inverterHeight;
     final inverterCenter = paddingTop + inverterHeight / 2;
 
-    // Calculate center Y for each battery
-    List<double> batteryCenters = [];
-    for (int i = 0; i < batteryCount; i++) {
-      final top = inverterBottom + 28 + i * (singleBatteryHeight + 8);
-      batteryCenters.add(top + singleBatteryHeight / 2);
-    }
-    // First battery top (for inverter→battery line)
+    // Battery container top edge (inverter→battery line) and vertical center
+    // (source↔battery / battery↔load lines).
     final firstBatteryTop = inverterBottom + 28;
+    final batteryAreaCenter = firstBatteryTop + totalBatteryHeight / 2;
 
     final midX = leftColRight + gap / 2;
-
-    // Center of entire battery area (for shared flow lines)
-    final batteryAreaCenter = batteryCenters.isNotEmpty
-        ? (batteryCenters.first + batteryCenters.last) / 2
-        : firstBatteryTop + singleBatteryHeight / 2;
 
     // Draw source flows
     int lineIndex = 0;

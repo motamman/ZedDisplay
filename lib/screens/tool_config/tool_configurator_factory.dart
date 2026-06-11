@@ -4,6 +4,7 @@ import 'configurators/gauge_configurator.dart';
 import 'configurators/compass_configurator.dart';
 import 'configurators/compass_gauge_configurator.dart';
 import 'configurators/control_configurator.dart';
+import 'configurators/radio_switch_configurator.dart';
 import 'configurators/polar_chart_configurator.dart';
 import 'configurators/webview_configurator.dart';
 import 'configurators/system_configurator.dart';
@@ -60,6 +61,10 @@ class ToolConfiguratorFactory {
       case 'switch':
       case 'button':
         return ControlConfigurator(toolTypeId);
+
+      // Radio Switch (mutually-exclusive enum PUT)
+      case 'radio_switch':
+        return RadioSwitchConfigurator();
 
       // System Tools
       case 'conversion_test':
@@ -146,6 +151,7 @@ class ToolConfiguratorFactory {
       'dropdown',
       'switch',
       'button',
+      'radio_switch',
       'conversion_test',
       'rpi_monitor',
       'server_manager',

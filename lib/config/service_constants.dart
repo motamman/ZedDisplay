@@ -28,6 +28,15 @@ class ServiceConstants {
   /// Longest timeout reserved for the heaviest endpoints.
   static const Duration veryLongHttpTimeout = Duration(seconds: 30);
 
+  /// Cap on `WebSocket.connect` so an unreachable or black-holed/half-open
+  /// endpoint fails fast instead of hanging the connect (which would strand
+  /// `_isConnecting` and block all future switches/reconnects).
+  static const Duration wsConnectTimeout = Duration(seconds: 12);
+
+  /// Cap on closing a (possibly half-open) WebSocket sink so teardown can't
+  /// hang — a dead socket's close handshake may never complete.
+  static const Duration wsCloseTimeout = Duration(seconds: 2);
+
   // --------------------------------------------------------------
   // Debounce / throttle
   // --------------------------------------------------------------
