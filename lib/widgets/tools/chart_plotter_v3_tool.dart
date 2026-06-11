@@ -7442,6 +7442,12 @@ const double _navRowHeight = 48.0;
 /// group's slot expands into a [_DrawerPill]. The drawer butts
 /// directly against the nav's left edge so the two read as a single
 /// L-shape rather than two pills.
+/// Number of nav-pill buttons rendered ABOVE the AIS/Routes/Layers drawer
+/// group (view-mode, follow, ruler, record). The drawer column pads with this
+/// many blank spacer slots so each flyout lines up with its trigger button.
+/// Single source of truth — update this if the leading nav buttons change.
+const int _navButtonsBeforeDrawers = 4;
+
 class _MapControls extends StatelessWidget {
   const _MapControls({
     required this.autoFollow,
@@ -7528,13 +7534,14 @@ class _MapControls extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
-            // One empty spacer per nav-pill button ABOVE the AIS button, so
-            // each flyout aligns with its trigger: view-mode, follow, ruler,
-            // record. Keep this count in sync with those buttons.
-            const _DrawerSlot(active: false, child: SizedBox.shrink()),
-            const _DrawerSlot(active: false, child: SizedBox.shrink()),
-            const _DrawerSlot(active: false, child: SizedBox.shrink()),
-            const _DrawerSlot(active: false, child: SizedBox.shrink()),
+            // One empty spacer per nav-pill button ABOVE the AIS button so each
+            // flyout aligns with its trigger. Generated from a single source
+            // (_navButtonsBeforeDrawers) so adding/removing a leading nav button
+            // is a one-constant change — no silent misalignment.
+            ...List.generate(
+              _navButtonsBeforeDrawers,
+              (_) => const _DrawerSlot(active: false, child: SizedBox.shrink()),
+            ),
             _DrawerSlot(
               active: openDrawer == _NavDrawerKind.ais,
               child: _AisDrawerRow(

@@ -742,10 +742,6 @@ class _VictronFlowToolState extends State<VictronFlowTool> with SingleTickerProv
   }
 
   Widget _buildSourceBox(PowerSourceConfig source) {
-    final current = _getPathValue(source.currentPath, source.currentSource);
-    final voltage = _getPathValue(source.voltagePath, source.voltageSource);
-    final power = _getPathValue(source.powerPath, source.powerSource);
-    final frequency = _getPathValue(source.frequencyPath, source.frequencySource);
     final state = _getPathStringValue(source.statePath, source.stateSource);
     final headline = _formatPrimary(
       source.primaryMetric,
@@ -755,7 +751,10 @@ class _VictronFlowToolState extends State<VictronFlowTool> with SingleTickerProv
     );
     final secondary = _buildSecondaryLine(
       source.primaryMetric,
-      current: current, voltage: voltage, frequency: frequency, power: power,
+      currentPath: source.currentPath, currentSource: source.currentSource,
+      voltagePath: source.voltagePath, voltageSource: source.voltageSource,
+      powerPath: source.powerPath, powerSource: source.powerSource,
+      frequencyPath: source.frequencyPath, frequencySource: source.frequencySource,
     );
 
     return _buildComponentBox(
@@ -830,10 +829,6 @@ class _VictronFlowToolState extends State<VictronFlowTool> with SingleTickerProv
   }
 
   Widget _buildLoadBox(PowerLoadConfig load) {
-    final current = _getPathValue(load.currentPath, load.currentSource);
-    final voltage = _getPathValue(load.voltagePath, load.voltageSource);
-    final power = _getPathValue(load.powerPath, load.powerSource);
-    final frequency = _getPathValue(load.frequencyPath, load.frequencySource);
     final headline = _formatPrimary(
       load.primaryMetric,
       currentPath: load.currentPath, currentSource: load.currentSource,
@@ -842,7 +837,10 @@ class _VictronFlowToolState extends State<VictronFlowTool> with SingleTickerProv
     );
     final secondary = _buildSecondaryLine(
       load.primaryMetric,
-      current: current, voltage: voltage, frequency: frequency, power: power,
+      currentPath: load.currentPath, currentSource: load.currentSource,
+      voltagePath: load.voltagePath, voltageSource: load.voltageSource,
+      powerPath: load.powerPath, powerSource: load.powerSource,
+      frequencyPath: load.frequencyPath, frequencySource: load.frequencySource,
     );
 
     return _buildComponentBox(
@@ -909,31 +907,47 @@ class _VictronFlowToolState extends State<VictronFlowTool> with SingleTickerProv
   /// Secondary metrics line — every available metric EXCEPT the one chosen as
   /// the primary headline (so it isn't duplicated). Current appears here
   /// whenever it isn't the primary.
+  /// Format the value at [path] via MetadataStore (single source of truth for
+  /// the unit symbol); falls back to a plain SI [suffix] only when the server
+  /// has no metadata for the path. Returns null when there's no value, so
+  /// callers can omit absent metrics.
+  String? _fmtMetric(String? path, String? src, String suffix, int decimals) {
+    final v = _getPathValue(path, src);
+    if (v == null) return null;
+    final meta = (path != null && path.isNotEmpty)
+        ? widget.signalKService.metadataStore.get(path)
+        : null;
+    return meta != null
+        ? meta.format(v, decimals: decimals)
+        : '${v.toStringAsFixed(decimals)}$suffix';
+  }
+
+  /// Secondary metrics line — every available metric EXCEPT the primary
+  /// headline, formatted via MetadataStore (so it respects server unit
+  /// metadata rather than hardcoding symbols).
   String _buildSecondaryLine(
     String primaryMetric, {
-    double? current,
-    double? voltage,
-    double? frequency,
-    double? power,
+    String? currentPath,
+    String? currentSource,
+    String? voltagePath,
+    String? voltageSource,
+    String? powerPath,
+    String? powerSource,
+    String? frequencyPath,
+    String? frequencySource,
   }) {
     final parts = <String>[];
-    if (current != null && primaryMetric != 'current') {
-      parts.add('${current.toStringAsFixed(1)}A');
+    void add(String? s) {
+      if (s != null) parts.add(s);
     }
-    if (voltage != null && primaryMetric != 'voltage') {
-      parts.add(voltage > 50 ? '${voltage.toStringAsFixed(0)}V' : '${voltage.toStringAsFixed(2)}V');
-    }
-    if (frequency != null) parts.add('${frequency.toStringAsFixed(0)}Hz');
-    if (power != null && primaryMetric != 'power') {
-      parts.add(power > 100 ? '${power.toStringAsFixed(0)}W' : '${power.toStringAsFixed(2)}W');
-    }
+    if (primaryMetric != 'current') add(_fmtMetric(currentPath, currentSource, 'A', 1));
+    if (primaryMetric != 'voltage') add(_fmtMetric(voltagePath, voltageSource, 'V', 1));
+    add(_fmtMetric(frequencyPath, frequencySource, 'Hz', 0));
+    if (primaryMetric != 'power') add(_fmtMetric(powerPath, powerSource, 'W', 0));
     return parts.isEmpty ? '--' : parts.join('  ');
   }
 
-  /// Formatted headline string for a source/load's chosen [metric]. Routed
-  /// through MetadataStore for the unit symbol (these lines are being added, so
-  /// they follow the project's MetadataStore rule); falls back to a plain SI
-  /// suffix when the server provides no metadata for the path.
+  /// Headline string for a source/load's chosen [metric] (via MetadataStore).
   String _formatPrimary(
     String metric, {
     String? currentPath,
@@ -943,25 +957,14 @@ class _VictronFlowToolState extends State<VictronFlowTool> with SingleTickerProv
     String? powerPath,
     String? powerSource,
   }) {
-    String fmt(String? path, String? src, String suffix, int decimals) {
-      final v = _getPathValue(path, src);
-      if (v == null) return '--$suffix';
-      final meta = (path != null && path.isNotEmpty)
-          ? widget.signalKService.metadataStore.get(path)
-          : null;
-      return meta != null
-          ? meta.format(v, decimals: decimals)
-          : '${v.toStringAsFixed(decimals)}$suffix';
-    }
-
     switch (metric) {
       case 'current':
-        return fmt(currentPath, currentSource, 'A', 1);
+        return _fmtMetric(currentPath, currentSource, 'A', 1) ?? '--A';
       case 'voltage':
-        return fmt(voltagePath, voltageSource, 'V', 1);
+        return _fmtMetric(voltagePath, voltageSource, 'V', 1) ?? '--V';
       case 'power':
       default:
-        return fmt(powerPath, powerSource, 'W', 0);
+        return _fmtMetric(powerPath, powerSource, 'W', 0) ?? '--W';
     }
   }
 
@@ -1108,9 +1111,9 @@ class _VictronFlowToolState extends State<VictronFlowTool> with SingleTickerProv
 
   Widget _buildBatteryBox(BatteryConfig battery) {
     final soc = _getPathValue(battery.socPath, battery.socSource);
-    final voltage = _getPathValue(battery.voltagePath, battery.voltageSource);
+    // Voltage/power are formatted for display via _fmtMetric (by path); only
+    // current is needed here, to derive the charge/discharge state.
     final current = _getPathValue(battery.currentPath, battery.currentSource);
-    final power = _getPathValue(battery.powerPath, battery.powerSource);
     final timeRemaining = _getPathValue(battery.timeRemainingPath, battery.timeRemainingSource);
     final temp = _getPathValue(battery.temperaturePath, battery.temperatureSource);
 
@@ -1214,9 +1217,9 @@ class _VictronFlowToolState extends State<VictronFlowTool> with SingleTickerProv
                       mainAxisSize: MainAxisSize.min,
                       crossAxisAlignment: CrossAxisAlignment.end,
                       children: [
-                        Text('${voltage?.toStringAsFixed(2) ?? '--'}V', style: TextStyle(color: stateColor, fontSize: 13)),
-                        Text('${current?.toStringAsFixed(1) ?? '--'}A', style: TextStyle(color: stateColor, fontSize: 13)),
-                        Text('${power?.toStringAsFixed(0) ?? '--'}W', style: TextStyle(color: stateColor, fontSize: 13)),
+                        Text(_fmtMetric(battery.voltagePath, battery.voltageSource, 'V', 2) ?? '--V', style: TextStyle(color: stateColor, fontSize: 13)),
+                        Text(_fmtMetric(battery.currentPath, battery.currentSource, 'A', 1) ?? '--A', style: TextStyle(color: stateColor, fontSize: 13)),
+                        Text(_fmtMetric(battery.powerPath, battery.powerSource, 'W', 0) ?? '--W', style: TextStyle(color: stateColor, fontSize: 13)),
                       ],
                     ),
                   ),
@@ -1264,7 +1267,9 @@ class _VictronFlowToolState extends State<VictronFlowTool> with SingleTickerProv
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  '${voltage?.toStringAsFixed(2) ?? '--'}V  ${current?.toStringAsFixed(1) ?? '--'}A  ${power?.toStringAsFixed(0) ?? '--'}W',
+                  '${_fmtMetric(battery.voltagePath, battery.voltageSource, 'V', 2) ?? '--V'}  '
+                  '${_fmtMetric(battery.currentPath, battery.currentSource, 'A', 1) ?? '--A'}  '
+                  '${_fmtMetric(battery.powerPath, battery.powerSource, 'W', 0) ?? '--W'}',
                   style: TextStyle(color: stateColor, fontSize: 13),
                 ),
               ],

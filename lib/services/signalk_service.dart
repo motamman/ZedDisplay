@@ -415,10 +415,16 @@ class SignalKService extends ChangeNotifier implements DataService {
     _useSecureConnection = secure;
     _authToken = authToken;
 
-    // Load cached conversions immediately for instant display
-    // Server data will replace this when it arrives
-    _conversionManager.loadFromLocalCache();
-    _loadDisplayUnitsFromCache(); // Load displayUnits for instant unit conversions
+    // Load cached conversions immediately for instant display. Server data
+    // replaces these when it arrives. They're optional Hive-cache reads that
+    // run BEFORE the try/finally which releases _isConnecting — an uncaught
+    // throw here (e.g. corrupt cache) would strand the latch, so guard them.
+    try {
+      _conversionManager.loadFromLocalCache();
+    } catch (_) {}
+    try {
+      _loadDisplayUnitsFromCache(); // displayUnits for instant unit conversions
+    } catch (_) {}
     // Wire up category fallback for MetadataStore so paths without
     // direct metadata can resolve via category (e.g. tempest temperature)
     _metadataStore.categoryLookup = findCategoryForPath;

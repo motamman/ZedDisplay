@@ -546,9 +546,8 @@ class VictronFlowConfigurator extends ToolConfigurator {
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
       itemCount: _sources.length,
-      onReorder: (oldIndex, newIndex) {
+      onReorderItem: (oldIndex, newIndex) {
         setState(() {
-          if (newIndex > oldIndex) newIndex--;
           final item = _sources.removeAt(oldIndex);
           _sources.insert(newIndex, item);
         });
@@ -641,9 +640,8 @@ class VictronFlowConfigurator extends ToolConfigurator {
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
       itemCount: _loads.length,
-      onReorder: (oldIndex, newIndex) {
+      onReorderItem: (oldIndex, newIndex) {
         setState(() {
-          if (newIndex > oldIndex) newIndex--;
           final item = _loads.removeAt(oldIndex);
           _loads.insert(newIndex, item);
         });
@@ -731,9 +729,8 @@ class VictronFlowConfigurator extends ToolConfigurator {
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
       itemCount: _batteries.length,
-      onReorder: (oldIndex, newIndex) {
+      onReorderItem: (oldIndex, newIndex) {
         setState(() {
-          if (newIndex > oldIndex) newIndex--;
           final item = _batteries.removeAt(oldIndex);
           _batteries.insert(newIndex, item);
         });
