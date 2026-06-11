@@ -714,13 +714,7 @@ class _VictronFlowToolState extends State<VictronFlowTool> with SingleTickerProv
     final bgColor = backgroundColor ?? defaultBg;
     final border = borderColor ?? defaultBorder;
 
-    final box = Container(
-      decoration: BoxDecoration(
-        color: backgroundGradient == null ? bgColor : null,
-        gradient: backgroundGradient,
-        borderRadius: BorderRadius.circular(12),
-        border: drawBorder ? Border.all(color: border, width: 2) : null,
-      ),
+    final inner = Padding(
       padding: const EdgeInsets.all(10),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -742,6 +736,31 @@ class _VictronFlowToolState extends State<VictronFlowTool> with SingleTickerProv
           Expanded(child: content),
         ],
       ),
+    );
+
+    // Always paint the normal bgColor as the base. A backgroundGradient (the
+    // battery SOC fill) is layered ON TOP of it rather than replacing it, so
+    // the unfilled — transparent — portion of the gradient reveals the bare
+    // container background ("visible but not filled").
+    final box = Container(
+      decoration: BoxDecoration(
+        color: bgColor,
+        borderRadius: BorderRadius.circular(12),
+        border: drawBorder ? Border.all(color: border, width: 2) : null,
+      ),
+      clipBehavior: backgroundGradient != null ? Clip.antiAlias : Clip.none,
+      child: backgroundGradient == null
+          ? inner
+          : Stack(
+              children: [
+                Positioned.fill(
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(gradient: backgroundGradient),
+                  ),
+                ),
+                inner,
+              ],
+            ),
     );
     if (onTap == null) return box;
     return GestureDetector(
@@ -1137,22 +1156,20 @@ class _VictronFlowToolState extends State<VictronFlowTool> with SingleTickerProv
     }
 
     // Blue fill proportional to state of charge — a left→right "fuel gauge":
-    // filled up to the SOC fraction, faded for the remainder.
+    // the box is filled with the primary blue up to the SOC fraction, and the
+    // remainder is left transparent so the bare container background shows
+    // through (visible, but not filled). The gradient is painted OVER the
+    // box's normal bgColor by _buildComponentBox (see backgroundGradient).
     final socFrac = (soc ?? 0).clamp(0.0, 1.0);
     final filledColor = HSLColor.fromColor(_primaryColor)
         .withLightness(0.5)
         .withSaturation(0.7)
         .toColor()
         .withValues(alpha: 0.95);
-    final emptyColor = HSLColor.fromColor(_primaryColor)
-        .withLightness(0.22)
-        .withSaturation(0.3)
-        .toColor()
-        .withValues(alpha: 0.85);
     final socGradient = LinearGradient(
       begin: Alignment.centerLeft,
       end: Alignment.centerRight,
-      colors: [filledColor, filledColor, emptyColor, emptyColor],
+      colors: [filledColor, filledColor, Colors.transparent, Colors.transparent],
       stops: [0.0, socFrac, socFrac, 1.0],
     );
 
