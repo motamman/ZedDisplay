@@ -63,12 +63,17 @@ class RadioSwitchConfigurator extends ToolConfigurator {
       for (final o in raw) {
         if (o is Map) {
           final value = o['value'];
-          final type = (o['type'] as String?) ??
+          var type = (o['type'] as String?) ??
               (value is bool
                   ? 'bool'
                   : value is num
                       ? 'number'
                       : 'string');
+          // Clamp to a supported value — a stray persisted type would otherwise
+          // assert the type dropdown (initialValue must match an item).
+          if (type != 'string' && type != 'number' && type != 'bool') {
+            type = 'string';
+          }
           _options.add(_newOption(
             label: (o['label'] as String?) ?? '',
             valueText: value?.toString() ?? '',

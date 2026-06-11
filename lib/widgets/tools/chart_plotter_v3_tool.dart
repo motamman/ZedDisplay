@@ -57,6 +57,10 @@ import '../map_attribution.dart';
 /// lock or drive rotation from code.
 enum _ViewMode { northUp, headingUp, free }
 
+/// What to do with a leftover unsaved recorded-track buffer when the user
+/// starts a new recording.
+enum _UnsavedTrackAction { save, discard }
+
 /// Chart Plotter V3 — spike: proves the s52_dart → flutter_map pipeline.
 ///
 /// Basemap: OSM raster. Overlay: one MVT tile fetched from the SignalK
@@ -1839,6 +1843,19 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
   /// track as a SignalK `tracks` resource.
   Future<void> _toggleTrackRecording() async {
     if (!_recordingTrack) {
+      // A non-empty buffer left over from a prior session that was never
+      // saved (cancelled/failed save). Don't silently drop it — let the user
+      // save it, discard it, or back out of starting a new recording.
+      if (_recordedTrack.length >= 2) {
+        final action = await _confirmDiscardRecordedTrack();
+        if (action == null) return; // cancel — leave everything as-is
+        if (action == _UnsavedTrackAction.save) {
+          final saved = await _saveRecordedTrack();
+          if (!saved) return; // save cancelled/failed — keep the buffer
+        }
+        // save-succeeded or explicit discard → fall through and start fresh
+      }
+      if (!mounted) return;
       setState(() {
         _recordingTrack = true;
         _recordedTrack.clear();
@@ -1857,15 +1874,47 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
     await _saveRecordedTrack();
   }
 
+  /// Prompt the user about an unsaved recorded-track buffer left over from a
+  /// previous session. Returns the chosen action, or null if cancelled.
+  Future<_UnsavedTrackAction?> _confirmDiscardRecordedTrack() {
+    return showDialog<_UnsavedTrackAction>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Unsaved track'),
+        content: Text(
+          'A recorded track with ${_recordedTrack.length} points has not been '
+          'saved. Save it before starting a new recording, or discard it?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, _UnsavedTrackAction.discard),
+            child: const Text('Discard'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, _UnsavedTrackAction.save),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+  }
+
   /// Save the recorded voyage as a SignalK `tracks` resource
   /// (MultiLineString), mirroring the Historical Data Explorer's
   /// `_saveAsTrack` shape.
-  Future<void> _saveRecordedTrack() async {
+  /// Returns true only when the save actually succeeds. The recorded buffer is
+  /// retained on cancel/failure so it can be retried (it's cleared only on a
+  /// successful save, or via an explicit discard when starting a new recording).
+  Future<bool> _saveRecordedTrack() async {
     final points = List<LatLng>.from(_recordedTrack);
-    if (points.length < 2) return;
+    if (points.length < 2) return false;
     final name =
         await _promptResourceName('Save Track', 'Track ${_resourceStamp()}');
-    if (name == null) return;
+    if (name == null) return false; // cancelled — keep the buffer
     final coordinates = points.map((p) => [p.longitude, p.latitude]).toList();
     final data = {
       'feature': {
@@ -1878,12 +1927,21 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
         'id': '',
       },
     };
-    final ok = await widget.signalKService
-        .putResource('tracks', const Uuid().v4(), data);
-    if (!mounted) return;
-    _showPlotterSnack(ok
-        ? 'Track saved: $name (${coordinates.length} pts)'
-        : 'Failed to save track');
+    bool ok = false;
+    try {
+      ok = await widget.signalKService
+          .putResource('tracks', const Uuid().v4(), data);
+    } catch (e) {
+      if (kDebugMode) print('Save track error: $e');
+    }
+    if (!mounted) return ok;
+    if (ok) {
+      _recordedTrack.clear(); // saved → safe to drop the buffer
+      _showPlotterSnack('Track saved: $name (${coordinates.length} pts)');
+    } else {
+      _showPlotterSnack('Track not saved — kept; tap Record to retry or discard');
+    }
+    return ok;
   }
 
   /// Save the current weather-router result's turn waypoints as a SignalK
@@ -1919,8 +1977,13 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
         'id': '',
       },
     };
-    final ok = await widget.signalKService
-        .putResource('routes', const Uuid().v4(), data);
+    bool ok = false;
+    try {
+      ok = await widget.signalKService
+          .putResource('routes', const Uuid().v4(), data);
+    } catch (e) {
+      if (kDebugMode) print('Save route error: $e');
+    }
     if (!mounted) return;
     _showPlotterSnack(ok
         ? 'Route saved: $name (${coordinates.length} waypoints, '

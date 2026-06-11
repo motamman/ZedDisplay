@@ -109,7 +109,7 @@ class _RadioSwitchToolState extends State<RadioSwitchTool> with AutomaticKeepAli
         groupValue: effectiveIndex,
         onChanged: (index) {
           if (_isSending || index == null) return;
-          _select(index, options[index], dataSource.path);
+          _select(index, options[index], dataSource.path, dataSource.source);
         },
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -135,7 +135,8 @@ class _RadioSwitchToolState extends State<RadioSwitchTool> with AutomaticKeepAli
     );
   }
 
-  Future<void> _select(int index, Map<String, dynamic> option, String path) async {
+  Future<void> _select(int index, Map<String, dynamic> option, String path,
+      String? source) async {
     setState(() {
       _pendingIndex = index;
       _isSending = true;
@@ -144,8 +145,9 @@ class _RadioSwitchToolState extends State<RadioSwitchTool> with AutomaticKeepAli
     try {
       // PUT the configured value as-is. These are enum/state values
       // (string, number, or bool), NOT unit-bearing measurements, so they are
-      // sent without MetadataStore conversion.
-      await widget.signalKService.sendPutRequest(path, option['value']);
+      // sent without MetadataStore conversion. Forward the configured source so
+      // multi-source paths route to the right PUT handler (cf. SwitchTool).
+      await widget.signalKService.sendPutRequest(path, option['value'], source: source);
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

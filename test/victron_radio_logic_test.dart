@@ -25,6 +25,11 @@ void main() {
       expect(victronModeValuesMatch(3, '3'), isTrue);
       expect(victronModeValuesMatch(3, '3.0'), isFalse);
     });
+
+    test('empty strings: two empties match, empty vs non-empty does not', () {
+      expect(victronModeValuesMatch('', ''), isTrue);
+      expect(victronModeValuesMatch('', 'on'), isFalse);
+    });
   });
 
   group('coerceRadioOptionValue (radio-switch value typing)', () {
@@ -39,6 +44,9 @@ void main() {
       expect(coerceRadioOptionValue('12', 'number'), isA<num>());
       expect(coerceRadioOptionValue('1.5', 'number'), 1.5);
       expect(coerceRadioOptionValue('abc', 'number'), 'abc');
+      expect(coerceRadioOptionValue('-42', 'number'), -42);
+      expect(coerceRadioOptionValue('-42', 'number'), isA<num>());
+      expect(coerceRadioOptionValue('-3.14', 'number'), -3.14);
     });
 
     test('bool type maps true/false case-insensitively', () {

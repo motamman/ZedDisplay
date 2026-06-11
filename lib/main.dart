@@ -333,7 +333,6 @@ class ZedDisplayApp extends StatefulWidget {
 }
 
 class _ZedDisplayAppState extends State<ZedDisplayApp> with WidgetsBindingObserver {
-  String? _lastServerUrl;
   DateTime? _pausedAt; // when the app last went to background (for resume staleness)
   late ThemeMode _themeMode;
   static const platform = MethodChannel('com.zennora.zed_display/intent');
@@ -512,16 +511,19 @@ class _ZedDisplayAppState extends State<ZedDisplayApp> with WidgetsBindingObserv
 
     switch (state) {
       case AppLifecycleState.paused:
-      case AppLifecycleState.inactive:
-        // Flush diagnostic log on background
+      case AppLifecycleState.hidden:
+        // Flush diagnostic log on real background. Stamp _pausedAt ONLY here
+        // (not on `inactive`): `inactive` also fires for transient focus loss
+        // while the app stays visible (system dialogs/overlays), and treating
+        // that as a long sleep would force a needless reconnect on resume.
         DiagnosticService.instance?.stop();
         _pausedAt = DateTime.now();
-        // Remember the connected server so resume knows whether to reconnect.
         // We don't disconnect here (too heavy); wakeReconnect() on resume reuses
-        // the service's own server/secure/token state, so we only need the URL.
-        if (widget.signalKService.isConnected) {
-          _lastServerUrl = widget.signalKService.serverUrl;
-        }
+        // the service's own persisted server/secure/token state.
+        break;
+
+      case AppLifecycleState.inactive:
+        // Transient focus loss — not a background. Do nothing.
         break;
 
       case AppLifecycleState.resumed:
@@ -535,8 +537,10 @@ class _ZedDisplayAppState extends State<ZedDisplayApp> with WidgetsBindingObserv
         // flows — the classic "had to restart the app to get data back". So we
         // force a fresh socket if we were backgrounded long enough to be stale,
         // OR if we already know we're disconnected. No token requirement —
-        // no-auth servers must reconnect too.
-        if (_lastServerUrl != null) {
+        // no-auth servers must reconnect too. Gate on the service's own
+        // persisted server URL so a drop just before backgrounding (which
+        // would have cleared a connected-only latch) still reconnects.
+        if (widget.signalKService.serverUrl.isNotEmpty) {
           final sleptLong = _pausedAt != null &&
               DateTime.now().difference(_pausedAt!) >
                   const Duration(seconds: 10);
@@ -544,10 +548,12 @@ class _ZedDisplayAppState extends State<ZedDisplayApp> with WidgetsBindingObserv
             _reconnect();
           }
         }
+        // Clear so a later transient inactive→resumed can't reuse a stale
+        // background timestamp and read as "slept long."
+        _pausedAt = null;
         break;
 
       case AppLifecycleState.detached:
-      case AppLifecycleState.hidden:
         break;
     }
   }

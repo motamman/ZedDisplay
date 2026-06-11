@@ -869,6 +869,10 @@ class SignalKService extends ChangeNotifier implements DataService {
 
     _isConnected = false;
     _isConnecting = false;
+    // Stop the liveness watchdog while disconnected — otherwise its 20s timer
+    // keeps firing for the rest of the session. It restarts on the next
+    // successful connect / _reconnectLight.
+    _stopLivenessWatchdog();
 
     _subscription?.cancel();
     _subscription = null;
