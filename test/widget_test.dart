@@ -1,5 +1,9 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:hive/hive.dart';
 import 'package:zed_display/main.dart';
 import 'package:zed_display/services/storage_service.dart';
 import 'package:zed_display/services/signalk_service.dart';
@@ -56,18 +60,50 @@ void main() {
   late RoutePlannerBoatsService routePlannerBoatsService;
   late RoutePlannerChartsService routePlannerChartsService;
 
+  late Directory tempDir;
+
   setUp(() async {
+    TestWidgetsFlutterBinding.ensureInitialized();
+
+    // Headless tests have no native plugins. Mock the path_provider channel so
+    // StorageService/Hive and the chart/file services get a real on-disk dir,
+    // and stub the other plugins touched during setUp/pumpWidget to no-ops.
+    tempDir = Directory.systemTemp.createTempSync('zed_widget_test');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(
+      const MethodChannel('plugins.flutter.io/path_provider'),
+      (call) async => tempDir.path,
+    );
+    // permission_handler: report everything granted (1) so permission gates
+    // during service init don't throw headless.
+    messenger.setMockMethodCallHandler(
+      const MethodChannel('flutter.baseflow.com/permissions/methods'),
+      (call) async {
+        if (call.method == 'checkPermissionStatus') return 1; // granted
+        if (call.method == 'requestPermissions') return <int, int>{};
+        return 1;
+      },
+    );
+
     // Initialize storage service for tests
     storageService = StorageService();
     await storageService.initialize();
 
-    // Initialize notification service
+    // Notification + foreground services wrap native plugins
+    // (flutter_local_notifications, flutter_foreground_task) that have no
+    // implementation in a headless test. Construct them (the app requires the
+    // instances) and attempt init best-effort; the smoke test asserts only the
+    // core data services below, which must initialize cleanly.
     notificationService = NotificationService();
-    await notificationService.initialize();
+    try {
+      await notificationService.initialize();
+    } catch (_) {}
 
-    // Initialize foreground service
     foregroundService = ForegroundTaskService();
-    await foregroundService.initialize();
+    try {
+      await foregroundService.initialize();
+    } catch (_) {}
 
     // Initialize tool service
     toolService = ToolService(storageService);
@@ -169,10 +205,12 @@ void main() {
   tearDown(() async {
     // Clean up storage service after tests
     await storageService.clearAllData();
-    // Close Hive boxes opened by ChartTileCacheService.initialize()
-    // so they don't leak across tests or interfere with other Hive
-    // state in the next setUp.
+    // Close every open Hive box (StorageService's + ChartTileCacheService's)
+    // and AWAIT it, so no box-close races with the next test's setUp and no
+    // async file work outlives the test. The temp dir is left for the OS to
+    // reap — deleting it here would race Hive's own lock-file cleanup.
     chartTileCacheService.dispose();
+    await Hive.close();
   });
 
   testWidgets('App launches with splash screen', (WidgetTester tester) async {
@@ -207,6 +245,8 @@ void main() {
 
     // Verify that the app launches
     expect(find.byType(MaterialApp), findsOneWidget);
+
+    await _settleSplash(tester);
   });
 
   testWidgets('Services are initialized', (WidgetTester tester) async {
@@ -242,5 +282,17 @@ void main() {
     expect(storageService.initialized, isTrue);
     expect(toolService.initialized, isTrue);
     expect(dashboardService.initialized, isTrue);
+
+    await _settleSplash(tester);
   });
+}
+
+/// The splash screen arms two fire-and-forget timers in initState
+/// (auto-connect at 500ms, navigate at 2500ms). Pump past both so none are
+/// left pending at teardown. No server is saved in the test, so auto-connect
+/// no-ops and the app navigates on to the server list.
+Future<void> _settleSplash(WidgetTester tester) async {
+  await tester.pump(const Duration(milliseconds: 600));
+  await tester.pump(const Duration(seconds: 3));
+  await tester.pump(const Duration(seconds: 1));
 }

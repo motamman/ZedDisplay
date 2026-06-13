@@ -47,6 +47,13 @@ class DiagnosticService {
   int _wsMetaCount = 0;
   int _wsNotificationCount = 0;
 
+  // Connection-lifecycle events mirrored from SignalKService (reset each
+  // snapshot). Captures the resume/reconnect sequence — socket open/close with
+  // generation ids, stale-ignored events, watchdog fires — so a sleep/resume
+  // failure is readable in the uploaded snapshot after the fact.
+  final List<String> _connEvents = [];
+  static const int _connEventsMax = 100;
+
   // Public getters for Device Monitor widget
   int get wsDeltaCount => _wsDeltaCount;
   int get wsMetaCount => _wsMetaCount;
@@ -82,6 +89,16 @@ class DiagnosticService {
     final m = method.toUpperCase();
     _restCallCounts[m] = (_restCallCounts[m] ?? 0) + 1;
     _restCallLastMemDelta[m] = memAfterKB - memBeforeKB;
+  }
+
+  /// Mirror a connection-lifecycle event (already timestamped by the caller)
+  /// into the next uploaded snapshot. Bounded so a reconnect storm can't grow
+  /// memory. Side-effect-free.
+  void noteEvent(String line) {
+    _connEvents.add(line);
+    if (_connEvents.length > _connEventsMax) {
+      _connEvents.removeAt(0);
+    }
   }
 
   /// Record a WebSocket message by type: 'delta', 'meta', 'notification'.
@@ -225,6 +242,7 @@ class DiagnosticService {
         'metaMessages': _wsMetaCount,
         'notificationMessages': _wsNotificationCount,
       },
+      if (_connEvents.isNotEmpty) 'connEvents': List<String>.from(_connEvents),
       'cacheSizes': {
         'metadataStore': _signalKService.metadataStore.count,
         'displayUnitsCache': _signalKService.displayUnitsCacheCount,
@@ -242,10 +260,11 @@ class DiagnosticService {
 
     _snapshots.add(snapshot);
 
-    // Reset WS counters for next interval
+    // Reset WS counters + connection events for next interval
     _wsDeltaCount = 0;
     _wsMetaCount = 0;
     _wsNotificationCount = 0;
+    _connEvents.clear();
 
     // Upload every 5 snapshots (every 5 minutes), or on the first snapshot
     if (_snapshots.length == 1 || _snapshots.length % 5 == 0) {
