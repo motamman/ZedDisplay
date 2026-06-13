@@ -6,6 +6,7 @@ import '../models/notification_payload.dart';
 import '../services/alert_coordinator.dart';
 import '../services/cpa_alert_service.dart';
 import '../services/ais_favorites_service.dart';
+import '../services/dashboard_service.dart';
 import '../services/notification_navigation_service.dart';
 
 /// Persistent alert panel that renders all active alerts as stacked rows.
@@ -85,22 +86,24 @@ class _AlertRow extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
             ),
           ),
-          // VIEW — CPA: highlight vessel on chart
+          // VIEW — CPA: navigate to the AIS Polar Chart, then highlight vessel
           if (isCpa && event.callbackData is CpaVesselAlert)
             _button('VIEW', () {
               try {
-                final cpaService = Provider.of<CpaAlertService>(context, listen: false);
-                cpaService.requestHighlight(
+                _navigateToAisChart(context);
+                Provider.of<CpaAlertService>(context, listen: false)
+                    .requestHighlight(
                   (event.callbackData as CpaVesselAlert).vesselId,
                 );
               } catch (_) {}
             }),
-          // VIEW — AIS Favorites: highlight vessel on chart
+          // VIEW — AIS Favorites: navigate to the AIS Polar Chart, then highlight
           if (event.subsystem == AlertSubsystem.aisFavorites && event.callbackData is String)
             _button('VIEW', () {
               try {
-                final favService = Provider.of<AISFavoritesService>(context, listen: false);
-                favService.requestHighlight(event.callbackData as String);
+                _navigateToAisChart(context);
+                Provider.of<AISFavoritesService>(context, listen: false)
+                    .requestHighlight(event.callbackData as String);
               } catch (_) {}
             }),
           // VIEW — SignalK notifications: navigate to relevant tool screen
@@ -129,6 +132,15 @@ class _AlertRow extends StatelessWidget {
     );
   }
 
+  /// Switch the dashboard to a screen that contains the AIS Polar Chart, so a
+  /// subsequent highlight request has a visible widget to act on. No-op if no
+  /// dashboard has that tool (then the highlight alone is the best we can do).
+  void _navigateToAisChart(BuildContext context) {
+    final dash = Provider.of<DashboardService>(context, listen: false);
+    final loc = dash.findScreenWithToolType('ais_polar_chart');
+    if (loc != null) dash.setActiveScreen(loc.$1);
+  }
+
   Widget _button(String label, VoidCallback onPressed) {
     return Padding(
       padding: const EdgeInsets.only(left: 4),
@@ -142,7 +154,7 @@ class _AlertRow extends StatelessWidget {
         child: Text(
           label,
           style: TextStyle(
-            color: label == 'VIEW' ? Colors.white70 : Colors.white,
+            color: Colors.white,
             fontSize: 12,
             fontWeight: label == 'ACK' || label == 'CANCEL' || label == 'DISMISS'
                 ? FontWeight.bold

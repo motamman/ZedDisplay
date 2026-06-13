@@ -34,7 +34,12 @@ class AlertCoordinator extends ChangeNotifier {
 
   // --- Active alerts (what's currently firing) ---
   final Map<String, AlertEvent> _activeAlerts = {};
-  /// Active alerts visible to the UI — excludes temporarily acknowledged ones.
+  /// Active alerts visible to the UI — excludes temporarily acknowledged ones,
+  /// alerts whose subsystem owns an overlay, and any severity the user has
+  /// turned off via the per-level in-app notification filter (Settings). The
+  /// in-app filter is honored literally: a level toggled off is hidden from the
+  /// panel even if it's alarm/emergency. (Audio and system/crew delivery are
+  /// gated separately in submitAlert and are unaffected by this getter.)
   List<AlertEvent> get activeAlerts {
     final now = DateTime.now();
     return List.unmodifiable(
@@ -44,6 +49,8 @@ class AlertCoordinator extends ChangeNotifier {
             return ackUntil == null || now.isAfter(ackUntil);
           })
           .where((e) => !_activeOverlays.contains(e.value.subsystem))
+          .where((e) => _storageService
+              .getInAppNotificationFilter(e.value.severity.filterLevel))
           .map((e) => e.value)
           .toList(),
     );
@@ -84,7 +91,13 @@ class AlertCoordinator extends ChangeNotifier {
     // Restore mute state from storage
     _audioMuted = _storageService.getAudioMuted();
     if (_audioMuted) _audioPlayer.mute();
+    // Re-render the panel when notification settings change (e.g. the user
+    // toggles an in-app level filter), so activeAlerts re-filters live instead
+    // of only on the next alert event.
+    _storageService.addListener(_onStorageChanged);
   }
+
+  void _onStorageChanged() => _safeNotify();
 
   /// The audio player instance for external queries.
   AlarmAudioPlayer get audioPlayer => _audioPlayer;
@@ -335,6 +348,7 @@ class AlertCoordinator extends ChangeNotifier {
 
   @override
   void dispose() {
+    _storageService.removeListener(_onStorageChanged);
     _autoUnmuteTimer?.cancel();
     _ackExpiryTimer?.cancel();
     _audioPlayer.dispose();
