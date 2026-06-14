@@ -10,6 +10,30 @@ import 'storage_service.dart';
 import 'crew_service.dart';
 import 'notification_service.dart';
 
+/// One WebRTC connection to a single remote peer. Unifies what used to be
+/// spread across `_peerConnection` + `_peerConnections` + `_remoteStreams` +
+/// `_audioRenderers` + a channel-wide pending-candidate list, so every
+/// offer/answer/ICE/teardown routes through one record keyed by peer id.
+class _PeerSession {
+  final String peerId;
+  final RTCPeerConnection pc;
+  RTCVideoRenderer? renderer;
+  MediaStream? remoteStream;
+  final List<RTCIceCandidate> pendingCandidates = [];
+  bool remoteDescSet = false;
+  String? sessionId;
+  bool isOfferer;
+  bool restartAttempted = false;
+  Timer? disconnectTimer;
+
+  _PeerSession({
+    required this.peerId,
+    required this.pc,
+    required this.sessionId,
+    required this.isOfferer,
+  });
+}
+
 /// Service for voice intercom using WebRTC
 class IntercomService extends ChangeNotifier {
   final SignalKService _signalKService;
@@ -47,16 +71,27 @@ class IntercomService extends ChangeNotifier {
   String? get currentTransmitterId => _activeTransmitters.keys.firstOrNull;
   String? get currentTransmitterName => _activeTransmitters.values.firstOrNull;
 
-  // WebRTC
-  RTCPeerConnection? _peerConnection;
+  // WebRTC — one _PeerSession per remote peer, keyed by peer id.
   MediaStream? _localStream;
-  final Map<String, MediaStream> _remoteStreams = {}; // peerId -> stream
-  MediaStream? get remoteStream => _remoteStreams.values.firstOrNull;
+  final Map<String, _PeerSession> _sessions = {};
+  MediaStream? get remoteStream =>
+      _sessions.values.map((s) => s.remoteStream).firstWhere(
+            (s) => s != null,
+            orElse: () => null,
+          );
 
-  // Audio renderers for playback
-  final Map<String, RTCVideoRenderer> _audioRenderers = {};
+  // Disposed guard — block notifyListeners() after dispose (async onTrack etc.).
+  bool _disposed = false;
 
-  final Map<String, RTCPeerConnection> _peerConnections = {};
+  // Channel membership for multi-peer mesh PTT: channelId -> set of peer ids
+  // currently present (learned from join/leave/pttStart signaling).
+  final Map<String, Set<String>> _channelMembers = {};
+
+  // Outbound signaling queued while disconnected (flushed on reconnect).
+  // Bounded; SDP is intentionally not replayed (stale), but pttEnd/hangup/
+  // channelLeave are worth delivering.
+  final List<Map<String, dynamic>> _pendingSignaling = [];
+  static const int _pendingSignalingMax = 20;
 
   // Resources API configuration - uses custom resource type for isolation
   static const String _channelResourceType = 'zeddisplay-channels';
@@ -117,55 +152,192 @@ class IntercomService extends ChangeNotifier {
 
   @override
   void dispose() {
+    _disposed = true;
     _pollTimer?.cancel();
     _signalKService.unregisterConnectionCallback(_onConnected);
     _signalKService.removeListener(_onSignalKChanged);
     _signalKService.unregisterRtcDeltaCallback();
-    _cleanup();
+    _teardownAll();
     super.dispose();
   }
 
-  /// Cleanup a specific peer's connection and stream
-  Future<void> _cleanupPeer(String peerId) async {
-    // Cleanup remote stream for this peer
-    final stream = _remoteStreams.remove(peerId);
-    await stream?.dispose();
-
-    // Cleanup audio renderer
-    final renderer = _audioRenderers.remove(peerId);
-    await renderer?.dispose();
-
-    // Close peer connection
-    final pc = _peerConnections.remove(peerId);
-    await pc?.close();
+  void _safeNotify() {
+    if (!_disposed) notifyListeners();
   }
 
-  Future<void> _cleanup() async {
-    await _localStream?.dispose();
-    _localStream = null;
-
-    // Cleanup all remote streams
-    for (final stream in _remoteStreams.values) {
-      await stream.dispose();
+  /// Apply the current mute state to a freshly-acquired local stream.
+  void _applyMuteState(MediaStream stream) {
+    for (final track in stream.getAudioTracks()) {
+      track.enabled = !_isMuted;
     }
-    _remoteStreams.clear();
+  }
 
-    // Cleanup audio renderers
-    for (final renderer in _audioRenderers.values) {
-      await renderer.dispose();
+  /// Create a peer connection to [peerId] and register it as a session.
+  /// LAN-only: no STUN/TURN. Wires ICE/track/connection-state handlers and
+  /// adds local audio (mute reapplied). Replaces any existing session.
+  Future<_PeerSession> _createSession(
+    String peerId, {
+    required String? sessionId,
+    required bool isOfferer,
+  }) async {
+    await _teardownSession(peerId, notify: false);
+
+    final pc = await createPeerConnection({
+      'iceServers': const [],
+      'sdpSemantics': 'unified-plan',
+    });
+    final session = _PeerSession(
+        peerId: peerId, pc: pc, sessionId: sessionId, isOfferer: isOfferer);
+    _sessions[peerId] = session;
+
+    final local = _localStream;
+    if (local != null) {
+      _applyMuteState(local);
+      for (final track in local.getTracks()) {
+        await pc.addTrack(track, local);
+      }
     }
-    _audioRenderers.clear();
 
-    await _peerConnection?.close();
-    _peerConnection = null;
+    pc.onTrack = (RTCTrackEvent event) async {
+      if (event.streams.isEmpty) return;
+      final stream = event.streams[0];
+      session.remoteStream = stream;
+      final renderer = RTCVideoRenderer();
+      await renderer.initialize();
+      renderer.srcObject = stream;
+      // Session may have been torn down during the await.
+      if (_disposed || _sessions[peerId] != session) {
+        await renderer.dispose();
+        return;
+      }
+      session.renderer = renderer;
+      _safeNotify();
+    };
 
-    for (final pc in _peerConnections.values) {
-      await pc.close();
+    pc.onConnectionState =
+        (RTCPeerConnectionState state) => _onPeerConnectionState(peerId, state);
+    pc.onIceConnectionState = (RTCIceConnectionState state) {
+      if (state == RTCIceConnectionState.RTCIceConnectionStateFailed) {
+        _onPeerConnectionState(
+            peerId, RTCPeerConnectionState.RTCPeerConnectionStateFailed);
+      }
+    };
+
+    return session;
+  }
+
+  /// Add an ICE candidate now if the remote description is set, else buffer it
+  /// (candidates routinely arrive before the offer/answer is applied).
+  Future<void> _addOrBufferCandidate(_PeerSession s, RTCIceCandidate c) async {
+    if (s.remoteDescSet) {
+      try {
+        await s.pc.addCandidate(c);
+      } catch (e) {
+        if (kDebugMode) print('addCandidate failed for ${s.peerId}: $e');
+      }
+    } else {
+      s.pendingCandidates.add(c);
     }
-    _peerConnections.clear();
+  }
 
+  /// Mark the remote description set and drain buffered candidates.
+  Future<void> _flushPendingCandidates(_PeerSession s) async {
+    s.remoteDescSet = true;
+    final pending = List<RTCIceCandidate>.from(s.pendingCandidates);
+    s.pendingCandidates.clear();
+    for (final c in pending) {
+      try {
+        await s.pc.addCandidate(c);
+      } catch (e) {
+        if (kDebugMode) print('flush addCandidate failed for ${s.peerId}: $e');
+      }
+    }
+  }
+
+  /// Detect dead/recovering peers: clean up failed/closed, give a disconnect a
+  /// short grace then one ICE-restart (offerer) or teardown.
+  void _onPeerConnectionState(String peerId, RTCPeerConnectionState state) {
+    final s = _sessions[peerId];
+    if (s == null) return;
+    switch (state) {
+      case RTCPeerConnectionState.RTCPeerConnectionStateConnected:
+        s.disconnectTimer?.cancel();
+        s.disconnectTimer = null;
+        break;
+      case RTCPeerConnectionState.RTCPeerConnectionStateDisconnected:
+        s.disconnectTimer?.cancel();
+        s.disconnectTimer = Timer(const Duration(seconds: 5), () async {
+          final cur = _sessions[peerId];
+          if (cur == null) return;
+          if (cur.isOfferer && !cur.restartAttempted) {
+            cur.restartAttempted = true;
+            await _restartIce(cur);
+          } else {
+            await _teardownSession(peerId);
+          }
+        });
+        break;
+      case RTCPeerConnectionState.RTCPeerConnectionStateFailed:
+      case RTCPeerConnectionState.RTCPeerConnectionStateClosed:
+        _teardownSession(peerId);
+        break;
+      default:
+        break;
+    }
+  }
+
+  /// Single ICE-restart attempt — re-offer to the peer.
+  Future<void> _restartIce(_PeerSession s) async {
+    final profile = _crewService.localProfile;
+    if (profile == null || _currentChannel == null) {
+      await _teardownSession(s.peerId);
+      return;
+    }
+    try {
+      final offer = await s.pc.createOffer({'iceRestart': true});
+      await s.pc.setLocalDescription(offer);
+      s.remoteDescSet = false;
+      _sendSignalingMessage(SignalingMessage(
+        id: const Uuid().v4(),
+        sessionId: s.sessionId ?? '',
+        channelId: _currentChannel!.id,
+        fromId: profile.id,
+        fromName: profile.name,
+        type: SignalingType.offer,
+        data: {'sdp': offer.sdp, 'type': offer.type, 'targetId': s.peerId},
+      ));
+    } catch (e) {
+      if (kDebugMode) print('ICE restart failed for ${s.peerId}: $e');
+      await _teardownSession(s.peerId);
+    }
+  }
+
+  /// Tear down and remove a single peer session.
+  Future<void> _teardownSession(String peerId, {bool notify = true}) async {
+    final s = _sessions.remove(peerId);
+    if (s == null) return;
+    s.disconnectTimer?.cancel();
+    _activeTransmitters.remove(peerId);
+    try {
+      await s.pc.close();
+    } catch (_) {}
+    await s.renderer?.dispose();
+    await s.remoteStream?.dispose();
+    if (notify) _safeNotify();
+  }
+
+  /// Tear down every peer session and the local mic stream.
+  Future<void> _teardownAll() async {
+    for (final peerId in _sessions.keys.toList()) {
+      await _teardownSession(peerId, notify: false);
+    }
+    _sessions.clear();
     _activeTransmitters.clear();
     _answeredSessions.clear();
+    _localStream?.getTracks().forEach((t) => t.stop());
+    await _localStream?.dispose();
+    _localStream = null;
+    _safeNotify();
   }
 
   /// Check and request microphone permission
@@ -278,6 +450,15 @@ class IntercomService extends ChangeNotifier {
   }
 
   Future<void> _onConnected() async {
+    // Flush queued control signaling (pttEnd/hangup/channelLeave) first.
+    if (_pendingSignaling.isNotEmpty) {
+      final pending = List<Map<String, dynamic>>.from(_pendingSignaling);
+      _pendingSignaling.clear();
+      for (final m in pending) {
+        _signalKService.sendRtcSignaling(
+            m['id'] as String, m['json'] as Map<String, dynamic>);
+      }
+    }
     await _ensureResourceType();
     _startPolling();
     await _syncChannels();
@@ -294,7 +475,18 @@ class IntercomService extends ChangeNotifier {
   void _onDisconnected() {
     _pollTimer?.cancel();
     _pollTimer = null;
-    _leaveChannel();
+    // Tear down all peer connections and reset active-call state. Keep
+    // _currentChannel/_isListening so the user stays "on" the channel and
+    // sessions rebuild from fresh offers after reconnect. Don't send here —
+    // the socket is down (control messages were queued in _sendSignalingMessage).
+    _teardownAll();
+    _isPTTActive = false;
+    _isInDirectCall = false;
+    _directCallTargetId = null;
+    _directCallTargetName = null;
+    _currentSessionId = null;
+    _channelMembers.clear();
+    _safeNotify();
   }
 
   void _startPolling() {
@@ -474,6 +666,13 @@ class IntercomService extends ChangeNotifier {
 
     _sendSignalingMessage(message);
 
+    // Tear down channel peer sessions (but not an active direct call).
+    for (final peerId in _sessions.keys.toList()) {
+      if (_isInDirectCall && peerId == _directCallTargetId) continue;
+      await _teardownSession(peerId, notify: false);
+    }
+    _channelMembers.remove(_currentChannel!.id);
+
     _isListening = false;
     _currentChannel = null;
     notifyListeners();
@@ -522,8 +721,8 @@ class IntercomService extends ChangeNotifier {
       _activeTransmitters[profile.id] = profile.name;
       notifyListeners();
 
-      // Create offer and start WebRTC connection
-      await _createOffer();
+      // Open a peer connection + offer to every listener on the channel.
+      await _startBroadcast();
 
       if (kDebugMode) {
         print('PTT started on channel: ${_currentChannel!.name}');
@@ -567,9 +766,13 @@ class IntercomService extends ChangeNotifier {
       await _localStream?.dispose();
       _localStream = null;
 
-      // Close peer connections
-      await _peerConnection?.close();
-      _peerConnection = null;
+      // Tear down the broadcast (offerer) sessions, sparing an active direct call.
+      for (final peerId in _sessions.keys.toList()) {
+        final s = _sessions[peerId];
+        if (s == null || !s.isOfferer) continue;
+        if (_isInDirectCall && peerId == _directCallTargetId) continue;
+        await _teardownSession(peerId, notify: false);
+      }
 
       _isPTTActive = false;
       // Remove self from active transmitters
@@ -604,8 +807,9 @@ class IntercomService extends ChangeNotifier {
   String? get incomingCallFromId => _incomingCallFromId;
   String? get incomingCallFromName => _incomingCallFromName;
 
-  // Queue for ICE candidates received before peer connection is ready
-  final List<SignalingMessage> _pendingIceCandidates = [];
+  // ICE candidates for an incoming direct call that arrive before the user
+  // answers (no session exists yet); drained into the session on answer.
+  final List<RTCIceCandidate> _incomingIce = [];
 
   /// Start a direct call to a specific crew member
   Future<bool> startDirectCall(String targetId, String targetName) async {
@@ -674,18 +878,17 @@ class IntercomService extends ChangeNotifier {
     }
 
     // Cleanup
+    final targetId = _directCallTargetId;
     _localStream?.getTracks().forEach((track) => track.stop());
     await _localStream?.dispose();
     _localStream = null;
 
-    await _peerConnection?.close();
-    _peerConnection = null;
+    if (targetId != null) await _teardownSession(targetId, notify: false);
 
     _isInDirectCall = false;
     _directCallTargetId = null;
     _directCallTargetName = null;
     _currentSessionId = null;
-    _pendingIceCandidates.clear();
     notifyListeners();
 
     if (kDebugMode) {
@@ -730,20 +933,12 @@ class IntercomService extends ChangeNotifier {
       _incomingCallSessionId = null;
       _pendingIncomingOffer = null;
 
-      // Create peer connection
-      _peerConnection = await createPeerConnection({
-        'iceServers': [],
-        'sdpSemantics': 'unified-plan',
-      });
+      // Create session for the caller (local audio added by _createSession).
+      final session = await _createSession(callerId,
+          sessionId: offer.sessionId, isOfferer: false);
 
-      // Add local stream
-      _localStream!.getTracks().forEach((track) {
-        _peerConnection!.addTrack(track, _localStream!);
-      });
-
-      // Handle ICE candidates
-      _peerConnection!.onIceCandidate = (RTCIceCandidate candidate) {
-        final iceMessage = SignalingMessage(
+      session.pc.onIceCandidate = (RTCIceCandidate candidate) {
+        _sendSignalingMessage(SignalingMessage(
           id: const Uuid().v4(),
           sessionId: _currentSessionId!,
           channelId: 'direct_${profile.id}',
@@ -756,37 +951,26 @@ class IntercomService extends ChangeNotifier {
             'sdpMLineIndex': candidate.sdpMLineIndex,
             'targetId': callerId,
           },
-        );
-        _sendSignalingMessage(iceMessage);
+        ));
       };
 
-      // Handle remote stream
-      _peerConnection!.onTrack = (RTCTrackEvent event) async {
-        if (event.streams.isNotEmpty) {
-          final stream = event.streams[0];
-          _remoteStreams[callerId] = stream;
-
-          // Create renderer for playback
-          final renderer = RTCVideoRenderer();
-          await renderer.initialize();
-          renderer.srcObject = stream;
-          _audioRenderers[callerId] = renderer;
-
-          notifyListeners();
-        }
-      };
-
-      // Set remote description (the offer)
-      await _peerConnection!.setRemoteDescription(RTCSessionDescription(
+      // Set remote description (the offer), then drain any candidates that
+      // arrived before the user answered.
+      await session.pc.setRemoteDescription(RTCSessionDescription(
         offer.data!['sdp'] as String,
         offer.data!['type'] as String,
       ));
+      await _flushPendingCandidates(session);
+      for (final c in _incomingIce) {
+        await _addOrBufferCandidate(session, c);
+      }
+      _incomingIce.clear();
 
       // Create and send answer
-      final answer = await _peerConnection!.createAnswer();
-      await _peerConnection!.setLocalDescription(answer);
+      final answer = await session.pc.createAnswer();
+      await session.pc.setLocalDescription(answer);
 
-      final answerMessage = SignalingMessage(
+      _sendSignalingMessage(SignalingMessage(
         id: const Uuid().v4(),
         sessionId: offer.sessionId,
         channelId: 'direct_${profile.id}',
@@ -799,30 +983,7 @@ class IntercomService extends ChangeNotifier {
           'directCall': true,
           'targetId': callerId,
         },
-      );
-
-      _sendSignalingMessage(answerMessage);
-
-      // Process any queued ICE candidates now that peer connection is ready
-      if (_pendingIceCandidates.isNotEmpty) {
-        if (kDebugMode) {
-          print('Processing ${_pendingIceCandidates.length} queued ICE candidates');
-        }
-        for (final iceMsg in _pendingIceCandidates) {
-          try {
-            await _peerConnection!.addCandidate(RTCIceCandidate(
-              iceMsg.data!['candidate'] as String?,
-              iceMsg.data!['sdpMid'] as String?,
-              iceMsg.data!['sdpMLineIndex'] as int?,
-            ));
-          } catch (e) {
-            if (kDebugMode) {
-              print('Error adding queued ICE candidate: $e');
-            }
-          }
-        }
-        _pendingIceCandidates.clear();
-      }
+      ));
 
       if (kDebugMode) {
         print('Answered call from $callerName');
@@ -870,7 +1031,7 @@ class IntercomService extends ChangeNotifier {
     _incomingCallFromName = null;
     _incomingCallSessionId = null;
     _pendingIncomingOffer = null;
-    _pendingIceCandidates.clear();
+    _incomingIce.clear();
     notifyListeners();
   }
 
@@ -880,21 +1041,11 @@ class IntercomService extends ChangeNotifier {
     if (profile == null) return;
 
     try {
-      _peerConnection = await createPeerConnection({
-        'iceServers': [],
-        'sdpSemantics': 'unified-plan',
-      });
+      final session = await _createSession(targetId,
+          sessionId: _currentSessionId, isOfferer: true);
 
-      // Add local stream
-      if (_localStream != null) {
-        _localStream!.getTracks().forEach((track) {
-          _peerConnection!.addTrack(track, _localStream!);
-        });
-      }
-
-      // Handle ICE candidates
-      _peerConnection!.onIceCandidate = (RTCIceCandidate candidate) {
-        final iceMessage = SignalingMessage(
+      session.pc.onIceCandidate = (RTCIceCandidate candidate) {
+        _sendSignalingMessage(SignalingMessage(
           id: const Uuid().v4(),
           sessionId: _currentSessionId!,
           channelId: 'direct_$targetId',
@@ -905,33 +1056,15 @@ class IntercomService extends ChangeNotifier {
             'candidate': candidate.candidate,
             'sdpMid': candidate.sdpMid,
             'sdpMLineIndex': candidate.sdpMLineIndex,
+            'targetId': targetId,
           },
-        );
-        _sendSignalingMessage(iceMessage);
+        ));
       };
 
-      // Handle remote stream
-      _peerConnection!.onTrack = (RTCTrackEvent event) async {
-        if (event.streams.isNotEmpty) {
-          final stream = event.streams[0];
-          _remoteStreams[targetId] = stream;
+      final offer = await session.pc.createOffer();
+      await session.pc.setLocalDescription(offer);
 
-          // Create renderer for playback
-          final renderer = RTCVideoRenderer();
-          await renderer.initialize();
-          renderer.srcObject = stream;
-          _audioRenderers[targetId] = renderer;
-
-          notifyListeners();
-        }
-      };
-
-      // Create offer
-      final offer = await _peerConnection!.createOffer();
-      await _peerConnection!.setLocalDescription(offer);
-
-      // Send offer
-      final offerMessage = SignalingMessage(
+      _sendSignalingMessage(SignalingMessage(
         id: const Uuid().v4(),
         sessionId: _currentSessionId!,
         channelId: 'direct_$targetId',
@@ -939,9 +1072,7 @@ class IntercomService extends ChangeNotifier {
         fromName: profile.name,
         type: SignalingType.offer,
         data: {'sdp': offer.sdp, 'type': offer.type, 'directCall': true},
-      );
-
-      _sendSignalingMessage(offerMessage);
+      ));
     } catch (e) {
       if (kDebugMode) {
         print('Error creating direct call offer: $e');
@@ -1029,8 +1160,8 @@ class IntercomService extends ChangeNotifier {
       _isPTTActive = true;
       notifyListeners();
 
-      // Create offer and start WebRTC connection
-      await _createOffer();
+      // Open a peer connection + offer to every listener on the channel.
+      await _startBroadcast();
 
       if (kDebugMode) {
         print('Duplex mode started on channel: ${_currentChannel!.name}');
@@ -1045,94 +1176,71 @@ class IntercomService extends ChangeNotifier {
     }
   }
 
-  /// Create WebRTC offer
-  Future<void> _createOffer() async {
+  /// Broadcast to every other online crew member (mesh): one peer connection +
+  /// targeted offer each. Non-members ignore the offer (they only process
+  /// offers for their current channel), so exact membership isn't required to
+  /// start; a mid-broadcast joiner is offered to via _handleSignalingMessage.
+  Future<void> _startBroadcast() async {
     final profile = _crewService.localProfile;
-    if (profile == null || _currentChannel == null || _currentSessionId == null) return;
+    if (profile == null || _currentChannel == null || _currentSessionId == null) {
+      return;
+    }
+    final listeners = _crewService.onlineCrew
+        .map((c) => c.id)
+        .where((id) => id != profile.id)
+        .toSet();
+    (_channelMembers[_currentChannel!.id] ??= {}).addAll(listeners);
+    for (final peerId in listeners) {
+      await _offerToPeer(peerId);
+    }
+  }
 
+  /// Create a session to [peerId] and send it a targeted channel offer.
+  Future<void> _offerToPeer(String peerId) async {
+    final profile = _crewService.localProfile;
+    if (profile == null ||
+        _currentChannel == null ||
+        _currentSessionId == null) {
+      return;
+    }
     try {
-      // Create peer connection
-      _peerConnection = await createPeerConnection({
-        'iceServers': [
-          // Use local network - no STUN/TURN needed for LAN
-        ],
-        'sdpSemantics': 'unified-plan',
-      });
+      final session = await _createSession(peerId,
+          sessionId: _currentSessionId, isOfferer: true);
 
-      // Add local stream
-      if (_localStream != null) {
-        _localStream!.getTracks().forEach((track) {
-          _peerConnection!.addTrack(track, _localStream!);
-        });
-      }
-
-      // Handle ICE candidates
-      _peerConnection!.onIceCandidate = (RTCIceCandidate candidate) {
-        _sendIceCandidate(candidate);
+      session.pc.onIceCandidate = (RTCIceCandidate candidate) {
+        _sendSignalingMessage(SignalingMessage(
+          id: const Uuid().v4(),
+          sessionId: _currentSessionId!,
+          channelId: _currentChannel!.id,
+          fromId: profile.id,
+          fromName: profile.name,
+          type: SignalingType.iceCandidate,
+          data: {
+            'candidate': candidate.candidate,
+            'sdpMid': candidate.sdpMid,
+            'sdpMLineIndex': candidate.sdpMLineIndex,
+            'targetId': peerId,
+          },
+        ));
       };
 
-      // Handle remote stream (when receiving audio back in duplex mode)
-      _peerConnection!.onTrack = (RTCTrackEvent event) async {
-        if (event.streams.isNotEmpty) {
-          // In duplex mode, we might receive audio from answerers
-          // Store in remoteStreams map
-          final stream = event.streams[0];
-          // Use a generic key for self-initiated streams
-          _remoteStreams['self_receive'] = stream;
+      final offer = await session.pc.createOffer();
+      await session.pc.setLocalDescription(offer);
 
-          // Create renderer for playback
-          final renderer = RTCVideoRenderer();
-          await renderer.initialize();
-          renderer.srcObject = stream;
-          _audioRenderers['self_receive'] = renderer;
-
-          notifyListeners();
-        }
-      };
-
-      // Create offer
-      final offer = await _peerConnection!.createOffer();
-      await _peerConnection!.setLocalDescription(offer);
-
-      // Send offer via SignalK
-      final message = SignalingMessage(
+      _sendSignalingMessage(SignalingMessage(
         id: const Uuid().v4(),
         sessionId: _currentSessionId!,
         channelId: _currentChannel!.id,
         fromId: profile.id,
         fromName: profile.name,
         type: SignalingType.offer,
-        data: {'sdp': offer.sdp, 'type': offer.type},
-      );
-
-      _sendSignalingMessage(message);
+        data: {'sdp': offer.sdp, 'type': offer.type, 'targetId': peerId},
+      ));
     } catch (e) {
       if (kDebugMode) {
-        print('Error creating offer: $e');
+        print('Error offering to $peerId: $e');
       }
     }
-  }
-
-  /// Send ICE candidate
-  Future<void> _sendIceCandidate(RTCIceCandidate candidate) async {
-    final profile = _crewService.localProfile;
-    if (profile == null || _currentChannel == null || _currentSessionId == null) return;
-
-    final message = SignalingMessage(
-      id: const Uuid().v4(),
-      sessionId: _currentSessionId!,
-      channelId: _currentChannel!.id,
-      fromId: profile.id,
-      fromName: profile.name,
-      type: SignalingType.iceCandidate,
-      data: {
-        'candidate': candidate.candidate,
-        'sdpMid': candidate.sdpMid,
-        'sdpMLineIndex': candidate.sdpMLineIndex,
-      },
-    );
-
-    _sendSignalingMessage(message);
   }
 
   /// Handle incoming signaling message
@@ -1156,16 +1264,14 @@ class IntercomService extends ChangeNotifier {
 
     switch (message.type) {
       case SignalingType.pttStart:
-        // Add to active transmitters (supports multiple)
         _activeTransmitters[message.fromId] = message.fromName;
+        (_channelMembers[message.channelId] ??= {}).add(message.fromId);
         notifyListeners();
         break;
 
       case SignalingType.pttEnd:
-        // Remove from active transmitters
         _activeTransmitters.remove(message.fromId);
-        // Cleanup that peer's stream and connection
-        await _cleanupPeer(message.fromId);
+        await _teardownSession(message.fromId);
         notifyListeners();
         break;
 
@@ -1182,22 +1288,44 @@ class IntercomService extends ChangeNotifier {
         break;
 
       case SignalingType.channelJoin:
-        // Update channel member list
-        if (kDebugMode) {
-          print('${message.fromName} joined channel');
+        (_channelMembers[message.channelId] ??= {}).add(message.fromId);
+        // Announce back (once) so the joiner learns we're already present.
+        if (message.data?['reply'] != true) {
+          _announcePresenceToChannel(message.channelId);
+        }
+        // If we're mid-broadcast, bring the new peer into the mesh.
+        if (_isPTTActive && _currentSessionId != null) {
+          await _offerToPeer(message.fromId);
         }
         break;
 
       case SignalingType.channelLeave:
-        if (kDebugMode) {
-          print('${message.fromName} left channel');
-        }
+        _channelMembers[message.channelId]?.remove(message.fromId);
+        _activeTransmitters.remove(message.fromId);
+        await _teardownSession(message.fromId);
         break;
 
       case SignalingType.hangup:
-        await _cleanup();
+        await _teardownSession(message.fromId);
         break;
     }
+  }
+
+  /// Reply to a channelJoin so the new member learns we're already on the
+  /// channel (lets a mid-session joiner converge on membership). Marked
+  /// `reply:true` so it doesn't trigger another announce-back (no loop).
+  void _announcePresenceToChannel(String channelId) {
+    final profile = _crewService.localProfile;
+    if (profile == null) return;
+    _sendSignalingMessage(SignalingMessage(
+      id: const Uuid().v4(),
+      sessionId: '',
+      channelId: channelId,
+      fromId: profile.id,
+      fromName: profile.name,
+      type: SignalingType.channelJoin,
+      data: {'reply': true},
+    ));
   }
 
   /// Handle incoming offer
@@ -1206,39 +1334,57 @@ class IntercomService extends ChangeNotifier {
     if (profile == null || _currentChannel == null) return;
 
     final peerId = message.fromId;
-    final sessionKey = '${message.sessionId}_$peerId';
 
-    // Check if we've already answered this session
-    if (_answeredSessions.contains(sessionKey)) {
-      if (kDebugMode) {
-        print('Already answered session from ${message.fromName}, skipping');
+    // Mesh: ignore offers addressed to someone else.
+    final targetId = message.data?['targetId'] as String?;
+    if (targetId != null && targetId != profile.id) return;
+
+    final existing = _sessions[peerId];
+    if (existing != null) {
+      if (existing.isOfferer) {
+        // Glare: both sides offered. Lexicographically-smaller id stays the
+        // offerer; the larger id yields and answers instead.
+        if (profile.id.compareTo(peerId) < 0) return;
+        await _teardownSession(peerId, notify: false);
+      } else if (existing.sessionId == message.sessionId &&
+          existing.remoteDescSet) {
+        return; // duplicate offer, already answered
       }
-      return;
     }
 
     try {
-      // Mark as answered before processing to prevent duplicates
-      _answeredSessions.add(sessionKey);
-
-      // Cleanup old session keys (keep last 50)
-      if (_answeredSessions.length > 50) {
-        final toRemove = _answeredSessions.take(_answeredSessions.length - 50).toList();
-        _answeredSessions.removeAll(toRemove);
+      // In duplex we also send our audio, so ensure a local stream exists
+      // before _createSession adds it.
+      if (isDuplexMode && _hasMicPermission) {
+        _localStream ??= await navigator.mediaDevices.getUserMedia({
+          'audio': {
+            'echoCancellation': true,
+            'noiseSuppression': true,
+            'autoGainControl': true,
+          },
+          'video': false,
+        });
+        if (!_isPTTActive) {
+          _isPTTActive = true;
+          _activeTransmitters[profile.id] = profile.name;
+          _currentSessionId ??= const Uuid().v4();
+          _sendSignalingMessage(SignalingMessage(
+            id: const Uuid().v4(),
+            sessionId: _currentSessionId!,
+            channelId: _currentChannel!.id,
+            fromId: profile.id,
+            fromName: profile.name,
+            type: SignalingType.pttStart,
+            data: {'mode': 'duplex'},
+          ));
+        }
       }
 
-      // Cleanup existing connection for this peer if any
-      await _cleanupPeer(peerId);
+      final session = await _createSession(peerId,
+          sessionId: message.sessionId, isOfferer: false);
 
-      // Create peer connection for this sender
-      final pc = await createPeerConnection({
-        'iceServers': [],
-        'sdpSemantics': 'unified-plan',
-      });
-      _peerConnections[peerId] = pc;
-
-      // Handle ICE candidates
-      pc.onIceCandidate = (RTCIceCandidate candidate) {
-        final answerMessage = SignalingMessage(
+      session.pc.onIceCandidate = (RTCIceCandidate candidate) {
+        _sendSignalingMessage(SignalingMessage(
           id: const Uuid().v4(),
           sessionId: message.sessionId,
           channelId: _currentChannel!.id,
@@ -1249,94 +1395,29 @@ class IntercomService extends ChangeNotifier {
             'candidate': candidate.candidate,
             'sdpMid': candidate.sdpMid,
             'sdpMLineIndex': candidate.sdpMLineIndex,
+            'targetId': peerId,
           },
-        );
-        _sendSignalingMessage(answerMessage);
+        ));
       };
 
-      // In duplex mode, add our local audio so they can hear us too
-      if (isDuplexMode && _hasMicPermission) {
-        // Create local stream if we don't have one
-        _localStream ??= await navigator.mediaDevices.getUserMedia({
-            'audio': {
-              'echoCancellation': true,
-              'noiseSuppression': true,
-              'autoGainControl': true,
-            },
-            'video': false,
-          });
-
-        // Add our audio tracks to this peer connection
-        for (final track in _localStream!.getAudioTracks()) {
-          await pc.addTrack(track, _localStream!);
-        }
-
-        // Mark us as actively transmitting so the UI shows it
-        if (!_isPTTActive) {
-          _isPTTActive = true;
-          _activeTransmitters[profile.id] = profile.name;
-
-          // Create a session ID if we don't have one
-          _currentSessionId ??= const Uuid().v4();
-
-          // Notify others that we've started transmitting
-          final pttStartMessage = SignalingMessage(
-            id: const Uuid().v4(),
-            sessionId: _currentSessionId!,
-            channelId: _currentChannel!.id,
-            fromId: profile.id,
-            fromName: profile.name,
-            type: SignalingType.pttStart,
-            data: {'mode': 'duplex'},
-          );
-          _sendSignalingMessage(pttStartMessage);
-        }
-
-        if (kDebugMode) {
-          print('Added local audio to duplex connection with ${message.fromName}');
-        }
-      }
-
-      // Handle remote stream (the audio from the transmitter)
-      pc.onTrack = (RTCTrackEvent event) async {
-        if (event.streams.isNotEmpty) {
-          final stream = event.streams[0];
-          _remoteStreams[peerId] = stream;
-
-          // Create audio renderer for playback
-          final renderer = RTCVideoRenderer();
-          await renderer.initialize();
-          renderer.srcObject = stream;
-          _audioRenderers[peerId] = renderer;
-
-          if (kDebugMode) {
-            print('Audio stream connected from ${message.fromName}');
-          }
-          notifyListeners();
-        }
-      };
-
-      // Set remote description (the offer)
-      await pc.setRemoteDescription(RTCSessionDescription(
+      await session.pc.setRemoteDescription(RTCSessionDescription(
         message.data!['sdp'] as String,
         message.data!['type'] as String,
       ));
+      await _flushPendingCandidates(session);
 
-      // Create and send answer
-      final answer = await pc.createAnswer();
-      await pc.setLocalDescription(answer);
+      final answer = await session.pc.createAnswer();
+      await session.pc.setLocalDescription(answer);
 
-      final answerMessage = SignalingMessage(
+      _sendSignalingMessage(SignalingMessage(
         id: const Uuid().v4(),
         sessionId: message.sessionId,
         channelId: _currentChannel!.id,
         fromId: profile.id,
         fromName: profile.name,
         type: SignalingType.answer,
-        data: {'sdp': answer.sdp, 'type': answer.type},
-      );
-
-      _sendSignalingMessage(answerMessage);
+        data: {'sdp': answer.sdp, 'type': answer.type, 'targetId': peerId},
+      ));
 
       if (kDebugMode) {
         print('Answered offer from ${message.fromName}');
@@ -1348,34 +1429,28 @@ class IntercomService extends ChangeNotifier {
     }
   }
 
-  /// Handle incoming answer
+  /// Handle incoming answer — route to the per-peer session (each pc has its
+  /// own HaveLocalOffer state, so every listener's answer applies).
   Future<void> _handleAnswer(SignalingMessage message) async {
-    if (_peerConnection == null) return;
+    final profile = _crewService.localProfile;
+    final targetId = message.data?['targetId'] as String?;
+    if (targetId != null && profile != null && targetId != profile.id) return;
 
-    // Only process answer if we're in the correct state (have-local-offer)
-    // and the answer is for our current session
-    if (_currentSessionId != message.sessionId) {
-      if (kDebugMode) {
-        print('Ignoring answer for different session: ${message.sessionId}');
-      }
+    final session = _sessions[message.fromId];
+    if (session == null || !session.isOfferer) return;
+    if (session.sessionId != null && session.sessionId != message.sessionId) {
       return;
     }
-
-    final signalingState = _peerConnection!.signalingState;
-    if (signalingState != RTCSignalingState.RTCSignalingStateHaveLocalOffer) {
-      if (kDebugMode) {
-        print('Ignoring answer - wrong state: $signalingState');
-      }
-      return;
-    }
+    if (session.remoteDescSet) return; // already answered
 
     try {
-      await _peerConnection!.setRemoteDescription(RTCSessionDescription(
+      await session.pc.setRemoteDescription(RTCSessionDescription(
         message.data!['sdp'] as String,
         message.data!['type'] as String,
       ));
+      await _flushPendingCandidates(session);
       if (kDebugMode) {
-        print('Successfully set remote description from ${message.fromName}');
+        print('Set remote answer from ${message.fromName}');
       }
     } catch (e) {
       if (kDebugMode) {
@@ -1384,30 +1459,45 @@ class IntercomService extends ChangeNotifier {
     }
   }
 
-  /// Handle incoming ICE candidate
+  /// Handle incoming ICE candidate — route to the per-peer session, buffering
+  /// if the remote description isn't set yet.
   Future<void> _handleIceCandidate(SignalingMessage message) async {
-    final pc = _peerConnection ?? _peerConnections[message.fromId];
-    if (pc == null) return;
+    final profile = _crewService.localProfile;
+    final targetId = message.data?['targetId'] as String?;
+    if (targetId != null && profile != null && targetId != profile.id) return;
 
-    try {
-      await pc.addCandidate(RTCIceCandidate(
+    final session = _sessions[message.fromId];
+    if (session == null) return;
+
+    await _addOrBufferCandidate(
+      session,
+      RTCIceCandidate(
         message.data!['candidate'] as String?,
         message.data!['sdpMid'] as String?,
         message.data!['sdpMLineIndex'] as int?,
-      ));
-    } catch (e) {
-      if (kDebugMode) {
-        print('Error handling ICE candidate: $e');
-      }
-    }
+      ),
+    );
   }
 
-  /// Send signaling message via SignalK WebSocket delta (real-time broadcast)
+  /// Send signaling message via SignalK WebSocket delta (real-time broadcast).
+  /// While disconnected, queue control messages (pttEnd/hangup/channelLeave) for
+  /// delivery on reconnect; SDP (offer/answer/ICE) is dropped since it's stale
+  /// once the gap passes.
   void _sendSignalingMessage(SignalingMessage message) {
-    if (!_signalKService.isConnected) return;
+    final json = message.toJson();
+    if (!_signalKService.isConnected) {
+      if (message.type == SignalingType.pttEnd ||
+          message.type == SignalingType.hangup ||
+          message.type == SignalingType.channelLeave) {
+        _pendingSignaling.add({'id': message.id, 'json': json});
+        while (_pendingSignaling.length > _pendingSignalingMax) {
+          _pendingSignaling.removeAt(0);
+        }
+      }
+      return;
+    }
 
-    // Send via WebSocket delta - broadcasts to all connected clients
-    _signalKService.sendRtcSignaling(message.id, message.toJson());
+    _signalKService.sendRtcSignaling(message.id, json);
 
     if (kDebugMode) {
       print('Sent RTC signaling: ${message.type} to ${message.channelId}');
@@ -1440,47 +1530,40 @@ class IntercomService extends ChangeNotifier {
         break;
 
       case SignalingType.answer:
-        // Answer to our outgoing call
-        if (_isInDirectCall && _peerConnection != null) {
-          final signalingState = _peerConnection!.signalingState;
-          if (signalingState == RTCSignalingState.RTCSignalingStateHaveLocalOffer) {
-            try {
-              await _peerConnection!.setRemoteDescription(RTCSessionDescription(
-                message.data!['sdp'] as String,
-                message.data!['type'] as String,
-              ));
-              if (kDebugMode) {
-                print('Direct call connected with ${message.fromName}');
-              }
-            } catch (e) {
-              if (kDebugMode) {
-                print('Error setting remote description: $e');
-              }
+        // Answer to our outgoing direct call.
+        final session = _sessions[message.fromId];
+        if (_isInDirectCall && session != null && session.isOfferer &&
+            !session.remoteDescSet) {
+          try {
+            await session.pc.setRemoteDescription(RTCSessionDescription(
+              message.data!['sdp'] as String,
+              message.data!['type'] as String,
+            ));
+            await _flushPendingCandidates(session);
+            if (kDebugMode) {
+              print('Direct call connected with ${message.fromName}');
+            }
+          } catch (e) {
+            if (kDebugMode) {
+              print('Error setting remote description: $e');
             }
           }
         }
         break;
 
       case SignalingType.iceCandidate:
-        // ICE candidate for direct call
-        if (_peerConnection != null) {
-          try {
-            await _peerConnection!.addCandidate(RTCIceCandidate(
-              message.data!['candidate'] as String?,
-              message.data!['sdpMid'] as String?,
-              message.data!['sdpMLineIndex'] as int?,
-            ));
-          } catch (e) {
-            if (kDebugMode) {
-              print('Error adding ICE candidate: $e');
-            }
-          }
+        // ICE candidate for direct call.
+        final c = RTCIceCandidate(
+          message.data!['candidate'] as String?,
+          message.data!['sdpMid'] as String?,
+          message.data!['sdpMLineIndex'] as int?,
+        );
+        final s = _sessions[message.fromId];
+        if (s != null) {
+          await _addOrBufferCandidate(s, c);
         } else if (hasIncomingCall && message.fromId == _incomingCallFromId) {
-          // Queue ICE candidate until peer connection is ready (for incoming call)
-          if (kDebugMode) {
-            print('Queuing ICE candidate from ${message.fromName} (awaiting answer)');
-          }
-          _pendingIceCandidates.add(message);
+          // No session yet (user hasn't answered) — buffer until answer.
+          _incomingIce.add(c);
         } else if (kDebugMode) {
           print('Ignoring ICE candidate - no active call or incoming call');
         }
@@ -1593,10 +1676,16 @@ class IntercomService extends ChangeNotifier {
   }
 
   /// Get all remote streams for audio playback
-  Map<String, MediaStream> get remoteStreams => Map.unmodifiable(_remoteStreams);
+  Map<String, MediaStream> get remoteStreams => {
+        for (final s in _sessions.values)
+          if (s.remoteStream != null) s.peerId: s.remoteStream!,
+      };
 
   /// Get audio renderers (for widgets that need to render audio)
-  Map<String, RTCVideoRenderer> get audioRenderers => Map.unmodifiable(_audioRenderers);
+  Map<String, RTCVideoRenderer> get audioRenderers => {
+        for (final s in _sessions.values)
+          if (s.renderer != null) s.peerId: s.renderer!,
+      };
 
   /// Check if receiving from anyone
   bool get isReceiving => _activeTransmitters.entries
