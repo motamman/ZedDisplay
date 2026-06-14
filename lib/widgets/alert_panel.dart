@@ -14,6 +14,10 @@ import '../services/dashboard_service.dart';
 class AlertPanel extends StatelessWidget {
   const AlertPanel({super.key});
 
+  /// Height of the dashboard's screen-nav row (dots + arrows), matching
+  /// `_selectorHeight` in dashboard_manager_screen.dart.
+  static const double _screenNavHeight = 50.0;
+
   @override
   Widget build(BuildContext context) {
     return Consumer<AlertCoordinator>(
@@ -25,31 +29,103 @@ class AlertPanel extends StatelessWidget {
         final sorted = List<AlertEvent>.from(alerts)
           ..sort((a, b) => b.severity.index.compareTo(a.severity.index));
 
+        // Sit above the screen-nav row. The nav lives inside the bottom
+        // safe-area, so it occupies [viewPadding.bottom .. +_screenNavHeight]
+        // from the screen bottom — the panel must clear BOTH the safe-area
+        // inset and the nav height, or it overlaps the nav.
+        final bottomInset =
+            MediaQuery.of(context).viewPadding.bottom + _screenNavHeight;
+
         return Positioned(
           left: 0,
           right: 0,
-          bottom: 0,
+          bottom: bottomInset,
           child: Material(
             elevation: 8,
             child: ConstrainedBox(
               constraints: BoxConstraints(
                 maxHeight: MediaQuery.of(context).size.height * 0.4,
               ),
-              child: ListView.builder(
-                shrinkWrap: true,
-                padding: EdgeInsets.zero,
-                itemCount: sorted.length,
-                itemBuilder: (context, index) {
-                  return _AlertRow(
-                    event: sorted[index],
-                    coordinator: coordinator,
-                  );
-                },
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Bulk actions header — only when more than one alert.
+                  if (sorted.length > 1)
+                    _BulkActionsBar(
+                      count: sorted.length,
+                      coordinator: coordinator,
+                    ),
+                  Flexible(
+                    child: ListView.builder(
+                      shrinkWrap: true,
+                      padding: EdgeInsets.zero,
+                      itemCount: sorted.length,
+                      itemBuilder: (context, index) {
+                        return _AlertRow(
+                          event: sorted[index],
+                          coordinator: coordinator,
+                        );
+                      },
+                    ),
+                  ),
+                ],
               ),
             ),
           ),
         );
       },
+    );
+  }
+}
+
+/// Header above a stack of alerts (shown only when there is more than one):
+/// the count plus ACK ALL / DISMISS ALL.
+class _BulkActionsBar extends StatelessWidget {
+  final int count;
+  final AlertCoordinator coordinator;
+
+  const _BulkActionsBar({required this.count, required this.coordinator});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      color: Colors.grey.shade900,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      child: Row(
+        children: [
+          Text(
+            '$count alerts',
+            style: const TextStyle(
+              color: Colors.white70,
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const Spacer(),
+          _barButton('ACK ALL', coordinator.acknowledgeAll),
+          const SizedBox(width: 4),
+          _barButton('DISMISS ALL', coordinator.dismissAll),
+        ],
+      ),
+    );
+  }
+
+  Widget _barButton(String label, VoidCallback onPressed) {
+    return TextButton(
+      onPressed: onPressed,
+      style: TextButton.styleFrom(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        minimumSize: Size.zero,
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      ),
+      child: Text(
+        label,
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 12,
+          fontWeight: FontWeight.bold,
+        ),
+      ),
     );
   }
 }

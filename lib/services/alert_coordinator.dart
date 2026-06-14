@@ -241,6 +241,23 @@ class AlertCoordinator extends ChangeNotifier {
     }
   }
 
+  /// Acknowledge every active alert (silence audio + clear system
+  /// notifications, leave the rows up). Snapshot first — acknowledgeAlarm
+  /// mutates coordinator state.
+  void acknowledgeAll() {
+    for (final event in _activeAlerts.values.toList()) {
+      acknowledgeAlarm(event.subsystem, alarmId: event.alarmId);
+    }
+  }
+
+  /// Dismiss (resolve) every active alert. Snapshot first — resolveAlert
+  /// mutates _activeAlerts.
+  void dismissAll() {
+    for (final event in _activeAlerts.values.toList()) {
+      resolveAlert(event.subsystem, alarmId: event.alarmId);
+    }
+  }
+
   /// Clear all active alerts for a subsystem (e.g., on disconnect).
   void clearSubsystem(AlertSubsystem subsystem, {bool internal = false}) {
     _audioPlayer.stop(source: subsystem.name);
