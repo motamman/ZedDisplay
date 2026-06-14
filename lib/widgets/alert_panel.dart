@@ -7,7 +7,6 @@ import '../services/alert_coordinator.dart';
 import '../services/cpa_alert_service.dart';
 import '../services/ais_favorites_service.dart';
 import '../services/dashboard_service.dart';
-import '../services/notification_navigation_service.dart';
 
 /// Persistent alert panel that renders all active alerts as stacked rows.
 /// Lives in the MaterialApp.builder Stack — visible on every screen.
@@ -63,9 +62,7 @@ class _AlertRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isAlarm = event.severity >= AlertSeverity.alarm;
     final colors = _severityColors(event.severity);
-    final isCpa = event.subsystem == AlertSubsystem.cpa;
 
     return Container(
       color: colors.$1,
@@ -86,45 +83,17 @@ class _AlertRow extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
             ),
           ),
-          // VIEW — CPA: navigate to the AIS Polar Chart, then highlight vessel
-          if (isCpa && event.callbackData is CpaVesselAlert)
-            _button('VIEW', () {
-              try {
-                _navigateToAisChart(context);
-                Provider.of<CpaAlertService>(context, listen: false)
-                    .requestHighlight(
-                  (event.callbackData as CpaVesselAlert).vesselId,
-                );
-              } catch (_) {}
-            }),
-          // VIEW — AIS Favorites: navigate to the AIS Polar Chart, then highlight
-          if (event.subsystem == AlertSubsystem.aisFavorites && event.callbackData is String)
-            _button('VIEW', () {
-              try {
-                _navigateToAisChart(context);
-                Provider.of<AISFavoritesService>(context, listen: false)
-                    .requestHighlight(event.callbackData as String);
-              } catch (_) {}
-            }),
-          // VIEW — SignalK notifications: navigate to relevant tool screen
-          if (event.subsystem == AlertSubsystem.signalk && event.callbackData is NotificationPayload)
-            Builder(builder: (context) {
-              try {
-                final navService = Provider.of<NotificationNavigationService>(context, listen: false);
-                final nav = navService.getNavigation(event.callbackData as NotificationPayload);
-                if (nav == null) return const SizedBox.shrink();
-                return _button('VIEW', () => nav.$1());
-              } catch (_) {
-                return const SizedBox.shrink();
-              }
-            }),
-          // ACK — alarm level: stop audio, row stays
-          if (isAlarm)
-            _button('ACK', () {
-              coordinator.acknowledgeAlarm(event.subsystem, alarmId: event.alarmId);
-            }),
-          // CANCEL / DISMISS — removes alert entirely
-          _button(isAlarm ? 'CANCEL' : 'DISMISS', () {
+          // VIEW — unified for every alert: navigate to the alert's home
+          // widget (see _buildViewButton). One rule, no per-subsystem cases.
+          _buildViewButton(context),
+          // ACK — universal: silence audio (if any) + clear the system
+          // notification, but leave the row up. Severity is shown by colour.
+          _button('ACK', () {
+            coordinator.acknowledgeAlarm(event.subsystem, alarmId: event.alarmId);
+          }),
+          // DISMISS — universal: removes the alert entirely. Same label at every
+          // severity (colour is the severity indicator).
+          _button('DISMISS', () {
             coordinator.resolveAlert(event.subsystem, alarmId: event.alarmId);
           }),
         ],
@@ -132,13 +101,45 @@ class _AlertRow extends StatelessWidget {
     );
   }
 
-  /// Switch the dashboard to a screen that contains the AIS Polar Chart, so a
-  /// subsequent highlight request has a visible widget to act on. No-op if no
-  /// dashboard has that tool (then the highlight alone is the best we can do).
-  void _navigateToAisChart(BuildContext context) {
+  /// Unified VIEW button. Resolves the alert's home screen the same way for
+  /// every alert, then navigates there on tap:
+  ///   1. `alarmSource` — the widget type the alert declares it belongs to
+  ///      (e.g. CPA → 'ais_polar_chart', anchor → 'anchor_alarm').
+  ///   2. Otherwise the SignalK path the alert carries — go to whatever widget
+  ///      the user bound to that path (generic notifications like pressure).
+  /// Renders nothing when no relevant widget is placed, so VIEW never appears
+  /// pointing nowhere. For vessel alerts it also highlights the vessel.
+  Widget _buildViewButton(BuildContext context) {
     final dash = Provider.of<DashboardService>(context, listen: false);
-    final loc = dash.findScreenWithToolType('ais_polar_chart');
-    if (loc != null) dash.setActiveScreen(loc.$1);
+
+    (int, String)? target;
+    final src = event.alarmSource;
+    if (src != null && src.isNotEmpty) {
+      target = dash.findScreenWithToolType(src);
+    }
+    if (target == null && event.callbackData is NotificationPayload) {
+      final key = (event.callbackData as NotificationPayload).notificationKey;
+      if (key != null) target = dash.findScreenWithToolPath(key);
+    }
+    if (target == null) return const SizedBox.shrink();
+
+    final screenIndex = target.$1;
+    return _button('VIEW', () {
+      dash.setActiveScreen(screenIndex);
+      // Enrichment: highlight the vessel for vessel-based alerts once we're on
+      // the chart. Harmless for alerts that aren't about a vessel.
+      final cb = event.callbackData;
+      try {
+        if (cb is CpaVesselAlert) {
+          Provider.of<CpaAlertService>(context, listen: false)
+              .requestHighlight(cb.vesselId);
+        } else if (event.subsystem == AlertSubsystem.aisFavorites &&
+            cb is String) {
+          Provider.of<AISFavoritesService>(context, listen: false)
+              .requestHighlight(cb);
+        }
+      } catch (_) {}
+    });
   }
 
   Widget _button(String label, VoidCallback onPressed) {
@@ -156,9 +157,7 @@ class _AlertRow extends StatelessWidget {
           style: TextStyle(
             color: Colors.white,
             fontSize: 12,
-            fontWeight: label == 'ACK' || label == 'CANCEL' || label == 'DISMISS'
-                ? FontWeight.bold
-                : FontWeight.normal,
+            fontWeight: label == 'VIEW' ? FontWeight.normal : FontWeight.bold,
           ),
         ),
       ),

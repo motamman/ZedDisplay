@@ -139,7 +139,9 @@ class AISFavoritesService extends ChangeNotifier {
       body: 'in range',
       wantsInAppSnackbar: true,
       wantsSystemNotification: true,
-      alarmSource: 'ais_favorites',
+      // The favorites list lives in the AIS Polar Chart, so VIEW navigates
+      // there. ('ais_favorites' is not a tool type — it resolved to nothing.)
+      alarmSource: 'ais_polar_chart',
       alarmId: fav.mmsi, // Per-vessel tracking in coordinator
       callbackData: vesselId, // URN for highlight-on-tap
     ));
