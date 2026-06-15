@@ -55,8 +55,10 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen>
 
   // Screen selector auto-hide
 
-  // Height reserved at bottom for screen selector dots
-  static const double _selectorHeight = 50.0;
+  // Height reserved at bottom for screen selector dots. Shared with AlertPanel
+  // (which sits just above this row) via [UIConstants.screenSelectorHeight] so
+  // the two can't drift apart and overlap.
+  static const double _selectorHeight = UIConstants.screenSelectorHeight;
 
   bool _isEditMode = false;
   bool _isFullScreen = false;
@@ -587,11 +589,9 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen>
                         child: child,
                       );
                     },
-                    onReorder: (oldIndex, newIndex) {
-                      // ReorderableListView gives newIndex as position before removal
-                      if (newIndex > oldIndex) {
-                        newIndex -= 1;
-                      }
+                    onReorderItem: (oldIndex, newIndex) {
+                      // onReorderItem already adjusts newIndex for the removed
+                      // item, so no manual `newIndex -= 1` is needed.
                       dashboardService.reorderScreens(oldIndex, newIndex);
                       setSheetState(() {}); // Refresh bottom sheet UI
                     },
@@ -1513,7 +1513,8 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen>
           width: double.infinity,
           child: Row(
             children: [
-              if (screenCount > 1) _screenArrow(next: false),
+              if (screenCount > 1)
+                _screenArrow(next: false, enabled: !disableSwipe),
               Expanded(
                 child: Center(
                   // Tapping the dots opens the full screen selector.
@@ -1553,7 +1554,8 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen>
                 ),
               ),
             ),
-            if (screenCount > 1) _screenArrow(next: true),
+            if (screenCount > 1)
+              _screenArrow(next: true, enabled: !disableSwipe),
             ],
           ),
         ),
@@ -1565,24 +1567,30 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen>
 
   /// Prev/next screen chevron shown beside the dots. Pages through the infinite
   /// PageView (so it wraps around) via the same path as a swipe.
-  Widget _screenArrow({required bool next}) {
+  Widget _screenArrow({required bool next, bool enabled = true}) {
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
-      onTap: () {
-        if (!_pageControllerInitialized || !_pageController.hasClients) return;
-        const dur = Duration(milliseconds: 300);
-        const curve = Curves.easeInOut;
-        if (next) {
-          _pageController.nextPage(duration: dur, curve: curve);
-        } else {
-          _pageController.previousPage(duration: dur, curve: curve);
-        }
-      },
+      // Respect the same lock as swipe (edit/placement mode, widget swipe
+      // block): a chevron tap must not bypass it and page mid-edit/placement.
+      onTap: !enabled
+          ? null
+          : () {
+              if (!_pageControllerInitialized || !_pageController.hasClients) {
+                return;
+              }
+              const dur = Duration(milliseconds: 300);
+              const curve = Curves.easeInOut;
+              if (next) {
+                _pageController.nextPage(duration: dur, curve: curve);
+              } else {
+                _pageController.previousPage(duration: dur, curve: curve);
+              }
+            },
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
         child: Icon(
           next ? Icons.chevron_right : Icons.chevron_left,
-          color: Colors.grey.shade700,
+          color: enabled ? Colors.grey.shade700 : Colors.grey.shade500,
           size: 28,
         ),
       ),

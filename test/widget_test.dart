@@ -81,7 +81,12 @@ void main() {
       const MethodChannel('flutter.baseflow.com/permissions/methods'),
       (call) async {
         if (call.method == 'checkPermissionStatus') return 1; // granted
-        if (call.method == 'requestPermissions') return <int, int>{};
+        if (call.method == 'requestPermissions') {
+          // Report each requested permission as granted (1), matching
+          // checkPermissionStatus — an empty map reads back as denied/unset.
+          final perms = (call.arguments as List?)?.cast<int>() ?? const [];
+          return {for (final p in perms) p: 1};
+        }
         return 1;
       },
     );
@@ -298,6 +303,10 @@ void main() {
 /// `instance` field. Anything else is a real regression and should propagate.
 bool _isHeadlessPluginFailure(Object e) {
   if (e is MissingPluginException) return true;
+  // NOTE: Copilot suggested checking the type directly, but `e is
+  // LateInitializationError` does not compile (the type isn't public), and the
+  // runtime type is actually `LateError` — only the message string carries the
+  // "LateInitializationError" prefix. So matching toString() is the only option.
   return e is Error && e.toString().startsWith('LateInitializationError');
 }
 

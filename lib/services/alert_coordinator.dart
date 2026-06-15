@@ -245,15 +245,17 @@ class AlertCoordinator extends ChangeNotifier {
   /// notifications, leave the rows up). Snapshot first — acknowledgeAlarm
   /// mutates coordinator state.
   void acknowledgeAll() {
-    for (final event in _activeAlerts.values.toList()) {
+    // Use the filtered `activeAlerts` (the same set shown in the panel) so we
+    // never act on alerts the user can't currently see. Snapshot first.
+    for (final event in activeAlerts.toList()) {
       acknowledgeAlarm(event.subsystem, alarmId: event.alarmId);
     }
   }
 
-  /// Dismiss (resolve) every active alert. Snapshot first — resolveAlert
+  /// Dismiss (resolve) every visible active alert. Snapshot first — resolveAlert
   /// mutates _activeAlerts.
   void dismissAll() {
-    for (final event in _activeAlerts.values.toList()) {
+    for (final event in activeAlerts.toList()) {
       resolveAlert(event.subsystem, alarmId: event.alarmId);
     }
   }

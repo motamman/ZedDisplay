@@ -7,6 +7,7 @@ import '../services/alert_coordinator.dart';
 import '../services/cpa_alert_service.dart';
 import '../services/ais_favorites_service.dart';
 import '../services/dashboard_service.dart';
+import '../config/ui_constants.dart';
 
 /// Persistent alert panel that renders all active alerts as stacked rows.
 /// Lives in the MaterialApp.builder Stack — visible on every screen.
@@ -14,9 +15,9 @@ import '../services/dashboard_service.dart';
 class AlertPanel extends StatelessWidget {
   const AlertPanel({super.key});
 
-  /// Height of the dashboard's screen-nav row (dots + arrows), matching
-  /// `_selectorHeight` in dashboard_manager_screen.dart.
-  static const double _screenNavHeight = 50.0;
+  /// Height of the dashboard's screen-nav row (dots + arrows). Single source of
+  /// truth shared with dashboard_manager_screen.dart's selector row.
+  static const double _screenNavHeight = UIConstants.screenSelectorHeight;
 
   @override
   Widget build(BuildContext context) {

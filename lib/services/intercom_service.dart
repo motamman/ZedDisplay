@@ -16,6 +16,10 @@ import 'notification_service.dart';
 /// offer/answer/ICE/teardown routes through one record keyed by peer id.
 class _PeerSession {
   final String peerId;
+  // Distinguishes a 1:1 direct call from a channel-mesh session. Both can exist
+  // for the SAME peer at once, so the map key is scoped by this (see
+  // `_sessionKey`) to stop one from tearing down the other.
+  final bool direct;
   final RTCPeerConnection pc;
   RTCVideoRenderer? renderer;
   MediaStream? remoteStream;
@@ -31,6 +35,7 @@ class _PeerSession {
     required this.pc,
     required this.sessionId,
     required this.isOfferer,
+    this.direct = false,
   });
 }
 
@@ -71,9 +76,15 @@ class IntercomService extends ChangeNotifier {
   String? get currentTransmitterId => _activeTransmitters.keys.firstOrNull;
   String? get currentTransmitterName => _activeTransmitters.values.firstOrNull;
 
-  // WebRTC — one _PeerSession per remote peer, keyed by peer id.
+  // WebRTC — one _PeerSession per remote peer, keyed by scope + peer id (so a
+  // channel-mesh session and a direct call with the same peer don't collide).
   MediaStream? _localStream;
   final Map<String, _PeerSession> _sessions = {};
+
+  /// Map key for a peer session. Channel-mesh sessions key on the bare peerId;
+  /// direct (1:1) calls are scoped under `direct:` so the two can coexist.
+  String _sessionKey(String peerId, {required bool direct}) =>
+      direct ? 'direct:$peerId' : peerId;
   MediaStream? get remoteStream =>
       _sessions.values.map((s) => s.remoteStream).firstWhere(
             (s) => s != null,
@@ -157,7 +168,11 @@ class IntercomService extends ChangeNotifier {
     _signalKService.unregisterConnectionCallback(_onConnected);
     _signalKService.removeListener(_onSignalKChanged);
     _signalKService.unregisterRtcDeltaCallback();
-    _teardownAll();
+    // Fire-and-forget teardown: dispose() is sync, but swallow any async
+    // platform WebRTC close errors so they don't surface unhandled.
+    unawaited(_teardownAll().catchError((Object e) {
+      if (kDebugMode) print('Intercom teardown error: $e');
+    }));
     super.dispose();
   }
 
@@ -179,16 +194,22 @@ class IntercomService extends ChangeNotifier {
     String peerId, {
     required String? sessionId,
     required bool isOfferer,
+    bool direct = false,
   }) async {
-    await _teardownSession(peerId, notify: false);
+    final key = _sessionKey(peerId, direct: direct);
+    await _teardownSession(peerId, direct: direct, notify: false);
 
     final pc = await createPeerConnection({
       'iceServers': const [],
       'sdpSemantics': 'unified-plan',
     });
     final session = _PeerSession(
-        peerId: peerId, pc: pc, sessionId: sessionId, isOfferer: isOfferer);
-    _sessions[peerId] = session;
+        peerId: peerId,
+        pc: pc,
+        sessionId: sessionId,
+        isOfferer: isOfferer,
+        direct: direct);
+    _sessions[key] = session;
 
     final local = _localStream;
     if (local != null) {
@@ -206,7 +227,7 @@ class IntercomService extends ChangeNotifier {
       await renderer.initialize();
       renderer.srcObject = stream;
       // Session may have been torn down during the await.
-      if (_disposed || _sessions[peerId] != session) {
+      if (_disposed || _sessions[key] != session) {
         await renderer.dispose();
         return;
       }
@@ -214,12 +235,14 @@ class IntercomService extends ChangeNotifier {
       _safeNotify();
     };
 
+    // Capture the session instance (not just peerId) so a late callback from a
+    // replaced RTCPeerConnection can be recognized as stale and ignored.
     pc.onConnectionState =
-        (RTCPeerConnectionState state) => _onPeerConnectionState(peerId, state);
+        (RTCPeerConnectionState state) => _onPeerConnectionState(session, state);
     pc.onIceConnectionState = (RTCIceConnectionState state) {
       if (state == RTCIceConnectionState.RTCIceConnectionStateFailed) {
         _onPeerConnectionState(
-            peerId, RTCPeerConnectionState.RTCPeerConnectionStateFailed);
+            session, RTCPeerConnectionState.RTCPeerConnectionStateFailed);
       }
     };
 
@@ -256,9 +279,10 @@ class IntercomService extends ChangeNotifier {
 
   /// Detect dead/recovering peers: clean up failed/closed, give a disconnect a
   /// short grace then one ICE-restart (offerer) or teardown.
-  void _onPeerConnectionState(String peerId, RTCPeerConnectionState state) {
-    final s = _sessions[peerId];
-    if (s == null) return;
+  void _onPeerConnectionState(_PeerSession s, RTCPeerConnectionState state) {
+    final key = _sessionKey(s.peerId, direct: s.direct);
+    // Ignore callbacks from a peer connection that's already been replaced.
+    if (_sessions[key] != s) return;
     switch (state) {
       case RTCPeerConnectionState.RTCPeerConnectionStateConnected:
         s.disconnectTimer?.cancel();
@@ -267,19 +291,18 @@ class IntercomService extends ChangeNotifier {
       case RTCPeerConnectionState.RTCPeerConnectionStateDisconnected:
         s.disconnectTimer?.cancel();
         s.disconnectTimer = Timer(const Duration(seconds: 5), () async {
-          final cur = _sessions[peerId];
-          if (cur == null) return;
-          if (cur.isOfferer && !cur.restartAttempted) {
-            cur.restartAttempted = true;
-            await _restartIce(cur);
+          if (_sessions[key] != s) return;
+          if (s.isOfferer && !s.restartAttempted) {
+            s.restartAttempted = true;
+            await _restartIce(s);
           } else {
-            await _teardownSession(peerId);
+            await _teardownSession(s.peerId, direct: s.direct);
           }
         });
         break;
       case RTCPeerConnectionState.RTCPeerConnectionStateFailed:
       case RTCPeerConnectionState.RTCPeerConnectionStateClosed:
-        _teardownSession(peerId);
+        _teardownSession(s.peerId, direct: s.direct);
         break;
       default:
         break;
@@ -290,7 +313,7 @@ class IntercomService extends ChangeNotifier {
   Future<void> _restartIce(_PeerSession s) async {
     final profile = _crewService.localProfile;
     if (profile == null || _currentChannel == null) {
-      await _teardownSession(s.peerId);
+      await _teardownSession(s.peerId, direct: s.direct);
       return;
     }
     try {
@@ -308,13 +331,14 @@ class IntercomService extends ChangeNotifier {
       ));
     } catch (e) {
       if (kDebugMode) print('ICE restart failed for ${s.peerId}: $e');
-      await _teardownSession(s.peerId);
+      await _teardownSession(s.peerId, direct: s.direct);
     }
   }
 
   /// Tear down and remove a single peer session.
-  Future<void> _teardownSession(String peerId, {bool notify = true}) async {
-    final s = _sessions.remove(peerId);
+  Future<void> _teardownSession(String peerId,
+      {bool direct = false, bool notify = true}) async {
+    final s = _sessions.remove(_sessionKey(peerId, direct: direct));
     if (s == null) return;
     s.disconnectTimer?.cancel();
     _activeTransmitters.remove(peerId);
@@ -328,8 +352,8 @@ class IntercomService extends ChangeNotifier {
 
   /// Tear down every peer session and the local mic stream.
   Future<void> _teardownAll() async {
-    for (final peerId in _sessions.keys.toList()) {
-      await _teardownSession(peerId, notify: false);
+    for (final s in _sessions.values.toList()) {
+      await _teardownSession(s.peerId, direct: s.direct, notify: false);
     }
     _sessions.clear();
     _activeTransmitters.clear();
@@ -454,9 +478,15 @@ class IntercomService extends ChangeNotifier {
     if (_pendingSignaling.isNotEmpty) {
       final pending = List<Map<String, dynamic>>.from(_pendingSignaling);
       _pendingSignaling.clear();
+      final nowIso = DateTime.now().toUtc().toIso8601String();
       for (final m in pending) {
-        _signalKService.sendRtcSignaling(
-            m['id'] as String, m['json'] as Map<String, dynamic>);
+        // Refresh the timestamp before replaying: receivers drop messages
+        // older than 30s, so control messages (pttEnd/hangup/channelLeave)
+        // queued during a long disconnect would otherwise be silently ignored,
+        // leaving peers with stuck transmitter/call state.
+        final json = Map<String, dynamic>.from(m['json'] as Map<String, dynamic>);
+        json['timestamp'] = nowIso;
+        _signalKService.sendRtcSignaling(m['id'] as String, json);
       }
     }
     await _ensureResourceType();
@@ -666,10 +696,11 @@ class IntercomService extends ChangeNotifier {
 
     _sendSignalingMessage(message);
 
-    // Tear down channel peer sessions (but not an active direct call).
-    for (final peerId in _sessions.keys.toList()) {
-      if (_isInDirectCall && peerId == _directCallTargetId) continue;
-      await _teardownSession(peerId, notify: false);
+    // Tear down channel peer sessions; direct calls live under a separate
+    // scope and are left untouched.
+    for (final s in _sessions.values.toList()) {
+      if (s.direct) continue;
+      await _teardownSession(s.peerId, notify: false);
     }
     _channelMembers.remove(_currentChannel!.id);
 
@@ -766,12 +797,11 @@ class IntercomService extends ChangeNotifier {
       await _localStream?.dispose();
       _localStream = null;
 
-      // Tear down the broadcast (offerer) sessions, sparing an active direct call.
-      for (final peerId in _sessions.keys.toList()) {
-        final s = _sessions[peerId];
-        if (s == null || !s.isOfferer) continue;
-        if (_isInDirectCall && peerId == _directCallTargetId) continue;
-        await _teardownSession(peerId, notify: false);
+      // Tear down the broadcast (offerer) channel sessions; direct calls live
+      // under a separate scope and are left untouched.
+      for (final s in _sessions.values.toList()) {
+        if (s.direct || !s.isOfferer) continue;
+        await _teardownSession(s.peerId, notify: false);
       }
 
       _isPTTActive = false;
@@ -883,7 +913,9 @@ class IntercomService extends ChangeNotifier {
     await _localStream?.dispose();
     _localStream = null;
 
-    if (targetId != null) await _teardownSession(targetId, notify: false);
+    if (targetId != null) {
+      await _teardownSession(targetId, direct: true, notify: false);
+    }
 
     _isInDirectCall = false;
     _directCallTargetId = null;
@@ -935,7 +967,7 @@ class IntercomService extends ChangeNotifier {
 
       // Create session for the caller (local audio added by _createSession).
       final session = await _createSession(callerId,
-          sessionId: offer.sessionId, isOfferer: false);
+          sessionId: offer.sessionId, isOfferer: false, direct: true);
 
       session.pc.onIceCandidate = (RTCIceCandidate candidate) {
         _sendSignalingMessage(SignalingMessage(
@@ -1042,7 +1074,7 @@ class IntercomService extends ChangeNotifier {
 
     try {
       final session = await _createSession(targetId,
-          sessionId: _currentSessionId, isOfferer: true);
+          sessionId: _currentSessionId, isOfferer: true, direct: true);
 
       session.pc.onIceCandidate = (RTCIceCandidate candidate) {
         _sendSignalingMessage(SignalingMessage(
@@ -1289,13 +1321,16 @@ class IntercomService extends ChangeNotifier {
 
       case SignalingType.channelJoin:
         (_channelMembers[message.channelId] ??= {}).add(message.fromId);
-        // Announce back (once) so the joiner learns we're already present.
+        // React only to an original join, not to the reply announcements every
+        // existing member broadcasts back — re-offering to already-connected
+        // peers would tear down and recreate stable sessions mid-broadcast.
         if (message.data?['reply'] != true) {
+          // Announce back (once) so the joiner learns we're already present.
           _announcePresenceToChannel(message.channelId);
-        }
-        // If we're mid-broadcast, bring the new peer into the mesh.
-        if (_isPTTActive && _currentSessionId != null) {
-          await _offerToPeer(message.fromId);
+          // If we're mid-broadcast, bring the new peer into the mesh.
+          if (_isPTTActive && _currentSessionId != null) {
+            await _offerToPeer(message.fromId);
+          }
         }
         break;
 
@@ -1341,15 +1376,13 @@ class IntercomService extends ChangeNotifier {
 
     final existing = _sessions[peerId];
     if (existing != null) {
-      if (existing.isOfferer) {
-        // Glare: both sides offered. Lexicographically-smaller id stays the
-        // offerer; the larger id yields and answers instead.
-        if (profile.id.compareTo(peerId) < 0) return;
-        await _teardownSession(peerId, notify: false);
-      } else if (existing.sessionId == message.sessionId &&
-          existing.remoteDescSet) {
-        return; // duplicate offer, already answered
-      }
+      // Glare: both sides offered. Lexicographically-smaller id stays the
+      // offerer; the larger id yields and answers instead.
+      if (existing.isOfferer && profile.id.compareTo(peerId) < 0) return;
+      // Replace the existing session and (re)answer. A same-session re-offer is
+      // a renegotiation/ICE-restart and must NOT be dropped as a duplicate —
+      // true duplicates are already filtered by _processedSignalingIds above.
+      await _teardownSession(peerId, notify: false);
     }
 
     try {
@@ -1468,6 +1501,12 @@ class IntercomService extends ChangeNotifier {
 
     final session = _sessions[message.fromId];
     if (session == null) return;
+    // Drop stale candidates from a previous PTT session with the same peer.
+    if (session.sessionId != null &&
+        message.sessionId.isNotEmpty &&
+        session.sessionId != message.sessionId) {
+      return;
+    }
 
     await _addOrBufferCandidate(
       session,
@@ -1531,7 +1570,7 @@ class IntercomService extends ChangeNotifier {
 
       case SignalingType.answer:
         // Answer to our outgoing direct call.
-        final session = _sessions[message.fromId];
+        final session = _sessions[_sessionKey(message.fromId, direct: true)];
         if (_isInDirectCall && session != null && session.isOfferer &&
             !session.remoteDescSet) {
           try {
@@ -1558,8 +1597,14 @@ class IntercomService extends ChangeNotifier {
           message.data!['sdpMid'] as String?,
           message.data!['sdpMLineIndex'] as int?,
         );
-        final s = _sessions[message.fromId];
+        final s = _sessions[_sessionKey(message.fromId, direct: true)];
         if (s != null) {
+          // Drop stale candidates from a previous call with the same peer.
+          if (s.sessionId != null &&
+              message.sessionId.isNotEmpty &&
+              s.sessionId != message.sessionId) {
+            break;
+          }
           await _addOrBufferCandidate(s, c);
         } else if (hasIncomingCall && message.fromId == _incomingCallFromId) {
           // No session yet (user hasn't answered) — buffer until answer.

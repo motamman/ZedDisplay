@@ -113,8 +113,24 @@ class SignalKService extends ChangeNotifier implements DataService {
 
   /// Append a timestamped connection-lifecycle event. Visible via
   /// [connectionLog] and the debug console; mirrored into DiagnosticService.
+  /// Strip auth material (server `token=` query params and `Bearer` values)
+  /// from a log line before it is stored, printed, or mirrored to diagnostics.
+  /// Reconnect/error events can embed the authenticated WebSocket URL.
+  static String _redactConnectionLog(String value) {
+    return value
+        .replaceAllMapped(
+          RegExp(r'([?&]token=)[^&\s]+'),
+          (match) => '${match.group(1)}<redacted>',
+        )
+        .replaceAllMapped(
+          RegExp(r'(Bearer\s+)[^\s,;]+'),
+          (match) => '${match.group(1)}<redacted>',
+        );
+  }
+
   void _log(String event) {
-    final line = '${DateTime.now().toIso8601String()} $event';
+    final line =
+        '${DateTime.now().toIso8601String()} ${_redactConnectionLog(event)}';
     _connLog.addLast(line);
     while (_connLog.length > _connLogMax) {
       _connLog.removeFirst();
@@ -1201,15 +1217,28 @@ class SignalKService extends ChangeNotifier implements DataService {
     } catch (_) {}
     _channel = null;
 
-    // Open new WebSocket via the factory (pingInterval set on every socket).
-    final wsUrl = await _discoverWebSocketEndpoint();
-    final headers = _authToken != null
-        ? <String, String>{'Authorization': 'Bearer ${_authToken!.token}'}
-        : null;
-    _channel = await _channelFactory(wsUrl, headers);
+    // The old socket is gone; we are not connected until the new one is up.
+    // Set this BEFORE the (awaitable, throw-prone) factory call so a failure
+    // there can't strand us in isConnected==true while _channel==null — which
+    // would break liveness/reconnect logic and UI state.
+    _isConnected = false;
 
-    // Attach the generation-guarded listener on the new stream.
-    _attachListener();
+    try {
+      // Open new WebSocket via the factory (pingInterval set on every socket).
+      final wsUrl = await _discoverWebSocketEndpoint();
+      final headers = _authToken != null
+          ? <String, String>{'Authorization': 'Bearer ${_authToken!.token}'}
+          : null;
+      _channel = await _channelFactory(wsUrl, headers);
+
+      // Attach the generation-guarded listener on the new stream.
+      _attachListener();
+    } catch (_) {
+      // Leave coherent state (_isConnected already false, _channel null) and
+      // let the caller's backoff machinery retry.
+      _connectionState = SignalKConnectionState.reconnecting;
+      rethrow;
+    }
 
     _isConnected = true;
     _errorMessage = null;
