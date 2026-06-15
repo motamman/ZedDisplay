@@ -516,8 +516,9 @@ class _ZedDisplayAppState extends State<ZedDisplayApp> with WidgetsBindingObserv
         // (not on `inactive`): `inactive` also fires for transient focus loss
         // while the app stays visible (system dialogs/overlays), and treating
         // that as a long sleep would force a needless reconnect on resume.
-        DiagnosticService.instance?.stop();
         _pausedAt = DateTime.now();
+        widget.signalKService.logLifecycle('lifecycle: paused/hidden');
+        DiagnosticService.instance?.stop();
         // We don't disconnect here (too heavy); wakeReconnect() on resume reuses
         // the service's own persisted server/secure/token state.
         break;
@@ -541,10 +542,17 @@ class _ZedDisplayAppState extends State<ZedDisplayApp> with WidgetsBindingObserv
         // persisted server URL so a drop just before backgrounding (which
         // would have cleared a connected-only latch) still reconnects.
         if (widget.signalKService.serverUrl.isNotEmpty) {
-          final sleptLong = _pausedAt != null &&
-              DateTime.now().difference(_pausedAt!) >
-                  const Duration(seconds: 10);
-          if (!widget.signalKService.isConnected || sleptLong) {
+          final pausedSecs = _pausedAt == null
+              ? 0
+              : DateTime.now().difference(_pausedAt!).inSeconds;
+          final sleptLong = _pausedAt != null && pausedSecs > 10;
+          final willReconnect =
+              !widget.signalKService.isConnected || sleptLong;
+          widget.signalKService.logLifecycle(
+              'lifecycle: resumed paused=${pausedSecs}s '
+              'connected=${widget.signalKService.isConnected} '
+              'sleptLong=$sleptLong reconnect=$willReconnect');
+          if (willReconnect) {
             _reconnect();
           }
         }

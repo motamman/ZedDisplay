@@ -54,11 +54,11 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen>
   int _lastScreenCount = 0;
 
   // Screen selector auto-hide
-  bool _showScreenSelectorDots = true;
-  Timer? _selectorHideTimer;
 
-  // Height reserved at bottom for screen selector dots
-  static const double _selectorHeight = 50.0;
+  // Height reserved at bottom for screen selector dots. Shared with AlertPanel
+  // (which sits just above this row) via [UIConstants.screenSelectorHeight] so
+  // the two can't drift apart and overlap.
+  static const double _selectorHeight = UIConstants.screenSelectorHeight;
 
   bool _isEditMode = false;
   bool _isFullScreen = false;
@@ -82,9 +82,6 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen>
     _widgetSwipeBlock.addListener(() {
       if (mounted) setState(() {});
     });
-
-    // Start screen selector auto-hide timer
-    _startSelectorHideTimer();
 
     // Initialize PageController after first frame
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -191,7 +188,6 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen>
 
     _widgetSwipeBlock.dispose();
     _appBarHideTimer?.cancel();
-    _selectorHideTimer?.cancel();
 
     // Reset orientation to unrestricted so other screens aren't locked
     SystemChrome.setPreferredOrientations(DeviceOrientation.values);
@@ -211,29 +207,6 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen>
     super.dispose();
   }
 
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    // Show screen selector when app resumes from background
-    if (state == AppLifecycleState.resumed) {
-      _revealSelectorDots();
-    }
-  }
-
-  /// Reveal the screen selector dots and restart the hide timer
-  void _revealSelectorDots() {
-    setState(() => _showScreenSelectorDots = true);
-    _startSelectorHideTimer();
-  }
-
-  /// Start the auto-hide timer for screen selector dots
-  void _startSelectorHideTimer() {
-    _selectorHideTimer?.cancel();
-    _selectorHideTimer = Timer(const Duration(seconds: 4), () {
-      if (mounted) {
-        setState(() => _showScreenSelectorDots = false);
-      }
-    });
-  }
 
   void _startAppBarHideTimer() {
     _appBarHideTimer?.cancel();
@@ -616,11 +589,9 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen>
                         child: child,
                       );
                     },
-                    onReorder: (oldIndex, newIndex) {
-                      // ReorderableListView gives newIndex as position before removal
-                      if (newIndex > oldIndex) {
-                        newIndex -= 1;
-                      }
+                    onReorderItem: (oldIndex, newIndex) {
+                      // onReorderItem already adjusts newIndex for the removed
+                      // item, so no manual `newIndex -= 1` is needed.
                       dashboardService.reorderScreens(oldIndex, newIndex);
                       setSheetState(() {}); // Refresh bottom sheet UI
                     },
@@ -1491,7 +1462,7 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen>
       return const Center(child: CircularProgressIndicator());
     }
 
-    return Column(
+    final dashboardBody = Column(
       children: [
         // PageView gets all space above the dots area
         Expanded(
@@ -1510,7 +1481,6 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen>
                 _isSwipeInProgress = true;
                 dashboardService.setActiveScreen(actualIndex);
                 _showAppBarTemporarily();
-                _revealSelectorDots();
               }
 
               // Normalize virtualPage back to canonical range to prevent
@@ -1536,58 +1506,94 @@ class _DashboardManagerScreenState extends State<DashboardManagerScreen>
             // No itemCount = infinite scrolling for wrap-around
           ),
         ),
-        // Exclusive dots area — reserved space below PageView
-        GestureDetector(
-          behavior: HitTestBehavior.translucent,
-          onTap: () {
-            if (_showScreenSelectorDots) {
-              _showScreenSelector(context);
-            } else {
-              _revealSelectorDots();
-            }
-          },
-          child: SizedBox(
-            height: _selectorHeight,
-            width: double.infinity,
-            child: Center(
-              child: AnimatedOpacity(
-                opacity: _showScreenSelectorDots ? 1.0 : 0.0,
-                duration: const Duration(milliseconds: 300),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 16, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.3),
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: List.generate(
-                        layout.screens.length, (index) {
-                      final isActive =
-                          index == layout.activeScreenIndex;
-                      return Padding(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 4),
-                        child: Container(
-                          width: 8,
-                          height: 8,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: isActive
-                                ? Colors.grey.shade800
-                                : Colors.grey.shade400,
+        // Always-visible screen selector: prev arrow pinned to the far left,
+        // dots centred, next arrow pinned to the far right.
+        SizedBox(
+          height: _selectorHeight,
+          width: double.infinity,
+          child: Row(
+            children: [
+              if (screenCount > 1)
+                _screenArrow(next: false, enabled: !disableSwipe),
+              Expanded(
+                child: Center(
+                  // Tapping the dots opens the full screen selector.
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: () => _showScreenSelector(context),
+                    child: Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 16, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.3),
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: List.generate(
+                          layout.screens.length, (index) {
+                        final isActive =
+                            index == layout.activeScreenIndex;
+                        return Padding(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 4),
+                          child: Container(
+                            width: 8,
+                            height: 8,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: isActive
+                                  ? Colors.grey.shade800
+                                  : Colors.grey.shade400,
+                            ),
                           ),
-                        ),
-                      );
-                    }),
+                        );
+                      }),
+                    ),
                   ),
                 ),
               ),
             ),
+            if (screenCount > 1)
+              _screenArrow(next: true, enabled: !disableSwipe),
+            ],
           ),
         ),
       ],
+    );
+
+    return dashboardBody;
+  }
+
+  /// Prev/next screen chevron shown beside the dots. Pages through the infinite
+  /// PageView (so it wraps around) via the same path as a swipe.
+  Widget _screenArrow({required bool next, bool enabled = true}) {
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      // Respect the same lock as swipe (edit/placement mode, widget swipe
+      // block): a chevron tap must not bypass it and page mid-edit/placement.
+      onTap: !enabled
+          ? null
+          : () {
+              if (!_pageControllerInitialized || !_pageController.hasClients) {
+                return;
+              }
+              const dur = Duration(milliseconds: 300);
+              const curve = Curves.easeInOut;
+              if (next) {
+                _pageController.nextPage(duration: dur, curve: curve);
+              } else {
+                _pageController.previousPage(duration: dur, curve: curve);
+              }
+            },
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        child: Icon(
+          next ? Icons.chevron_right : Icons.chevron_left,
+          color: enabled ? Colors.grey.shade700 : Colors.grey.shade500,
+          size: 28,
+        ),
+      ),
     );
   }
 

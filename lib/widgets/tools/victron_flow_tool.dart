@@ -1155,11 +1155,12 @@ class _VictronFlowToolState extends State<VictronFlowTool> with SingleTickerProv
       }
     }
 
-    // Blue fill proportional to state of charge — a left→right "fuel gauge":
-    // the box is filled with the primary blue up to the SOC fraction, and the
-    // remainder is left transparent so the bare container background shows
-    // through (visible, but not filled). The gradient is painted OVER the
-    // box's normal bgColor by _buildComponentBox (see backgroundGradient).
+    // Blue fill proportional to state of charge — a bottom→top "battery gauge":
+    // the box fills with the primary blue from the bottom up to the SOC
+    // fraction, and the remainder above is left transparent so the bare
+    // container background shows through (visible, but not filled). The
+    // gradient is painted OVER the box's normal bgColor by _buildComponentBox
+    // (see backgroundGradient).
     final socFrac = (soc ?? 0).clamp(0.0, 1.0);
     final filledColor = HSLColor.fromColor(_primaryColor)
         .withLightness(0.5)
@@ -1167,8 +1168,8 @@ class _VictronFlowToolState extends State<VictronFlowTool> with SingleTickerProv
         .toColor()
         .withValues(alpha: 0.95);
     final socGradient = LinearGradient(
-      begin: Alignment.centerLeft,
-      end: Alignment.centerRight,
+      begin: Alignment.bottomCenter,
+      end: Alignment.topCenter,
       colors: [filledColor, filledColor, Colors.transparent, Colors.transparent],
       stops: [0.0, socFrac, socFrac, 1.0],
     );

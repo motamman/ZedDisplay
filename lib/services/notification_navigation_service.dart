@@ -9,19 +9,10 @@ class NotificationNavigationService {
 
   NotificationNavigationService(this._dashboardService);
 
-  /// Notification key prefix → candidate tool type IDs (checked in order).
-  static const Map<String, List<String>> _keyPrefixMapping = {
-    'weather.nws': ['weather_alerts'],
-    'navigation.anchor': ['anchor_alarm'],
-    'navigation': ['compass', 'wind_compass', 'autopilot', 'position_display'],
-    'propulsion': ['radial_gauge', 'linear_gauge'],
-    'electrical': ['victron_flow', 'radial_gauge', 'linear_gauge'],
-    'environment': ['radial_gauge', 'linear_gauge', 'weatherflow_forecast'],
-    'tanks': ['tanks'],
-    'steering': ['autopilot', 'autopilot_v2', 'autopilot_simple'],
-  };
-
-  /// Non-SignalK notification type → candidate tool type IDs.
+  /// Non-SignalK notification type → tool type. These are app-internal
+  /// notification types with no SignalK path to match on, so they map to their
+  /// one obvious home widget. (SignalK notifications are NOT listed here — they
+  /// route by path; see getNavigation.)
   static const Map<String, List<String>> _typeMapping = {
     'crew_message': ['crew_messages'],
     'intercom': ['intercom'],
@@ -29,46 +20,38 @@ class NotificationNavigationService {
   };
 
   /// Get navigation info for a notification payload.
-  /// Returns (navigate callback, screenName) or null if no matching widget on dashboard.
+  /// Returns (navigate callback, screenName), or null when nothing relevant is
+  /// placed — in which case VIEW is hidden rather than navigating somewhere
+  /// unrelated.
   (VoidCallback navigate, String screenName)? getNavigation(
       NotificationPayload payload) {
-    final candidates = _getCandidateToolTypes(payload);
-    if (candidates.isEmpty) return null;
+    // 1. Explicit tool-type override on the payload wins.
+    if (payload.toolTypeId != null) return _navByType(payload.toolTypeId!);
 
-    for (final toolTypeId in candidates) {
-      final result = _dashboardService.findScreenWithToolType(toolTypeId);
-      if (result != null) {
-        final (index, screenName) = result;
-        return (
-          () => _dashboardService.setActiveScreen(index),
-          screenName,
-        );
+    // 2. Non-SignalK app notifications (crew/intercom/alarm) → their widget.
+    if (payload.type != 'signalk') {
+      for (final toolTypeId in _typeMapping[payload.type] ?? const <String>[]) {
+        final nav = _navByType(toolTypeId);
+        if (nav != null) return nav;
       }
+      return null;
+    }
+
+    // 3. SignalK notifications route by PATH: go to the widget the user bound
+    //    to the alerting path. No category table — the path is the binding.
+    final key = payload.notificationKey;
+    if (key == null) return null;
+    final byPath = _dashboardService.findScreenWithToolPath(key);
+    if (byPath != null) {
+      return (() => _dashboardService.setActiveScreen(byPath.$1), byPath.$2);
     }
     return null;
   }
 
-  /// Resolve candidate tool type IDs from the payload.
-  List<String> _getCandidateToolTypes(NotificationPayload payload) {
-    // Direct toolTypeId override takes priority
-    if (payload.toolTypeId != null) {
-      return [payload.toolTypeId!];
-    }
-
-    // Check type-based mapping for non-SignalK types
-    if (payload.type != 'signalk') {
-      return _typeMapping[payload.type] ?? [];
-    }
-
-    // SignalK notifications: match by key prefix
-    final key = payload.notificationKey;
-    if (key == null) return [];
-
-    for (final entry in _keyPrefixMapping.entries) {
-      if (key.startsWith(entry.key)) {
-        return entry.value;
-      }
-    }
-    return [];
+  /// Resolve a screen containing [toolTypeId] into a navigate callback.
+  (VoidCallback navigate, String screenName)? _navByType(String toolTypeId) {
+    final result = _dashboardService.findScreenWithToolType(toolTypeId);
+    if (result == null) return null;
+    return (() => _dashboardService.setActiveScreen(result.$1), result.$2);
   }
 }

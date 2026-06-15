@@ -6,13 +6,18 @@ import '../models/notification_payload.dart';
 import '../services/alert_coordinator.dart';
 import '../services/cpa_alert_service.dart';
 import '../services/ais_favorites_service.dart';
-import '../services/notification_navigation_service.dart';
+import '../services/dashboard_service.dart';
+import '../config/ui_constants.dart';
 
 /// Persistent alert panel that renders all active alerts as stacked rows.
 /// Lives in the MaterialApp.builder Stack — visible on every screen.
 /// Zero height when no alerts are active.
 class AlertPanel extends StatelessWidget {
   const AlertPanel({super.key});
+
+  /// Height of the dashboard's screen-nav row (dots + arrows). Single source of
+  /// truth shared with dashboard_manager_screen.dart's selector row.
+  static const double _screenNavHeight = UIConstants.screenSelectorHeight;
 
   @override
   Widget build(BuildContext context) {
@@ -25,31 +30,103 @@ class AlertPanel extends StatelessWidget {
         final sorted = List<AlertEvent>.from(alerts)
           ..sort((a, b) => b.severity.index.compareTo(a.severity.index));
 
+        // Sit above the screen-nav row. The nav lives inside the bottom
+        // safe-area, so it occupies [viewPadding.bottom .. +_screenNavHeight]
+        // from the screen bottom — the panel must clear BOTH the safe-area
+        // inset and the nav height, or it overlaps the nav.
+        final bottomInset =
+            MediaQuery.of(context).viewPadding.bottom + _screenNavHeight;
+
         return Positioned(
           left: 0,
           right: 0,
-          bottom: 0,
+          bottom: bottomInset,
           child: Material(
             elevation: 8,
             child: ConstrainedBox(
               constraints: BoxConstraints(
                 maxHeight: MediaQuery.of(context).size.height * 0.4,
               ),
-              child: ListView.builder(
-                shrinkWrap: true,
-                padding: EdgeInsets.zero,
-                itemCount: sorted.length,
-                itemBuilder: (context, index) {
-                  return _AlertRow(
-                    event: sorted[index],
-                    coordinator: coordinator,
-                  );
-                },
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Bulk actions header — only when more than one alert.
+                  if (sorted.length > 1)
+                    _BulkActionsBar(
+                      count: sorted.length,
+                      coordinator: coordinator,
+                    ),
+                  Flexible(
+                    child: ListView.builder(
+                      shrinkWrap: true,
+                      padding: EdgeInsets.zero,
+                      itemCount: sorted.length,
+                      itemBuilder: (context, index) {
+                        return _AlertRow(
+                          event: sorted[index],
+                          coordinator: coordinator,
+                        );
+                      },
+                    ),
+                  ),
+                ],
               ),
             ),
           ),
         );
       },
+    );
+  }
+}
+
+/// Header above a stack of alerts (shown only when there is more than one):
+/// the count plus ACK ALL / DISMISS ALL.
+class _BulkActionsBar extends StatelessWidget {
+  final int count;
+  final AlertCoordinator coordinator;
+
+  const _BulkActionsBar({required this.count, required this.coordinator});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      color: Colors.grey.shade900,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      child: Row(
+        children: [
+          Text(
+            '$count alerts',
+            style: const TextStyle(
+              color: Colors.white70,
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const Spacer(),
+          _barButton('ACK ALL', coordinator.acknowledgeAll),
+          const SizedBox(width: 4),
+          _barButton('DISMISS ALL', coordinator.dismissAll),
+        ],
+      ),
+    );
+  }
+
+  Widget _barButton(String label, VoidCallback onPressed) {
+    return TextButton(
+      onPressed: onPressed,
+      style: TextButton.styleFrom(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        minimumSize: Size.zero,
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      ),
+      child: Text(
+        label,
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 12,
+          fontWeight: FontWeight.bold,
+        ),
+      ),
     );
   }
 }
@@ -62,9 +139,7 @@ class _AlertRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isAlarm = event.severity >= AlertSeverity.alarm;
     final colors = _severityColors(event.severity);
-    final isCpa = event.subsystem == AlertSubsystem.cpa;
 
     return Container(
       color: colors.$1,
@@ -85,48 +160,63 @@ class _AlertRow extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
             ),
           ),
-          // VIEW — CPA: highlight vessel on chart
-          if (isCpa && event.callbackData is CpaVesselAlert)
-            _button('VIEW', () {
-              try {
-                final cpaService = Provider.of<CpaAlertService>(context, listen: false);
-                cpaService.requestHighlight(
-                  (event.callbackData as CpaVesselAlert).vesselId,
-                );
-              } catch (_) {}
-            }),
-          // VIEW — AIS Favorites: highlight vessel on chart
-          if (event.subsystem == AlertSubsystem.aisFavorites && event.callbackData is String)
-            _button('VIEW', () {
-              try {
-                final favService = Provider.of<AISFavoritesService>(context, listen: false);
-                favService.requestHighlight(event.callbackData as String);
-              } catch (_) {}
-            }),
-          // VIEW — SignalK notifications: navigate to relevant tool screen
-          if (event.subsystem == AlertSubsystem.signalk && event.callbackData is NotificationPayload)
-            Builder(builder: (context) {
-              try {
-                final navService = Provider.of<NotificationNavigationService>(context, listen: false);
-                final nav = navService.getNavigation(event.callbackData as NotificationPayload);
-                if (nav == null) return const SizedBox.shrink();
-                return _button('VIEW', () => nav.$1());
-              } catch (_) {
-                return const SizedBox.shrink();
-              }
-            }),
-          // ACK — alarm level: stop audio, row stays
-          if (isAlarm)
-            _button('ACK', () {
-              coordinator.acknowledgeAlarm(event.subsystem, alarmId: event.alarmId);
-            }),
-          // CANCEL / DISMISS — removes alert entirely
-          _button(isAlarm ? 'CANCEL' : 'DISMISS', () {
+          // VIEW — unified for every alert: navigate to the alert's home
+          // widget (see _buildViewButton). One rule, no per-subsystem cases.
+          _buildViewButton(context),
+          // ACK — universal: silence audio (if any) + clear the system
+          // notification, but leave the row up. Severity is shown by colour.
+          _button('ACK', () {
+            coordinator.acknowledgeAlarm(event.subsystem, alarmId: event.alarmId);
+          }),
+          // DISMISS — universal: removes the alert entirely. Same label at every
+          // severity (colour is the severity indicator).
+          _button('DISMISS', () {
             coordinator.resolveAlert(event.subsystem, alarmId: event.alarmId);
           }),
         ],
       ),
     );
+  }
+
+  /// Unified VIEW button. Resolves the alert's home screen the same way for
+  /// every alert, then navigates there on tap:
+  ///   1. `alarmSource` — the widget type the alert declares it belongs to
+  ///      (e.g. CPA → 'ais_polar_chart', anchor → 'anchor_alarm').
+  ///   2. Otherwise the SignalK path the alert carries — go to whatever widget
+  ///      the user bound to that path (generic notifications like pressure).
+  /// Renders nothing when no relevant widget is placed, so VIEW never appears
+  /// pointing nowhere. For vessel alerts it also highlights the vessel.
+  Widget _buildViewButton(BuildContext context) {
+    final dash = Provider.of<DashboardService>(context, listen: false);
+
+    (int, String)? target;
+    final src = event.alarmSource;
+    if (src != null && src.isNotEmpty) {
+      target = dash.findScreenWithToolType(src);
+    }
+    if (target == null && event.callbackData is NotificationPayload) {
+      final key = (event.callbackData as NotificationPayload).notificationKey;
+      if (key != null) target = dash.findScreenWithToolPath(key);
+    }
+    if (target == null) return const SizedBox.shrink();
+
+    final screenIndex = target.$1;
+    return _button('VIEW', () {
+      dash.setActiveScreen(screenIndex);
+      // Enrichment: highlight the vessel for vessel-based alerts once we're on
+      // the chart. Harmless for alerts that aren't about a vessel.
+      final cb = event.callbackData;
+      try {
+        if (cb is CpaVesselAlert) {
+          Provider.of<CpaAlertService>(context, listen: false)
+              .requestHighlight(cb.vesselId);
+        } else if (event.subsystem == AlertSubsystem.aisFavorites &&
+            cb is String) {
+          Provider.of<AISFavoritesService>(context, listen: false)
+              .requestHighlight(cb);
+        }
+      } catch (_) {}
+    });
   }
 
   Widget _button(String label, VoidCallback onPressed) {
@@ -142,11 +232,9 @@ class _AlertRow extends StatelessWidget {
         child: Text(
           label,
           style: TextStyle(
-            color: label == 'VIEW' ? Colors.white70 : Colors.white,
+            color: Colors.white,
             fontSize: 12,
-            fontWeight: label == 'ACK' || label == 'CANCEL' || label == 'DISMISS'
-                ? FontWeight.bold
-                : FontWeight.normal,
+            fontWeight: label == 'VIEW' ? FontWeight.normal : FontWeight.bold,
           ),
         ),
       ),

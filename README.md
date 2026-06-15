@@ -412,9 +412,11 @@ SignalK acts as the message broker and data store:
   - Captains/First Mates can manage any crew member's subscriptions
 - **PTT Mode** (Push-to-Talk): Hold button to transmit, release to listen—like a handheld radio
 - **Duplex Mode**: Open two-way audio—like a phone call, both parties hear each other continuously
+- **Reaches every listener**: A channel transmission opens a voice link to *all* subscribed crew on that channel (three or more), not just one—built as a peer-to-peer mesh, with crew who join mid-transmission pulled in automatically
 - **Direct Calls**: Private one-on-one voice calls to specific crew members
+- **Self-healing**: Dead or stalled voice links are detected and recovered (or cleanly torn down), and connections are cleaned up across network drops so nothing leaks across reconnects
 - WebRTC handles audio encoding/transmission; SignalK handles call setup signaling
-- Optimized for local network—works without internet, low latency on boat WiFi
+- LAN-only by design—voice never leaves your boat's network; works without internet, low latency on boat WiFi
 - Get notified when someone transmits on a channel (tap notification to join)
 - Mute controls for incoming audio
 
@@ -804,6 +806,7 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 - [x] Status broadcasts and alerts
 - [x] File sharing via local HTTP server
 - [x] Voice intercom with WebRTC (E2E encrypted via SRTP - direct P2P, no relay)
+- [x] Multi-peer channel PTT (every subscribed listener hears, not just one)
 - [x] VHF-style channel system
 - [x] Direct one-on-one voice calls
 - [x] Incoming call notifications

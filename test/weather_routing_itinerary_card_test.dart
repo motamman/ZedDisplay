@@ -13,9 +13,30 @@ void main() {
     final file = File('test/fixtures/interactive_route.geojson');
     final json = jsonDecode(file.readAsStringSync()) as Map<String, dynamic>;
     final result = WeatherRouteResult.fromGeoJson(json);
-    expect(result.waypoints.length, greaterThan(2));
-    final wp = result.waypoints[1]; // a sailing waypoint
-    final next = result.waypoints[2];
+    final wps = result.waypoints;
+    expect(wps.length, greaterThan(2));
+
+    // The card samples SOG/COG/Wind/TWA from the *forward* waypoint (wp[i+1])
+    // and Depth from wp[i]. TWA only renders on a sailing leg (twaDeg != null),
+    // so pick a leg that actually exercises every asserted row rather than
+    // assuming a fixed index (the fixture's index 1 is a motoring leg).
+    final i = [
+      for (var j = 0; j < wps.length - 1; j++) j
+    ].firstWhere(
+      (j) {
+        final fwd = wps[j + 1];
+        return fwd.twaDeg != null &&
+            fwd.sogMs != null &&
+            fwd.cogDeg != null &&
+            fwd.windMs != null &&
+            fwd.windDirDeg != null &&
+            wps[j].depthM != null;
+      },
+      orElse: () => -1,
+    );
+    expect(i, greaterThanOrEqualTo(0),
+        reason: 'fixture has no sailing leg with full SOG/COG/Wind/TWA/Depth');
+
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
@@ -23,10 +44,10 @@ void main() {
           body: SizedBox(
             width: 360,
             child: WeatherRoutingItineraryCard(
-              index: 1,
-              waypoint: wp,
-              next: next,
-              kind: legKindAt(result.waypoints, 1),
+              index: i,
+              waypoint: wps[i],
+              next: wps[i + 1],
+              kind: legKindAt(wps, i),
               selected: false,
               onTap: () {},
             ),
@@ -34,8 +55,8 @@ void main() {
         ),
       ),
     );
-    // Head row: index + time
-    expect(find.text('2.'), findsOneWidget);
+    // Head row: index + time (card renders the 1-based leg number).
+    expect(find.text('${i + 1}.'), findsOneWidget);
 
     // Text fields in the grid are rendered via RichText (key label + value
     // span in one RichText each). Scan the plain-text projections.

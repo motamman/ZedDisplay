@@ -1,4 +1,38 @@
-# What's New in v0.6.8
+# What's New in v0.7.0
+
+## Release Notes (Google Play - max 500 chars)
+
+v0.7.0 Crew Voice That Everyone Hears + Rock-Solid Data
+
+NEW: Crew intercom & calls rebuilt — a channel push-to-talk now reaches EVERY listener on the channel, not just one, and 1:1 calls connect reliably. Stays on your local network.
+
+FIXED: The "connected but no data" stall after sleep or switching servers is gone — the app now keeps your last readings on screen and quietly swaps in a fresh connection.
+
+NEW: Alerts get ACK ALL / DISMISS ALL, and an always-on screen selector with edge arrows.
+
+## Release Notes (App Store / TestFlight - max 4000 chars)
+
+### Crew Intercom & Calls — Rebuilt (NEW)
+- **Everyone on the channel hears you** — The voice layer was rebuilt from the ground up. A channel push-to-talk used to reach only a single listener; now it opens a direct voice link to **every** crew member on the channel (three or more included), and a crew member who joins mid-broadcast is pulled in too. One-to-one calls run through the same, more reliable machinery.
+- **Self-healing connections** — Voice links now detect a dead or stalled connection and recover (or cleanly tear down) instead of leaving a "talking" indicator stuck on. Connections are cleaned up properly across network drops, so nothing leaks or crashes when you reconnect.
+- **Stays on your local network** — Intercom and calls remain LAN-only by design — voice never leaves your boat's network.
+
+### Rock-Solid Data (FIXED)
+- **No more "connected but no data"** — After sleep, or when switching SignalK servers, the app could show "connected" while the dashboard sat blank until you restarted. The root cause is fixed: the connection no longer tears itself down in a hidden retry loop, a stale old connection can't stomp on the live one, and overlapping reconnect attempts are coalesced into one.
+- **Your readings stay on screen** — A quick reconnect no longer blanks the dashboard. The app keeps your last-known values visible and lets fresh data overwrite them as it arrives, instead of clearing everything and waiting for each value to change.
+
+### Alerts & Navigation (NEW / CHANGED)
+- **Manage alerts in bulk** — When several alerts are active, a header lets you ACK ALL or DISMISS ALL at once. Alerts now rise from just above the screen navigation so they never cover it.
+- **Alerts respect your settings, live** — In-app alerts honour the notification levels you've turned on or off — and the panel updates the moment you change those settings.
+- **Tap VIEW to jump to the right widget** — Every alert's VIEW button now takes you to the widget showing that value, with no built-in guesswork — including AIS in-range and closest-approach (CPA) alerts, which now open the AIS chart. If no matching widget is on your dashboard, VIEW simply doesn't appear.
+- **Always-visible screen selector** — The screen dots no longer hide themselves, and there are back/forward arrows at the far edges of the selector for quick paging.
+
+### Polish (CHANGED)
+- **Power Flow battery fills bottom-to-top** — The battery's charge level now fills from the bottom up like a real battery, with the unfilled portion left open so the level is easy to read at a glance.
+
+---
+
+# Previous: v0.6.8
 
 ## Release Notes (Google Play - max 500 chars)
 

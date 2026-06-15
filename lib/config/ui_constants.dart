@@ -54,6 +54,11 @@ class UIConstants {
   /// Large spacing between elements
   static const double largeSpacing = 24.0;
 
+  /// Height of the dashboard's bottom screen-selector row (dots + chevrons).
+  /// Single source of truth: the AlertPanel sits directly above this row and
+  /// offsets itself by the same value, so they must not drift apart.
+  static const double screenSelectorHeight = 50.0;
+
   // Dashboard grid dimensions (single source of truth)
   /// Number of rows in the dashboard grid
   static const int gridRows = 20;

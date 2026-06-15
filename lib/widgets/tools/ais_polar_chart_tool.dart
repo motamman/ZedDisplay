@@ -217,6 +217,17 @@ class _AISPolarChartToolState extends State<AISPolarChartTool> {
 
 /// Builder for AIS polar chart tools
 class AISPolarChartBuilder extends ToolBuilder {
+  // The AIS Polar Chart owns closest-approach data, so it declares the SignalK
+  // `navigation.closestApproach.*` path alongside its own-vessel inputs. This
+  // makes a server CPA notification (`navigation.closestApproach.<vessel>`)
+  // route here via the normal path-match — same mechanism as every other
+  // notification — with no routing table.
+  @override
+  List<String> requiredPaths(ToolConfig config) => [
+        ...config.dataSources.map((d) => d.path),
+        'navigation.closestApproach.*',
+      ];
+
   @override
   ToolDefinition getDefinition() {
     return ToolDefinition(

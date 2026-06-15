@@ -26,6 +26,11 @@ enum SignalKConnectionState {
   disconnected,
 }
 
+/// Builds a [WebSocketChannel] for a discovered stream URL. `headers` is null
+/// for unauthenticated connections. Injectable so tests can supply a fake.
+typedef ChannelFactory = Future<WebSocketChannel> Function(
+    String url, Map<String, String>? headers);
+
 /// Service to connect to SignalK server and stream data
 class SignalKService extends ChangeNotifier implements DataService {
   // Single WebSocket connection for all data (data, autopilot, notifications)
@@ -54,7 +59,138 @@ class SignalKService extends ChangeNotifier implements DataService {
   DateTime? _lastMessageAt;
   bool _livenessBusy = false;
   static const Duration _livenessCheckInterval = Duration(seconds: 20);
-  static const Duration _livenessStaleThreshold = Duration(seconds: 45);
+  // Backstop threshold, set ABOVE the keepalive window (30s client ping +
+  // server terminate window). The watchdog is the dead-socket detector now
+  // that client pingInterval is disabled (see _pingInterval); it must not trip
+  // on a merely quiet boat (policy:instant emits no deltas for static values),
+  // so keep it generous but responsive.
+  static const Duration _livenessStaleThreshold = Duration(seconds: 40);
+
+  // Client-side WebSocket ping. DISABLED (null): dart:io closes the socket and
+  // fires onDone if a pong isn't received within the interval — and device
+  // logs showed the server (or an intermediary proxy) NOT returning pongs,
+  // so a 30s pingInterval was tearing the socket down every ~60s in a
+  // permanent reconnect loop. Liveness is now governed by the watchdog plus
+  // the server's own ping/terminate. Set to a Duration to re-enable.
+  static const Duration? _pingInterval = null;
+
+  // Monotonic socket generation. Bumped each time we attach a stream listener
+  // (see _attachListener). Every handler captures the generation valid at
+  // listen time and no-ops if it's stale — so a torn-down socket's late
+  // onDone/onError/message can never clobber the current socket. This is the
+  // core fix for "connected but no data after sleep, must restart".
+  int _socketGeneration = 0;
+
+  // Single-flight guard: coalesces concurrent socket swaps. _reconnectLight is
+  // called from four unsynchronized sites (backoff timer, background probe,
+  // liveness watchdog, wakeReconnect); without this they can overlap and orphan
+  // a freshly-created socket.
+  Future<void>? _reconnectInFlight;
+
+  // Injectable socket factory (default = real dart:io socket). Lets tests drive
+  // the swap machinery with a fake channel; production path is unchanged.
+  ChannelFactory _channelFactory = _defaultChannelFactory;
+  @visibleForTesting
+  set channelFactory(ChannelFactory f) => _channelFactory = f;
+
+  /// Real socket factory: dart:io WebSocket (so pingInterval is settable when
+  /// re-enabled) wrapped for the channel.
+  static Future<WebSocketChannel> _defaultChannelFactory(
+      String url, Map<String, String>? headers) async {
+    final socket = await WebSocket.connect(url, headers: headers)
+        .timeout(ServiceConstants.wsConnectTimeout);
+    // Only set when _pingInterval is non-null; null leaves dart:io's ping
+    // disabled (the server/proxy wasn't ponging, which killed the socket).
+    if (_pingInterval != null) socket.pingInterval = _pingInterval;
+    return IOWebSocketChannel(socket);
+  }
+
+  // Connection-lifecycle log — a small bounded ring buffer. Written by _log()
+  // for on-device/console visibility and mirrored into DiagnosticService for
+  // remote post-mortem. Side-effect-free (never calls notifyListeners).
+  final ListQueue<String> _connLog = ListQueue<String>();
+  static const int _connLogMax = 200;
+
+  /// Append a timestamped connection-lifecycle event. Visible via
+  /// [connectionLog] and the debug console; mirrored into DiagnosticService.
+  /// Strip auth material (server `token=` query params and `Bearer` values)
+  /// from a log line before it is stored, printed, or mirrored to diagnostics.
+  /// Reconnect/error events can embed the authenticated WebSocket URL.
+  static String _redactConnectionLog(String value) {
+    return value
+        .replaceAllMapped(
+          RegExp(r'([?&]token=)[^&\s]+'),
+          (match) => '${match.group(1)}<redacted>',
+        )
+        .replaceAllMapped(
+          RegExp(r'(Bearer\s+)[^\s,;]+'),
+          (match) => '${match.group(1)}<redacted>',
+        );
+  }
+
+  void _log(String event) {
+    final line =
+        '${DateTime.now().toIso8601String()} ${_redactConnectionLog(event)}';
+    _connLog.addLast(line);
+    while (_connLog.length > _connLogMax) {
+      _connLog.removeFirst();
+    }
+    if (kDebugMode) print('[SK] $line');
+    DiagnosticService.instance?.noteEvent(line);
+  }
+
+  /// Most-recent-last connection-lifecycle log (bounded).
+  List<String> get connectionLog => List.unmodifiable(_connLog);
+
+  /// Record an app-lifecycle transition (called from main.dart pause/resume).
+  void logLifecycle(String event) => _log(event);
+
+  // ── Test-only hooks ───────────────────────────────────────────────────────
+  // Drive the socket-swap machinery from unit tests without going through the
+  // real connect() (which performs HTTP). Production code never calls these.
+
+  /// Seed a "connected" state on [ch] and attach the generation-guarded
+  /// listener, as if connect() had just succeeded.
+  @visibleForTesting
+  void debugSeedConnected(WebSocketChannel ch, {String serverUrl = 'localhost:3000'}) {
+    _serverUrl = serverUrl;
+    _channel = ch;
+    _isConnected = true;
+    _attachListener();
+  }
+
+  @visibleForTesting
+  int get debugSocketGeneration => _socketGeneration;
+
+  @visibleForTesting
+  bool get debugHasChannel => _channel != null;
+
+  @visibleForTesting
+  WebSocketChannel? get debugChannel => _channel;
+
+  @visibleForTesting
+  Future<void> debugReconnectLight() => _reconnectLight();
+
+  @visibleForTesting
+  Future<void> debugCheckLiveness() => _checkLiveness();
+
+  @visibleForTesting
+  set debugLastMessageAt(DateTime? v) => _lastMessageAt = v;
+
+  @visibleForTesting
+  Duration get debugLivenessStaleThreshold => _livenessStaleThreshold;
+
+  /// Cancel every timer the service may have started, so a test ends without
+  /// pending-timer failures.
+  @visibleForTesting
+  void debugStopAllTimers() {
+    _stopLivenessWatchdog();
+    _stopBackgroundProbe();
+    _reconnectTimer?.cancel();
+    _reconnectTimer = null;
+    _availablePathsRefreshTimer?.cancel();
+    _dataCache.dispose();
+  }
 
   // Throttled notifyListeners — coalesce rapid WS updates via microtask
   bool _notifyScheduled = false;
@@ -441,42 +577,25 @@ class SignalKService extends ChangeNotifier implements DataService {
       // Discover the WebSocket endpoint
       final wsUrl = await _discoverWebSocketEndpoint();
 
-      // Connect to WebSocket with authentication headers if we have a token
-      if (_authToken != null) {
-        final headers = <String, String>{
-          'Authorization': 'Bearer ${_authToken!.token}',
-        };
-
-        try {
-          // Use dart:io WebSocket.connect which supports headers
-          // Pass the URL string directly - don't parse and re-stringify
-          // Timeout so an unreachable/half-open endpoint fails fast instead of
-          // hanging here with _isConnecting latched (which blocks all future
-          // switches/reconnects until the app is killed).
-          final socket = await WebSocket.connect(wsUrl, headers: headers)
-              .timeout(ServiceConstants.wsConnectTimeout);
-          // Keep connection alive with ping frames every 30 seconds
-          socket.pingInterval = const Duration(seconds: 30);
-          _channel = IOWebSocketChannel(socket);
-        } catch (e) {
-          if (kDebugMode) {
-            print('WebSocket.connect failed: $e');
-          }
-          rethrow;
+      // Connect to WebSocket. Headers carry the bearer token when authenticated;
+      // the factory sets pingInterval on every socket (auth and no-auth) and
+      // time-boxes the connect so a half-open endpoint can't hang here with
+      // _isConnecting latched.
+      final headers = _authToken != null
+          ? <String, String>{'Authorization': 'Bearer ${_authToken!.token}'}
+          : null;
+      try {
+        _channel = await _channelFactory(wsUrl, headers);
+      } catch (e) {
+        if (kDebugMode) {
+          print('WebSocket.connect failed: $e');
         }
-      } else {
-        // Standard connection without authentication
-        _channel = WebSocketChannel.connect(Uri.parse(wsUrl));
+        rethrow;
       }
 
-      // Listen to incoming messages
-      // cancelOnError: false keeps listening after errors (e.g., stale reads on resume)
-      _subscription = _channel!.stream.listen(
-        _handleMessage,
-        onError: _handleError,
-        onDone: _handleDisconnect,
-        cancelOnError: false,
-      );
+      // Attach the generation-guarded listener (single source of truth for
+      // stream wiring; bumps _socketGeneration so stale events no-op).
+      _attachListener();
 
       // Set vessel context BEFORE notifyListeners — listeners trigger subscriptions
       // and cached deltas arrive immediately, so _vesselContext must be set for
@@ -656,7 +775,8 @@ class SignalKService extends ChangeNotifier implements DataService {
   }
 
   /// Handle incoming WebSocket messages
-  void _handleMessage(dynamic message) {
+  void _handleMessage(int gen, dynamic message) {
+    if (gen != _socketGeneration) return; // stale socket — not ours
     // Any inbound frame means the socket is alive — feeds the liveness watchdog.
     _lastMessageAt = DateTime.now();
     try {
@@ -853,25 +973,61 @@ class SignalKService extends ChangeNotifier implements DataService {
   }
 
   /// Handle WebSocket errors
-  void _handleError(Object error) {
-    _errorMessage = 'WebSocket error: $error';
-    _isConnected = false;
-    notifyListeners();
+  /// Attach the WebSocket stream listener — the SINGLE place stream wiring
+  /// happens (used by both connect() and _reconnectLight). Bumps the socket
+  /// generation and captures it in each handler closure so any event from a
+  /// previous (torn-down) socket carries a stale generation and no-ops.
+  void _attachListener() {
+    final gen = ++_socketGeneration;
+    _log('socket open gen=$gen ping=${_pingInterval?.inSeconds ?? 'off'} '
+        'auth=${_authToken != null}');
+    _subscription = _channel!.stream.listen(
+      (msg) => _handleMessage(gen, msg),
+      onError: (e) => _handleError(gen, e),
+      onDone: () => _handleDisconnect(gen),
+      // cancelOnError: false keeps listening after errors (e.g., stale reads on resume)
+      cancelOnError: false,
+    );
+  }
 
+  void _handleError(int gen, Object error) {
+    if (gen != _socketGeneration) {
+      _log('onError gen=$gen ignored (current=$_socketGeneration): $error');
+      return; // stale socket — not ours
+    }
+    _errorMessage = 'WebSocket error: $error';
     if (kDebugMode) {
       print('WebSocket error: $error');
     }
+    _log('onError gen=$gen: $error');
+    // Drive recovery consistently with onDone — a WS error must tear down and
+    // reconnect, not strand the app "disconnected" with a live orphan socket.
+    _teardownAndRecover(gen);
   }
 
-  /// Handle WebSocket disconnect
-  void _handleDisconnect() {
+  /// Handle WebSocket disconnect. [gen] is the socket generation the onDone
+  /// fired for; null means an internal caller (e.g. liveness fallback) that is
+  /// always authoritative for the current socket.
+  void _handleDisconnect([int? gen]) {
+    if (gen != null && gen != _socketGeneration) {
+      _log('onDone gen=$gen ignored (current=$_socketGeneration)');
+      return; // stale socket — its late onDone must not clobber the live one
+    }
+    _log('onDone gen=${gen ?? _socketGeneration}');
+    _teardownAndRecover(gen);
+  }
+
+  /// Tear down the current socket and kick recovery (shared by onDone, onError,
+  /// and the liveness fallback). Idempotent: after teardown `_channel == null`
+  /// so a following onError/onDone for the same socket short-circuits.
+  void _teardownAndRecover(int? gen) {
     if (!_isConnected && _channel == null) return; // already handled
 
     _isConnected = false;
     _isConnecting = false;
-    // Stop the liveness watchdog while disconnected — otherwise its 20s timer
-    // keeps firing for the rest of the session. It restarts on the next
-    // successful connect / _reconnectLight.
+    // Stop the liveness watchdog while disconnected — otherwise its timer keeps
+    // firing for the rest of the session. It restarts on the next successful
+    // connect / _reconnectLight.
     _stopLivenessWatchdog();
 
     _subscription?.cancel();
@@ -926,6 +1082,7 @@ class SignalKService extends ChangeNotifier implements DataService {
       print('Attempting reconnect #$_reconnectAttempts in ${delay.inSeconds}s...');
     }
 
+    _log('backoff: attempt #$_reconnectAttempts in ${delay.inSeconds}s');
     _reconnectTimer?.cancel();
     _reconnectTimer = Timer(delay, () async {
       _activelyAttempting = true;
@@ -934,14 +1091,10 @@ class SignalKService extends ChangeNotifier implements DataService {
       notifyListeners();
       try {
         await _reconnectLight();
-        if (kDebugMode) {
-          print('Reconnected successfully (lightweight)!');
-        }
+        _log('backoff: reconnected (lightweight)');
         _activelyAttempting = false;
       } catch (e) {
-        if (kDebugMode) {
-          print('Reconnect attempt #$_reconnectAttempts failed: $e');
-        }
+        _log('backoff: attempt #$_reconnectAttempts failed: $e');
         _activelyAttempting = false;
         _attemptReconnect();
       }
@@ -974,17 +1127,14 @@ class SignalKService extends ChangeNotifier implements DataService {
     if (DateTime.now().difference(last) < _livenessStaleThreshold) return;
 
     _livenessBusy = true;
-    if (kDebugMode) {
-      print('Liveness: no data for ${_livenessStaleThreshold.inSeconds}s+ — '
-          'replacing the (likely half-open) socket');
-    }
+    final ageSecs = DateTime.now().difference(last).inSeconds;
+    _log('watchdog fire: no data ${ageSecs}s (>= '
+        '${_livenessStaleThreshold.inSeconds}s) — replacing half-open socket');
     try {
       await _reconnectLight();
       _lastMessageAt = DateTime.now(); // reset baseline; data resumes shortly
     } catch (e) {
-      if (kDebugMode) {
-        print('Liveness reconnect failed: $e');
-      }
+      _log('watchdog reconnect failed: $e');
       // Lightweight replace failed → hand off to the full backoff machinery.
       _handleDisconnect();
     } finally {
@@ -1036,8 +1186,30 @@ class SignalKService extends ChangeNotifier implements DataService {
   /// Lightweight reconnect: replace WebSocket and re-send subscriptions
   /// without clearing cached data (metadata, conversions, AIS, data cache).
   /// This makes short dropouts (subway, Wi-Fi handoff) nearly invisible.
-  Future<void> _reconnectLight() async {
-    // Tear down old socket only
+  Future<void> _reconnectLight() {
+    // Single-flight: coalesce overlapping callers (backoff timer, background
+    // probe, liveness watchdog, wakeReconnect) onto one swap so they can't
+    // race and orphan a freshly-created socket.
+    final existing = _reconnectInFlight;
+    if (existing != null) {
+      _log('reconnectLight coalesced onto in-flight swap');
+      return existing;
+    }
+    final f = _reconnectLightInner()
+        .whenComplete(() => _reconnectInFlight = null);
+    _reconnectInFlight = f;
+    return f;
+  }
+
+  Future<void> _reconnectLightInner() async {
+    // Don't swap underneath a full connect() in progress.
+    if (_isConnecting) {
+      _log('reconnectLight skipped (_isConnecting)');
+      return;
+    }
+
+    // Tear down old socket only. Its late onDone/onError will carry the old
+    // generation and no-op, so abandoning a hanging close is safe.
     await _subscription?.cancel();
     _subscription = null;
     try {
@@ -1045,28 +1217,28 @@ class SignalKService extends ChangeNotifier implements DataService {
     } catch (_) {}
     _channel = null;
 
-    // Open new WebSocket
-    final wsUrl = await _discoverWebSocketEndpoint();
+    // The old socket is gone; we are not connected until the new one is up.
+    // Set this BEFORE the (awaitable, throw-prone) factory call so a failure
+    // there can't strand us in isConnected==true while _channel==null — which
+    // would break liveness/reconnect logic and UI state.
+    _isConnected = false;
 
-    if (_authToken != null) {
-      final headers = <String, String>{
-        'Authorization': 'Bearer ${_authToken!.token}',
-      };
-      final socket = await WebSocket.connect(wsUrl, headers: headers)
-          .timeout(ServiceConstants.wsConnectTimeout);
-      socket.pingInterval = const Duration(seconds: 30);
-      _channel = IOWebSocketChannel(socket);
-    } else {
-      _channel = WebSocketChannel.connect(Uri.parse(wsUrl));
+    try {
+      // Open new WebSocket via the factory (pingInterval set on every socket).
+      final wsUrl = await _discoverWebSocketEndpoint();
+      final headers = _authToken != null
+          ? <String, String>{'Authorization': 'Bearer ${_authToken!.token}'}
+          : null;
+      _channel = await _channelFactory(wsUrl, headers);
+
+      // Attach the generation-guarded listener on the new stream.
+      _attachListener();
+    } catch (_) {
+      // Leave coherent state (_isConnected already false, _channel null) and
+      // let the caller's backoff machinery retry.
+      _connectionState = SignalKConnectionState.reconnecting;
+      rethrow;
     }
-
-    // Listen on new stream
-    _subscription = _channel!.stream.listen(
-      _handleMessage,
-      onError: _handleError,
-      onDone: _handleDisconnect,
-      cancelOnError: false,
-    );
 
     _isConnected = true;
     _errorMessage = null;
@@ -1077,11 +1249,13 @@ class SignalKService extends ChangeNotifier implements DataService {
     _startLivenessWatchdog();
     notifyListeners();
 
-    // Clear stale data from previous session so ghost paths don't accumulate
-    _dataCache.clearAll();
-    _latestDataView = null;
-
-    // Re-send existing subscriptions to the new WebSocket
+    // Do NOT wipe the cache on a lightweight reconnect. With policy:instant the
+    // server only sends a path's value when it next changes, so clearing here
+    // left the whole dashboard blank ("connected but no data") until each value
+    // happened to update. Keep the last-known values visible; fresh deltas
+    // overwrite them, and pruneStaleData() drops genuinely-dead non-active
+    // paths after 15/20 min. (A full connect() still clears — that's a real
+    // session boundary.)
     await _updateSubscription();
 
     // Re-subscribe RTC paths if active
@@ -2160,7 +2334,8 @@ class SignalKService extends ChangeNotifier implements DataService {
     };
 
     _channel?.sink.add(jsonEncode(subscription));
-
+    _log('subscribe sent paths=${pathsToSubscribe.length} '
+        'context=$subscriptionContext');
   }
 
   /// Subscribe to autopilot paths (now uses main channel — single WS connection)
@@ -2313,14 +2488,17 @@ class SignalKService extends ChangeNotifier implements DataService {
   Future<void> wakeReconnect() async {
     if (_serverUrl.isEmpty) return;
     if (_isConnected && _channel != null && !_isConnecting) {
+      _log('wakeReconnect: light path');
       try {
         await _reconnectLight();
         return;
       } catch (e) {
-        if (kDebugMode) {
-          print('wakeReconnect: light path failed ($e) — full reconnect');
-        }
+        _log('wakeReconnect: light failed ($e) — full reconnect');
       }
+    } else {
+      _log('wakeReconnect: full path '
+          '(connected=$_isConnected channel=${_channel != null} '
+          'connecting=$_isConnecting)');
     }
     await reconnect();
   }

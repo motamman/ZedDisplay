@@ -5,6 +5,7 @@ import '../models/tool_placement.dart';
 import 'storage_service.dart';
 import 'signalk_service.dart';
 import 'tool_service.dart';
+import 'tool_registry.dart';
 
 /// Service for managing dashboard layouts and screens
 class DashboardService extends ChangeNotifier {
@@ -407,6 +408,51 @@ class DashboardService extends ChangeNotifier {
           return (i, screen.name);
         }
       }
+    }
+    return null;
+  }
+
+  /// Find a screen whose placed widgets are bound to [skPath] — i.e. a widget
+  /// the USER pointed at that SignalK path. This is how a notification routes
+  /// to the widget actually showing the alerting value, with no mapping table:
+  /// the path is the binding the system + user already defined.
+  ///
+  /// Matches exact, or dot-boundary prefix either direction (a
+  /// `environment.depth.belowKeel` notification finds a widget bound to
+  /// `environment.depth.belowKeel`, and vice-versa). Prefers the screen you're
+  /// already on if it qualifies, else the first matching screen.
+  /// Returns (screenIndex, screenName) or null.
+  (int, String)? findScreenWithToolPath(String skPath) {
+    if (_currentLayout == null || _toolService == null) return null;
+
+    bool pathMatches(String toolPath) {
+      var p = toolPath;
+      if (p.endsWith('.*')) p = p.substring(0, p.length - 2);
+      if (p.isEmpty) return false;
+      return p == skPath || skPath.startsWith('$p.') || p.startsWith('$skPath.');
+    }
+
+    bool screenMatches(DashboardScreen screen) {
+      for (final toolId in screen.getToolIds()) {
+        final tool = _toolService.getTool(toolId);
+        if (tool == null) continue;
+        // requiredPaths is the complete set the widget subscribes to (covers
+        // dataSources AND customProperties-based paths like Power Flow).
+        final paths =
+            ToolRegistry().requiredPaths(tool.toolTypeId, tool.config);
+        if (paths.any(pathMatches)) return true;
+      }
+      return false;
+    }
+
+    final active = _currentLayout!.activeScreenIndex;
+    if (active >= 0 && active < _currentLayout!.screens.length) {
+      final s = _currentLayout!.screens[active];
+      if (screenMatches(s)) return (active, s.name);
+    }
+    for (int i = 0; i < _currentLayout!.screens.length; i++) {
+      final s = _currentLayout!.screens[i];
+      if (screenMatches(s)) return (i, s.name);
     }
     return null;
   }
