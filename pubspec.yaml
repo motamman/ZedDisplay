@@ -107,8 +107,13 @@ dependencies:
   shared_preferences: ^2.2.2
   flutter_svg: ^2.2.3
 
-  # WebRTC for voice intercom
-  flutter_webrtc: ">=1.2.1 <1.3.1" # 1.3.1 has broken iOS podspec (WebRTC-SDK deployment target mismatch)
+  # WebRTC for voice intercom.
+  # Pinned <1.3.1: 1.3.1–1.5.0 ship a broken iOS podspec — flutter_webrtc
+  # declares s.ios.deployment_target '13.0' but its WebRTC-SDK dep (v137+/v144)
+  # requires a higher minimum, so `pod install` fails ("requires a higher
+  # minimum iOS deployment version than the plugin's reported minimum").
+  # Verified 1.5.0 still fails (2026-06). Revisit when upstream fixes the podspec.
+  flutter_webrtc: ">=1.2.1 <1.3.1"
   permission_handler: ^12.0.1
 
   # HTTP server for file sharing
