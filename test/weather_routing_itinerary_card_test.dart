@@ -21,7 +21,7 @@ void main() {
     // so pick a leg that actually exercises every asserted row rather than
     // assuming a fixed index (the fixture's index 1 is a motoring leg).
     final i = [
-      for (var j = 1; j < wps.length - 1; j++) j
+      for (var j = 0; j < wps.length - 1; j++) j
     ].firstWhere(
       (j) {
         final fwd = wps[j + 1];
@@ -34,7 +34,7 @@ void main() {
       },
       orElse: () => -1,
     );
-    expect(i, greaterThan(0),
+    expect(i, greaterThanOrEqualTo(0),
         reason: 'fixture has no sailing leg with full SOG/COG/Wind/TWA/Depth');
 
     await tester.pumpWidget(

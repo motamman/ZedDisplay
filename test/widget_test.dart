@@ -98,12 +98,16 @@ void main() {
     notificationService = NotificationService();
     try {
       await notificationService.initialize();
-    } catch (_) {}
+    } catch (e) {
+      if (!_isHeadlessPluginFailure(e)) rethrow;
+    }
 
     foregroundService = ForegroundTaskService();
     try {
       await foregroundService.initialize();
-    } catch (_) {}
+    } catch (e) {
+      if (!_isHeadlessPluginFailure(e)) rethrow;
+    }
 
     // Initialize tool service
     toolService = ToolService(storageService);
@@ -285,6 +289,16 @@ void main() {
 
     await _settleSplash(tester);
   });
+}
+
+/// True for the two benign ways a native plugin's `initialize()` fails when
+/// run headless (no platform implementation registered): a
+/// [MissingPluginException] from an un-mocked method channel, or a
+/// `LateInitializationError` from the plugin's uninitialized platform-interface
+/// `instance` field. Anything else is a real regression and should propagate.
+bool _isHeadlessPluginFailure(Object e) {
+  if (e is MissingPluginException) return true;
+  return e is Error && e.toString().startsWith('LateInitializationError');
 }
 
 /// The splash screen arms two fire-and-forget timers in initState
