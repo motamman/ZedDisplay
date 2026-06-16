@@ -117,8 +117,18 @@ class _RealtimeChartToolState extends State<RealtimeChartTool> with AutomaticKee
       return const WidgetEmptyState(message: 'No data sources configured');
     }
 
-    // Get configuration from custom properties
-    final maxDataPoints = widget.config.style.customProperties?['maxDataPoints'] as int? ?? 50;
+    // Get configuration from custom properties.
+    // HARD CEILING on maxDataPoints: the spline series recomputes the natural
+    // spline over ALL points on every layout (O(points) per frame), and all
+    // kept-alive screens keep accumulating in the background. Stored configs map
+    // long durations to 720 points; left unclamped, _ChartData climbs for minutes
+    // until each frame is pathologically expensive and the app becomes unusable.
+    // 200 pts @ 500ms ≈ 100s of trend — ample for a "realtime" chart — and keeps
+    // the per-frame spline cost flat regardless of config.
+    const maxDataPointsCeiling = 200;
+    final maxDataPoints =
+        ((widget.config.style.customProperties?['maxDataPoints'] as int?) ?? 50)
+            .clamp(1, maxDataPointsCeiling);
     final updateIntervalMs = widget.config.style.customProperties?['updateInterval'] as int? ?? 500;
     final showLegend = widget.config.style.customProperties?['showLegend'] as bool? ?? true;
     final showGrid = widget.config.style.customProperties?['showGrid'] as bool? ?? true;

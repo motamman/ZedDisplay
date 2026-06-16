@@ -1272,6 +1272,11 @@ class SignalKService extends ChangeNotifier implements DataService {
     if (_rtcDeltaCallback != null) {
       _subscribeToRtcPaths();
     }
+
+    // Re-subscribe the AIS vessels.* wildcard if it was active. The fresh socket
+    // dropped it otherwise, freezing AIS targets after sleep/wake until a full
+    // reconnect. No-op when AIS was never loaded; fresh socket → no stacking.
+    _aisManager.resubscribeIfActive();
   }
 
   /// Send PUT request to SignalK server
@@ -3572,6 +3577,17 @@ class _AISManager {
     };
 
     channel.sink.add(jsonEncode(aisSubscription));
+  }
+
+  /// Re-send the AIS wildcard subscription after a lightweight reconnect, but
+  /// only if AIS was already loaded/active. The reconnect opens a FRESH socket
+  /// (server-side subscriptions reset), so the dashboard/RTC re-subscribe but
+  /// the AIS `vessels.*` subscription was being lost — AIS targets froze until a
+  /// full reconnect. Fresh socket means no stacking.
+  void resubscribeIfActive() {
+    if (_aisInitialLoadDone) {
+      subscribeToAllAISVessels();
+    }
   }
 
   void dispose() {

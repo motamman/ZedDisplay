@@ -387,6 +387,14 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
   bool _recordingTrack = false;
   final List<LatLng> _recordedTrack = [];
 
+  // Hard ceiling on the voyage-recording buffer. It has no time-window cutoff,
+  // so an open-ended recording grows without bound (~1 pt/s at 5 m spacing →
+  // tens of thousands of points over a long passage). At the ceiling we STOP
+  // appending and warn once, rather than dropping oldest points — silently
+  // trimming would corrupt a track the user intends to save.
+  static const int _maxRecordedTrackPoints = 20000;
+  bool _recordedTrackFullWarned = false;
+
   int get _trailMinutes {
     final v = widget.config.style.customProperties?['trailMinutes'];
     if (v is num) return v.toInt();
@@ -1828,6 +1836,13 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
   /// the buffer on a long voyage; unlike the display trail there is no
   /// time-window cutoff, so the whole session is retained.
   void _appendRecordedPoint(double lat, double lon) {
+    if (_recordedTrack.length >= _maxRecordedTrackPoints) {
+      if (!_recordedTrackFullWarned) {
+        _recordedTrackFullWarned = true;
+        _showPlotterSnack('Track recording buffer full — save to continue');
+      }
+      return; // stop appending; preserve the recorded track for saving
+    }
     if (_recordedTrack.isNotEmpty) {
       final last = _recordedTrack.last;
       final dx =
@@ -1859,6 +1874,7 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
       setState(() {
         _recordingTrack = true;
         _recordedTrack.clear();
+        _recordedTrackFullWarned = false;
         if (_ownLat != null && _ownLon != null) {
           _recordedTrack.add(LatLng(_ownLat!, _ownLon!));
         }
