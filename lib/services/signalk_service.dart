@@ -192,8 +192,18 @@ class SignalKService extends ChangeNotifier implements DataService {
     _dataCache.dispose();
   }
 
-  // Throttled notifyListeners — coalesce rapid WS updates via microtask
-  bool _notifyScheduled = false;
+  // Throttled notifyListeners — coalesce a high-rate delta stream into at most
+  // one UI rebuild per _notifyThrottleWindow. A busy boat emits ~50-60 deltas/s;
+  // notifying per delta repaints the whole dashboard ~60x/s and bogs the UI
+  // down. Batching to ~10Hz cuts full-tree rebuilds several-fold with no visible
+  // difference to the user.
+  //
+  // A microtask is NOT sufficient here: microtasks drain at the end of each
+  // event-loop turn — i.e. BETWEEN WebSocket frames — so consecutive deltas
+  // never batch against each other (only multiple path updates within a single
+  // frame would). A real timer window is required to span multiple frames.
+  static const Duration _notifyThrottleWindow = Duration(milliseconds: 100);
+  Timer? _notifyTimer;
   int _notifyCount = 0; // Cumulative per-connect: total notifyListeners requests
   int _notifyThrottledCount = 0; // Cumulative per-connect: coalesced (skipped) calls
 
@@ -202,13 +212,13 @@ class SignalKService extends ChangeNotifier implements DataService {
 
   void _scheduleNotify() {
     _notifyCount++;
-    if (_notifyScheduled) {
+    if (_notifyTimer != null) {
+      // A rebuild is already pending for this window — fold this delta into it.
       _notifyThrottledCount++;
       return;
     }
-    _notifyScheduled = true;
-    Future.microtask(() {
-      _notifyScheduled = false;
+    _notifyTimer = Timer(_notifyThrottleWindow, () {
+      _notifyTimer = null;
       notifyListeners();
     });
   }
@@ -2505,6 +2515,7 @@ class SignalKService extends ChangeNotifier implements DataService {
 
   @override
   void dispose() {
+    _notifyTimer?.cancel();
     _stopBackgroundProbe();
     _stopLivenessWatchdog();
     disconnect();
