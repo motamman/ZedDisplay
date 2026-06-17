@@ -1,4 +1,30 @@
-# What's New in v0.7.0
+# What's New in v0.7.1
+
+## Release Notes (Google Play - max 500 chars)
+
+v0.7.1 Faster & Steadier on Long Sessions
+
+FIXED: A startup data "storm" that re-sent every reading up to 8 times over is gone — the app is noticeably lighter and stays responsive on busy boats and long sessions.
+
+FIXED: Real-time charts no longer slow the app down over time, AIS targets keep updating after sleep/wake, and crew presence stays live after a reconnect.
+
+## Release Notes (App Store / TestFlight - max 4000 chars)
+
+### Faster, Steadier Data (FIXED)
+- **No more startup data storm** — On connect the app was asking the server for every value up to eight times over, so each reading arrived eight times and bogged the device down — worst of all the full weather forecast (~1,600 values) hammering it ~12,000 times. The app now asks for each value once, cutting the load dramatically with no change to what you see.
+- **Real-time charts stay fast** — Live charts no longer pile up data points in the background until the app crawls; they cap their history so performance stays steady no matter how long the app runs.
+
+### Always-On AIS & Crew (FIXED)
+- **AIS keeps tracking after sleep** — AIS targets used to freeze after the device slept or the network blipped, until you restarted. They now resume automatically on reconnect, and new targets show up the moment they transmit — no waiting on a refresh.
+- **Crew presence stays live** — After a quick reconnect, your crew's online status no longer goes stale; presence updates resume right away.
+
+### Under the Hood (CHANGED)
+- **Leaner AIS** — AIS discovery is now pure real-time streaming with no periodic server polling, so targets appear faster and the app does less background work.
+- **Safer voyage recording** — Recording a track now has a generous size limit with a "buffer full — save to continue" notice, so a very long recording can't grow unbounded.
+
+---
+
+# Previous: v0.7.0
 
 ## Release Notes (Google Play - max 500 chars)
 
