@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.7.1+71] - 2026-06-16
+## [0.7.1+79] - 2026-06-16
 
 ### Fixed
 - **WebSocket Delta Stacking — 8× "Firehose" on Startup (root cause)**: `_updateSubscription()` re-sent the *entire* active path set on every `subscribeToPaths()` call — once per service that subscribes on connect (dashboard, crew, messaging, anchor alarm, weather alerts, weather spinner, autopilot). SignalK adds a fresh subscription per `subscribe` message on the same socket (no dedup), so every path — and every inbound delta — was delivered **~8×**. The worst victim was the WeatherFlow forecast tree (~1,590 paths), which hammered the device with ~12,400 startup deltas. Subscriptions are now **incremental**: `_updateSubscription` sends only paths not already sent on the current socket (`_sentSubscriptionPaths`), reset on each new socket attach so a reconnect re-sends the full set exactly once. Diagnosed live via the Dart VM service — forecast ingress dropped **12,400 → 1,590**. Nothing is filtered or dropped; only the redundant re-sends are eliminated. Paths are marked sent only *after* `sink.add` succeeds, so a throwing socket-close retries them on the next call.
