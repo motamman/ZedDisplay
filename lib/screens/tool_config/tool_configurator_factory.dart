@@ -20,6 +20,7 @@ import 'configurators/sun_moon_arc_configurator.dart';
 import 'configurators/historical_data_explorer_configurator.dart';
 import 'configurators/chart_plotter_configurator.dart';
 import 'configurators/chart_plotter_v3_configurator.dart';
+import 'configurators/attitude_indicator_configurator.dart';
 
 /// Factory for creating tool-specific configurators
 ///
@@ -128,6 +129,10 @@ class ToolConfiguratorFactory {
       case 'chart_plotter_v3':
         return ChartPlotterV3Configurator();
 
+      // Attitude (heel/pitch) indicator
+      case 'attitude_indicator':
+        return AttitudeIndicatorConfigurator();
+
       // No custom configurator - use default UI
       default:
         return null;
@@ -172,6 +177,7 @@ class ToolConfiguratorFactory {
       'historical_data_explorer',
       'chart_plotter',
       'chart_plotter_v3',
+      'attitude_indicator',
     ];
   }
 }

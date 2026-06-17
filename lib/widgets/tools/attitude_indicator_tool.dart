@@ -7,7 +7,6 @@ import '../../utils/angle_utils.dart';
 import '../../utils/color_extensions.dart';
 import '../attitude_indicator.dart';
 
-
 /// Config-driven attitude/heel indicator tool
 class AttitudeIndicatorTool extends StatelessWidget {
   final ToolConfig config;
@@ -29,15 +28,19 @@ class AttitudeIndicatorTool extends StatelessWidget {
     final style = config.style;
 
     // Parse color from config
-    final primaryColor = style.primaryColor?.toColor(
-      fallback: Colors.orange,
-    ) ?? Colors.orange;
+    final primaryColor =
+        style.primaryColor?.toColor(fallback: Colors.orange) ?? Colors.orange;
 
     // Get custom properties
-    final showDigitalValues = style.customProperties?['showDigitalValues'] as bool? ?? true;
+    final showDigitalValues =
+        style.customProperties?['showDigitalValues'] as bool? ?? true;
+    final showTitle = style.customProperties?['showTitle'] as bool? ?? true;
+    final title = (style.customProperties?['title'] as String?)?.trim();
     final showGrid = style.customProperties?['showGrid'] as bool? ?? true;
-    final maxPitch = (style.customProperties?['maxPitch'] as num?)?.toDouble() ?? 30.0;
-    final maxRoll = (style.customProperties?['maxRoll'] as num?)?.toDouble() ?? 45.0;
+    final maxPitch =
+        (style.customProperties?['maxPitch'] as num?)?.toDouble() ?? 30.0;
+    final maxRoll =
+        (style.customProperties?['maxRoll'] as num?)?.toDouble() ?? 45.0;
 
     // Get attitude path - single object containing roll, pitch, yaw
     final attitudePath = config.dataSources.isNotEmpty
@@ -55,15 +58,21 @@ class AttitudeIndicatorTool extends StatelessWidget {
       // Roll is in radians, convert to degrees using MetadataStore (single source of truth)
       if (attitude['roll'] is num) {
         final rollRaw = (attitude['roll'] as num).toDouble();
-        final rollMetadata = signalKService.metadataStore.get('$attitudePath.roll');
-        rollDegrees = rollMetadata?.convert(rollRaw) ?? AngleUtils.toDegrees(rollRaw);
+        final rollMetadata = signalKService.metadataStore.get(
+          '$attitudePath.roll',
+        );
+        rollDegrees =
+            rollMetadata?.convert(rollRaw) ?? AngleUtils.toDegrees(rollRaw);
       }
 
       // Pitch is in radians, convert to degrees using MetadataStore (single source of truth)
       if (attitude['pitch'] is num) {
         final pitchRaw = (attitude['pitch'] as num).toDouble();
-        final pitchMetadata = signalKService.metadataStore.get('$attitudePath.pitch');
-        pitchDegrees = pitchMetadata?.convert(pitchRaw) ?? AngleUtils.toDegrees(pitchRaw);
+        final pitchMetadata = signalKService.metadataStore.get(
+          '$attitudePath.pitch',
+        );
+        pitchDegrees =
+            pitchMetadata?.convert(pitchRaw) ?? AngleUtils.toDegrees(pitchRaw);
       }
     }
 
@@ -71,6 +80,8 @@ class AttitudeIndicatorTool extends StatelessWidget {
       rollDegrees: rollDegrees,
       pitchDegrees: pitchDegrees,
       showDigitalValues: showDigitalValues,
+      showTitle: showTitle,
+      title: (title == null || title.isEmpty) ? 'Attitude' : title,
       showGrid: showGrid,
       primaryColor: primaryColor,
       maxPitch: maxPitch,
@@ -86,7 +97,8 @@ class AttitudeIndicatorToolBuilder extends ToolBuilder {
     return ToolDefinition(
       id: 'attitude_indicator',
       name: 'Attitude Indicator',
-      description: 'Artificial horizon showing roll (heel) and pitch with boat silhouette',
+      description:
+          'Artificial horizon showing roll (heel) and pitch with boat silhouette',
       category: ToolCategory.navigation,
       configSchema: ConfigSchema(
         allowsMinMax: false,
@@ -96,6 +108,8 @@ class AttitudeIndicatorToolBuilder extends ToolBuilder {
         maxPaths: 1,
         styleOptions: const [
           'primaryColor',
+          'showTitle',
+          'title',
           'showDigitalValues',
           'showGrid',
           'maxPitch',
@@ -112,11 +126,11 @@ class AttitudeIndicatorToolBuilder extends ToolBuilder {
   ToolConfig? getDefaultConfig(String vesselId) {
     return ToolConfig(
       vesselId: vesselId,
-      dataSources: [
-        DataSource(path: 'navigation.attitude', label: 'Attitude'),
-      ],
+      dataSources: [DataSource(path: 'navigation.attitude', label: 'Attitude')],
       style: StyleConfig(
         customProperties: {
+          'showTitle': true,
+          'title': 'Attitude',
           'showDigitalValues': true,
           'showGrid': true,
           'maxPitch': 30.0,
