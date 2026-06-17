@@ -351,7 +351,9 @@ class CrewService extends ChangeNotifier {
         // WITHOUT firing the connection callbacks, so _onConnected — and thus
         // _startHeartbeat — never runs. Re-arm here, otherwise we silently stop
         // publishing crew.<id>.lastSeen and go stale to other crew while our
-        // own device still shows us online.
+        // own device still shows us online. _onDisconnected also unsubscribed
+        // crew.*, so re-subscribe it too or inbound crew deltas never resume.
+        unawaited(_signalKService.subscribeToPaths(['crew.*'], ownerId: 'crew'));
         _startHeartbeat();
       }
     }

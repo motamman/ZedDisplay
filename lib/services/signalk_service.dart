@@ -189,6 +189,8 @@ class SignalKService extends ChangeNotifier implements DataService {
     _reconnectTimer?.cancel();
     _reconnectTimer = null;
     _availablePathsRefreshTimer?.cancel();
+    _notifyTimer?.cancel();
+    _notifyTimer = null;
     _dataCache.dispose();
   }
 
@@ -2354,7 +2356,6 @@ class SignalKService extends ChangeNotifier implements DataService {
         _activePaths.where((p) => !_sentSubscriptionPaths.contains(p)).toList();
 
     if (pathsToSubscribe.isEmpty) return;
-    _sentSubscriptionPaths.addAll(pathsToSubscribe);
 
     // Standard SignalK subscription format with sendMeta per path
     // Use MMSI/URN context if available, fall back to vessels.self
@@ -2370,6 +2371,9 @@ class SignalKService extends ChangeNotifier implements DataService {
     };
 
     _channel?.sink.add(jsonEncode(subscription));
+    // Mark sent only AFTER the send — if sink.add throws (socket closing) these
+    // paths stay unsent and get retried on the next _updateSubscription call.
+    _sentSubscriptionPaths.addAll(pathsToSubscribe);
     _log('subscribe sent paths=${pathsToSubscribe.length} '
         'context=$subscriptionContext');
   }
