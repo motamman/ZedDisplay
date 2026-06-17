@@ -13,10 +13,10 @@ import '../common/widget_empty_states.dart';
 
 /// Available linear gauge styles
 enum LinearGaugeStyle {
-  bar,        // Filled bar (default)
+  bar, // Filled bar (default)
   thermometer, // Thermometer style
-  step,       // Stepped/segmented
-  bullet,     // Bullet chart style
+  step, // Stepped/segmented
+  bullet, // Bullet chart style
 }
 
 /// Config-driven linear (bar) gauge powered by Syncfusion
@@ -34,7 +34,8 @@ class LinearGaugeTool extends StatefulWidget {
   State<LinearGaugeTool> createState() => _LinearGaugeToolState();
 }
 
-class _LinearGaugeToolState extends State<LinearGaugeTool> with ZonesMixin, AutomaticKeepAliveClientMixin {
+class _LinearGaugeToolState extends State<LinearGaugeTool>
+    with ZonesMixin, AutomaticKeepAliveClientMixin {
   @override
   bool get wantKeepAlive => true;
 
@@ -42,7 +43,10 @@ class _LinearGaugeToolState extends State<LinearGaugeTool> with ZonesMixin, Auto
   void initState() {
     super.initState();
     if (widget.config.dataSources.isNotEmpty) {
-      initializeZones(widget.signalKService, widget.config.dataSources.first.path);
+      initializeZones(
+        widget.signalKService,
+        widget.config.dataSources.first.path,
+      );
     }
   }
 
@@ -75,7 +79,11 @@ class _LinearGaugeToolState extends State<LinearGaugeTool> with ZonesMixin, Auto
   /// [rawValue] is null. When [includeUnit] is false, renders the converted
   /// numeric without its unit suffix (still using MetadataStore for the
   /// conversion math).
-  String? _formatValue(String path, double? rawValue, {bool includeUnit = true}) {
+  String? _formatValue(
+    String path,
+    double? rawValue, {
+    bool includeUnit = true,
+  }) {
     if (rawValue == null) return null;
     final metadata = widget.signalKService.metadataStore.get(path);
     if (!includeUnit) {
@@ -123,24 +131,29 @@ class _LinearGaugeToolState extends State<LinearGaugeTool> with ZonesMixin, Auto
     // Get formatted value using MetadataStore, or show "--" if stale
     String? formattedValue;
     if (isDataFresh && rawSIValue != null) {
-      formattedValue = _formatValue(dataSource.path, rawSIValue, includeUnit: showUnit);
+      formattedValue = _formatValue(
+        dataSource.path,
+        rawSIValue,
+        includeUnit: showUnit,
+      );
     } else {
       formattedValue = '--';
     }
 
-
     // Parse color from hex string
-    final primaryColor = style.primaryColor?.toColor(
-      fallback: Colors.blue
-    ) ?? Colors.blue;
+    final primaryColor =
+        style.primaryColor?.toColor(fallback: Colors.blue) ?? Colors.blue;
 
     // Get orientation, style variant, tick labels, and pointer mode from custom properties
     final isVertical = style.customProperties?['orientation'] == 'vertical';
-    final gaugeStyleStr = style.customProperties?['gaugeStyle'] as String? ?? 'bar';
+    final gaugeStyleStr =
+        style.customProperties?['gaugeStyle'] as String? ?? 'bar';
     final gaugeStyle = _parseGaugeStyle(gaugeStyleStr);
-    final showTickLabels = style.customProperties?['showTickLabels'] as bool? ?? false;
+    final showTickLabels =
+        style.customProperties?['showTickLabels'] as bool? ?? false;
     final divisions = style.customProperties?['divisions'] as int? ?? 10;
-    final pointerOnly = style.customProperties?['pointerOnly'] as bool? ?? false;
+    final pointerOnly =
+        style.customProperties?['pointerOnly'] as bool? ?? false;
     final showZones = style.customProperties?['showZones'] as bool? ?? true;
 
     return Padding(
@@ -217,66 +230,71 @@ class _LinearGaugeToolState extends State<LinearGaugeTool> with ZonesMixin, Auto
         if (style.showLabel == true && label.isNotEmpty)
           Text(
             label,
-            style: const TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w500,
-            ),
+            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
           ),
-        if (style.showLabel == true && label.isNotEmpty) const SizedBox(height: 8),
+        if (style.showLabel == true && label.isNotEmpty)
+          const SizedBox(height: 8),
         Expanded(
-          child: SfLinearGauge(
-            minimum: minValue,
-            maximum: maxValue,
-            interval: (maxValue - minValue) / divisions,
+          // LayoutBuilder defers building the SfLinearGauge subtree until
+          // layout time. On an off-screen (kept-alive but un-laid-out)
+          // PageView page the builder never runs, so syncfusion's
+          // LinearBarPointer is never updated before its first performLayout
+          // -> avoids the `_barPointerOffset` LateInitializationError. This is
+          // the same reason BaseCompass's syncfusion gauge survives keep-alive.
+          child: LayoutBuilder(
+            builder: (context, constraints) => SfLinearGauge(
+              minimum: minValue,
+              maximum: maxValue,
+              interval: (maxValue - minValue) / divisions,
 
-            // Axis styling
-            showTicks: showTickLabels,
-            showLabels: showTickLabels,
-            axisLabelStyle: TextStyle(
-              fontSize: 10,
-              color: Colors.grey[600],
-            ),
-            axisTrackStyle: LinearAxisTrackStyle(
-              thickness: _getTrackThickness(gaugeStyle),
-              edgeStyle: _getEdgeStyle(gaugeStyle),
-              borderWidth: 1,
-              borderColor: Colors.grey.withValues(alpha: 0.3),
-              color: Colors.grey.withValues(alpha: 0.2),
-            ),
+              // Axis styling
+              showTicks: showTickLabels,
+              showLabels: showTickLabels,
+              axisLabelStyle: TextStyle(fontSize: 10, color: Colors.grey[600]),
+              axisTrackStyle: LinearAxisTrackStyle(
+                thickness: _getTrackThickness(gaugeStyle),
+                edgeStyle: _getEdgeStyle(gaugeStyle),
+                borderWidth: 1,
+                borderColor: Colors.grey.withValues(alpha: 0.3),
+                color: Colors.grey.withValues(alpha: 0.2),
+              ),
 
-            // Bar or range pointers based on style (hidden in pointer-only mode)
-            barPointers: pointerOnly ? null : _getBarPointers(
-              value,
-              minValue,
-              maxValue,
-              primaryColor,
-              gaugeStyle,
-            ),
+              // Bar or range pointers based on style (hidden in pointer-only mode)
+              barPointers: pointerOnly
+                  ? null
+                  : _getBarPointers(
+                      value,
+                      minValue,
+                      maxValue,
+                      primaryColor,
+                      gaugeStyle,
+                    ),
 
-            // Ranges for step style and zones
-            ranges: _buildAllRanges(
-              gaugeStyle,
-              pointerOnly,
-              value,
-              minValue,
-              maxValue,
-              primaryColor,
-              divisions,
-              zones,
-              showZones,
-            ),
+              // Ranges for step style and zones
+              ranges: _buildAllRanges(
+                gaugeStyle,
+                pointerOnly,
+                value,
+                minValue,
+                maxValue,
+                primaryColor,
+                divisions,
+                zones,
+                showZones,
+              ),
 
-            // Marker pointers - always show in pointer-only mode
-            markerPointers: _getMarkerPointers(
-              value,
-              formattedValue,
-              primaryColor,
-              style,
-              gaugeStyle,
-              maxValue,
-              pointerOnly,
-              false, // isVertical
-              _getTrackThickness(gaugeStyle),
+              // Marker pointers - always show in pointer-only mode
+              markerPointers: _getMarkerPointers(
+                value,
+                formattedValue,
+                primaryColor,
+                style,
+                gaugeStyle,
+                maxValue,
+                pointerOnly,
+                false, // isVertical
+                _getTrackThickness(gaugeStyle),
+              ),
             ),
           ),
         ),
@@ -315,62 +333,71 @@ class _LinearGaugeToolState extends State<LinearGaugeTool> with ZonesMixin, Auto
                     fontWeight: FontWeight.w500,
                   ),
                 ),
-              if (style.showLabel == true && label.isNotEmpty) const SizedBox(height: 8),
+              if (style.showLabel == true && label.isNotEmpty)
+                const SizedBox(height: 8),
               Expanded(
-                child: SfLinearGauge(
-                  minimum: minValue,
-                  maximum: maxValue,
-                  interval: (maxValue - minValue) / divisions,
-                  orientation: LinearGaugeOrientation.vertical,
+                // See _buildHorizontalGauge: LayoutBuilder defers the gauge
+                // build to layout time so an off-screen kept-alive page never
+                // updates syncfusion's LinearBarPointer before its first
+                // performLayout (avoids the _barPointerOffset crash).
+                child: LayoutBuilder(
+                  builder: (context, constraints) => SfLinearGauge(
+                    minimum: minValue,
+                    maximum: maxValue,
+                    interval: (maxValue - minValue) / divisions,
+                    orientation: LinearGaugeOrientation.vertical,
 
-                  // Axis styling
-                  showTicks: showTickLabels,
-                  showLabels: showTickLabels,
-                  axisLabelStyle: TextStyle(
-                    fontSize: 10,
-                    color: Colors.grey[600],
-                  ),
-                  axisTrackStyle: LinearAxisTrackStyle(
-                    thickness: _getTrackThickness(gaugeStyle),
-                    edgeStyle: _getEdgeStyle(gaugeStyle),
-                    borderWidth: 1,
-                    borderColor: Colors.grey.withValues(alpha: 0.3),
-                    color: Colors.grey.withValues(alpha: 0.2),
-                  ),
+                    // Axis styling
+                    showTicks: showTickLabels,
+                    showLabels: showTickLabels,
+                    axisLabelStyle: TextStyle(
+                      fontSize: 10,
+                      color: Colors.grey[600],
+                    ),
+                    axisTrackStyle: LinearAxisTrackStyle(
+                      thickness: _getTrackThickness(gaugeStyle),
+                      edgeStyle: _getEdgeStyle(gaugeStyle),
+                      borderWidth: 1,
+                      borderColor: Colors.grey.withValues(alpha: 0.3),
+                      color: Colors.grey.withValues(alpha: 0.2),
+                    ),
 
-                  // Bar or range pointers based on style (hidden in pointer-only mode)
-                  barPointers: pointerOnly ? null : _getBarPointers(
-                    value,
-                    minValue,
-                    maxValue,
-                    primaryColor,
-                    gaugeStyle,
-                  ),
+                    // Bar or range pointers based on style (hidden in pointer-only mode)
+                    barPointers: pointerOnly
+                        ? null
+                        : _getBarPointers(
+                            value,
+                            minValue,
+                            maxValue,
+                            primaryColor,
+                            gaugeStyle,
+                          ),
 
-                  // Ranges for step style and zones
-                  ranges: _buildAllRanges(
-                    gaugeStyle,
-                    pointerOnly,
-                    value,
-                    minValue,
-                    maxValue,
-                    primaryColor,
-                    divisions,
-                    zones,
-                    showZones,
-                  ),
+                    // Ranges for step style and zones
+                    ranges: _buildAllRanges(
+                      gaugeStyle,
+                      pointerOnly,
+                      value,
+                      minValue,
+                      maxValue,
+                      primaryColor,
+                      divisions,
+                      zones,
+                      showZones,
+                    ),
 
-                  // Marker pointers - always show in pointer-only mode
-                  markerPointers: _getMarkerPointers(
-                    value,
-                    formattedValue,
-                    primaryColor,
-                    style,
-                    gaugeStyle,
-                    minValue,
-                    pointerOnly,
-                    true, // isVertical
-                    _getTrackThickness(gaugeStyle),
+                    // Marker pointers - always show in pointer-only mode
+                    markerPointers: _getMarkerPointers(
+                      value,
+                      formattedValue,
+                      primaryColor,
+                      style,
+                      gaugeStyle,
+                      minValue,
+                      pointerOnly,
+                      true, // isVertical
+                      _getTrackThickness(gaugeStyle),
+                    ),
                   ),
                 ),
               ),
@@ -494,7 +521,9 @@ class _LinearGaugeToolState extends State<LinearGaugeTool> with ZonesMixin, Auto
         LinearWidgetPointer(
           value: value.clamp(style.minValue ?? 0.0, style.maxValue ?? 100.0),
           position: LinearElementPosition.cross,
-          offset: isVertical ? -offset : offset, // Left side for vertical (negative), below for horizontal
+          offset: isVertical
+              ? -offset
+              : offset, // Left side for vertical (negative), below for horizontal
           child: CustomPaint(
             size: Size(pointerSize, pointerSize),
             painter: _TrianglePainter(
@@ -509,7 +538,10 @@ class _LinearGaugeToolState extends State<LinearGaugeTool> with ZonesMixin, Auto
     // Value label - positioned at the bar level (like tanks tool)
     if (style.showValue == true) {
       final displayText = formattedValue ?? '--';
-      final clampedValue = value.clamp(style.minValue ?? 0.0, style.maxValue ?? 100.0);
+      final clampedValue = value.clamp(
+        style.minValue ?? 0.0,
+        style.maxValue ?? 100.0,
+      );
 
       pointers.add(
         LinearWidgetPointer(
@@ -553,7 +585,13 @@ class _LinearGaugeToolState extends State<LinearGaugeTool> with ZonesMixin, Auto
 
     // Add step ranges if applicable
     if (gaugeStyle == LinearGaugeStyle.step && !pointerOnly) {
-      final stepRanges = _getStepRanges(value, minValue, maxValue, primaryColor, divisions);
+      final stepRanges = _getStepRanges(
+        value,
+        minValue,
+        maxValue,
+        primaryColor,
+        divisions,
+      );
       if (stepRanges != null) {
         ranges.addAll(stepRanges);
       }
@@ -646,10 +684,7 @@ class LinearGaugeBuilder extends ToolBuilder {
 
   @override
   Widget build(ToolConfig config, SignalKService signalKService) {
-    return LinearGaugeTool(
-      config: config,
-      signalKService: signalKService,
-    );
+    return LinearGaugeTool(config: config, signalKService: signalKService);
   }
 }
 
