@@ -953,6 +953,10 @@ class SignalKService extends ChangeNotifier implements DataService {
                 vesselId, value.path, dataPoint.original ?? dataPoint.value,
                 updateValue.timestamp,
               );
+              // First sighting of this vessel (via the position beacon) → pull
+              // its full data with a per-vessel `*`. De-duped, so cheap to call
+              // on every delta.
+              _aisManager.subscribeToVessel(vesselId);
               // Still store detail data in flat cache for _getExtraVesselData() lookups
               final contextPath = '${update.context}.${value.path}';
               _dataCache.store(contextPath, dataPoint);
@@ -989,6 +993,10 @@ class SignalKService extends ChangeNotifier implements DataService {
   /// previous (torn-down) socket carries a stale generation and no-ops.
   void _attachListener() {
     final gen = ++_socketGeneration;
+    // New socket → the server has no subscriptions yet; reset the incremental
+    // "already sent" tracker so the next _updateSubscription re-sends the full
+    // active set exactly once.
+    _sentSubscriptionPaths.clear();
     _log('socket open gen=$gen ping=${_pingInterval?.inSeconds ?? 'off'} '
         'auth=${_authToken != null}');
     _subscription = _channel!.stream.listen(
@@ -1794,6 +1802,13 @@ class SignalKService extends ChangeNotifier implements DataService {
   // Cached self MMSI for fast matching in hot path
   String? _selfMMSI;
 
+  // Paths already subscribed on the CURRENT socket. _updateSubscription sends
+  // only paths not in this set, so each is sent to the server once per socket —
+  // SignalK stacks a fresh subscription per subscribe message (no dedup), so
+  // re-sending the full set on every subscribeToPaths() call multiplied every
+  // inbound delta. Cleared in _attachListener on each new socket.
+  final Set<String> _sentSubscriptionPaths = {};
+
   /// Check if a delta context refers to the own vessel.
   bool _isSelfContext(String context) {
     if (context == _vesselContext) return true;
@@ -2331,9 +2346,15 @@ class SignalKService extends ChangeNotifier implements DataService {
     // Auth guard: no auth = no subscriptions
     if (_authToken == null) return;
 
-    final pathsToSubscribe = <String>[..._activePaths];
+    // Incremental: send only paths not already subscribed on this socket.
+    // Re-sending the full active set on every subscribeToPaths() call stacked
+    // duplicate subscriptions server-side (no dedup) and multiplied every inbound
+    // delta. Send each path once; _sentSubscriptionPaths resets on a new socket.
+    final pathsToSubscribe =
+        _activePaths.where((p) => !_sentSubscriptionPaths.contains(p)).toList();
 
     if (pathsToSubscribe.isEmpty) return;
+    _sentSubscriptionPaths.addAll(pathsToSubscribe);
 
     // Standard SignalK subscription format with sendMeta per path
     // Use MMSI/URN context if available, fall back to vessels.self
@@ -3375,6 +3396,11 @@ class _AISManager {
   // Cached self vessel ID for filtering
   String? _cachedSelfVesselId;
 
+  // Vessel ids already given a per-vessel `*` subscription on the CURRENT
+  // socket. Prevents re-subscribing the same vessel (which would stack
+  // duplicate deltas). Cleared on reconnect (fresh socket) and dispose.
+  final Set<String> _subscribedVesselIds = {};
+
   String get httpBaseUrl => '${useSecureConnection() ? 'https' : 'http'}://${getServerUrl()}';
 
   _AISManager({
@@ -3536,47 +3562,60 @@ class _AISManager {
   Future<void> loadAndSubscribeAISVessels() async {
     if (!_aisInitialLoadDone) {
       _aisInitialLoadDone = true;
-      await fetchAndPopulateRegistry();
       registry.startPruning();
-
-      await Future.delayed(const Duration(seconds: 10));
-      startAISRefreshTimer();
     }
 
+    // Pure-stream discovery — no REST, no poll cadence. The beacon's initial
+    // snapshot backfills current positions for every vessel the server knows,
+    // and ongoing position deltas surface new targets in real time.
     subscribeToAllAISVessels();
   }
 
-  /// Start periodic AIS refresh timer — only updates slow-changing detail data.
-  /// Skips vessels whose WebSocket data is recent (within 30s).
-  void startAISRefreshTimer() {
-    _aisRefreshTimer?.cancel();
-    _aisRefreshTimer = Timer.periodic(const Duration(minutes: 5), (timer) async {
-      if (!isConnected()) {
-        timer.cancel();
-        return;
-      }
-
-      // Re-fetch from REST to pick up new vessels and slow-changing details
-      await fetchAndPopulateRegistry();
-    });
-  }
-
-  /// Subscribe to all AIS vessels using wildcard subscription
+  /// Discovery beacon + per-vessel full subscriptions.
+  ///
+  /// A SINGLE-path `vessels.*` subscription is NOT a firehose — the server's
+  /// path matcher constrains it (measured: ~7 position deltas/s across the
+  /// whole fleet, zero other paths). Each position delta's CONTEXT carries the
+  /// vessel id (the mmsi urn), so [subscribeToVessel] pulls that vessel's full
+  /// data with a per-vessel `*`. Own vessel is excluded (it's the request-driven
+  /// self subscription). No REST, no poll cadence.
   void subscribeToAllAISVessels() {
     final channel = getChannel();
     if (channel == null) return;
 
-    final aisSubscription = {
+    // Beacon: one streamed path, all vessels → real-time discovery.
+    channel.sink.add(jsonEncode({
       'context': 'vessels.*',
       'subscribe': [
-        for (final path in _aisNavPaths)
-          {'path': path, 'format': 'delta', 'policy': 'instant'},
-        for (final path in _aisDetailPaths)
-          {'path': path, 'period': 60000, 'format': 'delta', 'policy': 'ideal'},
+        {'path': 'navigation.position', 'format': 'delta', 'policy': 'instant'},
       ],
-    };
+    }));
 
-    channel.sink.add(jsonEncode(aisSubscription));
+    // Seed full-data subs for vessels already known on this socket (e.g. carried
+    // across a reconnect). New vessels are picked up live by the discovery hook
+    // as their first position delta arrives.
+    for (final vesselId in registry.vessels.keys) {
+      subscribeToVessel(vesselId);
+    }
+  }
+
+  /// Subscribe to ALL paths for one AIS vessel (full detail). Skips own vessel
+  /// and de-dupes per socket so a vessel isn't re-subscribed (which would stack
+  /// duplicate deltas). Called for each newly-discovered vessel context.
+  void subscribeToVessel(String vesselId) {
+    if (vesselId == _cachedSelfVesselId || vesselId == registry.selfVesselId) {
+      return; // own vessel = request-driven self subscription
+    }
+    if (_subscribedVesselIds.contains(vesselId)) return;
+    final channel = getChannel();
+    if (channel == null) return;
+    _subscribedVesselIds.add(vesselId);
+    channel.sink.add(jsonEncode({
+      'context': 'vessels.$vesselId',
+      'subscribe': [
+        {'path': '*'},
+      ],
+    }));
   }
 
   /// Re-send the AIS wildcard subscription after a lightweight reconnect, but
@@ -3586,6 +3625,8 @@ class _AISManager {
   /// full reconnect. Fresh socket means no stacking.
   void resubscribeIfActive() {
     if (_aisInitialLoadDone) {
+      // Fresh socket — server subscriptions reset, so re-subscribe from scratch.
+      _subscribedVesselIds.clear();
       subscribeToAllAISVessels();
     }
   }
@@ -3594,6 +3635,7 @@ class _AISManager {
     _aisRefreshTimer?.cancel();
     _aisRefreshTimer = null;
     _aisInitialLoadDone = false;
+    _subscribedVesselIds.clear();
     registry.clear();
   }
 }
