@@ -34,6 +34,11 @@ class CrewService extends ChangeNotifier {
 
   // Heartbeat timer
   Timer? _heartbeatTimer;
+  // Bumped on every _startHeartbeat() so a superseded deferred arm bails out
+  // instead of leaking a second periodic timer (it can be called from both
+  // _onConnected and the reconnect re-arm in _onSignalKChanged).
+  int _heartbeatGen = 0;
+  bool _disposed = false;
   static const Duration _heartbeatInterval = Duration(seconds: 30);
   static const Duration _presenceTimeout = Duration(seconds: 60);
 
@@ -123,7 +128,9 @@ class CrewService extends ChangeNotifier {
   /// Clean up resources
   @override
   void dispose() {
+    _disposed = true;
     _heartbeatTimer?.cancel();
+    _heartbeatTimer = null;
     _signalKService.unsubscribeFromPaths(['crew.*'], ownerId: 'crew');
     _signalKService.unregisterConnectionCallback(_onConnected);
     _signalKService.removeListener(_onSignalKChanged);
@@ -334,9 +341,20 @@ class CrewService extends ChangeNotifier {
     if (isConnected != _wasConnected) {
       _wasConnected = isConnected;
 
-      // Only handle disconnection here - connection is handled via callback
       if (!isConnected) {
+        // Full (re)connect is handled by _onConnected via the connection
+        // callback; only handle disconnection here.
         _onDisconnected();
+      } else if (_heartbeatTimer == null && _localProfile != null) {
+        // Reconnected with no live heartbeat. A lightweight socket swap
+        // (liveness watchdog / backoff / background probe) restores the socket
+        // WITHOUT firing the connection callbacks, so _onConnected — and thus
+        // _startHeartbeat — never runs. Re-arm here, otherwise we silently stop
+        // publishing crew.<id>.lastSeen and go stale to other crew while our
+        // own device still shows us online. _onDisconnected also unsubscribed
+        // crew.*, so re-subscribe it too or inbound crew deltas never resume.
+        unawaited(_signalKService.subscribeToPaths(['crew.*'], ownerId: 'crew'));
+        _startHeartbeat();
       }
     }
 
@@ -512,11 +530,20 @@ class CrewService extends ChangeNotifier {
 
   /// Start the heartbeat timer, offset 15s from poll start.
   /// Poll fires at T=0,30,60..., heartbeat at T=15,45,75...
-  /// This ensures _localProfile is fresh from the last poll before we PUT.
+  /// The 15s offset lets the latest poll refresh _localProfile before we PUT.
+  ///
+  /// The periodic timer is armed UNCONDITIONALLY. _sendHeartbeat already guards
+  /// on connection + profile and harmlessly no-ops a tick when not ready, so a
+  /// transient not-ready state at T+15s can no longer permanently kill the
+  /// heartbeat (which would freeze our presence and make us look offline to
+  /// everyone else while our own device still showed us online).
   void _startHeartbeat() {
     _heartbeatTimer?.cancel();
+    _heartbeatTimer = null;
+    final gen = ++_heartbeatGen;
     Future.delayed(const Duration(seconds: 15), () {
-      if (!_signalKService.isConnected || _localProfile == null) return;
+      // Bail if disposed or superseded by a later _startHeartbeat() call.
+      if (_disposed || gen != _heartbeatGen) return;
       _sendHeartbeat();
       _pruneStalePresence();
       _heartbeatTimer = Timer.periodic(_heartbeatInterval, (_) {

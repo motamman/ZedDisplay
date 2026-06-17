@@ -27,7 +27,8 @@ A customizable SignalK marine dashboard and crew comms application to display re
 - Connect to any SignalK server (local or remote)
 - Real-time data streaming via WebSocket
 - Support for secure (HTTPS/WSS) and standard connections
-- Automatic reconnection on network changes
+- Automatic reconnection on network changes — AIS targets and crew presence resume automatically after sleep/wake
+- Efficient per-socket subscriptions (each path subscribed once, no duplicate delta traffic) keep the UI responsive on long sessions
 
 ### Customizable Dashboard
 - Multiple dashboard screens with custom layouts

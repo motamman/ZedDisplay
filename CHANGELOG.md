@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.1+71] - 2026-06-16
+
+### Fixed
+- **WebSocket Delta Stacking — 8× "Firehose" on Startup (root cause)**: `_updateSubscription()` re-sent the *entire* active path set on every `subscribeToPaths()` call — once per service that subscribes on connect (dashboard, crew, messaging, anchor alarm, weather alerts, weather spinner, autopilot). SignalK adds a fresh subscription per `subscribe` message on the same socket (no dedup), so every path — and every inbound delta — was delivered **~8×**. The worst victim was the WeatherFlow forecast tree (~1,590 paths), which hammered the device with ~12,400 startup deltas. Subscriptions are now **incremental**: `_updateSubscription` sends only paths not already sent on the current socket (`_sentSubscriptionPaths`), reset on each new socket attach so a reconnect re-sends the full set exactly once. Diagnosed live via the Dart VM service — forecast ingress dropped **12,400 → 1,590**. Nothing is filtered or dropped; only the redundant re-sends are eliminated. Paths are marked sent only *after* `sink.add` succeeds, so a throwing socket-close retries them on the next call.
+- **Realtime Chart Progressive Slowdown**: A live spline chart's retained `_ChartData` grew toward a high configured ceiling (up to 720/series) and — because every dashboard screen is kept alive — kept accumulating in the background; Syncfusion re-splines the entire growing point set every frame, so the app got steadily slower until it was unusable after a few minutes. `maxDataPoints` is now clamped to **≤200** regardless of config, and a restored static-cache series is trimmed to the cap in `initState` so stale over-limit data can't sidestep the sliding window.
+- **AIS Targets Froze After Sleep / Wake**: A lightweight reconnect re-sent the dashboard and RTC subscriptions but never re-issued the AIS `vessels.*` subscription, so AIS targets stopped updating until a full reconnect. `resubscribeIfActive()` now restores the AIS beacon and per-vessel subscriptions after a lightweight socket swap.
+- **Crew Presence Went Stale After Reconnect**: On disconnect, `crew.*` is unsubscribed; the reconnect fast-path only re-armed the heartbeat, so inbound crew deltas never resumed and other crew showed as stale. The fast-path now re-subscribes `crew.*` alongside re-arming the heartbeat.
+
+### Changed
+- **AIS Discovery — Pure Stream, No REST Cadence**: The AIS layer no longer loads vessels over REST or runs a 5-minute refresh poll. A single `vessels.*` `navigation.position` beacon discovers targets in real time; each newly-seen vessel context triggers a per-vessel wildcard (`vessels.<id>.*`) subscription, de-duped by `_subscribedVesselIds` with the own vessel excluded. New targets appear within their first position report instead of waiting on a poll.
+- **Voyage Track Recording — Hard Buffer Cap**: The voyage-recording buffer (`_recordedTrack`) is now bounded (20,000 points); when full it stops appending and shows a one-time "save to continue" notice rather than growing without limit, and the warning resets at the start of each new recording.
+
+### Developer
+- **CrewService Heartbeat Guards**: A generation counter (`_heartbeatGen`) and `_disposed` flag make stale delayed heartbeat ticks no-op after a reconnect or disposal, preventing duplicate/zombie heartbeats.
+- **Timer Cleanup**: `debugStopAllTimers()` now also cancels the UI-notify throttle timer (`_notifyTimer`) so delta-processing tests don't strand a pending timer.
+
 ## [0.7.0+78] - 2026-06-15
 
 ### Added

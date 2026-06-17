@@ -100,6 +100,15 @@ class _RealtimeSplineChartState extends State<RealtimeSplineChart> with Automati
     final cached = _RealtimeChartCache.get(_cacheKey);
     if (cached != null && cached.seriesData.length == widget.dataSources.length) {
       _seriesData = cached.seriesData;
+      // Trim restored series to the current cap. A stored config could have
+      // accumulated points under an older/higher maxDataPoints; without this the
+      // restored data sidesteps the sliding-window trim (which only runs on the
+      // next tick) and keeps the chart oversized — defeating the ceiling.
+      for (final series in _seriesData) {
+        if (series.length > widget.maxDataPoints) {
+          series.removeRange(0, series.length - widget.maxDataPoints);
+        }
+      }
       _seriesVisibility = Map.from(cached.seriesVisibility);
       _cachedMinY = cached.cachedMinY;
       _cachedMaxY = cached.cachedMaxY;
