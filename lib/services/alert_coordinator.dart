@@ -252,10 +252,13 @@ class AlertCoordinator extends ChangeNotifier {
     }
   }
 
-  /// Dismiss (resolve) every visible active alert. Snapshot first — resolveAlert
-  /// mutates _activeAlerts.
+  /// Dismiss (resolve) EVERY active alert — including ones currently hidden
+  /// from the panel by an in-app severity filter, an acknowledge window, or an
+  /// active overlay. Iterates the raw store (not the filtered `activeAlerts`
+  /// getter) so "DISMISS ALL" truly clears everything and can't leave stuck,
+  /// invisible alerts behind. Snapshot first — resolveAlert mutates the map.
   void dismissAll() {
-    for (final event in activeAlerts.toList()) {
+    for (final event in _activeAlerts.values.toList()) {
       resolveAlert(event.subsystem, alarmId: event.alarmId);
     }
   }
