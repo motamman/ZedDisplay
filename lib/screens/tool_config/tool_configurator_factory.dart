@@ -21,6 +21,7 @@ import 'configurators/historical_data_explorer_configurator.dart';
 import 'configurators/chart_plotter_configurator.dart';
 import 'configurators/chart_plotter_v3_configurator.dart';
 import 'configurators/attitude_indicator_configurator.dart';
+import 'configurators/radial_bar_chart_configurator.dart';
 
 /// Factory for creating tool-specific configurators
 ///
@@ -35,6 +36,10 @@ class ToolConfiguratorFactory {
       case 'radial_gauge':
       case 'linear_gauge':
         return GaugeConfigurator(toolTypeId);
+
+      // Radial Bar Chart (concentric rings)
+      case 'radial_bar_chart':
+        return RadialBarChartConfigurator();
 
       // Charts
       case 'historical_chart':
@@ -178,6 +183,7 @@ class ToolConfiguratorFactory {
       'chart_plotter',
       'chart_plotter_v3',
       'attitude_indicator',
+      'radial_bar_chart',
     ];
   }
 }
