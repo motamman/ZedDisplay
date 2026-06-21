@@ -303,6 +303,9 @@ class AisVesselList extends StatefulWidget {
 
 class _AisVesselListState extends State<AisVesselList> {
   int _tabIndex = 0; // 0 = Nearby, 1 = Favorites
+  // Favorites tab: default to showing only in-range favorites. The "In range"
+  // chip toggles off to reveal all favorites.
+  bool _favsInRangeOnly = true;
 
   @override
   Widget build(BuildContext context) {
@@ -634,6 +637,12 @@ class _AisVesselListState extends State<AisVesselList> {
       byMmsi[extractMmsi(v.mmsi)] = v;
     }
 
+    // `widget.vessels` is the nearby (in-range) set, so a favorite is in range
+    // iff its MMSI is a key in `byMmsi`. Default to showing only those.
+    final inRangeFavorites =
+        favorites.where((f) => byMmsi.containsKey(f.mmsi)).toList();
+    final displayed = _favsInRangeOnly ? inRangeFavorites : favorites;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -644,13 +653,29 @@ class _AisVesselListState extends State<AisVesselList> {
             children: [
               Expanded(
                 child: Text(
-                  '${favorites.length} favorite${favorites.length == 1 ? '' : 's'}',
+                  _favsInRangeOnly
+                      ? '${inRangeFavorites.length} in range'
+                      : '${favorites.length} favorite${favorites.length == 1 ? '' : 's'}',
+                  overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     fontSize: 11,
                     color: isDark ? Colors.white70 : Colors.black54,
                   ),
                 ),
               ),
+              // In-range filter — chip UX, consistent with the Nearby/Favorites
+              // tab chips. Selected (default) shows only in-range favorites;
+              // deselect to show all.
+              if (favorites.isNotEmpty) ...[
+                FilterChip(
+                  label: const Text('In range', style: TextStyle(fontSize: 11)),
+                  selected: _favsInRangeOnly,
+                  onSelected: (v) => setState(() => _favsInRangeOnly = v),
+                  visualDensity: VisualDensity.compact,
+                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+                const SizedBox(width: 6),
+              ],
               SizedBox(
                 height: 24,
                 child: TextButton.icon(
@@ -702,19 +727,21 @@ class _AisVesselListState extends State<AisVesselList> {
           ),
         ),
         Expanded(
-          child: favorites.isEmpty
+          child: displayed.isEmpty
               ? Center(
                   child: Text(
-                    'No favorites yet',
+                    favorites.isEmpty
+                        ? 'No favorites yet'
+                        : 'No favorites in range',
                     style: TextStyle(
                       color: isDark ? Colors.white70 : Colors.black54,
                     ),
                   ),
                 )
               : ListView.builder(
-                  itemCount: favorites.length,
+                  itemCount: displayed.length,
                   itemBuilder: (context, index) {
-                    final fav = favorites[index];
+                    final fav = displayed[index];
                     final inRangeVessel = byMmsi[fav.mmsi];
                     return _buildFavoriteRow(
                       context: context,
