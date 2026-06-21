@@ -25,6 +25,18 @@ class AISVessel {
   void updateFromPath(String path, dynamic value, DateTime timestamp) {
     lastSeen = timestamp;
 
+    // SignalK delivers top-level vessel attributes (name, mmsi, communication,
+    // registrations, …) as a single empty-path delta whose value is an object
+    // keyed by the attribute, e.g. {path: '', value: {name: 'ANNE SOFIE'}}.
+    // Flatten it so each key routes through the switch below (notably `name`).
+    // The old REST pre-load delivered these pre-flattened as path 'name'; once
+    // that preload was removed the WS cached-delta replay keeps the raw object
+    // form, so without this the vessel name (and other static data) is dropped.
+    if (path.isEmpty && value is Map) {
+      value.forEach((key, v) => updateFromPath(key.toString(), v, timestamp));
+      return;
+    }
+
     switch (path) {
       case 'navigation.position':
         if (value is Map) {
