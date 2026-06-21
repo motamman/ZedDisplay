@@ -13,6 +13,12 @@
     <!-- Microphone for voice intercom -->
     <uses-permission android:name="android.permission.RECORD_AUDIO"/>
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS"/>
+    <!-- Bluetooth headset routing for voice intercom (Android 12+ runtime perm).
+         Without it flutter_webrtc can't enumerate/route to a BT headset. -->
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT"/>
+    <!-- Legacy Bluetooth perm for Android 11 and below -->
+    <uses-permission android:name="android.permission.BLUETOOTH"
+        android:maxSdkVersion="30"/>
 
     <application
         android:label="ZedDisplay +SignalK"

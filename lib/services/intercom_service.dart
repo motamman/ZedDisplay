@@ -404,6 +404,9 @@ class IntercomService extends ChangeNotifier {
         await openAppSettings();
       }
 
+      // Mic just granted (first run) — line up Bluetooth routing now too.
+      await _ensureBluetoothPermission();
+
       notifyListeners();
       return _hasMicPermission;
     } catch (e) {
@@ -411,6 +414,30 @@ class IntercomService extends ChangeNotifier {
         print('Error requesting microphone permission: $e');
       }
       return false;
+    }
+  }
+
+  // Bluetooth permission is requested at most once per session.
+  bool _btPermissionRequested = false;
+
+  /// Android 12+ requires BLUETOOTH_CONNECT at runtime before flutter_webrtc
+  /// can enumerate/route to a Bluetooth headset. Requested independently of the
+  /// mic permission — which may already be granted from a prior run, in which
+  /// case requestMicPermission() never runs and the BT request would be missed.
+  /// Best-effort and non-blocking: a denial just falls back to speaker/earpiece.
+  Future<void> _ensureBluetoothPermission() async {
+    if (_btPermissionRequested) return;
+    if (defaultTargetPlatform != TargetPlatform.android) return;
+    _btPermissionRequested = true;
+    try {
+      final btStatus = await Permission.bluetoothConnect.request();
+      if (kDebugMode) {
+        print('Bluetooth connect permission status: $btStatus');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error requesting bluetooth permission: $e');
+      }
     }
   }
 
@@ -717,6 +744,9 @@ class IntercomService extends ChangeNotifier {
       final granted = await requestMicPermission();
       if (!granted) return false;
     }
+    // Ensure BT routing even when mic was already granted (so requestMicPermission
+    // — and the BT request it makes — was skipped). One-shot, non-blocking.
+    await _ensureBluetoothPermission();
 
     final profile = _crewService.localProfile;
     if (profile == null) return false;
@@ -848,6 +878,9 @@ class IntercomService extends ChangeNotifier {
       final granted = await requestMicPermission();
       if (!granted) return false;
     }
+    // Ensure BT routing even when mic was already granted (so requestMicPermission
+    // — and the BT request it makes — was skipped). One-shot, non-blocking.
+    await _ensureBluetoothPermission();
 
     final profile = _crewService.localProfile;
     if (profile == null) return false;
@@ -935,6 +968,9 @@ class IntercomService extends ChangeNotifier {
       final granted = await requestMicPermission();
       if (!granted) return false;
     }
+    // Ensure BT routing even when mic was already granted (so requestMicPermission
+    // — and the BT request it makes — was skipped). One-shot, non-blocking.
+    await _ensureBluetoothPermission();
 
     final profile = _crewService.localProfile;
     if (profile == null) return false;
@@ -1158,6 +1194,9 @@ class IntercomService extends ChangeNotifier {
       final granted = await requestMicPermission();
       if (!granted) return false;
     }
+    // Ensure BT routing even when mic was already granted (so requestMicPermission
+    // — and the BT request it makes — was skipped). One-shot, non-blocking.
+    await _ensureBluetoothPermission();
 
     final profile = _crewService.localProfile;
     if (profile == null) return false;
