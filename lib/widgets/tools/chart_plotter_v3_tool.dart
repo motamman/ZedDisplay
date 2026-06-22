@@ -3429,17 +3429,19 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
                   blue: _rulerBlue!,
                   distance: _distanceMetadata(),
                 ),
-              if (_routeCoords != null)
-                _RouteOverlayLayer(
-                  coords: _routeCoords!,
-                  activeIndex: _routePointIndex,
-                  reversed: _routeReversed,
-                ),
+              // Weather route first so the selected/active route paints on
+              // top of it (later children render above earlier ones).
               if (_weatherRoutingEnabled &&
                   (_weatherRoutingService?.currentResult?.isNotEmpty ?? false))
                 WeatherRouteOverlayLayer(
                   result: _weatherRoutingService!.currentResult!,
                   selectedIndex: _weatherRouteSelectedIdx,
+                ),
+              if (_routeCoords != null)
+                _RouteOverlayLayer(
+                  coords: _routeCoords!,
+                  activeIndex: _routePointIndex,
+                  reversed: _routeReversed,
                 ),
               // Approximate-mode halo around each intermediate via
               // pin. Visible only when the routing service is in
@@ -7333,13 +7335,14 @@ class _OwnVesselPainter extends CustomPainter {
       old.sogMs != sogMs;
 }
 
-/// Paints the active route in V1's colours + shapes (chart_webview.dart:
-/// 1546-1613). Base polyline green at 0.6 alpha width 3; a bright
-/// active-leg overlay (prev → next waypoint) at 0.95 alpha width 5;
-/// triangular waypoint markers pointing along the route direction,
-/// sized 12 for the next waypoint and 7 otherwise, with alpha rules
-/// 0.3 past / 0.95 next / 0.7 future. Only the next waypoint gets a
-/// white outline. `reversed` inverts what counts as past vs future.
+/// Paints the active route. Base polyline magenta at 0.6 alpha width 3; a
+/// bright active-leg overlay (prev → next waypoint) at 0.95 alpha width 5;
+/// waypoint markers point along the route direction. Past/future waypoints are
+/// small magenta triangles (alpha 0.3 past / 0.7 future); the active (next)
+/// waypoint is the `Icons.navigation` chevron — the same glyph AIS moving
+/// vessels use — at 2/3 the AIS icon size. Magenta sits outside the
+/// weather-route palette so the route reads clearly over weather legs.
+/// `reversed` inverts what counts as past vs future.
 class _RouteOverlayLayer extends StatelessWidget {
   const _RouteOverlayLayer({
     required this.coords,
@@ -7405,7 +7408,7 @@ class _RoutePainter extends CustomPainter {
     canvas.drawPath(
       basePath,
       Paint()
-        ..color = const Color(0x994CAF50) // 0.6 alpha
+        ..color = const Color(0x99E91E63) // magenta, 0.6 alpha
         ..strokeWidth = 3
         ..style = PaintingStyle.stroke,
     );
@@ -7425,18 +7428,20 @@ class _RoutePainter extends CustomPainter {
           points[prevIdx],
           points[ai],
           Paint()
-            ..color = const Color(0xF24CAF50) // 0.95 alpha
+            ..color = const Color(0xF2E91E63) // magenta, 0.95 alpha
             ..strokeWidth = 5
             ..style = PaintingStyle.stroke,
         );
       }
     }
 
-    // Waypoint triangles — direction by next leg (or previous in reverse).
+    // Waypoint markers — direction by next leg (or previous in reverse).
+    // The ACTIVE (next) waypoint gets a magenta `Icons.navigation` chevron — the
+    // same glyph AIS moving vessels use — at 2/3 the AIS icon size, pointing
+    // along the route. All other waypoints keep small equilateral triangles.
     for (var i = 0; i < points.length; i++) {
       final isNext = i == ai;
       final isPast = ai != null && (reversed ? i > ai : i < ai);
-      final size = isNext ? 12.0 : 7.0;
       final alpha = isPast ? 0.3 : (isNext ? 0.95 : 0.7);
       // Rotation = atan2(dx, dy) of the next-step vector. dy is
       // world-up in screen coords here (flutter_map projects y-down),
@@ -7452,7 +7457,14 @@ class _RoutePainter extends CustomPainter {
       final dx = points[toIdx].dx - points[i].dx;
       final dy = points[toIdx].dy - points[i].dy;
       final rot = (dx == 0 && dy == 0) ? 0.0 : math.atan2(dx, -dy);
-      final path = _triangle(size);
+
+      if (isNext) {
+        // 2/3 of the AIS vessel icon size (`_AisPainter._iconSize == 32`).
+        _drawActiveChevron(canvas, points[i], rot, 32.0 * 2 / 3);
+        continue;
+      }
+
+      final path = _triangle(7.0);
       canvas.save();
       canvas.translate(points[i].dx, points[i].dy);
       canvas.rotate(rot);
@@ -7460,19 +7472,38 @@ class _RoutePainter extends CustomPainter {
         path,
         Paint()
           ..color =
-              Color.fromRGBO(76, 175, 80, alpha), // rgba(76,175,80,alpha)
+              Color.fromRGBO(233, 30, 99, alpha), // magenta #E91E63
       );
-      if (isNext) {
-        canvas.drawPath(
-          path,
-          Paint()
-            ..color = Colors.white
-            ..strokeWidth = 2
-            ..style = PaintingStyle.stroke,
-        );
-      }
       canvas.restore();
     }
+  }
+
+  /// Active-waypoint marker: the magenta `Icons.navigation` chevron (the same
+  /// glyph AIS moving vessels use in `_AisPainter`), centred on [at] and
+  /// rotated [rot] to point along the route. Drop shadow but no white outline,
+  /// matching the AIS vessel look.
+  void _drawActiveChevron(Canvas canvas, Offset at, double rot, double sizePt) {
+    final tp = TextPainter(
+      text: TextSpan(
+        text: String.fromCharCode(Icons.navigation.codePoint),
+        style: TextStyle(
+          fontFamily: Icons.navigation.fontFamily,
+          package: Icons.navigation.fontPackage,
+          fontSize: sizePt,
+          // Magenta — deliberately outside the weather-route palette
+          // (green/red/amber/blue/cyan/orange) so the active waypoint reads
+          // clearly against the route and weather legs. 0.95 alpha.
+          color: const Color(0xF2E91E63),
+          shadows: const [Shadow(color: Colors.black, blurRadius: 3)],
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    canvas.save();
+    canvas.translate(at.dx, at.dy);
+    canvas.rotate(rot);
+    tp.paint(canvas, Offset(-tp.width / 2, -tp.height / 2));
+    canvas.restore();
   }
 
   /// Equilateral triangle pointing up (bow along +y is toward the
