@@ -617,6 +617,13 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
   // state survives app restarts and hot restarts.
   static const String _layerPrefsKey = 'chart_plotter_v3_layer_prefs';
 
+  /// Locally-cached chart catalog (descriptors: id/bounds/zoom/url). Persisted
+  /// alongside the tile bytes so selected charts can render on a cold start
+  /// before — or entirely without — the SignalK server. Previously only the
+  /// tiles were cached, so cached charts couldn't render offline (no
+  /// descriptor → `_pushManagerCharts` skipped them).
+  static const String _chartCatalogCacheKey = 'chart_plotter_v3_catalog_cache';
+
   void _persistLayerPrefs() {
     try {
       final storage = context.read<StorageService>();
@@ -641,6 +648,69 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
     } catch (_) {
       // StorageService may not be available in tests/headless.
     }
+  }
+
+  /// Persist the chart catalog (descriptors) so selected charts can render from
+  /// cached tiles on a cold start before the SignalK server answers.
+  void _persistChartCatalog(List<ChartDescriptor> descriptors) {
+    try {
+      final storage = context.read<StorageService>();
+      final payload = jsonEncode([
+        for (final c in descriptors)
+          {
+            'id': c.id,
+            'w': c.west,
+            's': c.south,
+            'e': c.east,
+            'n': c.north,
+            'minZ': c.minZoom,
+            'maxZ': c.maxZoom,
+            if (c.urlTemplate != null) 'url': c.urlTemplate,
+          },
+      ]);
+      unawaited(storage.saveSetting(_chartCatalogCacheKey, payload));
+    } catch (_) {/* storage unavailable */}
+  }
+
+  /// Seed `_chartCatalog` from the locally-cached copy so selected charts can
+  /// render from cached tiles before/without the server. Does NOT set
+  /// `_catalogHasLoaded` — the live server fetch stays authoritative for the
+  /// add/remove reconciliation; this only supplies descriptors to render with.
+  void _loadCachedChartCatalog() {
+    if (_chartCatalog.isNotEmpty) return; // live catalog already present
+    try {
+      final storage = context.read<StorageService>();
+      final raw = storage.getSetting(_chartCatalogCacheKey);
+      if (raw == null || raw.isEmpty) return;
+      final j = jsonDecode(raw);
+      if (j is! List) return;
+      final descriptors = <ChartDescriptor>[];
+      final urlTemplates = <String, String>{};
+      for (final e in j) {
+        if (e is! Map) continue;
+        final id = e['id'];
+        if (id is! String) continue;
+        final url = e['url'] as String?;
+        descriptors.add(ChartDescriptor(
+          id: id,
+          west: (e['w'] as num?)?.toDouble() ?? -180.0,
+          south: (e['s'] as num?)?.toDouble() ?? -85.0,
+          east: (e['e'] as num?)?.toDouble() ?? 180.0,
+          north: (e['n'] as num?)?.toDouble() ?? 85.0,
+          minZoom: (e['minZ'] as num?)?.toInt() ?? 0,
+          maxZoom: (e['maxZ'] as num?)?.toInt() ?? 22,
+          urlTemplate: url,
+        ));
+        if (url != null && url.isNotEmpty) urlTemplates[id] = url;
+      }
+      if (descriptors.isEmpty) return;
+      _chartCatalog = descriptors;
+      try {
+        context
+            .read<ChartTileServerService>()
+            .setChartUpstreamTemplates(urlTemplates);
+      } catch (_) {/* proxy unavailable */}
+    } catch (_) {/* corrupt cache → ignore */}
   }
 
   void _loadLayerPrefs() {
@@ -841,6 +911,11 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
       // (which toggles were on, custom min-zooms, which legends on
       // the map).
       _loadLayerPrefs();
+      // Seed the locally-cached chart catalog now that StorageService is
+      // wired, and render if the engine/manager is already up. (If it isn't
+      // yet, `_loadEngine` does the seed+push when it finishes.)
+      _loadCachedChartCatalog();
+      if (_tileManager != null) _pushManagerCharts();
     } else {
       _weatherDataService!.baseUrl = _routePlannerBaseUrl;
     }
@@ -2942,6 +3017,13 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
         _spriteImage = spriteImage;
         _tileManager = manager;
       });
+      // Render selected charts from the locally-cached catalog + cached tiles
+      // immediately, before the (possibly slow/absent) server answers. The
+      // live fetch below overwrites `_chartCatalog` once it arrives. (`_layers`
+      // was restored in didChangeDependencies, which runs before this async
+      // continuation.)
+      _loadCachedChartCatalog();
+      _pushManagerCharts();
       // Manager starts with no charts. Kick off the SignalK catalog
       // fetch and seed `_layers` ∩ catalog into the manager. Safe even
       // if the fetch is empty: empty intersection means no tile fetches
@@ -3063,6 +3145,9 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
       }
       if (!mounted) return;
       _chartCatalog = descriptors;
+      // Cache the catalog locally so a future cold start can render selected
+      // charts from cached tiles before this server is reachable again.
+      _persistChartCatalog(descriptors);
       // Catalog has now successfully arrived from this server. From
       // this point on, an empty catalog is authoritative — meaning
       // `_onChartsCatalogChanged` is allowed to drop persisted s57
