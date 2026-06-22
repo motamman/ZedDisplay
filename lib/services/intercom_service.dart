@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -430,9 +431,16 @@ class IntercomService extends ChangeNotifier {
     if (defaultTargetPlatform != TargetPlatform.android) return;
     _btPermissionRequested = true;
     try {
-      final btStatus = await Permission.bluetoothConnect.request();
+      // BLUETOOTH_CONNECT is a runtime permission only on Android 12 (API 31)+.
+      // On Android 11 and below the legacy BLUETOOTH permission applies (normal
+      // install-time perm), so requesting bluetoothConnect there is a no-op at
+      // best — pick the permission that matches the device's API level.
+      final sdkInt = (await DeviceInfoPlugin().androidInfo).version.sdkInt;
+      final permission =
+          sdkInt >= 31 ? Permission.bluetoothConnect : Permission.bluetooth;
+      final btStatus = await permission.request();
       if (kDebugMode) {
-        print('Bluetooth connect permission status: $btStatus');
+        print('Bluetooth permission status (sdk $sdkInt): $btStatus');
       }
     } catch (e) {
       if (kDebugMode) {
