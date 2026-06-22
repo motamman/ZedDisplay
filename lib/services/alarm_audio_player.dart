@@ -31,7 +31,6 @@ class AlarmAudioPlayer {
   };
 
   AudioPlayer? _player;
-  Timer? _repeatTimer;
   bool _playing = false;
   bool _muted = false;
   String? _activeSource;
@@ -58,7 +57,6 @@ class AlarmAudioPlayer {
     required String assetPath,
     required AlertSeverity severity,
     required String source,
-    Duration repeatInterval = const Duration(seconds: 5),
   }) async {
     if (_muted) return;
 
@@ -74,28 +72,16 @@ class AlarmAudioPlayer {
     _activeSeverity = severity;
     try {
       _player = AudioPlayer();
+      // Loop natively instead of tearing down and rebuilding a MediaPlayer
+      // every cycle. The old approach disposed + recreated the player every
+      // `repeatInterval`, which spammed Android's cleanDrmObj/resetDrmState
+      // logs and churned CPU. One player now, created here and disposed in
+      // _stopInternal()/stop(). NOTE: the alarm is now continuous rather than
+      // the previous ~5s-spaced repeat.
+      await _player!.setReleaseMode(ReleaseMode.loop);
       await _player!.setVolume(1.0);
       await _player!.play(AssetSource(assetPath));
       _playing = true;
-
-      _repeatTimer = Timer.periodic(repeatInterval, (_) async {
-        if (!_playing || _muted) {
-          _repeatTimer?.cancel();
-          if (_muted) _stopInternal();
-          return;
-        }
-        try {
-          // Create fresh player per repeat — seek+resume is unreliable on Android
-          _player?.dispose();
-          _player = AudioPlayer();
-          await _player!.setVolume(1.0);
-          await _player!.play(AssetSource(assetPath));
-        } catch (e) {
-          if (kDebugMode) {
-            print('AlarmAudioPlayer: error repeating sound: $e');
-          }
-        }
-      });
     } catch (e) {
       if (kDebugMode) {
         print('AlarmAudioPlayer: error playing sound: $e');
@@ -114,8 +100,6 @@ class AlarmAudioPlayer {
   }
 
   Future<void> _stopInternal() async {
-    _repeatTimer?.cancel();
-    _repeatTimer = null;
     try {
       await _player?.stop();
       _player?.dispose();
@@ -131,7 +115,6 @@ class AlarmAudioPlayer {
   }
 
   void dispose() {
-    _repeatTimer?.cancel();
     try {
       _player?.stop();
       _player?.dispose();
