@@ -236,25 +236,44 @@ class _AnchorAlarmToolState extends State<AnchorAlarmTool>
     });
   }
 
+  /// Surface a failed anchor command (e.g. a 401/403 from the plugin) so it is
+  /// not swallowed silently. Reads the failure detail recorded by the service.
+  void _showActionError(String action) {
+    if (!mounted) return;
+    final detail = _alarmService.lastActionError;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content:
+            Text(detail != null ? '$action failed: $detail' : '$action failed'),
+        backgroundColor: Colors.red,
+        duration: const Duration(seconds: 5),
+      ),
+    );
+  }
+
   Future<void> _dropAnchor() async {
     _resetLockTimer();
     final success = await _alarmService.dropAnchor();
-    if (success && mounted) {
-      // Set rode length to distance from bow + 10%
-      final gpsFromBow = _alarmService.gpsFromBow;
-      if (gpsFromBow != null && gpsFromBow > 0) {
-        final rodeLength = gpsFromBow * 1.1;
-        await _alarmService.setRodeLength(rodeLength);
-      }
-
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Anchor dropped'),
-          backgroundColor: Colors.green,
-        ),
-      );
+    if (!mounted) return;
+    if (!success) {
+      _showActionError('Drop');
+      return;
     }
+
+    // Set rode length to distance from bow + 10%
+    final gpsFromBow = _alarmService.gpsFromBow;
+    if (gpsFromBow != null && gpsFromBow > 0) {
+      final rodeLength = gpsFromBow * 1.1;
+      await _alarmService.setRodeLength(rodeLength);
+    }
+
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Anchor dropped'),
+        backgroundColor: Colors.green,
+      ),
+    );
   }
 
   Future<void> _raiseAnchor() async {
@@ -279,13 +298,16 @@ class _AnchorAlarmToolState extends State<AnchorAlarmTool>
 
     if (confirmed == true) {
       final success = await _alarmService.raiseAnchor();
-      if (success && mounted) {
+      if (!mounted) return;
+      if (success) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('Anchor raised'),
             backgroundColor: Colors.orange,
           ),
         );
+      } else {
+        _showActionError('Raise');
       }
     }
   }
@@ -299,7 +321,8 @@ class _AnchorAlarmToolState extends State<AnchorAlarmTool>
 
     // Call plugin API - it calculates maxRadius from rode/depth/gpsFromBow/fudge
     // Does NOT recalculate anchor position (anchor position is set separately)
-    await _alarmService.setRodeLength(length, depth: depth);
+    final ok = await _alarmService.setRodeLength(length, depth: depth);
+    if (!ok && mounted) _showActionError('Set rode');
   }
 
   /// Open compass overlay to set anchor direction
@@ -362,7 +385,7 @@ class _AnchorAlarmToolState extends State<AnchorAlarmTool>
         SnackBar(
           content: Text(success
               ? 'Anchor direction set to ${trueBearing.toStringAsFixed(0)}°'
-              : 'Failed to update anchor position'),
+              : 'Set direction failed: ${_alarmService.lastActionError ?? ''}'),
           backgroundColor: success ? Colors.green : Colors.red,
         ),
       );
@@ -1222,10 +1245,11 @@ class _AnchorAlarmToolState extends State<AnchorAlarmTool>
                       _resetLockTimer();
                       setState(() => _alarmRadiusValue = v);
                     },
-                    onChangeEnd: (v) {
+                    onChangeEnd: (v) async {
                       _resetLockTimer();
                       _isAlarmRadiusSliderDragging = false;
-                      _alarmService.setRadius(radius: v);
+                      final ok = await _alarmService.setRadius(radius: v);
+                      if (!ok && mounted) _showActionError('Set alarm radius');
                     },
                   ),
                   // Depth slider (manual) or sensor display

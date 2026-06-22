@@ -163,6 +163,20 @@ class AnchorAlarmService extends ChangeNotifier {
 
   bool _disposed = false;
 
+  /// Human-readable failure detail for the most recent anchor action
+  /// (drop / raise / setRadius / setRodeLength / setAnchorPosition). Set on any
+  /// non-2xx response or thrown error so the UI can surface it (e.g. a 401/403
+  /// from the plugin) instead of the command failing silently. Every false
+  /// return sets this first, so it's always fresh when read after a failure.
+  String? lastActionError;
+
+  void _recordActionFailure(int statusCode, String body) {
+    final trimmed = body.trim();
+    final short = trimmed.length > 120 ? '${trimmed.substring(0, 120)}…' : trimmed;
+    lastActionError =
+        short.isEmpty ? 'HTTP $statusCode' : 'HTTP $statusCode — $short';
+  }
+
   AnchorAlarmService({
     required SignalKService signalKService,
     AlertCoordinator? alertCoordinator,
@@ -317,12 +331,14 @@ class AnchorAlarmService extends ChangeNotifier {
 
         return true;
       } else {
+        _recordActionFailure(response.statusCode, response.body);
         if (kDebugMode) {
           print('Drop anchor failed: ${response.statusCode} - ${response.body}');
         }
         return false;
       }
     } catch (e) {
+      lastActionError = 'Error: $e';
       if (kDebugMode) {
         print('Drop anchor error: $e');
       }
@@ -360,12 +376,14 @@ class AnchorAlarmService extends ChangeNotifier {
 
         return true;
       } else {
+        _recordActionFailure(response.statusCode, response.body);
         if (kDebugMode) {
           print('Raise anchor failed: ${response.statusCode} - ${response.body}');
         }
         return false;
       }
     } catch (e) {
+      lastActionError = 'Error: $e';
       if (kDebugMode) {
         print('Raise anchor error: $e');
       }
@@ -387,12 +405,14 @@ class AnchorAlarmService extends ChangeNotifier {
         await _refreshState();
         return true;
       } else {
+        _recordActionFailure(response.statusCode, response.body);
         if (kDebugMode) {
           print('Set radius failed: ${response.statusCode} - ${response.body}');
         }
         return false;
       }
     } catch (e) {
+      lastActionError = 'Error: $e';
       if (kDebugMode) {
         print('Set radius error: $e');
       }
@@ -417,12 +437,14 @@ class AnchorAlarmService extends ChangeNotifier {
         await _refreshState();
         return true;
       } else {
+        _recordActionFailure(response.statusCode, response.body);
         if (kDebugMode) {
           print('Set rode length failed: ${response.statusCode} - ${response.body}');
         }
         return false;
       }
     } catch (e) {
+      lastActionError = 'Error: $e';
       if (kDebugMode) {
         print('Set rode length error: $e');
       }
@@ -445,11 +467,13 @@ class AnchorAlarmService extends ChangeNotifier {
         await _refreshState();
         return true;
       }
+      _recordActionFailure(response.statusCode, response.body);
       if (kDebugMode) {
         print('Set anchor position failed: ${response.statusCode} - ${response.body}');
       }
       return false;
     } catch (e) {
+      lastActionError = 'Error: $e';
       if (kDebugMode) {
         print('Set anchor position error: $e');
       }
