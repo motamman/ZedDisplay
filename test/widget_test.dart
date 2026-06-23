@@ -22,6 +22,7 @@ import 'package:zed_display/services/alert_coordinator.dart';
 import 'package:zed_display/services/notification_navigation_service.dart';
 import 'package:zed_display/services/ais_favorites_service.dart';
 import 'package:zed_display/services/cpa_alert_service.dart';
+import 'package:zed_display/services/anchor_alarm_service.dart';
 import 'package:zed_display/services/find_home_target_service.dart';
 import 'package:zed_display/services/dashboard_store_service.dart';
 import 'package:zed_display/services/chart_tile_cache_service.dart';
@@ -50,6 +51,7 @@ void main() {
   late NotificationNavigationService notificationNavigationService;
   late AISFavoritesService aisFavoritesService;
   late CpaAlertService cpaAlertService;
+  late AnchorAlarmService anchorAlarmService;
   late FindHomeTargetService findHomeTargetService;
   late DashboardStoreService dashboardStoreService;
   late ChartTileCacheService chartTileCacheService;
@@ -174,6 +176,12 @@ void main() {
       alertCoordinator: alertCoordinator,
     );
 
+    // Initialize anchor alarm service (app-level singleton)
+    anchorAlarmService = AnchorAlarmService(
+      signalKService: signalKService,
+      alertCoordinator: alertCoordinator,
+    );
+
     // Initialize Find Home target service
     findHomeTargetService = FindHomeTargetService();
 
@@ -218,6 +226,10 @@ void main() {
     // and AWAIT it, so no box-close races with the next test's setUp and no
     // async file work outlives the test. The temp dir is left for the OS to
     // reap — deleting it here would race Hive's own lock-file cleanup.
+    // Dispose the anchor alarm service too: it sets a static `instance` and
+    // registers a coordinator resolve callback in its constructor, which would
+    // otherwise leak into the next test's setUp.
+    anchorAlarmService.dispose();
     chartTileCacheService.dispose();
     await Hive.close();
   });
@@ -241,6 +253,7 @@ void main() {
       notificationNavigationService: notificationNavigationService,
       aisFavoritesService: aisFavoritesService,
       cpaAlertService: cpaAlertService,
+      anchorAlarmService: anchorAlarmService,
       findHomeTargetService: findHomeTargetService,
       dashboardStoreService: dashboardStoreService,
       chartTileCacheService: chartTileCacheService,
@@ -276,6 +289,7 @@ void main() {
       notificationNavigationService: notificationNavigationService,
       aisFavoritesService: aisFavoritesService,
       cpaAlertService: cpaAlertService,
+      anchorAlarmService: anchorAlarmService,
       findHomeTargetService: findHomeTargetService,
       dashboardStoreService: dashboardStoreService,
       chartTileCacheService: chartTileCacheService,

@@ -163,6 +163,20 @@ class AnchorAlarmService extends ChangeNotifier {
 
   bool _disposed = false;
 
+  /// Human-readable failure detail for the most recent anchor action
+  /// (drop / raise / setRadius / setRodeLength / setAnchorPosition). Set on any
+  /// non-2xx response or thrown error so the UI can surface it (e.g. a 401/403
+  /// from the plugin) instead of the command failing silently. Every false
+  /// return sets this first, so it's always fresh when read after a failure.
+  String? lastActionError;
+
+  void _recordActionFailure(int statusCode, String body) {
+    final trimmed = body.trim();
+    final short = trimmed.length > 120 ? '${trimmed.substring(0, 120)}…' : trimmed;
+    lastActionError =
+        short.isEmpty ? 'HTTP $statusCode' : 'HTTP $statusCode — $short';
+  }
+
   AnchorAlarmService({
     required SignalKService signalKService,
     AlertCoordinator? alertCoordinator,
@@ -182,7 +196,81 @@ class AnchorAlarmService extends ChangeNotifier {
     }
   }
 
-  /// Initialize and start listening to SignalK updates
+  /// Whether this app-level service is currently monitoring (an anchor tool is
+  /// on the dashboard). Driven by the supervisor in main.dart via
+  /// [activate]/[deactivate], so monitoring runs regardless of which page is
+  /// shown — but not when no anchor tool is placed.
+  bool _monitoring = false;
+  bool get isMonitoring => _monitoring;
+
+  /// Activate (or reconfigure) monitoring for a placed anchor tool. Idempotent:
+  /// applies the tool's config, and starts listening only on the first call of
+  /// an activation cycle.
+  void activate({
+    List<dynamic>? dataSources,
+    Map<String, dynamic>? customProperties,
+  }) {
+    final previousPaths = _anchorPathList(_paths);
+    _applyConfig(dataSources, customProperties);
+    if (!_monitoring) {
+      _monitoring = true;
+      initialize();
+    } else if (!listEquals(previousPaths, _anchorPathList(_paths))) {
+      // Re-activated (e.g. tool config edited) while already monitoring: the
+      // path set changed, so move the owner subscription onto the new paths.
+      // Without this the service reads the new paths while SignalK stays
+      // subscribed to the old ones.
+      _signalKService.unsubscribeFromPaths(previousPaths, ownerId: 'anchor_alarm');
+      _subscribeToAnchorPaths();
+      _refreshState();
+    }
+  }
+
+  /// Stop monitoring (the anchor tool was removed from the dashboard). Tears
+  /// down subscriptions/timers and clears any active anchor alert, but keeps
+  /// the singleton alive so it can re-activate when a tool is placed again.
+  void deactivate() {
+    if (!_monitoring) return;
+    _monitoring = false;
+    _notificationSub?.cancel();
+    _notificationSub = null;
+    _signalKService.removeListener(_onSignalKUpdate);
+    _unsubscribeFromAnchorPaths();
+    _checkInTimer?.cancel();
+    _checkInGraceTimer?.cancel();
+    _alarmClearDebounce?.cancel();
+    _ackExpiryTimer?.cancel();
+    _alertCoordinator?.clearSubsystem(AlertSubsystem.anchorAlarm, internal: true);
+    _state = AnchorState.initial();
+    _trackHistory.clear();
+    _lastNotificationAlarmState = AnchorAlarmState.normal;
+    _lastNotificationMessage = null;
+    _alarmAcknowledged = false;
+    // Reset transient check-in state so a stale overlay/deadline can't survive
+    // a remove → re-add while a check-in was pending.
+    _awaitingCheckIn = false;
+    _checkInDeadline = null;
+    notifyListeners();
+  }
+
+  /// Apply a placed tool's stored config (paths, sound, check-in, clear delay).
+  /// Mirrors the old in-widget `_configureFromSettings`, now owned here so the
+  /// monitor is configured even when the widget isn't built.
+  void _applyConfig(List<dynamic>? dataSources, Map<String, dynamic>? customProps) {
+    setPaths(AnchorAlarmPaths.fromDataSources(dataSources));
+    final cp = customProps ?? const {};
+    setAlarmSound(cp['alarmSound'] as String? ?? 'foghorn');
+    setCheckInConfig(CheckInConfig(
+      enabled: cp['checkInEnabled'] as bool? ?? false,
+      interval: Duration(minutes: cp['checkInIntervalMinutes'] as int? ?? 30),
+      gracePeriod: Duration(seconds: cp['checkInGracePeriodSeconds'] as int? ?? 60),
+    ));
+    setAlarmClearDelay(
+        Duration(seconds: cp['alarmClearDelaySeconds'] as int? ?? 15));
+  }
+
+  /// Initialize and start listening to SignalK updates. Called by [activate]
+  /// (paths are applied first, so the subscription uses the configured paths).
   void initialize() {
     _signalKService.addListener(_onSignalKUpdate);
 
@@ -209,44 +297,32 @@ class AnchorAlarmService extends ChangeNotifier {
     }
   }
 
+  /// The full ordered list of SignalK paths this service subscribes to for a
+  /// given [paths] config. Stable order so two lists compare with listEquals.
+  List<String> _anchorPathList(AnchorAlarmPaths paths) => [
+        paths.anchorPosition,
+        paths.maxRadius,
+        paths.currentRadius,
+        paths.rodeLength,
+        paths.bearing,
+        paths.vesselPosition,
+        paths.heading,
+        paths.gpsFromBow,
+        paths.depth,
+        paths.fudgeFactor,
+        paths.vesselLength,
+        'navigation.anchor.distanceFromBow',
+        'navigation.headingMagnetic',
+      ];
+
   /// Subscribe to all anchor-related paths
   void _subscribeToAnchorPaths() {
-    final paths = [
-      _paths.anchorPosition,
-      _paths.maxRadius,
-      _paths.currentRadius,
-      _paths.rodeLength,
-      _paths.bearing,
-      _paths.vesselPosition,
-      _paths.heading,
-      _paths.gpsFromBow,
-      _paths.depth,
-      _paths.fudgeFactor,
-      _paths.vesselLength,
-      'navigation.anchor.distanceFromBow',
-      'navigation.headingMagnetic',
-    ];
-    _signalKService.subscribeToPaths(paths, ownerId: 'anchor_alarm');
+    _signalKService.subscribeToPaths(_anchorPathList(_paths), ownerId: 'anchor_alarm');
   }
 
   /// Unsubscribe from anchor paths
   void _unsubscribeFromAnchorPaths() {
-    final paths = [
-      _paths.anchorPosition,
-      _paths.maxRadius,
-      _paths.currentRadius,
-      _paths.rodeLength,
-      _paths.bearing,
-      _paths.vesselPosition,
-      _paths.heading,
-      _paths.gpsFromBow,
-      _paths.depth,
-      _paths.fudgeFactor,
-      _paths.vesselLength,
-      'navigation.anchor.distanceFromBow',
-      'navigation.headingMagnetic',
-    ];
-    _signalKService.unsubscribeFromPaths(paths, ownerId: 'anchor_alarm');
+    _signalKService.unsubscribeFromPaths(_anchorPathList(_paths), ownerId: 'anchor_alarm');
   }
 
   @override
@@ -317,12 +393,14 @@ class AnchorAlarmService extends ChangeNotifier {
 
         return true;
       } else {
+        _recordActionFailure(response.statusCode, response.body);
         if (kDebugMode) {
           print('Drop anchor failed: ${response.statusCode} - ${response.body}');
         }
         return false;
       }
     } catch (e) {
+      lastActionError = 'Error: $e';
       if (kDebugMode) {
         print('Drop anchor error: $e');
       }
@@ -360,12 +438,14 @@ class AnchorAlarmService extends ChangeNotifier {
 
         return true;
       } else {
+        _recordActionFailure(response.statusCode, response.body);
         if (kDebugMode) {
           print('Raise anchor failed: ${response.statusCode} - ${response.body}');
         }
         return false;
       }
     } catch (e) {
+      lastActionError = 'Error: $e';
       if (kDebugMode) {
         print('Raise anchor error: $e');
       }
@@ -387,12 +467,14 @@ class AnchorAlarmService extends ChangeNotifier {
         await _refreshState();
         return true;
       } else {
+        _recordActionFailure(response.statusCode, response.body);
         if (kDebugMode) {
           print('Set radius failed: ${response.statusCode} - ${response.body}');
         }
         return false;
       }
     } catch (e) {
+      lastActionError = 'Error: $e';
       if (kDebugMode) {
         print('Set radius error: $e');
       }
@@ -417,12 +499,14 @@ class AnchorAlarmService extends ChangeNotifier {
         await _refreshState();
         return true;
       } else {
+        _recordActionFailure(response.statusCode, response.body);
         if (kDebugMode) {
           print('Set rode length failed: ${response.statusCode} - ${response.body}');
         }
         return false;
       }
     } catch (e) {
+      lastActionError = 'Error: $e';
       if (kDebugMode) {
         print('Set rode length error: $e');
       }
@@ -445,11 +529,13 @@ class AnchorAlarmService extends ChangeNotifier {
         await _refreshState();
         return true;
       }
+      _recordActionFailure(response.statusCode, response.body);
       if (kDebugMode) {
         print('Set anchor position failed: ${response.statusCode} - ${response.body}');
       }
       return false;
     } catch (e) {
+      lastActionError = 'Error: $e';
       if (kDebugMode) {
         print('Set anchor position error: $e');
       }
@@ -544,6 +630,11 @@ class AnchorAlarmService extends ChangeNotifier {
     if (isConnected != _wasConnected) {
       _wasConnected = isConnected;
       if (isConnected) {
+        // A cold-start activate() can run before the socket connects, so its
+        // subscribeToPaths() was a no-op (the registry only records paths while
+        // connected). Re-subscribe now that we're live — idempotent, since the
+        // service de-dups already-sent paths.
+        _subscribeToAnchorPaths();
         _refreshState();
         fetchTrackHistory();
       }
@@ -828,15 +919,15 @@ class AnchorAlarmService extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Acknowledge and silence alarm — stops audio via coordinator, hides widget overlay.
-  /// SignalK alarm state remains until vessel returns to safe zone.
-  /// Overlay re-shows after 15s if alarm is still active (matches coordinator ack expiry).
+  /// Acknowledge and silence alarm — stops audio via coordinator, hides widget
+  /// overlay. SignalK alarm state remains until vessel returns to safe zone.
+  /// Overlay re-shows after 15s if alarm is still active (matches coordinator
+  /// ack expiry). Does NOT re-submit — dismissing clears it.
   void acknowledgeAlarm() {
     _alarmAcknowledged = true;
     _alertCoordinator?.acknowledgeAlarm(AlertSubsystem.anchorAlarm);
     notifyListeners();
 
-    // Re-show overlay after ack expires if alarm is still active
     _ackExpiryTimer?.cancel();
     _ackExpiryTimer = Timer(const Duration(seconds: 15), () {
       if (_lastNotificationAlarmState.isAlarming) {

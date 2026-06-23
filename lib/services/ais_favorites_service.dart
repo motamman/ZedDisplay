@@ -30,6 +30,14 @@ class AISFavoritesService extends ChangeNotifier {
   // Detection state: MMSIs we've already alerted for in this encounter
   final Set<String> _inRangeNotified = {};
 
+  // When each favourite's in-range alert fired, for TTL-based expiry.
+  final Map<String, DateTime> _alertedAt = {};
+
+  /// In-range favourite alerts auto-expire after this even while the vessel is
+  /// still in range, so a permanently-nearby favourite doesn't leave a
+  /// notification up forever.
+  static const Duration _alertTtl = Duration(minutes: 5);
+
   // Sync state
   Timer? _pollTimer;
   bool _resourcesApiAvailable = true;
@@ -72,9 +80,10 @@ class AISFavoritesService extends ChangeNotifier {
   void startMonitoring(SignalKService signalKService, AlertCoordinator alertCoordinator) {
     _signalKService = signalKService;
     _alertCoordinator = alertCoordinator;
-    // No resolve callback needed — dismiss means "stop showing me this snackbar,"
-    // not "forget you detected this vessel." Vessel re-triggers only after it
-    // leaves range and comes back (handled by _inRangeNotified.removeWhere).
+    // Deliberately NO resolve callback: a user dismiss must not "forget" the
+    // detection, otherwise a still-in-range favourite would immediately
+    // re-alert. The service expires alerts itself in _checkForFavorites — when
+    // the vessel leaves range, or after _alertTtl while still in range.
     signalKService.aisVesselRegistry.addListener(_onAISUpdate);
 
     // Register for server sync
@@ -116,19 +125,41 @@ class AISFavoritesService extends ChangeNotifier {
     }
 
     // Detect newly-arrived favorites (only if alerts enabled)
+    final now = DateTime.now();
     final alertsEnabled = _storageService?.getFavoritesAlertsEnabled() ?? true;
     for (final fav in _favorites) {
       if (alertsEnabled && visibleMMSIs.contains(fav.mmsi) && !_inRangeNotified.contains(fav.mmsi)) {
         _inRangeNotified.add(fav.mmsi);
+        _alertedAt[fav.mmsi] = now;
         final vesselId = mmsiToVesselId[fav.mmsi];
         _submitDetectionAlert(fav, vesselId);
       }
     }
 
-    // Remove from notified set when vessel leaves range → can trigger again
-    _inRangeNotified.removeWhere(
-      (mmsi) => _mmsiIndex.contains(mmsi) && !visibleMMSIs.contains(mmsi),
-    );
+    // Vessel left range → resolve its alert (clears the panel row + OS
+    // notification) and forget the encounter so it can re-trigger on return.
+    final left = _inRangeNotified
+        .where((mmsi) => _mmsiIndex.contains(mmsi) && !visibleMMSIs.contains(mmsi))
+        .toList();
+    for (final mmsi in left) {
+      _inRangeNotified.remove(mmsi);
+      _alertedAt.remove(mmsi);
+      _alertCoordinator?.resolveAlert(
+        AlertSubsystem.aisFavorites, alarmId: mmsi, internal: true);
+    }
+
+    // Still in range but alerted longer ago than the TTL → resolve the (stale)
+    // alert. Keep it in _inRangeNotified so it doesn't immediately re-fire while
+    // the vessel is still present.
+    final expired = _alertedAt.entries
+        .where((e) => now.difference(e.value) >= _alertTtl)
+        .map((e) => e.key)
+        .toList();
+    for (final mmsi in expired) {
+      _alertedAt.remove(mmsi);
+      _alertCoordinator?.resolveAlert(
+        AlertSubsystem.aisFavorites, alarmId: mmsi, internal: true);
+    }
   }
 
   void _submitDetectionAlert(AISFavorite fav, String? vesselId) {
@@ -167,6 +198,10 @@ class AISFavoritesService extends ChangeNotifier {
     _favorites.removeWhere((f) => f.mmsi == mmsi);
     _mmsiIndex.remove(mmsi);
     _inRangeNotified.remove(mmsi);
+    _alertedAt.remove(mmsi);
+    // Clear any active in-range alert for the vessel we just un-favourited.
+    _alertCoordinator?.resolveAlert(
+        AlertSubsystem.aisFavorites, alarmId: mmsi, internal: true);
     await _persist();
     notifyListeners();
     _pushAfterMutation();
@@ -187,6 +222,9 @@ class AISFavoritesService extends ChangeNotifier {
     _favorites.clear();
     _mmsiIndex.clear();
     _inRangeNotified.clear();
+    _alertedAt.clear();
+    // Drop any active favourite alerts now that there are no favourites.
+    _alertCoordinator?.clearSubsystem(AlertSubsystem.aisFavorites, internal: true);
     await _persist();
     notifyListeners();
     // Delete server resource for this profile

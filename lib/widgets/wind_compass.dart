@@ -7,28 +7,31 @@ import '../utils/compass_zone_builder.dart';
 
 /// Display mode for wind compass
 enum WindCompassMode {
-  targetAWA,    // Performance steering - show target AWA zones
-  laylines,     // Navigation - show laylines to waypoint
-  vmg,          // VMG optimization - show velocity made good
-  combined,     // Show both (future)
+  targetAWA, // Performance steering - show target AWA zones
+  laylines, // Navigation - show laylines to waypoint
+  vmg, // VMG optimization - show velocity made good
+  combined, // Show both (future)
 }
 
 /// Simple polar data - maps true wind speed to optimal upwind angle
 class SimplePolar {
   // Default polar for typical 30-40ft cruiser/racer
   static final Map<double, double> defaultUpwindAngles = {
-    0.0: 45.0,    // No wind - wide angle
-    5.0: 45.0,    // Light air (0-5 kts) - sail free for speed
-    8.0: 42.0,    // Light-medium (5-8 kts) - tighten up
-    12.0: 40.0,   // Medium (8-12 kts) - optimal pointing
-    16.0: 38.0,   // Medium-heavy (12-16 kts) - can point higher
-    20.0: 36.0,   // Heavy (16-20 kts) - flatten sails, point high
-    25.0: 38.0,   // Very heavy (20-25 kts) - ease slightly for power
-    30.0: 40.0,   // Storm (25+ kts) - sail for control
+    0.0: 45.0, // No wind - wide angle
+    5.0: 45.0, // Light air (0-5 kts) - sail free for speed
+    8.0: 42.0, // Light-medium (5-8 kts) - tighten up
+    12.0: 40.0, // Medium (8-12 kts) - optimal pointing
+    16.0: 38.0, // Medium-heavy (12-16 kts) - can point higher
+    20.0: 36.0, // Heavy (16-20 kts) - flatten sails, point high
+    25.0: 38.0, // Very heavy (20-25 kts) - ease slightly for power
+    30.0: 40.0, // Storm (25+ kts) - sail for control
   };
 
   /// Get optimal upwind angle for given wind speed (linear interpolation)
-  static double getOptimalAngle(double windSpeed, {Map<double, double>? customPolar}) {
+  static double getOptimalAngle(
+    double windSpeed, {
+    Map<double, double>? customPolar,
+  }) {
     final polar = customPolar ?? defaultUpwindAngles;
     final speeds = polar.keys.toList()..sort();
 
@@ -87,9 +90,9 @@ class WindCompass extends StatefulWidget {
   final String? cogFormatted;
 
   // Waypoint navigation
-  final double? waypointBearing;   // True bearing to waypoint (degrees)
+  final double? waypointBearing; // True bearing to waypoint (degrees)
   final String? waypointBearingFormatted;
-  final double? waypointDistance;  // Distance to waypoint (meters)
+  final double? waypointDistance; // Distance to waypoint (meters)
   final String? waypointDistanceFormatted;
 
   // Pre-formatted display strings for wind directions
@@ -98,11 +101,13 @@ class WindCompass extends StatefulWidget {
   final String? windAngleApparentFormatted;
 
   // Target AWA configuration
-  final double targetAWA;          // Optimal close-hauled angle from polar data (degrees)
-  final double targetTolerance;    // Acceptable deviation from target (degrees)
-  final bool showAWANumbers;       // Show numeric AWA display with target comparison
-  final bool enableVMG;            // Enable VMG optimization with polar-based target AWA
-  final bool isSailingVessel;      // Whether vessel is sailing type (shows sail trim indicator)
+  final double
+  targetAWA; // Optimal close-hauled angle from polar data (degrees)
+  final double targetTolerance; // Acceptable deviation from target (degrees)
+  final bool showAWANumbers; // Show numeric AWA display with target comparison
+  final bool enableVMG; // Enable VMG optimization with polar-based target AWA
+  final bool
+  isSailingVessel; // Whether vessel is sailing type (shows sail trim indicator)
 
   const WindCompass({
     super.key,
@@ -183,7 +188,8 @@ class _WindCompassState extends State<WindCompass> {
 
   /// Build sailing zones that handle 0°/360° wraparound
   List<GaugeRange> _buildSailingZones(double primaryHeadingDegrees) {
-    final primaryWindDegrees = widget.windDirectionApparentDegrees ?? widget.windDirectionTrueDegrees;
+    final primaryWindDegrees =
+        widget.windDirectionApparentDegrees ?? widget.windDirectionTrueDegrees;
     if (primaryWindDegrees == null) return [];
 
     final effectiveTargetAWA = _getOptimalTargetAWA();
@@ -203,158 +209,188 @@ class _WindCompassState extends State<WindCompass> {
     final pointers = <GaugePointer>[];
 
     // Determine which heading is primary (being used for compass rotation)
-    final isPrimaryTrue = widget.headingTrueDegrees != null &&
-                          (widget.headingTrueDegrees! - primaryHeadingDegrees).abs() < 0.5;
-    final isPrimaryMagnetic = widget.headingMagneticDegrees != null &&
-                              (widget.headingMagneticDegrees! - primaryHeadingDegrees).abs() < 0.5;
+    final isPrimaryTrue =
+        widget.headingTrueDegrees != null &&
+        (widget.headingTrueDegrees! - primaryHeadingDegrees).abs() < 0.5;
+    final isPrimaryMagnetic =
+        widget.headingMagneticDegrees != null &&
+        (widget.headingMagneticDegrees! - primaryHeadingDegrees).abs() < 0.5;
 
     // HEADING INDICATORS
     // True heading - only show needle if NOT primary (vessel shadow shows primary)
     if (widget.headingTrueDegrees != null) {
       // Only show needle for non-primary heading
       if (!isPrimaryTrue) {
-        pointers.add(NeedlePointer(
-          value: widget.headingTrueDegrees!,
-          needleLength: 0.92,
-          needleStartWidth: 0,
-          needleEndWidth: 10,
-          needleColor: Colors.yellow,
-          knobStyle: const KnobStyle(knobRadius: 0),
-        ));
+        pointers.add(
+          NeedlePointer(
+            value: widget.headingTrueDegrees!,
+            needleLength: 0.92,
+            needleStartWidth: 0,
+            needleEndWidth: 10,
+            needleColor: Colors.yellow,
+            knobStyle: const KnobStyle(knobRadius: 0),
+          ),
+        );
       }
 
       // Always show dot
-      pointers.add(MarkerPointer(
-        value: widget.headingTrueDegrees!,
-        markerType: MarkerType.circle,
-        markerHeight: 16,
-        markerWidth: 16,
-        color: Colors.yellow,
-        markerOffset: -5,
-      ));
+      pointers.add(
+        MarkerPointer(
+          value: widget.headingTrueDegrees!,
+          markerType: MarkerType.circle,
+          markerHeight: 16,
+          markerWidth: 16,
+          color: Colors.yellow,
+          markerOffset: -5,
+        ),
+      );
     }
 
     // Magnetic heading - only show needle if NOT primary (vessel shadow shows primary)
     if (widget.headingMagneticDegrees != null) {
       // Only show needle for non-primary heading
       if (!isPrimaryMagnetic) {
-        pointers.add(NeedlePointer(
-          value: widget.headingMagneticDegrees!,
-          needleLength: 0.92,
-          needleStartWidth: 0,
-          needleEndWidth: 10,
-          needleColor: Colors.orange,
-          knobStyle: const KnobStyle(knobRadius: 0),
-        ));
+        pointers.add(
+          NeedlePointer(
+            value: widget.headingMagneticDegrees!,
+            needleLength: 0.92,
+            needleStartWidth: 0,
+            needleEndWidth: 10,
+            needleColor: Colors.orange,
+            knobStyle: const KnobStyle(knobRadius: 0),
+          ),
+        );
       }
 
       // Always show dot
-      pointers.add(MarkerPointer(
-        value: widget.headingMagneticDegrees!,
-        markerType: MarkerType.circle,
-        markerHeight: 16,
-        markerWidth: 16,
-        color: Colors.orange,
-        markerOffset: -5,
-      ));
+      pointers.add(
+        MarkerPointer(
+          value: widget.headingMagneticDegrees!,
+          markerType: MarkerType.circle,
+          markerHeight: 16,
+          markerWidth: 16,
+          color: Colors.orange,
+          markerOffset: -5,
+        ),
+      );
     }
 
     // COG (Course Over Ground)
     if (widget.cogDegrees != null) {
-      pointers.add(NeedlePointer(
-        value: widget.cogDegrees!,
-        needleLength: 0.60,
-        needleStartWidth: 0,
-        needleEndWidth: 6,
-        needleColor: Colors.white,
-        knobStyle: const KnobStyle(knobRadius: 0),
-      ));
-      pointers.add(MarkerPointer(
-        value: widget.cogDegrees!,
-        markerType: MarkerType.circle,
-        markerHeight: 10,
-        markerWidth: 10,
-        color: Colors.white,
-        markerOffset: -5,
-      ));
+      pointers.add(
+        NeedlePointer(
+          value: widget.cogDegrees!,
+          needleLength: 0.60,
+          needleStartWidth: 0,
+          needleEndWidth: 6,
+          needleColor: Colors.white,
+          knobStyle: const KnobStyle(knobRadius: 0),
+        ),
+      );
+      pointers.add(
+        MarkerPointer(
+          value: widget.cogDegrees!,
+          markerType: MarkerType.circle,
+          markerHeight: 10,
+          markerWidth: 10,
+          color: Colors.white,
+          markerOffset: -5,
+        ),
+      );
     }
 
     // LAYLINES - show when in laylines mode
-    if (_currentMode == WindCompassMode.laylines && widget.waypointBearing != null && widget.windDirectionTrueDegrees != null) {
+    if (_currentMode == WindCompassMode.laylines &&
+        widget.waypointBearing != null &&
+        widget.windDirectionTrueDegrees != null) {
       // Port layline
-      pointers.add(NeedlePointer(
-        value: AngleUtils.normalize(widget.windDirectionTrueDegrees! + widget.targetAWA),
-        needleLength: 0.85,
-        needleStartWidth: 0,
-        needleEndWidth: 4,
-        needleColor: Colors.purple,
-        knobStyle: const KnobStyle(knobRadius: 0),
-      ));
+      pointers.add(
+        NeedlePointer(
+          value: AngleUtils.normalize(
+            widget.windDirectionTrueDegrees! + widget.targetAWA,
+          ),
+          needleLength: 0.85,
+          needleStartWidth: 0,
+          needleEndWidth: 4,
+          needleColor: Colors.purple,
+          knobStyle: const KnobStyle(knobRadius: 0),
+        ),
+      );
       // Starboard layline
-      pointers.add(NeedlePointer(
-        value: AngleUtils.normalize(widget.windDirectionTrueDegrees! - widget.targetAWA),
-        needleLength: 0.85,
-        needleStartWidth: 0,
-        needleEndWidth: 4,
-        needleColor: Colors.purple,
-        knobStyle: const KnobStyle(knobRadius: 0),
-      ));
+      pointers.add(
+        NeedlePointer(
+          value: AngleUtils.normalize(
+            widget.windDirectionTrueDegrees! - widget.targetAWA,
+          ),
+          needleLength: 0.85,
+          needleStartWidth: 0,
+          needleEndWidth: 4,
+          needleColor: Colors.purple,
+          knobStyle: const KnobStyle(knobRadius: 0),
+        ),
+      );
       // Waypoint bearing indicator
-      pointers.add(NeedlePointer(
-        value: widget.waypointBearing!,
-        needleLength: 0.90,
-        needleStartWidth: 0,
-        needleEndWidth: 6,
-        needleColor: Colors.yellow,
-        knobStyle: const KnobStyle(knobRadius: 0),
-      ));
+      pointers.add(
+        NeedlePointer(
+          value: widget.waypointBearing!,
+          needleLength: 0.90,
+          needleStartWidth: 0,
+          needleEndWidth: 6,
+          needleColor: Colors.yellow,
+          knobStyle: const KnobStyle(knobRadius: 0),
+        ),
+      );
     }
 
     // WIND INDICATORS
     // Apparent wind - primary
     if (widget.windDirectionApparentDegrees != null) {
-      pointers.add(NeedlePointer(
-        value: widget.windDirectionApparentDegrees!,
-        needleLength: 0.95,
-        needleStartWidth: 5,
-        needleEndWidth: 0,
-        needleColor: Colors.blue,
-        knobStyle: const KnobStyle(
-          knobRadius: 0.03,
-          color: Colors.blue,
+      pointers.add(
+        NeedlePointer(
+          value: widget.windDirectionApparentDegrees!,
+          needleLength: 0.95,
+          needleStartWidth: 5,
+          needleEndWidth: 0,
+          needleColor: Colors.blue,
+          knobStyle: const KnobStyle(knobRadius: 0.03, color: Colors.blue),
         ),
-      ));
+      );
     }
 
     // True wind direction marker - secondary
     if (widget.windDirectionTrueDegrees != null) {
-      pointers.add(NeedlePointer(
-        value: widget.windDirectionTrueDegrees!,
-        needleLength: 0.75,
-        needleStartWidth: 4,
-        needleEndWidth: 0,
-        needleColor: Colors.green,
-        knobStyle: const KnobStyle(
-          knobRadius: 0.025,
-          color: Colors.green,
+      pointers.add(
+        NeedlePointer(
+          value: widget.windDirectionTrueDegrees!,
+          needleLength: 0.75,
+          needleStartWidth: 4,
+          needleEndWidth: 0,
+          needleColor: Colors.green,
+          knobStyle: const KnobStyle(knobRadius: 0.025, color: Colors.green),
         ),
-      ));
+      );
     }
 
     return pointers;
   }
 
   /// Build custom painters (no-go zone and AWA indicators)
-  List<CustomPainter> _buildCustomPainters(double primaryHeadingRadians, double primaryHeadingDegrees) {
+  List<CustomPainter> _buildCustomPainters(
+    double primaryHeadingRadians,
+    double primaryHeadingDegrees,
+  ) {
     final painters = <CustomPainter>[];
 
-    final primaryWindDegrees = widget.windDirectionApparentDegrees ?? widget.windDirectionTrueDegrees;
+    final primaryWindDegrees =
+        widget.windDirectionApparentDegrees ?? widget.windDirectionTrueDegrees;
     if (primaryWindDegrees != null) {
-      painters.add(NoGoZoneVPainter(
-        windAngle: primaryWindDegrees,
-        headingAngle: primaryHeadingDegrees,
-        noGoAngle: _getOptimalTargetAWA(),
-      ));
+      painters.add(
+        NoGoZoneVPainter(
+          windAngle: primaryWindDegrees,
+          headingAngle: primaryHeadingDegrees,
+          noGoAngle: _getOptimalTargetAWA(),
+        ),
+      );
     }
 
     return painters;
@@ -370,7 +406,9 @@ class _WindCompassState extends State<WindCompass> {
 
   /// Check if AWA display should be shown
   bool _shouldShowAWADisplay(double primaryHeadingDegrees) {
-    if (!widget.showAWANumbers || (widget.windAngleApparent == null && widget.windDirectionApparentDegrees == null)) {
+    if (!widget.showAWANumbers ||
+        (widget.windAngleApparent == null &&
+            widget.windDirectionApparentDegrees == null)) {
       return false;
     }
 
@@ -424,11 +462,14 @@ class _WindCompassState extends State<WindCompass> {
 
   /// Calculate VMG (Velocity Made Good) toward wind
   double? _calculateVMG() {
-    if (widget.speedOverGround == null || widget.cogDegrees == null || widget.windDirectionTrueDegrees == null) {
+    if (widget.speedOverGround == null ||
+        widget.cogDegrees == null ||
+        widget.windDirectionTrueDegrees == null) {
       return null;
     }
 
-    double angleToWind = (widget.cogDegrees! - widget.windDirectionTrueDegrees!).abs();
+    double angleToWind = (widget.cogDegrees! - widget.windDirectionTrueDegrees!)
+        .abs();
 
     if (angleToWind > 180) {
       angleToWind = 360 - angleToWind;
@@ -440,7 +481,8 @@ class _WindCompassState extends State<WindCompass> {
   /// Build AWA performance display
   Widget _buildAWAPerformanceDisplay(double headingDegrees) {
     // Check if we have wind data
-    if (widget.windAngleApparent == null && widget.windDirectionApparentDegrees == null) {
+    if (widget.windAngleApparent == null &&
+        widget.windDirectionApparentDegrees == null) {
       // No wind data - show placeholder
       return Positioned(
         top: 8,
@@ -471,10 +513,7 @@ class _WindCompassState extends State<WindCompass> {
                   SizedBox(height: 2),
                   Text(
                     'NO WIND DATA',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Colors.white60,
-                    ),
+                    style: TextStyle(fontSize: 12, color: Colors.white60),
                   ),
                 ],
               ),
@@ -531,10 +570,7 @@ class _WindCompassState extends State<WindCompass> {
             children: [
               const Text(
                 'AWA: ',
-                style: TextStyle(
-                  fontSize: 12,
-                  color: Colors.white70,
-                ),
+                style: TextStyle(fontSize: 12, color: Colors.white70),
               ),
               Text(
                 '${absAWA.toStringAsFixed(0)}°',
@@ -561,10 +597,7 @@ class _WindCompassState extends State<WindCompass> {
             children: [
               Text(
                 'TGT: ${currentTargetAWA.toStringAsFixed(0)}°',
-                style: const TextStyle(
-                  fontSize: 11,
-                  color: Colors.white60,
-                ),
+                style: const TextStyle(fontSize: 11, color: Colors.white60),
               ),
               const SizedBox(width: 8),
               Text(
@@ -632,10 +665,7 @@ class _WindCompassState extends State<WindCompass> {
     if (vmg == null || tws == null) {
       return const Text(
         'NO VMG DATA',
-        style: TextStyle(
-          fontSize: 12,
-          color: Colors.white60,
-        ),
+        style: TextStyle(fontSize: 12, color: Colors.white60),
       );
     }
 
@@ -668,10 +698,7 @@ class _WindCompassState extends State<WindCompass> {
           children: [
             const Text(
               'VMG: ',
-              style: TextStyle(
-                fontSize: 12,
-                color: Colors.white70,
-              ),
+              style: TextStyle(fontSize: 12, color: Colors.white70),
             ),
             Text(
               vmg.abs().toStringAsFixed(2),
@@ -683,11 +710,10 @@ class _WindCompassState extends State<WindCompass> {
             ),
             const SizedBox(width: 4),
             Text(
-              widget.sogFormatted != null ? widget.sogFormatted!.replaceAll(RegExp(r'[\d.]+'), '') : 'kts',
-              style: const TextStyle(
-                fontSize: 11,
-                color: Colors.white60,
-              ),
+              widget.sogFormatted != null
+                  ? widget.sogFormatted!.replaceAll(RegExp(r'[\d.]+'), '')
+                  : 'kts',
+              style: const TextStyle(fontSize: 11, color: Colors.white60),
             ),
           ],
         ),
@@ -697,10 +723,7 @@ class _WindCompassState extends State<WindCompass> {
           children: [
             Text(
               'TWS: ${tws.toStringAsFixed(1)} →',
-              style: const TextStyle(
-                fontSize: 11,
-                color: Colors.white60,
-              ),
+              style: const TextStyle(fontSize: 11, color: Colors.white60),
             ),
             const SizedBox(width: 4),
             Text(
@@ -732,13 +755,14 @@ class _WindCompassState extends State<WindCompass> {
     return Positioned.fill(
       child: Center(
         child: Transform.rotate(
-          angle: (windDirectionDegrees - 90) * pi / 180, // Rotate to point at wind direction
+          angle:
+              (windDirectionDegrees - 90) *
+              pi /
+              180, // Rotate to point at wind direction
           child: SizedBox(
             width: 120,
             height: 120,
-            child: CustomPaint(
-              painter: _WindDirectionArrowPainter(),
-            ),
+            child: CustomPaint(painter: _WindDirectionArrowPainter()),
           ),
         ),
       ),
@@ -750,15 +774,16 @@ class _WindCompassState extends State<WindCompass> {
     if (widget.waypointBearing == null) {
       return const Text(
         'NO WAYPOINT',
-        style: TextStyle(
-          fontSize: 12,
-          color: Colors.white60,
-        ),
+        style: TextStyle(fontSize: 12, color: Colors.white60),
       );
     }
 
     // For navigation calculations, use COG (actual track) with true heading fallback
-    final navigationCourse = widget.cogDegrees ?? widget.headingTrueDegrees ?? widget.headingMagneticDegrees ?? headingDegrees;
+    final navigationCourse =
+        widget.cogDegrees ??
+        widget.headingTrueDegrees ??
+        widget.headingMagneticDegrees ??
+        headingDegrees;
 
     final twd = widget.windDirectionTrueDegrees ?? navigationCourse;
 
@@ -791,10 +816,7 @@ class _WindCompassState extends State<WindCompass> {
               const SizedBox(width: 8),
               Text(
                 widget.waypointDistanceFormatted!,
-                style: const TextStyle(
-                  fontSize: 11,
-                  color: Colors.white60,
-                ),
+                style: const TextStyle(fontSize: 11, color: Colors.white60),
               ),
             ],
           ],
@@ -806,7 +828,9 @@ class _WindCompassState extends State<WindCompass> {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
               decoration: BoxDecoration(
-                color: canFetchPort ? Colors.green.withValues(alpha: 0.3) : Colors.red.withValues(alpha: 0.2),
+                color: canFetchPort
+                    ? Colors.green.withValues(alpha: 0.3)
+                    : Colors.red.withValues(alpha: 0.2),
                 borderRadius: BorderRadius.circular(4),
               ),
               child: Text(
@@ -822,7 +846,9 @@ class _WindCompassState extends State<WindCompass> {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
               decoration: BoxDecoration(
-                color: canFetchStbd ? Colors.green.withValues(alpha: 0.3) : Colors.red.withValues(alpha: 0.2),
+                color: canFetchStbd
+                    ? Colors.green.withValues(alpha: 0.3)
+                    : Colors.red.withValues(alpha: 0.2),
                 borderRadius: BorderRadius.circular(4),
               ),
               child: Text(
@@ -865,7 +891,8 @@ class _WindCompassState extends State<WindCompass> {
 
   /// Get layline angles (only in laylines mode)
   List<double>? _getLaylinesAngles() {
-    if (_currentMode != WindCompassMode.laylines || widget.windDirectionTrueDegrees == null) {
+    if (_currentMode != WindCompassMode.laylines ||
+        widget.windDirectionTrueDegrees == null) {
       return null;
     }
     final twd = widget.windDirectionTrueDegrees!;
@@ -877,7 +904,8 @@ class _WindCompassState extends State<WindCompass> {
 
   /// Get VMG optimal angles (only in VMG mode)
   List<double>? _getVMGAngles() {
-    if (_currentMode != WindCompassMode.vmg || widget.windDirectionTrueDegrees == null) {
+    if (_currentMode != WindCompassMode.vmg ||
+        widget.windDirectionTrueDegrees == null) {
       return null;
     }
     final twd = widget.windDirectionTrueDegrees!;
@@ -895,215 +923,225 @@ class _WindCompassState extends State<WindCompass> {
         widget.headingMagneticDegrees ?? widget.headingTrueDegrees ?? 0.0;
     final showAWADisplay = _shouldShowAWADisplay(primaryHeadingDegrees);
 
-    return Stack(
-      children: [
-        // Compass at 85% size, centered — leaves room for overlays outside the dial
-        Center(
-          child: FractionallySizedBox(
-            widthFactor: 0.85,
-            heightFactor: 0.85,
-            child: BaseCompass(
-          headingTrueRadians: widget.headingTrueRadians,
-          headingMagneticRadians: widget.headingMagneticRadians,
-          headingTrueDegrees: widget.headingTrueDegrees,
-          headingMagneticDegrees: widget.headingMagneticDegrees,
-          cogDegrees: widget.cogDegrees,
-          isSailingVessel: widget.isSailingVessel,
-          apparentWindAngle: widget.windAngleApparent,
-          targetAWA: widget.targetAWA,
-          targetTolerance: widget.targetTolerance,
-          laylinesAngles: _getLaylinesAngles(),
-          vmgAngles: _getVMGAngles(),
-          rangesBuilder: _buildSailingZones,
-          pointersBuilder: _buildWindPointers,
-          customPaintersBuilder: _buildCustomPainters,
-          overlayBuilder: _buildCompassOverlay,
-      bottomLeftDisplay: widget.windDirectionTrueDegrees != null
-          ? Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Container(
-                      width: 12,
-                      height: 12,
-                      decoration: const BoxDecoration(
-                        color: Colors.green,
-                        shape: BoxShape.circle,
-                      ),
-                    ),
-                    const SizedBox(width: 4),
-                    const Text(
-                      'TWD',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Colors.white,
-                      ),
-                    ),
-                  ],
-                ),
-                Text(
-                  widget.windDirectionTrueFormatted ?? '${widget.windDirectionTrueDegrees!.toStringAsFixed(0)}°',
-                  style: const TextStyle(
-                    fontSize: 20,
-                    color: Colors.white,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-                if (widget.windSpeedTrue != null || widget.windSpeedTrueFormatted != null)
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'TWS',
-                        style: TextStyle(
-                          fontSize: 10,
-                          color: Colors.white60,
-                        ),
-                      ),
-                      Text(
-                        widget.windSpeedTrueFormatted ?? widget.windSpeedTrue!.toStringAsFixed(1),
-                        style: const TextStyle(
-                          fontSize: 16,
-                          color: Colors.white,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ],
-                  ),
-              ],
-            )
-          : null,
-      bottomRightDisplay: widget.windDirectionApparentDegrees != null
-          ? Column(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Text(
-                      'AWD',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Colors.white,
-                      ),
-                    ),
-                    const SizedBox(width: 4),
-                    Container(
-                      width: 12,
-                      height: 12,
-                      decoration: const BoxDecoration(
-                        color: Colors.blue,
-                        shape: BoxShape.circle,
-                      ),
-                    ),
-                  ],
-                ),
-                Text(
-                  widget.windDirectionApparentFormatted ?? '${widget.windDirectionApparentDegrees!.toStringAsFixed(0)}°',
-                  style: const TextStyle(
-                    fontSize: 20,
-                    color: Colors.white,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-                if (widget.windSpeedApparent != null || widget.windSpeedApparentFormatted != null)
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      const Text(
-                        'AWS',
-                        style: TextStyle(
-                          fontSize: 10,
-                          color: Colors.white60,
-                        ),
-                      ),
-                      Text(
-                        widget.windSpeedApparentFormatted ?? widget.windSpeedApparent!.toStringAsFixed(1),
-                        style: const TextStyle(
-                          fontSize: 16,
-                          color: Colors.white,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ],
-                  ),
-              ],
-            )
-          : null,
-      bottomCenterDisplay: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Text(
-                'SOG',
-                style: TextStyle(
-                  fontSize: 12,
-                  color: Colors.white60,
-                ),
-              ),
-              Text(
-                widget.speedOverGround != null
-                    ? (widget.sogFormatted ?? widget.speedOverGround!.toStringAsFixed(1))
-                    : '--',
-                style: const TextStyle(
-                  fontSize: 24,
-                  color: Colors.white,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(width: 24),
-          Column(
+    // Readouts shown pinned BELOW the dial (moved out of BaseCompass's internal
+    // Positioned overlays so the dial can flex/shrink above them rather than
+    // being stepped on).
+    final Widget twdTws = widget.windDirectionTrueDegrees != null
+        ? Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: [
               Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Container(
-                    width: 10,
-                    height: 10,
+                    width: 12,
+                    height: 12,
                     decoration: const BoxDecoration(
-                      color: Colors.white,
+                      color: Colors.green,
                       shape: BoxShape.circle,
                     ),
                   ),
                   const SizedBox(width: 4),
                   const Text(
-                    'COG',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Colors.white60,
-                    ),
+                    'TWD',
+                    style: TextStyle(fontSize: 12, color: Colors.white),
                   ),
                 ],
               ),
               Text(
-                widget.cogFormatted ?? (widget.cogDegrees != null
-                    ? '${widget.cogDegrees!.toStringAsFixed(0)}°'
-                    : '--'),
+                widget.windDirectionTrueFormatted ??
+                    '${widget.windDirectionTrueDegrees!.toStringAsFixed(0)}°',
                 style: const TextStyle(
                   fontSize: 20,
                   color: Colors.white,
                   fontWeight: FontWeight.w500,
                 ),
               ),
+              if (widget.windSpeedTrue != null ||
+                  widget.windSpeedTrueFormatted != null)
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'TWS',
+                      style: TextStyle(fontSize: 10, color: Colors.white60),
+                    ),
+                    Text(
+                      widget.windSpeedTrueFormatted ??
+                          widget.windSpeedTrue!.toStringAsFixed(1),
+                      style: const TextStyle(
+                        fontSize: 16,
+                        color: Colors.white,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
             ],
-          ),
-        ],
-      ),
-    ),
-          ),
+          )
+        : const SizedBox.shrink();
+
+    final Widget awdAws = widget.windDirectionApparentDegrees != null
+        ? Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text(
+                    'AWD',
+                    style: TextStyle(fontSize: 12, color: Colors.white),
+                  ),
+                  const SizedBox(width: 4),
+                  Container(
+                    width: 12,
+                    height: 12,
+                    decoration: const BoxDecoration(
+                      color: Colors.blue,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                ],
+              ),
+              Text(
+                widget.windDirectionApparentFormatted ??
+                    '${widget.windDirectionApparentDegrees!.toStringAsFixed(0)}°',
+                style: const TextStyle(
+                  fontSize: 20,
+                  color: Colors.white,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              if (widget.windSpeedApparent != null ||
+                  widget.windSpeedApparentFormatted != null)
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    const Text(
+                      'AWS',
+                      style: TextStyle(fontSize: 10, color: Colors.white60),
+                    ),
+                    Text(
+                      widget.windSpeedApparentFormatted ??
+                          widget.windSpeedApparent!.toStringAsFixed(1),
+                      style: const TextStyle(
+                        fontSize: 16,
+                        color: Colors.white,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+            ],
+          )
+        : const SizedBox.shrink();
+
+    final Widget sogCog = Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              'SOG',
+              style: TextStyle(fontSize: 12, color: Colors.white60),
+            ),
+            Text(
+              widget.speedOverGround != null
+                  ? (widget.sogFormatted ??
+                        widget.speedOverGround!.toStringAsFixed(1))
+                  : '--',
+              style: const TextStyle(
+                fontSize: 24,
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(width: 24),
+        Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 10,
+                  height: 10,
+                  decoration: const BoxDecoration(
+                    color: Colors.white,
+                    shape: BoxShape.circle,
+                  ),
+                ),
+                const SizedBox(width: 4),
+                const Text(
+                  'COG',
+                  style: TextStyle(fontSize: 12, color: Colors.white60),
+                ),
+              ],
+            ),
+            Text(
+              widget.cogFormatted ??
+                  (widget.cogDegrees != null
+                      ? '${widget.cogDegrees!.toStringAsFixed(0)}°'
+                      : '--'),
+              style: const TextStyle(
+                fontSize: 20,
+                color: Colors.white,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+
+    return Stack(
+      children: [
+        Column(
+          children: [
+            // Dial flexes to fill the space above the pinned readouts.
+            Expanded(
+              child: BaseCompass(
+                headingTrueRadians: widget.headingTrueRadians,
+                headingMagneticRadians: widget.headingMagneticRadians,
+                headingTrueDegrees: widget.headingTrueDegrees,
+                headingMagneticDegrees: widget.headingMagneticDegrees,
+                cogDegrees: widget.cogDegrees,
+                isSailingVessel: widget.isSailingVessel,
+                apparentWindAngle: widget.windAngleApparent,
+                targetAWA: widget.targetAWA,
+                targetTolerance: widget.targetTolerance,
+                laylinesAngles: _getLaylinesAngles(),
+                vmgAngles: _getVMGAngles(),
+                rangesBuilder: _buildSailingZones,
+                pointersBuilder: _buildWindPointers,
+                customPaintersBuilder: _buildCustomPainters,
+                overlayBuilder: _buildCompassOverlay,
+              ),
+            ),
+            // Readouts pinned to the bottom of the box.
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                // Flexible so the three readouts compress instead of overflowing
+                // on narrow tool widths.
+                children: [
+                  Flexible(child: twdTws),
+                  Flexible(child: sogCog),
+                  Flexible(child: awdAws),
+                ],
+              ),
+            ),
+          ],
         ),
         // AWA box - positioned relative to widget area, not compass
-        if (showAWADisplay)
-          _buildAWAPerformanceDisplay(primaryHeadingDegrees),
+        if (showAWADisplay) _buildAWAPerformanceDisplay(primaryHeadingDegrees),
       ],
     );
   }
@@ -1182,8 +1220,8 @@ class NoGoZoneVPainter extends CustomPainter {
   @override
   bool shouldRepaint(NoGoZoneVPainter oldDelegate) {
     return oldDelegate.windAngle != windAngle ||
-           oldDelegate.headingAngle != headingAngle ||
-           oldDelegate.noGoAngle != noGoAngle;
+        oldDelegate.headingAngle != headingAngle ||
+        oldDelegate.noGoAngle != noGoAngle;
   }
 }
 

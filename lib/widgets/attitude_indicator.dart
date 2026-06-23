@@ -13,6 +13,12 @@ class AttitudeIndicator extends StatelessWidget {
   /// Whether to show digital values
   final bool showDigitalValues;
 
+  /// Whether to show the title row above the horizon
+  final bool showTitle;
+
+  /// Title text shown above the horizon (when [showTitle] is true)
+  final String title;
+
   /// Whether to show the horizon grid
   final bool showGrid;
 
@@ -30,6 +36,8 @@ class AttitudeIndicator extends StatelessWidget {
     this.rollDegrees,
     this.pitchDegrees,
     this.showDigitalValues = true,
+    this.showTitle = true,
+    this.title = 'Attitude',
     this.showGrid = true,
     this.primaryColor = Colors.orange,
     this.maxPitch = 30.0,
@@ -40,90 +48,101 @@ class AttitudeIndicator extends StatelessWidget {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          children: [
-            // Title
+    return Padding(
+      padding: const EdgeInsets.all(16.0),
+      child: Column(
+        children: [
+          // Title (optional)
+          if (showTitle) ...[
             Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(
-                  Icons.explore,
-                  color: primaryColor,
-                  size: 20,
-                ),
+                Icon(Icons.explore, color: primaryColor, size: 20),
                 const SizedBox(width: 8),
                 Text(
-                  'Attitude',
+                  title,
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
               ],
             ),
             const SizedBox(height: 8),
+          ],
 
-            // Horizon indicator with overlaid value boxes
-            Expanded(
-              child: Stack(
-                children: [
-                  Center(
-                    child: LayoutBuilder(
-                      builder: (context, constraints) {
-                        final size = math.min(constraints.maxWidth, constraints.maxHeight);
-                        return SizedBox(
-                          width: size,
-                          height: size,
-                          child: ClipOval(
-                            child: CustomPaint(
-                              painter: _AttitudePainter(
-                                rollDegrees: rollDegrees ?? 0,
-                                pitchDegrees: pitchDegrees ?? 0,
-                                maxPitch: maxPitch,
-                                showGrid: showGrid,
-                                isDark: isDark,
-                                primaryColor: primaryColor,
-                              ),
-                              child: Container(),
+          // Horizon indicator with overlaid value boxes
+          Expanded(
+            child: Stack(
+              children: [
+                Center(
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      final size = math.min(
+                        constraints.maxWidth,
+                        constraints.maxHeight,
+                      );
+                      return SizedBox(
+                        width: size,
+                        height: size,
+                        child: ClipOval(
+                          child: CustomPaint(
+                            painter: _AttitudePainter(
+                              rollDegrees: rollDegrees ?? 0,
+                              pitchDegrees: pitchDegrees ?? 0,
+                              maxPitch: maxPitch,
+                              showGrid: showGrid,
+                              isDark: isDark,
+                              primaryColor: primaryColor,
                             ),
+                            child: Container(),
                           ),
-                        );
-                      },
+                        ),
+                      );
+                    },
+                  ),
+                ),
+                if (showDigitalValues) ...[
+                  Positioned(
+                    bottom: 0,
+                    left: 0,
+                    child: _buildValueBox(
+                      context,
+                      'HEEL',
+                      rollDegrees != null
+                          ? '${rollDegrees!.abs().toStringAsFixed(1)}°'
+                          : '--',
+                      rollDegrees != null
+                          ? (rollDegrees! >= 0 ? 'STBD' : 'PORT')
+                          : '',
+                      rollDegrees != null
+                          ? (rollDegrees! >= 0 ? Colors.green : Colors.red)
+                          : Colors.grey,
+                      isDark,
                     ),
                   ),
-                  if (showDigitalValues) ...[
-                    Positioned(
-                      bottom: 0,
-                      left: 0,
-                      child: _buildValueBox(
-                        context,
-                        'HEEL',
-                        rollDegrees != null ? '${rollDegrees!.abs().toStringAsFixed(1)}°' : '--',
-                        rollDegrees != null ? (rollDegrees! >= 0 ? 'STBD' : 'PORT') : '',
-                        rollDegrees != null ? (rollDegrees! >= 0 ? Colors.green : Colors.red) : Colors.grey,
-                        isDark,
-                      ),
+                  Positioned(
+                    bottom: 0,
+                    right: 0,
+                    child: _buildValueBox(
+                      context,
+                      'PITCH',
+                      pitchDegrees != null
+                          ? '${pitchDegrees!.abs().toStringAsFixed(1)}°'
+                          : '--',
+                      pitchDegrees != null
+                          ? (pitchDegrees! >= 0 ? 'BOW UP' : 'BOW DN')
+                          : '',
+                      pitchDegrees != null
+                          ? (pitchDegrees! >= 0 ? Colors.blue : Colors.orange)
+                          : Colors.grey,
+                      isDark,
                     ),
-                    Positioned(
-                      bottom: 0,
-                      right: 0,
-                      child: _buildValueBox(
-                        context,
-                        'PITCH',
-                        pitchDegrees != null ? '${pitchDegrees!.abs().toStringAsFixed(1)}°' : '--',
-                        pitchDegrees != null ? (pitchDegrees! >= 0 ? 'BOW UP' : 'BOW DN') : '',
-                        pitchDegrees != null ? (pitchDegrees! >= 0 ? Colors.blue : Colors.orange) : Colors.grey,
-                        isDark,
-                      ),
-                    ),
-                  ],
+                  ),
                 ],
-              ),
+              ],
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
@@ -136,19 +155,8 @@ class AttitudeIndicator extends StatelessWidget {
     Color suffixColor,
     bool isDark,
   ) {
-    return Container(
+    return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      decoration: BoxDecoration(
-        color: isDark
-            ? Colors.black.withValues(alpha: 0.6)
-            : Colors.white.withValues(alpha: 0.7),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(
-          color: isDark
-              ? Colors.white.withValues(alpha: 0.15)
-              : Colors.black.withValues(alpha: 0.15),
-        ),
-      ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -208,7 +216,9 @@ class _AttitudePainter extends CustomPainter {
     final radius = math.min(size.width, size.height) / 2;
 
     // Clip to circle
-    canvas.clipPath(Path()..addOval(Rect.fromCircle(center: center, radius: radius)));
+    canvas.clipPath(
+      Path()..addOval(Rect.fromCircle(center: center, radius: radius)),
+    );
 
     // Calculate pitch offset (pixels per degree)
     final pitchPixelsPerDegree = radius / maxPitch;
@@ -240,12 +250,7 @@ class _AttitudePainter extends CustomPainter {
       ..style = PaintingStyle.fill;
 
     canvas.drawRect(
-      Rect.fromLTWH(
-        -radius * 2,
-        pitchOffset,
-        radius * 4,
-        radius * 2,
-      ),
+      Rect.fromLTWH(-radius * 2, pitchOffset, radius * 4, radius * 2),
       groundPaint,
     );
 
@@ -283,7 +288,12 @@ class _AttitudePainter extends CustomPainter {
     canvas.drawCircle(center, radius - 2, bezelPaint);
   }
 
-  void _drawPitchLadder(Canvas canvas, double radius, double pitchOffset, double pixelsPerDegree) {
+  void _drawPitchLadder(
+    Canvas canvas,
+    double radius,
+    double pitchOffset,
+    double pixelsPerDegree,
+  ) {
     final ladderPaint = Paint()
       ..color = Colors.white
       ..strokeWidth = 1.5
@@ -302,11 +312,7 @@ class _AttitudePainter extends CustomPainter {
       final lineWidth = radius * 0.4;
 
       // Draw main line
-      canvas.drawLine(
-        Offset(-lineWidth, y),
-        Offset(lineWidth, y),
-        ladderPaint,
-      );
+      canvas.drawLine(Offset(-lineWidth, y), Offset(lineWidth, y), ladderPaint);
 
       // Draw pitch value
       textPainter.text = TextSpan(
@@ -430,12 +436,20 @@ class _AttitudePainter extends CustomPainter {
 
     pointerPath.moveTo(tipX, tipY);
     pointerPath.lineTo(
-      tipX + pointerSize * math.cos(pointerAngle) + pointerSize * 0.5 * math.cos(leftAngle),
-      tipY + pointerSize * math.sin(pointerAngle) + pointerSize * 0.5 * math.sin(leftAngle),
+      tipX +
+          pointerSize * math.cos(pointerAngle) +
+          pointerSize * 0.5 * math.cos(leftAngle),
+      tipY +
+          pointerSize * math.sin(pointerAngle) +
+          pointerSize * 0.5 * math.sin(leftAngle),
     );
     pointerPath.lineTo(
-      tipX + pointerSize * math.cos(pointerAngle) + pointerSize * 0.5 * math.cos(rightAngle),
-      tipY + pointerSize * math.sin(pointerAngle) + pointerSize * 0.5 * math.sin(rightAngle),
+      tipX +
+          pointerSize * math.cos(pointerAngle) +
+          pointerSize * 0.5 * math.cos(rightAngle),
+      tipY +
+          pointerSize * math.sin(pointerAngle) +
+          pointerSize * 0.5 * math.sin(rightAngle),
     );
     pointerPath.close();
 

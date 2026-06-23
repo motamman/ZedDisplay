@@ -6,7 +6,6 @@ import '../../services/signalk_service.dart';
 import '../../services/tool_registry.dart';
 import '../wind_compass.dart';
 
-
 /// Config-driven wind compass tool showing heading and wind direction
 class WindCompassTool extends StatelessWidget {
   final ToolConfig config;
@@ -39,9 +38,11 @@ class WindCompassTool extends StatelessWidget {
 
   /// Format using [MetadataFormatExtension.formatOrRaw]; returns null when
   /// [rawValue] is null so callers can omit the value conditionally.
-  String? _formatValue(String path, double? rawValue) {
+  String? _formatValue(String path, double? rawValue, {int decimals = 0}) {
     if (rawValue == null) return null;
-    return signalKService.metadataStore.get(path).formatOrRaw(rawValue, decimals: 0);
+    return signalKService.metadataStore
+        .get(path)
+        .formatOrRaw(rawValue, decimals: decimals);
   }
 
   @override
@@ -102,15 +103,19 @@ class WindCompassTool extends StatelessWidget {
       windAngleApparentFormatted = _formatValue(path, angleApparentRadians);
 
       // Convert relative angle to absolute direction
-      if (angleApparentRadians != null && (headingTrueRadians != null || headingMagneticRadians != null)) {
+      if (angleApparentRadians != null &&
+          (headingTrueRadians != null || headingMagneticRadians != null)) {
         final heading = headingMagneticRadians ?? headingTrueRadians!;
         windDirectionApparentRadians = heading + angleApparentRadians;
       }
-      if (angleApparentDegrees != null && (headingTrueDegrees != null || headingMagneticDegrees != null)) {
+      if (angleApparentDegrees != null &&
+          (headingTrueDegrees != null || headingMagneticDegrees != null)) {
         final headingDeg = headingMagneticDegrees ?? headingTrueDegrees!;
-        windDirectionApparentDegrees = (headingDeg + angleApparentDegrees) % 360;
+        windDirectionApparentDegrees =
+            (headingDeg + angleApparentDegrees) % 360;
         // Format the computed apparent direction
-        windDirectionApparentFormatted = '${windDirectionApparentDegrees.toStringAsFixed(0)}°';
+        windDirectionApparentFormatted =
+            '${windDirectionApparentDegrees.toStringAsFixed(0)}°';
       }
     }
 
@@ -141,7 +146,7 @@ class WindCompassTool extends StatelessWidget {
       final path = config.dataSources[6].path;
       final rawSpeed = _getRawValue(path);
       speedOverGround = _getConverted(path, rawSpeed);
-      sogFormatted = _formatValue(path, rawSpeed);
+      sogFormatted = _formatValue(path, rawSpeed, decimals: 1);
     }
 
     // Get course over ground (optional) - always use converted
@@ -178,7 +183,8 @@ class WindCompassTool extends StatelessWidget {
     final style = config.style;
     final targetAWA = style.laylineAngle ?? 40.0;
     final targetTolerance = style.targetTolerance ?? 3.0;
-    final showAWANumbers = style.customProperties?['showAWANumbers'] as bool? ?? true;
+    final showAWANumbers =
+        style.customProperties?['showAWANumbers'] as bool? ?? true;
     final enableVMG = style.customProperties?['enableVMG'] as bool? ?? false;
 
     // Vessel type detection for sail trim indicator
@@ -200,37 +206,39 @@ class WindCompassTool extends StatelessWidget {
       return const Center(child: Text('No heading source configured'));
     }
 
-    return Center(child: WindCompass(
-      headingTrueRadians: headingTrueRadians,
-      headingMagneticRadians: headingMagneticRadians,
-      headingTrueDegrees: headingTrueDegrees,
-      headingMagneticDegrees: headingMagneticDegrees,
-      windDirectionTrueRadians: windDirectionTrueRadians,
-      windDirectionApparentRadians: windDirectionApparentRadians,
-      windDirectionTrueDegrees: windDirectionTrueDegrees,
-      windDirectionApparentDegrees: windDirectionApparentDegrees,
-      windDirectionTrueFormatted: windDirectionTrueFormatted,
-      windDirectionApparentFormatted: windDirectionApparentFormatted,
-      windAngleApparent: windAngleApparent,
-      windAngleApparentFormatted: windAngleApparentFormatted,
-      windSpeedTrue: windSpeedTrue,
-      windSpeedTrueFormatted: windSpeedTrueFormatted,
-      windSpeedApparent: windSpeedApparent,
-      windSpeedApparentFormatted: windSpeedApparentFormatted,
-      speedOverGround: speedOverGround,
-      sogFormatted: sogFormatted,
-      cogDegrees: cogDegrees,
-      cogFormatted: cogFormatted,
-      waypointBearing: waypointBearing,
-      waypointBearingFormatted: waypointBearingFormatted,
-      waypointDistance: waypointDistance,
-      waypointDistanceFormatted: waypointDistanceFormatted,
-      targetAWA: targetAWA,
-      targetTolerance: targetTolerance,
-      showAWANumbers: showAWANumbers,
-      enableVMG: enableVMG,
-      isSailingVessel: isSailingVessel,
-    ));
+    return Center(
+      child: WindCompass(
+        headingTrueRadians: headingTrueRadians,
+        headingMagneticRadians: headingMagneticRadians,
+        headingTrueDegrees: headingTrueDegrees,
+        headingMagneticDegrees: headingMagneticDegrees,
+        windDirectionTrueRadians: windDirectionTrueRadians,
+        windDirectionApparentRadians: windDirectionApparentRadians,
+        windDirectionTrueDegrees: windDirectionTrueDegrees,
+        windDirectionApparentDegrees: windDirectionApparentDegrees,
+        windDirectionTrueFormatted: windDirectionTrueFormatted,
+        windDirectionApparentFormatted: windDirectionApparentFormatted,
+        windAngleApparent: windAngleApparent,
+        windAngleApparentFormatted: windAngleApparentFormatted,
+        windSpeedTrue: windSpeedTrue,
+        windSpeedTrueFormatted: windSpeedTrueFormatted,
+        windSpeedApparent: windSpeedApparent,
+        windSpeedApparentFormatted: windSpeedApparentFormatted,
+        speedOverGround: speedOverGround,
+        sogFormatted: sogFormatted,
+        cogDegrees: cogDegrees,
+        cogFormatted: cogFormatted,
+        waypointBearing: waypointBearing,
+        waypointBearingFormatted: waypointBearingFormatted,
+        waypointDistance: waypointDistance,
+        waypointDistanceFormatted: waypointDistanceFormatted,
+        targetAWA: targetAWA,
+        targetTolerance: targetTolerance,
+        showAWANumbers: showAWANumbers,
+        enableVMG: enableVMG,
+        isSailingVessel: isSailingVessel,
+      ),
+    );
   }
 }
 
@@ -241,7 +249,8 @@ class WindCompassToolBuilder extends ToolBuilder {
     return ToolDefinition(
       id: 'wind_compass',
       name: 'Wind Compass',
-      description: 'Autopilot-style compass showing heading (true/magnetic), wind direction (true/apparent), and speed over ground',
+      description:
+          'Autopilot-style compass showing heading (true/magnetic), wind direction (true/apparent), and speed over ground',
       category: ToolCategory.navigation,
       configSchema: ConfigSchema(
         allowsMinMax: false,
@@ -250,22 +259,52 @@ class WindCompassToolBuilder extends ToolBuilder {
         minPaths: 0,
         maxPaths: 10,
         styleOptions: const [
-          'laylineAngle',                        // Target AWA angle in degrees (default: 40) - overridden by VMG if enabled
-          'targetTolerance',                     // Acceptable deviation from target in degrees (default: 3)
-          'customProperties.showAWANumbers',     // Show numeric AWA display with performance feedback (default: true)
-          'customProperties.enableVMG',          // Enable VMG optimization with polar-based dynamic target AWA (default: false)
+          'laylineAngle', // Target AWA angle in degrees (default: 40) - overridden by VMG if enabled
+          'targetTolerance', // Acceptable deviation from target in degrees (default: 3)
+          'customProperties.showAWANumbers', // Show numeric AWA display with performance feedback (default: true)
+          'customProperties.enableVMG', // Enable VMG optimization with polar-based dynamic target AWA (default: false)
         ],
         slotDefinitions: const [
-          SlotDefinition(roleLabel: 'Heading True', defaultPath: 'navigation.headingTrue'),
-          SlotDefinition(roleLabel: 'Heading Magnetic', defaultPath: 'navigation.headingMagnetic'),
-          SlotDefinition(roleLabel: 'Wind Direction True', defaultPath: 'environment.wind.directionTrue'),
-          SlotDefinition(roleLabel: 'Wind Angle Apparent', defaultPath: 'environment.wind.angleApparent'),
-          SlotDefinition(roleLabel: 'Wind Speed True', defaultPath: 'environment.wind.speedTrue'),
-          SlotDefinition(roleLabel: 'Wind Speed Apparent', defaultPath: 'environment.wind.speedApparent'),
-          SlotDefinition(roleLabel: 'Speed Over Ground', defaultPath: 'navigation.speedOverGround'),
-          SlotDefinition(roleLabel: 'Course Over Ground', defaultPath: 'navigation.courseOverGroundTrue'),
-          SlotDefinition(roleLabel: 'Waypoint Bearing', defaultPath: 'navigation.courseGreatCircle.nextPoint.bearingTrue'),
-          SlotDefinition(roleLabel: 'Waypoint Distance', defaultPath: 'navigation.courseGreatCircle.nextPoint.distance'),
+          SlotDefinition(
+            roleLabel: 'Heading True',
+            defaultPath: 'navigation.headingTrue',
+          ),
+          SlotDefinition(
+            roleLabel: 'Heading Magnetic',
+            defaultPath: 'navigation.headingMagnetic',
+          ),
+          SlotDefinition(
+            roleLabel: 'Wind Direction True',
+            defaultPath: 'environment.wind.directionTrue',
+          ),
+          SlotDefinition(
+            roleLabel: 'Wind Angle Apparent',
+            defaultPath: 'environment.wind.angleApparent',
+          ),
+          SlotDefinition(
+            roleLabel: 'Wind Speed True',
+            defaultPath: 'environment.wind.speedTrue',
+          ),
+          SlotDefinition(
+            roleLabel: 'Wind Speed Apparent',
+            defaultPath: 'environment.wind.speedApparent',
+          ),
+          SlotDefinition(
+            roleLabel: 'Speed Over Ground',
+            defaultPath: 'navigation.speedOverGround',
+          ),
+          SlotDefinition(
+            roleLabel: 'Course Over Ground',
+            defaultPath: 'navigation.courseOverGroundTrue',
+          ),
+          SlotDefinition(
+            roleLabel: 'Waypoint Bearing',
+            defaultPath: 'navigation.courseGreatCircle.nextPoint.bearingTrue',
+          ),
+          SlotDefinition(
+            roleLabel: 'Waypoint Distance',
+            defaultPath: 'navigation.courseGreatCircle.nextPoint.distance',
+          ),
         ],
         allowsUnitSelection: false,
         allowsVisibilityToggles: false,
@@ -301,9 +340,6 @@ class WindCompassToolBuilder extends ToolBuilder {
 
   @override
   Widget build(ToolConfig config, SignalKService signalKService) {
-    return WindCompassTool(
-      config: config,
-      signalKService: signalKService,
-    );
+    return WindCompassTool(config: config, signalKService: signalKService);
   }
 }

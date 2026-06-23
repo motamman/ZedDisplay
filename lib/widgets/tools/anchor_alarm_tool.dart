@@ -10,9 +10,7 @@ import '../../models/tool_definition.dart';
 import '../../services/signalk_service.dart';
 import '../map_attribution.dart';
 import '../../services/anchor_alarm_service.dart';
-import '../../services/alert_coordinator.dart';
 import '../../models/anchor_state.dart';
-import '../../models/alert_event.dart';
 import '../../models/path_metadata.dart';
 import '../../utils/angle_utils.dart';
 import '../../services/tool_registry.dart';
@@ -44,9 +42,10 @@ class _AnchorAlarmToolState extends State<AnchorAlarmTool>
   @override
   bool get wantKeepAlive => true;
 
-  late AnchorAlarmService _alarmService;
-  AlertCoordinator? _alertCoordinator;
-  bool _lastOverlayActive = false;
+  // App-level singleton, obtained from Provider in initState. This widget is a
+  // VIEW onto the shared monitor (configured/run by the supervisor in
+  // main.dart) — it never constructs, configures, or disposes the service.
+  late final AnchorAlarmService _alarmService;
   final MapController _mapController = MapController();
   bool _mapAutoFollow = true;
   double _rodeSliderValue = 30.0;
@@ -62,23 +61,14 @@ class _AnchorAlarmToolState extends State<AnchorAlarmTool>
   void initState() {
     super.initState();
 
-    // Get alert coordinator from provider if available
-    try {
-      _alertCoordinator = Provider.of<AlertCoordinator>(context, listen: false);
-    } catch (_) {}
-
-    _alarmService = AnchorAlarmService(
-      signalKService: widget.signalKService,
-      alertCoordinator: _alertCoordinator,
-    );
-    _alarmService.initialize();
+    // Bind to the app-level monitor. Configuration + lifecycle are owned by the
+    // supervisor in main.dart (gated on this tool being on the dashboard), so
+    // here we only attach a listener to rebuild on state changes.
+    _alarmService = Provider.of<AnchorAlarmService>(context, listen: false);
     _alarmService.addListener(_onStateChanged);
 
     // Listen to SignalKService for displayUnits changes (unit preference updates)
     widget.signalKService.addListener(_onSignalKChanged);
-
-    // Configure from tool settings
-    _configureFromSettings();
   }
 
   void _onSignalKChanged() {
@@ -86,32 +76,6 @@ class _AnchorAlarmToolState extends State<AnchorAlarmTool>
     if (mounted) {
       setState(() {});
     }
-  }
-
-  void _configureFromSettings() {
-    final customProps = widget.config.style.customProperties ?? {};
-
-    // Configure SignalK paths from dataSources
-    _alarmService.setPaths(AnchorAlarmPaths.fromDataSources(widget.config.dataSources));
-
-    // Alarm sound
-    final alarmSound = customProps['alarmSound'] as String? ?? 'foghorn';
-    _alarmService.setAlarmSound(alarmSound);
-
-    // Check-in config
-    final checkInEnabled = customProps['checkInEnabled'] as bool? ?? false;
-    final intervalMinutes = customProps['checkInIntervalMinutes'] as int? ?? 30;
-    final gracePeriodSeconds = customProps['checkInGracePeriodSeconds'] as int? ?? 60;
-
-    _alarmService.setCheckInConfig(CheckInConfig(
-      enabled: checkInEnabled,
-      interval: Duration(minutes: intervalMinutes),
-      gracePeriod: Duration(seconds: gracePeriodSeconds),
-    ));
-
-    // Alarm clear debounce delay
-    final alarmClearDelaySeconds = customProps['alarmClearDelaySeconds'] as int? ?? 15;
-    _alarmService.setAlarmClearDelay(Duration(seconds: alarmClearDelaySeconds));
   }
 
   @override
@@ -134,10 +98,10 @@ class _AnchorAlarmToolState extends State<AnchorAlarmTool>
   @override
   void dispose() {
     _lockTimer?.cancel();
-    _alertCoordinator?.setOverlayActive(AlertSubsystem.anchorAlarm, false);
+    // View only: detach our listener but DO NOT dispose the app-level service —
+    // it keeps monitoring while the tool remains on the dashboard.
     _alarmService.removeListener(_onStateChanged);
     widget.signalKService.removeListener(_onSignalKChanged);
-    _alarmService.dispose();
     super.dispose();
   }
 
@@ -157,13 +121,9 @@ class _AnchorAlarmToolState extends State<AnchorAlarmTool>
     if (mounted) {
       setState(() {});
 
-      // Update overlay state with coordinator only when it changes
-      final overlayActive = _alarmService.awaitingCheckIn ||
-          (_alarmService.state.alarmState.isAlarming && !_alarmService.alarmAcknowledged);
-      if (overlayActive != _lastOverlayActive) {
-        _lastOverlayActive = overlayActive;
-        _alertCoordinator?.setOverlayActive(AlertSubsystem.anchorAlarm, overlayActive);
-      }
+      // No overlay suppression: an audible anchor alarm is always shown in the
+      // global alert panel (AlertCoordinator keeps audible alerts visible), so
+      // there is no need — and it would be wrong off-screen — to hide it.
 
       // Update slider from current rode length (only when not actively dragging)
       if (!_isRodeSliderDragging) {
@@ -236,25 +196,51 @@ class _AnchorAlarmToolState extends State<AnchorAlarmTool>
     });
   }
 
+  /// Surface a failed anchor command (e.g. a 401/403 from the plugin) so it is
+  /// not swallowed silently. Reads the failure detail recorded by the service.
+  void _showActionError(String action) {
+    if (!mounted) return;
+    final detail = _alarmService.lastActionError;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content:
+            Text(detail != null ? '$action failed: $detail' : '$action failed'),
+        backgroundColor: Colors.red,
+        duration: const Duration(seconds: 5),
+      ),
+    );
+  }
+
   Future<void> _dropAnchor() async {
     _resetLockTimer();
     final success = await _alarmService.dropAnchor();
-    if (success && mounted) {
-      // Set rode length to distance from bow + 10%
-      final gpsFromBow = _alarmService.gpsFromBow;
-      if (gpsFromBow != null && gpsFromBow > 0) {
-        final rodeLength = gpsFromBow * 1.1;
-        await _alarmService.setRodeLength(rodeLength);
-      }
-
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Anchor dropped'),
-          backgroundColor: Colors.green,
-        ),
-      );
+    if (!mounted) return;
+    if (!success) {
+      _showActionError('Drop');
+      return;
     }
+
+    // Set rode length to distance from bow + 10%
+    final gpsFromBow = _alarmService.gpsFromBow;
+    if (gpsFromBow != null && gpsFromBow > 0) {
+      final rodeLength = gpsFromBow * 1.1;
+      final rodeSet = await _alarmService.setRodeLength(rodeLength);
+      if (!mounted) return;
+      if (!rodeSet) {
+        // Anchor dropped, but the follow-up rode/radius adjustment failed —
+        // surface it so the alarm radius isn't silently left unset.
+        _showActionError('Set rode after drop');
+        return;
+      }
+    }
+
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Anchor dropped'),
+        backgroundColor: Colors.green,
+      ),
+    );
   }
 
   Future<void> _raiseAnchor() async {
@@ -279,13 +265,16 @@ class _AnchorAlarmToolState extends State<AnchorAlarmTool>
 
     if (confirmed == true) {
       final success = await _alarmService.raiseAnchor();
-      if (success && mounted) {
+      if (!mounted) return;
+      if (success) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('Anchor raised'),
             backgroundColor: Colors.orange,
           ),
         );
+      } else {
+        _showActionError('Raise');
       }
     }
   }
@@ -299,7 +288,8 @@ class _AnchorAlarmToolState extends State<AnchorAlarmTool>
 
     // Call plugin API - it calculates maxRadius from rode/depth/gpsFromBow/fudge
     // Does NOT recalculate anchor position (anchor position is set separately)
-    await _alarmService.setRodeLength(length, depth: depth);
+    final ok = await _alarmService.setRodeLength(length, depth: depth);
+    if (!ok && mounted) _showActionError('Set rode');
   }
 
   /// Open compass overlay to set anchor direction
@@ -362,7 +352,7 @@ class _AnchorAlarmToolState extends State<AnchorAlarmTool>
         SnackBar(
           content: Text(success
               ? 'Anchor direction set to ${trueBearing.toStringAsFixed(0)}°'
-              : 'Failed to update anchor position'),
+              : 'Set direction failed: ${_alarmService.lastActionError ?? ''}'),
           backgroundColor: success ? Colors.green : Colors.red,
         ),
       );
@@ -1222,10 +1212,11 @@ class _AnchorAlarmToolState extends State<AnchorAlarmTool>
                       _resetLockTimer();
                       setState(() => _alarmRadiusValue = v);
                     },
-                    onChangeEnd: (v) {
+                    onChangeEnd: (v) async {
                       _resetLockTimer();
                       _isAlarmRadiusSliderDragging = false;
-                      _alarmService.setRadius(radius: v);
+                      final ok = await _alarmService.setRadius(radius: v);
+                      if (!ok && mounted) _showActionError('Set alarm radius');
                     },
                   ),
                   // Depth slider (manual) or sensor display

@@ -153,6 +153,11 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
   bool _catalogLoading = false;
   String? _catalogLastError;
 
+  /// Set when a catalog fetch's response arrives for a now-stale upstream
+  /// (the SignalK server changed mid-flight). Drives a re-fetch for the
+  /// current upstream once the in-flight request unwinds.
+  bool _scheduleCatalogRefetch = false;
+
   Map<String, dynamic>? _firstEnabled(String type) {
     for (final l in _layers) {
       if (l['type'] == type && (l['enabled'] as bool? ?? true)) return l;
@@ -555,6 +560,7 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
           refreshThreshold == _appliedTileRefresh) {
         return;
       }
+      final previousUpstream = _appliedTileUpstream;
       _appliedTileUpstream = upstream;
       _appliedTileToken = token;
       _appliedTileRefresh = refreshThreshold;
@@ -563,6 +569,16 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
         authToken: token,
         refreshThreshold: refreshThreshold,
       );
+      // Genuine upstream switch on a surviving State (not first config, not a
+      // token-only refresh): the in-memory catalog belongs to the old server,
+      // so drop it and reload from the new upstream's cache + live fetch.
+      if (previousUpstream != null && previousUpstream != upstream) {
+        _chartCatalog = const [];
+        _catalogHasLoaded = false;
+        _loadCachedChartCatalog();
+        _pushManagerCharts();
+        unawaited(_refreshChartCatalog());
+      }
     } catch (_) {}
   }
 
@@ -617,6 +633,26 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
   // state survives app restarts and hot restarts.
   static const String _layerPrefsKey = 'chart_plotter_v3_layer_prefs';
 
+  /// Locally-cached chart catalog (descriptors: id/bounds/zoom/url). Persisted
+  /// alongside the tile bytes so selected charts can render on a cold start
+  /// before — or entirely without — the SignalK server. Previously only the
+  /// tiles were cached, so cached charts couldn't render offline (no
+  /// descriptor → `_pushManagerCharts` skipped them).
+  static const String _chartCatalogCacheKeyPrefix =
+      'chart_plotter_v3_catalog_cache';
+
+  /// Scope the catalog cache to the current SignalK upstream — descriptors
+  /// carry per-server `urlTemplate`s, so a global key would render/prefetch a
+  /// previous server's charts after switching upstreams.
+  String get _chartCatalogCacheKey =>
+      _chartCatalogCacheKeyFor(widget.signalKService.httpBaseUrl);
+
+  /// Catalog cache key for a specific upstream — used to persist a fetched
+  /// catalog under the server it actually came from, even if the current
+  /// upstream changed while the fetch was in flight.
+  String _chartCatalogCacheKeyFor(String upstream) =>
+      '$_chartCatalogCacheKeyPrefix:${Uri.encodeComponent(upstream)}';
+
   void _persistLayerPrefs() {
     try {
       final storage = context.read<StorageService>();
@@ -641,6 +677,70 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
     } catch (_) {
       // StorageService may not be available in tests/headless.
     }
+  }
+
+  /// Persist the chart catalog (descriptors) so selected charts can render from
+  /// cached tiles on a cold start before the SignalK server answers.
+  void _persistChartCatalog(List<ChartDescriptor> descriptors,
+      {String? cacheKey}) {
+    try {
+      final storage = context.read<StorageService>();
+      final payload = jsonEncode([
+        for (final c in descriptors)
+          {
+            'id': c.id,
+            'w': c.west,
+            's': c.south,
+            'e': c.east,
+            'n': c.north,
+            'minZ': c.minZoom,
+            'maxZ': c.maxZoom,
+            if (c.urlTemplate != null) 'url': c.urlTemplate,
+          },
+      ]);
+      unawaited(storage.saveSetting(cacheKey ?? _chartCatalogCacheKey, payload));
+    } catch (_) {/* storage unavailable */}
+  }
+
+  /// Seed `_chartCatalog` from the locally-cached copy so selected charts can
+  /// render from cached tiles before/without the server. Does NOT set
+  /// `_catalogHasLoaded` — the live server fetch stays authoritative for the
+  /// add/remove reconciliation; this only supplies descriptors to render with.
+  void _loadCachedChartCatalog() {
+    if (_chartCatalog.isNotEmpty) return; // live catalog already present
+    try {
+      final storage = context.read<StorageService>();
+      final raw = storage.getSetting(_chartCatalogCacheKey);
+      if (raw == null || raw.isEmpty) return;
+      final j = jsonDecode(raw);
+      if (j is! List) return;
+      final descriptors = <ChartDescriptor>[];
+      final urlTemplates = <String, String>{};
+      for (final e in j) {
+        if (e is! Map) continue;
+        final id = e['id'];
+        if (id is! String) continue;
+        final url = e['url'] as String?;
+        descriptors.add(ChartDescriptor(
+          id: id,
+          west: (e['w'] as num?)?.toDouble() ?? -180.0,
+          south: (e['s'] as num?)?.toDouble() ?? -85.0,
+          east: (e['e'] as num?)?.toDouble() ?? 180.0,
+          north: (e['n'] as num?)?.toDouble() ?? 85.0,
+          minZoom: (e['minZ'] as num?)?.toInt() ?? 0,
+          maxZoom: (e['maxZ'] as num?)?.toInt() ?? 22,
+          urlTemplate: url,
+        ));
+        if (url != null && url.isNotEmpty) urlTemplates[id] = url;
+      }
+      if (descriptors.isEmpty) return;
+      _chartCatalog = descriptors;
+      try {
+        context
+            .read<ChartTileServerService>()
+            .setChartUpstreamTemplates(urlTemplates);
+      } catch (_) {/* proxy unavailable */}
+    } catch (_) {/* corrupt cache → ignore */}
   }
 
   void _loadLayerPrefs() {
@@ -841,6 +941,11 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
       // (which toggles were on, custom min-zooms, which legends on
       // the map).
       _loadLayerPrefs();
+      // Seed the locally-cached chart catalog now that StorageService is
+      // wired, and render if the engine/manager is already up. (If it isn't
+      // yet, `_loadEngine` does the seed+push when it finishes.)
+      _loadCachedChartCatalog();
+      if (_tileManager != null) _pushManagerCharts();
     } else {
       _weatherDataService!.baseUrl = _routePlannerBaseUrl;
     }
@@ -2204,9 +2309,32 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
     final scrUnwrapped = _unwrappedProjector(camera);
     final tapPxU = scrUnwrapped(latLng.longitude, latLng.latitude);
 
-    // Weather-route waypoints take priority when visible — they sit on
-    // top of the SignalK route overlay in the paint stack, so the tap
-    // order must match.
+    // Active SignalK route waypoints take priority — they paint on top of the
+    // weather-route overlay in the stack (see the overlay build order), so the
+    // tap order must match.
+    final coords = _routeCoords;
+    if (coords != null) {
+      const hitRadius = 14.0;
+      for (var i = 0; i < coords.length; i++) {
+        final wp = scrUnwrapped(coords[i][0], coords[i][1]);
+        if ((wp - tapPxU).distanceSquared <= hitRadius * hitRadius) {
+          showWaypointEditDialog(
+            context,
+            index: i,
+            routeCoords: coords,
+            waypointNames: _waypointNames,
+            onChanged: () {
+              if (mounted) setState(() {});
+            },
+            saveRouteToServer: _saveRouteToServer,
+          );
+          return;
+        }
+      }
+    }
+
+    // Weather-route waypoints next — they sit below the active route in the
+    // paint stack, so they're only picked where no active waypoint overlaps.
     final wrResult = _weatherRoutingService?.currentResult;
     if (_weatherRoutingEnabled && wrResult != null && wrResult.isNotEmpty) {
       final idx = hitTestWeatherRouteWaypoint(
@@ -2237,27 +2365,6 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
       if ((s.endSnapDistanceM ?? 0) > 0 && nearLonLat(s.endOriginal)) {
         _setSelectedWaypoint(wrResult.waypoints.length);
         return;
-      }
-    }
-
-    final coords = _routeCoords;
-    if (coords != null) {
-      const hitRadius = 14.0;
-      for (var i = 0; i < coords.length; i++) {
-        final wp = scrUnwrapped(coords[i][0], coords[i][1]);
-        if ((wp - tapPxU).distanceSquared <= hitRadius * hitRadius) {
-          showWaypointEditDialog(
-            context,
-            index: i,
-            routeCoords: coords,
-            waypointNames: _waypointNames,
-            onChanged: () {
-              if (mounted) setState(() {});
-            },
-            saveRouteToServer: _saveRouteToServer,
-          );
-          return;
-        }
       }
     }
 
@@ -2942,6 +3049,13 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
         _spriteImage = spriteImage;
         _tileManager = manager;
       });
+      // Render selected charts from the locally-cached catalog + cached tiles
+      // immediately, before the (possibly slow/absent) server answers. The
+      // live fetch below overwrites `_chartCatalog` once it arrives. (`_layers`
+      // was restored in didChangeDependencies, which runs before this async
+      // continuation.)
+      _loadCachedChartCatalog();
+      _pushManagerCharts();
       // Manager starts with no charts. Kick off the SignalK catalog
       // fetch and seed `_layers` ∩ catalog into the manager. Safe even
       // if the fetch is empty: empty intersection means no tile fetches
@@ -2980,6 +3094,10 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
         _catalogLoading = true;
       });
     }
+    // Pin the upstream this fetch is for, so a mid-flight server switch can't
+    // persist/push these descriptors (and their per-server urlTemplates) under
+    // the wrong server.
+    final catalogUpstream = widget.signalKService.httpBaseUrl;
     try {
       final raw = await widget.signalKService.getResources('charts');
       final descriptors = <ChartDescriptor>[];
@@ -3062,7 +3180,19 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
         }
       }
       if (!mounted) return;
+      if (catalogUpstream != widget.signalKService.httpBaseUrl) {
+        // Upstream switched while this fetch was in flight — the descriptors
+        // belong to the old server. Discard them and re-fetch for the now-
+        // current upstream once this request unwinds (see finally).
+        _scheduleCatalogRefetch = true;
+        return;
+      }
       _chartCatalog = descriptors;
+      // Cache the catalog locally so a future cold start can render selected
+      // charts from cached tiles before this server is reachable again. Keyed
+      // by the upstream this fetch was for, not the (possibly changed) current.
+      _persistChartCatalog(descriptors,
+          cacheKey: _chartCatalogCacheKeyFor(catalogUpstream));
       // Catalog has now successfully arrived from this server. From
       // this point on, an empty catalog is authoritative — meaning
       // `_onChartsCatalogChanged` is allowed to drop persisted s57
@@ -3088,6 +3218,12 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
         setState(() {
           _catalogLoading = false;
         });
+        // A response arrived for a stale upstream; now that the loading latch is
+        // clear, re-fetch for the current server.
+        if (_scheduleCatalogRefetch) {
+          _scheduleCatalogRefetch = false;
+          unawaited(_refreshChartCatalog());
+        }
       }
     }
   }
@@ -3429,17 +3565,19 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
                   blue: _rulerBlue!,
                   distance: _distanceMetadata(),
                 ),
-              if (_routeCoords != null)
-                _RouteOverlayLayer(
-                  coords: _routeCoords!,
-                  activeIndex: _routePointIndex,
-                  reversed: _routeReversed,
-                ),
+              // Weather route first so the selected/active route paints on
+              // top of it (later children render above earlier ones).
               if (_weatherRoutingEnabled &&
                   (_weatherRoutingService?.currentResult?.isNotEmpty ?? false))
                 WeatherRouteOverlayLayer(
                   result: _weatherRoutingService!.currentResult!,
                   selectedIndex: _weatherRouteSelectedIdx,
+                ),
+              if (_routeCoords != null)
+                _RouteOverlayLayer(
+                  coords: _routeCoords!,
+                  activeIndex: _routePointIndex,
+                  reversed: _routeReversed,
                 ),
               // Approximate-mode halo around each intermediate via
               // pin. Visible only when the routing service is in
@@ -7333,13 +7471,14 @@ class _OwnVesselPainter extends CustomPainter {
       old.sogMs != sogMs;
 }
 
-/// Paints the active route in V1's colours + shapes (chart_webview.dart:
-/// 1546-1613). Base polyline green at 0.6 alpha width 3; a bright
-/// active-leg overlay (prev → next waypoint) at 0.95 alpha width 5;
-/// triangular waypoint markers pointing along the route direction,
-/// sized 12 for the next waypoint and 7 otherwise, with alpha rules
-/// 0.3 past / 0.95 next / 0.7 future. Only the next waypoint gets a
-/// white outline. `reversed` inverts what counts as past vs future.
+/// Paints the active route. Base polyline magenta at 0.6 alpha width 3; a
+/// bright active-leg overlay (prev → next waypoint) at 0.95 alpha width 5;
+/// waypoint markers point along the route direction. Past/future waypoints are
+/// small magenta triangles (alpha 0.3 past / 0.7 future); the active (next)
+/// waypoint is the `Icons.navigation` chevron — the same glyph AIS moving
+/// vessels use — at 2/3 the AIS icon size. Magenta sits outside the
+/// weather-route palette so the route reads clearly over weather legs.
+/// `reversed` inverts what counts as past vs future.
 class _RouteOverlayLayer extends StatelessWidget {
   const _RouteOverlayLayer({
     required this.coords,
@@ -7405,7 +7544,7 @@ class _RoutePainter extends CustomPainter {
     canvas.drawPath(
       basePath,
       Paint()
-        ..color = const Color(0x994CAF50) // 0.6 alpha
+        ..color = const Color(0x99E91E63) // magenta, 0.6 alpha
         ..strokeWidth = 3
         ..style = PaintingStyle.stroke,
     );
@@ -7425,18 +7564,20 @@ class _RoutePainter extends CustomPainter {
           points[prevIdx],
           points[ai],
           Paint()
-            ..color = const Color(0xF24CAF50) // 0.95 alpha
+            ..color = const Color(0xF2E91E63) // magenta, 0.95 alpha
             ..strokeWidth = 5
             ..style = PaintingStyle.stroke,
         );
       }
     }
 
-    // Waypoint triangles — direction by next leg (or previous in reverse).
+    // Waypoint markers — direction by next leg (or previous in reverse).
+    // The ACTIVE (next) waypoint gets a magenta `Icons.navigation` chevron — the
+    // same glyph AIS moving vessels use — at 2/3 the AIS icon size, pointing
+    // along the route. All other waypoints keep small equilateral triangles.
     for (var i = 0; i < points.length; i++) {
       final isNext = i == ai;
       final isPast = ai != null && (reversed ? i > ai : i < ai);
-      final size = isNext ? 12.0 : 7.0;
       final alpha = isPast ? 0.3 : (isNext ? 0.95 : 0.7);
       // Rotation = atan2(dx, dy) of the next-step vector. dy is
       // world-up in screen coords here (flutter_map projects y-down),
@@ -7452,7 +7593,14 @@ class _RoutePainter extends CustomPainter {
       final dx = points[toIdx].dx - points[i].dx;
       final dy = points[toIdx].dy - points[i].dy;
       final rot = (dx == 0 && dy == 0) ? 0.0 : math.atan2(dx, -dy);
-      final path = _triangle(size);
+
+      if (isNext) {
+        // 2/3 of the AIS vessel icon size (`_AisPainter._iconSize == 32`).
+        _drawActiveChevron(canvas, points[i], rot, 32.0 * 2 / 3);
+        continue;
+      }
+
+      final path = _triangle(7.0);
       canvas.save();
       canvas.translate(points[i].dx, points[i].dy);
       canvas.rotate(rot);
@@ -7460,19 +7608,38 @@ class _RoutePainter extends CustomPainter {
         path,
         Paint()
           ..color =
-              Color.fromRGBO(76, 175, 80, alpha), // rgba(76,175,80,alpha)
+              Color.fromRGBO(233, 30, 99, alpha), // magenta #E91E63
       );
-      if (isNext) {
-        canvas.drawPath(
-          path,
-          Paint()
-            ..color = Colors.white
-            ..strokeWidth = 2
-            ..style = PaintingStyle.stroke,
-        );
-      }
       canvas.restore();
     }
+  }
+
+  /// Active-waypoint marker: the magenta `Icons.navigation` chevron (the same
+  /// glyph AIS moving vessels use in `_AisPainter`), centred on [at] and
+  /// rotated [rot] to point along the route. Drop shadow but no white outline,
+  /// matching the AIS vessel look.
+  void _drawActiveChevron(Canvas canvas, Offset at, double rot, double sizePt) {
+    final tp = TextPainter(
+      text: TextSpan(
+        text: String.fromCharCode(Icons.navigation.codePoint),
+        style: TextStyle(
+          fontFamily: Icons.navigation.fontFamily,
+          package: Icons.navigation.fontPackage,
+          fontSize: sizePt,
+          // Magenta — deliberately outside the weather-route palette
+          // (green/red/amber/blue/cyan/orange) so the active waypoint reads
+          // clearly against the route and weather legs. 0.95 alpha.
+          color: const Color(0xF2E91E63),
+          shadows: const [Shadow(color: Colors.black, blurRadius: 3)],
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    canvas.save();
+    canvas.translate(at.dx, at.dy);
+    canvas.rotate(rot);
+    tp.paint(canvas, Offset(-tp.width / 2, -tp.height / 2));
+    canvas.restore();
   }
 
   /// Equilateral triangle pointing up (bow along +y is toward the

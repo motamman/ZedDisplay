@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.2+80] - 2026-06-22
+
+### Added
+- **Radial Bar Chart — Gauge Rewrite + Configurator**: The Radial Bar Chart is rebuilt on Syncfusion radial gauges — up to 4 values render as evenly-spaced concentric rings, each with its own range, palette-derived color, and a live value chip. A new configurator adds optional outer-ring tick marks and division labels, plus inner-radius and ring-gap sliders. Per-path max overrides and freshness gating (a stale path reads as "no data") are honored, and the ring band math is guarded so a corrupted/imported config can't invert a `clamp()` and crash the widget at build.
+- **Attitude Indicator — Configurator + Title**: A new configurator exposes an optional title, digital pitch/roll readouts, grid, and max pitch/roll, layered onto the existing artificial-horizon display.
+- **AIS Favorites — In-Range Filter**: The AIS vessel list's Favorites tab gains an "In range" filter chip that narrows the list to favorites currently within AIS range, with its own empty state.
+
+### Changed
+- **Anchor Alarm — App-Level Monitor**: Anchor monitoring is promoted from the widget to an app-level service supervised by dashboard tool presence. It runs whenever an Anchor Alarm tool is placed — *regardless of which screen is showing* — so a server-driven drag / "no position" alarm reaches the app even when the widget isn't on the visible page. The notifications channel is enabled automatically so the alarm STATE always streams. Command failures (drop / raise / set radius / set rode) now surface the server's error detail in a snackbar instead of failing silently — including the follow-up rode set after a drop.
+- **Alarm Audio — Declarative Projection**: Alarm sound is now a declarative projection of the active alert set. `AlertCoordinator` reconciles audio by selecting the highest-severity audible alert and handing one target to `AlarmAudioPlayer`, which converges a single reused `AudioPlayer` toward it (no per-alarm players, no repeat timer — lower CPU churn). Audible alerts stay visible/controllable in the panel even when their severity is filtered from the in-app list. A transient `play()` failure now gets a bounded backoff-retry so a one-off platform error doesn't silence a still-active alarm.
+- **Chart Plotter — Offline Catalog + Magenta Route**: The S-57 chart catalog (descriptors: id/bounds/zoom/url) is cached locally and **scoped to the SignalK upstream it came from**, so selected charts render on a cold start — and after switching servers — without serving a previous server's charts. The active route is recolored magenta with a navigation-chevron waypoint marker, and now paints **and** hit-tests above the weather route so taps land on the visually-topmost route.
+- **Wind Compass — Readout Layout**: The dial sits in an expanded column with the TWD/TWS, SOG/COG, and AWD/AWS readouts pinned in a flexible row below it, so the readouts compress instead of overflowing on narrow tiles.
+- **Intercom — Bluetooth Headset Routing (Android)**: Adds the Android 12+ `BLUETOOTH_CONNECT` runtime permission (legacy `BLUETOOTH` on API ≤30) so flutter_webrtc can route voice to a Bluetooth headset. The request is gated on an actual mic grant, and the one-shot guard is latched only after the request completes (a thrown SDK lookup no longer disables BT setup for the session).
+
+### Fixed
+- **AIS Names Showed as Bare MMSIs**: Empty-path SignalK deltas carrying top-level vessel attributes (`{path:'', value:{name:…}}`) weren't flattened, so vessel names never updated. `AISVessel.updateFromPath` now recurses empty-path `Map` deltas.
+- **Linear Gauge Keep-Alive Crash**: The Syncfusion linear gauge could throw a `LateInitializationError` when updated before its first layout on a kept-alive, off-screen page. It's now wrapped in a `LayoutBuilder` so its build defers to layout.
+- **AIS In-Range Alerts Lingered**: In-range favorite alerts now expire on a TTL and resolve when the vessel leaves range or the favorite is removed.
+
+### Developer
+- **AnchorAlarmService Lifecycle**: `activate()` / `deactivate()` own the path subscription and config — re-subscribing when the path set changes, and re-subscribing on the disconnected→connected transition (a cold-start `activate()` runs before the socket connects, so its first subscribe is a no-op). `deactivate()` resets transient check-in state; tests dispose the singleton in `tearDown`.
+- **Chart Catalog Upstream Guard**: `_refreshChartCatalog` pins the upstream per fetch, discards a response whose upstream changed mid-flight (re-fetching for the current server) and persists under the originating server's key; a same-State server switch clears and reloads the in-memory catalog.
+
 ## [0.7.1+79] - 2026-06-16
 
 ### Fixed
