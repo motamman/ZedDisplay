@@ -226,6 +226,10 @@ void main() {
     // and AWAIT it, so no box-close races with the next test's setUp and no
     // async file work outlives the test. The temp dir is left for the OS to
     // reap — deleting it here would race Hive's own lock-file cleanup.
+    // Dispose the anchor alarm service too: it sets a static `instance` and
+    // registers a coordinator resolve callback in its constructor, which would
+    // otherwise leak into the next test's setUp.
+    anchorAlarmService.dispose();
     chartTileCacheService.dispose();
     await Hive.close();
   });

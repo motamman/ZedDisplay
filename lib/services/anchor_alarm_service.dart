@@ -210,10 +210,19 @@ class AnchorAlarmService extends ChangeNotifier {
     List<dynamic>? dataSources,
     Map<String, dynamic>? customProperties,
   }) {
+    final previousPaths = _anchorPathList(_paths);
     _applyConfig(dataSources, customProperties);
     if (!_monitoring) {
       _monitoring = true;
       initialize();
+    } else if (!listEquals(previousPaths, _anchorPathList(_paths))) {
+      // Re-activated (e.g. tool config edited) while already monitoring: the
+      // path set changed, so move the owner subscription onto the new paths.
+      // Without this the service reads the new paths while SignalK stays
+      // subscribed to the old ones.
+      _signalKService.unsubscribeFromPaths(previousPaths, ownerId: 'anchor_alarm');
+      _subscribeToAnchorPaths();
+      _refreshState();
     }
   }
 
@@ -237,6 +246,10 @@ class AnchorAlarmService extends ChangeNotifier {
     _lastNotificationAlarmState = AnchorAlarmState.normal;
     _lastNotificationMessage = null;
     _alarmAcknowledged = false;
+    // Reset transient check-in state so a stale overlay/deadline can't survive
+    // a remove → re-add while a check-in was pending.
+    _awaitingCheckIn = false;
+    _checkInDeadline = null;
     notifyListeners();
   }
 
@@ -284,44 +297,32 @@ class AnchorAlarmService extends ChangeNotifier {
     }
   }
 
+  /// The full ordered list of SignalK paths this service subscribes to for a
+  /// given [paths] config. Stable order so two lists compare with listEquals.
+  List<String> _anchorPathList(AnchorAlarmPaths paths) => [
+        paths.anchorPosition,
+        paths.maxRadius,
+        paths.currentRadius,
+        paths.rodeLength,
+        paths.bearing,
+        paths.vesselPosition,
+        paths.heading,
+        paths.gpsFromBow,
+        paths.depth,
+        paths.fudgeFactor,
+        paths.vesselLength,
+        'navigation.anchor.distanceFromBow',
+        'navigation.headingMagnetic',
+      ];
+
   /// Subscribe to all anchor-related paths
   void _subscribeToAnchorPaths() {
-    final paths = [
-      _paths.anchorPosition,
-      _paths.maxRadius,
-      _paths.currentRadius,
-      _paths.rodeLength,
-      _paths.bearing,
-      _paths.vesselPosition,
-      _paths.heading,
-      _paths.gpsFromBow,
-      _paths.depth,
-      _paths.fudgeFactor,
-      _paths.vesselLength,
-      'navigation.anchor.distanceFromBow',
-      'navigation.headingMagnetic',
-    ];
-    _signalKService.subscribeToPaths(paths, ownerId: 'anchor_alarm');
+    _signalKService.subscribeToPaths(_anchorPathList(_paths), ownerId: 'anchor_alarm');
   }
 
   /// Unsubscribe from anchor paths
   void _unsubscribeFromAnchorPaths() {
-    final paths = [
-      _paths.anchorPosition,
-      _paths.maxRadius,
-      _paths.currentRadius,
-      _paths.rodeLength,
-      _paths.bearing,
-      _paths.vesselPosition,
-      _paths.heading,
-      _paths.gpsFromBow,
-      _paths.depth,
-      _paths.fudgeFactor,
-      _paths.vesselLength,
-      'navigation.anchor.distanceFromBow',
-      'navigation.headingMagnetic',
-    ];
-    _signalKService.unsubscribeFromPaths(paths, ownerId: 'anchor_alarm');
+    _signalKService.unsubscribeFromPaths(_anchorPathList(_paths), ownerId: 'anchor_alarm');
   }
 
   @override
