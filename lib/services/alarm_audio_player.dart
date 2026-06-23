@@ -59,6 +59,12 @@ class AlarmAudioPlayer {
   /// Guards the single converge loop so plays/stops can never overlap.
   bool _converging = false;
 
+  /// Bounded backoff for transient `play()` failures, so a one-off platform
+  /// error doesn't silence a still-wanted alarm until a different target is set.
+  int _playFailures = 0;
+  static const int _maxPlayRetries = 3;
+  static const Duration _playRetryBackoff = Duration(milliseconds: 400);
+
   /// The alert key currently sounding (null when silent).
   String? get currentKey => _actualKey;
   bool get isPlaying => _actualKey != null;
@@ -102,13 +108,26 @@ class AlarmAudioPlayer {
             await player.play(AssetSource(wantAsset!));
           }
           _actualKey = wantKey;
+          _playFailures = 0;
         } catch (e) {
           if (kDebugMode) {
             print('AlarmAudioPlayer: converge error: $e');
           }
-          // Mark this target reached so a persistently-failing play/stop can't
-          // hot-spin the loop; the next setTarget will retry from a new target.
-          _actualKey = wantKey;
+          // Distinguish play-failure from stop-failure. A transient play() error
+          // on a still-wanted alarm gets a bounded backoff-retry rather than
+          // going silent until a different target is set (safety-critical audio).
+          // Stop-failures (or a changed/exhausted target) mark the target reached
+          // so a persistently-failing call can't hot-spin the loop.
+          if (wantKey != null &&
+              _desiredKey == wantKey &&
+              _playFailures < _maxPlayRetries) {
+            _playFailures++;
+            await Future.delayed(_playRetryBackoff);
+            // Leave _actualKey unchanged so the loop retries the same target.
+          } else {
+            _actualKey = wantKey;
+            _playFailures = 0;
+          }
         }
       }
     } finally {

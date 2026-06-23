@@ -405,8 +405,11 @@ class IntercomService extends ChangeNotifier {
         await openAppSettings();
       }
 
-      // Mic just granted (first run) — line up Bluetooth routing now too.
-      await _ensureBluetoothPermission();
+      // Only line up Bluetooth routing if mic was actually granted — otherwise
+      // we'd trigger an unrelated BT prompt right after a mic denial.
+      if (_hasMicPermission) {
+        await _ensureBluetoothPermission();
+      }
 
       notifyListeners();
       return _hasMicPermission;
@@ -429,7 +432,6 @@ class IntercomService extends ChangeNotifier {
   Future<void> _ensureBluetoothPermission() async {
     if (_btPermissionRequested) return;
     if (defaultTargetPlatform != TargetPlatform.android) return;
-    _btPermissionRequested = true;
     try {
       // BLUETOOTH_CONNECT is a runtime permission only on Android 12 (API 31)+.
       // On Android 11 and below the legacy BLUETOOTH permission applies (normal
@@ -439,6 +441,9 @@ class IntercomService extends ChangeNotifier {
       final permission =
           sdkInt >= 31 ? Permission.bluetoothConnect : Permission.bluetooth;
       final btStatus = await permission.request();
+      // Only latch the one-shot guard after a request actually completes, so a
+      // thrown SDK lookup / request doesn't permanently disable BT setup.
+      _btPermissionRequested = true;
       if (kDebugMode) {
         print('Bluetooth permission status (sdk $sdkInt): $btStatus');
       }

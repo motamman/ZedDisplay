@@ -622,7 +622,15 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
   /// before — or entirely without — the SignalK server. Previously only the
   /// tiles were cached, so cached charts couldn't render offline (no
   /// descriptor → `_pushManagerCharts` skipped them).
-  static const String _chartCatalogCacheKey = 'chart_plotter_v3_catalog_cache';
+  static const String _chartCatalogCacheKeyPrefix =
+      'chart_plotter_v3_catalog_cache';
+
+  /// Scope the catalog cache to the current SignalK upstream — descriptors
+  /// carry per-server `urlTemplate`s, so a global key would render/prefetch a
+  /// previous server's charts after switching upstreams.
+  String get _chartCatalogCacheKey =>
+      '$_chartCatalogCacheKeyPrefix:'
+      '${Uri.encodeComponent(widget.signalKService.httpBaseUrl)}';
 
   void _persistLayerPrefs() {
     try {
@@ -2279,9 +2287,32 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
     final scrUnwrapped = _unwrappedProjector(camera);
     final tapPxU = scrUnwrapped(latLng.longitude, latLng.latitude);
 
-    // Weather-route waypoints take priority when visible — they sit on
-    // top of the SignalK route overlay in the paint stack, so the tap
-    // order must match.
+    // Active SignalK route waypoints take priority — they paint on top of the
+    // weather-route overlay in the stack (see the overlay build order), so the
+    // tap order must match.
+    final coords = _routeCoords;
+    if (coords != null) {
+      const hitRadius = 14.0;
+      for (var i = 0; i < coords.length; i++) {
+        final wp = scrUnwrapped(coords[i][0], coords[i][1]);
+        if ((wp - tapPxU).distanceSquared <= hitRadius * hitRadius) {
+          showWaypointEditDialog(
+            context,
+            index: i,
+            routeCoords: coords,
+            waypointNames: _waypointNames,
+            onChanged: () {
+              if (mounted) setState(() {});
+            },
+            saveRouteToServer: _saveRouteToServer,
+          );
+          return;
+        }
+      }
+    }
+
+    // Weather-route waypoints next — they sit below the active route in the
+    // paint stack, so they're only picked where no active waypoint overlaps.
     final wrResult = _weatherRoutingService?.currentResult;
     if (_weatherRoutingEnabled && wrResult != null && wrResult.isNotEmpty) {
       final idx = hitTestWeatherRouteWaypoint(
@@ -2312,27 +2343,6 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
       if ((s.endSnapDistanceM ?? 0) > 0 && nearLonLat(s.endOriginal)) {
         _setSelectedWaypoint(wrResult.waypoints.length);
         return;
-      }
-    }
-
-    final coords = _routeCoords;
-    if (coords != null) {
-      const hitRadius = 14.0;
-      for (var i = 0; i < coords.length; i++) {
-        final wp = scrUnwrapped(coords[i][0], coords[i][1]);
-        if ((wp - tapPxU).distanceSquared <= hitRadius * hitRadius) {
-          showWaypointEditDialog(
-            context,
-            index: i,
-            routeCoords: coords,
-            waypointNames: _waypointNames,
-            onChanged: () {
-              if (mounted) setState(() {});
-            },
-            saveRouteToServer: _saveRouteToServer,
-          );
-          return;
-        }
       }
     }
 

@@ -57,7 +57,12 @@ class _RadialBarChartToolState extends State<RadialBarChartTool>
     final style = widget.config.style;
     final showValue = style.showValue ?? true;
     final showUnit = style.showUnit ?? true;
-    final showLegend = style.showLabel ?? true;
+    // Honor legacy configs that stored the legend toggle under customProperties
+    // before it moved to style.showLabel.
+    final showLegend = style.showLabel ??
+        (style.customProperties?['showLegend'] as bool?) ??
+        (style.customProperties?['showLabels'] as bool?) ??
+        true;
 
     final globalMin = style.minValue ?? 0.0;
     final globalMax = style.maxValue ?? 100.0;

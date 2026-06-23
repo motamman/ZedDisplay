@@ -65,6 +65,9 @@ class RadialBarChartConfigurator extends ToolConfigurator {
 
   @override
   String? validate() {
+    // Divisions only matter when tick marks are shown; don't block a save on a
+    // field that's hidden and irrelevant.
+    if (!showTicks) return null;
     if (divisions < 2) return 'Divisions must be at least 2';
     if (divisions > 50) return 'Divisions cannot exceed 50';
     return null;

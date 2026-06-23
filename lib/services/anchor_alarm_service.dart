@@ -630,6 +630,11 @@ class AnchorAlarmService extends ChangeNotifier {
     if (isConnected != _wasConnected) {
       _wasConnected = isConnected;
       if (isConnected) {
+        // A cold-start activate() can run before the socket connects, so its
+        // subscribeToPaths() was a no-op (the registry only records paths while
+        // connected). Re-subscribe now that we're live — idempotent, since the
+        // service de-dups already-sent paths.
+        _subscribeToAnchorPaths();
         _refreshState();
         fetchTrackHistory();
       }

@@ -1129,7 +1129,13 @@ class _WindCompassState extends State<WindCompass> {
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [twdTws, sogCog, awdAws],
+                // Flexible so the three readouts compress instead of overflowing
+                // on narrow tool widths.
+                children: [
+                  Flexible(child: twdTws),
+                  Flexible(child: sogCog),
+                  Flexible(child: awdAws),
+                ],
               ),
             ),
           ],

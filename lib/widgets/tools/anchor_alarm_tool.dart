@@ -224,7 +224,14 @@ class _AnchorAlarmToolState extends State<AnchorAlarmTool>
     final gpsFromBow = _alarmService.gpsFromBow;
     if (gpsFromBow != null && gpsFromBow > 0) {
       final rodeLength = gpsFromBow * 1.1;
-      await _alarmService.setRodeLength(rodeLength);
+      final rodeSet = await _alarmService.setRodeLength(rodeLength);
+      if (!mounted) return;
+      if (!rodeSet) {
+        // Anchor dropped, but the follow-up rode/radius adjustment failed —
+        // surface it so the alarm radius isn't silently left unset.
+        _showActionError('Set rode after drop');
+        return;
+      }
     }
 
     if (!mounted) return;

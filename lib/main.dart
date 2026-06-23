@@ -228,7 +228,7 @@ void main() async {
   // weather-alerts dashboard gate (setWeatherAlertsChecker above). Guarded by
   // tool identity so page swipes (which notify dashboardService) don't churn.
   Object? lastAnchorTool;
-  void syncAnchorMonitoring() {
+  Future<void> syncAnchorMonitoring() async {
     final layout = dashboardService.currentLayout;
     final placedIds = layout?.getAllToolIds().toSet() ?? <String>{};
     final anchorTools = toolService
@@ -237,14 +237,19 @@ void main() async {
         .toList();
     final tool = anchorTools.isNotEmpty ? anchorTools.first : null;
     if (identical(tool, lastAnchorTool)) return;
-    lastAnchorTool = tool;
     if (tool != null) {
       // The anchor alarm STATE arrives over notifications.*, which only streams
       // when notifications are subscribed — ensure it's live regardless of the
       // user's system-notification preference, or the server-driven drag /
-      // "no position" alarm never reaches the app.
+      // "no position" alarm never reaches the app. Await it so a failure leaves
+      // lastAnchorTool unchanged and the next sync retries instead of latching.
       if (!signalKService.notificationsEnabled) {
-        signalKService.setNotificationsEnabled(true);
+        try {
+          await signalKService.setNotificationsEnabled(true);
+        } catch (e) {
+          debugPrint('Failed to enable notifications for anchor alarm: $e');
+          return;
+        }
       }
       anchorAlarmService.activate(
         dataSources: tool.config.dataSources,
@@ -253,10 +258,13 @@ void main() async {
     } else {
       anchorAlarmService.deactivate();
     }
+    lastAnchorTool = tool;
   }
-  dashboardService.addListener(syncAnchorMonitoring);
-  toolService.addListener(syncAnchorMonitoring);
-  syncAnchorMonitoring();
+  // ChangeNotifier listeners are sync; fire-and-forget the async sync.
+  void scheduleAnchorMonitoring() => unawaited(syncAnchorMonitoring());
+  dashboardService.addListener(scheduleAnchorMonitoring);
+  toolService.addListener(scheduleAnchorMonitoring);
+  scheduleAnchorMonitoring();
 
   // Initialize scale service (for menu items)
   await ScaleService.instance.initialize();

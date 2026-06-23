@@ -171,18 +171,26 @@ class RadialBarChart extends StatelessWidget {
       labelCompFactor = (maxSide / 2 + labelOffsetPx) / radiusPx;
     }
 
+    // Clamp innerRadius into a sane range first. A corrupted/imported config
+    // could otherwise push the clamp bounds below to invert (lower > upper),
+    // which throws and crashes the widget at build time.
+    final safeInner = innerRadius.clamp(0.0, 0.85).toDouble();
+
     // Reserve the outer margin (only when ticks show) from the measured label +
     // tick length -- never a hard-coded fraction -- so it tracks font, widget
     // size, path count and gap.
     final outerEdge = showTicks
         ? (1.0 - (tickPx / radiusPx) - labelCompFactor - 0.02)
-            .clamp(innerRadius + 0.1, 0.99)
+            .clamp(safeInner + 0.1, 0.99)
             .toDouble()
         : 1.0;
 
-    // Equal radial band per ring within [innerRadius, outerEdge].
-    final band = (outerEdge - innerRadius) / n;
-    final bandWidth = (band - gap).clamp(0.02, band);
+    // Equal radial band per ring within [safeInner, outerEdge]. With many rings
+    // the band can fall below the 0.02 floor; pick a lower bound that never
+    // exceeds `band` so the clamp can't invert.
+    final band = (outerEdge - safeInner) / n;
+    final bandLo = band < 0.02 ? band : 0.02;
+    final bandWidth = (band - gap).clamp(bandLo, band);
 
     final axes = <RadialAxis>[];
     for (int i = 0; i < n; i++) {
