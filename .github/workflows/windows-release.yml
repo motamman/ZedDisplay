@@ -36,16 +36,46 @@ jobs:
           flutter clean
           flutter pub get
 
-      # CMake >=3.28 (shipped on windows-latest) refuses to extract an archive
-      # whose path traverses a symlink. flutter_webrtc 1.3.0 downloads and
-      # extracts libwebrtc.zip in place under Flutter's .plugin_symlinks dir, so
-      # the build fails ("Cannot extract through symlink"). Pin CMake to 3.27,
-      # which doesn't have that hardening. Revisit once flutter_webrtc can be
-      # unpinned past <1.3.1 (blocked by its broken iOS podspec).
-      - name: Pin CMake 3.27 (flutter_webrtc symlink-extract workaround)
-        uses: jwlawson/actions-setup-cmake@v2
-        with:
-          cmake-version: '3.27.9'
+      # flutter_webrtc's third_party/CMakeLists.txt extracts libwebrtc.zip with
+      # `file(ARCHIVE_EXTRACT)`, whose libarchive secure-symlink mode REFUSES to
+      # write through any symlink in the path — and the plugin lives under
+      # Flutter's `.plugin_symlinks\flutter_webrtc` symlink, so the build dies
+      # with "Cannot extract through symlink". (Not a CMake-version issue; this
+      # refusal has been the default since CMake 3.18.) Its CMakeLists skips the
+      # extract when BOTH the zip and the extracted `libwebrtc/` dir already
+      # exist, so pre-stage them here with Expand-Archive (which follows symlinks
+      # fine). Revisit once flutter_webrtc can be unpinned past <1.3.1 (blocked
+      # by its broken iOS podspec).
+      - name: Pre-extract libwebrtc (flutter_webrtc symlink-extract workaround)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # Resolve the plugin's real path from the authoritative source that
+          # `flutter pub get` writes — no guessing the pub-cache location.
+          $cfg = Get-Content '.dart_tool/package_config.json' -Raw | ConvertFrom-Json
+          $pkg = $cfg.packages | Where-Object { $_.name -eq 'flutter_webrtc' }
+          if (-not $pkg) { throw 'flutter_webrtc not found in .dart_tool/package_config.json' }
+          $root = ([System.Uri]$pkg.rootUri).LocalPath
+          $version = (Split-Path $root -Leaf) -replace 'flutter_webrtc-', ''
+          $thirdParty = Join-Path $root 'third_party'
+          $downloads = Join-Path $thirdParty 'downloads'
+          $zip = Join-Path $downloads 'libwebrtc.zip'
+          # Match the version flutter_webrtc's own CMakeLists hardcodes for the
+          # download, so we stage exactly what it expects and it skips its extract.
+          $url = "https://github.com/flutter-webrtc/flutter-webrtc/releases/download/v$version/libwebrtc.zip"
+          New-Item -ItemType Directory -Force -Path $downloads | Out-Null
+          if (-not (Test-Path $zip)) {
+            Write-Host "Downloading $url"
+            Invoke-WebRequest -Uri $url -OutFile $zip
+          }
+          if (-not (Test-Path (Join-Path $thirdParty 'libwebrtc'))) {
+            Write-Host "Extracting libwebrtc.zip -> $thirdParty"
+            Expand-Archive -Path $zip -DestinationPath $thirdParty -Force
+          }
+          if (-not (Test-Path (Join-Path $thirdParty 'libwebrtc'))) {
+            throw "libwebrtc/ missing after extraction under $thirdParty"
+          }
+          Write-Host "libwebrtc staged for flutter_webrtc-$version at $thirdParty"
 
       - name: Build Windows release
         run: flutter build windows --release
