@@ -112,7 +112,10 @@ A customizable SignalK marine dashboard and crew comms application to display re
   - State cached across screen switches and reconnects
   - Requires signalk-parquet plugin with spatial query support
 
-- **Radial Bar Chart**: Circular chart displaying up to 4 values as concentric rings
+- **Radial Bar Chart**: Up to 4 values as evenly-spaced concentric radial gauges, each with its own range, color, and live value chip
+  - Optional outer-ring tick marks and division labels
+  - Configurable inner radius and ring gap
+  - Per-path max overrides and stale-data handling (a stale path reads as "no data")
 
   <img src="screenshots/radial_bar2.png" alt="Radial Bar Chart" width="280">
 
@@ -171,6 +174,7 @@ A customizable SignalK marine dashboard and crew comms application to display re
   - Shows vessel pitch and roll in real-time
   - Configurable color scheme
   - Visual horizon line with degree markings
+  - Optional title, digital pitch/roll readouts, grid, and max pitch/roll via the configurator
 
   <img src="screenshots/attitude.png" alt="Attitude Indicator" width="280">
 
@@ -197,6 +201,8 @@ A customizable SignalK marine dashboard and crew comms application to display re
   - Alarm triggers when vessel exceeds set radius from anchor point
   - Check-in system with configurable intervals
   - Raise anchor to clear and reset
+  - Monitors continuously while an Anchor Alarm tool is on the dashboard — drag / "no position" alarms reach you regardless of which screen is showing
+  - Command failures (drop / raise / set radius) surface the server's error detail instead of failing silently
   - Works with SignalK anchor alarm plugin
 - **Find Home**: Navigate back to a saved home position using device GPS
   - ILS-style runway deviation display with bearing and distance

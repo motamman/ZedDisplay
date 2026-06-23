@@ -1,4 +1,38 @@
-# What's New in v0.7.1
+# What's New in v0.7.2
+
+## Release Notes (Google Play - max 500 chars)
+
+v0.7.2 Better Anchor Watch + Smoother Charts
+
+NEW: The anchor alarm now watches in the background — a dragging or "no position" alarm reaches you no matter which screen you're on, and a failed command tells you why instead of doing nothing.
+
+NEW: Radial Bar Chart redesigned as clean concentric gauges with optional ticks and labels.
+
+FIXED: AIS vessel names show properly, charts render offline and switch servers cleanly, and a rare off-screen gauge crash is gone.
+
+## Release Notes (App Store / TestFlight - max 4000 chars)
+
+### Stronger Anchor Watch (NEW / CHANGED)
+- **Always watching** — The anchor alarm now runs as long as an Anchor Alarm tool is on your dashboard, no matter which screen you're viewing. A dragging-anchor or "no position" alarm from the server reaches you even when the anchor widget isn't the page you're looking at.
+- **No silent failures** — If dropping, raising, or setting the anchor radius fails (for example, a permission error from the server), you now get a clear message explaining why instead of the action quietly doing nothing.
+
+### Charts That Just Work (NEW / FIXED)
+- **Render offline and after switching servers** — Your selected charts are cached so they appear immediately on a cold start, before the server answers — and switching SignalK servers no longer risks showing the previous server's charts.
+- **Clearer active route** — The active route is now magenta with a navigation-arrow marker, drawn on top so it's easy to follow and tap.
+
+### Redesigned Radial Bar Chart (NEW)
+- **Cleaner gauges** — The Radial Bar Chart is rebuilt as concentric ring gauges — up to four values, each with its own range, color, and live reading. Optional tick marks, labels, and adjustable ring spacing let you tune the look.
+
+### Fixes & Polish (FIXED)
+- **AIS names show correctly** — Nearby vessels now display their names instead of bare MMSI numbers.
+- **No more rare gauge crash** — A linear gauge could crash when scrolled off-screen; that's fixed.
+- **Steadier alarm sound** — A single sound engine plays the highest-priority alert and recovers from a one-off hiccup, and audible alarms always stay visible and controllable in the alert panel.
+- **Bluetooth headsets for crew voice (Android)** — Crew intercom and calls can now route to a Bluetooth headset on Android.
+- **Tidier wind readouts** — The wind compass readouts shrink to fit narrow widgets instead of overflowing.
+
+---
+
+# Previous: v0.7.1
 
 ## Release Notes (Google Play - max 500 chars)
 
