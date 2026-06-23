@@ -1,10 +1,23 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:audioplayers/audioplayers.dart';
-import '../models/alert_event.dart';
 
-/// Singleton audio player for alarm sounds.
-/// Prevents audio overlap with severity-based preemption.
+/// Singleton audio SINK for alarm sounds — DECLARATIVE, with exactly one
+/// underlying [AudioPlayer] for the whole app lifetime.
+///
+/// All policy (which alert sounds, severity, mute, acknowledge) lives in
+/// [AlertCoordinator], which expresses "what should be sounding" as a single
+/// desired target via [setTarget]. The coordinator may call [setTarget] many
+/// times in a burst (once per reconcile, i.e. once per alert during a load
+/// storm); each call just rewrites the same desired target — it never starts a
+/// new player.
+///
+/// A single converge loop drives the ONE reused player toward the desired
+/// target (switch the looping source, or stop). Because only one [AudioPlayer]
+/// ever exists and only one converge loop ever runs, a second `MediaPlayer`
+/// cannot be created — pile-up and orphaned-looping-players are impossible by
+/// construction, not by bolted-on guards. (That orphaning was the "DISMISS ALL
+/// won't stop the audio" regression.)
 class AlarmAudioPlayer {
   static final AlarmAudioPlayer _instance = AlarmAudioPlayer._();
   factory AlarmAudioPlayer() => _instance;
@@ -30,88 +43,80 @@ class AlarmAudioPlayer {
     'dog': 'Dog Bark',
   };
 
+  /// The ONE player. Created lazily on first play, reused forever, only torn
+  /// down in [dispose].
   AudioPlayer? _player;
-  bool _playing = false;
-  bool _muted = false;
-  String? _activeSource;
-  AlertSeverity? _activeSeverity;
+  bool _configured = false;
 
-  String? get activeSource => _activeSource;
-  AlertSeverity? get activeSeverity => _activeSeverity;
-  bool get isPlaying => _playing;
-  bool get isMuted => _muted;
+  /// Desired target (what should be sounding), written synchronously by
+  /// [setTarget]. Null key = silence.
+  String? _desiredKey;
+  String? _desiredAsset;
 
-  /// Mute all audio. Current playback stops, future play() calls are no-ops.
-  void mute() {
-    _muted = true;
-    _stopInternal();
+  /// What is actually playing right now (the converge loop's progress).
+  String? _actualKey;
+
+  /// Guards the single converge loop so plays/stops can never overlap.
+  bool _converging = false;
+
+  /// The alert key currently sounding (null when silent).
+  String? get currentKey => _actualKey;
+  bool get isPlaying => _actualKey != null;
+
+  /// Declare what should be sounding. SYNCHRONOUS and idempotent: records the
+  /// desired target and kicks the converge loop if it isn't already running.
+  /// Pass `key == null` to silence.
+  void setTarget(String? key, [String? asset]) {
+    _desiredKey = key;
+    _desiredAsset = asset;
+    _kick();
   }
 
-  /// Unmute. Audio will play on next submitAlert with wantsAudio.
-  void unmute() {
-    _muted = false;
+  void _kick() {
+    if (_converging) return;
+    _converging = true;
+    unawaited(_converge());
   }
 
-  /// Play alarm. Higher-or-equal severity preempts current. Lower is no-op.
-  Future<void> play({
-    required String assetPath,
-    required AlertSeverity severity,
-    required String source,
-  }) async {
-    if (_muted) return;
-
-    // If already playing, only preempt if new severity >= current
-    if (_playing && _activeSeverity != null && severity < _activeSeverity!) {
-      return;
-    }
-
-    // Stop current if playing
-    await _stopInternal();
-
-    _activeSource = source;
-    _activeSeverity = severity;
+  /// Drive the one player toward the desired target. Re-checks the target after
+  /// every await (it may change mid-flight). Exactly one instance runs at a
+  /// time; on exit it re-verifies and re-kicks if the target moved during the
+  /// final step, so it can never stop one step short.
+  Future<void> _converge() async {
     try {
-      _player = AudioPlayer();
-      // Loop natively instead of tearing down and rebuilding a MediaPlayer
-      // every cycle. The old approach disposed + recreated the player every
-      // `repeatInterval`, which spammed Android's cleanDrmObj/resetDrmState
-      // logs and churned CPU. One player now, created here and disposed in
-      // _stopInternal()/stop(). NOTE: the alarm is now continuous rather than
-      // the previous ~5s-spaced repeat.
-      await _player!.setReleaseMode(ReleaseMode.loop);
-      await _player!.setVolume(1.0);
-      await _player!.play(AssetSource(assetPath));
-      _playing = true;
-    } catch (e) {
-      if (kDebugMode) {
-        print('AlarmAudioPlayer: error playing sound: $e');
+      while (_actualKey != _desiredKey) {
+        final wantKey = _desiredKey;
+        final wantAsset = _desiredAsset;
+        try {
+          if (wantKey == null) {
+            await _player?.stop();
+          } else {
+            final player = _player ??= AudioPlayer();
+            if (!_configured) {
+              await player.setReleaseMode(ReleaseMode.loop);
+              await player.setVolume(1.0);
+              _configured = true;
+            }
+            // play() on the reused player swaps the source and (re)starts the
+            // loop — it never creates a new player.
+            await player.play(AssetSource(wantAsset!));
+          }
+          _actualKey = wantKey;
+        } catch (e) {
+          if (kDebugMode) {
+            print('AlarmAudioPlayer: converge error: $e');
+          }
+          // Mark this target reached so a persistently-failing play/stop can't
+          // hot-spin the loop; the next setTarget will retry from a new target.
+          _actualKey = wantKey;
+        }
       }
-      _playing = false;
-      _activeSource = null;
-      _activeSeverity = null;
-
+    } finally {
+      _converging = false;
     }
-  }
-
-  /// Stop if started by [source]. Null = stop unconditionally.
-  Future<void> stop({String? source}) async {
-    if (source != null && _activeSource != source) return;
-    await _stopInternal();
-  }
-
-  Future<void> _stopInternal() async {
-    try {
-      await _player?.stop();
-      _player?.dispose();
-    } catch (e) {
-      if (kDebugMode) {
-        print('AlarmAudioPlayer: error stopping: $e');
-      }
-    }
-    _player = null;
-    _playing = false;
-    _activeSource = null;
-    _activeSeverity = null;
+    // No awaits between the loop exit and here, so this check is atomic w.r.t.
+    // setTarget: if the target moved during the final step we restart cleanly.
+    if (_actualKey != _desiredKey) _kick();
   }
 
   void dispose() {
@@ -120,8 +125,9 @@ class AlarmAudioPlayer {
       _player?.dispose();
     } catch (_) {}
     _player = null;
-    _playing = false;
-    _activeSource = null;
-    _activeSeverity = null;
+    _configured = false;
+    _desiredKey = null;
+    _desiredAsset = null;
+    _actualKey = null;
   }
 }

@@ -196,7 +196,68 @@ class AnchorAlarmService extends ChangeNotifier {
     }
   }
 
-  /// Initialize and start listening to SignalK updates
+  /// Whether this app-level service is currently monitoring (an anchor tool is
+  /// on the dashboard). Driven by the supervisor in main.dart via
+  /// [activate]/[deactivate], so monitoring runs regardless of which page is
+  /// shown — but not when no anchor tool is placed.
+  bool _monitoring = false;
+  bool get isMonitoring => _monitoring;
+
+  /// Activate (or reconfigure) monitoring for a placed anchor tool. Idempotent:
+  /// applies the tool's config, and starts listening only on the first call of
+  /// an activation cycle.
+  void activate({
+    List<dynamic>? dataSources,
+    Map<String, dynamic>? customProperties,
+  }) {
+    _applyConfig(dataSources, customProperties);
+    if (!_monitoring) {
+      _monitoring = true;
+      initialize();
+    }
+  }
+
+  /// Stop monitoring (the anchor tool was removed from the dashboard). Tears
+  /// down subscriptions/timers and clears any active anchor alert, but keeps
+  /// the singleton alive so it can re-activate when a tool is placed again.
+  void deactivate() {
+    if (!_monitoring) return;
+    _monitoring = false;
+    _notificationSub?.cancel();
+    _notificationSub = null;
+    _signalKService.removeListener(_onSignalKUpdate);
+    _unsubscribeFromAnchorPaths();
+    _checkInTimer?.cancel();
+    _checkInGraceTimer?.cancel();
+    _alarmClearDebounce?.cancel();
+    _ackExpiryTimer?.cancel();
+    _alertCoordinator?.clearSubsystem(AlertSubsystem.anchorAlarm, internal: true);
+    _state = AnchorState.initial();
+    _trackHistory.clear();
+    _lastNotificationAlarmState = AnchorAlarmState.normal;
+    _lastNotificationMessage = null;
+    _alarmAcknowledged = false;
+    notifyListeners();
+  }
+
+  /// Apply a placed tool's stored config (paths, sound, check-in, clear delay).
+  /// Mirrors the old in-widget `_configureFromSettings`, now owned here so the
+  /// monitor is configured even when the widget isn't built.
+  void _applyConfig(List<dynamic>? dataSources, Map<String, dynamic>? customProps) {
+    setPaths(AnchorAlarmPaths.fromDataSources(dataSources));
+    final cp = customProps ?? const {};
+    setAlarmSound(cp['alarmSound'] as String? ?? 'foghorn');
+    setCheckInConfig(CheckInConfig(
+      enabled: cp['checkInEnabled'] as bool? ?? false,
+      interval: Duration(minutes: cp['checkInIntervalMinutes'] as int? ?? 30),
+      gracePeriod: Duration(seconds: cp['checkInGracePeriodSeconds'] as int? ?? 60),
+    ));
+    setAlarmClearDelay(
+        Duration(seconds: cp['alarmClearDelaySeconds'] as int? ?? 15));
+  }
+
+  /// Initialize and start listening to SignalK updates. Called by [activate]
+  /// (paths are applied first, so the subscription uses the configured paths).
   void initialize() {
     _signalKService.addListener(_onSignalKUpdate);
 
@@ -852,15 +913,15 @@ class AnchorAlarmService extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Acknowledge and silence alarm — stops audio via coordinator, hides widget overlay.
-  /// SignalK alarm state remains until vessel returns to safe zone.
-  /// Overlay re-shows after 15s if alarm is still active (matches coordinator ack expiry).
+  /// Acknowledge and silence alarm — stops audio via coordinator, hides widget
+  /// overlay. SignalK alarm state remains until vessel returns to safe zone.
+  /// Overlay re-shows after 15s if alarm is still active (matches coordinator
+  /// ack expiry). Does NOT re-submit — dismissing clears it.
   void acknowledgeAlarm() {
     _alarmAcknowledged = true;
     _alertCoordinator?.acknowledgeAlarm(AlertSubsystem.anchorAlarm);
     notifyListeners();
 
-    // Re-show overlay after ack expires if alarm is still active
     _ackExpiryTimer?.cancel();
     _ackExpiryTimer = Timer(const Duration(seconds: 15), () {
       if (_lastNotificationAlarmState.isAlarming) {

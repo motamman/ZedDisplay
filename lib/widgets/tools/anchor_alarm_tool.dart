@@ -10,9 +10,7 @@ import '../../models/tool_definition.dart';
 import '../../services/signalk_service.dart';
 import '../map_attribution.dart';
 import '../../services/anchor_alarm_service.dart';
-import '../../services/alert_coordinator.dart';
 import '../../models/anchor_state.dart';
-import '../../models/alert_event.dart';
 import '../../models/path_metadata.dart';
 import '../../utils/angle_utils.dart';
 import '../../services/tool_registry.dart';
@@ -44,9 +42,10 @@ class _AnchorAlarmToolState extends State<AnchorAlarmTool>
   @override
   bool get wantKeepAlive => true;
 
-  late AnchorAlarmService _alarmService;
-  AlertCoordinator? _alertCoordinator;
-  bool _lastOverlayActive = false;
+  // App-level singleton, obtained from Provider in initState. This widget is a
+  // VIEW onto the shared monitor (configured/run by the supervisor in
+  // main.dart) — it never constructs, configures, or disposes the service.
+  late final AnchorAlarmService _alarmService;
   final MapController _mapController = MapController();
   bool _mapAutoFollow = true;
   double _rodeSliderValue = 30.0;
@@ -62,23 +61,14 @@ class _AnchorAlarmToolState extends State<AnchorAlarmTool>
   void initState() {
     super.initState();
 
-    // Get alert coordinator from provider if available
-    try {
-      _alertCoordinator = Provider.of<AlertCoordinator>(context, listen: false);
-    } catch (_) {}
-
-    _alarmService = AnchorAlarmService(
-      signalKService: widget.signalKService,
-      alertCoordinator: _alertCoordinator,
-    );
-    _alarmService.initialize();
+    // Bind to the app-level monitor. Configuration + lifecycle are owned by the
+    // supervisor in main.dart (gated on this tool being on the dashboard), so
+    // here we only attach a listener to rebuild on state changes.
+    _alarmService = Provider.of<AnchorAlarmService>(context, listen: false);
     _alarmService.addListener(_onStateChanged);
 
     // Listen to SignalKService for displayUnits changes (unit preference updates)
     widget.signalKService.addListener(_onSignalKChanged);
-
-    // Configure from tool settings
-    _configureFromSettings();
   }
 
   void _onSignalKChanged() {
@@ -86,32 +76,6 @@ class _AnchorAlarmToolState extends State<AnchorAlarmTool>
     if (mounted) {
       setState(() {});
     }
-  }
-
-  void _configureFromSettings() {
-    final customProps = widget.config.style.customProperties ?? {};
-
-    // Configure SignalK paths from dataSources
-    _alarmService.setPaths(AnchorAlarmPaths.fromDataSources(widget.config.dataSources));
-
-    // Alarm sound
-    final alarmSound = customProps['alarmSound'] as String? ?? 'foghorn';
-    _alarmService.setAlarmSound(alarmSound);
-
-    // Check-in config
-    final checkInEnabled = customProps['checkInEnabled'] as bool? ?? false;
-    final intervalMinutes = customProps['checkInIntervalMinutes'] as int? ?? 30;
-    final gracePeriodSeconds = customProps['checkInGracePeriodSeconds'] as int? ?? 60;
-
-    _alarmService.setCheckInConfig(CheckInConfig(
-      enabled: checkInEnabled,
-      interval: Duration(minutes: intervalMinutes),
-      gracePeriod: Duration(seconds: gracePeriodSeconds),
-    ));
-
-    // Alarm clear debounce delay
-    final alarmClearDelaySeconds = customProps['alarmClearDelaySeconds'] as int? ?? 15;
-    _alarmService.setAlarmClearDelay(Duration(seconds: alarmClearDelaySeconds));
   }
 
   @override
@@ -134,10 +98,10 @@ class _AnchorAlarmToolState extends State<AnchorAlarmTool>
   @override
   void dispose() {
     _lockTimer?.cancel();
-    _alertCoordinator?.setOverlayActive(AlertSubsystem.anchorAlarm, false);
+    // View only: detach our listener but DO NOT dispose the app-level service —
+    // it keeps monitoring while the tool remains on the dashboard.
     _alarmService.removeListener(_onStateChanged);
     widget.signalKService.removeListener(_onSignalKChanged);
-    _alarmService.dispose();
     super.dispose();
   }
 
@@ -157,13 +121,9 @@ class _AnchorAlarmToolState extends State<AnchorAlarmTool>
     if (mounted) {
       setState(() {});
 
-      // Update overlay state with coordinator only when it changes
-      final overlayActive = _alarmService.awaitingCheckIn ||
-          (_alarmService.state.alarmState.isAlarming && !_alarmService.alarmAcknowledged);
-      if (overlayActive != _lastOverlayActive) {
-        _lastOverlayActive = overlayActive;
-        _alertCoordinator?.setOverlayActive(AlertSubsystem.anchorAlarm, overlayActive);
-      }
+      // No overlay suppression: an audible anchor alarm is always shown in the
+      // global alert panel (AlertCoordinator keeps audible alerts visible), so
+      // there is no need — and it would be wrong off-screen — to hide it.
 
       // Update slider from current rode length (only when not actively dragging)
       if (!_isRodeSliderDragging) {

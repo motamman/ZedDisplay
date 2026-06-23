@@ -22,6 +22,7 @@ import 'package:zed_display/services/alert_coordinator.dart';
 import 'package:zed_display/services/notification_navigation_service.dart';
 import 'package:zed_display/services/ais_favorites_service.dart';
 import 'package:zed_display/services/cpa_alert_service.dart';
+import 'package:zed_display/services/anchor_alarm_service.dart';
 import 'package:zed_display/services/find_home_target_service.dart';
 import 'package:zed_display/services/dashboard_store_service.dart';
 import 'package:zed_display/services/chart_tile_cache_service.dart';
@@ -50,6 +51,7 @@ void main() {
   late NotificationNavigationService notificationNavigationService;
   late AISFavoritesService aisFavoritesService;
   late CpaAlertService cpaAlertService;
+  late AnchorAlarmService anchorAlarmService;
   late FindHomeTargetService findHomeTargetService;
   late DashboardStoreService dashboardStoreService;
   late ChartTileCacheService chartTileCacheService;
@@ -174,6 +176,12 @@ void main() {
       alertCoordinator: alertCoordinator,
     );
 
+    // Initialize anchor alarm service (app-level singleton)
+    anchorAlarmService = AnchorAlarmService(
+      signalKService: signalKService,
+      alertCoordinator: alertCoordinator,
+    );
+
     // Initialize Find Home target service
     findHomeTargetService = FindHomeTargetService();
 
@@ -241,6 +249,7 @@ void main() {
       notificationNavigationService: notificationNavigationService,
       aisFavoritesService: aisFavoritesService,
       cpaAlertService: cpaAlertService,
+      anchorAlarmService: anchorAlarmService,
       findHomeTargetService: findHomeTargetService,
       dashboardStoreService: dashboardStoreService,
       chartTileCacheService: chartTileCacheService,
@@ -276,6 +285,7 @@ void main() {
       notificationNavigationService: notificationNavigationService,
       aisFavoritesService: aisFavoritesService,
       cpaAlertService: cpaAlertService,
+      anchorAlarmService: anchorAlarmService,
       findHomeTargetService: findHomeTargetService,
       dashboardStoreService: dashboardStoreService,
       chartTileCacheService: chartTileCacheService,

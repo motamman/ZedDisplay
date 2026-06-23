@@ -32,6 +32,7 @@ import 'widgets/crew/intercom_panel.dart';
 import 'services/alert_coordinator.dart';
 import 'services/ais_favorites_service.dart';
 import 'services/cpa_alert_service.dart';
+import 'services/anchor_alarm_service.dart';
 import 'widgets/alert_panel.dart';
 import 'services/find_home_target_service.dart';
 import 'services/dashboard_store_service.dart';
@@ -215,6 +216,48 @@ void main() async {
     alertCoordinator: alertCoordinator,
   );
 
+  // Initialize anchor alarm service (app-level singleton, like CPA/favorites).
+  // It monitors whenever an anchor_alarm tool is on the dashboard — regardless
+  // of which page is showing — instead of only while the widget is loaded.
+  final anchorAlarmService = AnchorAlarmService(
+    signalKService: signalKService,
+    alertCoordinator: alertCoordinator,
+  );
+  // Presence supervisor: activate/(re)configure the monitor when an anchor_alarm
+  // tool is placed on the dashboard, and stop it when removed. Mirrors the NWS
+  // weather-alerts dashboard gate (setWeatherAlertsChecker above). Guarded by
+  // tool identity so page swipes (which notify dashboardService) don't churn.
+  Object? lastAnchorTool;
+  void syncAnchorMonitoring() {
+    final layout = dashboardService.currentLayout;
+    final placedIds = layout?.getAllToolIds().toSet() ?? <String>{};
+    final anchorTools = toolService
+        .getToolsByToolType('anchor_alarm')
+        .where((t) => placedIds.contains(t.id))
+        .toList();
+    final tool = anchorTools.isNotEmpty ? anchorTools.first : null;
+    if (identical(tool, lastAnchorTool)) return;
+    lastAnchorTool = tool;
+    if (tool != null) {
+      // The anchor alarm STATE arrives over notifications.*, which only streams
+      // when notifications are subscribed — ensure it's live regardless of the
+      // user's system-notification preference, or the server-driven drag /
+      // "no position" alarm never reaches the app.
+      if (!signalKService.notificationsEnabled) {
+        signalKService.setNotificationsEnabled(true);
+      }
+      anchorAlarmService.activate(
+        dataSources: tool.config.dataSources,
+        customProperties: tool.config.style.customProperties,
+      );
+    } else {
+      anchorAlarmService.deactivate();
+    }
+  }
+  dashboardService.addListener(syncAnchorMonitoring);
+  toolService.addListener(syncAnchorMonitoring);
+  syncAnchorMonitoring();
+
   // Initialize scale service (for menu items)
   await ScaleService.instance.initialize();
 
@@ -260,6 +303,7 @@ void main() async {
     alertCoordinator: alertCoordinator,
     aisFavoritesService: aisFavoritesService,
     cpaAlertService: cpaAlertService,
+    anchorAlarmService: anchorAlarmService,
     findHomeTargetService: findHomeTargetService,
     dashboardStoreService: dashboardStoreService,
     chartTileCacheService: chartTileCacheService,
@@ -289,6 +333,7 @@ class ZedDisplayApp extends StatefulWidget {
   final AlertCoordinator alertCoordinator;
   final AISFavoritesService aisFavoritesService;
   final CpaAlertService cpaAlertService;
+  final AnchorAlarmService anchorAlarmService;
   final FindHomeTargetService findHomeTargetService;
   final DashboardStoreService dashboardStoreService;
   final ChartTileCacheService chartTileCacheService;
@@ -317,6 +362,7 @@ class ZedDisplayApp extends StatefulWidget {
     required this.alertCoordinator,
     required this.aisFavoritesService,
     required this.cpaAlertService,
+    required this.anchorAlarmService,
     required this.findHomeTargetService,
     required this.dashboardStoreService,
     required this.chartTileCacheService,
@@ -599,6 +645,7 @@ class _ZedDisplayAppState extends State<ZedDisplayApp> with WidgetsBindingObserv
         ChangeNotifierProvider.value(value: widget.alertCoordinator),
         ChangeNotifierProvider.value(value: widget.aisFavoritesService),
         ChangeNotifierProvider.value(value: widget.cpaAlertService),
+        ChangeNotifierProvider.value(value: widget.anchorAlarmService),
         ChangeNotifierProvider.value(value: widget.findHomeTargetService),
         ChangeNotifierProvider.value(value: widget.dashboardStoreService),
         ChangeNotifierProvider.value(value: widget.chartTileCacheService),

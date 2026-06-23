@@ -31,6 +31,11 @@ class CpaAlertService extends ChangeNotifier {
   bool get hasActiveAlarm =>
       _vesselAlerts.values.any((a) => a.level.isAlarming);
 
+  /// Edge-detect the alarming→clear transition so the lingering CPA alert is
+  /// resolved exactly once — without reading AlarmAudioPlayer internals (audio
+  /// is now a projection owned by AlertCoordinator).
+  bool _hadActiveAlarm = false;
+
   final AlertCoordinator? _alertCoordinator;
 
   DateTime? _lastEvaluation;
@@ -291,11 +296,14 @@ class CpaAlertService extends ChangeNotifier {
       changed = true;
     }
 
-    // Resolve alert if no vessels at alarm level
-    if (!hasActiveAlarm && (_alertCoordinator?.audioPlayer.activeSource == 'cpa')) {
+    // When the last alarming vessel clears, resolve the CPA alert once
+    // (edge-triggered). Per-vessel resolves happen above; this clears any
+    // lingering subsystem-level alert without depending on audio internals.
+    if (_hadActiveAlarm && !hasActiveAlarm) {
       _alertCoordinator?.resolveAlert(AlertSubsystem.cpa, internal: true);
       changed = true;
     }
+    _hadActiveAlarm = hasActiveAlarm;
 
     if (changed) notifyListeners();
   }
