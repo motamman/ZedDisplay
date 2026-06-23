@@ -153,6 +153,11 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
   bool _catalogLoading = false;
   String? _catalogLastError;
 
+  /// Set when a catalog fetch's response arrives for a now-stale upstream
+  /// (the SignalK server changed mid-flight). Drives a re-fetch for the
+  /// current upstream once the in-flight request unwinds.
+  bool _scheduleCatalogRefetch = false;
+
   Map<String, dynamic>? _firstEnabled(String type) {
     for (final l in _layers) {
       if (l['type'] == type && (l['enabled'] as bool? ?? true)) return l;
@@ -555,6 +560,7 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
           refreshThreshold == _appliedTileRefresh) {
         return;
       }
+      final previousUpstream = _appliedTileUpstream;
       _appliedTileUpstream = upstream;
       _appliedTileToken = token;
       _appliedTileRefresh = refreshThreshold;
@@ -563,6 +569,16 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
         authToken: token,
         refreshThreshold: refreshThreshold,
       );
+      // Genuine upstream switch on a surviving State (not first config, not a
+      // token-only refresh): the in-memory catalog belongs to the old server,
+      // so drop it and reload from the new upstream's cache + live fetch.
+      if (previousUpstream != null && previousUpstream != upstream) {
+        _chartCatalog = const [];
+        _catalogHasLoaded = false;
+        _loadCachedChartCatalog();
+        _pushManagerCharts();
+        unawaited(_refreshChartCatalog());
+      }
     } catch (_) {}
   }
 
@@ -629,8 +645,13 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
   /// carry per-server `urlTemplate`s, so a global key would render/prefetch a
   /// previous server's charts after switching upstreams.
   String get _chartCatalogCacheKey =>
-      '$_chartCatalogCacheKeyPrefix:'
-      '${Uri.encodeComponent(widget.signalKService.httpBaseUrl)}';
+      _chartCatalogCacheKeyFor(widget.signalKService.httpBaseUrl);
+
+  /// Catalog cache key for a specific upstream — used to persist a fetched
+  /// catalog under the server it actually came from, even if the current
+  /// upstream changed while the fetch was in flight.
+  String _chartCatalogCacheKeyFor(String upstream) =>
+      '$_chartCatalogCacheKeyPrefix:${Uri.encodeComponent(upstream)}';
 
   void _persistLayerPrefs() {
     try {
@@ -660,7 +681,8 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
 
   /// Persist the chart catalog (descriptors) so selected charts can render from
   /// cached tiles on a cold start before the SignalK server answers.
-  void _persistChartCatalog(List<ChartDescriptor> descriptors) {
+  void _persistChartCatalog(List<ChartDescriptor> descriptors,
+      {String? cacheKey}) {
     try {
       final storage = context.read<StorageService>();
       final payload = jsonEncode([
@@ -676,7 +698,7 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
             if (c.urlTemplate != null) 'url': c.urlTemplate,
           },
       ]);
-      unawaited(storage.saveSetting(_chartCatalogCacheKey, payload));
+      unawaited(storage.saveSetting(cacheKey ?? _chartCatalogCacheKey, payload));
     } catch (_) {/* storage unavailable */}
   }
 
@@ -3072,6 +3094,10 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
         _catalogLoading = true;
       });
     }
+    // Pin the upstream this fetch is for, so a mid-flight server switch can't
+    // persist/push these descriptors (and their per-server urlTemplates) under
+    // the wrong server.
+    final catalogUpstream = widget.signalKService.httpBaseUrl;
     try {
       final raw = await widget.signalKService.getResources('charts');
       final descriptors = <ChartDescriptor>[];
@@ -3154,10 +3180,19 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
         }
       }
       if (!mounted) return;
+      if (catalogUpstream != widget.signalKService.httpBaseUrl) {
+        // Upstream switched while this fetch was in flight — the descriptors
+        // belong to the old server. Discard them and re-fetch for the now-
+        // current upstream once this request unwinds (see finally).
+        _scheduleCatalogRefetch = true;
+        return;
+      }
       _chartCatalog = descriptors;
       // Cache the catalog locally so a future cold start can render selected
-      // charts from cached tiles before this server is reachable again.
-      _persistChartCatalog(descriptors);
+      // charts from cached tiles before this server is reachable again. Keyed
+      // by the upstream this fetch was for, not the (possibly changed) current.
+      _persistChartCatalog(descriptors,
+          cacheKey: _chartCatalogCacheKeyFor(catalogUpstream));
       // Catalog has now successfully arrived from this server. From
       // this point on, an empty catalog is authoritative — meaning
       // `_onChartsCatalogChanged` is allowed to drop persisted s57
@@ -3183,6 +3218,12 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
         setState(() {
           _catalogLoading = false;
         });
+        // A response arrived for a stale upstream; now that the loading latch is
+        // clear, re-fetch for the current server.
+        if (_scheduleCatalogRefetch) {
+          _scheduleCatalogRefetch = false;
+          unawaited(_refreshChartCatalog());
+        }
       }
     }
   }
