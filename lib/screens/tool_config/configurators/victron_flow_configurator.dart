@@ -635,6 +635,15 @@ class VictronFlowConfigurator extends ToolConfigurator {
                   setState(() => source['stateSource'] = sel);
                 }),
                 _buildPrimaryDropdown(setState, source),
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  dense: true,
+                  title: const Text('Show history sparkline'),
+                  subtitle: const Text(
+                      'Live rolling chart of the primary metric behind the value'),
+                  value: source['showHistory'] as bool? ?? false,
+                  onChanged: (v) => setState(() => source['showHistory'] = v),
+                ),
               ],
             ),
           ),
