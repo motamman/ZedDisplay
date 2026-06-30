@@ -3564,6 +3564,10 @@ class _AISManager {
 
   /// Load AIS vessels from REST and subscribe for WebSocket updates.
   Future<void> loadAndSubscribeAISVessels() async {
+    if (kDebugMode) {
+      debugPrint('[SK] ais: loadAndSubscribe (firstLoad=${!_aisInitialLoadDone} '
+          'connected=${isConnected()} channel=${getChannel() != null})');
+    }
     if (!_aisInitialLoadDone) {
       _aisInitialLoadDone = true;
       registry.startPruning();
@@ -3585,7 +3589,10 @@ class _AISManager {
   /// self subscription). No REST, no poll cadence.
   void subscribeToAllAISVessels() {
     final channel = getChannel();
-    if (channel == null) return;
+    if (channel == null) {
+      if (kDebugMode) debugPrint('[SK] ais: beacon SKIPPED (no channel)');
+      return;
+    }
 
     // Beacon: one streamed path, all vessels → real-time discovery.
     channel.sink.add(jsonEncode({
@@ -3598,8 +3605,15 @@ class _AISManager {
     // Seed full-data subs for vessels already known on this socket (e.g. carried
     // across a reconnect). New vessels are picked up live by the discovery hook
     // as their first position delta arrives.
+    final before = _subscribedVesselIds.length;
     for (final vesselId in registry.vessels.keys) {
       subscribeToVessel(vesselId);
+    }
+    final sent = _subscribedVesselIds.length - before;
+    if (kDebugMode) {
+      debugPrint('[SK] ais: beacon sent; per-vessel re-subscribed=$sent '
+          'already-active=${registry.vessels.length - sent} '
+          '(registry=${registry.vessels.length})');
     }
   }
 
@@ -3628,6 +3642,9 @@ class _AISManager {
   /// the AIS `vessels.*` subscription was being lost — AIS targets froze until a
   /// full reconnect. Fresh socket means no stacking.
   void resubscribeIfActive() {
+    if (kDebugMode) {
+      debugPrint('[SK] ais: resubscribeIfActive (active=$_aisInitialLoadDone)');
+    }
     if (_aisInitialLoadDone) {
       // Fresh socket — server subscriptions reset, so re-subscribe from scratch.
       _subscribedVesselIds.clear();
@@ -3636,6 +3653,9 @@ class _AISManager {
   }
 
   void dispose() {
+    if (kDebugMode) {
+      debugPrint('[SK] ais: manager dispose/reset (_aisInitialLoadDone→false)');
+    }
     _aisRefreshTimer?.cancel();
     _aisRefreshTimer = null;
     _aisInitialLoadDone = false;

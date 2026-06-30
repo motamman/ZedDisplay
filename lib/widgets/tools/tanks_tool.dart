@@ -5,6 +5,7 @@ import '../../models/tool_config.dart';
 import '../../services/signalk_service.dart';
 import '../../services/tool_registry.dart';
 import '../../utils/string_extensions.dart';
+import '../radial_bar_chart.dart';
 
 
 /// Tank display widget showing up to 5 tank levels
@@ -97,6 +98,15 @@ class TanksTool extends StatelessWidget {
     final toolLabel = style.customProperties?['label'] as String?;
     final showToolLabel = style.showLabel == true && toolLabel != null && toolLabel.isNotEmpty;
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final displayMode = style.customProperties?['displayMode'] as String? ?? 'tanks';
+
+    if (displayMode == 'radial') {
+      return _buildRadial(
+        context,
+        showCapacity: showCapacity,
+        title: showToolLabel ? toolLabel : null,
+      );
+    }
 
     return Padding(
       padding: const EdgeInsets.all(8.0),
@@ -151,7 +161,56 @@ class TanksTool extends StatelessWidget {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final color = _getTankColor(index);
     final label = _getTankLabel(dataSource);
+    final r = _readTank(index, dataSource);
 
+    return Column(
+      children: [
+        // Label at top
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+            color: isDark ? Colors.white : Colors.black87,
+          ),
+          textAlign: TextAlign.center,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+        ),
+        const SizedBox(height: 4),
+
+        // Total capacity
+        if (showCapacity && r.capacityText != null)
+          Text(
+            r.capacityText!,
+            style: TextStyle(
+              fontSize: 10,
+              color: isDark ? Colors.white38 : Colors.black38,
+            ),
+          ),
+
+        if (showCapacity && r.capacityText != null)
+          const SizedBox(height: 2),
+
+        // Tank visualization
+        Expanded(
+          child: _TankVisual(
+            levelPercent: r.levelPercent,
+            color: color,
+            isDataFresh: r.isDataFresh,
+            isDark: isDark,
+            remainingText: showCapacity ? r.remainingText : null,
+            tankTypeName: r.tankTypeName,
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// Read and convert one tank's live values. Shared by the vertical tank
+  /// rendering ([_buildTank]) and the radial rings ([_buildRadial]) so level,
+  /// freshness, and capacity/remaining math stay identical between modes.
+  _TankReadings _readTank(int index, DataSource dataSource) {
     // Get tank root path (strip .currentLevel, .capacity, etc. if present)
     String tankRoot = dataSource.path;
     for (final suffix in ['.currentLevel', '.capacity', '.currentVolume', '.type', '.name']) {
@@ -200,49 +259,68 @@ class TanksTool extends StatelessWidget {
       tankTypeName = _getTankTypeName(typeId);
     }
 
-    return Column(
-      children: [
-        // Label at top
-        Text(
-          label,
-          style: TextStyle(
-            fontSize: 12,
-            fontWeight: FontWeight.w600,
-            color: isDark ? Colors.white : Colors.black87,
-          ),
-          textAlign: TextAlign.center,
-          maxLines: 2,
-          overflow: TextOverflow.ellipsis,
-        ),
-        const SizedBox(height: 4),
-
-        // Total capacity
-        if (showCapacity && capacityText != null)
-          Text(
-            capacityText,
-            style: TextStyle(
-              fontSize: 10,
-              color: isDark ? Colors.white38 : Colors.black38,
-            ),
-          ),
-
-        if (showCapacity && capacityText != null)
-          const SizedBox(height: 2),
-
-        // Tank visualization
-        Expanded(
-          child: _TankVisual(
-            levelPercent: levelPercent,
-            color: color,
-            isDataFresh: isDataFresh,
-            isDark: isDark,
-            remainingText: showCapacity ? remainingText : null,
-            tankTypeName: tankTypeName,
-          ),
-        ),
-      ],
+    return _TankReadings(
+      levelPercent: levelPercent.toDouble(),
+      isDataFresh: isDataFresh,
+      capacityText: capacityText,
+      remainingText: remainingText,
+      tankTypeName: tankTypeName,
     );
   }
+
+  /// Radial display mode: render each tank as a concentric ring via the shared
+  /// [RadialBarChart] widget. Keeps each tank's type colour and level %.
+  Widget _buildRadial(
+    BuildContext context, {
+    required bool showCapacity,
+    String? title,
+  }) {
+    final segments = <RadialBarSegment>[];
+    for (var i = 0; i < config.dataSources.length; i++) {
+      final ds = config.dataSources[i];
+      final r = _readTank(i, ds);
+      final pct = r.levelPercent.toStringAsFixed(0);
+      final valueText = (showCapacity && r.remainingText != null)
+          ? '$pct% · ${r.remainingText}'
+          : '$pct%';
+      segments.add(RadialBarSegment(
+        label: _getTankLabel(ds),
+        value: r.levelPercent,
+        minValue: 0,
+        maxValue: 100,
+        valueText: valueText,
+        color: _getTankColor(i),
+        hasData: r.isDataFresh,
+      ));
+    }
+
+    return Padding(
+      padding: const EdgeInsets.all(8.0),
+      child: RadialBarChart(
+        segments: segments,
+        title: title,
+        showValues: true,
+        showLegend: true,
+      ),
+    );
+  }
+}
+
+/// Per-tank computed values shared between the vertical and radial renderings.
+class _TankReadings {
+  final double levelPercent; // 0-100
+  final bool isDataFresh;
+  final String? capacityText;
+  final String? remainingText;
+  final String? tankTypeName;
+
+  const _TankReadings({
+    required this.levelPercent,
+    required this.isDataFresh,
+    this.capacityText,
+    this.remainingText,
+    this.tankTypeName,
+  });
 }
 
 /// Custom tank visual with rounded shape and level indicator
@@ -533,6 +611,7 @@ class TanksToolBuilder extends ToolBuilder {
           'label',
           'showCapacity',
           'tankTypes',
+          'displayMode',
         ],
         allowsUnitSelection: false,
         allowsVisibilityToggles: false,

@@ -1373,6 +1373,8 @@ class _ChartPlotterV3ToolState extends State<ChartPlotterV3Tool>
   void _ensureAisSubscribed() {
     if (_aisSubscribed || !widget.signalKService.isConnected) return;
     _aisSubscribed = true;
+    widget.signalKService
+        .logLifecycle('chart ais: ensureAisSubscribed → loadAndSubscribe');
     widget.signalKService.loadAndSubscribeAISVessels();
   }
 

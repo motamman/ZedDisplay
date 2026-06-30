@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import '../../models/tool_config.dart';
@@ -36,11 +37,17 @@ class PowerSourceConfig {
     this.frequencySource,
     this.stateSource,
     this.primaryMetric = 'power',
+    this.showHistory = false,
   });
 
   /// Which metric is the headline value (and drives the flow speed):
   /// 'power' (default) | 'current' | 'voltage'.
   final String primaryMetric;
+
+  /// When true, the source card paints a live rolling sparkline of the primary
+  /// metric behind the headline value (samples accumulated in-widget — resets
+  /// on a fresh mount, no server history needed).
+  final bool showHistory;
 
   factory PowerSourceConfig.fromMap(Map<String, dynamic> map) {
     return PowerSourceConfig(
@@ -57,6 +64,7 @@ class PowerSourceConfig {
       frequencySource: map['frequencySource'] as String?,
       stateSource: map['stateSource'] as String?,
       primaryMetric: map['primaryMetric'] as String? ?? 'power',
+      showHistory: map['showHistory'] as bool? ?? false,
     );
   }
 
@@ -74,6 +82,7 @@ class PowerSourceConfig {
     if (frequencySource != null) 'frequencySource': frequencySource,
     if (stateSource != null) 'stateSource': stateSource,
     'primaryMetric': primaryMetric,
+    'showHistory': showHistory,
   };
 
   /// Flow-animation magnitude. Power is the default driver (scaled /100 so its
@@ -284,6 +293,7 @@ List<PowerSourceConfig> _defaultPowerSources() => [
     voltagePath: 'electrical.solar.voltage',
     powerPath: 'electrical.solar.power',
     statePath: 'electrical.solar.chargingMode',
+    showHistory: true,
   ),
   const PowerSourceConfig(
     name: 'Alternator',
@@ -476,6 +486,14 @@ class _VictronFlowToolState extends State<VictronFlowTool> with SingleTickerProv
   late List<Map<String, dynamic>> _inverterModeOptions;
   late Color _primaryColor;
 
+  // Live rolling sparkline history per source (keyed by [_historyKey]). Sampled
+  // on a fixed cadence by [_historyTimer] so the bars are evenly spaced over
+  // time regardless of delta rate. In-memory only — empty on a fresh mount.
+  final Map<String, List<double>> _history = {};
+  Timer? _historyTimer;
+  static const int _maxHistorySamples = 60;
+  static const Duration _historySampleInterval = Duration(seconds: 10);
+
   @override
   void initState() {
     super.initState();
@@ -483,6 +501,8 @@ class _VictronFlowToolState extends State<VictronFlowTool> with SingleTickerProv
       vsync: this,
       duration: const Duration(milliseconds: 1000),
     )..repeat();
+    _historyTimer =
+        Timer.periodic(_historySampleInterval, (_) => _sampleHistory());
     // Subscriptions are owned centrally by the dashboard/tool subscription
     // manager (see VictronFlowToolBuilder.requiredPaths) — the widget is a
     // pure reader and just repaints on delta. This keeps it on the same
@@ -509,6 +529,9 @@ class _VictronFlowToolState extends State<VictronFlowTool> with SingleTickerProv
     _inverterModePath = c.inverterModePath;
     _inverterModeOptions = c.inverterModeOptions;
     _primaryColor = _parseColor(widget.config.style.primaryColor);
+    // Paths/sources may have changed — drop stale samples so the sparkline
+    // reflects the new configuration.
+    _history.clear();
   }
 
   Color _parseColor(String? colorStr) {
@@ -524,12 +547,78 @@ class _VictronFlowToolState extends State<VictronFlowTool> with SingleTickerProv
   @override
   void dispose() {
     _animController.dispose();
+    _historyTimer?.cancel();
     widget.signalKService.removeListener(_onDataUpdate);
     super.dispose();
   }
 
   void _onDataUpdate() {
     if (mounted) setState(() {});
+  }
+
+  /// Stable per-source key for the history buffer. Name + the primary metric's
+  /// path AND configured source, so a config edit (path or pinned source) starts
+  /// fresh and two cards on the same path but different sources don't collide.
+  String _historyKey(PowerSourceConfig s) =>
+      '${s.name}|${_primaryPath(s) ?? ''}|${_primarySource(s) ?? ''}';
+
+  /// The path backing the source's primary (headline) metric.
+  String? _primaryPath(PowerSourceConfig s) {
+    switch (s.primaryMetric) {
+      case 'current':
+        return s.currentPath;
+      case 'voltage':
+        return s.voltagePath;
+      case 'power':
+      default:
+        return s.powerPath;
+    }
+  }
+
+  /// The pinned SignalK source for the source's primary metric (null = Auto).
+  String? _primarySource(PowerSourceConfig s) {
+    switch (s.primaryMetric) {
+      case 'current':
+        return s.currentSource;
+      case 'voltage':
+        return s.voltageSource;
+      case 'power':
+      default:
+        return s.powerSource;
+    }
+  }
+
+  /// The source's current primary-metric value (the displayed number), or null
+  /// when there's no live reading.
+  double? _primaryValue(PowerSourceConfig s) {
+    switch (s.primaryMetric) {
+      case 'current':
+        return _getPathValue(s.currentPath, s.currentSource);
+      case 'voltage':
+        return _getPathValue(s.voltagePath, s.voltageSource);
+      case 'power':
+      default:
+        return _getPathValue(s.powerPath, s.powerSource);
+    }
+  }
+
+  /// Append one sample per history-enabled source (skipping any with no live
+  /// reading), capped to a sliding window, then repaint.
+  void _sampleHistory() {
+    if (!mounted) return;
+    var changed = false;
+    for (final s in _sources) {
+      if (!s.showHistory) continue;
+      final v = _primaryValue(s);
+      if (v == null) continue;
+      final buf = _history.putIfAbsent(_historyKey(s), () => <double>[]);
+      buf.add(v);
+      if (buf.length > _maxHistorySamples) {
+        buf.removeRange(0, buf.length - _maxHistorySamples);
+      }
+      changed = true;
+    }
+    if (changed) setState(() {});
   }
 
   double? _getPathValue(String? path, [String? source]) {
@@ -786,10 +875,7 @@ class _VictronFlowToolState extends State<VictronFlowTool> with SingleTickerProv
       frequencyPath: source.frequencyPath, frequencySource: source.frequencySource,
     );
 
-    return _buildComponentBox(
-      title: source.name,
-      icon: _getIconData(source.icon),
-      content: LayoutBuilder(
+    final headlineLayout = LayoutBuilder(
         builder: (context, constraints) {
           final isWide = constraints.maxWidth > 150;
 
@@ -853,7 +939,30 @@ class _VictronFlowToolState extends State<VictronFlowTool> with SingleTickerProv
             ),
           );
         },
-      ),
+      );
+
+    return _buildComponentBox(
+      title: source.name,
+      icon: _getIconData(source.icon),
+      // Paint the rolling sparkline as a full-bleed background behind the
+      // headline/secondary text when history is enabled for this source.
+      content: source.showHistory
+          ? SizedBox.expand(
+              child: Stack(
+                children: [
+                  Positioned.fill(
+                    child: CustomPaint(
+                      painter: _SparklinePainter(
+                        samples: _history[_historyKey(source)] ?? const [],
+                        color: _primaryColor,
+                      ),
+                    ),
+                  ),
+                  headlineLayout,
+                ],
+              ),
+            )
+          : headlineLayout,
     );
   }
 
@@ -1793,6 +1902,51 @@ class _FlowLinesPainter extends CustomPainter {
   bool shouldRepaint(covariant _FlowLinesPainter oldDelegate) => true;
 }
 
+/// Rolling-history sparkline: evenly-spaced rounded vertical bars, bottom
+/// anchored, auto-scaled to the buffer's range. Painted semi-transparent so the
+/// headline/secondary text stays legible on top.
+class _SparklinePainter extends CustomPainter {
+  final List<double> samples;
+  final Color color;
+
+  _SparklinePainter({required this.samples, required this.color});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (samples.length < 2 || size.width <= 0 || size.height <= 0) return;
+
+    // Anchor at zero when all samples are non-negative (the common solar case)
+    // so bar heights read as absolute output; otherwise scale to the min.
+    final dataMax = samples.reduce(math.max);
+    final dataMin = samples.reduce(math.min);
+    final minV = math.min(0.0, dataMin);
+    final range = dataMax - minV;
+    if (range <= 0) return;
+
+    final n = samples.length;
+    final slot = size.width / n;
+    final barW = (slot * 0.55).clamp(1.5, 7.0).toDouble();
+    final bottom = size.height - barW / 2;
+    final usable = size.height - barW; // keep rounded caps inside the box
+
+    final paint = Paint()
+      ..color = color.withValues(alpha: 0.40)
+      ..strokeWidth = barW
+      ..strokeCap = StrokeCap.round
+      ..style = PaintingStyle.stroke;
+
+    for (var i = 0; i < n; i++) {
+      final h = ((samples[i] - minV) / range) * usable;
+      if (h <= 0) continue;
+      final x = slot * (i + 0.5);
+      canvas.drawLine(Offset(x, bottom), Offset(x, bottom - h), paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _SparklinePainter old) => true;
+}
+
 /// Builder for Victron Flow Tool
 class VictronFlowToolBuilder extends ToolBuilder {
   @override
@@ -1843,6 +1997,7 @@ class VictronFlowToolBuilder extends ToolBuilder {
               'voltagePath': 'electrical.solar.voltage',
               'powerPath': 'electrical.solar.power',
               'statePath': 'electrical.solar.chargingMode',
+              'showHistory': true,
             },
             {
               'name': 'Alternator',

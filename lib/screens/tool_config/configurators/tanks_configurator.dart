@@ -43,6 +43,7 @@ class TanksConfigurator extends ToolConfigurator {
   bool showCapacity = false;
   bool showLabel = false;
   String label = '';
+  String displayMode = 'tanks'; // 'tanks' (vertical) | 'radial' (rings)
   int _dataSourceCount = 0; // Track how many data sources exist
 
   @override
@@ -51,6 +52,7 @@ class TanksConfigurator extends ToolConfigurator {
     showCapacity = false;
     showLabel = false;
     label = '';
+    displayMode = 'tanks';
     _dataSourceCount = 0;
   }
 
@@ -70,6 +72,7 @@ class TanksConfigurator extends ToolConfigurator {
     if (style.customProperties != null) {
       showCapacity = style.customProperties!['showCapacity'] as bool? ?? false;
       label = style.customProperties!['label'] as String? ?? '';
+      displayMode = style.customProperties!['displayMode'] as String? ?? 'tanks';
       final types = style.customProperties!['tankTypes'];
       if (types is List) {
         tankTypeIds = types.map((t) => t?.toString() ?? 'diesel').toList();
@@ -111,6 +114,7 @@ class TanksConfigurator extends ToolConfigurator {
           'showCapacity': showCapacity,
           'label': label,
           'tankTypes': tankTypeIds,
+          'displayMode': displayMode,
         },
       ),
     );
@@ -245,6 +249,24 @@ class TanksConfigurator extends ToolConfigurator {
               Text(
                 'Display Options',
                 style: Theme.of(context).textTheme.titleSmall,
+              ),
+              const SizedBox(height: 8),
+
+              // Display style: vertical tanks vs radial rings
+              DropdownButtonFormField<String>(
+                initialValue: displayMode,
+                decoration: const InputDecoration(
+                  labelText: 'Display style',
+                  border: OutlineInputBorder(),
+                  isDense: true,
+                ),
+                items: const [
+                  DropdownMenuItem(value: 'tanks', child: Text('Bar Charts')),
+                  DropdownMenuItem(value: 'radial', child: Text('Radial Charts')),
+                ],
+                onChanged: (value) {
+                  setState(() => displayMode = value ?? 'tanks');
+                },
               ),
               const SizedBox(height: 8),
 

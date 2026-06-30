@@ -114,6 +114,9 @@ class VictronFlowConfigurator extends ToolConfigurator {
         'voltagePath': 'electrical.solar.voltage',
         'powerPath': 'electrical.solar.power',
         'statePath': 'electrical.solar.chargingMode',
+        // Match the widget defaults (_defaultPowerSources / getDefaultConfig),
+        // which enable the Solar sparkline by default.
+        'showHistory': true,
       },
       {
         'name': 'Alternator',
@@ -635,6 +638,15 @@ class VictronFlowConfigurator extends ToolConfigurator {
                   setState(() => source['stateSource'] = sel);
                 }),
                 _buildPrimaryDropdown(setState, source),
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  dense: true,
+                  title: const Text('Show history sparkline'),
+                  subtitle: const Text(
+                      'Live rolling chart of the primary metric behind the value'),
+                  value: source['showHistory'] as bool? ?? false,
+                  onChanged: (v) => setState(() => source['showHistory'] = v),
+                ),
               ],
             ),
           ),

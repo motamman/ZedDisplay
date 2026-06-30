@@ -241,6 +241,8 @@ class _AISPolarChartState extends State<AISPolarChart>
     // Detect reconnect: isConnected went false→true while we already loaded once
     final connected = widget.signalKService.isConnected;
     if (connected && !_lastSeenConnected && _hasLoadedAIS) {
+      widget.signalKService
+          .logLifecycle('ais widget: reconnect edge detected → allow reload');
       _hasLoadedAIS = false; // Allow re-load
       _hasSubscribed = false; // Re-subscribe position too
     }
@@ -251,6 +253,8 @@ class _AISPolarChartState extends State<AISPolarChart>
     // Load AIS vessels (first connection or after reconnect)
     if (!_hasLoadedAIS) {
       _hasLoadedAIS = true;
+      widget.signalKService
+          .logLifecycle('ais widget: calling loadAndSubscribeAISVessels');
       widget.signalKService.loadAndSubscribeAISVessels();
     }
 

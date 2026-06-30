@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.3+81] - 2026-06-30
+
+### Added
+- **Tanks — Radial Display Mode**: The Tanks tool gains a "Display style" toggle (**Bar Charts** / **Radial Charts**). Radial mode renders each tank as a concentric ring (reusing the Radial Bar Chart gauge) while keeping each tank's type color and level %; with capacity enabled, the remaining volume is added to each ring's readout. Default stays the vertical bar tanks, so existing dashboards are unchanged.
+- **Power Flow — Source History Sparkline**: Each power source can show a live rolling sparkline of its primary metric painted behind the headline value (on for Solar by default; toggle per source in the configurator). Samples accumulate in-app on a fixed cadence (~10s, ~10 min window) — no server-side history plugin required, and it resets on a fresh app launch.
+
+### Fixed
+- **Windows Desktop Build (two blockers)**: The Windows release builds again. (1) **libwebrtc symlink extract** — flutter_webrtc's CMake unpacks `libwebrtc.zip` with `file(ARCHIVE_EXTRACT)`, whose libarchive secure-symlink mode refuses to write through Flutter's `.plugin_symlinks` symlink ("Cannot extract through symlink", default since CMake 3.18 — not a version bump). The Windows workflow now pre-downloads and pre-extracts libwebrtc so the plugin's own CMake skips that step. (2) **MSVC `<experimental/coroutine>` hard error** — MSVC 14.51 (VS 2022 17.11+, now on the `windows-latest` runner) turned the `<experimental/coroutine>` deprecation into a C2338 static-assert error; `_SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS` is now defined globally in `windows/CMakeLists.txt` (audioplayers_windows, flutter_local_notifications_windows, and permission_handler_windows still include that header).
+
+### Developer
+- **AIS Subscription Diagnostics**: Added lightweight `[SK] ais:` logging across the AIS subscription lifecycle — load/subscribe, beacon send (with **per-vessel re-subscribed vs already-active** counts), `resubscribeIfActive`, AIS-manager reset, and the polar-chart / chart-plotter re-subscribe hooks — to pin down why AIS targets sometimes don't resume after device sleep/wake. Report-only; no behavior change to the data path.
+
 ## [0.7.2+80] - 2026-06-22
 
 ### Added
