@@ -1,4 +1,27 @@
-# What's New in v0.7.2
+# What's New in v0.7.3
+
+## Release Notes (Google Play - max 500 chars)
+
+v0.7.3 New Tank & Solar Views
+
+NEW: Tanks can now be shown as round radial gauges, not just vertical bars — pick the style that fits your dashboard.
+
+NEW: Power Flow sources can show a little live history sparkline behind the value, so you can see the recent trend at a glance (on for Solar by default).
+
+FIXED: The Windows desktop app builds and releases again after build-server toolchain changes.
+
+## Release Notes (App Store / TestFlight - max 4000 chars)
+
+### New Ways to See Your Data (NEW)
+- **Tanks as rings or bars** — The Tanks tool can now display your levels as concentric radial gauges instead of vertical bars. Choose "Radial Charts" in the tool's Display style setting; each tank keeps its type color and percentage, so you can match the look to the rest of your dashboard.
+- **Solar (and any source) history at a glance** — Power Flow sources can show a small live trend chart behind their value. It's on for Solar by default — handy for watching your panels' output rise and fall through the day — and you can switch it on for any source.
+
+### Windows (FIXED)
+- **Desktop build restored** — Toolchain changes on the build servers had broken the Windows desktop build; it compiles and releases cleanly again.
+
+---
+
+# Previous: v0.7.2
 
 ## Release Notes (Google Play - max 500 chars)
 

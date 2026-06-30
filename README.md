@@ -269,6 +269,7 @@ A customizable SignalK marine dashboard and crew comms application to display re
   - Battery section showing SOC, voltage, current, power, time remaining, temperature
   - Inverter/charger state display — tap to set the device mode (on / off / charger only / inverter only) via a configurable mode path
   - Single battery panel with a charge-level (SOC) fill and a selectable primary metric
+  - Optional per-source **history sparkline**: a live rolling mini-chart of the source's primary metric painted behind its value (on for Solar by default; toggle per source)
   - Configurable base color theme
   - Each source/load has configurable SignalK paths for current, voltage, power, frequency, and state
   - Per-path source selection: pin a specific SignalK source for any path (or leave on Auto), the same way other widgets do
@@ -285,6 +286,7 @@ A customizable SignalK marine dashboard and crew comms application to display re
 - **Tanks**: Display up to 5 tank levels with visual fill indicators
   - Color-coded by tank type (diesel, freshWater, blackWater, wasteWater, liveWell, lubrication, ballast, gas) with icons
   - Optional capacity display
+  - **Display style** toggle: vertical **Bar Charts** (default) or concentric **Radial Charts** (rings, reusing the radial-gauge rendering) — each tank keeps its type color and level %
 
   <img src="screenshots/tanks.png" alt="Tanks" width="350">
 
