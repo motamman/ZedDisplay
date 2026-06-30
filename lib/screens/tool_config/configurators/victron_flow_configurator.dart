@@ -114,6 +114,9 @@ class VictronFlowConfigurator extends ToolConfigurator {
         'voltagePath': 'electrical.solar.voltage',
         'powerPath': 'electrical.solar.power',
         'statePath': 'electrical.solar.chargingMode',
+        // Match the widget defaults (_defaultPowerSources / getDefaultConfig),
+        // which enable the Solar sparkline by default.
+        'showHistory': true,
       },
       {
         'name': 'Alternator',

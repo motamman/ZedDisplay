@@ -556,10 +556,11 @@ class _VictronFlowToolState extends State<VictronFlowTool> with SingleTickerProv
     if (mounted) setState(() {});
   }
 
-  /// Stable per-source key for the history buffer. Uses the name plus the
-  /// primary metric's path so a config edit that changes the path starts fresh.
+  /// Stable per-source key for the history buffer. Name + the primary metric's
+  /// path AND configured source, so a config edit (path or pinned source) starts
+  /// fresh and two cards on the same path but different sources don't collide.
   String _historyKey(PowerSourceConfig s) =>
-      '${s.name}|${_primaryPath(s) ?? ''}';
+      '${s.name}|${_primaryPath(s) ?? ''}|${_primarySource(s) ?? ''}';
 
   /// The path backing the source's primary (headline) metric.
   String? _primaryPath(PowerSourceConfig s) {
@@ -571,6 +572,19 @@ class _VictronFlowToolState extends State<VictronFlowTool> with SingleTickerProv
       case 'power':
       default:
         return s.powerPath;
+    }
+  }
+
+  /// The pinned SignalK source for the source's primary metric (null = Auto).
+  String? _primarySource(PowerSourceConfig s) {
+    switch (s.primaryMetric) {
+      case 'current':
+        return s.currentSource;
+      case 'voltage':
+        return s.voltageSource;
+      case 'power':
+      default:
+        return s.powerSource;
     }
   }
 
